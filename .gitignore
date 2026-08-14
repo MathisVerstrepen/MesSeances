@@ -1,0 +1,10 @@
+.agents/
+.codebase-memory/
+.cbmignore
+AGENTS.md
+api/bin/
+web/node_modules/
+web/.nuxt/
+web/.output/
+.env*
+!.env.example
