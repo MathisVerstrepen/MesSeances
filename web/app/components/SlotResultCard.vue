@@ -27,6 +27,9 @@ defineProps<{ result: SlotResult }>()
           {{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}
         </p>
         <p class="mt-1 text-sm text-muted">Fin effective : {{ formatParisTime(result.effective_end_time) }}</p>
+        <div class="mt-4">
+          <BookingLink :url="result.showtime.booking_url" />
+        </div>
       </div>
     </div>
 

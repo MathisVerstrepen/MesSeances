@@ -1,12 +1,34 @@
 <script setup lang="ts">
-import { CalendarRange, Clapperboard, MapPin, Search } from '@lucide/vue'
+import { Building2, CalendarRange, Clapperboard, Film, MapPin, Search } from '@lucide/vue'
 
 const route = useRoute()
+const { favoriteTheaters, favoriteTheaterIds, isInitialized, isLoading, initialize } = useCinemaPreferences()
 
 const links = [
   { to: '/', label: 'Planning', icon: CalendarRange },
-  { to: '/recherche', label: 'Trouver une séance', icon: Search }
+  { to: '/recherche', label: 'Trouver une séance', icon: Search },
+  { to: '/films', label: 'Films', icon: Film },
+  { to: '/cinemas', label: 'Mes cinémas', icon: Building2 }
 ]
+
+const favoriteSummary = computed(() => {
+  if (!isInitialized.value && isLoading.value) return 'Chargement…'
+
+  const count = favoriteTheaterIds.value.length
+  const cities = [...new Set(favoriteTheaters.value.map((theater) => theater.city))]
+  if (count === 0) return 'Mes cinémas'
+  if (cities.length === 1) return `${cities[0]} · ${count}`
+  return `${count} cinémas · ${cities.length} villes`
+})
+
+function isActive(to: string) {
+  if (to === '/films') return route.path === '/films' || route.path.startsWith('/film/')
+  return route.path === to
+}
+
+onMounted(() => {
+  void initialize()
+})
 </script>
 
 <template>
@@ -26,8 +48,8 @@ const links = [
           :key="link.to"
           :to="link.to"
           class="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition hover:bg-subtle hover:text-ink"
-          :class="route.path === link.to ? 'bg-subtle text-ink' : 'text-muted'"
-          :aria-current="route.path === link.to ? 'page' : undefined"
+          :class="isActive(link.to) ? 'bg-subtle text-ink' : 'text-muted'"
+          :aria-current="isActive(link.to) ? 'page' : undefined"
         >
           <component :is="link.icon" :size="17" aria-hidden="true" />
           <span>{{ link.label }}</span>
@@ -35,10 +57,10 @@ const links = [
       </div>
     </nav>
 
-    <div class="mt-auto flex items-center gap-2 border-t border-line px-3 pt-5 text-sm text-muted">
-      <MapPin :size="16" class="text-accent" aria-hidden="true" />
-      Lille
-    </div>
+    <NuxtLink to="/cinemas" class="mt-auto flex items-center gap-2 border-t border-line px-3 pt-5 text-sm text-muted transition hover:text-ink" :aria-label="`Gérer mes cinémas, ${favoriteSummary}`">
+      <MapPin :size="16" class="shrink-0 text-accent" aria-hidden="true" />
+      <span class="truncate">{{ favoriteSummary }}</span>
+    </NuxtLink>
   </aside>
 
   <header class="sticky top-0 z-30 border-b border-line bg-surface lg:hidden">
@@ -49,19 +71,19 @@ const links = [
         </span>
         <span>MovieFlow</span>
       </NuxtLink>
-      <div class="flex items-center gap-1.5 text-sm text-muted">
+      <NuxtLink to="/cinemas" class="flex min-w-0 items-center gap-1.5 text-sm text-muted transition hover:text-ink" :aria-label="`Gérer mes cinémas, ${favoriteSummary}`">
         <MapPin :size="15" class="text-accent" aria-hidden="true" />
-        Lille
-      </div>
+        <span class="max-w-36 truncate">{{ favoriteSummary }}</span>
+      </NuxtLink>
     </div>
-    <nav aria-label="Navigation principale" class="flex border-t border-line px-2 sm:px-4">
+    <nav aria-label="Navigation principale" class="grid grid-cols-4 border-t border-line px-1 sm:px-4">
       <NuxtLink
         v-for="link in links"
         :key="link.to"
         :to="link.to"
-        class="flex min-h-11 flex-1 items-center justify-center gap-2 border-b-2 px-2 text-sm font-medium transition"
-        :class="route.path === link.to ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink'"
-        :aria-current="route.path === link.to ? 'page' : undefined"
+        class="flex min-h-12 items-center justify-center gap-1.5 border-b-2 px-1 text-center text-xs font-medium leading-tight transition sm:gap-2 sm:px-2 sm:text-sm"
+        :class="isActive(link.to) ? 'border-accent text-ink' : 'border-transparent text-muted hover:text-ink'"
+        :aria-current="isActive(link.to) ? 'page' : undefined"
       >
         <component :is="link.icon" :size="16" aria-hidden="true" />
         <span>{{ link.label }}</span>

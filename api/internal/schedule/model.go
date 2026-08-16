@@ -28,6 +28,15 @@ func (e *ValidationError) Error() string {
 	return e.Message
 }
 
+// NotFoundError describes a snapshot resource that does not exist.
+type NotFoundError struct {
+	Message string
+}
+
+func (e *NotFoundError) Error() string {
+	return e.Message
+}
+
 type Movie struct {
 	Slug           string `json:"slug"`
 	Title          string `json:"title"`
@@ -74,6 +83,45 @@ type TheaterSummary struct {
 	City string `json:"city"`
 }
 
+type Theater struct {
+	ID             string   `json:"id"`
+	Slug           string   `json:"slug"`
+	Name           string   `json:"name"`
+	Address        string   `json:"address"`
+	City           string   `json:"city"`
+	PostalCode     string   `json:"postal_code"`
+	AvailableDates []string `json:"available_dates"`
+	AcceptedPasses []string `json:"accepted_passes"`
+}
+
+type MovieCatalogItem struct {
+	Slug           string  `json:"slug"`
+	Title          string  `json:"title"`
+	RuntimeMinutes int     `json:"runtime_minutes"`
+	PosterURL      *string `json:"poster_url"`
+}
+
+type MovieCatalog struct {
+	Items    []MovieCatalogItem `json:"items"`
+	Page     int                `json:"page"`
+	PageSize int                `json:"page_size"`
+	Total    int                `json:"total"`
+}
+
+type MovieTheaterShowtimes struct {
+	ID        string     `json:"id"`
+	Slug      string     `json:"slug"`
+	Name      string     `json:"name"`
+	City      string     `json:"city"`
+	Showtimes []Showtime `json:"showtimes"`
+}
+
+type MovieSchedule struct {
+	Movie    MovieCatalogItem        `json:"movie"`
+	Date     string                  `json:"date"`
+	Theaters []MovieTheaterShowtimes `json:"theaters"`
+}
+
 type SlotResult struct {
 	Showtime           Showtime       `json:"showtime"`
 	Theater            TheaterSummary `json:"theater"`
@@ -89,8 +137,28 @@ type TimelineQuery struct {
 	Language   string
 }
 
+type TheaterCatalogQuery struct {
+	City  string
+	Chain string
+}
+
+type MovieCatalogQuery struct {
+	CurrentlyScreened *bool
+	Search            string
+	Page              int
+	PageSize          int
+}
+
+type MovieShowtimesQuery struct {
+	Slug       string
+	Date       string
+	City       string
+	TheaterIDs []string
+}
+
 type SlotQuery struct {
 	City         string
+	TheaterIDs   []string
 	Date         string
 	StartAfter   string
 	FinishBefore string

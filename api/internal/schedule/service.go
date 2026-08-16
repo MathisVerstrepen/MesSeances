@@ -10,6 +10,11 @@ import (
 
 const dateLayout = "2006-01-02"
 
+const (
+	defaultMovieCatalogPageSize = 24
+	maxMovieCatalogPageSize     = 100
+)
+
 type ServiceOptions struct {
 	DefaultCity string
 	CityAliases map[string][]string
@@ -65,10 +70,163 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 	return timeline, nil
 }
 
+func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
+	chain := strings.TrimSpace(query.Chain)
+	if chain != "" && !strings.EqualFold(chain, ProviderUGC) {
+		return []Theater{}
+	}
+
+	city := strings.TrimSpace(query.City)
+	data := s.source.Snapshot()
+	result := make([]Theater, 0, len(data.Theaters))
+	for _, theater := range data.Theaters {
+		if city != "" && !s.cityMatches(theater.City, city) {
+			continue
+		}
+		result = append(result, Theater{
+			ID:             theater.ID,
+			Slug:           theater.Slug,
+			Name:           theater.Name,
+			Address:        theater.Address,
+			City:           theater.City,
+			PostalCode:     theater.PostalCode,
+			AvailableDates: append([]string(nil), theater.AvailableDates...),
+			AcceptedPasses: append([]string(nil), theater.AcceptedPasses...),
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if compareNormalized(result[i].City, result[j].City) != 0 {
+			return compareNormalized(result[i].City, result[j].City) < 0
+		}
+		if compareNormalized(result[i].Name, result[j].Name) != 0 {
+			return compareNormalized(result[i].Name, result[j].Name) < 0
+		}
+		return result[i].ID < result[j].ID
+	})
+	return result
+}
+
+func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
+	page := query.Page
+	if page == 0 {
+		page = 1
+	}
+	if page < 1 {
+		return MovieCatalog{}, invalid("Le paramètre page doit être un entier supérieur ou égal à 1.")
+	}
+	pageSize := query.PageSize
+	if pageSize == 0 {
+		pageSize = defaultMovieCatalogPageSize
+	}
+	if pageSize < 1 || pageSize > maxMovieCatalogPageSize {
+		return MovieCatalog{}, invalid("Le paramètre page_size doit être un entier compris entre 1 et 100.")
+	}
+
+	result := MovieCatalog{Items: []MovieCatalogItem{}, Page: page, PageSize: pageSize}
+	if query.CurrentlyScreened != nil && !*query.CurrentlyScreened {
+		return result, nil
+	}
+
+	search := normalized(strings.TrimSpace(query.Search))
+	unique := make(map[string]MovieCatalogItem)
+	for _, record := range s.source.Snapshot().Showtimes {
+		if search != "" && !strings.Contains(normalized(record.Movie.Title), search) {
+			continue
+		}
+		if _, exists := unique[record.Movie.Slug]; !exists {
+			unique[record.Movie.Slug] = materializeCatalogMovie(record.Movie)
+		}
+	}
+	items := make([]MovieCatalogItem, 0, len(unique))
+	for _, movie := range unique {
+		items = append(items, movie)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if compareNormalized(items[i].Title, items[j].Title) != 0 {
+			return compareNormalized(items[i].Title, items[j].Title) < 0
+		}
+		return items[i].Slug < items[j].Slug
+	})
+	result.Total = len(items)
+	if result.Total == 0 || page > (result.Total-1)/pageSize+1 {
+		return result, nil
+	}
+	start := (page - 1) * pageSize
+	end := min(start+pageSize, result.Total)
+	result.Items = append(result.Items, items[start:end]...)
+	return result, nil
+}
+
+func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, error) {
+	if _, err := s.parseDate(query.Date); err != nil {
+		return MovieSchedule{}, err
+	}
+	city := strings.TrimSpace(query.City)
+	if city != "" && len(query.TheaterIDs) > 0 {
+		return MovieSchedule{}, invalid("Les paramètres city et theaters sont mutuellement exclusifs.")
+	}
+
+	data := s.source.Snapshot()
+	var movie MovieCatalogItem
+	found := false
+	for _, record := range data.Showtimes {
+		if record.Movie.Slug == query.Slug {
+			movie = materializeCatalogMovie(record.Movie)
+			found = true
+			break
+		}
+	}
+	if !found {
+		return MovieSchedule{}, &NotFoundError{Message: "Film introuvable."}
+	}
+
+	selected, err := s.selectTheaters(data, query.TheaterIDs, city, false)
+	if err != nil {
+		return MovieSchedule{}, err
+	}
+	grouped := make(map[string][]Showtime)
+	for _, record := range data.Showtimes {
+		if record.Movie.Slug != query.Slug || record.ServiceDate != query.Date || !selected[record.TheaterID] {
+			continue
+		}
+		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(record))
+	}
+
+	theaters := append([]TheaterRecord(nil), data.Theaters...)
+	sort.Slice(theaters, func(i, j int) bool {
+		if compareNormalized(theaters[i].City, theaters[j].City) != 0 {
+			return compareNormalized(theaters[i].City, theaters[j].City) < 0
+		}
+		if compareNormalized(theaters[i].Name, theaters[j].Name) != 0 {
+			return compareNormalized(theaters[i].Name, theaters[j].Name) < 0
+		}
+		return theaters[i].ID < theaters[j].ID
+	})
+	result := MovieSchedule{Movie: movie, Date: query.Date, Theaters: []MovieTheaterShowtimes{}}
+	for _, theater := range theaters {
+		showtimes := grouped[theater.ID]
+		if len(showtimes) == 0 {
+			continue
+		}
+		sort.Slice(showtimes, func(i, j int) bool {
+			if !showtimes[i].StartTime.Equal(showtimes[j].StartTime) {
+				return showtimes[i].StartTime.Before(showtimes[j].StartTime)
+			}
+			return showtimes[i].ID < showtimes[j].ID
+		})
+		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, Showtimes: showtimes})
+	}
+	return result, nil
+}
+
 func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 	city := strings.TrimSpace(query.City)
-	if city == "" {
-		return nil, invalid("Le paramètre city est requis.")
+	hasTheaters := len(query.TheaterIDs) > 0
+	if city != "" && hasTheaters {
+		return nil, invalid("Les paramètres city et theaters sont mutuellement exclusifs.")
+	}
+	if city == "" && !hasTheaters {
+		return nil, invalid("Le paramètre city ou theaters est requis.")
 	}
 	date, err := s.parseDate(query.Date)
 	if err != nil {
@@ -92,9 +250,13 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 		return nil, err
 	}
 	data := s.source.Snapshot()
+	selected, err := s.selectTheaters(data, query.TheaterIDs, city, false)
+	if err != nil {
+		return nil, err
+	}
 	results := []SlotResult{}
 	for _, theater := range data.Theaters {
-		if !s.cityMatches(theater.City, city) {
+		if !selected[theater.ID] {
 			continue
 		}
 		for _, record := range data.Showtimes {
@@ -122,27 +284,47 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 }
 
 func (s *Service) selectedTheaters(data Dataset, ids []string) (map[string]bool, error) {
+	return s.selectTheaters(data, ids, "", true)
+}
+
+func (s *Service) selectTheaters(data Dataset, ids []string, city string, useDefault bool) (map[string]bool, error) {
 	selected := map[string]bool{}
 	known := map[string]TheaterRecord{}
 	for _, theater := range data.Theaters {
 		known[theater.ID] = theater
 	}
-	if len(ids) == 0 {
+	if len(ids) > 0 {
+		for _, id := range ids {
+			if id == "" {
+				return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
+			}
+			if _, ok := known[id]; !ok {
+				return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
+			}
+			selected[id] = true
+		}
+		return selected, nil
+	}
+	requestedCity := strings.TrimSpace(city)
+	if useDefault {
+		requestedCity = s.options.DefaultCity
 		for _, theater := range data.Theaters {
-			if s.cityMatches(theater.City, s.options.DefaultCity) {
+			if s.cityMatches(theater.City, requestedCity) {
 				selected[theater.ID] = true
 			}
 		}
 		return selected, nil
 	}
-	for _, id := range ids {
-		if id == "" {
-			return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
+	if requestedCity == "" {
+		for _, theater := range data.Theaters {
+			selected[theater.ID] = true
 		}
-		if _, ok := known[id]; !ok {
-			return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
+		return selected, nil
+	}
+	for _, theater := range data.Theaters {
+		if s.cityMatches(theater.City, requestedCity) {
+			selected[theater.ID] = true
 		}
-		selected[id] = true
 	}
 	return selected, nil
 }
@@ -205,6 +387,18 @@ func matchesLanguage(session, requested string) bool {
 func materializeRecord(record ShowtimeRecord) Showtime {
 	booking := record.BookingURL
 	return Showtime{ID: record.ID, Movie: Movie{Slug: record.Movie.Slug, Title: record.Movie.Title, RuntimeMinutes: record.Movie.RuntimeMinutes}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+}
+func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
+	var poster *string
+	if record.PosterURL != "" {
+		value := record.PosterURL
+		poster = &value
+	}
+	return MovieCatalogItem{Slug: record.Slug, Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster}
+}
+func normalized(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
+func compareNormalized(a, b string) int {
+	return strings.Compare(normalized(a), normalized(b))
 }
 func localTime(date time.Time, hour, minute int) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location())

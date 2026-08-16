@@ -9,6 +9,10 @@ export interface Movie {
   runtime_minutes: number
 }
 
+export interface CatalogMovie extends Movie {
+  poster_url: string | null
+}
+
 export interface Showtime {
   id: string
   movie: Movie
@@ -71,10 +75,61 @@ export interface TimelineQuery {
 }
 
 export interface SlotQuery {
-  city: string
+  city?: string
+  theaters?: string
   date: string
   start_after: string
   finish_before: string
   buffer_ads?: number
   language?: QueryLanguage
+}
+
+export interface Theater {
+  id: string
+  slug: string
+  name: string
+  address: string
+  city: string
+  postal_code: string
+  available_dates: string[]
+  accepted_passes: string[]
+}
+
+export interface TheaterQuery {
+  city?: string
+  chain?: string
+}
+
+export interface MoviesQuery {
+  currently_screened?: boolean
+  search?: string
+  page?: number
+  page_size?: number
+}
+
+export interface MoviesResponse {
+  items: CatalogMovie[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface MovieShowtimesQuery {
+  date: string
+  city?: string
+  theaters?: string
+}
+
+export interface MovieShowtimesTheater {
+  id: string
+  slug: string
+  name: string
+  city: string
+  showtimes: Showtime[]
+}
+
+export interface MovieShowtimesResponse {
+  movie: CatalogMovie
+  date: string
+  theaters: MovieShowtimesTheater[]
 }

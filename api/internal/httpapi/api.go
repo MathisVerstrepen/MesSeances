@@ -39,6 +39,9 @@ func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 	}))
 
 	router.Get("/api/v1/timeline", api.timeline)
+	router.Get("/api/v1/theaters", api.theaters)
+	router.Get("/api/v1/movies", api.movies)
+	router.Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
 	router.Get("/api/v1/search/slot", api.searchSlot)
 	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Ressource introuvable.")
@@ -57,20 +60,68 @@ func (api *API) timeline(w http.ResponseWriter, r *http.Request) {
 		language = query.Get("language")
 	}
 
-	var theaterIDs []string
-	if query.Has("theaters") {
-		theaters := query.Get("theaters")
-		parts := strings.Split(theaters, ",")
-		theaterIDs = make([]string, len(parts))
-		for i, part := range parts {
-			theaterIDs[i] = strings.TrimSpace(part)
-		}
-	}
-
 	result, err := api.schedule.Timeline(schedule.TimelineQuery{
 		Date:       query.Get("date"),
-		TheaterIDs: theaterIDs,
+		TheaterIDs: parseCSVQuery(query, "theaters"),
 		Language:   language,
+	})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (api *API) theaters(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	writeJSON(w, http.StatusOK, api.schedule.Theaters(schedule.TheaterCatalogQuery{
+		City:  query.Get("city"),
+		Chain: query.Get("chain"),
+	}))
+}
+
+func (api *API) movies(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	var currentlyScreened *bool
+	if query.Has("currently_screened") {
+		rawValue := query.Get("currently_screened")
+		if !strings.EqualFold(rawValue, "true") && !strings.EqualFold(rawValue, "false") {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre currently_screened doit être true ou false.")
+			return
+		}
+		value := strings.EqualFold(rawValue, "true")
+		currentlyScreened = &value
+	}
+
+	page, ok := parsePositiveInteger(w, query, "page", "Le paramètre page doit être un entier supérieur ou égal à 1.")
+	if !ok {
+		return
+	}
+	pageSize, ok := parsePositiveInteger(w, query, "page_size", "Le paramètre page_size doit être un entier compris entre 1 et 100.")
+	if !ok {
+		return
+	}
+
+	result, err := api.schedule.Movies(schedule.MovieCatalogQuery{
+		CurrentlyScreened: currentlyScreened,
+		Search:            query.Get("search"),
+		Page:              page,
+		PageSize:          pageSize,
+	})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (api *API) movieShowtimes(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	result, err := api.schedule.MovieShowtimes(schedule.MovieShowtimesQuery{
+		Slug:       chi.URLParam(r, "slug"),
+		Date:       query.Get("date"),
+		City:       query.Get("city"),
+		TheaterIDs: parseCSVQuery(query, "theaters"),
 	})
 	if err != nil {
 		writeServiceError(w, err)
@@ -99,6 +150,7 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 
 	result, err := api.schedule.SearchSlot(schedule.SlotQuery{
 		City:         query.Get("city"),
+		TheaterIDs:   parseCSVQuery(query, "theaters"),
 		Date:         query.Get("date"),
 		StartAfter:   query.Get("start_after"),
 		FinishBefore: query.Get("finish_before"),
@@ -112,10 +164,44 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func parseCSVQuery(query mapQuery, key string) []string {
+	if !query.Has(key) {
+		return nil
+	}
+	parts := strings.Split(query.Get(key), ",")
+	values := make([]string, len(parts))
+	for i, part := range parts {
+		values[i] = strings.TrimSpace(part)
+	}
+	return values
+}
+
+type mapQuery interface {
+	Get(string) string
+	Has(string) bool
+}
+
+func parsePositiveInteger(w http.ResponseWriter, query mapQuery, key, message string) (int, bool) {
+	if !query.Has(key) {
+		return 0, true
+	}
+	value, err := strconv.Atoi(query.Get(key))
+	if err != nil || value < 1 {
+		writeError(w, http.StatusBadRequest, "invalid_query", message)
+		return 0, false
+	}
+	return value, true
+}
+
 func writeServiceError(w http.ResponseWriter, err error) {
 	var validation *schedule.ValidationError
 	if errors.As(err, &validation) {
 		writeError(w, http.StatusBadRequest, "invalid_query", validation.Message)
+		return
+	}
+	var notFound *schedule.NotFoundError
+	if errors.As(err, &notFound) {
+		writeError(w, http.StatusNotFound, "not_found", notFound.Message)
 		return
 	}
 	writeError(w, http.StatusInternalServerError, "internal_error", "Une erreur interne est survenue.")

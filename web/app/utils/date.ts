@@ -33,6 +33,28 @@ export function formatLongDate(date: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day, 12)))
 }
 
+function addCalendarDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number)
+  if (!year || !month || !day) return ''
+
+  const nextDate = new Date(Date.UTC(year, month - 1, day + days, 12))
+  return [nextDate.getUTCFullYear(), String(nextDate.getUTCMonth() + 1).padStart(2, '0'), String(nextDate.getUTCDate()).padStart(2, '0')].join('-')
+}
+
+export function formatDateLabel(date: string, referenceDate = todayInParis()): string {
+  if (date === referenceDate) return 'Aujourd’hui'
+  if (date === addCalendarDays(referenceDate, 1)) return 'Demain'
+
+  const [year, month, day] = date.split('-').map(Number)
+  if (!year || !month || !day) return date
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: PARIS_TIMEZONE,
+    weekday: 'short',
+    day: 'numeric'
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)))
+}
+
 export function createServiceTimeOptions(): Array<{ value: string; label: string }> {
   const options: Array<{ value: string; label: string }> = []
   for (let minutes = 8 * 60; minutes < 24 * 60; minutes += 15) {

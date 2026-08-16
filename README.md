@@ -1,6 +1,22 @@
 # MovieFlow
 
-MovieFlow fournit une API Go et une interface Nuxt en français pour visualiser une journée de séances et rechercher un film dans un créneau strict.
+MovieFlow fournit une API Go et une interface Nuxt en français pour consulter les séances UGC, gérer ses cinémas favoris et trouver un film compatible avec un créneau strict.
+
+## Fonctionnalités v1
+
+- `/` — planning de la journée cinéma (08:00–02:00), affiché par cinéma ou par film, avec choix de la date, de la langue, du format et du zoom ;
+- `/recherche` — recherche d’une séance entièrement comprise dans un créneau, avec délai publicitaire optionnel de 20 minutes ;
+- `/films` — catalogue paginé des films présents dans l’instantané courant, avec recherche par titre ;
+- `/film/:slug` — séances d’un film dans les cinémas favoris, regroupées par cinéma ;
+- `/cinemas` — sélection des cinémas favoris, recherche par nom ou ville et sélection par ville.
+
+Les liens de réservation ouvrent la page officielle UGC dans un nouvel onglet lorsqu’une URL est disponible. Sinon, l’interface indique que la réservation est indisponible.
+
+### Cinémas favoris
+
+Les favoris sont enregistrés uniquement dans le navigateur, sous la clé `movieflow.favoriteTheaterIds.v1` de `localStorage`. Ils ne créent aucun compte et ne sont pas synchronisés entre navigateurs ou appareils. Au premier chargement, MovieFlow sélectionne les cinémas correspondant à `city=Lille` ; si cette sélection est vide, le premier cinéma du catalogue devient le choix initial. Les identifiants absents de l’instantané courant sont supprimés et l’interface conserve toujours au moins un favori lorsque des cinémas sont disponibles.
+
+Le planning, la fiche d’un film et la recherche par créneau utilisent ces favoris. La recherche permet d’en décocher temporairement certains sans modifier les favoris enregistrés.
 
 ## Prérequis
 
@@ -82,6 +98,29 @@ Au démarrage, l’API exige `DATABASE_URL`, applique les migrations et charge u
 - `WEB_ORIGIN` : origine autorisée par CORS, `http://localhost:3000` par défaut.
 - `NUXT_PUBLIC_API_BASE` : URL de base utilisée par Nuxt, `http://localhost:8080` par défaut.
 
+## API v1
+
+Toutes les routes sont en lecture seule et renvoient du JSON. Les dates utilisent `YYYY-MM-DD`, les heures de requête `HH:MM`, les listes de cinémas des identifiants séparés par des virgules et les horodatages de réponse UTC.
+
+| Route | Paramètres implémentés | Réponse |
+|---|---|---|
+| `GET /api/v1/timeline` | `date` requis ; `theaters` optionnel ; `language=ALL|VOSTFR|VF` (`ALL` par défaut) | `date`, `timezone`, `window_start_time`, `window_end_time`, `theaters[]` |
+| `GET /api/v1/theaters` | `city`, `chain` optionnels ; seule la chaîne `ugc` est disponible | liste de cinémas |
+| `GET /api/v1/movies` | `currently_screened=true|false`, `search`, `page` (défaut `1`), `page_size` (défaut `24`, maximum `100`) | `items`, `page`, `page_size`, `total` |
+| `GET /api/v1/movies/{slug}/showtimes` | `date` requis ; `city` ou `theaters`, mutuellement exclusifs | `movie`, `date`, `theaters[]` |
+| `GET /api/v1/search/slot` | `city` ou `theaters` requis, mutuellement exclusifs ; `date`, `start_after`, `finish_before` requis ; `buffer_ads` de `0` à `120` (`20` par défaut) ; `language=ALL|VOSTFR|VF` | liste de résultats compatibles |
+
+Sans `theaters`, la timeline utilise la zone par défaut Lille–Villeneuve-d’Ascq. Sans `city` ni `theaters`, les séances d’une fiche film couvrent tous les cinémas de l’instantané.
+
+Champs exposés :
+
+- cinéma : `id`, `slug`, `name`, `address`, `city`, `postal_code`, `available_dates`, `accepted_passes` ;
+- film de catalogue : `slug`, `title`, `runtime_minutes`, `poster_url` ;
+- séance : `id`, `movie`, `start_time`, `end_time`, `language`, `format`, `room`, `booking_url` ;
+- résultat de créneau : `showtime`, `theater`, `effective_end_time`, `buffer_ads_minutes`, `slack_before_minutes`, `slack_after_minutes`.
+
+La timeline ajoute `start_offset_minutes` et `duration_minutes` aux séances et expose, pour chaque cinéma, `id`, `slug`, `name`, `city`, `accepted_passes` et `showtimes`. Une fiche film expose, pour chaque cinéma, `id`, `slug`, `name`, `city` et `showtimes`.
+
 ## Vérifications
 
 Ces commandes n’effectuent aucune synchronisation réseau UGC :
@@ -102,4 +141,8 @@ TEST_DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmo
 
 ## Comportement des données
 
-PostgreSQL contient exactement le dernier instantané complet de tous les cinémas UGC France découverts. Sans paramètre `theaters`, la timeline reste limitée à Lille et Villeneuve d’Ascq. Des identifiants explicites permettent de consulter tout cinéma français présent. La recherche `city=Lille` couvre cette même zone. Les créneaux conservent des bornes strictes, y compris après minuit et avec le délai publicitaire demandé. Les horaires HTTP sont sérialisés en UTC et les séances fournissent leur URL officielle de réservation UGC.
+Les pages publiques UGC récupérées par `sync-ugc` sont la source des cinémas, films, séances et liens de réservation. PostgreSQL contient exactement le dernier instantané national complet validé ; l’API sert uniquement sa dernière version complète chargée en mémoire. L’interface Nuxt ne complète pas ces données depuis une autre source.
+
+Le catalogue ne constitue pas une base éditoriale de films : il est déduit des séances de l’instantané courant. `currently_screened=false` renvoie donc un catalogue vide. Les seules métadonnées de film disponibles sont le titre, la durée et une affiche optionnelle ; aucun synopsis, genre, distribution, équipe, bande-annonce, classification ou autre enrichissement n’est fourni. Les informations de cinéma se limitent au nom, à l’adresse textuelle, à la ville, au code postal, aux dates disponibles et à l’indication UGC Illimité ; aucune coordonnée géographique ni liste exhaustive de services ou de tarifs n’est disponible.
+
+La recherche `city=Lille` couvre Lille et Villeneuve-d’Ascq. Les créneaux conservent des bornes strictes, y compris après minuit et avec le délai publicitaire demandé. Le filtre `VF` inclut aussi les séances `VF_SME` ; les autres valeurs de séance possibles sont `VOSTFR` et `VO`.
