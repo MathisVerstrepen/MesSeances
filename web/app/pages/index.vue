@@ -127,7 +127,10 @@ onMounted(async () => {
         <fieldset>
           <legend class="mb-1.5 text-xs font-semibold text-muted">Format</legend>
           <div class="inline-flex rounded-md border border-line bg-surface p-1">
-            <button v-for="option in [{ value: 'ALL', label: 'Tous' }, { value: 'STANDARD', label: 'Standard' }, { value: 'IMAX', label: 'IMAX' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="formatFilter === option.value" @click="formatFilter = option.value as FormatFilter">{{ option.label }}</button>
+            <button v-for="option in [{ value: 'ALL', label: 'Tous' }, { value: 'STANDARD', label: 'Standard' }, { value: 'IMAX', label: 'IMAX' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="formatFilter = option.value as FormatFilter">
+              <BrandLogo v-if="option.value === 'IMAX'" brand="IMAX" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
+              <span v-else>{{ option.label }}</span>
+            </button>
           </div>
         </fieldset>
 

@@ -52,7 +52,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 			Room:            "Salle 1",
 			BookingURL:      "https://www.ugc.fr/reservationSeances.html?id=" + id,
 		}
-		if movieID == "200" {
+		if id == "100" {
 			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
 		}
 		return record
@@ -116,9 +116,9 @@ func TestTheatersTransport(t *testing.T) {
 	}
 }
 
-func TestTimelineBackdropTransportAndContractIsolation(t *testing.T) {
+func TestTimelineMediaTransportAndContractIsolation(t *testing.T) {
 	handler := testHandler(t)
-	response := performRequest(t, handler, "/api/v1/timeline?date=2026-08-15&theaters=ugc-25,ugc-99")
+	response := performRequest(t, handler, "/api/v1/timeline?date=2026-08-15&theaters=ugc-25,ugc-26,ugc-99")
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
@@ -128,26 +128,52 @@ func TestTimelineBackdropTransportAndContractIsolation(t *testing.T) {
 	}
 	theaters := payload["theaters"].([]any)
 	matched := theaters[0].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
-	unmatched := theaters[1].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+	fallback := theaters[1].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+	unmatched := theaters[2].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
 	if matched["backdrop_url"] != "https://image.tmdb.org/t/p/w780/a.jpg" || unmatched["backdrop_url"] != nil {
 		t.Fatalf("matched=%+v unmatched=%+v", matched, unmatched)
 	}
-	if movie := matched["movie"].(map[string]any); movie["backdrop_url"] != nil {
-		t.Fatalf("nested movie gained backdrop: %+v", movie)
+	if matched["poster_url"] != "https://image.tmdb.org/t/p/w500/a.jpg" || fallback["poster_url"] != "https://static.ugc.fr/posters/200.jpg" || unmatched["poster_url"] != nil {
+		t.Fatalf("matched=%+v fallback=%+v unmatched=%+v", matched, fallback, unmatched)
+	}
+	if _, exists := unmatched["poster_url"]; !exists {
+		t.Fatalf("nullable poster field omitted: %+v", unmatched)
+	}
+	if movie := matched["movie"].(map[string]any); hasAnyKey(movie, "backdrop_url", "poster_url") {
+		t.Fatalf("nested movie gained timeline media: %+v", movie)
 	}
 	if matched["start_offset_minutes"] != float64(240) || matched["duration_minutes"] != float64(100) {
 		t.Fatalf("timeline timing changed: %+v", matched)
 	}
 	for _, target := range []string{
-		"/api/v1/movies?page_size=10",
-		"/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15",
 		"/api/v1/search/slot?theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=17:00",
 	} {
 		other := performRequest(t, handler, target)
-		if other.Code != http.StatusOK || strings.Contains(other.Body.String(), "backdrop_url") {
-			t.Fatalf("backdrop leaked to %s: status=%d body=%s", target, other.Code, other.Body.String())
+		if other.Code != http.StatusOK || strings.Contains(other.Body.String(), "backdrop_url") || strings.Contains(other.Body.String(), "poster_url") {
+			t.Fatalf("timeline media leaked to %s: status=%d body=%s", target, other.Code, other.Body.String())
 		}
 	}
+	movieResponse := performRequest(t, handler, "/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15")
+	if movieResponse.Code != http.StatusOK {
+		t.Fatalf("movie showtimes status=%d body=%s", movieResponse.Code, movieResponse.Body.String())
+	}
+	var moviePayload map[string]any
+	if err := json.Unmarshal(movieResponse.Body.Bytes(), &moviePayload); err != nil {
+		t.Fatal(err)
+	}
+	movieShowtime := moviePayload["theaters"].([]any)[0].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+	if hasAnyKey(movieShowtime, "poster_url", "backdrop_url", "start_offset_minutes", "duration_minutes") {
+		t.Fatalf("timeline fields leaked to movie showtime: %+v", movieShowtime)
+	}
+}
+
+func hasAnyKey(values map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, exists := values[key]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func TestMoviesTransport(t *testing.T) {

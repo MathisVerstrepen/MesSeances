@@ -252,7 +252,7 @@ useHead(() => ({
         <div v-else class="mt-6 space-y-8">
           <section v-for="theater in schedule.theaters" :key="theater.id" :aria-labelledby="`theater-${theater.id}`">
             <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-line pb-3">
-              <h3 :id="`theater-${theater.id}`" class="font-semibold text-ink">{{ theater.name }}</h3>
+              <h3 :id="`theater-${theater.id}`" class="font-semibold text-ink"><BrandedText :text="theater.name" /></h3>
               <span class="flex items-center gap-1.5 text-sm text-muted"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</span>
             </div>
 
@@ -262,7 +262,7 @@ useHead(() => ({
                   <p class="text-lg font-semibold text-ink">{{ formatParisTime(showtime.start_time) }}</p>
                   <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
                     <span>{{ showtime.language }}</span>
-                    <span>{{ showtime.format }}</span>
+                    <BrandedText :text="showtime.format" />
                     <span v-if="showtime.room">Salle {{ showtime.room }}</span>
                   </div>
                 </div>

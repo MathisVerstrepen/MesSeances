@@ -96,7 +96,7 @@ async function submitSearch() {
             <div v-else-if="favoriteTheaters.length" class="clear-both max-h-44 space-y-1 overflow-y-auto rounded-md border border-line bg-surface p-2">
               <label v-for="theater in favoriteTheaters" :key="theater.id" class="flex cursor-pointer items-start gap-2.5 rounded px-2 py-2 text-sm text-ink hover:bg-subtle">
                 <input v-model="selectedTheaterIds" type="checkbox" :value="theater.id" class="mt-0.5 size-4 accent-accent" />
-                <span>{{ theater.name }} <span class="text-muted">· {{ theater.city }}</span></span>
+                <span><BrandedText :text="theater.name" /> <span class="text-muted">· {{ theater.city }}</span></span>
               </label>
             </div>
             <p v-else class="clear-both rounded-md border border-line bg-subtle px-3 py-2 text-sm text-muted">Aucun cinéma favori.</p>

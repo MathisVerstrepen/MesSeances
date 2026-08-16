@@ -56,24 +56,33 @@ func TestTimelineLilleDefaultAndExplicitFrance(t *testing.T) {
 	}
 }
 
-func TestTimelineBackdropIsNullableAndTimelineOnly(t *testing.T) {
+func TestTimelineMediaIsNullableAndUsesCatalogPosterPrecedence(t *testing.T) {
 	data := testDataset()
 	for i := range data.Showtimes {
-		if data.Showtimes[i].Movie.ProviderID == "200" {
-			data.Showtimes[i].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+		if data.Showtimes[i].ProviderShowingID == "100" {
+			data.Showtimes[i].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
 		}
 	}
 	service, err := NewService(testSource{data: data}, ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll, TheaterIDs: []string{"ugc-25"}})
-	if err != nil || len(timeline.Theaters) != 1 || len(timeline.Theaters[0].Showtimes) != 2 {
+	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll, TheaterIDs: []string{"ugc-25", "ugc-26"}})
+	if err != nil || len(timeline.Theaters) != 2 || len(timeline.Theaters[0].Showtimes) != 2 || len(timeline.Theaters[1].Showtimes) != 2 {
 		t.Fatalf("timeline=%+v err=%v", timeline, err)
 	}
-	matched, missing := timeline.Theaters[0].Showtimes[0], timeline.Theaters[0].Showtimes[1]
+	matched, missing, fallback := timeline.Theaters[0].Showtimes[0], timeline.Theaters[0].Showtimes[1], timeline.Theaters[1].Showtimes[0]
 	if matched.BackdropURL == nil || *matched.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" || missing.BackdropURL != nil {
 		t.Fatalf("matched=%+v missing=%+v", matched, missing)
+	}
+	if matched.PosterURL == nil || *matched.PosterURL != "https://image.tmdb.org/t/p/w500/a.jpg" {
+		t.Fatalf("enriched poster did not win: %+v", matched)
+	}
+	if fallback.PosterURL == nil || *fallback.PosterURL != "https://static.ugc.fr/posters/200.jpg" {
+		t.Fatalf("UGC poster fallback missing: %+v", fallback)
+	}
+	if missing.PosterURL != nil {
+		t.Fatalf("missing poster is not null: %+v", missing)
 	}
 	if matched.StartOffsetMinutes != 240 || matched.DurationMinutes != 100 || missing.StartOffsetMinutes != 390 || missing.DurationMinutes != 95 {
 		t.Fatalf("timeline geometry changed: matched=%+v missing=%+v", matched, missing)

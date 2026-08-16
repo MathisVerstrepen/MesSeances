@@ -31,6 +31,7 @@ export interface Showtime {
 export interface TimelineShowtime extends Showtime {
   start_offset_minutes: number
   duration_minutes: number
+  poster_url: string | null
   backdrop_url: string | null
 }
 

@@ -28,7 +28,7 @@ const safeUrl = computed(() => {
     class="button-primary"
     aria-label="Réserver sur UGC.fr, ouverture dans un nouvel onglet"
   >
-    Réserver sur UGC.fr
+    <BrandedText text="Réserver sur UGC.fr" decorative />
   </a>
   <span v-else class="inline-flex h-10 items-center text-sm font-medium text-muted">
     Réservation indisponible

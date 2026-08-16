@@ -62,12 +62,13 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 			}
 			showtime := materializeRecord(record)
 			offset := int(showtime.StartTime.Sub(timeline.WindowStartTime) / time.Minute)
+			poster := materializeCatalogMovie(record.Movie).PosterURL
 			var backdrop *string
 			if record.Movie.Enrichment != nil && validTMDBBackdropURL(record.Movie.Enrichment.BackdropURL) {
 				value := record.Movie.Enrichment.BackdropURL
 				backdrop = &value
 			}
-			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes, BackdropURL: backdrop})
+			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes, PosterURL: poster, BackdropURL: backdrop})
 		}
 		sort.Slice(result.Showtimes, func(i, j int) bool { return result.Showtimes[i].StartTime.Before(result.Showtimes[j].StartTime) })
 		timeline.Theaters = append(timeline.Theaters, result)

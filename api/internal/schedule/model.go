@@ -58,6 +58,7 @@ type TimelineShowtime struct {
 	Showtime
 	StartOffsetMinutes int     `json:"start_offset_minutes"`
 	DurationMinutes    int     `json:"duration_minutes"`
+	PosterURL          *string `json:"poster_url"`
 	BackdropURL        *string `json:"backdrop_url"`
 }
 

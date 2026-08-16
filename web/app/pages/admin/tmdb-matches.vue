@@ -195,7 +195,7 @@ useHead({ title: 'Correspondances TMDB — MovieFlow' })
         <div class="grid min-w-0 gap-5 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6">
           <section class="min-w-0" :aria-labelledby="`source-title-${match.source_movie_id}`">
             <div class="mb-2 flex flex-wrap items-center gap-2">
-              <p class="text-xs font-semibold uppercase tracking-wide text-muted">Source UGC</p>
+              <p class="text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText text="Source UGC" /></p>
               <span
                 class="rounded-full px-2 py-0.5 text-xs font-semibold"
                 :class="match.status === 'review_required' ? 'bg-orange-100 text-orange-800' : 'bg-stone-200 text-stone-700'"
@@ -223,10 +223,10 @@ useHead({ title: 'Correspondances TMDB — MovieFlow' })
                 <h2 :id="`source-title-${match.source_movie_id}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h2>
                 <dl class="mt-2 space-y-1 text-xs text-muted">
                   <div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div>
-                  <div class="break-all"><dt class="inline">ID UGC :</dt> <dd class="inline">{{ match.source_movie_id }}</dd></div>
+                  <div class="break-all"><dt class="inline"><BrandedText text="ID UGC :" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div>
                 </dl>
-                <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent underline-offset-2 hover:underline focus-visible:rounded-sm">
-                  Voir sur UGC <ExternalLink :size="13" aria-hidden="true" />
+                <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent underline-offset-2 hover:underline focus-visible:rounded-sm" aria-label="Voir sur UGC, ouverture dans un nouvel onglet">
+                  <BrandedText text="Voir sur UGC" decorative /> <ExternalLink :size="13" aria-hidden="true" />
                 </a>
               </div>
             </div>

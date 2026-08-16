@@ -172,7 +172,7 @@ onMounted(loadPreferences)
               @change="toggleTheater(theater.id)"
             />
             <span class="min-w-0">
-              <span class="block text-sm font-semibold text-ink">{{ theater.name }}</span>
+              <BrandedText :text="theater.name" class="block text-sm font-semibold text-ink" />
               <span class="mt-1 block text-sm text-muted">{{ theater.address }}, {{ theater.postal_code }} {{ theater.city }}</span>
             </span>
           </label>
