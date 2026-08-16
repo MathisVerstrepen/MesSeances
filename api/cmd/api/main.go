@@ -10,12 +10,18 @@ import (
 	"strings"
 	"time"
 
+	runtimeconfig "movieflow/api/internal/config"
 	"movieflow/api/internal/database"
+	"movieflow/api/internal/enrichment"
 	"movieflow/api/internal/httpapi"
 	"movieflow/api/internal/schedule"
+	"movieflow/api/internal/tmdb"
 )
 
 func main() {
+	if err := runtimeconfig.LoadDotEnv(); err != nil {
+		log.Fatal("configuration error")
+	}
 	if err := run(context.Background()); err != nil {
 		log.Fatal(err)
 	}
@@ -44,8 +50,19 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("schedule service startup failed")
 	}
+	enrichmentStore := enrichment.NewPostgresStore(pool)
+	var reviewService *enrichment.ReviewService
+	if token := strings.TrimSpace(os.Getenv("TMDB_API_READ_ACCESS_TOKEN")); token != "" {
+		tmdbClient, err := tmdb.NewClient(token)
+		if err != nil {
+			return fmt.Errorf("TMDB configuration is invalid")
+		}
+		reviewService = enrichment.NewReviewService(enrichmentStore, tmdbClient, nil)
+	} else {
+		reviewService = enrichment.NewReviewService(enrichmentStore, nil, nil)
+	}
 	port := envOrDefault("PORT", "8080")
-	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandler(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000")), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), httpapi.AdminOptions{Password: os.Getenv("ADMIN_PASSWORD"), Reviews: reviewService}), ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("API MovieFlow à l'écoute sur http://localhost:%s", port)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("API server failed")

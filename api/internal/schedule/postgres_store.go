@@ -17,8 +17,13 @@ var ErrNoCompleteSnapshot = errors.New("no complete schedule snapshot")
 const snapshotWriterLockID int64 = 6211428337968315
 
 type SnapshotReader interface {
-	CurrentVersion(context.Context) (int64, error)
-	Load(context.Context) (Dataset, int64, error)
+	CurrentRevision(context.Context) (SnapshotRevision, error)
+	Load(context.Context) (Dataset, SnapshotRevision, error)
+}
+
+type SnapshotRevision struct {
+	ScheduleVersion   int64
+	EnrichmentVersion int64
 }
 
 type SnapshotWriter interface {
@@ -29,19 +34,24 @@ type PostgresStore struct{ pool *pgxpool.Pool }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore { return &PostgresStore{pool: pool} }
 
-func (s *PostgresStore) CurrentVersion(ctx context.Context) (int64, error) {
-	var version int64
-	err := s.pool.QueryRow(ctx, "SELECT version FROM schedule_snapshot WHERE singleton = true").Scan(&version)
+func (s *PostgresStore) CurrentRevision(ctx context.Context) (SnapshotRevision, error) {
+	var revision SnapshotRevision
+	err := s.pool.QueryRow(ctx, `SELECT s.version, e.version FROM schedule_snapshot s CROSS JOIN movie_enrichment_state e WHERE s.singleton=true AND e.singleton=true`).Scan(&revision.ScheduleVersion, &revision.EnrichmentVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, ErrNoCompleteSnapshot
+		return SnapshotRevision{}, ErrNoCompleteSnapshot
 	}
 	if err != nil {
-		return 0, fmt.Errorf("read schedule snapshot version failed")
+		return SnapshotRevision{}, fmt.Errorf("read schedule snapshot revision failed")
 	}
-	if version <= 0 {
-		return 0, fmt.Errorf("invalid schedule snapshot version")
+	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 {
+		return SnapshotRevision{}, fmt.Errorf("invalid schedule snapshot revision")
 	}
-	return version, nil
+	return revision, nil
+}
+
+func (s *PostgresStore) CurrentVersion(ctx context.Context) (int64, error) {
+	revision, err := s.CurrentRevision(ctx)
+	return revision.ScheduleVersion, err
 }
 
 type movieRow struct {
@@ -165,21 +175,21 @@ func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, ro
 	return err
 }
 
-func (s *PostgresStore) Load(ctx context.Context) (Dataset, int64, error) {
+func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("begin schedule load failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("begin schedule load failed")
 	}
 	defer rollbackScheduleTx(tx)
 	var data Dataset
-	var version int64
+	var revision SnapshotRevision
 	var from, through time.Time
-	err = tx.QueryRow(ctx, `SELECT version, schema_version, provider, scope, generated_at, timezone, window_from, window_through FROM schedule_snapshot WHERE singleton = true`).Scan(&version, &data.SchemaVersion, &data.Provider, &data.Scope, &data.GeneratedAt, &data.Timezone, &from, &through)
+	err = tx.QueryRow(ctx, `SELECT s.version, e.version, s.schema_version, s.provider, s.scope, s.generated_at, s.timezone, s.window_from, s.window_through FROM schedule_snapshot s CROSS JOIN movie_enrichment_state e WHERE s.singleton=true AND e.singleton=true`).Scan(&revision.ScheduleVersion, &revision.EnrichmentVersion, &data.SchemaVersion, &data.Provider, &data.Scope, &data.GeneratedAt, &data.Timezone, &from, &through)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Dataset{}, 0, ErrNoCompleteSnapshot
+		return Dataset{}, SnapshotRevision{}, ErrNoCompleteSnapshot
 	}
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("read schedule snapshot metadata failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read schedule snapshot metadata failed")
 	}
 	data.GeneratedAt = data.GeneratedAt.UTC()
 	data.Window = Window{From: from.Format(dateLayout), Through: through.Format(dateLayout)}
@@ -188,21 +198,21 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, int64, error) {
 	theaterIndex := map[string]int{}
 	rows, err := tx.Query(ctx, `SELECT id, provider_id, slug, name, address, city, postal_code FROM theaters ORDER BY provider_id, id`)
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("read theaters failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 	}
 	for rows.Next() {
 		if len(data.Theaters) >= MaxTheaters {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("schedule theater limit exceeded")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule theater limit exceeded")
 		}
 		var theater TheaterRecord
 		if err := rows.Scan(&theater.ID, &theater.ProviderID, &theater.Slug, &theater.Name, &theater.Address, &theater.City, &theater.PostalCode); err != nil {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("read theaters failed")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 		}
 		if _, exists := theaterIndex[theater.ID]; exists {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("duplicate theater row")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("duplicate theater row")
 		}
 		theater.AvailableDates = []string{}
 		theater.AcceptedPasses = []string{}
@@ -211,111 +221,121 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, int64, error) {
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return Dataset{}, 0, fmt.Errorf("read theaters failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 	}
 	rows.Close()
 	rows, err = tx.Query(ctx, `SELECT theater_id, service_date FROM theater_dates ORDER BY theater_id, service_date`)
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("read theater dates failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater dates failed")
 	}
 	for rows.Next() {
 		var theaterID string
 		var date time.Time
 		if err := rows.Scan(&theaterID, &date); err != nil {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("read theater dates failed")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater dates failed")
 		}
 		index, ok := theaterIndex[theaterID]
 		if !ok || len(data.Theaters[index].AvailableDates) >= MaxAdvertisedDatesPerTheater {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("unrepresentable theater date row")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("unrepresentable theater date row")
 		}
 		data.Theaters[index].AvailableDates = append(data.Theaters[index].AvailableDates, date.Format(dateLayout))
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return Dataset{}, 0, fmt.Errorf("read theater dates failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater dates failed")
 	}
 	rows.Close()
 	rows, err = tx.Query(ctx, `SELECT tp.theater_id, tp.pass_code FROM theater_passes tp ORDER BY tp.theater_id, tp.pass_code`)
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("read theater passes failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater passes failed")
 	}
 	linkedPasses := 0
 	for rows.Next() {
 		var theaterID, code string
 		if err := rows.Scan(&theaterID, &code); err != nil {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("read theater passes failed")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater passes failed")
 		}
 		index, ok := theaterIndex[theaterID]
 		if !ok || code != "UGC_ILLIMITE" || len(data.Theaters[index].AcceptedPasses) != 0 {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("unrepresentable theater pass row")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("unrepresentable theater pass row")
 		}
 		data.Theaters[index].AcceptedPasses = append(data.Theaters[index].AcceptedPasses, code)
 		linkedPasses++
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return Dataset{}, 0, fmt.Errorf("read theater passes failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater passes failed")
 	}
 	rows.Close()
 	var passCount int
 	if err := tx.QueryRow(ctx, "SELECT count(*) FROM passes").Scan(&passCount); err != nil || passCount != 1 || linkedPasses != len(data.Theaters) {
-		return Dataset{}, 0, fmt.Errorf("unrepresentable pass rows")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("unrepresentable pass rows")
 	}
 	movies := map[string]MovieRecord{}
-	rows, err = tx.Query(ctx, `SELECT provider_id, slug, title, runtime_minutes, COALESCE(poster_url, '') FROM movies ORDER BY provider_id`)
+	rows, err = tx.Query(ctx, `SELECT m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), c.provider_movie_id, COALESCE(c.overview, ''), COALESCE(c.release_date::text, ''), COALESCE(c.genres, '{}'), COALESCE(c.poster_url, ''), COALESCE(c.backdrop_url, '')
+FROM movies m
+LEFT JOIN movie_matches mm ON mm.source_provider='ugc' AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb' AND mm.status='matched'
+LEFT JOIN movie_metadata_cache c ON c.provider='tmdb' AND c.provider_movie_id=mm.metadata_movie_id AND c.locale='fr-FR'
+ORDER BY m.provider_id`)
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("read movies failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 	}
 	for rows.Next() {
 		if len(movies) >= MaxShowtimes {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("schedule movie limit exceeded")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule movie limit exceeded")
 		}
 		var movie MovieRecord
-		if err := rows.Scan(&movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL); err != nil {
+		var tmdbID *int64
+		var overview, releaseDate, poster, backdrop string
+		var genres []string
+		if err := rows.Scan(&movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &tmdbID, &overview, &releaseDate, &genres, &poster, &backdrop); err != nil {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("read movies failed")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
+		}
+		if tmdbID != nil && *tmdbID > 0 {
+			movie.Enrichment = &MovieEnrichment{TMDBID: *tmdbID, Overview: overview, ReleaseDate: releaseDate, Genres: append([]string(nil), genres...), PosterURL: poster, BackdropURL: backdrop}
 		}
 		if _, exists := movies[movie.ProviderID]; exists {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("duplicate movie row")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("duplicate movie row")
 		}
 		movies[movie.ProviderID] = movie
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return Dataset{}, 0, fmt.Errorf("read movies failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 	}
 	rows.Close()
 	location, err := time.LoadLocation(Timezone)
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("load schedule timezone failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("load schedule timezone failed")
 	}
 	referencedMovies := map[string]bool{}
 	rows, err = tx.Query(ctx, `SELECT id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes ORDER BY theater_id, service_date, start_time, id`)
 	if err != nil {
-		return Dataset{}, 0, fmt.Errorf("read showtimes failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 	}
 	for rows.Next() {
 		if len(data.Showtimes) >= MaxShowtimes {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("schedule showing limit exceeded")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule showing limit exceeded")
 		}
 		var showing ShowtimeRecord
 		var date time.Time
 		var movieID string
 		if err := rows.Scan(&showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &showing.Language, &showing.ProviderVersion, &showing.Format, &showing.Room, &showing.BookingURL); err != nil {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("read showtimes failed")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 		}
 		movie, ok := movies[movieID]
 		if !ok {
 			rows.Close()
-			return Dataset{}, 0, fmt.Errorf("showtime references missing movie")
+			return Dataset{}, SnapshotRevision{}, fmt.Errorf("showtime references missing movie")
 		}
 		showing.ServiceDate = date.Format(dateLayout)
 		showing.Movie = movie
@@ -326,22 +346,22 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, int64, error) {
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return Dataset{}, 0, fmt.Errorf("read showtimes failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 	}
 	rows.Close()
 	if len(referencedMovies) != len(movies) {
-		return Dataset{}, 0, fmt.Errorf("unreferenced movie row")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("unreferenced movie row")
 	}
-	if version <= 0 {
-		return Dataset{}, 0, fmt.Errorf("invalid schedule snapshot version")
+	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 {
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("invalid schedule snapshot revision")
 	}
 	if err := ValidateDataset(data, true); err != nil {
-		return Dataset{}, 0, fmt.Errorf("loaded schedule dataset is invalid: %w", err)
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("loaded schedule dataset is invalid: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Dataset{}, 0, fmt.Errorf("commit schedule load failed")
+		return Dataset{}, SnapshotRevision{}, fmt.Errorf("commit schedule load failed")
 	}
-	return data, version, nil
+	return data, revision, nil
 }
 
 func rollbackScheduleTx(tx pgx.Tx) {

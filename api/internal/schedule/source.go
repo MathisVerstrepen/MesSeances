@@ -14,21 +14,21 @@ type PostgresSource struct {
 	dataMu    sync.RWMutex
 	refreshMu sync.Mutex
 	data      Dataset
-	version   int64
+	revision  SnapshotRevision
 }
 
 func NewPostgresSource(ctx context.Context, reader SnapshotReader) (*PostgresSource, error) {
-	data, version, err := reader.Load(ctx)
+	data, revision, err := reader.Load(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load initial schedule snapshot: %w", err)
 	}
-	if version <= 0 {
-		return nil, fmt.Errorf("invalid initial schedule snapshot version")
+	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 {
+		return nil, fmt.Errorf("invalid initial schedule snapshot revision")
 	}
 	if err := ValidateDataset(data, true); err != nil {
 		return nil, fmt.Errorf("invalid initial schedule snapshot: %w", err)
 	}
-	return &PostgresSource{reader: reader, data: cloneDataset(data), version: version}, nil
+	return &PostgresSource{reader: reader, data: cloneDataset(data), revision: revision}, nil
 }
 
 func (s *PostgresSource) Snapshot() Dataset {
@@ -37,23 +37,23 @@ func (s *PostgresSource) Snapshot() Dataset {
 	}
 	defer s.refreshMu.Unlock()
 	s.dataMu.RLock()
-	rememberedVersion := s.version
+	rememberedRevision := s.revision
 	s.dataMu.RUnlock()
 	checkCtx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
-	currentVersion, err := s.reader.CurrentVersion(checkCtx)
+	currentRevision, err := s.reader.CurrentRevision(checkCtx)
 	cancel()
-	if err != nil || currentVersion <= 0 || currentVersion == rememberedVersion {
+	if err != nil || currentRevision.ScheduleVersion <= 0 || currentRevision.EnrichmentVersion < 0 || currentRevision == rememberedRevision {
 		return s.currentClone()
 	}
 	loadCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	data, loadedVersion, err := s.reader.Load(loadCtx)
+	data, loadedRevision, err := s.reader.Load(loadCtx)
 	cancel()
-	if err != nil || loadedVersion <= 0 || ValidateDataset(data, true) != nil {
+	if err != nil || loadedRevision.ScheduleVersion <= 0 || loadedRevision.EnrichmentVersion < 0 || ValidateDataset(data, true) != nil {
 		return s.currentClone()
 	}
 	s.dataMu.Lock()
 	s.data = cloneDataset(data)
-	s.version = loadedVersion
+	s.revision = loadedRevision
 	result := cloneDataset(s.data)
 	s.dataMu.Unlock()
 	return result

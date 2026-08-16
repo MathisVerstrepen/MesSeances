@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, CalendarDays, ExternalLink, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { ApiErrorResponse, MovieShowtimesResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 
@@ -22,6 +22,27 @@ const slug = computed(() => {
 const availableDates = computed(() => [...new Set(preferences.favoriteTheaters.value.flatMap((theater) => theater.available_dates))].sort())
 const showtimeCount = computed(() => schedule.value?.theaters.reduce((total, theater) => total + theater.showtimes.length, 0) ?? 0)
 const posterAvailable = computed(() => Boolean(schedule.value?.movie.poster_url?.trim()) && !posterFailed.value)
+const releaseDateLabel = computed(() => {
+  const value = schedule.value?.movie.release_date
+  if (!value) return ''
+
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return ''
+
+  const date = new Date(Date.UTC(year, month - 1, day, 12))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return ''
+
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  }).format(date)
+})
+const tmdbUrl = computed(() => {
+  const id = schedule.value?.movie.tmdb_id
+  return typeof id === 'number' && Number.isFinite(id) && id > 0 ? `https://www.themoviedb.org/movie/${id}` : ''
+})
 
 function chooseDate(): boolean {
   if (availableDates.value.includes(selectedDate.value)) return false
@@ -145,7 +166,7 @@ useHead(() => ({
     </div>
 
     <template v-else-if="schedule">
-      <header class="grid gap-6 border-b border-line pb-8 sm:grid-cols-[144px_minmax(0,1fr)] sm:items-end">
+      <header class="grid gap-6 border-b border-line pb-8 sm:grid-cols-[144px_minmax(0,1fr)] sm:items-start">
         <div class="aspect-[2/3] w-32 overflow-hidden rounded-md border border-line bg-subtle shadow-sm sm:w-36">
           <img
             v-if="posterAvailable"
@@ -159,10 +180,34 @@ useHead(() => ({
             <span class="text-xs font-medium">Affiche indisponible</span>
           </div>
         </div>
-        <div>
+        <div class="min-w-0">
           <NuxtLink to="/films" class="text-sm font-medium text-accent hover:underline">Films à l’affiche</NuxtLink>
           <h1 class="mt-2 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{{ schedule.movie.title }}</h1>
-          <p class="mt-2 text-sm text-muted">{{ schedule.movie.runtime_minutes }} min</p>
+          <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
+            <span>{{ schedule.movie.runtime_minutes }} min</span>
+            <template v-if="releaseDateLabel">
+              <span aria-hidden="true">·</span>
+              <time :datetime="schedule.movie.release_date!">{{ releaseDateLabel }}</time>
+            </template>
+          </div>
+          <ul v-if="schedule.movie.genres.length" class="mt-3 flex flex-wrap gap-2" aria-label="Genres">
+            <li v-for="genre in schedule.movie.genres" :key="genre" class="rounded-full bg-subtle px-2.5 py-1 text-xs font-medium text-stone-700">
+              {{ genre }}
+            </li>
+          </ul>
+          <div v-if="schedule.movie.overview?.trim()" class="mt-5 max-w-3xl">
+            <h2 class="text-sm font-semibold text-ink">Synopsis</h2>
+            <p class="mt-1.5 text-sm leading-6 text-muted">{{ schedule.movie.overview }}</p>
+          </div>
+          <a
+            v-if="tmdbUrl"
+            :href="tmdbUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-accent underline-offset-2 hover:underline focus-visible:rounded-sm"
+          >
+            Voir sur TMDB <ExternalLink :size="15" aria-hidden="true" />
+          </a>
         </div>
       </header>
 

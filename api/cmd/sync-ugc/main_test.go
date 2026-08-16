@@ -10,19 +10,43 @@ import (
 	"testing"
 	"time"
 
+	"movieflow/api/internal/enrichment"
 	"movieflow/api/internal/schedule"
+	"movieflow/api/internal/tmdb"
 	"movieflow/api/internal/ugc"
 )
 
 type fakeWriter struct {
-	calls   int
-	version int64
-	err     error
+	calls     int
+	version   int64
+	err       error
+	onReplace func()
 }
 
 func (w *fakeWriter) Replace(context.Context, schedule.Dataset) (int64, error) {
 	w.calls++
+	if w.onReplace != nil {
+		w.onReplace()
+	}
 	return w.version, w.err
+}
+
+type commandStore struct{}
+
+func (commandStore) Match(context.Context, string, string, string) (enrichment.Match, bool, error) {
+	return enrichment.Match{}, false, nil
+}
+func (commandStore) Metadata(context.Context, string, int64, string) (enrichment.Metadata, bool, error) {
+	return enrichment.Metadata{}, false, nil
+}
+func (commandStore) SaveDecision(context.Context, enrichment.Match) error                 { return nil }
+func (commandStore) Publish(context.Context, enrichment.Match, enrichment.Metadata) error { return nil }
+
+type commandProvider struct{}
+
+func (commandProvider) Search(context.Context, string) ([]tmdb.Candidate, error) { return nil, nil }
+func (commandProvider) Details(context.Context, int64) (tmdb.Details, error) {
+	return tmdb.Details{}, nil
 }
 
 func proxyFile(t *testing.T, content string) string {
@@ -70,9 +94,9 @@ func TestRunCompleteMissingDatabaseURLBeforeSyncOrDatabase(t *testing.T) {
 	}, sync: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 		syncCalled = true
 		return schedule.Dataset{}, ugc.SyncSummary{}, nil
-	}, openDatabase: func(context.Context, string) (schedule.SnapshotWriter, func(), error) {
+	}, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
 		databaseCalled = true
-		return nil, nil, nil
+		return databaseServices{}, nil, nil
 	}}
 	var stdout, stderr bytes.Buffer
 	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
@@ -83,9 +107,9 @@ func TestRunCompleteMissingDatabaseURLBeforeSyncOrDatabase(t *testing.T) {
 
 func TestRunDiagnosticNeverTouchesDatabase(t *testing.T) {
 	path := proxyFile(t, "http://127.0.0.1:8080\n")
-	deps := dependencies{getenv: func(string) string { t.Fatal("environment lookup called"); return "" }, sync: fakeSync, openDatabase: func(context.Context, string) (schedule.SnapshotWriter, func(), error) {
+	deps := dependencies{getenv: func(string) string { t.Fatal("environment lookup called"); return "" }, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
 		t.Fatal("database opener called")
-		return nil, nil, nil
+		return databaseServices{}, nil, nil
 	}}
 	var stdout, stderr bytes.Buffer
 	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-cinema-id", "25", "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
@@ -98,8 +122,13 @@ func TestRunCompletePersistsExactlyOnceAndCloses(t *testing.T) {
 	path := proxyFile(t, "http://127.0.0.1:8080\n")
 	writer := &fakeWriter{version: 7}
 	closed := false
-	deps := dependencies{getenv: func(string) string { return "postgres://configured" }, sync: fakeSync, openDatabase: func(context.Context, string) (schedule.SnapshotWriter, func(), error) {
-		return writer, func() { closed = true }, nil
+	deps := dependencies{getenv: func(name string) string {
+		if name == "DATABASE_URL" {
+			return "postgres://configured"
+		}
+		return ""
+	}, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+		return databaseServices{writer: writer}, func() { closed = true }, nil
 	}}
 	var stdout, stderr bytes.Buffer
 	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
@@ -111,8 +140,8 @@ func TestRunCompletePersistsExactlyOnceAndCloses(t *testing.T) {
 func TestRunDatabaseErrorIsRedacted(t *testing.T) {
 	path := proxyFile(t, "http://127.0.0.1:8080\n")
 	secret := "synthetic-password"
-	deps := dependencies{getenv: func(string) string { return "postgres://user:" + secret + "@bad" }, sync: fakeSync, openDatabase: func(context.Context, string) (schedule.SnapshotWriter, func(), error) {
-		return nil, nil, errors.New("parse " + secret)
+	deps := dependencies{getenv: func(string) string { return "postgres://user:" + secret + "@bad" }, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+		return databaseServices{}, nil, errors.New("parse " + secret)
 	}}
 	var stdout, stderr bytes.Buffer
 	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
@@ -143,5 +172,67 @@ func TestRunDateWindowValidationBeforeSideEffects(t *testing.T) {
 	code = runWithDependencies(context.Background(), []string{"-proxy-file", missing, "-from", "2026-10-18", "-through", "2026-11-01"}, &stdout, &stderr, fixedNow, dependencies{})
 	if code != 2 || !strings.Contains(stderr.String(), "date window") || strings.Contains(stderr.String(), "proxy file") {
 		t.Fatalf("15-day code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestRunEnrichmentStartsAfterCommitAndFailureKeepsSuccess(t *testing.T) {
+	path := proxyFile(t, "http://127.0.0.1:8080\n")
+	committed := false
+	writer := &fakeWriter{version: 9, onReplace: func() { committed = true }}
+	secret := "synthetic-tmdb-token"
+	deps := dependencies{
+		getenv: func(name string) string {
+			if name == "DATABASE_URL" {
+				return "postgres://configured"
+			}
+			if name == "TMDB_API_READ_ACCESS_TOKEN" {
+				return secret
+			}
+			return ""
+		},
+		sync: fakeSync,
+		openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+			return databaseServices{writer: writer, enrichment: commandStore{}}, func() {}, nil
+		},
+		newTMDB: func(token string) (enrichment.Provider, error) {
+			if token != secret {
+				t.Fatal("wrong token")
+			}
+			return commandProvider{}, nil
+		},
+		enrich: func(_ context.Context, _ enrichment.Store, _ enrichment.Provider, movies []enrichment.Movie) (enrichment.Summary, error) {
+			if !committed {
+				t.Fatal("enrichment ran before replacement commit")
+			}
+			if len(movies) != 1 || movies[0].ProviderID != "10" {
+				t.Fatalf("movies=%+v", movies)
+			}
+			return enrichment.Summary{Matched: 1, Failed: 1}, errors.New("provider body " + secret)
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
+	combined := stdout.String() + stderr.String()
+	if code != 0 || !strings.Contains(stdout.String(), "persisted=true version=9") || !strings.Contains(stdout.String(), "enrichment=degraded") || !strings.Contains(stderr.String(), "warning: movie enrichment degraded") || strings.Contains(combined, secret) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunReplacementFailureNeverStartsEnrichment(t *testing.T) {
+	path := proxyFile(t, "http://127.0.0.1:8080\n")
+	writer := &fakeWriter{err: errors.New("commit uncertain")}
+	deps := dependencies{getenv: func(name string) string {
+		if name == "DATABASE_URL" {
+			return "postgres://configured"
+		}
+		t.Fatalf("post-commit env lookup %q", name)
+		return ""
+	}, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+		return databaseServices{writer: writer}, func() {}, nil
+	}, newTMDB: func(string) (enrichment.Provider, error) { t.Fatal("TMDB client created"); return nil, nil }}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
+	if code != 1 || !strings.Contains(stderr.String(), "database replacement failed") || strings.Contains(stdout.String(), "enrichment=") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }

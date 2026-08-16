@@ -85,3 +85,28 @@ func TestValidateDatasetScopeIdentityAndURLs(t *testing.T) {
 		t.Fatal("untrusted URL accepted")
 	}
 }
+
+func TestValidateDatasetRejectsUnsafeBackdropURLs(t *testing.T) {
+	valid := testDataset()
+	valid.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+	if err := ValidateDataset(valid, true); err != nil {
+		t.Fatalf("valid backdrop rejected: %v", err)
+	}
+	for _, raw := range []string{
+		"http://image.tmdb.org/t/p/w780/a.jpg",
+		"https://evil.example/t/p/w780/a.jpg",
+		"https://image.tmdb.org/t/p/w500/a.jpg",
+		"https://image.tmdb.org:443/t/p/w780/a.jpg",
+		"https://image.tmdb.org/t/p/w780/../a.jpg",
+		"https://image.tmdb.org/t/p/w780/a.jpg?x=1",
+		"https://image.tmdb.org/t/p/w780/",
+		"https://image.tmdb.org/t/p/w780//a.jpg",
+		"https://image.tmdb.org/t/p/w780/%2e%2e/a.jpg",
+	} {
+		data := testDataset()
+		data.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: raw}
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("unsafe backdrop accepted: %q", raw)
+		}
+	}
+}

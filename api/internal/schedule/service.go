@@ -62,7 +62,12 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 			}
 			showtime := materializeRecord(record)
 			offset := int(showtime.StartTime.Sub(timeline.WindowStartTime) / time.Minute)
-			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes})
+			var backdrop *string
+			if record.Movie.Enrichment != nil && validTMDBBackdropURL(record.Movie.Enrichment.BackdropURL) {
+				value := record.Movie.Enrichment.BackdropURL
+				backdrop = &value
+			}
+			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes, BackdropURL: backdrop})
 		}
 		sort.Slice(result.Showtimes, func(i, j int) bool { return result.Showtimes[i].StartTime.Before(result.Showtimes[j].StartTime) })
 		timeline.Theaters = append(timeline.Theaters, result)
@@ -394,7 +399,25 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 		value := record.PosterURL
 		poster = &value
 	}
-	return MovieCatalogItem{Slug: record.Slug, Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster}
+	item := MovieCatalogItem{Slug: record.Slug, Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: []string{}}
+	if record.Enrichment != nil && record.Enrichment.TMDBID > 0 {
+		id := record.Enrichment.TMDBID
+		item.TMDBID = &id
+		if record.Enrichment.Overview != "" {
+			value := record.Enrichment.Overview
+			item.Overview = &value
+		}
+		if record.Enrichment.ReleaseDate != "" {
+			value := record.Enrichment.ReleaseDate
+			item.ReleaseDate = &value
+		}
+		item.Genres = append(item.Genres, record.Enrichment.Genres...)
+		if record.Enrichment.PosterURL != "" {
+			value := record.Enrichment.PosterURL
+			item.PosterURL = &value
+		}
+	}
+	return item
 }
 func normalized(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 func compareNormalized(a, b string) int {

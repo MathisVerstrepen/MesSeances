@@ -24,7 +24,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].version != 1 || items[0].name != "001_initial.sql" {
+	if len(items) != 4 || items[0].version != 1 || items[0].name != "001_initial.sql" || items[1].version != 2 || items[1].name != "002_movie_enrichment.sql" || items[2].version != 3 || items[2].name != "003_admin_match_review.sql" || items[3].version != 4 || items[3].name != "004_movie_backdrop.sql" {
 		t.Fatalf("migrations=%+v", items)
 	}
 }

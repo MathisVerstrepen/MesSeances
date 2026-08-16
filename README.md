@@ -55,9 +55,14 @@ Ne pas utiliser `docker compose down -v` sauf volonté explicite de supprimer le
 
 Une synchronisation complète exige `DATABASE_URL`. Elle ouvre PostgreSQL, applique les migrations puis récupère tous les cinémas UGC. Un instantané complet valide remplace toutes les données relationnelles dans une seule transaction et avance sa version. Tout échec avant `COMMIT` conserve l’instantané précédent ; une perte de confirmation du `COMMIT` est signalée comme un échec même si PostgreSQL a pu publier l’ancien ou le nouvel instantané complet. Aucune fusion partielle n’est effectuée.
 
+Après confirmation du remplacement UGC, `sync-ugc` lance éventuellement un enrichissement TMDB avec `TMDB_API_READ_ACCESS_TOKEN`. Cette étape recherche chaque film UGC par titre français, vérifie le titre exact et la durée, puis accepte uniquement les correspondances de confiance élevée. Les décisions `matched`, `review_required` et `unmatched`, leurs candidats bornés et les métadonnées sélectionnées restent en PostgreSQL lors des remplacements UGC suivants. Un cache de métadonnées, dont les affiches `w500` et les fonds `w780` disponibles, est réutilisé pendant 30 jours ; les décisions ambiguës ou sans résultat sont retentées après 7 jours.
+
+L’absence du jeton affiche `enrichment=skipped`. Une panne TMDB, une limite de débit, une réponse invalide ou une erreur de persistance après le `COMMIT` affiche un avertissement générique et `enrichment=degraded`, sans annuler l’instantané UGC ni rendre la commande en échec. Les résultats déjà enrichis restent utilisables, y compris lorsqu’ils sont périmés et que leur actualisation échoue. Le mode diagnostic n’accède jamais au jeton ni aux tables d’enrichissement.
+
 ```sh
 cd api
 DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable' \
+  TMDB_API_READ_ACCESS_TOKEN="$TMDB_API_READ_ACCESS_TOKEN" \
   go run ./cmd/sync-ugc -proxy-file /chemin/vers/proxies.txt
 ```
 
@@ -74,7 +79,15 @@ Toutes les requêtes UGC passent obligatoirement par les proxies fournis. Le cli
 
 ## Démarrage local
 
-Après une synchronisation complète réussie, lancer l’API :
+Après une synchronisation complète réussie, lancer PostgreSQL, l’API et Nuxt depuis la racine :
+
+```sh
+make dev
+```
+
+L’API utilise Air `v1.61.7`, version compatible avec Go 1.23 et exécutée par `go run` sans installation globale. Le premier lancement la télécharge dans le cache Go. Air reconstruit et redémarre uniquement l’API après une modification des sources Go ; une erreur de compilation est affichée sans arrêter Nuxt ni le processus de développement. Nuxt conserve son rechargement à chaud. `Ctrl-C` arrête proprement Air, l’API et Nuxt ; PostgreSQL reste disponible dans Docker.
+
+Pour lancer les processus séparément, démarrer l’API :
 
 ```sh
 cd api
@@ -93,14 +106,18 @@ Au démarrage, l’API exige `DATABASE_URL`, applique les migrations et charge u
 
 ## Configuration
 
+Les exécutables Go chargent automatiquement le premier fichier `.env` trouvé dans le répertoire courant puis son parent. Un `.env` placé à la racine fonctionne donc depuis la racine du dépôt comme depuis `api/`. Les variables déjà définies dans l’environnement du processus restent prioritaires et les deux fichiers ne sont jamais fusionnés. Copier `.env.example` vers `.env` pour démarrer ; un fichier existant illisible ou mal formé bloque le démarrage avec une erreur de configuration générique.
+
 - `DATABASE_URL` : connexion PostgreSQL obligatoire pour l’API et une synchronisation complète ; inutilisée en mode diagnostic.
+- `TMDB_API_READ_ACCESS_TOKEN` : jeton bearer TMDB facultatif, lu uniquement depuis l’environnement après publication réussie de l’instantané UGC ; ne jamais le passer dans une URL, un argument, un fichier versionné ou une sortie de commande.
+- `ADMIN_PASSWORD` : mot de passe administrateur obligatoire pour activer les API de revue TMDB. Il reste uniquement côté serveur, n’est jamais journalisé et sa rotation invalide immédiatement toutes les sessions existantes.
 - `PORT` : port de l’API, `8080` par défaut.
 - `WEB_ORIGIN` : origine autorisée par CORS, `http://localhost:3000` par défaut.
 - `NUXT_PUBLIC_API_BASE` : URL de base utilisée par Nuxt, `http://localhost:8080` par défaut.
 
 ## API v1
 
-Toutes les routes sont en lecture seule et renvoient du JSON. Les dates utilisent `YYYY-MM-DD`, les heures de requête `HH:MM`, les listes de cinémas des identifiants séparés par des virgules et les horodatages de réponse UTC.
+Toutes les routes publiques sont en lecture seule et renvoient du JSON. Les dates utilisent `YYYY-MM-DD`, les heures de requête `HH:MM`, les listes de cinémas des identifiants séparés par des virgules et les horodatages de réponse UTC.
 
 | Route | Paramètres implémentés | Réponse |
 |---|---|---|
@@ -110,20 +127,35 @@ Toutes les routes sont en lecture seule et renvoient du JSON. Les dates utilisen
 | `GET /api/v1/movies/{slug}/showtimes` | `date` requis ; `city` ou `theaters`, mutuellement exclusifs | `movie`, `date`, `theaters[]` |
 | `GET /api/v1/search/slot` | `city` ou `theaters` requis, mutuellement exclusifs ; `date`, `start_after`, `finish_before` requis ; `buffer_ads` de `0` à `120` (`20` par défaut) ; `language=ALL|VOSTFR|VF` | liste de résultats compatibles |
 
+### API administrateur
+
+Les routes suivantes exigent une session administrateur côté serveur, sauf la connexion et la vérification de session. La connexion reçoit `{"password":"..."}` et crée pour 12 heures un cookie signé `HttpOnly`, `SameSite=Strict`, marqué `Secure` sous HTTPS. La rotation de `ADMIN_PASSWORD` invalide les cookies existants. Les requêtes avec corps acceptent uniquement du JSON borné à 4 Kio. Toutes les mutations exigent un en-tête `Origin` exactement égal à `WEB_ORIGIN`; CORS n’autorise les credentials que pour cette origine. Ne jamais placer mot de passe ou valeur du cookie dans `localStorage`, `sessionStorage`, URL ou journaux.
+
+| Route | Corps / paramètres | Réponse |
+|---|---|---|
+| `POST /api/v1/admin/login` | JSON `password` | `authenticated: true`; échecs génériques et limitation par adresse après cinq échecs sur 15 minutes |
+| `GET /api/v1/admin/session` | aucun | `authenticated: true|false` |
+| `POST /api/v1/admin/logout` | corps vide | supprime la session |
+| `GET /api/v1/admin/tmdb-matches` | `limit` (défaut `50`, maximum `100`), `offset` (défaut `0`) | `items`, `limit`, `offset`; chaque item contient identité, titre et durée UGC, candidats TMDB stockés et date d’évaluation |
+| `POST /api/v1/admin/tmdb-matches/{source_movie_id}/approve` | JSON `tmdb_id`, obligatoirement présent parmi les candidats stockés | récupère les détails TMDB côté serveur, publie atomiquement la correspondance et avance la révision |
+| `POST /api/v1/admin/tmdb-matches/{source_movie_id}/reject` | corps vide | enregistre durablement `rejected` et avance la révision |
+
+Une approbation ou un rejet échoue si la décision n’est plus `review_required`, si le titre ou la durée UGC a changé, ou si le candidat demandé n’était pas stocké. Deux décisions concurrentes ne peuvent pas toutes deux réussir. Un rejet reste définitif tant que l’empreinte titre/durée UGC ne change pas; une nouvelle empreinte autorise une nouvelle évaluation. Sans `ADMIN_PASSWORD`, toutes les fonctions administrateur échouent de manière fermée. Sans `TMDB_API_READ_ACCESS_TOKEN`, consultation et rejet restent disponibles, mais l’approbation échoue sans publier de données. HTTPS est requis en production.
+
 Sans `theaters`, la timeline utilise la zone par défaut Lille–Villeneuve-d’Ascq. Sans `city` ni `theaters`, les séances d’une fiche film couvrent tous les cinémas de l’instantané.
 
 Champs exposés :
 
 - cinéma : `id`, `slug`, `name`, `address`, `city`, `postal_code`, `available_dates`, `accepted_passes` ;
-- film de catalogue : `slug`, `title`, `runtime_minutes`, `poster_url` ;
+- film de catalogue : `slug`, `title`, `runtime_minutes`, `poster_url`, `tmdb_id`, `overview`, `release_date`, `genres` ; les trois champs scalaires enrichis valent `null` sans correspondance et `genres` vaut `[]` ;
 - séance : `id`, `movie`, `start_time`, `end_time`, `language`, `format`, `room`, `booking_url` ;
 - résultat de créneau : `showtime`, `theater`, `effective_end_time`, `buffer_ads_minutes`, `slack_before_minutes`, `slack_after_minutes`.
 
-La timeline ajoute `start_offset_minutes` et `duration_minutes` aux séances et expose, pour chaque cinéma, `id`, `slug`, `name`, `city`, `accepted_passes` et `showtimes`. Une fiche film expose, pour chaque cinéma, `id`, `slug`, `name`, `city` et `showtimes`.
+La timeline ajoute `start_offset_minutes`, `duration_minutes` et `backdrop_url` aux séances et expose, pour chaque cinéma, `id`, `slug`, `name`, `city`, `accepted_passes` et `showtimes`. `backdrop_url` contient uniquement une URL TMDB canonique `w780` pour une correspondance enrichie qui dispose d’un fond ; sinon sa valeur est `null`. Ce champ reste au niveau de la séance de timeline et n’est pas ajouté au film imbriqué, au catalogue, aux fiches film, aux résultats de créneau ni aux API administrateur. Une fiche film expose, pour chaque cinéma, `id`, `slug`, `name`, `city` et `showtimes`.
 
 ## Vérifications
 
-Ces commandes n’effectuent aucune synchronisation réseau UGC :
+Ces commandes n’effectuent aucune synchronisation réseau UGC ni aucun appel TMDB réel :
 
 ```sh
 docker compose config
@@ -136,13 +168,17 @@ Les tests d’intégration PostgreSQL utilisent une structure isolée et tempora
 ```sh
 cd api
 TEST_DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable' \
-  go test ./internal/schedule -run '^TestPostgresStoreIntegration$' -count=1
+  go test ./internal/database ./internal/schedule ./internal/enrichment -run 'Integration$' -count=1
 ```
 
 ## Comportement des données
 
 Les pages publiques UGC récupérées par `sync-ugc` sont la source des cinémas, films, séances et liens de réservation. PostgreSQL contient exactement le dernier instantané national complet validé ; l’API sert uniquement sa dernière version complète chargée en mémoire. L’interface Nuxt ne complète pas ces données depuis une autre source.
 
-Le catalogue ne constitue pas une base éditoriale de films : il est déduit des séances de l’instantané courant. `currently_screened=false` renvoie donc un catalogue vide. Les seules métadonnées de film disponibles sont le titre, la durée et une affiche optionnelle ; aucun synopsis, genre, distribution, équipe, bande-annonce, classification ou autre enrichissement n’est fourni. Les informations de cinéma se limitent au nom, à l’adresse textuelle, à la ville, au code postal, aux dates disponibles et à l’indication UGC Illimité ; aucune coordonnée géographique ni liste exhaustive de services ou de tarifs n’est disponible.
+Le catalogue ne constitue pas une base éditoriale indépendante : il reste déduit des séances de l’instantané courant et `currently_screened=false` renvoie donc un catalogue vide. UGC reste autoritaire pour le titre, la durée et l’appartenance aux séances. Une correspondance TMDB peut uniquement ajouter l’identifiant TMDB, le résumé français, la date de sortie, les genres, une affiche prioritaire et un fond réservé à la timeline ; elle ne peut ni retirer un film ou une séance, ni changer le titre ou la durée UGC. Sans cache valide, l’affiche UGC reste utilisée et la timeline conserve son fond de secours. Distribution, équipe, bande-annonce, classification, note et popularité ne sont pas stockées.
+
+Les appels TMDB sont bornés à une recherche et au plus cinq détails candidats par film, espacés d’au moins 250 ms, avec un délai HTTP de 10 secondes et un budget global de deux minutes par synchronisation. Les statuts 401, 403 et 429 arrêtent la passe. Le jeton, les corps d’erreur du fournisseur et les réponses brutes ne sont jamais persistés ni affichés. La migration 004 ajoute le fond nullable sans supprimer les métadonnées existantes, sans appeler TMDB et sans avancer la révision d’enrichissement. Elle marque les lignes de cache antérieures comme immédiatement éligibles à leur prochaine actualisation. La prochaine synchronisation normale réussie avec `TMDB_API_READ_ACCESS_TOKEN` renseigne ensuite les fonds disponibles et rétablit l’échéance habituelle de 30 jours ; une absence de jeton ou un échec laisse les anciennes métadonnées utilisables et la ligne éligible à une tentative normale ultérieure. Aucun effacement de cache ni backfill SQL ou réseau direct n’est requis. Pour suspendre les appels fournisseur, retirer `TMDB_API_READ_ACCESS_TOKEN` puis relancer normalement la synchronisation ; ne pas supprimer les tables de planning ou d’enrichissement. Après application de la migration 004, ne pas redéployer un binaire dont la liste intégrée s’arrête à 003, ne pas retirer son entrée d’historique et ne pas supprimer la colonne : déployer un binaire compatible ou plus récent. La migration ne peut pas restaurer les anciennes échéances futures de `refresh_after` sans sauvegarde.
+
+TMDB exige son logo approuvé et la mention `This product uses the TMDB API but is not endorsed or certified by TMDB.` sur la page Crédits du site avant activation en production. L’exploitant doit également confirmer l’éligibilité du compte et de la licence TMDB.
 
 La recherche `city=Lille` couvre Lille et Villeneuve-d’Ascq. Les créneaux conservent des bornes strictes, y compris après minuit et avec le délai publicitaire demandé. Le filtre `VF` inclut aussi les séances `VF_SME` ; les autres valeurs de séance possibles sont `VOSTFR` et `VO`.

@@ -136,6 +136,9 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if !validBookingURL(showing.BookingURL, showing.ProviderShowingID) || (showing.Movie.PosterURL != "" && !validUGCURL(showing.Movie.PosterURL, true)) {
 			return fmt.Errorf("invalid provider URL")
 		}
+		if showing.Movie.Enrichment != nil && showing.Movie.Enrichment.BackdropURL != "" && !validTMDBBackdropURL(showing.Movie.Enrichment.BackdropURL) {
+			return fmt.Errorf("invalid enrichment backdrop URL")
+		}
 	}
 	return nil
 }
@@ -200,4 +203,13 @@ func validBookingURL(raw, showingID string) bool {
 	}
 	query := parsed.Query()
 	return len(query) == 1 && len(query["id"]) == 1 && query.Get("id") == showingID
+}
+
+func validTMDBBackdropURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	suffix := strings.TrimPrefix(parsed.Path, "/t/p/w780/")
+	return len(raw) <= maxURLLength && strings.HasPrefix(raw, "https://image.tmdb.org/t/p/w780/") && parsed.Scheme == "https" && parsed.Host == "image.tmdb.org" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.RawPath == "" && strings.HasPrefix(parsed.Path, "/t/p/w780/") && suffix != "" && !strings.HasPrefix(suffix, "/") && !strings.Contains(parsed.Path, "..") && !strings.Contains(parsed.Path, "\\")
 }

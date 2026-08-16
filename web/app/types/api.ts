@@ -11,6 +11,10 @@ export interface Movie {
 
 export interface CatalogMovie extends Movie {
   poster_url: string | null
+  tmdb_id: number | null
+  overview: string | null
+  release_date: string | null
+  genres: string[]
 }
 
 export interface Showtime {
@@ -27,6 +31,7 @@ export interface Showtime {
 export interface TimelineShowtime extends Showtime {
   start_offset_minutes: number
   duration_minutes: number
+  backdrop_url: string | null
 }
 
 export interface TimelineTheater {
@@ -66,6 +71,43 @@ export interface ApiErrorResponse {
     code: string
     message: string
   }
+}
+
+export interface AdminSessionResponse {
+  authenticated: boolean
+}
+
+export interface AdminTMDBCandidate {
+  id: number
+  title: string
+  original_title?: string
+  runtime_minutes?: number
+  score?: number
+  poster_url?: string
+  detail_url: string
+}
+
+export type AdminPendingMatchStatus = 'review_required' | 'unmatched'
+
+export interface AdminPendingMatch {
+  source_movie_id: string
+  source_title: string
+  source_runtime_minutes: number
+  source_poster_url?: string
+  source_detail_url: string
+  status: AdminPendingMatchStatus
+  candidates: AdminTMDBCandidate[]
+  evaluated_at: string
+}
+
+export interface AdminPendingMatchesResponse {
+  items: AdminPendingMatch[]
+  limit: number
+  offset: number
+}
+
+export interface AdminMatchDecisionResponse {
+  status: 'matched' | 'rejected'
 }
 
 export interface TimelineQuery {

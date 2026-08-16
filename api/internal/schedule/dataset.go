@@ -40,11 +40,21 @@ type TheaterRecord struct {
 }
 
 type MovieRecord struct {
-	ProviderID     string `json:"provider_id"`
-	Slug           string `json:"slug"`
-	Title          string `json:"title"`
-	RuntimeMinutes int    `json:"runtime_minutes"`
-	PosterURL      string `json:"poster_url,omitempty"`
+	ProviderID     string           `json:"provider_id"`
+	Slug           string           `json:"slug"`
+	Title          string           `json:"title"`
+	RuntimeMinutes int              `json:"runtime_minutes"`
+	PosterURL      string           `json:"poster_url,omitempty"`
+	Enrichment     *MovieEnrichment `json:"-"`
+}
+
+type MovieEnrichment struct {
+	TMDBID      int64
+	Overview    string
+	ReleaseDate string
+	Genres      []string
+	PosterURL   string
+	BackdropURL string
 }
 
 type ShowtimeRecord struct {
@@ -70,5 +80,12 @@ func cloneDataset(in Dataset) Dataset {
 		out.Theaters[i].AcceptedPasses = append([]string(nil), in.Theaters[i].AcceptedPasses...)
 	}
 	out.Showtimes = append([]ShowtimeRecord(nil), in.Showtimes...)
+	for i := range out.Showtimes {
+		if in.Showtimes[i].Movie.Enrichment != nil {
+			value := *in.Showtimes[i].Movie.Enrichment
+			value.Genres = append([]string(nil), value.Genres...)
+			out.Showtimes[i].Movie.Enrichment = &value
+		}
+	}
 	return out
 }

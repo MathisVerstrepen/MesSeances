@@ -9,31 +9,32 @@ import (
 )
 
 type fakeSnapshotReader struct {
-	mu             sync.Mutex
-	version        int64
-	data           Dataset
-	versionErr     error
-	loadErr        error
-	loadVersion    int64
-	useLoadVersion bool
-	loads          int
-	checks         int
-	loadStarted    chan struct{}
-	loadRelease    chan struct{}
-	loadDeadline   chan time.Duration
+	mu                sync.Mutex
+	version           int64
+	enrichmentVersion int64
+	data              Dataset
+	versionErr        error
+	loadErr           error
+	loadVersion       int64
+	useLoadVersion    bool
+	loads             int
+	checks            int
+	loadStarted       chan struct{}
+	loadRelease       chan struct{}
+	loadDeadline      chan time.Duration
 }
 
-func (f *fakeSnapshotReader) CurrentVersion(context.Context) (int64, error) {
+func (f *fakeSnapshotReader) CurrentRevision(context.Context) (SnapshotRevision, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.checks++
-	return f.version, f.versionErr
+	return SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion}, f.versionErr
 }
-func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, int64, error) {
+func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, SnapshotRevision, error) {
 	f.mu.Lock()
 	f.loads++
 	started, release := f.loadStarted, f.loadRelease
-	data, version, err := cloneDataset(f.data), f.version, f.loadErr
+	data, version, enrichmentVersion, err := cloneDataset(f.data), f.version, f.enrichmentVersion, f.loadErr
 	if f.useLoadVersion {
 		version = f.loadVersion
 	}
@@ -56,10 +57,10 @@ func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, int64, error) {
 		select {
 		case <-release:
 		case <-ctx.Done():
-			return Dataset{}, 0, ctx.Err()
+			return Dataset{}, SnapshotRevision{}, ctx.Err()
 		}
 	}
-	return data, version, err
+	return data, SnapshotRevision{ScheduleVersion: version, EnrichmentVersion: enrichmentVersion}, err
 }
 
 func TestPostgresSourceInitialLoadAndImmutableClone(t *testing.T) {
@@ -117,6 +118,45 @@ func TestPostgresSourceRefreshAndLastGoodFailures(t *testing.T) {
 	reader.mu.Unlock()
 	if got := source.Snapshot().Theaters[0].Name; got != "Replacement" {
 		t.Fatal("nonpositive version lost last good")
+	}
+}
+
+func TestPostgresSourceRefreshesOnEnrichmentRevision(t *testing.T) {
+	reader := &fakeSnapshotReader{version: 1, data: testDataset()}
+	source, err := NewPostgresSource(context.Background(), reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enriched := testDataset()
+	enriched.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+	reader.mu.Lock()
+	reader.enrichmentVersion = 1
+	reader.data = enriched
+	reader.mu.Unlock()
+	snapshot := source.Snapshot()
+	if snapshot.Showtimes[0].Movie.Enrichment == nil || snapshot.Showtimes[0].Movie.Enrichment.TMDBID != 42 || snapshot.Showtimes[0].Movie.Enrichment.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" {
+		t.Fatalf("movie=%+v", snapshot.Showtimes[0].Movie)
+	}
+	snapshot.Showtimes[0].Movie.Enrichment.Genres[0] = "mutated"
+	if source.Snapshot().Showtimes[0].Movie.Enrichment.Genres[0] != "Drame" {
+		t.Fatal("enrichment genres mutable")
+	}
+}
+
+func TestPostgresSourceInvalidBackdropRetainsLastGood(t *testing.T) {
+	reader := &fakeSnapshotReader{version: 1, data: testDataset()}
+	source, err := NewPostgresSource(context.Background(), reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := testDataset()
+	invalid.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: "https://evil.example/t/p/w780/a.jpg"}
+	reader.mu.Lock()
+	reader.enrichmentVersion = 1
+	reader.data = invalid
+	reader.mu.Unlock()
+	if snapshot := source.Snapshot(); snapshot.Showtimes[0].Movie.Enrichment != nil {
+		t.Fatalf("invalid enrichment replaced last good: %+v", snapshot.Showtimes[0].Movie.Enrichment)
 	}
 }
 

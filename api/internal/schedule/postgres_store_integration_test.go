@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"movieflow/api/internal/database"
+	"movieflow/api/internal/enrichment"
 )
 
 func TestPostgresStoreIntegration(t *testing.T) {
@@ -70,11 +71,11 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), min(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 1 || migrationName != "001_initial.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 4 || migrationName != "004_movie_backdrop.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	store := NewPostgresStore(pool)
-	if _, err := store.CurrentVersion(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
+	if _, err := store.CurrentRevision(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
 		t.Fatalf("missing current version error=%v", err)
 	}
 	if _, _, err := store.Load(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
@@ -87,14 +88,36 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("replace version=%d error=%v", version, err)
 		}
 		loaded, loadedVersion, err := store.Load(ctx)
-		if err != nil || loadedVersion != 1 {
-			t.Fatalf("load version=%d error=%v", loadedVersion, err)
+		if err != nil || loadedVersion.ScheduleVersion != 1 || loadedVersion.EnrichmentVersion != 0 {
+			t.Fatalf("load revision=%+v error=%v", loadedVersion, err)
 		}
 		if !loaded.GeneratedAt.Equal(testDataset().GeneratedAt) || loaded.GeneratedAt.Location() != time.UTC {
 			t.Fatal("generated timestamp did not round trip in UTC")
 		}
-		if loaded.Showtimes[0].StartTime.Location().String() != Timezone || loaded.Showtimes[0].Movie.PosterURL != "" {
-			t.Fatal("Paris timestamp or NULL poster did not round trip")
+		nullPosterFound := false
+		for _, showing := range loaded.Showtimes {
+			if showing.StartTime.Location().String() != Timezone {
+				t.Fatal("Paris timestamp did not round trip")
+			}
+			if showing.Movie.ProviderID == "201" && showing.Movie.PosterURL == "" {
+				nullPosterFound = true
+			}
+		}
+		if !nullPosterFound {
+			t.Fatal("NULL poster did not round trip")
+		}
+	})
+
+	t.Run("enrichment publication is durable and visible", func(t *testing.T) {
+		now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+		match := enrichment.Match{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(30 * 24 * time.Hour)}
+		metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", RuntimeMinutes: 100, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(30 * 24 * time.Hour)}
+		if err := enrichment.NewPostgresStore(pool).Publish(ctx, match, metadata); err != nil {
+			t.Fatal(err)
+		}
+		loaded, revision, err := store.Load(ctx)
+		if err != nil || revision.EnrichmentVersion != 1 || loaded.Showtimes[0].Movie.Enrichment == nil || loaded.Showtimes[0].Movie.Enrichment.TMDBID != 42 || loaded.Showtimes[0].Movie.Enrichment.BackdropURL != metadata.BackdropURL {
+			t.Fatalf("revision=%+v movie=%+v err=%v", revision, loaded.Showtimes[0].Movie, err)
 		}
 	})
 
@@ -115,8 +138,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("replace version=%d error=%v", version, err)
 		}
 		loaded, loadedVersion, err := store.Load(ctx)
-		if err != nil || loadedVersion != 2 || len(loaded.Theaters) != 1 || len(loaded.Showtimes) != 1 {
-			t.Fatalf("replacement load version=%d theaters=%d showtimes=%d error=%v", loadedVersion, len(loaded.Theaters), len(loaded.Showtimes), err)
+		if err != nil || loadedVersion.ScheduleVersion != 2 || loadedVersion.EnrichmentVersion != 1 || len(loaded.Theaters) != 1 || len(loaded.Showtimes) != 1 || loaded.Showtimes[0].Movie.Enrichment == nil {
+			t.Fatalf("replacement load revision=%+v theaters=%d showtimes=%d error=%v", loadedVersion, len(loaded.Theaters), len(loaded.Showtimes), err)
 		}
 		var oldRows int
 		if err := pool.QueryRow(ctx, "SELECT count(*) FROM theaters WHERE id IN ('ugc-26', 'ugc-99')").Scan(&oldRows); err != nil || oldRows != 0 {
@@ -142,8 +165,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatal("single scope replacement accepted")
 		}
 		conflict := testDataset()
-		conflict.Showtimes[1].Movie.ProviderID = conflict.Showtimes[0].Movie.ProviderID
-		conflict.Showtimes[1].Movie.Slug = conflict.Showtimes[0].Movie.Slug
+		conflict.Showtimes[2].Movie.ProviderID = conflict.Showtimes[0].Movie.ProviderID
+		conflict.Showtimes[2].Movie.Slug = conflict.Showtimes[0].Movie.Slug
 		if _, err := store.Replace(ctx, conflict); err == nil {
 			t.Fatal("conflicting movie replacement accepted")
 		}

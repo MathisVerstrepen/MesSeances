@@ -56,6 +56,34 @@ func TestTimelineLilleDefaultAndExplicitFrance(t *testing.T) {
 	}
 }
 
+func TestTimelineBackdropIsNullableAndTimelineOnly(t *testing.T) {
+	data := testDataset()
+	for i := range data.Showtimes {
+		if data.Showtimes[i].Movie.ProviderID == "200" {
+			data.Showtimes[i].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+		}
+	}
+	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll, TheaterIDs: []string{"ugc-25"}})
+	if err != nil || len(timeline.Theaters) != 1 || len(timeline.Theaters[0].Showtimes) != 2 {
+		t.Fatalf("timeline=%+v err=%v", timeline, err)
+	}
+	matched, missing := timeline.Theaters[0].Showtimes[0], timeline.Theaters[0].Showtimes[1]
+	if matched.BackdropURL == nil || *matched.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" || missing.BackdropURL != nil {
+		t.Fatalf("matched=%+v missing=%+v", matched, missing)
+	}
+	if matched.StartOffsetMinutes != 240 || matched.DurationMinutes != 100 || missing.StartOffsetMinutes != 390 || missing.DurationMinutes != 95 {
+		t.Fatalf("timeline geometry changed: matched=%+v missing=%+v", matched, missing)
+	}
+	results, err := service.SearchSlot(SlotQuery{TheaterIDs: []string{"ugc-25"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "17:00", Language: LanguageAll})
+	if err != nil || len(results) != 2 {
+		t.Fatalf("slot results=%+v err=%v", results, err)
+	}
+}
+
 func TestSearchSlotStrictBoundariesAndFilters(t *testing.T) {
 	service := testService(t)
 	tests := []struct {
@@ -136,6 +164,30 @@ func TestMoviesCatalogPaginationSearchAndCurrentScope(t *testing.T) {
 	}
 	if _, err := service.Movies(MovieCatalogQuery{PageSize: 101}); err == nil {
 		t.Fatal("oversized page accepted")
+	}
+}
+
+func TestMovieCatalogEnrichmentPrecedenceAndNullableDefaults(t *testing.T) {
+	data := testDataset()
+	for index := range data.Showtimes {
+		if data.Showtimes[index].Movie.ProviderID == "200" {
+			data.Showtimes[index].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg"}
+		}
+	}
+	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Movies(MovieCatalogQuery{PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	matched, unmatched := catalog.Items[0], catalog.Items[1]
+	if matched.TMDBID == nil || *matched.TMDBID != 42 || matched.Overview == nil || matched.ReleaseDate == nil || len(matched.Genres) != 1 || matched.PosterURL == nil || *matched.PosterURL != "https://image.tmdb.org/t/p/w500/a.jpg" {
+		t.Fatalf("matched=%+v", matched)
+	}
+	if unmatched.TMDBID != nil || unmatched.Overview != nil || unmatched.ReleaseDate != nil || unmatched.Genres == nil || len(unmatched.Genres) != 0 {
+		t.Fatalf("unmatched=%+v", unmatched)
 	}
 }
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Building2, CalendarRange, Clapperboard, Film, MapPin, Search } from '@lucide/vue'
+import { Building2, CalendarRange, Clapperboard, Film, Info, MapPin, Search } from '@lucide/vue'
 
 const route = useRoute()
 const { favoriteTheaters, favoriteTheaterIds, isInitialized, isLoading, initialize } = useCinemaPreferences()
@@ -8,7 +8,8 @@ const links = [
   { to: '/', label: 'Planning', icon: CalendarRange },
   { to: '/recherche', label: 'Trouver une séance', icon: Search },
   { to: '/films', label: 'Films', icon: Film },
-  { to: '/cinemas', label: 'Mes cinémas', icon: Building2 }
+  { to: '/cinemas', label: 'Mes cinémas', icon: Building2 },
+  { to: '/credits', label: 'Crédits', icon: Info }
 ]
 
 const favoriteSummary = computed(() => {
@@ -76,7 +77,7 @@ onMounted(() => {
         <span class="max-w-36 truncate">{{ favoriteSummary }}</span>
       </NuxtLink>
     </div>
-    <nav aria-label="Navigation principale" class="grid grid-cols-4 border-t border-line px-1 sm:px-4">
+    <nav aria-label="Navigation principale" class="grid grid-cols-5 border-t border-line px-1 sm:px-4">
       <NuxtLink
         v-for="link in links"
         :key="link.to"

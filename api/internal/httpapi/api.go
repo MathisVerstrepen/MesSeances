@@ -6,15 +6,24 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"movieflow/api/internal/enrichment"
 	"movieflow/api/internal/schedule"
 )
 
 type API struct {
 	schedule *schedule.Service
+	admin    *adminAPI
+}
+
+type AdminOptions struct {
+	Password string
+	Reviews  *enrichment.ReviewService
+	Now      func() time.Time
 }
 
 type errorResponse struct {
@@ -27,15 +36,20 @@ type apiError struct {
 }
 
 func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
-	api := &API{schedule: service}
+	return NewHandlerWithAdmin(service, webOrigin, AdminOptions{})
+}
+
+func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options AdminOptions) http.Handler {
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options)}
 	router := chi.NewRouter()
 	router.Use(jsonContentType)
 	router.Use(recoverJSON)
 	router.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{webOrigin},
-		AllowedMethods: []string{http.MethodGet, http.MethodOptions},
-		AllowedHeaders: []string{"Accept", "Content-Type"},
-		MaxAge:         300,
+		AllowedOrigins:   []string{webOrigin},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+		AllowedHeaders:   []string{"Accept", "Content-Type"},
+		AllowCredentials: true,
+		MaxAge:           300,
 	}))
 
 	router.Get("/api/v1/timeline", api.timeline)
@@ -43,6 +57,18 @@ func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 	router.Get("/api/v1/movies", api.movies)
 	router.Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
 	router.Get("/api/v1/search/slot", api.searchSlot)
+	router.Route("/api/v1/admin", func(router chi.Router) {
+		router.Use(api.admin.noStore)
+		router.With(api.admin.requireOrigin).Post("/login", api.admin.login)
+		router.Get("/session", api.admin.session)
+		router.Group(func(router chi.Router) {
+			router.Use(api.admin.authorize)
+			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
+			router.Get("/tmdb-matches", api.admin.pendingMatches)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceMovieID}/approve", api.admin.approveMatch)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceMovieID}/reject", api.admin.rejectMatch)
+		})
+	})
 	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Ressource introuvable.")
 	})

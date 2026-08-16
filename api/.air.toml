@@ -1,0 +1,25 @@
+root = "."
+tmp_dir = "bin/air"
+
+[build]
+cmd = "go build -o ./bin/air/movieflow-api ./cmd/api"
+bin = "./bin/air/movieflow-api"
+include_ext = ["go"]
+include_file = ["go.mod", "go.sum"]
+exclude_dir = ["bin", "vendor"]
+exclude_regex = ["_test\\.go$"]
+exclude_unchanged = true
+delay = 200
+stop_on_error = false
+send_interrupt = true
+kill_delay = "500ms"
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true
+
+[screen]
+clear_on_rebuild = false
+keep_scroll = true

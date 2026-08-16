@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	runtimeconfig "movieflow/api/internal/config"
 	"movieflow/api/internal/database"
+	"movieflow/api/internal/enrichment"
 	"movieflow/api/internal/schedule"
+	"movieflow/api/internal/tmdb"
 	"movieflow/api/internal/ugc"
 )
 
@@ -23,24 +26,39 @@ type config struct {
 type dependencies struct {
 	getenv       func(string) string
 	sync         func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
-	openDatabase func(context.Context, string) (schedule.SnapshotWriter, func(), error)
+	openDatabase func(context.Context, string) (databaseServices, func(), error)
+	newTMDB      func(string) (enrichment.Provider, error)
+	enrich       func(context.Context, enrichment.Store, enrichment.Provider, []enrichment.Movie) (enrichment.Summary, error)
+}
+
+type databaseServices struct {
+	writer     schedule.SnapshotWriter
+	enrichment enrichment.Store
 }
 
 func productionDependencies() dependencies {
-	return dependencies{getenv: os.Getenv, sync: ugc.Sync, openDatabase: func(ctx context.Context, databaseURL string) (schedule.SnapshotWriter, func(), error) {
+	return dependencies{getenv: os.Getenv, sync: ugc.Sync, openDatabase: func(ctx context.Context, databaseURL string) (databaseServices, func(), error) {
 		pool, err := database.OpenPool(ctx, databaseURL)
 		if err != nil {
-			return nil, nil, fmt.Errorf("database open failed")
+			return databaseServices{}, nil, fmt.Errorf("database open failed")
 		}
 		if err := database.RunMigrations(ctx, pool); err != nil {
 			pool.Close()
-			return nil, nil, fmt.Errorf("database migration failed")
+			return databaseServices{}, nil, fmt.Errorf("database migration failed")
 		}
-		return schedule.NewPostgresStore(pool), pool.Close, nil
+		return databaseServices{writer: schedule.NewPostgresStore(pool), enrichment: enrichment.NewPostgresStore(pool)}, pool.Close, nil
+	}, newTMDB: func(token string) (enrichment.Provider, error) { return tmdb.NewClient(token) }, enrich: func(ctx context.Context, store enrichment.Store, provider enrichment.Provider, movies []enrichment.Movie) (enrichment.Summary, error) {
+		return enrichment.NewMatcher(store, provider, time.Now).Run(ctx, movies)
 	}}
 }
 
-func main() { os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr, time.Now)) }
+func main() {
+	if err := runtimeconfig.LoadDotEnv(); err != nil {
+		fmt.Fprintln(os.Stderr, "configuration error")
+		os.Exit(2)
+	}
+	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr, time.Now))
+}
 
 func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func() time.Time) int {
 	return runWithDependencies(ctx, args, stdout, stderr, now, productionDependencies())
@@ -139,7 +157,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		return 2
 	}
 	openCtx, openCancel := context.WithTimeout(ctx, 30*time.Second)
-	writer, closeDatabase, err := deps.openDatabase(openCtx, databaseURL)
+	services, closeDatabase, err := deps.openDatabase(openCtx, databaseURL)
 	openCancel()
 	if err != nil {
 		fmt.Fprintln(stderr, "sync failed: database startup failed")
@@ -156,12 +174,40 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		return 1
 	}
 	writeCtx, writeCancel := context.WithTimeout(ctx, 2*time.Minute)
-	version, err := writer.Replace(writeCtx, data)
+	version, err := services.writer.Replace(writeCtx, data)
 	writeCancel()
 	if err != nil {
 		fmt.Fprintln(stderr, "sync failed: database replacement failed")
 		return 1
 	}
 	fmt.Fprintf(stdout, "sync complete mode=all_cinemas persisted=true version=%d cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", version, summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
+	token := strings.TrimSpace(deps.getenv("TMDB_API_READ_ACCESS_TOKEN"))
+	if token == "" {
+		fmt.Fprintln(stdout, "enrichment=skipped")
+		return 0
+	}
+	provider, err := deps.newTMDB(token)
+	if err != nil || services.enrichment == nil {
+		fmt.Fprintln(stderr, "warning: movie enrichment degraded")
+		fmt.Fprintln(stdout, "enrichment=degraded")
+		return 0
+	}
+	moviesByID := map[string]enrichment.Movie{}
+	for _, showing := range data.Showtimes {
+		moviesByID[showing.Movie.ProviderID] = enrichment.Movie{ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}
+	}
+	movies := make([]enrichment.Movie, 0, len(moviesByID))
+	for _, movie := range moviesByID {
+		movies = append(movies, movie)
+	}
+	enrichmentCtx, enrichmentCancel := context.WithTimeout(ctx, 2*time.Minute)
+	enrichmentSummary, err := deps.enrich(enrichmentCtx, services.enrichment, provider, movies)
+	enrichmentCancel()
+	if err != nil {
+		fmt.Fprintln(stderr, "warning: movie enrichment degraded")
+		fmt.Fprintf(stdout, "enrichment=degraded reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", enrichmentSummary.Reused, enrichmentSummary.Matched, enrichmentSummary.ReviewRequired, enrichmentSummary.Unmatched, enrichmentSummary.Failed)
+		return 0
+	}
+	fmt.Fprintf(stdout, "enrichment=complete reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", enrichmentSummary.Reused, enrichmentSummary.Matched, enrichmentSummary.ReviewRequired, enrichmentSummary.Unmatched, enrichmentSummary.Failed)
 	return 0
 }

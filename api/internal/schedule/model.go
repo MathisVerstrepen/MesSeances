@@ -56,8 +56,9 @@ type Showtime struct {
 
 type TimelineShowtime struct {
 	Showtime
-	StartOffsetMinutes int `json:"start_offset_minutes"`
-	DurationMinutes    int `json:"duration_minutes"`
+	StartOffsetMinutes int     `json:"start_offset_minutes"`
+	DurationMinutes    int     `json:"duration_minutes"`
+	BackdropURL        *string `json:"backdrop_url"`
 }
 
 type TimelineTheater struct {
@@ -95,10 +96,14 @@ type Theater struct {
 }
 
 type MovieCatalogItem struct {
-	Slug           string  `json:"slug"`
-	Title          string  `json:"title"`
-	RuntimeMinutes int     `json:"runtime_minutes"`
-	PosterURL      *string `json:"poster_url"`
+	Slug           string   `json:"slug"`
+	Title          string   `json:"title"`
+	RuntimeMinutes int      `json:"runtime_minutes"`
+	PosterURL      *string  `json:"poster_url"`
+	TMDBID         *int64   `json:"tmdb_id"`
+	Overview       *string  `json:"overview"`
+	ReleaseDate    *string  `json:"release_date"`
+	Genres         []string `json:"genres"`
 }
 
 type MovieCatalog struct {

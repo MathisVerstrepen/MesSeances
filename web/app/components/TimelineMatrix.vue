@@ -7,7 +7,7 @@ type TimelineMode = 'theater' | 'movie'
 type FormatFilter = 'ALL' | 'STANDARD' | 'IMAX'
 type TimelineZoom = 15 | 30 | 60
 type PlacedShowtime = { showtime: TimelineShowtime; theater: TimelineTheater }
-type PositionedShowtime = PlacedShowtime & { lane: number }
+type PositionedShowtime = PlacedShowtime & { lane: number; width: number }
 type TimelineRow = { id: string; label: string; secondary: string; height: number; showtimes: PositionedShowtime[] }
 
 const props = defineProps<{
@@ -53,9 +53,9 @@ function createRow(id: string, label: string, secondary: string, items: PlacedSh
       const lane = laneEnds.findIndex((end) => end <= start)
       const targetLane = lane === -1 ? laneEnds.length : lane
       laneEnds[targetLane] = start + item.showtime.duration_minutes
-      return { ...item, lane: targetLane }
+      return { ...item, lane: targetLane, width: showtimeWidth(item.showtime.duration_minutes) }
     })
-  return { id, label, secondary, showtimes, height: 32 + Math.max(1, laneEnds.length) * 72 }
+  return { id, label, secondary, showtimes, height: 32 + Math.max(1, laneEnds.length) * 80 }
 }
 
 const rows = computed<TimelineRow[]>(() => {
@@ -105,6 +105,74 @@ function safeBookingUrl(url: string | null) {
     return parsed.protocol === 'https:' && (hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) ? parsed.href : null
   } catch {
     return null
+  }
+}
+
+function safeBackdropUrl(url: string | null) {
+  const prefix = 'https://image.tmdb.org/t/p/w780/'
+  if (!url?.startsWith(prefix) || url.includes('\\')) return null
+
+  try {
+    const pathEnd = url.search(/[?#]/)
+    let decodedPath = url.slice('https://image.tmdb.org'.length, pathEnd === -1 ? undefined : pathEnd)
+    for (let depth = 0; depth < 3; depth += 1) {
+      const decoded = decodeURIComponent(decodedPath)
+      if (decoded === decodedPath) break
+      decodedPath = decoded
+    }
+    if (decodedPath.includes('%') || decodedPath.includes('\\') || decodedPath.split('/').some((segment) => segment === '.' || segment === '..')) return null
+
+    const parsed = new URL(url)
+    if (
+      parsed.protocol !== 'https:'
+      || parsed.hostname !== 'image.tmdb.org'
+      || parsed.port
+      || parsed.username
+      || parsed.password
+      || parsed.search
+      || parsed.hash
+      || !parsed.pathname.startsWith('/t/p/w780/')
+      || parsed.pathname === '/t/p/w780/'
+    ) return null
+
+    return parsed.href
+  } catch {
+    return null
+  }
+}
+
+function showtimeWidth(durationMinutes: number) {
+  return Math.max(durationMinutes * pixelsPerMinute.value, 56)
+}
+
+function isPastShowtime(endTime: string) {
+  return new Date(endTime).getTime() <= now.value.getTime()
+}
+
+function backdropStyle(url: string | null, width: number) {
+  if (width < 80) return {}
+  const safeUrl = safeBackdropUrl(url)
+  if (!safeUrl) return {}
+
+  return {
+    backgroundImage: `linear-gradient(to right, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.68) 42%, rgba(0, 0, 0, 0.12) 100%), url("${safeUrl}")`,
+    backgroundPosition: 'center, center 35%',
+    backgroundRepeat: 'no-repeat',
+    backgroundSize: 'cover',
+    color: '#fff',
+    textShadow: '0 1px 2px rgba(0, 0, 0, 0.72)'
+  }
+}
+
+function selectedBackdropStyle(url: string | null) {
+  const safeUrl = safeBackdropUrl(url)
+  if (!safeUrl) return {}
+
+  return {
+    backgroundImage: `url("${safeUrl}")`,
+    backgroundPosition: 'center 35%',
+    backgroundRepeat: 'no-repeat',
+    backgroundSize: 'cover'
   }
 }
 
@@ -205,17 +273,24 @@ onBeforeUnmount(() => {
             v-for="item in row.showtimes"
             :key="`${item.theater.id}-${item.showtime.id}`"
             type="button"
-            class="absolute h-16 overflow-hidden rounded-md border px-2.5 py-2 text-left transition focus:z-30"
+            class="absolute h-[72px] overflow-hidden rounded-md border px-2.5 py-2 text-left transition focus:z-30"
             :class="[
               item.showtime.language === 'VOSTFR' ? 'border-orange-200 bg-orange-50 text-orange-950 hover:border-accent' : 'border-stone-300 bg-stone-100 text-stone-900 hover:border-stone-500',
-              selected?.showtime.id === item.showtime.id ? 'border-accent ring-1 ring-accent' : ''
+              selected?.showtime.id === item.showtime.id ? 'border-accent opacity-100 saturate-100 ring-1 ring-accent' : '',
+              isPastShowtime(item.showtime.end_time) && selected?.showtime.id !== item.showtime.id ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100 focus:opacity-100 focus:saturate-100' : ''
             ]"
-            :style="{ top: `${16 + item.lane * 72}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${Math.max(item.showtime.duration_minutes * pixelsPerMinute, 56)}px` }"
+            :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, backdropStyle(item.showtime.backdrop_url, item.width)]"
             :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}`"
             @click="selectShowtime(item)"
           >
-            <span class="block truncate text-xs font-semibold">{{ mode === 'theater' ? item.showtime.movie.title : item.theater.name }}</span>
-            <span class="mt-1 block truncate text-[11px] text-current opacity-70">{{ formatParisTime(item.showtime.start_time) }} · {{ item.showtime.language }} · {{ item.showtime.format }}</span>
+            <span
+              class="text-xs font-semibold leading-[15px]"
+              :class="item.width >= 120 ? 'line-clamp-2' : 'block truncate'"
+            >{{ mode === 'theater' ? item.showtime.movie.title : item.theater.name }}</span>
+            <span
+              class="mt-1 block truncate text-[11px] leading-[15px] text-current"
+              :class="item.width >= 80 && safeBackdropUrl(item.showtime.backdrop_url) ? 'opacity-90' : 'opacity-70'"
+            >{{ formatParisTime(item.showtime.start_time) }} · {{ item.showtime.language }} · {{ item.showtime.format }}</span>
           </button>
         </div>
 
@@ -226,17 +301,28 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-if="selected" class="mt-4 border-y border-line border-l-2 border-l-accent bg-surface px-4 py-4" aria-live="polite">
-      <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
-        <div class="min-w-0">
-          <p class="text-sm font-medium text-accent">Séance sélectionnée</p>
-          <h2 class="mt-1 text-lg font-semibold text-ink">{{ selected.showtime.movie.title }}</h2>
-          <p class="mt-1 text-sm text-muted">{{ selected.theater.name }} · {{ selected.showtime.room }} · {{ selected.showtime.language }} · {{ selected.showtime.format }}</p>
+      <div
+        class="grid gap-4 md:items-center"
+        :class="safeBackdropUrl(selected.showtime.backdrop_url) ? 'md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]' : ''"
+      >
+        <div
+          v-if="safeBackdropUrl(selected.showtime.backdrop_url)"
+          class="aspect-video w-full overflow-hidden rounded-md bg-subtle"
+          :style="selectedBackdropStyle(selected.showtime.backdrop_url)"
+          aria-hidden="true"
+        />
+        <div class="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-center">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-accent">Séance sélectionnée</p>
+            <h2 class="mt-1 text-lg font-semibold text-ink">{{ selected.showtime.movie.title }}</h2>
+            <p class="mt-1 text-sm text-muted">{{ selected.theater.name }} · {{ selected.showtime.room }} · {{ selected.showtime.language }} · {{ selected.showtime.format }}</p>
+          </div>
+          <div class="flex items-center gap-2 text-sm font-semibold text-ink">
+            <Clock3 :size="18" class="text-accent" aria-hidden="true" />
+            {{ formatParisTime(selected.showtime.start_time) }} → {{ formatParisTime(selected.showtime.end_time) }}
+          </div>
+          <BookingLink :url="safeBookingUrl(selected.showtime.booking_url)" />
         </div>
-        <div class="flex items-center gap-2 text-sm font-semibold text-ink">
-          <Clock3 :size="18" class="text-accent" aria-hidden="true" />
-          {{ formatParisTime(selected.showtime.start_time) }} → {{ formatParisTime(selected.showtime.end_time) }}
-        </div>
-        <BookingLink :url="safeBookingUrl(selected.showtime.booking_url)" />
       </div>
     </div>
   </section>

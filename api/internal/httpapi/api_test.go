@@ -18,6 +18,10 @@ type fixtureSource struct {
 func (s fixtureSource) Snapshot() schedule.Dataset { return s.data }
 
 func testHandler(t *testing.T) http.Handler {
+	return testHandlerWithAdmin(t, AdminOptions{})
+}
+
+func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 	t.Helper()
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
@@ -28,7 +32,7 @@ func testHandler(t *testing.T) http.Handler {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return schedule.ShowtimeRecord{
+		record := schedule.ShowtimeRecord{
 			ID:                "ugc-showing-" + id,
 			ProviderShowingID: id,
 			ServiceDate:       "2026-08-15",
@@ -48,6 +52,10 @@ func testHandler(t *testing.T) http.Handler {
 			Room:            "Salle 1",
 			BookingURL:      "https://www.ugc.fr/reservationSeances.html?id=" + id,
 		}
+		if movieID == "200" {
+			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+		}
+		return record
 	}
 	data := schedule.Dataset{
 		SchemaVersion: schedule.SchemaVersion,
@@ -74,7 +82,7 @@ func testHandler(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return NewHandler(service, "http://localhost:3000")
+	return NewHandlerWithAdmin(service, "http://localhost:3000", options)
 }
 
 func performRequest(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
@@ -108,6 +116,40 @@ func TestTheatersTransport(t *testing.T) {
 	}
 }
 
+func TestTimelineBackdropTransportAndContractIsolation(t *testing.T) {
+	handler := testHandler(t)
+	response := performRequest(t, handler, "/api/v1/timeline?date=2026-08-15&theaters=ugc-25,ugc-99")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	theaters := payload["theaters"].([]any)
+	matched := theaters[0].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+	unmatched := theaters[1].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+	if matched["backdrop_url"] != "https://image.tmdb.org/t/p/w780/a.jpg" || unmatched["backdrop_url"] != nil {
+		t.Fatalf("matched=%+v unmatched=%+v", matched, unmatched)
+	}
+	if movie := matched["movie"].(map[string]any); movie["backdrop_url"] != nil {
+		t.Fatalf("nested movie gained backdrop: %+v", movie)
+	}
+	if matched["start_offset_minutes"] != float64(240) || matched["duration_minutes"] != float64(100) {
+		t.Fatalf("timeline timing changed: %+v", matched)
+	}
+	for _, target := range []string{
+		"/api/v1/movies?page_size=10",
+		"/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15",
+		"/api/v1/search/slot?theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=17:00",
+	} {
+		other := performRequest(t, handler, target)
+		if other.Code != http.StatusOK || strings.Contains(other.Body.String(), "backdrop_url") {
+			t.Fatalf("backdrop leaked to %s: status=%d body=%s", target, other.Code, other.Body.String())
+		}
+	}
+}
+
 func TestMoviesTransport(t *testing.T) {
 	handler := testHandler(t)
 	response := performRequest(t, handler, "/api/v1/movies?search=film&page=1&page_size=1")
@@ -118,8 +160,15 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "ugc-film-200" || catalog.Items[0].PosterURL == nil {
+	if catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "ugc-film-200" || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
 		t.Fatalf("catalog=%+v", catalog)
+	}
+	if strings.Contains(response.Body.String(), `"movie":{"slug":"ugc-film-200","tmdb_id"`) {
+		t.Fatal("nested movie contract unexpectedly enriched")
+	}
+	all := performRequest(t, handler, "/api/v1/movies?page_size=2")
+	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"overview":null,"release_date":null,"genres":[]`) {
+		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
 
 	empty := performRequest(t, handler, "/api/v1/movies?currently_screened=false")
