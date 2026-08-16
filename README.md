@@ -1,28 +1,68 @@
 # MovieFlow
 
-Première version locale de MovieFlow : API Go et interface Nuxt en français pour visualiser une journée de séances et rechercher un film dans un créneau strict.
+MovieFlow fournit une API Go et une interface Nuxt en français pour visualiser une journée de séances et rechercher un film dans un créneau strict.
 
 ## Prérequis
 
-- Go 1.22 ou version ultérieure
+- Go 1.23 ou version ultérieure
 - Node.js compatible avec les dépendances résolues (Node 22.23.1 vérifié)
 - npm 10.9.8 vérifié
+- Docker avec le module Compose
 
 ## Installation
 
-Installer les dépendances de chaque application depuis la racine :
+Installer les dépendances depuis la racine :
 
 ```sh
 cd api && go mod download
 cd ../web && npm install
 ```
 
-## Démarrage local
+## PostgreSQL local
 
-Dans un premier terminal :
+Le fichier `compose.yaml` démarre PostgreSQL 18 Alpine avec un volume persistant :
 
 ```sh
-cd api && go run ./cmd/api
+docker compose up -d --wait postgres
+export DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable'
+```
+
+Pour arrêter PostgreSQL sans supprimer ses données :
+
+```sh
+docker compose down
+```
+
+Ne pas utiliser `docker compose down -v` sauf volonté explicite de supprimer les données locales.
+
+## Synchronisation des séances UGC
+
+Une synchronisation complète exige `DATABASE_URL`. Elle ouvre PostgreSQL, applique les migrations puis récupère tous les cinémas UGC. Un instantané complet valide remplace toutes les données relationnelles dans une seule transaction et avance sa version. Tout échec avant `COMMIT` conserve l’instantané précédent ; une perte de confirmation du `COMMIT` est signalée comme un échec même si PostgreSQL a pu publier l’ancien ou le nouvel instantané complet. Aucune fusion partielle n’est effectuée.
+
+```sh
+cd api
+DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable' \
+  go run ./cmd/sync-ugc -proxy-file /chemin/vers/proxies.txt
+```
+
+La fenêtre par défaut va de la date courante à J+7 en heure de Paris. `-from` et `-through` acceptent une fenêtre inclusive de 14 jours maximum.
+
+Le mode diagnostic valide un seul cinéma sans lire `DATABASE_URL`, ouvrir PostgreSQL, lancer les migrations ni persister de données :
+
+```sh
+cd api
+go run ./cmd/sync-ugc -proxy-file /chemin/vers/proxies.txt -cinema-id 25
+```
+
+Toutes les requêtes UGC passent obligatoirement par les proxies fournis. Le client emploie `net/http`, une seule requête simultanée et un intervalle global de deux secondes. Il effectue au plus une nouvelle tentative après une erreur de transport ou un statut 5xx. Un statut 403 ou 429, une page de blocage ou un challenge arrête immédiatement la synchronisation. Ne jamais publier le fichier de proxies, ses identifiants ou sa sortie ; les messages ne contiennent que des compteurs et des informations publiques.
+
+## Démarrage local
+
+Après une synchronisation complète réussie, lancer l’API :
+
+```sh
+cd api
+DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable' go run ./cmd/api
 ```
 
 Dans un second terminal :
@@ -33,36 +73,33 @@ npm --prefix web run dev
 
 Ouvrir `http://localhost:3000`. L’API écoute par défaut sur `http://localhost:8080`.
 
+Au démarrage, l’API exige `DATABASE_URL`, applique les migrations et charge un instantané national complet et valide. Une base vide ou invalide provoque un arrêt. Ensuite, l’API vérifie la version PostgreSQL et charge chaque nouvelle version complète en mémoire. Une panne de lecture ou un instantané invalide conserve la dernière version valide en mémoire. Aucun import JSON, fichier de séances ou repli synthétique n’existe.
+
 ## Configuration
 
-Les valeurs peuvent être remplacées directement dans l’environnement, sans fichier `.env` obligatoire :
-
+- `DATABASE_URL` : connexion PostgreSQL obligatoire pour l’API et une synchronisation complète ; inutilisée en mode diagnostic.
 - `PORT` : port de l’API, `8080` par défaut.
 - `WEB_ORIGIN` : origine autorisée par CORS, `http://localhost:3000` par défaut.
 - `NUXT_PUBLIC_API_BASE` : URL de base utilisée par Nuxt, `http://localhost:8080` par défaut.
 
-Exemple :
+## Vérifications
+
+Ces commandes n’effectuent aucune synchronisation réseau UGC :
 
 ```sh
-(cd api && PORT=8081 WEB_ORIGIN=http://localhost:3001 go run ./cmd/api)
-NUXT_PUBLIC_API_BASE=http://localhost:8081 npm --prefix web run dev -- --port 3001
-```
-
-## Vérifications minimales
-
-```sh
+docker compose config
 cd api && go test ./...
 npm --prefix web run typecheck
-npm --prefix web run build
 ```
 
-Vérifications manuelles de l’API :
+Les tests d’intégration PostgreSQL utilisent une structure isolée et temporaire :
 
 ```sh
-curl -fsS 'http://localhost:8080/api/v1/timeline?date=2026-08-15&language=ALL'
-curl -fsS 'http://localhost:8080/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&buffer_ads=20&language=ALL'
+cd api
+TEST_DATABASE_URL='postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable' \
+  go test ./internal/schedule -run '^TestPostgresStoreIntegration$' -count=1
 ```
 
-## État des données
+## Comportement des données
 
-Cette version utilise exclusivement des fixtures en mémoire : deux cinémas de la zone de Lille et quatre séances fictives. Les dates demandées déterminent les horodatages, mais les films, horaires locaux et salles restent démonstratifs. Aucun appel en direct à UGC, stockage persistant, scraping, lien de réservation ou service de production n’est inclus.
+PostgreSQL contient exactement le dernier instantané complet de tous les cinémas UGC France découverts. Sans paramètre `theaters`, la timeline reste limitée à Lille et Villeneuve d’Ascq. Des identifiants explicites permettent de consulter tout cinéma français présent. La recherche `city=Lille` couvre cette même zone. Les créneaux conservent des bornes strictes, y compris après minuit et avec le délai publicitaire demandé. Les horaires HTTP sont sérialisés en UTC et les séances fournissent leur URL officielle de réservation UGC.

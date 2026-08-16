@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://www.ugc.fr/film.html?id=7</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=3</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=46</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=0</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=not-a-number</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=46&amp;source=sitemap</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=3&amp;id=46</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?legacy=25</loc></url>
+  <url><loc>http://www.ugc.fr/cinema.html?id=99</loc></url>
+  <url><loc>https://www.ugc.fr:443/cinema.html?id=99</loc></url>
+  <url><loc>https://www.ugc.fr/cinema.html?id=99#schedule</loc></url>
+  <url><loc>https://www.ugc.fr/cinema/99</loc></url>
+</urlset>

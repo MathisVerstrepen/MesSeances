@@ -1,4 +1,7 @@
-export type Language = 'ALL' | 'VOSTFR' | 'VF'
+export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
+export type ShowtimeLanguage = 'VOSTFR' | 'VF' | 'VO' | 'VF_SME'
+
+export type Language = QueryLanguage
 
 export interface Movie {
   slug: string
@@ -11,7 +14,7 @@ export interface Showtime {
   movie: Movie
   start_time: string
   end_time: string
-  language: Exclude<Language, 'ALL'>
+  language: ShowtimeLanguage
   format: string
   room: string
   booking_url: string | null
@@ -64,7 +67,7 @@ export interface ApiErrorResponse {
 export interface TimelineQuery {
   date: string
   theaters?: string
-  language?: Language
+  language?: QueryLanguage
 }
 
 export interface SlotQuery {
@@ -73,5 +76,5 @@ export interface SlotQuery {
   start_after: string
   finish_before: string
   buffer_ads?: number
-  language?: Language
+  language?: QueryLanguage
 }

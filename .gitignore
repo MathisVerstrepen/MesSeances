@@ -8,3 +8,4 @@ web/.nuxt/
 web/.output/
 .env*
 !.env.example
+tmp/

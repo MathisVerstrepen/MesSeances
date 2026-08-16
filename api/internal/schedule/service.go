@@ -10,17 +10,26 @@ import (
 
 const dateLayout = "2006-01-02"
 
+type ServiceOptions struct {
+	DefaultCity string
+	CityAliases map[string][]string
+}
 type Service struct {
 	location *time.Location
+	source   Source
+	options  ServiceOptions
 }
 
-func NewService() (*Service, error) {
+func NewService(source Source, options ServiceOptions) (*Service, error) {
+	if source == nil {
+		return nil, fmt.Errorf("schedule source is required")
+	}
 	location, err := time.LoadLocation(Timezone)
 	if err != nil {
 		return nil, fmt.Errorf("load schedule timezone: %w", err)
 	}
-
-	return &Service{location: location}, nil
+	options.DefaultCity = strings.TrimSpace(options.DefaultCity)
+	return &Service{location: location, source: source, options: options}, nil
 }
 
 func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
@@ -31,50 +40,28 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 	if err := validateLanguage(query.Language); err != nil {
 		return Timeline{}, err
 	}
-
-	selected, err := selectedTheaters(query.TheaterIDs)
+	data := s.source.Snapshot()
+	selected, err := s.selectedTheaters(data, query.TheaterIDs)
 	if err != nil {
 		return Timeline{}, err
 	}
-
-	timeline := Timeline{
-		Date:            query.Date,
-		Timezone:        Timezone,
-		WindowStartTime: localTime(date, 8, 0).UTC(),
-		WindowEndTime:   localTime(date.AddDate(0, 0, 1), 2, 0).UTC(),
-		Theaters:        make([]TimelineTheater, 0, len(theaterFixtures)),
-	}
-
-	for _, theater := range theaterFixtures {
-		if !selected[theater.id] {
+	timeline := Timeline{Date: query.Date, Timezone: Timezone, WindowStartTime: localTime(date, 8, 0).UTC(), WindowEndTime: localTime(date.AddDate(0, 0, 1), 2, 0).UTC(), Theaters: make([]TimelineTheater, 0)}
+	for _, theater := range data.Theaters {
+		if !selected[theater.ID] {
 			continue
 		}
-
-		result := TimelineTheater{
-			ID:             theater.id,
-			Slug:           theater.slug,
-			Name:           theater.name,
-			City:           theater.city,
-			AcceptedPasses: append([]string(nil), theater.acceptedPasses...),
-			Showtimes:      make([]TimelineShowtime, 0),
-		}
-		for _, fixture := range showtimeFixtures {
-			if fixture.theaterID != theater.id || !matchesLanguage(fixture.language, query.Language) {
+		result := TimelineTheater{ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, AcceptedPasses: append([]string(nil), theater.AcceptedPasses...), Showtimes: []TimelineShowtime{}}
+		for _, record := range data.Showtimes {
+			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) {
 				continue
 			}
-			showtime, offset := materializeShowtime(date, fixture)
-			result.Showtimes = append(result.Showtimes, TimelineShowtime{
-				Showtime:           showtime,
-				StartOffsetMinutes: offset,
-				DurationMinutes:    fixture.runtimeMinutes,
-			})
+			showtime := materializeRecord(record)
+			offset := int(showtime.StartTime.Sub(timeline.WindowStartTime) / time.Minute)
+			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes})
 		}
-		sort.Slice(result.Showtimes, func(i, j int) bool {
-			return result.Showtimes[i].StartTime.Before(result.Showtimes[j].StartTime)
-		})
+		sort.Slice(result.Showtimes, func(i, j int) bool { return result.Showtimes[i].StartTime.Before(result.Showtimes[j].StartTime) })
 		timeline.Theaters = append(timeline.Theaters, result)
 	}
-
 	return timeline, nil
 }
 
@@ -104,36 +91,24 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 	if err := validateLanguage(query.Language); err != nil {
 		return nil, err
 	}
-
-	results := make([]SlotResult, 0)
-	for _, theater := range theaterFixtures {
-		if !strings.EqualFold(theater.city, city) {
+	data := s.source.Snapshot()
+	results := []SlotResult{}
+	for _, theater := range data.Theaters {
+		if !s.cityMatches(theater.City, city) {
 			continue
 		}
-		for _, fixture := range showtimeFixtures {
-			if fixture.theaterID != theater.id || !matchesLanguage(fixture.language, query.Language) {
+		for _, record := range data.Showtimes {
+			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) {
 				continue
 			}
-			showtime, _ := materializeShowtime(date, fixture)
+			showtime := materializeRecord(record)
 			effectiveEnd := showtime.EndTime.Add(time.Duration(query.BufferAds) * time.Minute)
 			if showtime.StartTime.Before(start) || effectiveEnd.After(finish) {
 				continue
 			}
-			results = append(results, SlotResult{
-				Showtime: showtime,
-				Theater: TheaterSummary{
-					ID:   theater.id,
-					Name: theater.name,
-					City: theater.city,
-				},
-				EffectiveEndTime:   effectiveEnd,
-				BufferAdsMinutes:   query.BufferAds,
-				SlackBeforeMinutes: int(showtime.StartTime.Sub(start) / time.Minute),
-				SlackAfterMinutes:  int(finish.Sub(effectiveEnd) / time.Minute),
-			})
+			results = append(results, SlotResult{Showtime: showtime, Theater: TheaterSummary{ID: theater.ID, Name: theater.Name, City: theater.City}, EffectiveEndTime: effectiveEnd, BufferAdsMinutes: query.BufferAds, SlackBeforeMinutes: int(showtime.StartTime.Sub(start) / time.Minute), SlackAfterMinutes: int(finish.Sub(effectiveEnd) / time.Minute)})
 		}
 	}
-
 	sort.Slice(results, func(i, j int) bool {
 		if !results[i].Showtime.StartTime.Equal(results[j].Showtime.StartTime) {
 			return results[i].Showtime.StartTime.Before(results[j].Showtime.StartTime)
@@ -143,8 +118,49 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 		}
 		return results[i].Showtime.ID < results[j].Showtime.ID
 	})
-
 	return results, nil
+}
+
+func (s *Service) selectedTheaters(data Dataset, ids []string) (map[string]bool, error) {
+	selected := map[string]bool{}
+	known := map[string]TheaterRecord{}
+	for _, theater := range data.Theaters {
+		known[theater.ID] = theater
+	}
+	if len(ids) == 0 {
+		for _, theater := range data.Theaters {
+			if s.cityMatches(theater.City, s.options.DefaultCity) {
+				selected[theater.ID] = true
+			}
+		}
+		return selected, nil
+	}
+	for _, id := range ids {
+		if id == "" {
+			return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
+		}
+		if _, ok := known[id]; !ok {
+			return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
+		}
+		selected[id] = true
+	}
+	return selected, nil
+}
+
+func (s *Service) cityMatches(actual, requested string) bool {
+	if strings.EqualFold(actual, requested) {
+		return true
+	}
+	for alias, cities := range s.options.CityAliases {
+		if strings.EqualFold(alias, requested) {
+			for _, city := range cities {
+				if strings.EqualFold(actual, city) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) parseDate(value string) (time.Time, error) {
@@ -157,7 +173,6 @@ func (s *Service) parseDate(value string) (time.Time, error) {
 	}
 	return parsed, nil
 }
-
 func (s *Service) parseServiceClock(date time.Time, value, parameter string) (time.Time, error) {
 	if value == "" {
 		return time.Time{}, invalid(fmt.Sprintf("Le paramètre %s est requis.", parameter))
@@ -178,72 +193,20 @@ func (s *Service) parseServiceClock(date time.Time, value, parameter string) (ti
 	}
 	return localTime(date, hour, minute).UTC(), nil
 }
-
-func selectedTheaters(ids []string) (map[string]bool, error) {
-	selected := make(map[string]bool, len(theaterFixtures))
-	if len(ids) == 0 {
-		for _, theater := range theaterFixtures {
-			selected[theater.id] = true
-		}
-		return selected, nil
-	}
-
-	known := make(map[string]bool, len(theaterFixtures))
-	for _, theater := range theaterFixtures {
-		known[theater.id] = true
-	}
-	for _, id := range ids {
-		if id == "" || !known[id] {
-			return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
-		}
-		selected[id] = true
-	}
-	return selected, nil
-}
-
 func validateLanguage(language string) error {
 	if language != LanguageAll && language != LanguageVOSTFR && language != LanguageVF {
 		return invalid("Le paramètre language doit être ALL, VOSTFR ou VF.")
 	}
 	return nil
 }
-
-func matchesLanguage(sessionLanguage, requested string) bool {
-	return requested == LanguageAll || requested == sessionLanguage
+func matchesLanguage(session, requested string) bool {
+	return requested == LanguageAll || requested == session || requested == LanguageVF && session == LanguageVFSME
 }
-
-func materializeShowtime(date time.Time, fixture showtimeFixture) (Showtime, int) {
-	hour, _ := strconv.Atoi(fixture.startClock[:2])
-	minute, _ := strconv.Atoi(fixture.startClock[3:])
-	startDate := date
-	offset := (hour-8)*60 + minute
-	if hour < 8 {
-		startDate = date.AddDate(0, 0, 1)
-		offset = (hour+16)*60 + minute
-	}
-	start := localTime(startDate, hour, minute).UTC()
-	end := start.Add(time.Duration(fixture.runtimeMinutes) * time.Minute)
-
-	return Showtime{
-		ID: fixture.id,
-		Movie: Movie{
-			Slug:           fixture.movieSlug,
-			Title:          fixture.movieTitle,
-			RuntimeMinutes: fixture.runtimeMinutes,
-		},
-		StartTime:  start,
-		EndTime:    end,
-		Language:   fixture.language,
-		Format:     fixture.format,
-		Room:       fixture.room,
-		BookingURL: nil,
-	}, offset
+func materializeRecord(record ShowtimeRecord) Showtime {
+	booking := record.BookingURL
+	return Showtime{ID: record.ID, Movie: Movie{Slug: record.Movie.Slug, Title: record.Movie.Title, RuntimeMinutes: record.Movie.RuntimeMinutes}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 }
-
 func localTime(date time.Time, hour, minute int) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location())
 }
-
-func invalid(message string) error {
-	return &ValidationError{Message: message}
-}
+func invalid(message string) error { return &ValidationError{Message: message} }

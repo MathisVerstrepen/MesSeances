@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: movieflow
+      POSTGRES_USER: movieflow
+      POSTGRES_PASSWORD: movieflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - movieflow_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  movieflow_postgres_data:

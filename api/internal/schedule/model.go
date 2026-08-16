@@ -3,12 +3,21 @@ package schedule
 import "time"
 
 const (
-	Timezone = "Europe/Paris"
+	Timezone          = "Europe/Paris"
+	MaxRuntimeMinutes = 600
 
 	LanguageAll    = "ALL"
 	LanguageVOSTFR = "VOSTFR"
 	LanguageVF     = "VF"
 )
+
+func RuntimeDuration(minutes int) (time.Duration, bool) {
+	if minutes <= 0 || minutes > MaxRuntimeMinutes {
+		return 0, false
+	}
+	duration := time.Duration(minutes) * time.Minute
+	return duration, duration > 0 && duration/time.Minute == time.Duration(minutes)
+}
 
 // ValidationError describes a query value that does not satisfy the schedule contract.
 type ValidationError struct {
