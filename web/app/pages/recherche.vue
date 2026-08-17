@@ -3,8 +3,15 @@ import { AlertTriangle, CalendarSearch, LoaderCircle, Search, SlidersHorizontal 
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
+import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+
+const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'buffer_ads'] as const
+const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before'] as const
+const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 
 const api = useMovieFlowApi()
+const route = useRoute()
+const router = useRouter()
 const { favoriteTheaterIds, favoriteTheaters, isInitialized, isLoading, error: preferencesError, initialize } = useCinemaPreferences()
 
 interface SearchForm {
@@ -25,6 +32,7 @@ const form = reactive<SearchForm>({
   includeAds: true
 })
 const timeOptions = createServiceTimeOptions()
+const validTimes = new Set(timeOptions.map((option) => option.value))
 const results = ref<SlotResult[] | null>(null)
 const pending = ref(false)
 const errorMessage = ref('')
@@ -32,10 +40,151 @@ const searchedDate = ref('')
 const selectedTheaterIds = ref<string[]>([])
 const theaterValidationMessage = ref('')
 let previousFavoriteIds: string[] = []
+let isReady = false
+let lastSearchKey = ''
+let requestId = 0
+
+interface AppliedSearch {
+  theaterIds: string[]
+  date: string
+  startAfter: string
+  finishBefore: string
+  language: Language
+  format: QueryFormat
+  includeAds: boolean
+}
+
+function bareQuery() {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {})
+}
+
+function submittedQuery(search: AppliedSearch) {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    theaters: search.theaterIds.join(','),
+    date: search.date,
+    start_after: search.startAfter,
+    finish_before: search.finishBefore,
+    language: search.language === 'ALL' ? undefined : search.language,
+    format: search.format === 'ALL' ? undefined : search.format,
+    buffer_ads: search.includeAds ? undefined : '0'
+  })
+}
+
+function resetBareState() {
+  requestId++
+  form.date = todayInParis()
+  form.startAfter = '12:00'
+  form.finishBefore = '15:00'
+  form.language = 'ALL'
+  form.format = 'ALL'
+  form.includeAds = true
+  selectedTheaterIds.value = [...favoriteTheaterIds.value]
+  previousFavoriteIds = [...favoriteTheaterIds.value]
+  results.value = null
+  searchedDate.value = ''
+  errorMessage.value = ''
+  pending.value = false
+  lastSearchKey = ''
+}
+
+function parseAppliedSearch(): AppliedSearch | null | 'bare' {
+  const hasOwnedKey = OWNED_QUERY_KEYS.some((key) => key in route.query)
+  if (!hasOwnedKey) return 'bare'
+  if (REQUIRED_QUERY_KEYS.some((key) => !(key in route.query))) return null
+
+  const theaterValue = singularQueryValue(route.query.theaters)
+  const date = calendarDate(singularQueryValue(route.query.date))
+  const startAfter = singularQueryValue(route.query.start_after)
+  const finishBefore = singularQueryValue(route.query.finish_before)
+  if (!theaterValue || !date || !startAfter || !finishBefore || !validTimes.has(startAfter) || !validTimes.has(finishBefore)) return null
+
+  const requestedIds = theaterValue.split(',')
+  if (requestedIds.some((id) => !id)) return null
+  const requested = new Set(requestedIds)
+  const theaterIds = favoriteTheaterIds.value.filter((id) => requested.has(id))
+  if (theaterIds.length === 0) return null
+
+  const languageValue = singularQueryValue(route.query.language)
+  const formatValue = singularQueryValue(route.query.format)
+  const bufferValue = singularQueryValue(route.query.buffer_ads)
+  return {
+    theaterIds,
+    date,
+    startAfter,
+    finishBefore,
+    language: enumQueryValue(languageValue, LANGUAGES) ?? 'ALL',
+    format: enumQueryValue(formatValue, formatOptions.map((option) => option.value)) ?? 'ALL',
+    includeAds: bufferValue !== '0'
+  }
+}
+
+function hydrateAppliedSearch(search: AppliedSearch) {
+  form.date = search.date
+  form.startAfter = search.startAfter
+  form.finishBefore = search.finishBefore
+  form.language = search.language
+  form.format = search.format
+  form.includeAds = search.includeAds
+  selectedTheaterIds.value = [...search.theaterIds]
+  previousFavoriteIds = [...favoriteTheaterIds.value]
+}
+
+async function runSearch(search: AppliedSearch) {
+  const currentRequest = ++requestId
+  pending.value = true
+  errorMessage.value = ''
+  theaterValidationMessage.value = ''
+  results.value = null
+  try {
+    const response = await api.searchSlot({
+      theaters: search.theaterIds.join(','),
+      date: search.date,
+      start_after: search.startAfter,
+      finish_before: search.finishBefore,
+      buffer_ads: search.includeAds ? 20 : 0,
+      language: search.language,
+      format: search.format
+    })
+    if (currentRequest === requestId) {
+      results.value = response
+      searchedDate.value = search.date
+    }
+  } catch (error) {
+    if (currentRequest === requestId) errorMessage.value = getFrenchApiError(error)
+  } finally {
+    if (currentRequest === requestId) pending.value = false
+  }
+}
+
+async function applyRoute() {
+  const parsed = parseAppliedSearch()
+  if (parsed === 'bare' || parsed === null) {
+    resetBareState()
+    const query = bareQuery()
+    if (!queriesEqual(route.query, query)) await router.replace({ query })
+    return
+  }
+
+  hydrateAppliedSearch(parsed)
+  const query = submittedQuery(parsed)
+  if (!queriesEqual(route.query, query)) {
+    await router.replace({ query })
+    return
+  }
+
+  const key = [parsed.theaterIds.join(','), parsed.date, parsed.startAfter, parsed.finishBefore, parsed.language, parsed.format, parsed.includeAds ? '20' : '0'].join('|')
+  if (key === lastSearchKey) return
+  lastSearchKey = key
+  await runSearch(parsed)
+}
 
 watch(
   favoriteTheaterIds,
   (favoriteIds) => {
+    if (isReady && OWNED_QUERY_KEYS.some((key) => key in route.query)) {
+      applyRoute()
+      return
+    }
     const favorites = new Set(favoriteIds)
     const previousFavorites = new Set(previousFavoriteIds)
     const retainedIds = selectedTheaterIds.value.filter((id) => favorites.has(id))
@@ -52,7 +201,18 @@ watch(selectedTheaterIds, (ids) => {
   if (ids.length > 0) theaterValidationMessage.value = ''
 })
 
-onMounted(initialize)
+watch(() => route.query, () => {
+  if (isReady) applyRoute()
+})
+
+async function initializePreferences() {
+  await initialize()
+  if (!isInitialized.value) return
+  isReady = true
+  await applyRoute()
+}
+
+onMounted(initializePreferences)
 
 async function submitSearch() {
   const selectedIds = favoriteTheaterIds.value.filter((id) => selectedTheaterIds.value.includes(id))
@@ -61,26 +221,23 @@ async function submitSearch() {
     return
   }
 
-  pending.value = true
-  errorMessage.value = ''
-  theaterValidationMessage.value = ''
-  results.value = null
-  try {
-    results.value = await api.searchSlot({
-      theaters: selectedIds.join(','),
-      date: form.date,
-      start_after: form.startAfter,
-      finish_before: form.finishBefore,
-      buffer_ads: form.includeAds ? 20 : 0,
-      language: form.language,
-      format: form.format
-    })
-    searchedDate.value = form.date
-  } catch (error) {
-    errorMessage.value = getFrenchApiError(error)
-  } finally {
-    pending.value = false
+  if (!calendarDate(form.date) || !validTimes.has(form.startAfter) || !validTimes.has(form.finishBefore)) return
+
+  const search: AppliedSearch = {
+    theaterIds: selectedIds,
+    date: form.date,
+    startAfter: form.startAfter,
+    finishBefore: form.finishBefore,
+    language: form.language,
+    format: form.format,
+    includeAds: form.includeAds
   }
+  const query = submittedQuery(search)
+  if (queriesEqual(route.query, query)) {
+    if (errorMessage.value) await runSearch(search)
+    return
+  }
+  await router.push({ query })
 }
 </script>
 
@@ -101,7 +258,7 @@ async function submitSearch() {
             <NuxtLink to="/cinemas" class="float-right mb-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">Gérer mes favoris</NuxtLink>
             <div v-if="preferencesError && !isInitialized" id="theater-selection-message" class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
               <p>{{ preferencesError }}</p>
-              <button type="button" class="mt-3 font-semibold underline underline-offset-4" @click="initialize">Réessayer</button>
+              <button type="button" class="mt-3 font-semibold underline underline-offset-4" @click="initializePreferences">Réessayer</button>
             </div>
             <div v-else-if="isLoading || !isInitialized" class="clear-both flex min-h-10 items-center gap-2 rounded-md border border-line px-3 text-sm text-muted">
               <LoaderCircle :size="16" class="animate-spin" aria-hidden="true" /> Chargement des cinémas…

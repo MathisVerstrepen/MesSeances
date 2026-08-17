@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, Check, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
+import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+
+const route = useRoute()
+const router = useRouter()
+const OWNED_QUERY_KEYS = ['q'] as const
 
 const {
   theaters,
@@ -17,6 +22,23 @@ const search = ref('')
 const isReady = ref(false)
 const statusMessage = ref('')
 const validationMessage = ref('')
+
+function cinemaQuery(value: string) {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, { q: value || undefined })
+}
+
+function hydrateRoute() {
+  const value = singularQueryValue(route.query.q)?.trim() ?? ''
+  if (search.value.trim() !== value) search.value = value
+  return cinemaQuery(value)
+}
+
+function updateSearch(event: Event) {
+  if (!(event.currentTarget instanceof HTMLInputElement)) return
+  search.value = event.currentTarget.value
+  const query = cinemaQuery(search.value.trim())
+  if (!queriesEqual(route.query, query)) router.replace({ query })
+}
 
 const selectedIds = computed(() => new Set(favoriteTheaterIds.value))
 const normalizedSearch = computed(() => search.value.trim().toLocaleLowerCase('fr-FR'))
@@ -80,7 +102,16 @@ async function loadPreferences() {
   }
 }
 
-onMounted(loadPreferences)
+hydrateRoute()
+watch(() => route.query, () => {
+  const query = hydrateRoute()
+  if (!queriesEqual(route.query, query)) router.replace({ query })
+})
+onMounted(async () => {
+  const query = hydrateRoute()
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
+  await loadPreferences()
+})
 </script>
 
 <template>
@@ -97,7 +128,7 @@ onMounted(loadPreferences)
         <span class="mb-1.5 block">Rechercher un cinéma ou une ville</span>
         <span class="relative block">
           <Search :size="17" class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden="true" />
-          <input v-model.trim="search" type="search" class="field pl-10" autocomplete="off" />
+          <input :value="search" type="search" class="field pl-10" autocomplete="off" @input="updateSearch" />
         </span>
       </label>
     </div>

@@ -3,11 +3,19 @@ import { AlertTriangle, CalendarDays, LoaderCircle, RefreshCw, Settings2 } from 
 import type { Language, QueryFormat, TimelineResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
+import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
 
+const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'mode', 'zoom'] as const
+const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
+const MODES: readonly TimelineMode[] = ['theater', 'movie']
+const ZOOMS: readonly string[] = ['15', '30', '60']
+
 const api = useMovieFlowApi()
+const route = useRoute()
+const router = useRouter()
 const preferences = useCinemaPreferences()
 const date = ref(todayInParis())
 const language = ref<Language>('ALL')
@@ -18,6 +26,9 @@ const timeline = ref<TimelineResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
 let requestId = 0
+let isMounted = false
+let isInitializing = false
+let lastTimelineKey = ''
 
 function matchesFormat(format: string) {
   if (formatFilter.value === 'ALL') return true
@@ -60,6 +71,51 @@ async function retryTimeline() {
   await loadTimeline()
 }
 
+function timelineQuery() {
+  const today = todayInParis()
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    date: date.value === today ? undefined : date.value,
+    language: language.value === 'ALL' ? undefined : language.value,
+    format: formatFilter.value === 'ALL' ? undefined : formatFilter.value,
+    mode: mode.value === 'theater' ? undefined : mode.value,
+    zoom: zoom.value === 60 ? undefined : String(zoom.value)
+  })
+}
+
+function hydrateRoute() {
+  const queryDate = calendarDate(singularQueryValue(route.query.date))
+  date.value = queryDate ?? todayInParis()
+  language.value = enumQueryValue(singularQueryValue(route.query.language), LANGUAGES) ?? 'ALL'
+  formatFilter.value = enumQueryValue(singularQueryValue(route.query.format), formatOptions.map((option) => option.value)) ?? 'ALL'
+  mode.value = enumQueryValue(singularQueryValue(route.query.mode), MODES) ?? 'theater'
+  const queryZoom = enumQueryValue(singularQueryValue(route.query.zoom), ZOOMS)
+  zoom.value = queryZoom === '15' ? 15 : queryZoom === '30' ? 30 : 60
+  return timelineQuery()
+}
+
+async function applyRoute() {
+  const canonicalQuery = hydrateRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) {
+    await router.replace({ query: canonicalQuery })
+    return
+  }
+  const key = `${date.value}|${language.value}|${preferences.favoriteTheaterIds.value.join(',')}`
+  if (preferences.isInitialized.value && key !== lastTimelineKey) {
+    lastTimelineKey = key
+    await loadTimeline()
+  }
+}
+
+function updateTimelineQuery(values: Partial<Record<'date' | 'language' | 'format' | 'mode' | 'zoom', string>>) {
+  const query = mergeOwnedQuery(route.query, Object.keys(values), values)
+  if (!queriesEqual(route.query, query)) router.push({ query })
+}
+
+function updateLanguage(event: Event) {
+  if (!(event.currentTarget instanceof HTMLSelectElement)) return
+  updateTimelineQuery({ language: event.currentTarget.value === 'ALL' ? undefined : event.currentTarget.value })
+}
+
 function createFallbackDates() {
   const [year, month, day] = todayInParis().split('-').map(Number)
   return Array.from({ length: 7 }, (_, offset) => {
@@ -78,13 +134,22 @@ const dateOptions = computed(() => {
 const showtimeCount = computed(() => timeline.value?.theaters.reduce((total, theater) => total + theater.showtimes.filter((showtime) => matchesFormat(showtime.format)).length, 0) ?? 0)
 const rawShowtimeCount = computed(() => timeline.value?.theaters.reduce((total, theater) => total + theater.showtimes.length, 0) ?? 0)
 
-watch([date, language, preferences.favoriteTheaterIds], () => {
-  if (preferences.isInitialized.value) loadTimeline()
+watch(() => route.query, () => {
+  if (isMounted) applyRoute()
+})
+watch(preferences.favoriteTheaterIds, () => {
+  if (preferences.isInitialized.value && !isInitializing) applyRoute()
 })
 
 onMounted(async () => {
+  isMounted = true
+  const canonicalQuery = hydrateRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
+  isInitializing = true
   await preferences.initialize()
-  await loadTimeline()
+  isInitializing = false
+  if (preferences.isInitialized.value) await applyRoute()
+  else await loadTimeline()
 })
 </script>
 
@@ -107,7 +172,7 @@ onMounted(async () => {
           class="h-10 rounded-full border px-4 text-sm font-medium capitalize transition"
           :class="date === option ? 'border-accent bg-accent text-white' : 'border-line bg-surface text-ink hover:border-stone-400'"
           :aria-pressed="date === option"
-          @click="date = option"
+          @click="updateTimelineQuery({ date: option === todayInParis() ? undefined : option })"
         >
           {{ formatDateLabel(option) }}
         </button>
@@ -119,14 +184,14 @@ onMounted(async () => {
         <fieldset>
           <legend class="mb-1.5 text-xs font-semibold text-muted">Affichage</legend>
           <div class="inline-flex rounded-md border border-line bg-surface p-1">
-            <button v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="mode === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="mode === option.value" @click="mode = option.value as TimelineMode">{{ option.label }}</button>
+            <button v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="mode === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="mode === option.value" @click="updateTimelineQuery({ mode: option.value === 'theater' ? undefined : option.value })">{{ option.label }}</button>
           </div>
         </fieldset>
 
         <fieldset>
           <legend class="mb-1.5 text-xs font-semibold text-muted">Format</legend>
           <div class="inline-flex max-w-[calc(100vw-2rem)] overflow-x-auto rounded-md border border-line bg-surface p-1 sm:max-w-[calc(100vw-3rem)]">
-            <button v-for="option in formatOptions" :key="option.value" type="button" class="h-8 shrink-0 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="formatFilter = option.value">
+            <button v-for="option in formatOptions" :key="option.value" type="button" class="h-8 shrink-0 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
               <BrandLogo v-if="option.brand" :brand="option.brand" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
               <span v-else>{{ option.label }}</span>
             </button>
@@ -135,7 +200,7 @@ onMounted(async () => {
 
         <label class="block text-xs font-semibold text-muted">
           <span class="mb-1.5 block">Langue</span>
-          <select v-model="language" class="field min-w-32">
+          <select :value="language" class="field min-w-32" @change="updateLanguage">
             <option value="ALL">Toutes</option>
             <option value="VOSTFR">VOSTFR</option>
             <option value="VF">VF</option>
@@ -146,7 +211,7 @@ onMounted(async () => {
       <fieldset>
         <legend class="mb-1.5 text-xs font-semibold text-muted">Zoom</legend>
         <div class="inline-flex rounded-md border border-line bg-surface p-1">
-          <button v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="zoom === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="zoom === option.value" @click="zoom = option.value as TimelineZoom">{{ option.label }}</button>
+          <button v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="zoom === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="zoom === option.value" @click="updateTimelineQuery({ zoom: option.value === 60 ? undefined : String(option.value) })">{{ option.label }}</button>
         </div>
       </fieldset>
     </div>

@@ -3,7 +3,8 @@ import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, R
 import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
-import { formatLabel } from '~/utils/formats'
+import { formatLabel, isShowtimeFormat } from '~/utils/formats'
+import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
 type LanguageFilter = 'ALL' | Showtime['language']
@@ -11,8 +12,11 @@ type TechnologyFilter = 'ALL' | ShowtimeFormat
 type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
 
 const SHOWTIME_WARNING_DURATION_MS = 20 * 60 * 1000
+const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'sort'] as const
+const SHOWTIME_LANGUAGES: readonly Showtime['language'][] = ['VOSTFR', 'VF', 'VO', 'VF_SME']
 
 const route = useRoute()
+const router = useRouter()
 const api = useMovieFlowApi()
 const preferences = useCinemaPreferences()
 const schedule = ref<MovieShowtimesResponse | null>(null)
@@ -28,6 +32,8 @@ const sortByNextShowtime = ref(false)
 const currentTime = ref<number | null>(null)
 let requestId = 0
 let currentTimeTimer: number | undefined
+let isReady = false
+let lastScheduleKey = ''
 
 const slug = computed(() => {
   const value = route.params.slug
@@ -84,8 +90,7 @@ function matchesFilter(showtime: Showtime): boolean {
 }
 
 function resetFilters() {
-  activeLanguage.value = 'ALL'
-  activeTechnology.value = 'ALL'
+  updateFilmQuery({ language: undefined, format: undefined })
 }
 
 function showtimeTimingState(showtime: Showtime): ShowtimeTimingState {
@@ -125,11 +130,54 @@ const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Arra
 })
 const visibleShowtimeCount = computed(() => visibleTheaters.value.reduce((total, theater) => total + theater.showtimes.length, 0))
 
-function chooseDate(): boolean {
-  if (availableDates.value.includes(selectedDate.value)) return false
+function fallbackDate(): string {
   const today = todayInParis()
-  selectedDate.value = availableDates.value.includes(today) ? today : availableDates.value[0] ?? today
-  return true
+  return availableDates.value.includes(today) ? today : availableDates.value[0] ?? today
+}
+
+function isAvailableDate(value: string | undefined): value is string {
+  if (!value) return false
+  return availableDates.value.length > 0 ? availableDates.value.includes(value) : value === todayInParis()
+}
+
+function filmQuery() {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    date: selectedDate.value === fallbackDate() ? undefined : selectedDate.value,
+    language: activeLanguage.value === 'ALL' ? undefined : activeLanguage.value,
+    format: activeTechnology.value === 'ALL' ? undefined : activeTechnology.value,
+    sort: sortByNextShowtime.value ? 'next' : undefined
+  })
+}
+
+function updateFilmQuery(values: Partial<Record<'date' | 'language' | 'format' | 'sort', string | undefined>>) {
+  const query = mergeOwnedQuery(route.query, Object.keys(values), values)
+  if (!queriesEqual(route.query, query)) router.push({ query })
+}
+
+function hydrateRoute() {
+  const requestedDate = calendarDate(singularQueryValue(route.query.date))
+  selectedDate.value = isAvailableDate(requestedDate) ? requestedDate : fallbackDate()
+
+  const requestedLanguage = singularQueryValue(route.query.language)
+  activeLanguage.value = requestedLanguage === 'ALL'
+    ? 'ALL'
+    : enumQueryValue(requestedLanguage, SHOWTIME_LANGUAGES) ?? 'ALL'
+
+  const requestedFormat = singularQueryValue(route.query.format)
+  activeTechnology.value = requestedFormat === 'ALL'
+    ? 'ALL'
+    : requestedFormat && isShowtimeFormat(requestedFormat) ? requestedFormat : 'ALL'
+  sortByNextShowtime.value = singularQueryValue(route.query.sort) === 'next'
+  return filmQuery()
+}
+
+async function normalizeDynamicFilters() {
+  const values: Record<string, string | undefined> = {}
+  if (activeLanguage.value !== 'ALL' && !languages.value.includes(activeLanguage.value)) values.language = undefined
+  if (activeTechnology.value !== 'ALL' && !technologyFormats.value.includes(activeTechnology.value)) values.format = undefined
+  if (Object.keys(values).length === 0) return
+  const query = mergeOwnedQuery(route.query, Object.keys(values), values)
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
 function selectAdjacentDate(event: KeyboardEvent, index: number) {
@@ -143,7 +191,7 @@ function selectAdjacentDate(event: KeyboardEvent, index: number) {
   event.preventDefault()
   const nextDate = availableDates.value[nextIndex]
   if (!nextDate) return
-  selectedDate.value = nextDate
+  updateFilmQuery({ date: nextDate === fallbackDate() ? undefined : nextDate })
   const currentTarget = event.currentTarget
   if (!(currentTarget instanceof HTMLElement)) return
   const tabs = currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -184,7 +232,11 @@ async function loadSchedule() {
       date: selectedDate.value,
       theaters: preferences.favoriteTheaterIds.value.join(',')
     })
-    if (currentRequest === requestId) schedule.value = response
+    if (currentRequest === requestId) {
+      schedule.value = response
+      await nextTick()
+      await normalizeDynamicFilters()
+    }
   } catch (error) {
     if (currentRequest === requestId) {
       schedule.value = null
@@ -194,6 +246,19 @@ async function loadSchedule() {
   } finally {
     if (currentRequest === requestId) pending.value = false
   }
+}
+
+async function applyRoute() {
+  const canonicalQuery = hydrateRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) {
+    await router.replace({ query: canonicalQuery })
+    return
+  }
+
+  const key = `${slug.value}|${selectedDate.value}|${preferences.favoriteTheaterIds.value.join(',')}`
+  if (key === lastScheduleKey) return
+  lastScheduleKey = key
+  await loadSchedule()
 }
 
 async function initializePreferencesAndLoad() {
@@ -209,7 +274,8 @@ async function initializePreferencesAndLoad() {
     return
   }
 
-  if (!chooseDate()) await loadSchedule()
+  isReady = true
+  await applyRoute()
 }
 
 async function retryLoad() {
@@ -217,29 +283,21 @@ async function retryLoad() {
   else await loadSchedule()
 }
 
-watch(selectedDate, loadSchedule)
 watch(
   () => preferences.favoriteTheaterIds.value.join(','),
   () => {
-    if (!preferences.isInitialized.value) return
-    if (!chooseDate()) loadSchedule()
+    if (isReady) applyRoute()
   }
 )
+watch(() => route.query, () => {
+  if (isReady) applyRoute()
+})
 watch(slug, () => {
   schedule.value = null
   posterFailed.value = false
   backdropFailed.value = false
-  loadSchedule()
-})
-watch(technologyFormats, (formats) => {
-  if (activeTechnology.value !== 'ALL' && !formats.includes(activeTechnology.value)) {
-    activeTechnology.value = 'ALL'
-  }
-})
-watch(languages, (values) => {
-  if (activeLanguage.value !== 'ALL' && !values.includes(activeLanguage.value)) {
-    activeLanguage.value = 'ALL'
-  }
+  lastScheduleKey = ''
+  if (isReady) applyRoute()
 })
 
 onMounted(() => {
@@ -387,7 +445,7 @@ useHead(() => ({
               :tabindex="selectedDate === date ? 0 : -1"
               class="h-10 shrink-0 rounded-md px-4 text-sm font-semibold transition"
               :class="selectedDate === date ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
-              @click="selectedDate = date"
+              @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
               @keydown="selectAdjacentDate($event, index)"
             >
               {{ formatDateLabel(date) }}
@@ -406,7 +464,7 @@ useHead(() => ({
                   class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
                   :class="activeLanguage === option.value ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
                   :aria-pressed="activeLanguage === option.value"
-                  @click="activeLanguage = option.value"
+                  @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
                   {{ option.label }}
                 </button>
@@ -423,7 +481,7 @@ useHead(() => ({
                     class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
                     :class="activeTechnology === option.value ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
                     :aria-pressed="activeTechnology === option.value"
-                    @click="activeTechnology = option.value"
+                    @click="updateFilmQuery({ format: option.value === 'ALL' ? undefined : option.value })"
                   >
                     {{ option.label }}
                   </button>
@@ -435,7 +493,7 @@ useHead(() => ({
                 :class="sortByNextShowtime ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
                 :aria-pressed="sortByNextShowtime"
                 aria-label="Trier les cinémas par prochain horaire"
-                @click="sortByNextShowtime = !sortByNextShowtime"
+                @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
               >
                 <ArrowDownUp :size="16" aria-hidden="true" />
                 <span class="whitespace-nowrap">Prochain horaire</span>

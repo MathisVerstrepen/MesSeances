@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { AlertTriangle, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
 import type { CatalogMovie, MoviesResponse } from '~/types/api'
+import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 
 const PAGE_SIZE = 24
+const OWNED_QUERY_KEYS = ['q', 'page'] as const
 
 const api = useMovieFlowApi()
+const route = useRoute()
+const router = useRouter()
 const searchInput = ref('')
 const appliedSearch = ref('')
 const page = ref(1)
@@ -14,6 +18,9 @@ const pending = ref(true)
 const errorMessage = ref('')
 const failedPosters = ref<string[]>([])
 let requestId = 0
+let isMounted = false
+let scrollAfterLoad = false
+let lastLoadKey = ''
 
 const totalPages = computed(() => Math.max(1, Math.ceil((catalog.value?.total ?? 0) / PAGE_SIZE)))
 
@@ -29,7 +36,19 @@ async function loadMovies() {
       page: page.value,
       page_size: PAGE_SIZE
     })
-    if (currentRequest === requestId) catalog.value = response
+    if (currentRequest === requestId) {
+      const lastPage = Math.max(1, Math.ceil(response.total / PAGE_SIZE))
+      if (page.value > lastPage) {
+        const query = filmQuery(appliedSearch.value, lastPage)
+        if (!queriesEqual(route.query, query)) await router.replace({ query })
+        return
+      }
+      catalog.value = response
+      if (scrollAfterLoad) {
+        scrollAfterLoad = false
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }
   } catch (error) {
     if (currentRequest === requestId) {
       catalog.value = null
@@ -40,19 +59,49 @@ async function loadMovies() {
   }
 }
 
+function filmQuery(search: string, nextPage: number) {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    q: search || undefined,
+    page: nextPage === 1 ? undefined : String(nextPage)
+  })
+}
+
+function hydrateRoute() {
+  const rawSearch = singularQueryValue(route.query.q)
+  const nextSearch = rawSearch?.trim() ?? ''
+  const nextPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
+  searchInput.value = nextSearch
+  appliedSearch.value = nextSearch
+  page.value = nextPage
+  return filmQuery(nextSearch, nextPage)
+}
+
+async function applyRoute() {
+  const canonicalQuery = hydrateRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) {
+    await router.replace({ query: canonicalQuery })
+    return
+  }
+  const key = `${appliedSearch.value}|${page.value}`
+  if (key === lastLoadKey) return
+  lastLoadKey = key
+  await loadMovies()
+}
+
 function submitSearch() {
   const nextSearch = searchInput.value.trim()
-  const searchChanged = nextSearch !== appliedSearch.value
-  appliedSearch.value = nextSearch
-
-  if (page.value !== 1) page.value = 1
-  else if (searchChanged || errorMessage.value) loadMovies()
+  const query = filmQuery(nextSearch, 1)
+  if (queriesEqual(route.query, query)) {
+    if (errorMessage.value) loadMovies()
+    return
+  }
+  router.push({ query })
 }
 
 function changePage(nextPage: number) {
   if (pending.value || nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
-  page.value = nextPage
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  scrollAfterLoad = true
+  router.push({ query: filmQuery(appliedSearch.value, nextPage) })
 }
 
 function posterAvailable(movie: CatalogMovie): boolean {
@@ -67,8 +116,13 @@ function markPosterUnavailable(slug: string) {
   if (!failedPosters.value.includes(slug)) failedPosters.value = [...failedPosters.value, slug]
 }
 
-watch(page, loadMovies)
-onMounted(loadMovies)
+watch(() => route.query, () => {
+  if (isMounted) applyRoute()
+})
+onMounted(() => {
+  isMounted = true
+  applyRoute()
+})
 
 useHead({ title: 'Films à l’affiche — MovieFlow' })
 </script>

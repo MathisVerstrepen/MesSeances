@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowLeft, Check, ExternalLink, Film, LoaderCircle, LogOut, RefreshCw, Trash2 } from '@lucide/vue'
 import type { AdminPendingMatch, AdminPendingMatchesResponse, AdminTMDBCandidate, Provider } from '~/types/api'
+import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 
 definePageMeta({ middleware: 'admin-auth' })
 
 const PAGE_SIZE = 20
+const OWNED_QUERY_KEYS = ['page'] as const
 const api = useMovieFlowApi()
+const route = useRoute()
+const router = useRouter()
 const result = ref<AdminPendingMatchesResponse | null>(null)
 const offset = ref(0)
 const pending = ref(true)
@@ -18,6 +22,9 @@ const rejectConfirmation = ref('')
 const loggingOut = ref(false)
 const failedPosters = ref<string[]>([])
 let requestId = 0
+let isMounted = false
+let scrollAfterLoad = false
+let lastLoadPage = 0
 
 const page = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
 const canGoNext = computed(() => (result.value?.items.length ?? 0) === PAGE_SIZE)
@@ -35,6 +42,10 @@ async function loadMatches() {
       selectedCandidates.value = Object.fromEntries(
         response.items.filter((match) => match.candidates.length === 1).map((match) => [match.source_movie_id, match.candidates[0]!.id])
       )
+      if (scrollAfterLoad) {
+        scrollAfterLoad = false
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      }
     }
   } catch (error) {
     if (currentRequest === requestId) {
@@ -49,8 +60,33 @@ async function loadMatches() {
 async function refreshAfterDecision() {
   await loadMatches()
   if (!errorMessage.value && offset.value > 0 && result.value?.items.length === 0) {
-    offset.value = Math.max(0, offset.value - PAGE_SIZE)
+    await router.replace({ query: adminQuery(page.value - 1) })
   }
+}
+
+function adminQuery(nextPage: number) {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    page: nextPage === 1 ? undefined : String(nextPage)
+  })
+}
+
+function hydrateRoute() {
+  const nextPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
+  const nextOffset = (nextPage - 1) * PAGE_SIZE
+  const safePage = Number.isSafeInteger(nextOffset) ? nextPage : 1
+  offset.value = (safePage - 1) * PAGE_SIZE
+  return adminQuery(safePage)
+}
+
+async function applyRoute() {
+  const canonicalQuery = hydrateRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) {
+    await router.replace({ query: canonicalQuery })
+    return
+  }
+  if (page.value === lastLoadPage) return
+  lastLoadPage = page.value
+  await loadMatches()
 }
 
 async function approveWithTmdbId(match: AdminPendingMatch, tmdbId: number, kind: 'candidate' | 'manual') {
@@ -107,8 +143,8 @@ async function reject(match: AdminPendingMatch) {
 
 function changePage(nextOffset: number) {
   if (pending.value || activeMutation.value || nextOffset < 0 || nextOffset === offset.value) return
-  offset.value = nextOffset
-  window.scrollTo({ top: 0, behavior: 'smooth' })
+  scrollAfterLoad = true
+  router.push({ query: adminQuery(Math.floor(nextOffset / PAGE_SIZE) + 1) })
 }
 
 async function logout() {
@@ -153,8 +189,13 @@ function markPosterUnavailable(key: string) {
   if (!failedPosters.value.includes(key)) failedPosters.value = [...failedPosters.value, key]
 }
 
-watch(offset, loadMatches)
-onMounted(loadMatches)
+watch(() => route.query, () => {
+  if (isMounted) applyRoute()
+})
+onMounted(() => {
+  isMounted = true
+  applyRoute()
+})
 useHead({ title: 'Correspondances TMDB — MovieFlow' })
 </script>
 
