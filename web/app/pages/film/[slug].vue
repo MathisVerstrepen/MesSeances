@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowDownUp, CalendarDays, ExternalLink, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
-type LanguageFilter = 'ALL' | 'VF' | 'VOSTFR'
+type LanguageFilter = 'ALL' | Showtime['language']
 type TechnologyFilter = 'ALL' | ShowtimeFormat
+type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
+
+const SHOWTIME_WARNING_DURATION_MS = 20 * 60 * 1000
 
 const route = useRoute()
 const api = useMovieFlowApi()
@@ -21,7 +25,9 @@ const backdropFailed = ref(false)
 const activeLanguage = ref<LanguageFilter>('ALL')
 const activeTechnology = ref<TechnologyFilter>('ALL')
 const sortByNextShowtime = ref(false)
+const currentTime = ref<number | null>(null)
 let requestId = 0
+let currentTimeTimer: number | undefined
 
 const slug = computed(() => {
   const value = route.params.slug
@@ -54,11 +60,14 @@ const tmdbUrl = computed(() => {
   const id = schedule.value?.movie.tmdb_id
   return id !== null && id !== undefined && Number.isFinite(id) && id > 0 ? `https://www.themoviedb.org/movie/${id}` : ''
 })
-const languageOptions: ReadonlyArray<{ value: LanguageFilter; label: string }> = [
+const languages = computed<Array<Showtime['language']>>(() => {
+  const values = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.language)) ?? []
+  return [...new Set(values)]
+})
+const languageOptions = computed<Array<{ value: LanguageFilter; label: string }>>(() => [
   { value: 'ALL', label: 'Tous' },
-  { value: 'VF', label: 'VF' },
-  { value: 'VOSTFR', label: 'VOSTFR' }
-]
+  ...languages.value.map((language) => ({ value: language, label: language }))
+])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
   const formats = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.format)) ?? []
   return [...new Set(formats)]
@@ -79,13 +88,28 @@ function resetFilters() {
   activeTechnology.value = 'ALL'
 }
 
-const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Showtime[] }>>(() => {
+function showtimeTimingState(showtime: Showtime): ShowtimeTimingState {
+  if (currentTime.value === null) return 'upcoming'
+
+  const startTime = Date.parse(showtime.start_time)
+  if (!Number.isFinite(startTime)) return 'upcoming'
+  if (currentTime.value > startTime + SHOWTIME_WARNING_DURATION_MS) return 'past'
+  if (currentTime.value >= startTime) return 'warning'
+  return 'upcoming'
+}
+
+const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Array<Showtime & { timingState: ShowtimeTimingState }> }>>(() => {
   if (!schedule.value) return []
 
   const favoriteOrder = new Map(preferences.favoriteTheaterIds.value.map((id, index) => [id, index]))
   const sourceOrder = new Map(schedule.value.theaters.map((theater, index) => [theater.id, index]))
   const theaters = schedule.value.theaters
-    .map((theater) => ({ ...theater, showtimes: theater.showtimes.filter(matchesFilter) }))
+    .map((theater) => ({
+      ...theater,
+      showtimes: theater.showtimes
+        .filter(matchesFilter)
+        .map((showtime) => ({ ...showtime, timingState: showtimeTimingState(showtime) }))
+    }))
     .filter((theater) => theater.showtimes.length > 0)
 
   return theaters.sort((left, right) => {
@@ -126,8 +150,9 @@ function selectAdjacentDate(event: KeyboardEvent, index: number) {
   nextTick(() => tabs?.[nextIndex]?.focus())
 }
 
-function bookingLabel(showtime: Showtime, theater: MovieShowtimesTheater): string {
-  return `Séance de ${formatParisTime(showtime.start_time)} à ${theater.name}, réserver`
+function bookingLabel(showtime: Showtime, theater: MovieShowtimesTheater, timingState: ShowtimeTimingState): string {
+  const timingLabel = timingState === 'warning' ? ', séance commencée' : timingState === 'past' ? ', séance passée' : ''
+  return `Séance de ${formatParisTime(showtime.start_time)} à ${theater.name}${timingLabel}, réserver`
 }
 
 function isNotFoundError(cause: unknown): boolean {
@@ -211,8 +236,22 @@ watch(technologyFormats, (formats) => {
     activeTechnology.value = 'ALL'
   }
 })
+watch(languages, (values) => {
+  if (activeLanguage.value !== 'ALL' && !values.includes(activeLanguage.value)) {
+    activeLanguage.value = 'ALL'
+  }
+})
 
-onMounted(initializePreferencesAndLoad)
+onMounted(() => {
+  currentTime.value = Date.now()
+  currentTimeTimer = window.setInterval(() => {
+    currentTime.value = Date.now()
+  }, 30_000)
+  initializePreferencesAndLoad()
+})
+onBeforeUnmount(() => {
+  if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
+})
 
 useHead(() => ({
   title: schedule.value?.movie.title ? `${schedule.value.movie.title} — MovieFlow` : 'Séances du film — MovieFlow'
@@ -250,8 +289,8 @@ useHead(() => ({
 
     <template v-else-if="schedule">
       <header
-        class="grid gap-6 border-b pb-8 sm:grid-cols-[144px_minmax(0,1fr)] sm:items-start"
-        :class="backdropAvailable ? 'relative isolate overflow-hidden rounded-lg border-transparent px-4 pt-6 sm:px-6 lg:px-8' : 'border-line'"
+        class="relative grid gap-6 border-b pb-8 sm:grid-cols-[144px_minmax(0,1fr)] sm:items-start"
+        :class="backdropAvailable ? 'isolate overflow-hidden rounded-lg border-transparent px-4 pt-6 sm:px-6 lg:px-8' : 'border-line'"
       >
         <img
           v-if="backdropAvailable"
@@ -262,6 +301,17 @@ useHead(() => ({
           @error="backdropFailed = true"
         />
         <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-gradient-to-r from-black/95 via-black/80 to-black/70" aria-hidden="true" />
+        <a
+          v-if="tmdbUrl"
+          :href="tmdbUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Voir ce film sur TMDB (nouvel onglet)"
+          class="absolute right-0 top-0 z-20 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-accent"
+          :class="backdropAvailable ? 'right-4 top-4 hover:bg-white/15 focus-visible:ring-orange-200 focus-visible:ring-offset-stone-950 sm:right-6 lg:right-8' : undefined"
+        >
+          <img :src="tmdbLogo" alt="" class="h-auto w-20" />
+        </a>
         <div
           class="aspect-[2/3] w-32 overflow-hidden rounded-md border shadow-sm sm:w-36"
           :class="backdropAvailable ? 'relative z-10 border-white/25 bg-black/40' : 'border-line bg-subtle'"
@@ -282,13 +332,8 @@ useHead(() => ({
             <span class="text-xs font-medium">Affiche indisponible</span>
           </div>
         </div>
-        <div class="min-w-0" :class="backdropAvailable ? 'relative z-10' : undefined">
-          <NuxtLink
-            to="/films"
-            class="text-sm font-medium hover:underline"
-            :class="backdropAvailable ? 'text-orange-200 hover:text-white focus-visible:ring-orange-200 focus-visible:ring-offset-stone-950' : 'text-accent'"
-          >Films à l’affiche</NuxtLink>
-          <h1 class="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
+        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, tmdbUrl ? 'sm:pr-28' : undefined]">
+          <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
           <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" :class="backdropAvailable ? 'text-stone-200' : 'text-muted'">
             <span>{{ schedule.movie.runtime_minutes }} min</span>
             <template v-if="releaseDateLabel">
@@ -310,16 +355,6 @@ useHead(() => ({
             <h2 class="text-sm font-semibold" :class="backdropAvailable ? 'text-white' : 'text-ink'">Synopsis</h2>
             <p class="mt-1.5 text-sm leading-6" :class="backdropAvailable ? 'text-stone-200' : 'text-muted'">{{ schedule.movie.overview }}</p>
           </div>
-          <a
-            v-if="tmdbUrl"
-            :href="tmdbUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold underline-offset-2 hover:underline focus-visible:rounded-sm"
-            :class="backdropAvailable ? 'text-orange-200 hover:text-white focus-visible:ring-orange-200 focus-visible:ring-offset-stone-950' : 'text-accent'"
-          >
-            Voir sur TMDB <ExternalLink :size="15" aria-hidden="true" />
-          </a>
         </div>
       </header>
 
@@ -361,7 +396,7 @@ useHead(() => ({
           </div>
 
           <div class="mt-2 flex flex-col gap-2">
-            <div class="flex flex-wrap items-center gap-2">
+            <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
               <span id="language-filter-label" class="text-xs font-semibold uppercase tracking-wide text-muted">Langue</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="language-filter-label">
                 <button
@@ -378,20 +413,22 @@ useHead(() => ({
               </div>
             </div>
             <div class="flex min-w-0 items-center gap-2">
-              <span id="technology-filter-label" class="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">Technologie</span>
-              <div class="flex min-w-0 gap-1 overflow-x-auto" role="group" aria-labelledby="technology-filter-label">
-                <button
-                  v-for="option in technologyOptions"
-                  :key="option.value"
-                  type="button"
-                  class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
-                  :class="activeTechnology === option.value ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
-                  :aria-pressed="activeTechnology === option.value"
-                  @click="activeTechnology = option.value"
-                >
-                  {{ option.label }}
-                </button>
-              </div>
+              <template v-if="technologyFormats.length > 1">
+                <span id="technology-filter-label" class="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">Technologie</span>
+                <div class="flex min-w-0 gap-1 overflow-x-auto" role="group" aria-labelledby="technology-filter-label">
+                  <button
+                    v-for="option in technologyOptions"
+                    :key="option.value"
+                    type="button"
+                    class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
+                    :class="activeTechnology === option.value ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                    :aria-pressed="activeTechnology === option.value"
+                    @click="activeTechnology = option.value"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </template>
               <button
                 type="button"
                 class="ml-auto inline-flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-medium transition"
@@ -445,10 +482,11 @@ useHead(() => ({
                     v-slot="{ available }"
                     :url="showtime.booking_url"
                     :provider="showtime.provider"
-                    :aria-label="bookingLabel(showtime, theater)"
+                    :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
-                    class="group flex h-full min-h-28 w-full scroll-mt-[17rem] flex-col items-start justify-between rounded-lg border p-3 text-left transition lg:scroll-mt-36"
-                    available-class="border-line bg-surface text-ink shadow-sm hover:border-accent hover:bg-surface hover:shadow-md"
+                    class="group relative flex h-full min-h-28 w-full scroll-mt-[17rem] flex-col items-start justify-between overflow-hidden rounded-lg border p-3 text-left transition lg:scroll-mt-36"
+                    :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'ring-2 ring-amber-400 ring-offset-1' : undefined"
+                    :available-class="showtime.timingState === 'past' ? 'border-line bg-surface text-ink shadow-sm' : 'border-line bg-surface text-ink shadow-sm hover:border-accent hover:bg-surface hover:shadow-md'"
                     unavailable-class="cursor-not-allowed border-dashed border-stone-300 bg-subtle text-muted shadow-none"
                   >
                     <div class="flex w-full items-baseline justify-between gap-2">
@@ -464,7 +502,21 @@ useHead(() => ({
                         <span>Salle {{ showtime.room }}</span>
                       </template>
                     </div>
+                    <span v-if="showtime.timingState === 'warning'" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
+                      <AlertTriangle :size="14" aria-hidden="true" /> Séance commencée
+                    </span>
+                    <span v-else-if="showtime.timingState === 'past'" class="sr-only">Séance passée</span>
                     <span v-if="!available" class="mt-2 text-xs font-semibold">Réservation indisponible</span>
+                    <svg
+                      v-if="showtime.timingState === 'past'"
+                      viewBox="0 0 100 100"
+                      preserveAspectRatio="none"
+                      aria-hidden="true"
+                      focusable="false"
+                      class="pointer-events-none absolute inset-0 size-full text-stone-500"
+                    >
+                      <line x1="0" y1="100" x2="100" y2="0" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+                    </svg>
                   </BookingLink>
                 </li>
               </ul>
