@@ -18,26 +18,26 @@ let active = false
 const job = computed(() => status.value?.job ?? null)
 const controlsDisabled = computed(() => initialPending.value || startingTarget.value !== null || status.value === null || job.value?.state === 'running')
 
-const stateLabels: Record<AdminSyncState, string> = {
+const stateLabels = {
   running: 'En cours',
   succeeded: 'Terminée avec succès',
   failed: 'Échec'
-}
+} satisfies Record<AdminSyncState, string>
 
-const providerStateLabels: Record<AdminSyncProviderState, string> = {
+const providerStateLabels = {
   not_requested: 'Non demandée',
   pending: 'En attente',
   running: 'En cours',
   succeeded: 'Terminée avec succès',
   failed: 'Échec',
   skipped: 'Ignorée après un échec'
-}
+} satisfies Record<AdminSyncProviderState, string>
 
-const targetLabels: Record<AdminSyncTarget, string> = {
+const targetLabels = {
   all: 'Tous les cinémas',
   ugc: 'UGC',
   kinepolis: 'Kinepolis'
-}
+} satisfies Record<AdminSyncTarget, string>
 
 function clearPolling() {
   if (pollTimer !== undefined) {

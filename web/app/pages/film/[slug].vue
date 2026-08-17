@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, CalendarDays, ExternalLink, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
-import type { ApiErrorResponse, MovieShowtimesResponse } from '~/types/api'
+import type { MovieShowtimesResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 
@@ -43,7 +43,7 @@ const releaseDateLabel = computed(() => {
 })
 const tmdbUrl = computed(() => {
   const id = schedule.value?.movie.tmdb_id
-  return typeof id === 'number' && Number.isFinite(id) && id > 0 ? `https://www.themoviedb.org/movie/${id}` : ''
+  return id !== null && id !== undefined && Number.isFinite(id) && id > 0 ? `https://www.themoviedb.org/movie/${id}` : ''
 })
 
 function chooseDate(): boolean {
@@ -53,10 +53,8 @@ function chooseDate(): boolean {
   return true
 }
 
-function isNotFoundError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  const candidate = error as { status?: number; statusCode?: number; data?: ApiErrorResponse }
-  return candidate.status === 404 || candidate.statusCode === 404 || candidate.data?.error?.code === 'not_found'
+function isNotFoundError(cause: unknown): boolean {
+  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
 }
 
 async function loadSchedule() {

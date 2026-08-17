@@ -5,11 +5,16 @@ const STORAGE_KEY = 'movieflow.favoriteTheaterIds.v1'
 let initializationPromise: Promise<void> | null = null
 let memoryFavoriteIds: string[] | null = null
 
-function uniqueIds(ids: unknown[]): string[] {
-  return [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).map((id) => id.trim()))]
+interface StoredFavoriteIds {
+  exists: boolean
+  ids: string[]
 }
 
-function storedFavoriteIds(): { exists: boolean; ids: string[] } {
+function uniqueIds(ids: unknown[]): string[] {
+  return [...new Set(ids.filter((id): id is string => id === String(id) && id.trim().length > 0).map((id) => id.trim()))]
+}
+
+function storedFavoriteIds(): StoredFavoriteIds {
   let raw: string | null
   try {
     raw = localStorage.getItem(STORAGE_KEY)

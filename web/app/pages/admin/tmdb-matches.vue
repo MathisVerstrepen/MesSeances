@@ -130,7 +130,7 @@ function candidateRuntime(candidate: AdminTMDBCandidate): string {
 }
 
 function candidateScore(candidate: AdminTMDBCandidate): string {
-  return typeof candidate.score === 'number' ? `${Math.round(candidate.score * 100)} %` : 'Non renseigné'
+  return candidate.score !== undefined ? `${Math.round(candidate.score * 100)} %` : 'Non renseigné'
 }
 
 function sourcePosterKey(match: AdminPendingMatch): string {

@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
   decorative: false
 })
 
-const sources: Record<Brand, Record<'inline' | 'display', string>> = {
+const sources = {
   UGC: { inline: ugcLogoSmall, display: ugcLogoLarge },
   IMAX: { inline: imaxLogoSmall, display: imaxLogoLarge },
   KINEPOLIS: { inline: kinepolisLogoSmall, display: kinepolisLogoLarge },
@@ -36,10 +36,10 @@ const sources: Record<Brand, Record<'inline' | 'display', string>> = {
   SCREENX: { inline: screenXLogoSmall, display: screenXLogoLarge },
   LASER_ULTRA: { inline: laserUltraLogoSmall, display: laserUltraLogoLarge },
   '4DX': { inline: logo4DXSmall, display: logo4DXLarge }
-}
+} satisfies Record<Brand, Record<'inline' | 'display', string>>
 
 const source = computed(() => sources[props.brand][props.variant])
-const accessibleNames: Record<Brand, string> = {
+const accessibleNames = {
   UGC: 'UGC',
   IMAX: 'IMAX',
   KINEPOLIS: 'Kinepolis',
@@ -48,7 +48,7 @@ const accessibleNames: Record<Brand, string> = {
   SCREENX: 'ScreenX',
   LASER_ULTRA: 'Laser ULTRA by Kinepolis',
   '4DX': '4DX'
-}
+} satisfies Record<Brand, string>
 </script>
 
 <template>

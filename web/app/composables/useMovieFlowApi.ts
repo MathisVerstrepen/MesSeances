@@ -101,37 +101,46 @@ export function useMovieFlowApi() {
   }
 }
 
-export function getApiErrorStatus(error: unknown): number | undefined {
-  if (typeof error !== 'object' || error === null) return undefined
-  if ('status' in error && typeof error.status === 'number') return error.status
-  if ('statusCode' in error && typeof error.statusCode === 'number') return error.statusCode
+interface ApiFailure {
+  status?: number
+  statusCode?: number
+  data?: ApiErrorResponse
+}
+
+function parseApiFailure(cause: unknown): ApiFailure | null {
+  if (cause === null || Object(cause) !== cause) return null
+  // SAFETY: Object identity above establishes a non-null object; every field remains optional.
+  return cause as ApiFailure
+}
+
+export function getApiErrorStatus(cause: unknown): number | undefined {
+  const failure = parseApiFailure(cause)
+  const status = failure?.status
+  if (status !== undefined && Number.isFinite(status)) return status
+  const statusCode = failure?.statusCode
+  if (statusCode !== undefined && Number.isFinite(statusCode)) return statusCode
   return undefined
 }
 
-function getApiErrorCode(error: unknown): string | undefined {
-  if (typeof error !== 'object' || error === null || !('data' in error)) return undefined
-  return (error as { data?: ApiErrorResponse }).data?.error?.code
+export function getApiErrorCode(cause: unknown): string | undefined {
+  return parseApiFailure(cause)?.data?.error?.code
 }
 
-export function getFrenchApiError(error: unknown): string {
-  if (typeof error === 'object' && error !== null && 'data' in error) {
-    const data = (error as { data?: ApiErrorResponse }).data
-    if (typeof data?.error?.message === 'string') {
-      return data.error.message
-    }
-  }
+export function getFrenchApiError(cause: unknown): string {
+  const message = parseApiFailure(cause)?.data?.error?.message
+  if (message !== undefined) return message
   return 'Impossible de joindre le service. Vérifiez que l’API est démarrée, puis réessayez.'
 }
 
-export function getFrenchAdminApiError(error: unknown): string {
-  const code = getApiErrorCode(error)
+export function getFrenchAdminApiError(cause: unknown): string {
+  const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
   if (code === 'review_unavailable') return 'Le service de validation TMDB est temporairement indisponible.'
   if (code === 'sync_unavailable') return 'Le service de synchronisation est temporairement indisponible.'
   if (code === 'sync_in_progress') return 'Une synchronisation est déjà en cours.'
   if (code === 'sync_failed') return 'La synchronisation n’a pas pu démarrer. Réessayez plus tard.'
-  if (code === 'review_failed' || code === 'internal_error' || getApiErrorStatus(error) === 502) {
+  if (code === 'review_failed' || code === 'internal_error' || getApiErrorStatus(cause) === 502) {
     return 'Le service de validation a rencontré une erreur. Réessayez plus tard.'
   }
-  return getFrenchApiError(error)
+  return getFrenchApiError(cause)
 }

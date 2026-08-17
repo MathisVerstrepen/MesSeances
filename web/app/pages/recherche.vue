@@ -6,12 +6,22 @@ import { formatOptions } from '~/utils/formats'
 
 const api = useMovieFlowApi()
 const { favoriteTheaterIds, favoriteTheaters, isInitialized, isLoading, error: preferencesError, initialize } = useCinemaPreferences()
-const form = reactive({
+
+interface SearchForm {
+  date: string
+  startAfter: string
+  finishBefore: string
+  language: Language
+  format: QueryFormat
+  includeAds: boolean
+}
+
+const form = reactive<SearchForm>({
   date: todayInParis(),
   startAfter: '12:00',
   finishBefore: '15:00',
-  language: 'ALL' as Language,
-  format: 'ALL' as QueryFormat,
+  language: 'ALL',
+  format: 'ALL',
   includeAds: true
 })
 const timeOptions = createServiceTimeOptions()

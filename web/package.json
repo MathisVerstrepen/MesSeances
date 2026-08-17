@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
+    "lint": "oxlint",
     "typecheck": "nuxt typecheck",
     "postinstall": "nuxt prepare"
   },
@@ -15,7 +16,9 @@
     "vue-router": "5.2.0"
   },
   "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
     "@tailwindcss/vite": "4.3.3",
+    "oxlint": "1.78.0",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vue-tsc": "3.3.9"
