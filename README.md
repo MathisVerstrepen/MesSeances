@@ -127,7 +127,7 @@ Toutes les routes publiques sont en lecture seule et renvoient du JSON. Les date
 | `GET /api/v1/theaters` | `city`, `chain` optionnels ; seule la chaîne `ugc` est disponible | liste de cinémas |
 | `GET /api/v1/movies` | `currently_screened=true|false`, `search`, `page` (défaut `1`), `page_size` (défaut `24`, maximum `100`) | `items`, `page`, `page_size`, `total`, dédupliqués avant comptage et pagination |
 | `GET /api/v1/movies/{slug}/showtimes` | `date` requis ; `city` ou `theaters`, mutuellement exclusifs ; slug TMDB canonique pour un film correspondant | `movie`, `date`, `theaters[]`, avec les séances de tous les fournisseurs correspondant au même identifiant TMDB |
-| `GET /api/v1/search/slot` | `city` ou `theaters` requis, mutuellement exclusifs ; `date`, `start_after`, `finish_before` requis ; `buffer_ads` de `0` à `120` (`20` par défaut) ; `language=ALL|VOSTFR|VF` | liste de résultats compatibles |
+| `GET /api/v1/search/slot` | `city` ou `theaters` requis, mutuellement exclusifs ; `date`, `start_after`, `finish_before` requis ; `buffer_ads` de `0` à `120` (`20` par défaut) ; `language=ALL|VOSTFR|VF` ; `format=ALL|2D|3D|IMAX|DOLBY|SCREENX|LASER_ULTRA|4DX` (`ALL` par défaut, y compris si le paramètre est omis) | liste de résultats compatibles |
 
 ### API administrateur
 

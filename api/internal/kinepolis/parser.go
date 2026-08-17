@@ -108,8 +108,7 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 		}
 		dates[complexID][serviceDate] = true
 		providerVersion := sessionAttributes(session)
-		formatName := stringValue(filmObject, "format", "name")
-		data.Showtimes = append(data.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: serviceDate, TheaterID: "kinepolis-" + complexID, Movie: schedule.MovieRecord{Provider: schedule.ProviderKinepolis, ProviderID: movie.id, Slug: "kinepolis-film-" + movie.id, Title: movie.title, RuntimeMinutes: movie.runtime, PosterURL: movie.poster, Overview: movie.overview, ReleaseDate: movie.releaseDate, Genres: append([]string(nil), movie.genres...)}, StartTime: local, EndTime: local.Add(time.Duration(movie.runtime) * time.Minute), Language: language(providerVersion), ProviderVersion: nonempty(providerVersion, "standard"), Format: format(formatName), Room: stringValue(session, "hall"), BookingURL: "https://kinepolis.fr/direct-vista-redirect/" + showingID + "/0/" + complexID + "/0"})
+		data.Showtimes = append(data.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: serviceDate, TheaterID: "kinepolis-" + complexID, Movie: schedule.MovieRecord{Provider: schedule.ProviderKinepolis, ProviderID: movie.id, Slug: "kinepolis-film-" + movie.id, Title: movie.title, RuntimeMinutes: movie.runtime, PosterURL: movie.poster, Overview: movie.overview, ReleaseDate: movie.releaseDate, Genres: append([]string(nil), movie.genres...)}, StartTime: local, EndTime: local.Add(time.Duration(movie.runtime) * time.Minute), Language: language(providerVersion), ProviderVersion: nonempty(providerVersion, "standard"), Format: sessionFormat(session, filmObject, providerVersion), Room: stringValue(session, "hall"), BookingURL: "https://kinepolis.fr/direct-vista-redirect/" + showingID + "/0/" + complexID + "/0"})
 		_ = name
 	}
 	if len(data.Showtimes) == 0 {
@@ -404,14 +403,32 @@ func language(v string) string {
 	}
 	return schedule.LanguageVF
 }
+func sessionFormat(session, film map[string]any, attributes string) string {
+	parts := []string{stringValue(film, "format", "name"), attributes}
+	for _, key := range []string{"hall", "room", "screen", "technology"} {
+		collectStrings(value(session, key), &parts)
+	}
+	return format(strings.Join(parts, " "))
+}
 func format(v string) string {
 	lower := strings.ToLower(v)
-	for _, item := range []struct{ needle, value string }{{"4dx", "4DX"}, {"imax", "IMAX"}, {"dolby", "DOLBY"}, {"3d", "3D"}} {
+	if strings.Contains(lower, "laser ultra") {
+		return schedule.FormatLaserUltra
+	}
+	if strings.Contains(lower, "screenx") || strings.Contains(lower, "screen x") || strings.Contains(lower, "screen-x") {
+		return schedule.FormatScreenX
+	}
+	for _, item := range []struct{ needle, value string }{
+		{"4dx", schedule.Format4DX},
+		{"imax", schedule.FormatIMAX},
+		{"dolby", schedule.FormatDolby},
+		{"3d", schedule.Format3D},
+	} {
 		if strings.Contains(lower, item.needle) {
 			return item.value
 		}
 	}
-	return "2D"
+	return schedule.Format2D
 }
 func imageURL(path string) string {
 	if strings.HasPrefix(path, "https://cdn.kinepolis.fr/images/") {

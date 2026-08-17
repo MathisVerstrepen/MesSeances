@@ -261,6 +261,9 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 	if err := validateLanguage(query.Language); err != nil {
 		return nil, err
 	}
+	if err := validateSlotFormat(query.Format); err != nil {
+		return nil, err
+	}
 	data := s.source.Snapshot()
 	selected, err := s.selectTheaters(data, query.TheaterIDs, city, false)
 	if err != nil {
@@ -272,7 +275,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 			continue
 		}
 		for _, record := range data.Showtimes {
-			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) {
+			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) || !matchesFormat(record.Format, query.Format) {
 				continue
 			}
 			showtime := materializeRecord(record)
@@ -395,6 +398,15 @@ func validateLanguage(language string) error {
 }
 func matchesLanguage(session, requested string) bool {
 	return requested == LanguageAll || requested == session || requested == LanguageVF && session == LanguageVFSME
+}
+func validateSlotFormat(format string) error {
+	if format != "" && format != FormatAll && !validFormat(format) {
+		return invalid("Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX.")
+	}
+	return nil
+}
+func matchesFormat(session, requested string) bool {
+	return requested == "" || requested == FormatAll || requested == session
 }
 func materializeRecord(record ShowtimeRecord) Showtime {
 	booking := record.BookingURL

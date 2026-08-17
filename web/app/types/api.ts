@@ -1,5 +1,7 @@
 export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = 'VOSTFR' | 'VF' | 'VO' | 'VF_SME'
+export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+export type QueryFormat = 'ALL' | ShowtimeFormat
 export type Provider = 'ugc' | 'kinepolis'
 
 export type Language = QueryLanguage
@@ -26,7 +28,7 @@ export interface Showtime {
   start_time: string
   end_time: string
   language: ShowtimeLanguage
-  format: string
+  format: ShowtimeFormat
   room: string
   booking_url: string | null
 }
@@ -153,6 +155,7 @@ export interface SlotQuery {
   finish_before: string
   buffer_ads?: number
   language?: QueryLanguage
+  format?: QueryFormat
 }
 
 export interface Theater {

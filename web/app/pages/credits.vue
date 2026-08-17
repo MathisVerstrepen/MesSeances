@@ -1,4 +1,17 @@
 <script setup lang="ts">
+type CreditBrand = 'UGC' | 'IMAX' | 'KINEPOLIS' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+
+const credits: Array<{ brand: CreditBrand; name: string; url: string }> = [
+  { brand: 'UGC', name: 'UGC', url: 'https://www.ugc.fr/' },
+  { brand: 'KINEPOLIS', name: 'Kinepolis', url: 'https://kinepolis.fr/' },
+  { brand: 'IMAX', name: 'IMAX', url: 'https://www.imax.com/' },
+  { brand: '3D', name: '3D', url: 'https://kinepolis.fr/3d/' },
+  { brand: 'DOLBY', name: 'Dolby', url: 'https://www.dolby.com/' },
+  { brand: 'SCREENX', name: 'ScreenX', url: 'https://kinepolis.fr/screenx/' },
+  { brand: 'LASER_ULTRA', name: 'Laser ULTRA by Kinepolis', url: 'https://kinepolis.fr/laser-ultra/' },
+  { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' }
+]
+
 useHead({ title: 'Crédits — MovieFlow' })
 </script>
 
@@ -14,21 +27,13 @@ useHead({ title: 'Crédits — MovieFlow' })
       <p class="mt-5 max-w-xl text-sm leading-relaxed text-muted">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
     </section>
 
-    <div class="mt-8 grid gap-8 border-t border-line pt-8 sm:grid-cols-2">
-      <section aria-labelledby="ugc-heading">
-        <h2 id="ugc-heading" class="sr-only">UGC</h2>
-        <a href="https://www.ugc.fr/" class="inline-flex min-h-24 items-center rounded-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4" target="_blank" rel="noopener noreferrer" aria-label="Site officiel UGC, ouverture dans un nouvel onglet">
-          <BrandLogo brand="UGC" variant="display" decorative />
+    <div class="mt-8 grid gap-x-10 gap-y-8 border-t border-line pt-8 sm:grid-cols-2">
+      <section v-for="credit in credits" :key="credit.brand" :aria-labelledby="`credit-${credit.brand}`">
+        <h2 :id="`credit-${credit.brand}`" class="sr-only">{{ credit.name }}</h2>
+        <a :href="credit.url" class="inline-flex min-h-24 items-center rounded-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4" target="_blank" rel="noopener noreferrer" :aria-label="`Site officiel ${credit.name}, ouverture dans un nouvel onglet`">
+          <BrandLogo :brand="credit.brand" variant="display" decorative />
         </a>
-        <p class="mt-4 max-w-md text-sm leading-relaxed text-muted"><BrandedText text="UGC détient la marque et le logo présentés ci-dessus. Leur présence n’implique ni affiliation avec MovieFlow, ni approbation de MovieFlow." /></p>
-      </section>
-
-      <section aria-labelledby="imax-heading">
-        <h2 id="imax-heading" class="sr-only">IMAX</h2>
-        <a href="https://www.imax.com/" class="inline-flex min-h-24 items-center rounded-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4" target="_blank" rel="noopener noreferrer" aria-label="Site officiel IMAX, ouverture dans un nouvel onglet">
-          <BrandLogo brand="IMAX" variant="display" decorative />
-        </a>
-        <p class="mt-4 max-w-md text-sm leading-relaxed text-muted"><BrandedText text="IMAX Corporation détient la marque et le logo présentés ci-dessus. Leur présence n’implique ni affiliation avec MovieFlow, ni approbation de MovieFlow." /></p>
+        <p class="mt-4 max-w-md text-sm leading-relaxed text-muted">La marque et le logo {{ credit.name }} appartiennent à leurs propriétaires respectifs. Leur présence n’implique ni affiliation avec MovieFlow, ni approbation de MovieFlow.</p>
       </section>
     </div>
   </main>

@@ -71,7 +71,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 6 || migrationName != "006_repair_multi_provider_schema.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 7 || migrationName != "007_screening_formats.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	store := NewPostgresStore(pool)
@@ -105,6 +105,17 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		}
 		if !nullPosterFound {
 			t.Fatal("NULL poster did not round trip")
+		}
+		for _, format := range []string{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
+			if _, err := pool.Exec(ctx, "UPDATE showtimes SET format=$1 WHERE id='ugc-showing-100'", format); err != nil {
+				t.Fatalf("canonical database format %q rejected: %v", format, err)
+			}
+		}
+		if _, err := pool.Exec(ctx, "UPDATE showtimes SET format='ALL' WHERE id='ugc-showing-100'"); err == nil {
+			t.Fatal("non-persisted ALL format accepted")
+		}
+		if _, err := pool.Exec(ctx, "UPDATE showtimes SET format='2D' WHERE id='ugc-showing-100'"); err != nil {
+			t.Fatal("restore persisted format failed")
 		}
 	})
 
@@ -298,7 +309,7 @@ ALTER TABLE theaters DROP CONSTRAINT theaters_address_check;
 ALTER TABLE theaters ADD CONSTRAINT theaters_address_check CHECK (btrim(address) <> '');
 ALTER TABLE theaters DROP CONSTRAINT theaters_postal_code_check;
 ALTER TABLE theaters ADD CONSTRAINT theaters_postal_code_check CHECK (btrim(postal_code) <> '');
-DELETE FROM movieflow_schema_migrations WHERE version = 6;
+DELETE FROM movieflow_schema_migrations WHERE version >= 6;
 `, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatal("create recorded stale migration 005 fixture failed")
 	}
@@ -323,7 +334,7 @@ DELETE FROM movieflow_schema_migrations WHERE version = 6;
 		t.Fatal("run migration 006 on stale 005 failed")
 	}
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 6 || migrationName != "006_repair_multi_provider_schema.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 7 || migrationName != "007_screening_formats.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
 	}
 	var sourceColumns, sourceConstraints int

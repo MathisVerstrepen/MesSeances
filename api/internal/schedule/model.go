@@ -9,6 +9,15 @@ const (
 	LanguageAll    = "ALL"
 	LanguageVOSTFR = "VOSTFR"
 	LanguageVF     = "VF"
+
+	FormatAll        = "ALL"
+	Format2D         = "2D"
+	Format3D         = "3D"
+	FormatIMAX       = "IMAX"
+	FormatDolby      = "DOLBY"
+	FormatScreenX    = "SCREENX"
+	FormatLaserUltra = "LASER_ULTRA"
+	Format4DX        = "4DX"
 )
 
 func RuntimeDuration(minutes int) (time.Duration, bool) {
@@ -177,4 +186,5 @@ type SlotQuery struct {
 	FinishBefore string
 	BufferAds    int
 	Language     string
+	Format       string
 }

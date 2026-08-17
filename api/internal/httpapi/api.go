@@ -171,6 +171,14 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 	if query.Has("language") {
 		language = query.Get("language")
 	}
+	format := schedule.FormatAll
+	if query.Has("format") {
+		format = query.Get("format")
+		if format == "" {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX.")
+			return
+		}
+	}
 
 	buffer := 20
 	if query.Has("buffer_ads") {
@@ -191,6 +199,7 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 		FinishBefore: query.Get("finish_before"),
 		BufferAds:    buffer,
 		Language:     language,
+		Format:       format,
 	})
 	if err != nil {
 		writeServiceError(w, err)

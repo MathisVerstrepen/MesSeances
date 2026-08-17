@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { AlertTriangle, CalendarDays, LoaderCircle, RefreshCw, Settings2 } from '@lucide/vue'
-import type { Language, TimelineResponse } from '~/types/api'
+import type { Language, QueryFormat, TimelineResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, todayInParis } from '~/utils/date'
+import { formatOptions } from '~/utils/formats'
 
 type TimelineMode = 'theater' | 'movie'
-type FormatFilter = 'ALL' | 'STANDARD' | 'IMAX'
 type TimelineZoom = 15 | 30 | 60
 
 const api = useMovieFlowApi()
@@ -12,7 +12,7 @@ const preferences = useCinemaPreferences()
 const date = ref(todayInParis())
 const language = ref<Language>('ALL')
 const mode = ref<TimelineMode>('theater')
-const formatFilter = ref<FormatFilter>('ALL')
+const formatFilter = ref<QueryFormat>('ALL')
 const zoom = ref<TimelineZoom>(60)
 const timeline = ref<TimelineResponse | null>(null)
 const pending = ref(true)
@@ -21,8 +21,7 @@ let requestId = 0
 
 function matchesFormat(format: string) {
   if (formatFilter.value === 'ALL') return true
-  if (formatFilter.value === 'IMAX') return format.toUpperCase() === 'IMAX'
-  return format.toUpperCase() === '2D'
+  return format.toUpperCase() === formatFilter.value
 }
 
 async function loadTimeline() {
@@ -126,9 +125,9 @@ onMounted(async () => {
 
         <fieldset>
           <legend class="mb-1.5 text-xs font-semibold text-muted">Format</legend>
-          <div class="inline-flex rounded-md border border-line bg-surface p-1">
-            <button v-for="option in [{ value: 'ALL', label: 'Tous' }, { value: 'STANDARD', label: 'Standard' }, { value: 'IMAX', label: 'IMAX' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="formatFilter = option.value as FormatFilter">
-              <BrandLogo v-if="option.value === 'IMAX'" brand="IMAX" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
+          <div class="inline-flex max-w-[calc(100vw-2rem)] overflow-x-auto rounded-md border border-line bg-surface p-1 sm:max-w-[calc(100vw-3rem)]">
+            <button v-for="option in formatOptions" :key="option.value" type="button" class="h-8 shrink-0 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="formatFilter = option.value">
+              <BrandLogo v-if="option.brand" :brand="option.brand" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
               <span v-else>{{ option.label }}</span>
             </button>
           </div>

@@ -139,6 +139,49 @@ func TestSearchSlotStrictBoundariesAndFilters(t *testing.T) {
 	}
 }
 
+func TestSearchSlotFormatFilteringAndValidation(t *testing.T) {
+	data := testDataset()
+	data.Showtimes[0].Format = Format3D
+	data.Showtimes[1].Format = FormatScreenX
+	data.Showtimes[2].Format = FormatLaserUltra
+	service, err := NewService(testSource{data: data}, ServiceOptions{CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "20:00", Language: LanguageAll}
+	for _, test := range []struct {
+		name   string
+		format string
+		want   []string
+	}{
+		{"omitted defaults to all", "", []string{"ugc-showing-100", "ugc-showing-101", "ugc-showing-104"}},
+		{"explicit all", FormatAll, []string{"ugc-showing-100", "ugc-showing-101", "ugc-showing-104"}},
+		{"screenx", FormatScreenX, []string{"ugc-showing-104"}},
+		{"laser ultra", FormatLaserUltra, []string{"ugc-showing-101"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			query := base
+			query.Format = test.format
+			results, err := service.SearchSlot(query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != len(test.want) {
+				t.Fatalf("results=%+v", results)
+			}
+			for index := range test.want {
+				if results[index].Showtime.ID != test.want[index] {
+					t.Fatalf("result[%d]=%q want=%q", index, results[index].Showtime.ID, test.want[index])
+				}
+			}
+		})
+	}
+	base.Format = "screenx"
+	if _, err := service.SearchSlot(base); err == nil || err.Error() != "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX." {
+		t.Fatalf("invalid format error=%v", err)
+	}
+}
+
 func TestTheatersCatalogAliasOrderingAndCopies(t *testing.T) {
 	service := testService(t)
 	all := service.Theaters(TheaterCatalogQuery{})

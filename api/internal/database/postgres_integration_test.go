@@ -61,7 +61,7 @@ func TestMigration004Integration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 6 {
+	if err != nil || len(migrations) != 7 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -148,7 +148,7 @@ VALUES ('tmdb',$1,'fr-FR','Original','Localisé','Résumé','https://image.tmdb.
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 6 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 7 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {

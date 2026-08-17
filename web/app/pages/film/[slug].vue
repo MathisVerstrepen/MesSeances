@@ -264,7 +264,7 @@ useHead(() => ({
                   <p class="text-lg font-semibold text-ink">{{ formatParisTime(showtime.start_time) }}</p>
                   <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted">
                     <span>{{ showtime.language }}</span>
-                    <BrandedText :text="showtime.format" />
+                    <ShowtimeFormat :format="showtime.format" />
                     <span v-if="showtime.room">Salle {{ showtime.room }}</span>
                   </div>
                 </div>

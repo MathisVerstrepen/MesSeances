@@ -55,6 +55,14 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 		if movieID == "200" {
 			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
 		}
+		switch id {
+		case "100":
+			record.Format = schedule.FormatScreenX
+		case "101":
+			record.Format = schedule.FormatLaserUltra
+		case "102":
+			record.Format = schedule.Format4DX
+		}
 		return record
 	}
 	data := schedule.Dataset{
@@ -309,6 +317,25 @@ func TestSearchSlotExactTheatersTransport(t *testing.T) {
 	}
 }
 
+func TestSearchSlotFormatTransport(t *testing.T) {
+	handler := testHandler(t)
+	filtered := performRequest(t, handler, "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=11:00&finish_before=15:00&buffer_ads=0&format=SCREENX")
+	if filtered.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", filtered.Code, filtered.Body.String())
+	}
+	var results []schedule.SlotResult
+	if err := json.Unmarshal(filtered.Body.Bytes(), &results); err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Showtime.ID != "ugc-showing-100" || results[0].Showtime.Format != schedule.FormatScreenX {
+		t.Fatalf("results=%+v", results)
+	}
+	omitted := performRequest(t, handler, "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=11:00&finish_before=21:00&buffer_ads=0")
+	if omitted.Code != http.StatusOK || !strings.Contains(omitted.Body.String(), `"format":"SCREENX"`) || !strings.Contains(omitted.Body.String(), `"format":"LASER_ULTRA"`) {
+		t.Fatalf("omitted format status=%d body=%s", omitted.Code, omitted.Body.String())
+	}
+}
+
 func TestInvalidQueriesTransport(t *testing.T) {
 	handler := testHandler(t)
 	tests := []struct {
@@ -330,6 +357,8 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"slot duplicate scopes", "/api/v1/search/slot?city=Lille&theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=15:00", "Les paramètres city et theaters sont mutuellement exclusifs."},
 		{"slot empty theater", "/api/v1/search/slot?theaters=&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"slot unknown theater", "/api/v1/search/slot?theaters=inconnu&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
+		{"slot empty format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX."},
+		{"slot invalid format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=screenx", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX."},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

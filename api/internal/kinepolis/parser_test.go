@@ -91,6 +91,68 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 	}
 }
 
+func TestFormatCanonicalTechnologies(t *testing.T) {
+	tests := map[string]string{
+		"2D":                       schedule.Format2D,
+		"3D":                       schedule.Format3D,
+		"ScreenX":                  schedule.FormatScreenX,
+		"Screen X":                 schedule.FormatScreenX,
+		"Screen-X":                 schedule.FormatScreenX,
+		"Laser Ultra by Kinepolis": schedule.FormatLaserUltra,
+		"Laser Ultra Screen X":     schedule.FormatLaserUltra,
+		"4DX":                      schedule.Format4DX,
+		"IMAX Laser":               schedule.FormatIMAX,
+		"Dolby Cinema":             schedule.FormatDolby,
+	}
+	for source, expected := range tests {
+		if actual := format(source); actual != expected {
+			t.Errorf("format(%q)=%q want=%q", source, actual, expected)
+		}
+	}
+}
+
+func TestParseScreenXFromSessionMetadata(t *testing.T) {
+	data, err := Parse(namedFixture(t, "schedule-screenx.html"), "2026-08-15", "2026-08-15", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Showtimes) != 1 || data.Showtimes[0].Format != schedule.FormatScreenX {
+		t.Fatalf("showtimes=%+v", data.Showtimes)
+	}
+}
+
+func TestParseLaserUltraFromSessionMetadata(t *testing.T) {
+	data, err := Parse(namedFixture(t, "schedule-laser-ultra.html"), "2026-08-15", "2026-08-15", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Showtimes) != 1 || data.Showtimes[0].Format != schedule.FormatLaserUltra {
+		t.Fatalf("showtimes=%+v", data.Showtimes)
+	}
+	if data.Showtimes[0].Language != schedule.LanguageVF {
+		t.Fatalf("language=%q", data.Showtimes[0].Language)
+	}
+}
+
+func TestSessionFormatUsesSafeSessionSources(t *testing.T) {
+	film := map[string]any{"format": map[string]any{"name": "3D"}}
+	tests := map[string]map[string]any{
+		"attributes": {"attributes": []any{map[string]any{"name": "Laser Ultra"}}},
+		"version":    {"version": map[string]any{"label": "Laser Ultra"}},
+		"hall":       {"hall": "Laser Ultra"},
+		"room":       {"room": map[string]any{"name": "Laser Ultra"}},
+		"screen":     {"screen": []any{"Laser Ultra"}},
+		"technology": {"technology": map[string]any{"value": "Laser Ultra"}},
+	}
+	for name, session := range tests {
+		t.Run(name, func(t *testing.T) {
+			if actual := sessionFormat(session, film, sessionAttributes(session)); actual != schedule.FormatLaserUltra {
+				t.Fatalf("format=%q", actual)
+			}
+		})
+	}
+}
+
 func TestParseIgnoresFutureMovieSessions(t *testing.T) {
 	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", "2026-08-15", time.Now())
 	if err != nil {

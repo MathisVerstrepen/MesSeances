@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { Clock3, Film, MapPin, X } from '@lucide/vue'
-import type { TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
+import type { QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
+import { formatLabel } from '~/utils/formats'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
 type TimelineMode = 'theater' | 'movie'
-type FormatFilter = 'ALL' | 'STANDARD' | 'IMAX'
 type TimelineZoom = 15 | 30 | 60
 type PlacedShowtime = { showtime: TimelineShowtime; theater: TimelineTheater }
 type PositionedShowtime = PlacedShowtime & { lane: number; width: number }
@@ -14,7 +14,7 @@ type TimelineRow = { id: string; label: string; secondary: string; height: numbe
 const props = defineProps<{
   timeline: TimelineResponse
   mode: TimelineMode
-  formatFilter: FormatFilter
+  formatFilter: QueryFormat
   zoom: TimelineZoom
 }>()
 
@@ -44,8 +44,7 @@ const hourLabels = computed(() => {
 
 function matchesFormat(format: string) {
   if (props.formatFilter === 'ALL') return true
-  if (props.formatFilter === 'IMAX') return format.toUpperCase() === 'IMAX'
-  return format.toUpperCase() === '2D'
+  return format.toUpperCase() === props.formatFilter
 }
 
 function createRow(id: string, label: string, secondary: string, items: PlacedShowtime[]): TimelineRow {
@@ -274,7 +273,7 @@ onBeforeUnmount(() => {
               isPastShowtime(item.showtime.end_time) && selected?.showtime.id !== item.showtime.id ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100 focus:opacity-100 focus:saturate-100' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, backdropStyle(item.showtime.backdrop_url, item.width)]"
-            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${item.showtime.format}`"
+            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${formatLabel(item.showtime.format)}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
             @click="selectShowtime(item, $event)"
@@ -293,11 +292,8 @@ onBeforeUnmount(() => {
               class="mt-1 block truncate text-[11px] leading-[15px] text-current"
               :class="item.width >= 80 && safeBackdropUrl(item.showtime.backdrop_url) ? 'opacity-90' : 'opacity-70'"
             >
-              <BrandedText
-                :text="`${formatParisTime(item.showtime.start_time)} · ${item.showtime.language} · ${item.showtime.format}`"
-                :logo-class="safeBackdropUrl(item.showtime.backdrop_url) ? 'brightness-0 invert' : ''"
-                decorative
-              />
+              {{ formatParisTime(item.showtime.start_time) }} · {{ item.showtime.language }} ·
+              <ShowtimeFormat :format="item.showtime.format" :logo-class="safeBackdropUrl(item.showtime.backdrop_url) ? 'brightness-0 invert' : ''" decorative />
             </span>
           </button>
         </div>
@@ -380,7 +376,7 @@ onBeforeUnmount(() => {
             <dt class="font-medium text-muted">Salle</dt>
             <dd class="text-right font-medium text-ink">{{ selected.showtime.room }}</dd>
             <dt class="font-medium text-muted">Version</dt>
-            <dd class="text-right font-medium text-ink"><BrandedText :text="`${selected.showtime.language} · ${selected.showtime.format}`" /></dd>
+            <dd class="text-right font-medium text-ink">{{ selected.showtime.language }} · <ShowtimeFormat :format="selected.showtime.format" /></dd>
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">

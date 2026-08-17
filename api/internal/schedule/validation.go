@@ -203,7 +203,7 @@ func validLanguage(v string) bool {
 	return v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME
 }
 func validFormat(v string) bool {
-	return v == "2D" || v == "3D" || v == "IMAX" || v == "DOLBY" || v == "4DX"
+	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX
 }
 
 func validUGCURL(raw string, allowAssets bool) bool {

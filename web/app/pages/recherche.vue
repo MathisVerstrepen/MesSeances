@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { AlertTriangle, CalendarSearch, LoaderCircle, Search, SlidersHorizontal } from '@lucide/vue'
-import type { Language, SlotResult } from '~/types/api'
+import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
+import { formatOptions } from '~/utils/formats'
 
 const api = useMovieFlowApi()
 const { favoriteTheaterIds, favoriteTheaters, isInitialized, isLoading, error: preferencesError, initialize } = useCinemaPreferences()
@@ -10,6 +11,7 @@ const form = reactive({
   startAfter: '12:00',
   finishBefore: '15:00',
   language: 'ALL' as Language,
+  format: 'ALL' as QueryFormat,
   includeAds: true
 })
 const timeOptions = createServiceTimeOptions()
@@ -60,7 +62,8 @@ async function submitSearch() {
       start_after: form.startAfter,
       finish_before: form.finishBefore,
       buffer_ads: form.includeAds ? 20 : 0,
-      language: form.language
+      language: form.language,
+      format: form.format
     })
     searchedDate.value = form.date
   } catch (error) {
@@ -106,6 +109,13 @@ async function submitSearch() {
           <label class="block text-sm font-medium text-ink">
             <span class="mb-1.5 block">Date de la séance</span>
             <input v-model="form.date" required type="date" class="field" />
+          </label>
+
+          <label class="block text-sm font-medium text-ink">
+            <span class="mb-1.5 block">Technologie</span>
+            <select v-model="form.format" class="field">
+              <option v-for="option in formatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
           </label>
 
           <div class="grid grid-cols-2 gap-3">
