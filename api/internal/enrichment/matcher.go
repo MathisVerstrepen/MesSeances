@@ -151,6 +151,10 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (b
 		if err != nil {
 			return errors.Is(err, tmdb.ErrStop), err
 		}
+		if details.Runtime == 0 {
+			base.Candidates[len(base.Candidates)-1] = stored
+			continue
+		}
 		difference := math.Abs(float64(movie.RuntimeMinutes - details.Runtime))
 		score := 0.90 + 0.10*math.Max(0, 1-difference/10)
 		stored.Runtime, stored.Score = details.Runtime, score

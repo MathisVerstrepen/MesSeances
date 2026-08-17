@@ -93,6 +93,19 @@ func TestMatcherAcceptanceBoundariesAndAmbiguity(t *testing.T) {
 	}
 }
 
+func TestMatcherMissingProviderRuntimeRequiresReview(t *testing.T) {
+	store := newMemoryStore()
+	provider := &fakeProvider{
+		search:  []tmdb.Candidate{{ID: 1, Title: "Film", OriginalTitle: "Film"}},
+		details: map[int64]tmdb.Details{1: {ID: 1, Title: "Film", OriginalTitle: "Film", Runtime: 0, Genres: []string{}}},
+	}
+	summary, err := NewMatcher(store, provider, func() time.Time { return matcherNow }).Run(context.Background(), []Movie{{ProviderID: "10", Title: "Film", RuntimeMinutes: 98}})
+	match := store.matches["10"]
+	if err != nil || summary.ReviewRequired != 1 || summary.Matched != 0 || match.Status != StatusReviewRequired || store.publications != 0 || len(match.Candidates) != 1 || match.Candidates[0].Runtime != 0 {
+		t.Fatalf("summary=%+v match=%+v publications=%d err=%v", summary, match, store.publications, err)
+	}
+}
+
 func TestMatcherNoResultRetryAndFreshCache(t *testing.T) {
 	store, provider := newMemoryStore(), &fakeProvider{details: map[int64]tmdb.Details{}}
 	matcher := NewMatcher(store, provider, func() time.Time { return matcherNow })

@@ -43,7 +43,7 @@ ORDER BY mm.evaluated_at, mm.source_provider, mm.source_movie_id LIMIT $1 OFFSET
 	return items, nil
 }
 
-func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64) (Candidate, error) {
+func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64) (Candidate, int, error) {
 	var status, normalizedTitle, currentTitle string
 	var sourceRuntime, currentRuntime int
 	var raw []byte
@@ -51,20 +51,20 @@ func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceProvider, sou
 FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
 WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb'`, sourceProvider, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return Candidate{}, ErrReviewNotFound
+		return Candidate{}, 0, ErrReviewNotFound
 	}
 	if err != nil {
-		return Candidate{}, fmt.Errorf("read review candidate failed")
+		return Candidate{}, 0, fmt.Errorf("read review candidate failed")
 	}
 	candidate, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, candidateID)
 	if !ok {
-		return Candidate{}, ErrReviewConflict
+		return Candidate{}, 0, ErrReviewConflict
 	}
-	return candidate, nil
+	return candidate, sourceRuntime, nil
 }
 
-func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64, metadata Metadata, now time.Time) error {
-	if metadata.ProviderMovieID != candidateID || now.IsZero() {
+func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64, metadata Metadata, fallbackRuntime int, now time.Time) error {
+	if metadata.ProviderMovieID != candidateID || fallbackRuntime < 0 || fallbackRuntime > 600 || fallbackRuntime != 0 && metadata.RuntimeMinutes != fallbackRuntime || now.IsZero() {
 		return fmt.Errorf("invalid review approval")
 	}
 	if err := validateMetadata(metadata); err != nil {
@@ -85,6 +85,9 @@ func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourc
 	}
 	candidate, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, candidateID)
 	if !ok {
+		return ErrReviewConflict
+	}
+	if fallbackRuntime != 0 && sourceRuntime != fallbackRuntime {
 		return ErrReviewConflict
 	}
 	if err := writeMetadata(ctx, tx, metadata); err != nil {
@@ -126,7 +129,7 @@ WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, s
 
 func validReviewCandidate(status, normalizedTitle string, sourceRuntime int, raw []byte, currentTitle string, currentRuntime int, candidateID int64) (Candidate, bool) {
 	assignable := status == StatusReviewRequired || status == StatusUnmatched
-	if !assignable || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime {
+	if !assignable || sourceRuntime < 1 || sourceRuntime > 600 || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime {
 		return Candidate{}, false
 	}
 	var candidates []Candidate

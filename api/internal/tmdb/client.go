@@ -167,7 +167,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	if err := c.get(ctx, "/3/movie/"+strconv.FormatInt(id, 10), url.Values{"language": {"fr-FR"}}, &response); err != nil {
 		return Details{}, err
 	}
-	if response.ID != id || !validText(response.Title, 1024) || !validText(response.OriginalTitle, 1024) || response.Runtime < 1 || response.Runtime > 600 || len(response.Overview) > 10000 {
+	if response.ID != id || !validText(response.Title, 1024) || !validText(response.OriginalTitle, 1024) || response.Runtime < 0 || response.Runtime > 600 || len(response.Overview) > 10000 {
 		return Details{}, fmt.Errorf("tmdb movie response is invalid")
 	}
 	if response.ReleaseDate != "" {

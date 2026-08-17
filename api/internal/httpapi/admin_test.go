@@ -18,10 +18,10 @@ type adminReviewStore struct{}
 func (adminReviewStore) PendingMatches(context.Context, int, int) ([]enrichment.PendingMatch, error) {
 	return []enrichment.PendingMatch{{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", SourceRuntimeMinutes: 100, SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: enrichment.StatusUnmatched, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", PosterURL: "https://image.tmdb.org/t/p/w500/42.jpg", DetailURL: "https://evil.example/candidate"}}}}, nil
 }
-func (adminReviewStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, error) {
-	return enrichment.Candidate{ID: 42, Title: "Film A", Score: 1}, nil
+func (adminReviewStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, int, error) {
+	return enrichment.Candidate{ID: 42, Title: "Film A", Score: 1}, 100, nil
 }
-func (adminReviewStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, time.Time) error {
+func (adminReviewStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, int, time.Time) error {
 	return nil
 }
 func (adminReviewStore) RejectReview(context.Context, string, string, time.Time) error { return nil }
@@ -38,11 +38,11 @@ type adminReviewErrorStore struct {
 	approvalErr  error
 }
 
-func (s adminReviewErrorStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, error) {
-	return enrichment.Candidate{ID: 42, Score: 1}, s.preflightErr
+func (s adminReviewErrorStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, int, error) {
+	return enrichment.Candidate{ID: 42, Score: 1}, 100, s.preflightErr
 }
 
-func (s adminReviewErrorStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, time.Time) error {
+func (s adminReviewErrorStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, int, time.Time) error {
 	return s.approvalErr
 }
 

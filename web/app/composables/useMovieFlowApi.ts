@@ -9,6 +9,7 @@ import type {
   MoviesResponse,
   MovieShowtimesQuery,
   MovieShowtimesResponse,
+  Provider,
   SlotQuery,
   SlotResult,
   Theater,
@@ -74,15 +75,15 @@ export function useMovieFlowApi() {
         query: { limit, offset }
       }))
     },
-    adminApproveMatch(sourceMovieId: string, tmdbId: number) {
-      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceMovieId)}/approve`, {
+    adminApproveMatch(sourceProvider: Provider, sourceMovieId: string, tmdbId: number) {
+      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/approve`, {
         method: 'POST',
         credentials: 'include',
         body: { tmdb_id: tmdbId }
       }))
     },
-    adminRejectMatch(sourceMovieId: string) {
-      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceMovieId)}/reject`, {
+    adminRejectMatch(sourceProvider: Provider, sourceMovieId: string) {
+      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/reject`, {
         method: 'POST',
         credentials: 'include'
       }))

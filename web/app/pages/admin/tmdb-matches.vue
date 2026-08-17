@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowLeft, Check, ExternalLink, Film, LoaderCircle, LogOut, RefreshCw, Trash2 } from '@lucide/vue'
-import type { AdminPendingMatch, AdminPendingMatchesResponse, AdminTMDBCandidate } from '~/types/api'
+import type { AdminPendingMatch, AdminPendingMatchesResponse, AdminTMDBCandidate, Provider } from '~/types/api'
 
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -59,7 +59,7 @@ async function approveWithTmdbId(match: AdminPendingMatch, tmdbId: number, kind:
   activeMutationKind.value = kind
   errorMessage.value = ''
   try {
-    await api.adminApproveMatch(match.source_movie_id, tmdbId)
+    await api.adminApproveMatch(match.source_provider, match.source_movie_id, tmdbId)
     if (kind === 'manual') delete manualTmdbIds.value[match.source_movie_id]
     await refreshAfterDecision()
   } catch (error) {
@@ -95,7 +95,7 @@ async function reject(match: AdminPendingMatch) {
   activeMutationKind.value = 'reject'
   errorMessage.value = ''
   try {
-    await api.adminRejectMatch(match.source_movie_id)
+    await api.adminRejectMatch(match.source_provider, match.source_movie_id)
     await refreshAfterDecision()
   } catch (error) {
     errorMessage.value = getFrenchAdminApiError(error)
@@ -133,8 +133,12 @@ function candidateScore(candidate: AdminTMDBCandidate): string {
   return candidate.score !== undefined ? `${Math.round(candidate.score * 100)} %` : 'Non renseigné'
 }
 
+function providerLabel(provider: Provider): string {
+  return provider === 'ugc' ? 'UGC' : 'Kinepolis'
+}
+
 function sourcePosterKey(match: AdminPendingMatch): string {
-  return `ugc:${match.source_movie_id}`
+  return `${match.source_provider}:${match.source_movie_id}`
 }
 
 function candidatePosterKey(match: AdminPendingMatch, candidate: AdminTMDBCandidate): string {
@@ -195,7 +199,7 @@ useHead({ title: 'Correspondances TMDB — MovieFlow' })
         <div class="grid min-w-0 gap-5 lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6">
           <section class="min-w-0" :aria-labelledby="`source-title-${match.source_movie_id}`">
             <div class="mb-2 flex flex-wrap items-center gap-2">
-              <p class="text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText text="Source UGC" /></p>
+              <p class="text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
               <span
                 class="rounded-full px-2 py-0.5 text-xs font-semibold"
                 :class="match.status === 'review_required' ? 'bg-orange-100 text-orange-800' : 'bg-stone-200 text-stone-700'"
@@ -208,7 +212,7 @@ useHead({ title: 'Correspondances TMDB — MovieFlow' })
                 <img
                   v-if="posterAvailable(match.source_poster_url, sourcePosterKey(match))"
                   :src="match.source_poster_url"
-                  :alt="`Affiche UGC de ${match.source_title}`"
+                  :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`"
                   class="h-full w-full object-cover"
                   loading="lazy"
                   decoding="async"
@@ -223,10 +227,10 @@ useHead({ title: 'Correspondances TMDB — MovieFlow' })
                 <h2 :id="`source-title-${match.source_movie_id}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h2>
                 <dl class="mt-2 space-y-1 text-xs text-muted">
                   <div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div>
-                  <div class="break-all"><dt class="inline"><BrandedText text="ID UGC :" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div>
+                  <div class="break-all"><dt class="inline"><BrandedText :text="`ID ${providerLabel(match.source_provider)} :`" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div>
                 </dl>
-                <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent underline-offset-2 hover:underline focus-visible:rounded-sm" aria-label="Voir sur UGC, ouverture dans un nouvel onglet">
-                  <BrandedText text="Voir sur UGC" decorative /> <ExternalLink :size="13" aria-hidden="true" />
+                <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent underline-offset-2 hover:underline focus-visible:rounded-sm" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`">
+                  <BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /> <ExternalLink :size="13" aria-hidden="true" />
                 </a>
               </div>
             </div>

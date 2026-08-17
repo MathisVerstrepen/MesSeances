@@ -10,25 +10,27 @@ import (
 )
 
 type reviewStoreStub struct {
-	items        []PendingMatch
-	candidate    Candidate
-	candidateErr error
-	reviewedID   int64
-	approved     Metadata
-	approvedID   int64
-	approvedAt   time.Time
-	rejectedAt   time.Time
+	items           []PendingMatch
+	candidate       Candidate
+	candidateErr    error
+	sourceRuntime   int
+	reviewedID      int64
+	approved        Metadata
+	approvedID      int64
+	fallbackRuntime int
+	approvedAt      time.Time
+	rejectedAt      time.Time
 }
 
 func (s *reviewStoreStub) PendingMatches(context.Context, int, int) ([]PendingMatch, error) {
 	return s.items, nil
 }
-func (s *reviewStoreStub) ReviewCandidate(_ context.Context, _, _ string, candidateID int64) (Candidate, error) {
+func (s *reviewStoreStub) ReviewCandidate(_ context.Context, _, _ string, candidateID int64) (Candidate, int, error) {
 	s.reviewedID = candidateID
-	return s.candidate, s.candidateErr
+	return s.candidate, s.sourceRuntime, s.candidateErr
 }
-func (s *reviewStoreStub) ApproveReview(_ context.Context, _, _ string, candidateID int64, metadata Metadata, now time.Time) error {
-	s.approvedID, s.approved, s.approvedAt = candidateID, metadata, now
+func (s *reviewStoreStub) ApproveReview(_ context.Context, _, _ string, candidateID int64, metadata Metadata, fallbackRuntime int, now time.Time) error {
+	s.approvedID, s.approved, s.fallbackRuntime, s.approvedAt = candidateID, metadata, fallbackRuntime, now
 	return nil
 }
 func (s *reviewStoreStub) RejectReview(_ context.Context, _, _ string, now time.Time) error {
@@ -51,7 +53,7 @@ func (p *reviewProviderStub) Details(_ context.Context, candidateID int64) (tmdb
 
 func TestReviewServiceApprovesStoredCandidateUsingProviderDetails(t *testing.T) {
 	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
-	store := &reviewStoreStub{candidate: Candidate{ID: 42, Title: "Film", Score: .91}}
+	store := &reviewStoreStub{candidate: Candidate{ID: 42, Title: "Film", Score: .91}, sourceRuntime: 98}
 	provider := &reviewProviderStub{details: tmdb.Details{ID: 42, Title: "Film FR", OriginalTitle: "Film", BackdropURL: "https://image.tmdb.org/t/p/w780/42.jpg", Runtime: 101, Genres: []string{"Drame"}}}
 	err := NewReviewService(store, provider, func() time.Time { return now }).Approve(context.Background(), SourceUGC, "200", 42)
 	if err != nil || provider.calls != 1 || provider.lastID != 42 || store.reviewedID != 42 || store.approvedID != 42 || store.approved.ProviderMovieID != 42 || store.approved.LocalizedTitle != "Film FR" || store.approved.BackdropURL != provider.details.BackdropURL || !store.approvedAt.Equal(now) || !store.approved.RefreshAfter.Equal(now.Add(30*24*time.Hour)) {
@@ -60,7 +62,7 @@ func TestReviewServiceApprovesStoredCandidateUsingProviderDetails(t *testing.T) 
 }
 
 func TestReviewServiceApprovesManualCandidateUsingProviderDetails(t *testing.T) {
-	store := &reviewStoreStub{candidate: Candidate{ID: 999, Score: 1}}
+	store := &reviewStoreStub{candidate: Candidate{ID: 999, Score: 1}, sourceRuntime: 98}
 	provider := &reviewProviderStub{details: tmdb.Details{ID: 999, Title: "Film manuel", Runtime: 101, Genres: []string{}}}
 	err := NewReviewService(store, provider, nil).Approve(context.Background(), SourceUGC, "200", 999)
 	if err != nil || provider.calls != 1 || provider.lastID != 999 || store.reviewedID != 999 || store.approvedID != 999 || store.approved.ProviderMovieID != 999 {
@@ -74,6 +76,28 @@ func TestReviewServiceDoesNotFetchWhenPreflightConflicts(t *testing.T) {
 	err := NewReviewService(store, provider, nil).Approve(context.Background(), SourceUGC, "200", 999)
 	if !errors.Is(err, ErrReviewConflict) || provider.calls != 0 {
 		t.Fatalf("calls=%d err=%v", provider.calls, err)
+	}
+}
+
+func TestReviewServiceUsesSourceRuntimeOnlyWhenProviderRuntimeMissing(t *testing.T) {
+	tests := []struct {
+		name            string
+		providerRuntime int
+		wantRuntime     int
+		wantFallback    int
+	}{
+		{name: "missing provider runtime", providerRuntime: 0, wantRuntime: 98, wantFallback: 98},
+		{name: "positive provider runtime", providerRuntime: 101, wantRuntime: 101},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &reviewStoreStub{candidate: Candidate{ID: 42, Title: "Film"}, sourceRuntime: 98}
+			provider := &reviewProviderStub{details: tmdb.Details{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: test.providerRuntime, Genres: []string{}}}
+			err := NewReviewService(store, provider, func() time.Time { return matcherNow }).Approve(context.Background(), SourceKinepolis, "HO00016258", 42)
+			if err != nil || store.approved.RuntimeMinutes != test.wantRuntime || store.fallbackRuntime != test.wantFallback {
+				t.Fatalf("approved=%+v err=%v", store.approved, err)
+			}
+		})
 	}
 }
 

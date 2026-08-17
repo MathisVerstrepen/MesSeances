@@ -133,6 +133,30 @@ func TestClientBackdropOptionalAndValidation(t *testing.T) {
 	}
 }
 
+func TestClientDetailsAllowsMissingRuntimeAndRejectsInvalidRuntime(t *testing.T) {
+	tests := []struct {
+		name        string
+		runtime     int
+		wantRuntime int
+		wantErr     bool
+	}{
+		{name: "missing", runtime: 0, wantRuntime: 0},
+		{name: "negative", runtime: -1, wantErr: true},
+		{name: "too large", runtime: 601, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			client := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"id":1,"title":"Film","original_title":"Film","runtime":` + strconv.Itoa(test.runtime) + `,"genres":[]}`))
+			}, "token")
+			details, err := client.Details(context.Background(), 1)
+			if (err != nil) != test.wantErr || !test.wantErr && details.Runtime != test.wantRuntime {
+				t.Fatalf("details=%+v err=%v", details, err)
+			}
+		})
+	}
+}
+
 func TestClientRequiresW780BackdropConfiguration(t *testing.T) {
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/3/movie/1" {

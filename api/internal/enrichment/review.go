@@ -15,8 +15,8 @@ const reviewMetadataTTL = 30 * 24 * time.Hour
 
 type ReviewStore interface {
 	PendingMatches(context.Context, int, int) ([]PendingMatch, error)
-	ReviewCandidate(context.Context, string, string, int64) (Candidate, error)
-	ApproveReview(context.Context, string, string, int64, Metadata, time.Time) error
+	ReviewCandidate(context.Context, string, string, int64) (Candidate, int, error)
+	ApproveReview(context.Context, string, string, int64, Metadata, int, time.Time) error
 	RejectReview(context.Context, string, string, time.Time) error
 }
 
@@ -149,7 +149,8 @@ func (s *ReviewService) Approve(ctx context.Context, sourceProvider, sourceMovie
 	if s.provider == nil {
 		return ErrReviewUnavailable
 	}
-	if _, err := s.store.ReviewCandidate(ctx, sourceProvider, sourceMovieID, candidateID); err != nil {
+	_, sourceRuntime, err := s.store.ReviewCandidate(ctx, sourceProvider, sourceMovieID, candidateID)
+	if err != nil {
 		return err
 	}
 	details, err := s.provider.Details(ctx, candidateID)
@@ -161,8 +162,13 @@ func (s *ReviewService) Approve(ctx context.Context, sourceProvider, sourceMovie
 	}
 	now := s.now().UTC()
 	metadata := metadataFromDetails(details, now)
+	fallbackRuntime := 0
+	if metadata.RuntimeMinutes == 0 {
+		metadata.RuntimeMinutes = sourceRuntime
+		fallbackRuntime = sourceRuntime
+	}
 	metadata.RefreshAfter = now.Add(reviewMetadataTTL)
-	return s.store.ApproveReview(ctx, sourceProvider, sourceMovieID, candidateID, metadata, now)
+	return s.store.ApproveReview(ctx, sourceProvider, sourceMovieID, candidateID, metadata, fallbackRuntime, now)
 }
 
 func (s *ReviewService) Reject(ctx context.Context, sourceProvider, sourceMovieID string) error {

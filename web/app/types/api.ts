@@ -98,6 +98,7 @@ export interface AdminTMDBCandidate {
 export type AdminPendingMatchStatus = 'review_required' | 'unmatched'
 
 export interface AdminPendingMatch {
+  source_provider: Provider
   source_movie_id: string
   source_title: string
   source_runtime_minutes: number
