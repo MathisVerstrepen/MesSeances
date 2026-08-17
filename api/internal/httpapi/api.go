@@ -22,10 +22,11 @@ type API struct {
 }
 
 type AdminOptions struct {
-	Password string
-	Reviews  *enrichment.ReviewService
-	Syncs    SyncController
-	Now      func() time.Time
+	Password    string
+	Reviews     *enrichment.ReviewService
+	LocalMovies *enrichment.LocalMovieService
+	Syncs       SyncController
+	Now         func() time.Time
 }
 
 type SyncController interface {
@@ -72,6 +73,9 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 			router.Use(api.admin.authorize)
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
+			router.Get("/local-movie-groups", api.admin.localMovieGroups)
+			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
+			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
 			router.Get("/syncs", api.admin.syncStatus)
 			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/approve", api.admin.approveMatch)

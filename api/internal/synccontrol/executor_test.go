@@ -33,6 +33,9 @@ func (unusedFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
 
 type fakeEnrichmentStore struct{}
 
+func (fakeEnrichmentStore) IsLocallyMerged(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 func (fakeEnrichmentStore) Match(context.Context, string, string, string) (enrichment.Match, bool, error) {
 	return enrichment.Match{}, false, nil
 }

@@ -43,16 +43,18 @@ type TheaterRecord struct {
 }
 
 type MovieRecord struct {
-	Provider       string           `json:"provider,omitempty"`
-	ProviderID     string           `json:"provider_id"`
-	Slug           string           `json:"slug"`
-	Title          string           `json:"title"`
-	RuntimeMinutes int              `json:"runtime_minutes"`
-	PosterURL      string           `json:"poster_url,omitempty"`
-	Overview       string           `json:"overview,omitempty"`
-	ReleaseDate    string           `json:"release_date,omitempty"`
-	Genres         []string         `json:"genres,omitempty"`
-	Enrichment     *MovieEnrichment `json:"-"`
+	Provider              string           `json:"provider,omitempty"`
+	ProviderID            string           `json:"provider_id"`
+	Slug                  string           `json:"slug"`
+	Title                 string           `json:"title"`
+	RuntimeMinutes        int              `json:"runtime_minutes"`
+	PosterURL             string           `json:"poster_url,omitempty"`
+	Overview              string           `json:"overview,omitempty"`
+	ReleaseDate           string           `json:"release_date,omitempty"`
+	Genres                []string         `json:"genres,omitempty"`
+	Enrichment            *MovieEnrichment `json:"-"`
+	LocalMovieID          int64            `json:"-"`
+	LocalMetadataProvider string           `json:"-"`
 }
 
 type MovieEnrichment struct {

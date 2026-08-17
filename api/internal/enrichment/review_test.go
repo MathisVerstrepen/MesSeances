@@ -145,7 +145,7 @@ func TestValidReviewCandidateAssignmentAndRejectionRules(t *testing.T) {
 		{name: "stored unmatched candidate", status: StatusUnmatched, title: "Film", runtime: 100, raw: raw, candidateID: 42, wantOK: true, wantScore: .91},
 		{name: "manual unmatched candidate", status: StatusUnmatched, title: "Film", runtime: 100, raw: raw, candidateID: 99, wantOK: true, wantScore: 1},
 		{name: "review rejection", status: StatusReviewRequired, title: "Film", runtime: 100, raw: raw, candidateID: 0, wantOK: true},
-		{name: "unmatched rejection", status: StatusUnmatched, title: "Film", runtime: 100, raw: raw, candidateID: 0},
+		{name: "unmatched rejection", status: StatusUnmatched, title: "Film", runtime: 100, raw: raw, candidateID: 0, wantOK: true},
 		{name: "matched", status: StatusMatched, title: "Film", runtime: 100, raw: raw, candidateID: 99},
 		{name: "rejected", status: StatusRejected, title: "Film", runtime: 100, raw: raw, candidateID: 99},
 		{name: "changed title", status: StatusReviewRequired, title: "Autre", runtime: 100, raw: raw, candidateID: 99},

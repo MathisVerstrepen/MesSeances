@@ -71,9 +71,52 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 7 || migrationName != "007_screening_formats.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 8 || migrationName != "008_local_movie_groups.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
+	localTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal("begin local group fixture failed")
+	}
+	var durableLocalID int64
+	if err := localTx.QueryRow(ctx, "INSERT INTO local_movie_groups (primary_source_provider, primary_source_movie_id) VALUES ('ugc','900') RETURNING id").Scan(&durableLocalID); err != nil {
+		t.Fatal("insert local group fixture failed")
+	}
+	if _, err := localTx.Exec(ctx, "INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,'ugc','900'),($1,'kinepolis','DURABLE-900')", durableLocalID); err != nil {
+		t.Fatal("insert local member fixtures failed")
+	}
+	if err := localTx.Commit(ctx); err != nil {
+		t.Fatal("commit local group fixture failed")
+	}
+	invalidPrimaryTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal("begin invalid primary fixture failed")
+	}
+	var invalidPrimaryID int64
+	if err := invalidPrimaryTx.QueryRow(ctx, "INSERT INTO local_movie_groups (primary_source_provider, primary_source_movie_id) VALUES ('ugc','901') RETURNING id").Scan(&invalidPrimaryID); err != nil {
+		t.Fatal("insert invalid primary group failed")
+	}
+	if _, err := invalidPrimaryTx.Exec(ctx, "INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,'ugc','902')", invalidPrimaryID); err != nil {
+		t.Fatal("insert invalid primary member failed")
+	}
+	if err := invalidPrimaryTx.Commit(ctx); err == nil {
+		t.Fatal("primary outside member set accepted")
+	}
+	duplicateTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal("begin duplicate member fixture failed")
+	}
+	var duplicateID int64
+	if err := duplicateTx.QueryRow(ctx, "INSERT INTO local_movie_groups (primary_source_provider, primary_source_movie_id) VALUES ('ugc','903') RETURNING id").Scan(&duplicateID); err != nil {
+		t.Fatal("insert duplicate group failed")
+	}
+	if _, err := duplicateTx.Exec(ctx, "INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,'ugc','903')", duplicateID); err != nil {
+		t.Fatal("insert duplicate primary failed")
+	}
+	if _, err := duplicateTx.Exec(ctx, "INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,'kinepolis','DURABLE-900')", duplicateID); err == nil {
+		t.Fatal("duplicate source membership accepted")
+	}
+	_ = duplicateTx.Rollback(ctx)
 	store := NewPostgresStore(pool)
 	if _, err := store.CurrentRevision(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
 		t.Fatalf("missing current version error=%v", err)
@@ -86,6 +129,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		version, err := store.Replace(ctx, testDataset())
 		if err != nil || version != 1 {
 			t.Fatalf("replace version=%d error=%v", version, err)
+		}
+		var durableGroups int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM local_movie_groups WHERE id=$1", durableLocalID).Scan(&durableGroups); err != nil || durableGroups != 1 {
+			t.Fatalf("provider replacement removed local group count=%d error=%v", durableGroups, err)
 		}
 		loaded, loadedVersion, err := store.Load(ctx)
 		if err != nil || loadedVersion.ScheduleVersion != 1 || loadedVersion.EnrichmentVersion != 0 {
@@ -238,6 +285,163 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("last good after rollback=%+v error=%v", loaded.Theaters, err)
 		}
 	})
+
+	t.Run("local movie materialization survives replacement and unmerge", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, "DELETE FROM movie_matches WHERE source_provider='ugc' AND source_movie_id='200'"); err != nil {
+			t.Fatal("clear prior TMDB match failed")
+		}
+
+		ugcCanonical := testDataset()
+		ugcCanonical.GeneratedAt = ugcCanonical.GeneratedAt.Add(2 * time.Minute)
+		for index := range ugcCanonical.Showtimes {
+			if ugcCanonical.Showtimes[index].Movie.ProviderID != "200" {
+				continue
+			}
+			movie := &ugcCanonical.Showtimes[index].Movie
+			movie.Title = "Canonique UGC"
+			movie.RuntimeMinutes = 120
+			movie.PosterURL = "https://static.ugc.fr/posters/canonical.jpg"
+			movie.Overview = "Résumé canonique UGC"
+			movie.ReleaseDate = "2026-03-04"
+			movie.Genres = []string{"Comédie", "Famille"}
+			ugcCanonical.Showtimes[index].EndTime = ugcCanonical.Showtimes[index].StartTime.Add(120 * time.Minute)
+		}
+		if version, err := store.Replace(ctx, ugcCanonical); err != nil || version != 5 {
+			t.Fatalf("canonical UGC replace version=%d err=%v", version, err)
+		}
+
+		kinepolisFallback := kinepolisTestDataset()
+		kinepolisFallback.GeneratedAt = kinepolisFallback.GeneratedAt.Add(2 * time.Minute)
+		fallbackMovie := &kinepolisFallback.Showtimes[0].Movie
+		fallbackMovie.Title = "Fallback Kinepolis"
+		fallbackMovie.RuntimeMinutes = 80
+		fallbackMovie.PosterURL = "https://cdn.kinepolis.fr/images/posters/fallback.jpg"
+		fallbackMovie.Overview = "Résumé fallback Kinepolis"
+		fallbackMovie.ReleaseDate = "2025-05-06"
+		fallbackMovie.Genres = []string{"Drame"}
+		kinepolisFallback.Showtimes[0].EndTime = kinepolisFallback.Showtimes[0].StartTime.Add(80 * time.Minute)
+		if version, err := store.Replace(ctx, kinepolisFallback); err != nil || version != 6 {
+			t.Fatalf("fallback Kinepolis replace version=%d err=%v", version, err)
+		}
+
+		localService := enrichment.NewLocalMovieService(enrichment.NewPostgresStore(pool))
+		ugcSource := enrichment.LocalMovieSource{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200"}
+		kinepolisSource := enrichment.LocalMovieSource{SourceProvider: enrichment.SourceKinepolis, SourceMovieID: "HO200"}
+		group, err := localService.Merge(ctx, []enrichment.LocalMovieSource{ugcSource, kinepolisSource}, ugcSource)
+		if err != nil || group.ID <= 0 || group.LocalMovieID == "" {
+			t.Fatalf("merge group=%+v err=%v", group, err)
+		}
+		localSlug := group.LocalMovieID
+		loaded := source.Snapshot()
+		if len(loaded.Showtimes) != len(ugcCanonical.Showtimes)+len(kinepolisFallback.Showtimes) {
+			t.Fatalf("merged snapshot showtimes=%d", len(loaded.Showtimes))
+		}
+		for _, showing := range loaded.Showtimes {
+			if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
+				continue
+			}
+			if showing.Movie.LocalMovieID != group.ID || publicMovieSlug(showing.Movie) != localSlug || showing.Movie.Title != "Canonique UGC" || showing.Movie.RuntimeMinutes != 120 || showing.Movie.PosterURL != "https://static.ugc.fr/posters/canonical.jpg" || showing.Movie.Overview != "Résumé canonique UGC" || showing.Movie.ReleaseDate != "2026-03-04" || len(showing.Movie.Genres) != 2 || showing.Movie.Enrichment != nil || !showing.EndTime.Equal(showing.StartTime.Add(120*time.Minute)) {
+				t.Fatalf("canonical local showing=%+v", showing)
+			}
+		}
+		publicService, err := NewService(source, ServiceOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalog, err := publicService.Movies(MovieCatalogQuery{Search: "Canonique", PageSize: 10})
+		if err != nil || catalog.Total != 1 || len(catalog.Items) != 1 || catalog.Items[0].Slug != localSlug || catalog.Items[0].TMDBID != nil {
+			t.Fatalf("local catalog=%+v err=%v", catalog, err)
+		}
+		detail, err := publicService.MovieShowtimes(MovieShowtimesQuery{Slug: localSlug, Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 3 {
+			t.Fatalf("local detail=%+v err=%v", detail, err)
+		}
+		providers := map[string]bool{}
+		for _, theater := range detail.Theaters {
+			for _, showing := range theater.Showtimes {
+				providers[showing.Provider] = true
+				if showing.ID == "" || showing.BookingURL == nil || showing.Movie.Slug != localSlug {
+					t.Fatalf("source showtime identity lost: %+v", showing)
+				}
+			}
+		}
+		if !providers[ProviderUGC] || !providers[ProviderKinepolis] {
+			t.Fatalf("local detail providers=%v", providers)
+		}
+
+		ugcCanonical.GeneratedAt = ugcCanonical.GeneratedAt.Add(time.Minute)
+		if version, err := store.Replace(ctx, ugcCanonical); err != nil || version != 7 {
+			t.Fatalf("grouped UGC replace version=%d err=%v", version, err)
+		}
+		if got := publicMovieSlug(source.Snapshot().Showtimes[0].Movie); got != localSlug {
+			t.Fatalf("local ID after UGC replace=%q", got)
+		}
+		kinepolisFallback.GeneratedAt = kinepolisFallback.GeneratedAt.Add(time.Minute)
+		if version, err := store.Replace(ctx, kinepolisFallback); err != nil || version != 8 {
+			t.Fatalf("grouped Kinepolis replace version=%d err=%v", version, err)
+		}
+		if _, err := publicService.MovieShowtimes(MovieShowtimesQuery{Slug: localSlug, Date: "2026-08-15"}); err != nil {
+			t.Fatalf("local ID after Kinepolis replace: %v", err)
+		}
+
+		ugcWithoutPrimary := testDataset()
+		ugcWithoutPrimary.GeneratedAt = ugcWithoutPrimary.GeneratedAt.Add(4 * time.Minute)
+		ugcWithoutPrimary.Theaters = append([]TheaterRecord(nil), ugcWithoutPrimary.Theaters[0])
+		ugcWithoutPrimary.Showtimes = append([]ShowtimeRecord(nil), ugcWithoutPrimary.Showtimes[2])
+		if version, err := store.Replace(ctx, ugcWithoutPrimary); err != nil || version != 9 {
+			t.Fatalf("remove primary version=%d err=%v", version, err)
+		}
+		fallbackSnapshot := source.Snapshot()
+		fallbackFound := false
+		for _, showing := range fallbackSnapshot.Showtimes {
+			if showing.Movie.ProviderID != "HO200" {
+				continue
+			}
+			fallbackFound = true
+			if publicMovieSlug(showing.Movie) != localSlug || showing.Movie.Title != "Fallback Kinepolis" || showing.Movie.RuntimeMinutes != 80 || showing.Movie.LocalMetadataProvider != ProviderKinepolis || !showing.EndTime.Equal(showing.StartTime.Add(80*time.Minute)) {
+				t.Fatalf("fallback showing=%+v", showing)
+			}
+		}
+		if !fallbackFound {
+			t.Fatal("available fallback member missing")
+		}
+
+		ugcCanonical.GeneratedAt = ugcCanonical.GeneratedAt.Add(time.Minute)
+		if version, err := store.Replace(ctx, ugcCanonical); err != nil || version != 10 {
+			t.Fatalf("restore primary version=%d err=%v", version, err)
+		}
+		restored := source.Snapshot()
+		for _, showing := range restored.Showtimes {
+			if showing.Movie.ProviderID == "HO200" && (showing.Movie.Title != "Canonique UGC" || showing.Movie.LocalMetadataProvider != ProviderUGC) {
+				t.Fatalf("restored primary not canonical: %+v", showing.Movie)
+			}
+		}
+
+		if err := localService.Unmerge(ctx, localSlug); err != nil {
+			t.Fatalf("unmerge failed: %v", err)
+		}
+		unmerged := source.Snapshot()
+		seenSlugs := map[string]bool{}
+		for _, showing := range unmerged.Showtimes {
+			if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
+				continue
+			}
+			if showing.Movie.LocalMovieID != 0 || publicMovieSlug(showing.Movie) == localSlug {
+				t.Fatalf("local identity survived unmerge: %+v", showing.Movie)
+			}
+			seenSlugs[publicMovieSlug(showing.Movie)] = true
+			providerRuntime, _ := RuntimeDuration(showing.Movie.RuntimeMinutes)
+			if !showing.EndTime.Equal(showing.StartTime.Add(providerRuntime)) {
+				t.Fatalf("provider runtime not restored: %+v", showing)
+			}
+		}
+		if !seenSlugs["ugc-film-200"] || !seenSlugs["kinepolis-film-HO200"] {
+			t.Fatalf("provider identities after unmerge=%v", seenSlugs)
+		}
+		if _, err := publicService.MovieShowtimes(MovieShowtimesQuery{Slug: localSlug, Date: "2026-08-15"}); err == nil {
+			t.Fatal("deleted local slug remained public")
+		}
+	})
 }
 
 func TestMigration006RepairsRecordedStale005(t *testing.T) {
@@ -309,6 +513,7 @@ ALTER TABLE theaters DROP CONSTRAINT theaters_address_check;
 ALTER TABLE theaters ADD CONSTRAINT theaters_address_check CHECK (btrim(address) <> '');
 ALTER TABLE theaters DROP CONSTRAINT theaters_postal_code_check;
 ALTER TABLE theaters ADD CONSTRAINT theaters_postal_code_check CHECK (btrim(postal_code) <> '');
+DROP TABLE local_movie_group_members, local_movie_groups;
 DELETE FROM movieflow_schema_migrations WHERE version >= 6;
 `, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatal("create recorded stale migration 005 fixture failed")
@@ -334,7 +539,7 @@ DELETE FROM movieflow_schema_migrations WHERE version >= 6;
 		t.Fatal("run migration 006 on stale 005 failed")
 	}
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 7 || migrationName != "007_screening_formats.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 8 || migrationName != "008_local_movie_groups.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
 	}
 	var sourceColumns, sourceConstraints int

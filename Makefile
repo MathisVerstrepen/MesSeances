@@ -1,9 +1,17 @@
-.PHONY: dev sync
+.PHONY: dev screenshot sync
 
 SHELL := /bin/bash
 
 DATABASE_URL ?= postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable
 export DATABASE_URL
+
+URL ?= http://localhost:3000/
+OUTPUT ?= /tmp/opencode/movieflow-screenshot.png
+WIDTH ?= 1440
+HEIGHT ?= 900
+WAIT_MS ?= 1000
+API_URL ?= http://localhost:8080
+CHROME_BIN ?= google-chrome
 
 dev:
 	@set -eu; \
@@ -39,6 +47,16 @@ dev:
 	status=$$?; \
 	set -e; \
 	exit "$$status"
+
+screenshot: export URL := $(URL)
+screenshot: export OUTPUT := $(OUTPUT)
+screenshot: export WIDTH := $(WIDTH)
+screenshot: export HEIGHT := $(HEIGHT)
+screenshot: export WAIT_MS := $(WAIT_MS)
+screenshot: export API_URL := $(API_URL)
+screenshot: export CHROME_BIN := $(CHROME_BIN)
+screenshot:
+	@node web/tools/screenshot.mjs
 
 sync:
 	@printf '%s\n' '[sync] starting'

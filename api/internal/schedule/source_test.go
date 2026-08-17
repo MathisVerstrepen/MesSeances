@@ -160,6 +160,24 @@ func TestPostgresSourceInvalidBackdropRetainsLastGood(t *testing.T) {
 	}
 }
 
+func TestPostgresSourceInvalidLocalMovieRetainsLastGood(t *testing.T) {
+	reader := &fakeSnapshotReader{version: 1, data: testDataset()}
+	source, err := NewPostgresSource(context.Background(), reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := testDataset()
+	invalid.Showtimes[0].Movie.LocalMovieID = 12
+	invalid.Showtimes[0].Movie.LocalMetadataProvider = ProviderKinepolis
+	reader.mu.Lock()
+	reader.enrichmentVersion = 1
+	reader.data = invalid
+	reader.mu.Unlock()
+	if snapshot := source.Snapshot(); snapshot.Showtimes[0].Movie.LocalMovieID != 0 {
+		t.Fatalf("invalid local movie replaced last good: %+v", snapshot.Showtimes[0].Movie)
+	}
+}
+
 func TestPostgresSourceRefreshLoadDeadlineRetainsLastGood(t *testing.T) {
 	reader := &fakeSnapshotReader{version: 1, data: testDataset()}
 	source, err := NewPostgresSource(context.Background(), reader)

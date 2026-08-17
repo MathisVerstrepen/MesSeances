@@ -95,7 +95,7 @@ export interface AdminTMDBCandidate {
   detail_url: string
 }
 
-export type AdminPendingMatchStatus = 'review_required' | 'unmatched'
+export type AdminPendingMatchStatus = 'review_required' | 'unmatched' | 'rejected'
 
 export interface AdminPendingMatch {
   source_provider: Provider
@@ -117,6 +117,41 @@ export interface AdminPendingMatchesResponse {
 
 export interface AdminMatchDecisionResponse {
   status: 'matched' | 'rejected'
+}
+
+export interface AdminLocalMovieSource {
+  source_provider: Provider
+  source_movie_id: string
+}
+
+export interface AdminLocalMovieMember extends AdminLocalMovieSource {
+  available: boolean
+  source_title: string | null
+  source_runtime_minutes: number | null
+  source_poster_url: string | null
+}
+
+export interface AdminLocalMovieGroup {
+  local_movie_id: string
+  primary: AdminLocalMovieSource
+  metadata_source: AdminLocalMovieSource | null
+  members: AdminLocalMovieMember[]
+}
+
+export interface AdminLocalMovieGroupsResponse {
+  items: AdminLocalMovieGroup[]
+  limit: number
+  offset: number
+}
+
+export interface AdminCreateLocalMovieGroupRequest {
+  members: AdminLocalMovieSource[]
+  primary: AdminLocalMovieSource
+}
+
+export interface AdminUnmergeLocalMovieResponse {
+  status: 'unmerged'
+  local_movie_id: string
 }
 
 export type AdminSyncTarget = 'all' | Provider

@@ -1,9 +1,13 @@
 import type {
+  AdminCreateLocalMovieGroupRequest,
+  AdminLocalMovieGroup,
+  AdminLocalMovieGroupsResponse,
   AdminMatchDecisionResponse,
   AdminPendingMatchesResponse,
   AdminSessionResponse,
   AdminSyncResponse,
   AdminSyncTarget,
+  AdminUnmergeLocalMovieResponse,
   ApiErrorResponse,
   MoviesQuery,
   MoviesResponse,
@@ -88,6 +92,25 @@ export function useMovieFlowApi() {
         credentials: 'include'
       }))
     },
+    adminLocalMovieGroups(limit: number, offset: number) {
+      return withAdminRedirect($fetch<AdminLocalMovieGroupsResponse>(`${apiBase}/api/v1/admin/local-movie-groups`, {
+        credentials: 'include',
+        query: { limit, offset }
+      }))
+    },
+    adminCreateLocalMovieGroup(input: AdminCreateLocalMovieGroupRequest) {
+      return withAdminRedirect($fetch<AdminLocalMovieGroup>(`${apiBase}/api/v1/admin/local-movie-groups`, {
+        method: 'POST',
+        credentials: 'include',
+        body: input
+      }))
+    },
+    adminUnmergeLocalMovie(localMovieId: string) {
+      return withAdminRedirect($fetch<AdminUnmergeLocalMovieResponse>(`${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/unmerge`, {
+        method: 'POST',
+        credentials: 'include'
+      }))
+    },
     adminSyncStatus() {
       return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs`, {
         credentials: 'include'
@@ -137,6 +160,8 @@ export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
   if (code === 'review_unavailable') return 'Le service de validation TMDB est temporairement indisponible.'
+  if (code === 'local_movie_conflict') return 'Ces films ont changé et ne peuvent plus être regroupés. La liste a été actualisée.'
+  if (code === 'local_movie_failed') return 'Le regroupement des films est temporairement indisponible.'
   if (code === 'sync_unavailable') return 'Le service de synchronisation est temporairement indisponible.'
   if (code === 'sync_in_progress') return 'Une synchronisation est déjà en cours.'
   if (code === 'sync_failed') return 'La synchronisation n’a pas pu démarrer. Réessayez plus tard.'

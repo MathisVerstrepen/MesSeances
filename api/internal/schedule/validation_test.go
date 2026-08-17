@@ -149,6 +149,61 @@ func TestValidateDatasetCanonicalFormats(t *testing.T) {
 	}
 }
 
+func TestValidateDatasetLocalMovieInvariants(t *testing.T) {
+	valid := testDataset()
+	for index := range valid.Showtimes {
+		if valid.Showtimes[index].Movie.ProviderID != "200" {
+			continue
+		}
+		valid.Showtimes[index].Movie.LocalMovieID = 9
+		valid.Showtimes[index].Movie.LocalMetadataProvider = ProviderUGC
+	}
+	if err := ValidateDataset(valid, true); err != nil {
+		t.Fatalf("valid local identity rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Dataset)
+	}{
+		{"negative ID", func(data *Dataset) { data.Showtimes[0].Movie.LocalMovieID = -1 }},
+		{"metadata provider without ID", func(data *Dataset) { data.Showtimes[2].Movie.LocalMetadataProvider = ProviderUGC }},
+		{"invalid metadata provider", func(data *Dataset) { data.Showtimes[0].Movie.LocalMetadataProvider = "tmdb" }},
+		{"TMDB overlap", func(data *Dataset) { data.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42} }},
+		{"inconsistent metadata", func(data *Dataset) { data.Showtimes[1].Movie.Title = "Autre titre" }},
+		{"inconsistent source identity", func(data *Dataset) { data.Showtimes[1].Movie.LocalMovieID = 10 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := cloneDataset(valid)
+			test.mutate(&data)
+			if err := ValidateDataset(data, true); err == nil {
+				t.Fatal("invalid local movie accepted")
+			}
+		})
+	}
+
+	crossProviderPoster := combinedTestDataset()
+	for index := range crossProviderPoster.Showtimes {
+		movie := &crossProviderPoster.Showtimes[index].Movie
+		if movie.ProviderID != "200" && movie.ProviderID != "HO200" {
+			continue
+		}
+		movie.Enrichment = nil
+		movie.LocalMovieID = 10
+		movie.LocalMetadataProvider = ProviderKinepolis
+		movie.Title = "Fallback Kinepolis"
+		movie.RuntimeMinutes = 100
+		movie.PosterURL = "https://cdn.kinepolis.fr/images/posters/fallback.jpg"
+		movie.Overview = ""
+		movie.ReleaseDate = ""
+		movie.Genres = nil
+	}
+	if err := ValidateDataset(crossProviderPoster, true); err != nil {
+		t.Fatalf("canonical cross-provider poster rejected: %v", err)
+	}
+}
+
 func TestValidateKinepolisPosterURLAllowsDotsInUnicodeFilenameAndRejectsTraversal(t *testing.T) {
 	data := kinepolisTestDataset()
 	data.Showtimes[0].Movie.PosterURL = "https://cdn.kinepolis.fr/images/FR/65459BAD/HO00016344/0000027026/Visite_déquipe_:_Ducobu_et_le_fantôme_de_Sa....jpg"

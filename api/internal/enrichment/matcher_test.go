@@ -2,6 +2,7 @@ package enrichment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -13,11 +14,15 @@ import (
 type memoryStore struct {
 	matches                 map[string]Match
 	metadata                map[int64]Metadata
+	locallyMerged           map[string]bool
 	decisions, publications int
 }
 
 func newMemoryStore() *memoryStore {
-	return &memoryStore{matches: map[string]Match{}, metadata: map[int64]Metadata{}}
+	return &memoryStore{matches: map[string]Match{}, metadata: map[int64]Metadata{}, locallyMerged: map[string]bool{}}
+}
+func (s *memoryStore) IsLocallyMerged(_ context.Context, provider, id string) (bool, error) {
+	return s.locallyMerged[provider+"\x00"+id], nil
 }
 func (s *memoryStore) Match(_ context.Context, _, id, _ string) (Match, bool, error) {
 	value, ok := s.matches[id]
@@ -106,6 +111,16 @@ func TestMatcherMissingProviderRuntimeRequiresReview(t *testing.T) {
 	}
 }
 
+func TestMatcherReusesLocalMemberWithoutProviderCall(t *testing.T) {
+	store := newMemoryStore()
+	store.locallyMerged[SourceKinepolis+"\x00HO0001"] = true
+	provider := &fakeProvider{searchErr: errors.New("must not be called")}
+	summary, err := NewMatcher(store, provider, func() time.Time { return matcherNow }).Run(context.Background(), []Movie{{SourceProvider: SourceKinepolis, ProviderID: "HO0001", Title: "Film", RuntimeMinutes: 90}})
+	if err != nil || summary.Reused != 1 || provider.searches != 0 || provider.detailCalls != 0 || store.decisions != 0 || store.publications != 0 {
+		t.Fatalf("summary=%+v provider=%+v decisions=%d publications=%d error=%v", summary, provider, store.decisions, store.publications, err)
+	}
+}
+
 func TestMatcherNoResultRetryAndFreshCache(t *testing.T) {
 	store, provider := newMemoryStore(), &fakeProvider{details: map[int64]tmdb.Details{}}
 	matcher := NewMatcher(store, provider, func() time.Time { return matcherNow })
@@ -187,6 +202,55 @@ func TestMatcherProviderFailureCreatesNoDecisionAndStops(t *testing.T) {
 	}
 }
 
+func TestMatcherNonTerminalProviderFailureCreatesRetryableReviewDecision(t *testing.T) {
+	providerFailure := errors.New("provider failure")
+	tests := []struct {
+		name              string
+		movie             Movie
+		provider          *fakeProvider
+		detailCallsPerRun int
+	}{
+		{
+			name:     "search failure",
+			movie:    Movie{SourceProvider: SourceKinepolis, ProviderID: "HO00016099", Title: "Film", RuntimeMinutes: 90},
+			provider: &fakeProvider{searchErr: providerFailure},
+		},
+		{
+			name:  "details failure",
+			movie: Movie{SourceProvider: SourceUGC, ProviderID: "17950", Title: "Film", RuntimeMinutes: 90},
+			provider: &fakeProvider{
+				search:    []tmdb.Candidate{{ID: 42, Title: "Film", OriginalTitle: "Film"}},
+				detailErr: providerFailure,
+			},
+			detailCallsPerRun: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newMemoryStore()
+			matcher := NewMatcher(store, test.provider, func() time.Time { return matcherNow })
+			summary, err := matcher.Run(context.Background(), []Movie{test.movie})
+			match, found := store.matches[test.movie.ProviderID]
+			if err != nil || summary.Failed != 1 || !found || store.decisions != 1 {
+				t.Fatalf("summary=%+v match=%+v found=%t decisions=%d err=%v", summary, match, found, store.decisions, err)
+			}
+			if match.Status != StatusReviewRequired || !match.RetryAfter.Equal(matcherNow) || validateMatch(match) != nil {
+				t.Fatalf("match=%+v validation=%v", match, validateMatch(match))
+			}
+			candidates, marshalErr := json.Marshal(match.Candidates)
+			_, manuallyResolvable := validReviewCandidate(match.Status, match.NormalizedSourceTitle, match.SourceRuntimeMinutes, candidates, test.movie.Title, test.movie.RuntimeMinutes, 99)
+			if marshalErr != nil || !manuallyResolvable {
+				t.Fatalf("candidates=%v marshal err=%v manually resolvable=%t", match.Candidates, marshalErr, manuallyResolvable)
+			}
+			firstSearches := test.provider.searches
+			summary, err = matcher.Run(context.Background(), []Movie{test.movie})
+			if err != nil || summary.Failed != 1 || store.decisions != 2 || test.provider.searches != firstSearches+1 || test.provider.detailCalls != 2*test.detailCallsPerRun {
+				t.Fatalf("retry summary=%+v searches=%d details=%d decisions=%d err=%v", summary, test.provider.searches, test.provider.detailCalls, store.decisions, err)
+			}
+		})
+	}
+}
+
 func TestMatcherPersistsSearchPostersForScoredAndUnscoredCandidates(t *testing.T) {
 	store := newMemoryStore()
 	provider := &fakeProvider{
@@ -224,6 +288,9 @@ func TestValidateMatchRejectsUnsafeOrTransientCandidateURLs(t *testing.T) {
 
 type qualificationStore struct{ matches map[string]Match }
 
+func (s *qualificationStore) IsLocallyMerged(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 func (s *qualificationStore) Match(_ context.Context, provider, id, _ string) (Match, bool, error) {
 	value, ok := s.matches[provider+"\x00"+id]
 	return value, ok, nil

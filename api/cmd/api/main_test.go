@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"movieflow/api/internal/enrichment"
 )
 
 type testReadCloser struct {
@@ -47,5 +49,13 @@ func TestLoadSyncProxiesConfiguration(t *testing.T) {
 	})
 	if err != nil || len(proxies) != 1 {
 		t.Fatalf("valid count=%d err=%v", len(proxies), err)
+	}
+}
+
+func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
+	store := enrichment.NewPostgresStore(nil)
+	options := newAdminOptions("password", store, nil)
+	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil {
+		t.Fatalf("options=%+v", options)
 	}
 }

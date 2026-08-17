@@ -33,6 +33,9 @@ func (w *fakeWriter) Replace(context.Context, schedule.Dataset) (int64, error) {
 
 type commandStore struct{}
 
+func (commandStore) IsLocallyMerged(context.Context, string, string) (bool, error) {
+	return false, nil
+}
 func (commandStore) Match(context.Context, string, string, string) (enrichment.Match, bool, error) {
 	return enrichment.Match{}, false, nil
 }

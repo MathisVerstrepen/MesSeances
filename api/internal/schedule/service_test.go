@@ -315,6 +315,86 @@ func TestUnmatchedSameTitleMoviesRemainProviderSpecific(t *testing.T) {
 	}
 }
 
+func TestLocalMovieAggregatesCanonicalMetadataAndSourceShowtimes(t *testing.T) {
+	data := combinedTestDataset()
+	canonical := MovieRecord{
+		Title:          "Film local canonique",
+		RuntimeMinutes: 120,
+		PosterURL:      "https://static.ugc.fr/posters/local.jpg",
+		Overview:       "Résumé local",
+		ReleaseDate:    "2026-02-03",
+		Genres:         []string{"Comédie", "Famille"},
+	}
+	for index := range data.Showtimes {
+		movie := &data.Showtimes[index].Movie
+		if movie.ProviderID != "200" && movie.ProviderID != "HO200" {
+			continue
+		}
+		movie.Title = canonical.Title
+		movie.RuntimeMinutes = canonical.RuntimeMinutes
+		movie.PosterURL = canonical.PosterURL
+		movie.Overview = canonical.Overview
+		movie.ReleaseDate = canonical.ReleaseDate
+		movie.Genres = append([]string(nil), canonical.Genres...)
+		movie.Enrichment = nil
+		movie.LocalMovieID = 17
+		movie.LocalMetadataProvider = ProviderUGC
+		data.Showtimes[index].EndTime = data.Showtimes[index].StartTime.Add(120 * time.Minute)
+	}
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid local movie rejected: %v", err)
+	}
+	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Movies(MovieCatalogQuery{Search: "canonique", PageSize: 10})
+	if err != nil || catalog.Total != 1 || len(catalog.Items) != 1 {
+		t.Fatalf("catalog=%+v err=%v", catalog, err)
+	}
+	movie := catalog.Items[0]
+	if movie.Slug != "local-film-17" || movie.Title != canonical.Title || movie.RuntimeMinutes != 120 || movie.TMDBID != nil || movie.PosterURL == nil || *movie.PosterURL != canonical.PosterURL || movie.Overview == nil || *movie.Overview != canonical.Overview || movie.ReleaseDate == nil || *movie.ReleaseDate != canonical.ReleaseDate || len(movie.Genres) != 2 {
+		t.Fatalf("movie=%+v", movie)
+	}
+	detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "local-film-17", Date: "2026-08-15"})
+	if err != nil || len(detail.Theaters) != 3 {
+		t.Fatalf("detail=%+v err=%v", detail, err)
+	}
+	want := map[string]struct {
+		provider string
+		booking  string
+	}{
+		"ugc-showing-100":       {ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=100"},
+		"ugc-showing-104":       {ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=104"},
+		"kinepolis-showing-VS1": {ProviderKinepolis, "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"},
+	}
+	for _, theater := range detail.Theaters {
+		for _, showtime := range theater.Showtimes {
+			expected, ok := want[showtime.ID]
+			if !ok || theater.Provider != expected.provider || showtime.Provider != expected.provider || showtime.Movie.Provider != expected.provider || showtime.Movie.Slug != "local-film-17" || showtime.BookingURL == nil || *showtime.BookingURL != expected.booking || !showtime.EndTime.Equal(showtime.StartTime.Add(120*time.Minute)) {
+				t.Fatalf("theater=%+v showtime=%+v", theater, showtime)
+			}
+			delete(want, showtime.ID)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing showtimes=%v", want)
+	}
+	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", TheaterIDs: []string{"kinepolis-LOM"}, Language: LanguageAll})
+	if err != nil || len(timeline.Theaters) != 1 || timeline.Theaters[0].Showtimes[0].Movie.Slug != "local-film-17" || timeline.Theaters[0].Showtimes[0].DurationMinutes != 120 {
+		t.Fatalf("timeline=%+v err=%v", timeline, err)
+	}
+	slots, err := service.SearchSlot(SlotQuery{TheaterIDs: []string{"kinepolis-LOM"}, Date: "2026-08-15", StartAfter: "20:00", FinishBefore: "22:00", Language: LanguageAll})
+	if err != nil || len(slots) != 1 || slots[0].Showtime.Movie.Slug != "local-film-17" || !slots[0].EffectiveEndTime.Equal(slots[0].Showtime.StartTime.Add(120*time.Minute)) {
+		t.Fatalf("slots=%+v err=%v", slots, err)
+	}
+	for _, oldSlug := range []string{"ugc-film-200", "kinepolis-film-HO200"} {
+		if _, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: oldSlug, Date: "2026-08-15"}); err == nil {
+			t.Fatalf("member slug %q remained public", oldSlug)
+		}
+	}
+}
+
 func TestMoviesCatalogPaginationSearchAndCurrentScope(t *testing.T) {
 	service := testService(t)
 	catalog, err := service.Movies(MovieCatalogQuery{Page: 1, PageSize: 2})

@@ -95,6 +95,8 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 	}
 	showings := map[string]bool{}
 	providerShowings := map[string]bool{}
+	localMovies := map[int64]MovieRecord{}
+	sourceLocalMovies := map[string]int64{}
 	for _, showing := range data.Showtimes {
 		provider := recordProvider(showing.Provider, showing.ID)
 		if len(showing.ID) > maxIdentityLength || len(showing.ProviderShowingID) > maxIdentityLength || len(showing.ServiceDate) > maxShortFieldLength || len(showing.TheaterID) > maxIdentityLength || len(showing.Movie.ProviderID) > maxIdentityLength || len(showing.Movie.Slug) > maxIdentityLength || len(showing.Movie.Title) > maxNameAndTitleLength || len(showing.Movie.PosterURL) > maxURLLength || len(showing.Movie.Overview) > 10000 || len(showing.Movie.Genres) > 32 || len(showing.Language) > maxShortFieldLength || len(showing.ProviderVersion) > maxShortFieldLength || len(showing.Format) > maxShortFieldLength || len(showing.Room) > maxShortFieldLength || len(showing.BookingURL) > maxURLLength {
@@ -111,6 +113,23 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		movieProvider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
 		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != provider+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime {
 			return fmt.Errorf("invalid movie")
+		}
+		if showing.Movie.LocalMovieID < 0 || showing.Movie.LocalMovieID == 0 && showing.Movie.LocalMetadataProvider != "" {
+			return fmt.Errorf("invalid local movie")
+		}
+		if showing.Movie.LocalMovieID > 0 {
+			if !validProvider(showing.Movie.LocalMetadataProvider, false) || showing.Movie.Enrichment != nil {
+				return fmt.Errorf("invalid local movie")
+			}
+			sourceKey := provider + "\x00" + showing.Movie.ProviderID
+			if priorID, exists := sourceLocalMovies[sourceKey]; exists && priorID != showing.Movie.LocalMovieID {
+				return fmt.Errorf("inconsistent local movie identity")
+			}
+			sourceLocalMovies[sourceKey] = showing.Movie.LocalMovieID
+			if prior, exists := localMovies[showing.Movie.LocalMovieID]; exists && !sameLocalMovieMetadata(prior, showing.Movie) {
+				return fmt.Errorf("inconsistent local movie metadata")
+			}
+			localMovies[showing.Movie.LocalMovieID] = showing.Movie
 		}
 		if showing.Movie.ReleaseDate != "" {
 			parsed, err := time.Parse(dateLayout, showing.Movie.ReleaseDate)
@@ -145,7 +164,11 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if expectedDate != showing.ServiceDate || !validLanguage(showing.Language) || !validFormat(showing.Format) || showing.ProviderVersion == "" {
 			return fmt.Errorf("invalid showing attributes")
 		}
-		if !validBookingURL(provider, showing.BookingURL, showing.ProviderShowingID, theater.ProviderID) || (showing.Movie.PosterURL != "" && !validProviderImageURL(provider, showing.Movie.PosterURL)) {
+		posterProvider := provider
+		if showing.Movie.LocalMovieID > 0 {
+			posterProvider = showing.Movie.LocalMetadataProvider
+		}
+		if !validBookingURL(provider, showing.BookingURL, showing.ProviderShowingID, theater.ProviderID) || (showing.Movie.PosterURL != "" && !validProviderImageURL(posterProvider, showing.Movie.PosterURL)) {
 			return fmt.Errorf("invalid provider URL")
 		}
 		if showing.Movie.Enrichment != nil && showing.Movie.Enrichment.BackdropURL != "" && !validTMDBBackdropURL(showing.Movie.Enrichment.BackdropURL) {
@@ -153,6 +176,10 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		}
 	}
 	return nil
+}
+
+func sameLocalMovieMetadata(a, b MovieRecord) bool {
+	return a.LocalMetadataProvider == b.LocalMetadataProvider && a.Title == b.Title && a.RuntimeMinutes == b.RuntimeMinutes && a.PosterURL == b.PosterURL && a.Overview == b.Overview && a.ReleaseDate == b.ReleaseDate && strings.Join(a.Genres, "\x00") == strings.Join(b.Genres, "\x00")
 }
 
 func validDatasetRecordCounts(theaters, showtimes int) bool {

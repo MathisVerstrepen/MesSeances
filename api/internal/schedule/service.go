@@ -455,6 +455,9 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 	return item
 }
 func publicMovieSlug(record MovieRecord) string {
+	if record.LocalMovieID > 0 {
+		return "local-film-" + strconv.FormatInt(record.LocalMovieID, 10)
+	}
 	if record.Enrichment != nil && record.Enrichment.TMDBID > 0 {
 		return "tmdb-film-" + strconv.FormatInt(record.Enrichment.TMDBID, 10)
 	}

@@ -20,6 +20,7 @@ const (
 )
 
 type Store interface {
+	IsLocallyMerged(context.Context, string, string) (bool, error)
 	Match(context.Context, string, string, string) (Match, bool, error)
 	Metadata(context.Context, string, int64, string) (Metadata, bool, error)
 	SaveDecision(context.Context, Match) error
@@ -85,6 +86,14 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (b
 	if provider == "" {
 		provider = SourceUGC
 	}
+	merged, err := m.store.IsLocallyMerged(ctx, provider, movie.ProviderID)
+	if err != nil {
+		return false, err
+	}
+	if merged {
+		summary.Reused++
+		return false, nil
+	}
 	existing, found, err := m.store.Match(ctx, provider, movie.ProviderID, ProviderTMDB)
 	if err != nil {
 		return false, err
@@ -120,11 +129,14 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (b
 			return false, nil
 		}
 	}
+	base := Match{SourceProvider: provider, SourceMovieID: movie.ProviderID, MetadataProvider: ProviderTMDB, NormalizedSourceTitle: normalizedTitle, SourceRuntimeMinutes: movie.RuntimeMinutes, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL), Candidates: []Candidate{}}
 	candidates, err := m.provider.Search(ctx, movie.Title)
 	if err != nil {
-		return errors.Is(err, tmdb.ErrStop), err
+		if errors.Is(err, tmdb.ErrStop) {
+			return true, err
+		}
+		return false, m.saveRetryableFailure(ctx, base, err)
 	}
-	base := Match{SourceProvider: provider, SourceMovieID: movie.ProviderID, MetadataProvider: ProviderTMDB, NormalizedSourceTitle: normalizedTitle, SourceRuntimeMinutes: movie.RuntimeMinutes, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL), Candidates: []Candidate{}}
 	if len(candidates) == 0 {
 		base.Status = StatusUnmatched
 		if err := m.store.SaveDecision(ctx, base); err != nil {
@@ -149,7 +161,10 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (b
 		}
 		details, err := m.provider.Details(ctx, candidate.ID)
 		if err != nil {
-			return errors.Is(err, tmdb.ErrStop), err
+			if errors.Is(err, tmdb.ErrStop) {
+				return true, err
+			}
+			return false, m.saveRetryableFailure(ctx, base, err)
 		}
 		if details.Runtime == 0 {
 			base.Candidates[len(base.Candidates)-1] = stored
@@ -182,6 +197,15 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (b
 	}
 	summary.Matched++
 	return false, nil
+}
+
+func (m *Matcher) saveRetryableFailure(ctx context.Context, match Match, cause error) error {
+	match.Status = StatusReviewRequired
+	match.RetryAfter = match.EvaluatedAt
+	if err := m.store.SaveDecision(ctx, match); err != nil {
+		return err
+	}
+	return cause
 }
 
 func metadataFromDetails(details tmdb.Details, now time.Time) Metadata {

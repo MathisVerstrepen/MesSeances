@@ -67,6 +67,13 @@ type movieRow struct {
 	genres      []string
 }
 
+type localMovieGroupRow struct {
+	id              int64
+	primaryProvider string
+	primaryMovieID  string
+	members         []string
+}
+
 func prepareMovies(data Dataset) ([]movieRow, error) {
 	byID := make(map[string]movieRow)
 	for _, showing := range data.Showtimes {
@@ -357,6 +364,9 @@ ORDER BY m.provider, m.provider_id`)
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 	}
 	rows.Close()
+	if err := materializeLocalMovies(ctx, tx, movies); err != nil {
+		return Dataset{}, SnapshotRevision{}, err
+	}
 	location, err := time.LoadLocation(Timezone)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("load schedule timezone failed")
@@ -387,7 +397,16 @@ ORDER BY m.provider, m.provider_id`)
 		showing.ServiceDate = date.Format(dateLayout)
 		showing.Movie = movie
 		showing.StartTime = showing.StartTime.In(location)
-		showing.EndTime = showing.EndTime.In(location)
+		if movie.LocalMovieID > 0 {
+			runtime, ok := RuntimeDuration(movie.RuntimeMinutes)
+			if !ok {
+				rows.Close()
+				return Dataset{}, SnapshotRevision{}, fmt.Errorf("invalid local movie runtime")
+			}
+			showing.EndTime = showing.StartTime.Add(runtime)
+		} else {
+			showing.EndTime = showing.EndTime.In(location)
+		}
 		referencedMovies[movieKey] = true
 		data.Showtimes = append(data.Showtimes, showing)
 	}
@@ -409,6 +428,120 @@ ORDER BY m.provider, m.provider_id`)
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("commit schedule load failed")
 	}
 	return data, revision, nil
+}
+
+func materializeLocalMovies(ctx context.Context, tx pgx.Tx, movies map[string]MovieRecord) error {
+	groups := make(map[int64]*localMovieGroupRow)
+	rows, err := tx.Query(ctx, `SELECT id, primary_source_provider, primary_source_movie_id FROM local_movie_groups ORDER BY id`)
+	if err != nil {
+		return fmt.Errorf("read local movie groups failed")
+	}
+	for rows.Next() {
+		if len(groups) >= MaxShowtimes {
+			rows.Close()
+			return fmt.Errorf("local movie group limit exceeded")
+		}
+		group := localMovieGroupRow{}
+		if err := rows.Scan(&group.id, &group.primaryProvider, &group.primaryMovieID); err != nil {
+			rows.Close()
+			return fmt.Errorf("read local movie groups failed")
+		}
+		if group.id <= 0 || !validProvider(group.primaryProvider, false) || !validProviderIdentity(group.primaryProvider, "movie", group.primaryMovieID) {
+			rows.Close()
+			return fmt.Errorf("invalid local movie group")
+		}
+		if _, exists := groups[group.id]; exists {
+			rows.Close()
+			return fmt.Errorf("duplicate local movie group")
+		}
+		groups[group.id] = &group
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read local movie groups failed")
+	}
+	rows.Close()
+
+	rows, err = tx.Query(ctx, `SELECT local_movie_id, source_provider, source_movie_id FROM local_movie_group_members ORDER BY local_movie_id, source_provider, source_movie_id`)
+	if err != nil {
+		return fmt.Errorf("read local movie members failed")
+	}
+	memberCount := 0
+	memberGroups := make(map[string]int64)
+	for rows.Next() {
+		memberCount++
+		if memberCount > MaxShowtimes {
+			rows.Close()
+			return fmt.Errorf("local movie member limit exceeded")
+		}
+		var localMovieID int64
+		var provider, movieID string
+		if err := rows.Scan(&localMovieID, &provider, &movieID); err != nil {
+			rows.Close()
+			return fmt.Errorf("read local movie members failed")
+		}
+		group := groups[localMovieID]
+		key := provider + "\x00" + movieID
+		if group == nil || !validProvider(provider, false) || !validProviderIdentity(provider, "movie", movieID) {
+			rows.Close()
+			return fmt.Errorf("invalid local movie member")
+		}
+		if _, exists := memberGroups[key]; exists {
+			rows.Close()
+			return fmt.Errorf("duplicate local movie membership")
+		}
+		memberGroups[key] = localMovieID
+		group.members = append(group.members, key)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("read local movie members failed")
+	}
+	rows.Close()
+
+	for _, group := range groups {
+		primaryKey := group.primaryProvider + "\x00" + group.primaryMovieID
+		if len(group.members) < 2 || !contains(group.members, primaryKey) {
+			return fmt.Errorf("invalid local movie group membership")
+		}
+		canonicalKey := ""
+		if _, available := movies[primaryKey]; available {
+			canonicalKey = primaryKey
+		} else {
+			for _, memberKey := range group.members {
+				if _, available := movies[memberKey]; available {
+					canonicalKey = memberKey
+					break
+				}
+			}
+		}
+		if canonicalKey == "" {
+			continue
+		}
+		canonical := movies[canonicalKey]
+		if canonical.Enrichment != nil {
+			return fmt.Errorf("local movie metadata source has TMDB enrichment")
+		}
+		for _, memberKey := range group.members {
+			member, available := movies[memberKey]
+			if !available {
+				continue
+			}
+			if member.Enrichment != nil {
+				return fmt.Errorf("local movie member has TMDB enrichment")
+			}
+			member.Title = canonical.Title
+			member.RuntimeMinutes = canonical.RuntimeMinutes
+			member.PosterURL = canonical.PosterURL
+			member.Overview = canonical.Overview
+			member.ReleaseDate = canonical.ReleaseDate
+			member.Genres = append([]string(nil), canonical.Genres...)
+			member.LocalMovieID = group.id
+			member.LocalMetadataProvider = canonical.Provider
+			movies[memberKey] = member
+		}
+	}
+	return nil
 }
 
 func rollbackScheduleTx(tx pgx.Tx) {

@@ -58,7 +58,6 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("schedule service startup failed")
 	}
 	enrichmentStore := enrichment.NewPostgresStore(pool)
-	var reviewService *enrichment.ReviewService
 	var enrichmentProvider enrichment.Provider
 	if token := strings.TrimSpace(os.Getenv("TMDB_API_READ_ACCESS_TOKEN")); token != "" {
 		tmdbClient, err := tmdb.NewClient(token)
@@ -66,10 +65,8 @@ func run(ctx context.Context) error {
 			return fmt.Errorf("TMDB configuration is invalid")
 		}
 		enrichmentProvider = tmdbClient
-		reviewService = enrichment.NewReviewService(enrichmentStore, tmdbClient, nil)
-	} else {
-		reviewService = enrichment.NewReviewService(enrichmentStore, nil, nil)
 	}
+	adminOptions := newAdminOptions(os.Getenv("ADMIN_PASSWORD"), enrichmentStore, enrichmentProvider)
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 	var syncManager httpapi.SyncController
@@ -85,12 +82,21 @@ func run(ctx context.Context) error {
 		syncManager = manager
 	}
 	port := envOrDefault("PORT", "8080")
-	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), httpapi.AdminOptions{Password: os.Getenv("ADMIN_PASSWORD"), Reviews: reviewService, Syncs: syncManager}), ReadHeaderTimeout: 5 * time.Second}
+	adminOptions.Syncs = syncManager
+	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), adminOptions), ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("API MovieFlow à l'écoute sur http://localhost:%s", port)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("API server failed")
 	}
 	return nil
+}
+
+func newAdminOptions(password string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {
+	return httpapi.AdminOptions{
+		Password:    password,
+		Reviews:     enrichment.NewReviewService(store, provider, nil),
+		LocalMovies: enrichment.NewLocalMovieService(store),
+	}
 }
 
 func loadSyncProxies(path string, open func(string) (io.ReadCloser, error)) ([]syncproxy.Proxy, error) {
