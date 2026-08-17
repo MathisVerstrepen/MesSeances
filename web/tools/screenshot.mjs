@@ -319,7 +319,9 @@ class CDP {
       }, timeoutMilliseconds)
       this.pending.set(id, { resolve: resolvePromise, reject: rejectPromise, timer })
       try {
-        this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }))
+        const message = { id, method, params }
+        if (sessionId) message.sessionId = sessionId
+        this.socket.send(JSON.stringify(message))
       } catch {
         clearTimeout(timer)
         this.pending.delete(id)
