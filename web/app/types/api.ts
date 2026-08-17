@@ -3,6 +3,7 @@ export type ShowtimeLanguage = 'VOSTFR' | 'VF' | 'VO' | 'VF_SME'
 export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 export type QueryFormat = 'ALL' | ShowtimeFormat
 export type Provider = 'ugc' | 'kinepolis'
+export type MovieSort = 'title_asc' | 'title_desc' | 'release_date_desc' | 'runtime_asc' | 'runtime_desc' | 'showtimes_desc'
 
 export type Language = QueryLanguage
 
@@ -214,6 +215,7 @@ export interface TheaterQuery {
 export interface MoviesQuery {
   currently_screened?: boolean
   search?: string
+  sort?: MovieSort
   page?: number
   page_size?: number
 }

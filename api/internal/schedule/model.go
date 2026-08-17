@@ -20,6 +20,17 @@ const (
 	Format4DX        = "4DX"
 )
 
+type MovieCatalogSort string
+
+const (
+	MovieCatalogSortTitleAsc        MovieCatalogSort = "title_asc"
+	MovieCatalogSortTitleDesc       MovieCatalogSort = "title_desc"
+	MovieCatalogSortReleaseDateDesc MovieCatalogSort = "release_date_desc"
+	MovieCatalogSortRuntimeAsc      MovieCatalogSort = "runtime_asc"
+	MovieCatalogSortRuntimeDesc     MovieCatalogSort = "runtime_desc"
+	MovieCatalogSortShowtimesDesc   MovieCatalogSort = "showtimes_desc"
+)
+
 func RuntimeDuration(minutes int) (time.Duration, bool) {
 	if minutes <= 0 || minutes > MaxRuntimeMinutes {
 		return 0, false
@@ -168,6 +179,7 @@ type TheaterCatalogQuery struct {
 type MovieCatalogQuery struct {
 	CurrentlyScreened *bool
 	Search            string
+	Sort              MovieCatalogSort
 	Page              int
 	PageSize          int
 }

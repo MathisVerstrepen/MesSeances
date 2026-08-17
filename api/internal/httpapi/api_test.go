@@ -290,6 +290,33 @@ func TestMoviesTransport(t *testing.T) {
 	if catalog.Total != 0 || catalog.Page != 1 || catalog.PageSize != 24 || len(catalog.Items) != 0 {
 		t.Fatalf("empty catalog=%+v", catalog)
 	}
+
+	for _, test := range []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{name: "explicit sort", target: "/api/v1/movies?sort=title_desc&page_size=1", want: "ugc-film-201"},
+		{name: "missing sort defaults", target: "/api/v1/movies?page_size=1", want: "tmdb-film-42"},
+		{name: "invalid sort defaults", target: "/api/v1/movies?sort=invalid&page_size=1", want: "tmdb-film-42"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := performRequest(t, handler, test.target)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			var sorted schedule.MovieCatalog
+			if err := json.Unmarshal(response.Body.Bytes(), &sorted); err != nil {
+				t.Fatal(err)
+			}
+			if len(sorted.Items) != 1 || sorted.Items[0].Slug != test.want {
+				t.Fatalf("catalog=%+v", sorted)
+			}
+			if strings.Contains(response.Body.String(), "showtime_count") || strings.Contains(response.Body.String(), "showtimes_count") {
+				t.Fatalf("internal count leaked: %s", response.Body.String())
+			}
+		})
+	}
 }
 
 func TestMovieShowtimesTransport(t *testing.T) {

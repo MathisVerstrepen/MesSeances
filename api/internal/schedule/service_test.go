@@ -428,6 +428,68 @@ func TestMoviesCatalogPaginationSearchAndCurrentScope(t *testing.T) {
 	}
 }
 
+func TestMoviesCatalogSortOrdersAndDefaults(t *testing.T) {
+	data := testDataset()
+	record := func(id, slug, title string, runtime int, releaseDate string, tmdbID int64) ShowtimeRecord {
+		result := data.Showtimes[0]
+		result.ID = id
+		result.Movie = MovieRecord{Slug: slug, Title: title, RuntimeMinutes: runtime, ReleaseDate: releaseDate}
+		if tmdbID > 0 {
+			result.Movie.Enrichment = &MovieEnrichment{TMDBID: tmdbID}
+		}
+		return result
+	}
+	data.Showtimes = []ShowtimeRecord{
+		record("a-1", "slug-a", "Alpha", 100, "2024-01-01", 0),
+		record("b-1", "provider-b-1", "Bravo", 90, "2025-01-01", 20),
+		record("b-2", "provider-b-2", "Bravo", 90, "2025-01-01", 20),
+		record("b-3", "provider-b-3", "Bravo", 90, "2025-01-01", 20),
+		record("c-1", "slug-c", "Charlie", 90, "", 0),
+		record("c-2", "slug-c", "Charlie", 90, "", 0),
+		record("d-1", "slug-d", "Alpha", 110, "2025-01-01", 0),
+	}
+	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		sort MovieCatalogSort
+		want []string
+	}{
+		{name: "title ascending", sort: MovieCatalogSortTitleAsc, want: []string{"slug-a", "slug-d", "tmdb-film-20", "slug-c"}},
+		{name: "title descending", sort: MovieCatalogSortTitleDesc, want: []string{"slug-c", "tmdb-film-20", "slug-a", "slug-d"}},
+		{name: "release date descending", sort: MovieCatalogSortReleaseDateDesc, want: []string{"slug-d", "tmdb-film-20", "slug-a", "slug-c"}},
+		{name: "runtime ascending", sort: MovieCatalogSortRuntimeAsc, want: []string{"tmdb-film-20", "slug-c", "slug-a", "slug-d"}},
+		{name: "runtime descending", sort: MovieCatalogSortRuntimeDesc, want: []string{"slug-d", "slug-a", "tmdb-film-20", "slug-c"}},
+		{name: "showtimes descending", sort: MovieCatalogSortShowtimesDesc, want: []string{"tmdb-film-20", "slug-c", "slug-a", "slug-d"}},
+		{name: "missing defaults to showtimes", want: []string{"tmdb-film-20", "slug-c", "slug-a", "slug-d"}},
+		{name: "invalid defaults to showtimes", sort: MovieCatalogSort("unknown"), want: []string{"tmdb-film-20", "slug-c", "slug-a", "slug-d"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			catalog, err := service.Movies(MovieCatalogQuery{Sort: test.sort, PageSize: 10})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if catalog.Total != len(test.want) || len(catalog.Items) != len(test.want) {
+				t.Fatalf("catalog=%+v", catalog)
+			}
+			for index, want := range test.want {
+				if catalog.Items[index].Slug != want {
+					t.Fatalf("items[%d].Slug=%q want %q; catalog=%+v", index, catalog.Items[index].Slug, want, catalog)
+				}
+			}
+		})
+	}
+
+	page, err := service.Movies(MovieCatalogQuery{Sort: MovieCatalogSortTitleDesc, Page: 2, PageSize: 1})
+	if err != nil || page.Total != 4 || len(page.Items) != 1 || page.Items[0].Slug != "tmdb-film-20" {
+		t.Fatalf("pre-sorted page=%+v err=%v", page, err)
+	}
+}
+
 func TestMovieCatalogEnrichmentPrecedenceAndNullableDefaults(t *testing.T) {
 	data := testDataset()
 	for index := range data.Showtimes {

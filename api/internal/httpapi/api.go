@@ -144,6 +144,7 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 	result, err := api.schedule.Movies(schedule.MovieCatalogQuery{
 		CurrentlyScreened: currentlyScreened,
 		Search:            query.Get("search"),
+		Sort:              schedule.MovieCatalogSort(query.Get("sort")),
 		Page:              page,
 		PageSize:          pageSize,
 	})

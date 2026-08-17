@@ -139,34 +139,87 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	}
 
 	search := normalized(strings.TrimSpace(query.Search))
-	unique := make(map[string]MovieCatalogItem)
+	type groupedMovie struct {
+		item          MovieCatalogItem
+		showtimeCount int
+	}
+	unique := make(map[string]groupedMovie)
 	for _, record := range s.source.Snapshot().Showtimes {
 		if search != "" && !strings.Contains(normalized(record.Movie.Title), search) {
 			continue
 		}
 		slug := publicMovieSlug(record.Movie)
-		if _, exists := unique[slug]; !exists {
-			unique[slug] = materializeCatalogMovie(record.Movie)
+		movie, exists := unique[slug]
+		if !exists {
+			movie.item = materializeCatalogMovie(record.Movie)
 		}
+		movie.showtimeCount++
+		unique[slug] = movie
 	}
-	items := make([]MovieCatalogItem, 0, len(unique))
+	grouped := make([]groupedMovie, 0, len(unique))
 	for _, movie := range unique {
-		items = append(items, movie)
+		grouped = append(grouped, movie)
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if compareNormalized(items[i].Title, items[j].Title) != 0 {
-			return compareNormalized(items[i].Title, items[j].Title) < 0
+	sortMode := normalizeMovieCatalogSort(query.Sort)
+	sort.Slice(grouped, func(i, j int) bool {
+		left, right := grouped[i], grouped[j]
+		switch sortMode {
+		case MovieCatalogSortTitleAsc:
+			return compareMovieCatalogTitle(left.item, right.item, false)
+		case MovieCatalogSortTitleDesc:
+			return compareMovieCatalogTitle(left.item, right.item, true)
+		case MovieCatalogSortReleaseDateDesc:
+			if (left.item.ReleaseDate != nil) != (right.item.ReleaseDate != nil) {
+				return left.item.ReleaseDate != nil
+			}
+			if left.item.ReleaseDate != nil && *left.item.ReleaseDate != *right.item.ReleaseDate {
+				return *left.item.ReleaseDate > *right.item.ReleaseDate
+			}
+		case MovieCatalogSortRuntimeAsc:
+			if left.item.RuntimeMinutes != right.item.RuntimeMinutes {
+				return left.item.RuntimeMinutes < right.item.RuntimeMinutes
+			}
+		case MovieCatalogSortRuntimeDesc:
+			if left.item.RuntimeMinutes != right.item.RuntimeMinutes {
+				return left.item.RuntimeMinutes > right.item.RuntimeMinutes
+			}
+		case MovieCatalogSortShowtimesDesc:
+			if left.showtimeCount != right.showtimeCount {
+				return left.showtimeCount > right.showtimeCount
+			}
 		}
-		return items[i].Slug < items[j].Slug
+		return compareMovieCatalogTitle(left.item, right.item, false)
 	})
-	result.Total = len(items)
+	result.Total = len(grouped)
 	if result.Total == 0 || page > (result.Total-1)/pageSize+1 {
 		return result, nil
 	}
 	start := (page - 1) * pageSize
 	end := min(start+pageSize, result.Total)
-	result.Items = append(result.Items, items[start:end]...)
+	for _, movie := range grouped[start:end] {
+		result.Items = append(result.Items, movie.item)
+	}
 	return result, nil
+}
+
+func normalizeMovieCatalogSort(value MovieCatalogSort) MovieCatalogSort {
+	switch value {
+	case MovieCatalogSortTitleAsc, MovieCatalogSortTitleDesc, MovieCatalogSortReleaseDateDesc, MovieCatalogSortRuntimeAsc, MovieCatalogSortRuntimeDesc, MovieCatalogSortShowtimesDesc:
+		return value
+	default:
+		return MovieCatalogSortShowtimesDesc
+	}
+}
+
+func compareMovieCatalogTitle(left, right MovieCatalogItem, descending bool) bool {
+	comparison := compareNormalized(left.Title, right.Title)
+	if comparison != 0 {
+		if descending {
+			return comparison > 0
+		}
+		return comparison < 0
+	}
+	return left.Slug < right.Slug
 }
 
 func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, error) {

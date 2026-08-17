@@ -1,17 +1,28 @@
 <script setup lang="ts">
 import { AlertTriangle, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
-import type { CatalogMovie, MoviesResponse } from '~/types/api'
-import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
+import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 
 const PAGE_SIZE = 24
-const OWNED_QUERY_KEYS = ['q', 'page'] as const
+const DEFAULT_SORT: MovieSort = 'showtimes_desc'
+const SORT_OPTIONS = [
+  { value: 'title_asc', label: 'Titre A–Z' },
+  { value: 'title_desc', label: 'Titre Z–A' },
+  { value: 'release_date_desc', label: 'Sorties récentes' },
+  { value: 'runtime_asc', label: 'Durée croissante' },
+  { value: 'runtime_desc', label: 'Durée décroissante' },
+  { value: 'showtimes_desc', label: 'Plus de séances' }
+] as const satisfies readonly { value: MovieSort, label: string }[]
+const SORT_VALUES = SORT_OPTIONS.map((option) => option.value)
+const OWNED_QUERY_KEYS = ['q', 'sort', 'page'] as const
 
 const api = useMovieFlowApi()
 const route = useRoute()
 const router = useRouter()
 const searchInput = ref('')
 const appliedSearch = ref('')
+const sort = ref<MovieSort>(DEFAULT_SORT)
 const page = ref(1)
 const catalog = ref<MoviesResponse | null>(null)
 const pending = ref(true)
@@ -33,13 +44,14 @@ async function loadMovies() {
     const response = await api.movies({
       currently_screened: true,
       search: appliedSearch.value || undefined,
+      sort: sort.value,
       page: page.value,
       page_size: PAGE_SIZE
     })
     if (currentRequest === requestId) {
       const lastPage = Math.max(1, Math.ceil(response.total / PAGE_SIZE))
       if (page.value > lastPage) {
-        const query = filmQuery(appliedSearch.value, lastPage)
+        const query = filmQuery(appliedSearch.value, lastPage, sort.value)
         if (!queriesEqual(route.query, query)) await router.replace({ query })
         return
       }
@@ -59,9 +71,10 @@ async function loadMovies() {
   }
 }
 
-function filmQuery(search: string, nextPage: number) {
+function filmQuery(search: string, nextPage: number, nextSort: MovieSort) {
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
     q: search || undefined,
+    sort: nextSort === DEFAULT_SORT ? undefined : nextSort,
     page: nextPage === 1 ? undefined : String(nextPage)
   })
 }
@@ -69,11 +82,13 @@ function filmQuery(search: string, nextPage: number) {
 function hydrateRoute() {
   const rawSearch = singularQueryValue(route.query.q)
   const nextSearch = rawSearch?.trim() ?? ''
+  const nextSort = enumQueryValue(singularQueryValue(route.query.sort), SORT_VALUES) ?? DEFAULT_SORT
   const nextPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
   searchInput.value = nextSearch
   appliedSearch.value = nextSearch
+  sort.value = nextSort
   page.value = nextPage
-  return filmQuery(nextSearch, nextPage)
+  return filmQuery(nextSearch, nextPage, nextSort)
 }
 
 async function applyRoute() {
@@ -82,7 +97,7 @@ async function applyRoute() {
     await router.replace({ query: canonicalQuery })
     return
   }
-  const key = `${appliedSearch.value}|${page.value}`
+  const key = `${appliedSearch.value}|${sort.value}|${page.value}`
   if (key === lastLoadKey) return
   lastLoadKey = key
   await loadMovies()
@@ -90,7 +105,7 @@ async function applyRoute() {
 
 function submitSearch() {
   const nextSearch = searchInput.value.trim()
-  const query = filmQuery(nextSearch, 1)
+  const query = filmQuery(nextSearch, 1, sort.value)
   if (queriesEqual(route.query, query)) {
     if (errorMessage.value) loadMovies()
     return
@@ -98,10 +113,17 @@ function submitSearch() {
   router.push({ query })
 }
 
+function changeSort(event: Event) {
+  if (!(event.currentTarget instanceof HTMLSelectElement)) return
+  const nextSort = enumQueryValue(event.currentTarget.value, SORT_VALUES)
+  if (!nextSort || nextSort === sort.value) return
+  router.push({ query: filmQuery(appliedSearch.value, 1, nextSort) })
+}
+
 function changePage(nextPage: number) {
   if (pending.value || nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
   scrollAfterLoad = true
-  router.push({ query: filmQuery(appliedSearch.value, nextPage) })
+  router.push({ query: filmQuery(appliedSearch.value, nextPage, sort.value) })
 }
 
 function posterAvailable(movie: CatalogMovie): boolean {
@@ -132,22 +154,31 @@ useHead({ title: 'Films à l’affiche — MovieFlow' })
     <div class="flex flex-col gap-5 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
       <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Films à l’affiche</h1>
 
-      <form class="flex w-full gap-2 sm:max-w-md" role="search" @submit.prevent="submitSearch">
-        <label class="sr-only" for="film-search">Rechercher un film par titre</label>
-        <input
-          id="film-search"
-          v-model="searchInput"
-          type="search"
-          class="field min-w-0"
-          autocomplete="off"
-          placeholder="Rechercher un film"
-        />
-        <button type="submit" class="button-primary shrink-0" :disabled="pending">
-          <Search :size="18" aria-hidden="true" />
-          <span class="hidden sm:inline">Rechercher</span>
-          <span class="sr-only sm:hidden">Rechercher</span>
-        </button>
-      </form>
+      <div class="flex w-full flex-col gap-3 sm:max-w-2xl sm:flex-row sm:items-end sm:justify-end">
+        <label class="block text-xs font-semibold text-muted">
+          <span class="mb-1.5 block">Trier par</span>
+          <select :value="sort" class="field w-full sm:w-auto sm:min-w-44" :disabled="pending" @change="changeSort">
+            <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+        </label>
+
+        <form class="flex w-full gap-2 sm:max-w-md" role="search" @submit.prevent="submitSearch">
+          <label class="sr-only" for="film-search">Rechercher un film par titre</label>
+          <input
+            id="film-search"
+            v-model="searchInput"
+            type="search"
+            class="field min-w-0"
+            autocomplete="off"
+            placeholder="Rechercher un film"
+          />
+          <button type="submit" class="button-primary shrink-0" :disabled="pending">
+            <Search :size="18" aria-hidden="true" />
+            <span class="hidden sm:inline">Rechercher</span>
+            <span class="sr-only sm:hidden">Rechercher</span>
+          </button>
+        </form>
+      </div>
     </div>
 
     <div v-if="catalog && !pending" class="mb-5 mt-6 flex items-baseline justify-between gap-4">
