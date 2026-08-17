@@ -398,7 +398,114 @@ useHead({ title: 'Identités des films — MovieFlow' })
       <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="errorMessage = ''">Fermer</button>
     </div>
 
-    <section class="mt-8" aria-labelledby="local-groups-title">
+    <section class="mt-7" aria-labelledby="pending-matches-title">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="pending-matches-title" class="text-xl font-semibold text-ink">Films sans identité TMDB résolue</h2>
+        <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches">
+          <RefreshCw :size="16" :class="pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
+        </button>
+      </div>
+
+      <div v-if="selectedSourceList.length" class="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-4" aria-labelledby="merge-selection-title">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h3 id="merge-selection-title" class="font-semibold text-ink">Sélection pour regroupement ({{ selectedSourceList.length }})</h3>
+          <button type="button" class="text-sm font-semibold text-muted underline" :disabled="mergePending" @click="clearMergeSelection">Effacer</button>
+        </div>
+        <fieldset class="mt-3" :disabled="mergePending">
+          <legend class="sr-only">Choisir la source principale</legend>
+          <ul class="flex flex-wrap gap-2">
+            <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-orange-200 bg-surface px-3 py-2 text-sm">
+              <label class="flex cursor-pointer items-center gap-2">
+                <input v-model="primarySourceKey" type="radio" name="local-primary" :value="sourceKey(match)" class="accent-orange-700" />
+                <span><span class="font-semibold">{{ match.source_title }}</span> · {{ providerLabel(match.source_provider) }}</span>
+              </label>
+              <button type="button" class="text-muted hover:text-red-700" :aria-label="`Retirer ${match.source_title}`" @click="removeMergeSelection(match)"><X :size="16" aria-hidden="true" /></button>
+            </li>
+          </ul>
+        </fieldset>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" class="button-primary" :disabled="!canMerge || anyMutation" @click="mergeSelectedSources">
+            <LoaderCircle v-if="mergePending" :size="17" class="animate-spin" aria-hidden="true" /><Layers3 v-else :size="17" aria-hidden="true" /> Regrouper les films
+          </button>
+          <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">Sélectionnez au moins deux films.</p>
+          <p v-else-if="!primarySourceKey" class="text-sm text-muted">Choisissez la source principale.</p>
+        </div>
+      </div>
+
+      <div v-if="matchesError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+        <div><p>{{ matchesError }}</p><button type="button" class="mt-2 font-semibold underline" @click="loadMatches">Réessayer</button></div>
+      </div>
+      <div v-else-if="pending" class="state-panel mt-4" role="status" aria-live="polite">
+        <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
+      </div>
+      <div v-else-if="!result?.items.length" class="state-panel mt-4">
+        <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
+      </div>
+      <ul v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" aria-label="Films sans identité TMDB résolue">
+        <li v-for="match in result.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+            <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
+              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-orange-700" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="mergePending" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
+            </label>
+            <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-orange-100 text-orange-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : 'bg-stone-200 text-stone-700'">{{ statusLabel(match) }}</span>
+          </div>
+
+          <div class="grid min-w-0 gap-5" :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'">
+            <section class="min-w-0" :aria-labelledby="`source-title-${domKey(match)}`">
+              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
+              <div class="flex min-w-0 gap-3">
+                <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24 lg:w-20">
+                  <img v-if="posterAvailable(match.source_poster_url, sourcePosterKey(match))" :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(sourcePosterKey(match))" />
+                  <div v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></div>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
+                  <dl class="mt-2 space-y-1 text-xs text-muted"><div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div><div class="break-all"><dt class="inline"><BrandedText :text="`ID ${providerLabel(match.source_provider)} :`" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div></dl>
+                  <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"><BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /><ExternalLink :size="13" aria-hidden="true" /></a>
+                </div>
+              </div>
+            </section>
+
+            <fieldset v-if="match.status !== 'rejected'" class="min-w-0" :disabled="anyMutation">
+              <legend class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Candidats TMDB</legend>
+              <div v-if="match.candidates.length" class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+                <div v-for="candidate in match.candidates" :key="candidate.id" class="min-w-0 rounded-md border p-3 transition focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2" :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'border-accent bg-orange-50' : 'border-line bg-surface hover:border-stone-400'">
+                  <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
+                    <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-orange-700" />
+                    <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
+                      <img v-if="posterAvailable(candidate.poster_url, candidatePosterKey(match, candidate))" :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(candidatePosterKey(match, candidate))" />
+                      <span v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></span>
+                    </span>
+                    <span class="min-w-0 flex-1"><span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ candidate.title }}</span><span class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ candidate.original_title || 'non renseigné' }}</span><span class="mt-2 block space-y-1 text-xs text-muted"><span class="block">ID TMDB : {{ candidate.id }}</span><span class="block">{{ candidateRuntime(candidate) }}</span><span class="block">Score : {{ candidateScore(candidate) }}</span></span></span>
+                  </label>
+                  <a v-if="candidate.detail_url" :href="candidate.detail_url" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline">Voir sur TMDB <ExternalLink :size="13" aria-hidden="true" /></a>
+                </div>
+              </div>
+              <p v-else class="rounded-md border border-dashed border-line p-4 text-sm text-muted">Aucun candidat enregistré.</p>
+            </fieldset>
+          </div>
+
+          <div v-if="match.status !== 'rejected'" class="mt-4 grid gap-4 border-t border-line pt-4 lg:grid-cols-[auto_minmax(18rem,1fr)_auto] lg:items-end">
+            <button type="button" class="button-primary" :disabled="!selectedCandidates[sourceKey(match)] || anyMutation" @click="approve(match)"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'candidate'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Valider le candidat</button>
+            <form class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end" @submit.prevent="assignManual(match)">
+              <div class="min-w-0 flex-1"><label :for="`manual-tmdb-${domKey(match)}`" class="mb-1.5 block text-sm font-semibold text-ink">Identifiant TMDB</label><input :id="`manual-tmdb-${domKey(match)}`" v-model="manualTmdbIds[sourceKey(match)]" class="field" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" :disabled="anyMutation" /></div>
+              <button type="submit" class="button-primary shrink-0" :disabled="manualTmdbId(match) === null || anyMutation"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'manual'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Associer cet identifiant TMDB</button>
+            </form>
+            <div v-if="rejectConfirmation === sourceKey(match)" class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"><span class="text-sm font-semibold text-red-800">Marquer ce film comme Non-TMDB ?</span><button type="button" class="h-9 rounded-md bg-red-700 px-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="anyMutation" @click="reject(match)">Confirmer</button><button type="button" class="h-9 rounded-md border border-line px-3 text-sm font-semibold text-ink" :disabled="anyMutation" @click="rejectConfirmation = ''">Annuler</button></div>
+            <button v-else type="button" class="inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 lg:justify-self-end" :disabled="anyMutation" @click="rejectConfirmation = sourceKey(match)"><X :size="16" aria-hidden="true" /> Aucun résultat TMDB</button>
+          </div>
+        </li>
+      </ul>
+
+      <nav v-if="!pending && !matchesError && (offset > 0 || canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" aria-label="Pagination des films sans identité TMDB résolue">
+        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="offset === 0 || anyMutation" @click="changePage(offset - PAGE_SIZE)">Précédent</button>
+        <span class="text-sm text-muted" aria-live="polite">Page {{ page }}</span>
+        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGoNext || anyMutation" @click="changePage(offset + PAGE_SIZE)">Suivant</button>
+      </nav>
+    </section>
+
+    <section class="mt-8 border-t border-line pt-7" aria-labelledby="local-groups-title">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 id="local-groups-title" class="text-xl font-semibold text-ink">Regroupements locaux</h2>
         <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="groupsPending || anyMutation" @click="loadGroups">
@@ -462,113 +569,6 @@ useHead({ title: 'Identités des films — MovieFlow' })
         <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="groupsOffset === 0 || anyMutation" @click="changeGroupsPage(groupsOffset - PAGE_SIZE)">Précédent</button>
         <span class="text-sm text-muted" aria-live="polite">Page {{ groupsPage }}</span>
         <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGroupsGoNext || anyMutation" @click="changeGroupsPage(groupsOffset + PAGE_SIZE)">Suivant</button>
-      </nav>
-    </section>
-
-    <section v-if="selectedSourceList.length" class="mt-8 rounded-lg border border-orange-200 bg-orange-50 p-4" aria-labelledby="merge-selection-title">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="merge-selection-title" class="font-semibold text-ink">Sélection pour regroupement ({{ selectedSourceList.length }})</h2>
-        <button type="button" class="text-sm font-semibold text-muted underline" :disabled="mergePending" @click="clearMergeSelection">Effacer</button>
-      </div>
-      <fieldset class="mt-3" :disabled="mergePending">
-        <legend class="sr-only">Choisir la source principale</legend>
-        <ul class="flex flex-wrap gap-2">
-          <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-orange-200 bg-surface px-3 py-2 text-sm">
-            <label class="flex cursor-pointer items-center gap-2">
-              <input v-model="primarySourceKey" type="radio" name="local-primary" :value="sourceKey(match)" class="accent-orange-700" />
-              <span><span class="font-semibold">{{ match.source_title }}</span> · {{ providerLabel(match.source_provider) }}</span>
-            </label>
-            <button type="button" class="text-muted hover:text-red-700" :aria-label="`Retirer ${match.source_title}`" @click="removeMergeSelection(match)"><X :size="16" aria-hidden="true" /></button>
-          </li>
-        </ul>
-      </fieldset>
-      <div class="mt-4 flex flex-wrap items-center gap-3">
-        <button type="button" class="button-primary" :disabled="!canMerge || anyMutation" @click="mergeSelectedSources">
-          <LoaderCircle v-if="mergePending" :size="17" class="animate-spin" aria-hidden="true" /><Layers3 v-else :size="17" aria-hidden="true" /> Regrouper les films
-        </button>
-        <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">Sélectionnez au moins deux films.</p>
-        <p v-else-if="!primarySourceKey" class="text-sm text-muted">Choisissez la source principale.</p>
-      </div>
-    </section>
-
-    <section class="mt-10 border-t border-line pt-8" aria-labelledby="pending-matches-title">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="pending-matches-title" class="text-xl font-semibold text-ink">Films sans identité TMDB résolue</h2>
-        <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches">
-          <RefreshCw :size="16" :class="pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
-        </button>
-      </div>
-
-      <div v-if="matchesError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-        <div><p>{{ matchesError }}</p><button type="button" class="mt-2 font-semibold underline" @click="loadMatches">Réessayer</button></div>
-      </div>
-      <div v-else-if="pending" class="state-panel mt-4" role="status" aria-live="polite">
-        <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
-      </div>
-      <div v-else-if="!result?.items.length" class="state-panel mt-4">
-        <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
-      </div>
-      <ul v-else class="mt-5 space-y-4" aria-label="Films sans identité TMDB résolue">
-        <li v-for="match in result.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5">
-          <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-            <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
-              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-orange-700" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="mergePending" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
-            </label>
-            <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-orange-100 text-orange-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : 'bg-stone-200 text-stone-700'">{{ statusLabel(match) }}</span>
-          </div>
-
-          <div class="grid min-w-0 gap-5" :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'">
-            <section class="min-w-0" :aria-labelledby="`source-title-${domKey(match)}`">
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
-              <div class="flex min-w-0 gap-3">
-                <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24 lg:w-20">
-                  <img v-if="posterAvailable(match.source_poster_url, sourcePosterKey(match))" :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(sourcePosterKey(match))" />
-                  <div v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></div>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
-                  <dl class="mt-2 space-y-1 text-xs text-muted"><div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div><div class="break-all"><dt class="inline"><BrandedText :text="`ID ${providerLabel(match.source_provider)} :`" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div></dl>
-                  <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"><BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /><ExternalLink :size="13" aria-hidden="true" /></a>
-                </div>
-              </div>
-            </section>
-
-            <fieldset v-if="match.status !== 'rejected'" class="min-w-0" :disabled="anyMutation">
-              <legend class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Candidats TMDB</legend>
-              <div v-if="match.candidates.length" class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-                <div v-for="candidate in match.candidates" :key="candidate.id" class="min-w-0 rounded-md border p-3 transition focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2" :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'border-accent bg-orange-50' : 'border-line bg-surface hover:border-stone-400'">
-                  <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
-                    <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-orange-700" />
-                    <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
-                      <img v-if="posterAvailable(candidate.poster_url, candidatePosterKey(match, candidate))" :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(candidatePosterKey(match, candidate))" />
-                      <span v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></span>
-                    </span>
-                    <span class="min-w-0 flex-1"><span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ candidate.title }}</span><span class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ candidate.original_title || 'non renseigné' }}</span><span class="mt-2 block space-y-1 text-xs text-muted"><span class="block">ID TMDB : {{ candidate.id }}</span><span class="block">{{ candidateRuntime(candidate) }}</span><span class="block">Score : {{ candidateScore(candidate) }}</span></span></span>
-                  </label>
-                  <a v-if="candidate.detail_url" :href="candidate.detail_url" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline">Voir sur TMDB <ExternalLink :size="13" aria-hidden="true" /></a>
-                </div>
-              </div>
-              <p v-else class="rounded-md border border-dashed border-line p-4 text-sm text-muted">Aucun candidat enregistré.</p>
-            </fieldset>
-          </div>
-
-          <div v-if="match.status !== 'rejected'" class="mt-4 grid gap-4 border-t border-line pt-4 lg:grid-cols-[auto_minmax(18rem,1fr)_auto] lg:items-end">
-            <button type="button" class="button-primary" :disabled="!selectedCandidates[sourceKey(match)] || anyMutation" @click="approve(match)"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'candidate'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Valider le candidat</button>
-            <form class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end" @submit.prevent="assignManual(match)">
-              <div class="min-w-0 flex-1"><label :for="`manual-tmdb-${domKey(match)}`" class="mb-1.5 block text-sm font-semibold text-ink">Identifiant TMDB</label><input :id="`manual-tmdb-${domKey(match)}`" v-model="manualTmdbIds[sourceKey(match)]" class="field" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" :disabled="anyMutation" /></div>
-              <button type="submit" class="button-primary shrink-0" :disabled="manualTmdbId(match) === null || anyMutation"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'manual'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Associer cet identifiant TMDB</button>
-            </form>
-            <div v-if="rejectConfirmation === sourceKey(match)" class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"><span class="text-sm font-semibold text-red-800">Marquer ce film comme Non-TMDB ?</span><button type="button" class="h-9 rounded-md bg-red-700 px-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="anyMutation" @click="reject(match)">Confirmer</button><button type="button" class="h-9 rounded-md border border-line px-3 text-sm font-semibold text-ink" :disabled="anyMutation" @click="rejectConfirmation = ''">Annuler</button></div>
-            <button v-else type="button" class="inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 lg:justify-self-end" :disabled="anyMutation" @click="rejectConfirmation = sourceKey(match)"><X :size="16" aria-hidden="true" /> Aucun résultat TMDB</button>
-          </div>
-        </li>
-      </ul>
-
-      <nav v-if="!pending && !matchesError && (offset > 0 || canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" aria-label="Pagination des films sans identité TMDB résolue">
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="offset === 0 || anyMutation" @click="changePage(offset - PAGE_SIZE)">Précédent</button>
-        <span class="text-sm text-muted" aria-live="polite">Page {{ page }}</span>
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGoNext || anyMutation" @click="changePage(offset + PAGE_SIZE)">Suivant</button>
       </nav>
     </section>
   </main>
