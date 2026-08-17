@@ -55,7 +55,7 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 		if !selected[theater.ID] {
 			continue
 		}
-		result := TimelineTheater{ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, AcceptedPasses: append([]string(nil), theater.AcceptedPasses...), Showtimes: []TimelineShowtime{}}
+		result := TimelineTheater{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, AcceptedPasses: append([]string(nil), theater.AcceptedPasses...), Showtimes: []TimelineShowtime{}}
 		for _, record := range data.Showtimes {
 			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) {
 				continue
@@ -78,7 +78,7 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 
 func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 	chain := strings.TrimSpace(query.Chain)
-	if chain != "" && !strings.EqualFold(chain, ProviderUGC) {
+	if chain != "" && !strings.EqualFold(chain, ProviderUGC) && !strings.EqualFold(chain, ProviderKinepolis) {
 		return []Theater{}
 	}
 
@@ -86,10 +86,15 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 	data := s.source.Snapshot()
 	result := make([]Theater, 0, len(data.Theaters))
 	for _, theater := range data.Theaters {
+		provider := recordProvider(theater.Provider, theater.ID)
+		if chain != "" && !strings.EqualFold(chain, provider) {
+			continue
+		}
 		if city != "" && !s.cityMatches(theater.City, city) {
 			continue
 		}
 		result = append(result, Theater{
+			Provider:       provider,
 			ID:             theater.ID,
 			Slug:           theater.Slug,
 			Name:           theater.Name,
@@ -139,8 +144,9 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		if search != "" && !strings.Contains(normalized(record.Movie.Title), search) {
 			continue
 		}
-		if _, exists := unique[record.Movie.Slug]; !exists {
-			unique[record.Movie.Slug] = materializeCatalogMovie(record.Movie)
+		slug := publicMovieSlug(record.Movie)
+		if _, exists := unique[slug]; !exists {
+			unique[slug] = materializeCatalogMovie(record.Movie)
 		}
 	}
 	items := make([]MovieCatalogItem, 0, len(unique))
@@ -176,7 +182,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 	var movie MovieCatalogItem
 	found := false
 	for _, record := range data.Showtimes {
-		if record.Movie.Slug == query.Slug {
+		if publicMovieSlug(record.Movie) == query.Slug {
 			movie = materializeCatalogMovie(record.Movie)
 			found = true
 			break
@@ -192,7 +198,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 	}
 	grouped := make(map[string][]Showtime)
 	for _, record := range data.Showtimes {
-		if record.Movie.Slug != query.Slug || record.ServiceDate != query.Date || !selected[record.TheaterID] {
+		if publicMovieSlug(record.Movie) != query.Slug || record.ServiceDate != query.Date || !selected[record.TheaterID] {
 			continue
 		}
 		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(record))
@@ -220,7 +226,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 			}
 			return showtimes[i].ID < showtimes[j].ID
 		})
-		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, Showtimes: showtimes})
+		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, Showtimes: showtimes})
 	}
 	return result, nil
 }
@@ -274,7 +280,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 			if showtime.StartTime.Before(start) || effectiveEnd.After(finish) {
 				continue
 			}
-			results = append(results, SlotResult{Showtime: showtime, Theater: TheaterSummary{ID: theater.ID, Name: theater.Name, City: theater.City}, EffectiveEndTime: effectiveEnd, BufferAdsMinutes: query.BufferAds, SlackBeforeMinutes: int(showtime.StartTime.Sub(start) / time.Minute), SlackAfterMinutes: int(finish.Sub(effectiveEnd) / time.Minute)})
+			results = append(results, SlotResult{Showtime: showtime, Theater: TheaterSummary{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Name: theater.Name, City: theater.City}, EffectiveEndTime: effectiveEnd, BufferAdsMinutes: query.BufferAds, SlackBeforeMinutes: int(showtime.StartTime.Sub(start) / time.Minute), SlackAfterMinutes: int(finish.Sub(effectiveEnd) / time.Minute)})
 		}
 	}
 	sort.Slice(results, func(i, j int) bool {
@@ -392,7 +398,8 @@ func matchesLanguage(session, requested string) bool {
 }
 func materializeRecord(record ShowtimeRecord) Showtime {
 	booking := record.BookingURL
-	return Showtime{ID: record.ID, Movie: Movie{Slug: record.Movie.Slug, Title: record.Movie.Title, RuntimeMinutes: record.Movie.RuntimeMinutes}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	provider := recordProvider(record.Provider, record.ID)
+	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Provider: provider, Slug: publicMovieSlug(record.Movie), Title: record.Movie.Title, RuntimeMinutes: record.Movie.RuntimeMinutes}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 }
 func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 	var poster *string
@@ -400,7 +407,15 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 		value := record.PosterURL
 		poster = &value
 	}
-	item := MovieCatalogItem{Slug: record.Slug, Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: []string{}}
+	item := MovieCatalogItem{Provider: recordProvider(record.Provider, record.Slug), Slug: publicMovieSlug(record), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: append([]string{}, record.Genres...)}
+	if record.Overview != "" {
+		value := record.Overview
+		item.Overview = &value
+	}
+	if record.ReleaseDate != "" {
+		value := record.ReleaseDate
+		item.ReleaseDate = &value
+	}
 	if record.Enrichment != nil && record.Enrichment.TMDBID > 0 {
 		id := record.Enrichment.TMDBID
 		item.TMDBID = &id
@@ -412,7 +427,9 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 			value := record.Enrichment.ReleaseDate
 			item.ReleaseDate = &value
 		}
-		item.Genres = append(item.Genres, record.Enrichment.Genres...)
+		if len(record.Enrichment.Genres) > 0 {
+			item.Genres = append([]string{}, record.Enrichment.Genres...)
+		}
 		if record.Enrichment.PosterURL != "" {
 			value := record.Enrichment.PosterURL
 			item.PosterURL = &value
@@ -420,11 +437,26 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 	}
 	return item
 }
+func publicMovieSlug(record MovieRecord) string {
+	if record.Enrichment != nil && record.Enrichment.TMDBID > 0 {
+		return "tmdb-film-" + strconv.FormatInt(record.Enrichment.TMDBID, 10)
+	}
+	return record.Slug
+}
 func normalized(value string) string { return strings.ToLower(strings.TrimSpace(value)) }
 func compareNormalized(a, b string) int {
 	return strings.Compare(normalized(a), normalized(b))
 }
 func localTime(date time.Time, hour, minute int) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location())
+}
+func recordProvider(explicit, identity string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if strings.HasPrefix(identity, ProviderKinepolis+"-") {
+		return ProviderKinepolis
+	}
+	return ProviderUGC
 }
 func invalid(message string) error { return &ValidationError{Message: message} }

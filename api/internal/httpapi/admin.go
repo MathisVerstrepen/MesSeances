@@ -20,6 +20,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"movieflow/api/internal/enrichment"
+	"movieflow/api/internal/synccontrol"
 )
 
 const (
@@ -35,6 +36,7 @@ type adminAPI struct {
 	password string
 	key      [32]byte
 	reviews  *enrichment.ReviewService
+	syncs    SyncController
 	now      func() time.Time
 	limiter  *loginLimiter
 }
@@ -64,8 +66,47 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	return &adminAPI{
 		origin: origin, password: password,
 		key:     sha256.Sum256([]byte("movieflow-admin-session-v1\x00" + password)),
-		reviews: options.Reviews, now: options.Now,
+		reviews: options.Reviews, syncs: options.Syncs, now: options.Now,
 		limiter: &loginLimiter{attempts: make(map[string]loginAttempt)},
+	}
+}
+
+type syncResponse struct {
+	Job *synccontrol.Status `json:"job"`
+}
+
+func (a *adminAPI) syncStatus(w http.ResponseWriter, _ *http.Request) {
+	if a.syncs == nil {
+		writeError(w, http.StatusServiceUnavailable, "sync_unavailable", "Service de synchronisation indisponible.")
+		return
+	}
+	status := a.syncs.Status()
+	if status.ID == "" {
+		writeJSON(w, http.StatusOK, syncResponse{})
+		return
+	}
+	writeJSON(w, http.StatusOK, syncResponse{Job: &status})
+}
+
+func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
+	if a.syncs == nil {
+		writeError(w, http.StatusServiceUnavailable, "sync_unavailable", "Service de synchronisation indisponible.")
+		return
+	}
+	if !emptyAdminBody(w, r) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+		return
+	}
+	status, err := a.syncs.Start(synccontrol.Target(chi.URLParam(r, "target")))
+	switch {
+	case errors.Is(err, synccontrol.ErrInvalidTarget):
+		writeError(w, http.StatusBadRequest, "invalid_sync_target", "Cible de synchronisation invalide.")
+	case errors.Is(err, synccontrol.ErrInProgress):
+		writeError(w, http.StatusConflict, "sync_in_progress", "Une synchronisation est déjà en cours.")
+	case err != nil:
+		writeError(w, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
+	default:
+		writeJSON(w, http.StatusAccepted, syncResponse{Job: &status})
 	}
 }
 
@@ -154,7 +195,7 @@ func (a *adminAPI) approveMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
 		return
 	}
-	err := a.reviews.Approve(r.Context(), chi.URLParam(r, "sourceMovieID"), input.TMDBID)
+	err := a.reviews.Approve(r.Context(), chi.URLParam(r, "sourceProvider"), chi.URLParam(r, "sourceMovieID"), input.TMDBID)
 	if err != nil {
 		a.writeReviewError(w, err)
 		return
@@ -167,7 +208,7 @@ func (a *adminAPI) rejectMatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
 		return
 	}
-	err := a.reviews.Reject(r.Context(), chi.URLParam(r, "sourceMovieID"))
+	err := a.reviews.Reject(r.Context(), chi.URLParam(r, "sourceProvider"), chi.URLParam(r, "sourceMovieID"))
 	if err != nil {
 		a.writeReviewError(w, err)
 		return

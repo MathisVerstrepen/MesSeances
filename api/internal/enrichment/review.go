@@ -15,9 +15,9 @@ const reviewMetadataTTL = 30 * 24 * time.Hour
 
 type ReviewStore interface {
 	PendingMatches(context.Context, int, int) ([]PendingMatch, error)
-	ReviewCandidate(context.Context, string, int64) (Candidate, error)
-	ApproveReview(context.Context, string, int64, Metadata, time.Time) error
-	RejectReview(context.Context, string, time.Time) error
+	ReviewCandidate(context.Context, string, string, int64) (Candidate, error)
+	ApproveReview(context.Context, string, string, int64, Metadata, time.Time) error
+	RejectReview(context.Context, string, string, time.Time) error
 }
 
 type ReviewService struct {
@@ -47,8 +47,12 @@ func (s *ReviewService) Pending(ctx context.Context, limit, offset int) ([]Pendi
 	}
 	for itemIndex := range items {
 		item := &items[itemIndex]
-		item.SourceDetailURL = ugcDetailURL(item.SourceMovieID)
-		if !validUGCPosterURL(item.SourcePosterURL) {
+		if item.SourceProvider == SourceUGC {
+			item.SourceDetailURL = ugcDetailURL(item.SourceMovieID)
+		} else {
+			item.SourceDetailURL = ""
+		}
+		if !validSourcePosterURL(item.SourceProvider, item.SourcePosterURL) {
 			item.SourcePosterURL = ""
 		}
 		for candidateIndex := range item.Candidates {
@@ -113,6 +117,17 @@ func validUGCPosterURL(raw string) bool {
 	return host == "ugc.fr" || strings.HasSuffix(host, ".ugc.fr")
 }
 
+func validSourcePosterURL(provider, raw string) bool {
+	if raw == "" {
+		return true
+	}
+	if provider == SourceUGC {
+		return validUGCPosterURL(raw)
+	}
+	parsed, err := url.Parse(raw)
+	return provider == SourceKinepolis && err == nil && len(raw) <= 4096 && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !strings.Contains(parsed.Path, "..")
+}
+
 func validTMDBPosterURL(raw string) bool {
 	parsed, err := url.Parse(raw)
 	return err == nil && len(raw) <= 4096 && parsed.Scheme == "https" && parsed.Host == "image.tmdb.org" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/t/p/") && len(parsed.Path) > len("/t/p/") && !strings.Contains(parsed.Path, "..")
@@ -127,14 +142,14 @@ func validTMDBBackdropURL(raw string) bool {
 	return len(raw) <= 4096 && strings.HasPrefix(raw, "https://image.tmdb.org/t/p/w780/") && parsed.Scheme == "https" && parsed.Host == "image.tmdb.org" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && parsed.RawPath == "" && strings.HasPrefix(parsed.Path, "/t/p/w780/") && suffix != "" && !strings.HasPrefix(suffix, "/") && !strings.Contains(parsed.Path, "..") && !strings.Contains(parsed.Path, "\\")
 }
 
-func (s *ReviewService) Approve(ctx context.Context, sourceMovieID string, candidateID int64) error {
+func (s *ReviewService) Approve(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64) error {
 	if s == nil || s.store == nil || candidateID <= 0 {
 		return fmt.Errorf("review service unavailable")
 	}
 	if s.provider == nil {
 		return ErrReviewUnavailable
 	}
-	if _, err := s.store.ReviewCandidate(ctx, sourceMovieID, candidateID); err != nil {
+	if _, err := s.store.ReviewCandidate(ctx, sourceProvider, sourceMovieID, candidateID); err != nil {
 		return err
 	}
 	details, err := s.provider.Details(ctx, candidateID)
@@ -147,12 +162,12 @@ func (s *ReviewService) Approve(ctx context.Context, sourceMovieID string, candi
 	now := s.now().UTC()
 	metadata := metadataFromDetails(details, now)
 	metadata.RefreshAfter = now.Add(reviewMetadataTTL)
-	return s.store.ApproveReview(ctx, sourceMovieID, candidateID, metadata, now)
+	return s.store.ApproveReview(ctx, sourceProvider, sourceMovieID, candidateID, metadata, now)
 }
 
-func (s *ReviewService) Reject(ctx context.Context, sourceMovieID string) error {
+func (s *ReviewService) Reject(ctx context.Context, sourceProvider, sourceMovieID string) error {
 	if s == nil || s.store == nil {
 		return fmt.Errorf("review service unavailable")
 	}
-	return s.store.RejectReview(ctx, sourceMovieID, s.now().UTC())
+	return s.store.RejectReview(ctx, sourceProvider, sourceMovieID, s.now().UTC())
 }

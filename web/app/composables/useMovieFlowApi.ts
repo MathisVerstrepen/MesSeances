@@ -2,6 +2,8 @@ import type {
   AdminMatchDecisionResponse,
   AdminPendingMatchesResponse,
   AdminSessionResponse,
+  AdminSyncResponse,
+  AdminSyncTarget,
   ApiErrorResponse,
   MoviesQuery,
   MoviesResponse,
@@ -84,6 +86,17 @@ export function useMovieFlowApi() {
         method: 'POST',
         credentials: 'include'
       }))
+    },
+    adminSyncStatus() {
+      return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs`, {
+        credentials: 'include'
+      }))
+    },
+    adminStartSync(target: AdminSyncTarget) {
+      return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs/${encodeURIComponent(target)}`, {
+        method: 'POST',
+        credentials: 'include'
+      }))
     }
   }
 }
@@ -114,6 +127,9 @@ export function getFrenchAdminApiError(error: unknown): string {
   const code = getApiErrorCode(error)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
   if (code === 'review_unavailable') return 'Le service de validation TMDB est temporairement indisponible.'
+  if (code === 'sync_unavailable') return 'Le service de synchronisation est temporairement indisponible.'
+  if (code === 'sync_in_progress') return 'Une synchronisation est déjà en cours.'
+  if (code === 'sync_failed') return 'La synchronisation n’a pas pu démarrer. Réessayez plus tard.'
   if (code === 'review_failed' || code === 'internal_error' || getApiErrorStatus(error) === 502) {
     return 'Le service de validation a rencontré une erreur. Réessayez plus tard.'
   }

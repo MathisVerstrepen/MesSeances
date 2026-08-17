@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"movieflow/api/internal/syncproxy"
 )
 
 const maxResponseBytes = 8 << 20
@@ -53,12 +55,11 @@ func NewClient(config ClientConfig) (*Client, error) {
 	if config.Timeout < 5*time.Second || config.Timeout > 60*time.Second {
 		return nil, fmt.Errorf("timeout must be between 5s and 60s")
 	}
-	client := &Client{config: config, unavailable: make([]bool, len(config.Proxies))}
-	for _, proxy := range config.Proxies {
-		transport := &http.Transport{Proxy: http.ProxyURL(proxy.endpoint), ForceAttemptHTTP2: true, MaxIdleConns: 1, MaxIdleConnsPerHost: 1, IdleConnTimeout: 30 * time.Second, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: config.Timeout}
-		httpClient := &http.Client{Transport: transport, Timeout: config.Timeout, CheckRedirect: checkUGCRedirect}
-		client.clients = append(client.clients, httpClient)
+	clients, err := syncproxy.NewHTTPClients(config.Proxies, config.Timeout, checkUGCRedirect)
+	if err != nil {
+		return nil, err
 	}
+	client := &Client{config: config, clients: clients, unavailable: make([]bool, len(config.Proxies))}
 	return client, nil
 }
 
@@ -204,12 +205,5 @@ func readBounded(r io.Reader) ([]byte, error) {
 	return body, nil
 }
 func isChallenge(body []byte) bool {
-	value := strings.ToLower(string(body))
-	markers := []string{"<title>datadome", "<title>captcha", "<title>attention required! | cloudflare", "captcha-delivery.com", "geo.captcha-delivery.com", "class=\"g-recaptcha", "id=\"captcha", "action=\"/captcha", "cf-chl-", "cloudflare ray id", "challenge-platform", "/cdn-cgi/challenge", "id=\"challenge-form\""}
-	for _, marker := range markers {
-		if strings.Contains(value, marker) {
-			return true
-		}
-	}
-	return false
+	return syncproxy.IsChallenge(body)
 }

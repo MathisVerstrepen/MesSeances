@@ -2,6 +2,7 @@ package ugc
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -293,6 +294,25 @@ func TestParseShowingsAcceptsAuthenticatedBlocksWithPlaceholders(t *testing.T) {
 func TestParseShowingsAcceptsAuthenticatedInertBlocks(t *testing.T) {
 	records, err := ParseShowings(fixture(t, "showings-next-session-inert.html"), Cinema{ProviderID: "18"}, "2026-08-14")
 	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%v error=%v", records, err)
+	}
+}
+
+func TestParseShowingsAcceptsCinema36PackagePlaceholder(t *testing.T) {
+	records, err := ParseShowings(fixture(t, "showings-next-session-package-placeholder.html"), Cinema{ProviderID: "36"}, "2026-08-16")
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%v error=%v", records, err)
+	}
+}
+
+func TestParseShowingsCinema36PlaceholderStillRejectsIdentityLink(t *testing.T) {
+	body, err := io.ReadAll(fixture(t, "showings-next-session-package-placeholder.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = []byte(strings.Replace(string(body), `href="javascript:void(0);"`, `href="film_package_999.html?cinemaId=36"`, 1))
+	records, err := ParseShowings(strings.NewReader(string(body)), Cinema{ProviderID: "36"}, "2026-08-16")
+	if err == nil || err.Error() != "unrecognized showings document" {
 		t.Fatalf("records=%v error=%v", records, err)
 	}
 }

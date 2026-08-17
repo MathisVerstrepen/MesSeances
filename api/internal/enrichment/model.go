@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	SourceUGC    = "ugc"
-	ProviderTMDB = "tmdb"
-	LocaleFrench = "fr-FR"
+	SourceUGC       = "ugc"
+	SourceKinepolis = "kinepolis"
+	ProviderTMDB    = "tmdb"
+	LocaleFrench    = "fr-FR"
 
 	StatusMatched        = "matched"
 	StatusReviewRequired = "review_required"
@@ -60,12 +61,14 @@ type Metadata struct {
 }
 
 type Movie struct {
+	SourceProvider string
 	ProviderID     string
 	Title          string
 	RuntimeMinutes int
 }
 
 type PendingMatch struct {
+	SourceProvider       string      `json:"source_provider"`
 	SourceMovieID        string      `json:"source_movie_id"`
 	SourceTitle          string      `json:"source_title"`
 	SourceRuntimeMinutes int         `json:"source_runtime_minutes"`
@@ -83,8 +86,7 @@ var (
 )
 
 func validateMatch(match Match) error {
-	movieID, parseErr := strconv.ParseInt(match.SourceMovieID, 10, 64)
-	if match.SourceProvider != SourceUGC || match.MetadataProvider != ProviderTMDB || parseErr != nil || movieID <= 0 || strings.TrimSpace(match.NormalizedSourceTitle) == "" || len(match.NormalizedSourceTitle) > 1024 {
+	if !validSourceIdentity(match.SourceProvider, match.SourceMovieID) || match.MetadataProvider != ProviderTMDB || strings.TrimSpace(match.NormalizedSourceTitle) == "" || len(match.NormalizedSourceTitle) > 1024 {
 		return fmt.Errorf("invalid match identity")
 	}
 	if match.SourceRuntimeMinutes < 1 || match.SourceRuntimeMinutes > 600 || len(match.Candidates) > 5 || match.EvaluatedAt.IsZero() || match.RetryAfter.IsZero() {
@@ -107,6 +109,22 @@ func validateMatch(match Match) error {
 		return fmt.Errorf("invalid match status")
 	}
 	return nil
+}
+
+func validSourceIdentity(provider, id string) bool {
+	if provider == SourceUGC {
+		movieID, err := strconv.ParseInt(id, 10, 64)
+		return err == nil && movieID > 0 && strconv.FormatInt(movieID, 10) == id
+	}
+	if provider != SourceKinepolis || id == "" || len(id) > 128 {
+		return false
+	}
+	for index, r := range id {
+		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || index > 0 && (r == '-' || r == '_')) {
+			return false
+		}
+	}
+	return true
 }
 
 func validateMetadata(metadata Metadata) error {

@@ -1,9 +1,11 @@
 export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = 'VOSTFR' | 'VF' | 'VO' | 'VF_SME'
+export type Provider = 'ugc' | 'kinepolis'
 
 export type Language = QueryLanguage
 
 export interface Movie {
+  provider: Provider
   slug: string
   title: string
   runtime_minutes: number
@@ -18,6 +20,7 @@ export interface CatalogMovie extends Movie {
 }
 
 export interface Showtime {
+  provider: Provider
   id: string
   movie: Movie
   start_time: string
@@ -36,6 +39,7 @@ export interface TimelineShowtime extends Showtime {
 }
 
 export interface TimelineTheater {
+  provider: Provider
   id: string
   slug: string
   name: string
@@ -53,6 +57,7 @@ export interface TimelineResponse {
 }
 
 export interface SlotTheater {
+  provider: Provider
   id: string
   name: string
   city: string
@@ -111,6 +116,29 @@ export interface AdminMatchDecisionResponse {
   status: 'matched' | 'rejected'
 }
 
+export type AdminSyncTarget = 'all' | Provider
+export type AdminSyncState = 'running' | 'succeeded' | 'failed'
+export type AdminSyncProviderState = 'not_requested' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
+
+export interface AdminSyncProviderStatus {
+  state: AdminSyncProviderState
+}
+
+export interface AdminSyncJob {
+  id: string
+  target: AdminSyncTarget
+  state: AdminSyncState
+  started_at: string
+  finished_at: string | null
+  from: string
+  through: string
+  providers: Record<Provider, AdminSyncProviderStatus>
+}
+
+export interface AdminSyncResponse {
+  job: AdminSyncJob | null
+}
+
 export interface TimelineQuery {
   date: string
   theaters?: string
@@ -128,6 +156,7 @@ export interface SlotQuery {
 }
 
 export interface Theater {
+  provider: Provider
   id: string
   slug: string
   name: string
@@ -164,6 +193,7 @@ export interface MovieShowtimesQuery {
 }
 
 export interface MovieShowtimesTheater {
+  provider: Provider
   id: string
   slug: string
   name: string

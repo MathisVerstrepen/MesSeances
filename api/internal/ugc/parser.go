@@ -690,7 +690,8 @@ func placeholderCarriesIdentity(block *html.Node) bool {
 		if found || node.Type != html.ElementNode {
 			return
 		}
-		if isCanonicalFilmHeading(node) || node.Data == "a" && strings.TrimSpace(attr(node, "href")) != "" {
+		href := strings.TrimSpace(attr(node, "href"))
+		if isCanonicalFilmHeading(node) || node.Data == "a" && href != "" && !isInertControlHref(href) {
 			found = true
 			return
 		}
@@ -705,6 +706,11 @@ func placeholderCarriesIdentity(block *html.Node) bool {
 		}
 	})
 	return found
+}
+
+func isInertControlHref(value string) bool {
+	value = strings.TrimSpace(value)
+	return strings.EqualFold(value, "javascript:void(0)") || strings.EqualFold(value, "javascript:void(0);")
 }
 
 func placeholderCarriesShowingEvidence(block *html.Node) bool {

@@ -38,12 +38,14 @@ func (e *NotFoundError) Error() string {
 }
 
 type Movie struct {
+	Provider       string `json:"provider"`
 	Slug           string `json:"slug"`
 	Title          string `json:"title"`
 	RuntimeMinutes int    `json:"runtime_minutes"`
 }
 
 type Showtime struct {
+	Provider   string    `json:"provider"`
 	ID         string    `json:"id"`
 	Movie      Movie     `json:"movie"`
 	StartTime  time.Time `json:"start_time"`
@@ -63,6 +65,7 @@ type TimelineShowtime struct {
 }
 
 type TimelineTheater struct {
+	Provider       string             `json:"provider"`
 	ID             string             `json:"id"`
 	Slug           string             `json:"slug"`
 	Name           string             `json:"name"`
@@ -80,12 +83,14 @@ type Timeline struct {
 }
 
 type TheaterSummary struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	City string `json:"city"`
+	Provider string `json:"provider"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	City     string `json:"city"`
 }
 
 type Theater struct {
+	Provider       string   `json:"provider"`
 	ID             string   `json:"id"`
 	Slug           string   `json:"slug"`
 	Name           string   `json:"name"`
@@ -97,6 +102,7 @@ type Theater struct {
 }
 
 type MovieCatalogItem struct {
+	Provider       string   `json:"provider"`
 	Slug           string   `json:"slug"`
 	Title          string   `json:"title"`
 	RuntimeMinutes int      `json:"runtime_minutes"`
@@ -115,6 +121,7 @@ type MovieCatalog struct {
 }
 
 type MovieTheaterShowtimes struct {
+	Provider  string     `json:"provider"`
 	ID        string     `json:"id"`
 	Slug      string     `json:"slug"`
 	Name      string     `json:"name"`

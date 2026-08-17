@@ -13,6 +13,7 @@ import (
 
 	"movieflow/api/internal/enrichment"
 	"movieflow/api/internal/schedule"
+	"movieflow/api/internal/synccontrol"
 )
 
 type API struct {
@@ -23,7 +24,13 @@ type API struct {
 type AdminOptions struct {
 	Password string
 	Reviews  *enrichment.ReviewService
+	Syncs    SyncController
 	Now      func() time.Time
+}
+
+type SyncController interface {
+	Start(synccontrol.Target) (synccontrol.Status, error)
+	Status() synccontrol.Status
 }
 
 type errorResponse struct {
@@ -65,8 +72,10 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 			router.Use(api.admin.authorize)
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
-			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceMovieID}/approve", api.admin.approveMatch)
-			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceMovieID}/reject", api.admin.rejectMatch)
+			router.Get("/syncs", api.admin.syncStatus)
+			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/approve", api.admin.approveMatch)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/reject", api.admin.rejectMatch)
 		})
 	})
 	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {

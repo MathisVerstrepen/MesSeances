@@ -150,22 +150,22 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err != nil || len(paged) != 2 || paged[0].SourceMovieID != "205" || paged[1].SourceMovieID != "206" {
 		t.Fatalf("paged pending=%+v err=%v", paged, err)
 	}
-	manualCandidate, err := store.ReviewCandidate(ctx, "201", 999)
+	manualCandidate, err := store.ReviewCandidate(ctx, SourceUGC, "201", 999)
 	if err != nil || manualCandidate.ID != 999 || manualCandidate.Score != 1 {
 		t.Fatalf("manual candidate=%+v error=%v", manualCandidate, err)
 	}
-	storedCandidate, err := store.ReviewCandidate(ctx, "201", 52)
+	storedCandidate, err := store.ReviewCandidate(ctx, SourceUGC, "201", 52)
 	if err != nil || storedCandidate.ID != 52 || storedCandidate.Score != .92 {
 		t.Fatalf("stored candidate=%+v error=%v", storedCandidate, err)
 	}
-	if err := store.RejectReview(ctx, "206", now.Add(30*time.Second)); !errors.Is(err, ErrReviewConflict) {
+	if err := store.RejectReview(ctx, SourceUGC, "206", now.Add(30*time.Second)); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("unmatched rejection error=%v", err)
 	}
 	approvedMetadata := metadata
 	approvedMetadata.ProviderMovieID = 52
 	approvedMetadata.ProviderTitle = "Film à revoir"
 	approvedMetadata.LocalizedTitle = "Film à revoir"
-	if err := store.ApproveReview(ctx, "201", 52, approvedMetadata, now.Add(time.Minute)); err != nil {
+	if err := store.ApproveReview(ctx, SourceUGC, "201", 52, approvedMetadata, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 2 {
@@ -175,19 +175,19 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT score FROM movie_matches WHERE source_movie_id='201'").Scan(&score); err != nil || score != .92 {
 		t.Fatalf("stored candidate score=%v error=%v", score, err)
 	}
-	if err := store.RejectReview(ctx, "201", now.Add(2*time.Minute)); !errors.Is(err, ErrReviewConflict) {
+	if err := store.RejectReview(ctx, SourceUGC, "201", now.Add(2*time.Minute)); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("second decision error=%v", err)
 	}
 	manualMetadata := metadata
 	manualMetadata.ProviderMovieID, manualMetadata.ProviderTitle, manualMetadata.LocalizedTitle, manualMetadata.RuntimeMinutes = 999, "Film sans correspondance", "Film sans correspondance", 97
-	if err := store.ApproveReview(ctx, "206", 999, manualMetadata, now.Add(2*time.Minute)); err != nil {
+	if err := store.ApproveReview(ctx, SourceUGC, "206", 999, manualMetadata, now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT score FROM movie_matches WHERE source_movie_id='206'").Scan(&score); err != nil || score != 1 {
 		t.Fatalf("unmatched manual score=%v error=%v", score, err)
 	}
 	manualMetadata.ProviderMovieID, manualMetadata.ProviderTitle, manualMetadata.LocalizedTitle, manualMetadata.RuntimeMinutes = 888, "Ancien film", "Ancien film", 88
-	if err := store.ApproveReview(ctx, "205", 888, manualMetadata, now.Add(3*time.Minute)); err != nil {
+	if err := store.ApproveReview(ctx, SourceUGC, "205", 888, manualMetadata, now.Add(3*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT score FROM movie_matches WHERE source_movie_id='205'").Scan(&score); err != nil || score != 1 {
@@ -202,10 +202,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err := store.SaveDecision(ctx, stale); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ReviewCandidate(ctx, "202", 52); !errors.Is(err, ErrReviewConflict) {
+	if _, err := store.ReviewCandidate(ctx, SourceUGC, "202", 52); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("stale candidate error=%v", err)
 	}
-	if err := store.RejectReview(ctx, "202", now.Add(3*time.Minute)); !errors.Is(err, ErrReviewConflict) {
+	if err := store.RejectReview(ctx, SourceUGC, "202", now.Add(3*time.Minute)); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("stale rejection error=%v", err)
 	}
 	changing := review
@@ -214,7 +214,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err := store.SaveDecision(ctx, changing); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ReviewCandidate(ctx, "209", 79); err != nil {
+	if _, err := store.ReviewCandidate(ctx, SourceUGC, "209", 79); err != nil {
 		t.Fatalf("changing preflight error=%v", err)
 	}
 	if _, err := pool.Exec(ctx, "UPDATE movies SET title='Film changé' WHERE provider_id='209'"); err != nil {
@@ -222,7 +222,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	changingMetadata := metadata
 	changingMetadata.ProviderMovieID, changingMetadata.ProviderTitle, changingMetadata.LocalizedTitle, changingMetadata.RuntimeMinutes = 79, "Film changé", "Film changé", 102
-	if err := store.ApproveReview(ctx, "209", 79, changingMetadata, now.Add(3*time.Minute)); !errors.Is(err, ErrReviewConflict) {
+	if err := store.ApproveReview(ctx, SourceUGC, "209", 79, changingMetadata, now.Add(3*time.Minute)); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("locked stale approval error=%v", err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 4 {
@@ -234,7 +234,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err := store.SaveDecision(ctx, rejected); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RejectReview(ctx, "203", now.Add(4*time.Minute)); err != nil {
+	if err := store.RejectReview(ctx, SourceUGC, "203", now.Add(4*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	loadedMatch, found, err = store.Match(ctx, SourceUGC, "203", ProviderTMDB)
@@ -253,10 +253,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err != nil || !found || loadedMatch.Status != StatusRejected {
 		t.Fatalf("rejection overwritten by decision: match=%+v err=%v", loadedMatch, err)
 	}
-	if _, err := store.ReviewCandidate(ctx, "203", 999); !errors.Is(err, ErrReviewConflict) {
+	if _, err := store.ReviewCandidate(ctx, SourceUGC, "203", 999); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("rejected assignment error=%v", err)
 	}
-	if _, err := store.ReviewCandidate(ctx, "207", 999); !errors.Is(err, ErrReviewConflict) {
+	if _, err := store.ReviewCandidate(ctx, SourceUGC, "207", 999); !errors.Is(err, ErrReviewConflict) {
 		t.Fatalf("matched assignment error=%v", err)
 	}
 
@@ -272,8 +272,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	concurrentMetadata := metadata
 	concurrentMetadata.ProviderMovieID, concurrentMetadata.ProviderTitle, concurrentMetadata.LocalizedTitle, concurrentMetadata.RuntimeMinutes = 72, "Film concurrent", "Film concurrent", 105
 	results := make(chan error, 2)
-	go func() { results <- store.ApproveReview(ctx, "204", 72, concurrentMetadata, now.Add(5*time.Minute)) }()
-	go func() { results <- store.RejectReview(ctx, "204", now.Add(5*time.Minute)) }()
+	go func() {
+		results <- store.ApproveReview(ctx, SourceUGC, "204", 72, concurrentMetadata, now.Add(5*time.Minute))
+	}()
+	go func() { results <- store.RejectReview(ctx, SourceUGC, "204", now.Add(5*time.Minute)) }()
 	first, second := <-results, <-results
 	if (first == nil) == (second == nil) || first != nil && !errors.Is(first, ErrReviewConflict) || second != nil && !errors.Is(second, ErrReviewConflict) {
 		t.Fatalf("concurrent decisions first=%v second=%v", first, second)

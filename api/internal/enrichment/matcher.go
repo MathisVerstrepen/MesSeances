@@ -50,8 +50,12 @@ func (m *Matcher) Run(ctx context.Context, movies []Movie) (Summary, error) {
 	var summary Summary
 	unique := map[string]Movie{}
 	for _, movie := range movies {
-		if _, exists := unique[movie.ProviderID]; !exists {
-			unique[movie.ProviderID] = movie
+		if movie.SourceProvider == "" {
+			movie.SourceProvider = SourceUGC
+		}
+		key := movie.SourceProvider + "\x00" + movie.ProviderID
+		if _, exists := unique[key]; !exists {
+			unique[key] = movie
 		}
 	}
 	ids := make([]string, 0, len(unique))
@@ -77,7 +81,11 @@ func (m *Matcher) Run(ctx context.Context, movies []Movie) (Summary, error) {
 func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (bool, error) {
 	now := m.now().UTC()
 	normalizedTitle := NormalizeTitle(movie.Title)
-	existing, found, err := m.store.Match(ctx, SourceUGC, movie.ProviderID, ProviderTMDB)
+	provider := movie.SourceProvider
+	if provider == "" {
+		provider = SourceUGC
+	}
+	existing, found, err := m.store.Match(ctx, provider, movie.ProviderID, ProviderTMDB)
 	if err != nil {
 		return false, err
 	}
@@ -116,7 +124,7 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary) (b
 	if err != nil {
 		return errors.Is(err, tmdb.ErrStop), err
 	}
-	base := Match{SourceProvider: SourceUGC, SourceMovieID: movie.ProviderID, MetadataProvider: ProviderTMDB, NormalizedSourceTitle: normalizedTitle, SourceRuntimeMinutes: movie.RuntimeMinutes, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL), Candidates: []Candidate{}}
+	base := Match{SourceProvider: provider, SourceMovieID: movie.ProviderID, MetadataProvider: ProviderTMDB, NormalizedSourceTitle: normalizedTitle, SourceRuntimeMinutes: movie.RuntimeMinutes, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL), Candidates: []Candidate{}}
 	if len(candidates) == 0 {
 		base.Status = StatusUnmatched
 		if err := m.store.SaveDecision(ctx, base); err != nil {

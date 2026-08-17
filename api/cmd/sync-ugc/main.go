@@ -194,7 +194,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	}
 	moviesByID := map[string]enrichment.Movie{}
 	for _, showing := range data.Showtimes {
-		moviesByID[showing.Movie.ProviderID] = enrichment.Movie{ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}
+		moviesByID[showing.Movie.ProviderID] = enrichment.Movie{SourceProvider: enrichment.SourceUGC, ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}
 	}
 	movies := make([]enrichment.Movie, 0, len(moviesByID))
 	for _, movie := range moviesByID {

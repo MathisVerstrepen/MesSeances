@@ -2,6 +2,7 @@
 import { AlertTriangle, CalendarDays, ExternalLink, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { ApiErrorResponse, MovieShowtimesResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
+import { safePosterUrl } from '~/utils/safeImageUrl'
 
 const route = useRoute()
 const api = useMovieFlowApi()
@@ -21,7 +22,8 @@ const slug = computed(() => {
 
 const availableDates = computed(() => [...new Set(preferences.favoriteTheaters.value.flatMap((theater) => theater.available_dates))].sort())
 const showtimeCount = computed(() => schedule.value?.theaters.reduce((total, theater) => total + theater.showtimes.length, 0) ?? 0)
-const posterAvailable = computed(() => Boolean(schedule.value?.movie.poster_url?.trim()) && !posterFailed.value)
+const posterUrl = computed(() => safePosterUrl(schedule.value?.movie.poster_url))
+const posterAvailable = computed(() => Boolean(posterUrl.value) && !posterFailed.value)
 const releaseDateLabel = computed(() => {
   const value = schedule.value?.movie.release_date
   if (!value) return ''
@@ -170,7 +172,7 @@ useHead(() => ({
         <div class="aspect-[2/3] w-32 overflow-hidden rounded-md border border-line bg-subtle shadow-sm sm:w-36">
           <img
             v-if="posterAvailable"
-            :src="schedule.movie.poster_url!"
+            :src="posterUrl!"
             :alt="`Affiche de ${schedule.movie.title}`"
             class="h-full w-full object-cover"
             @error="posterFailed = true"
@@ -266,7 +268,7 @@ useHead(() => ({
                     <span v-if="showtime.room">Salle {{ showtime.room }}</span>
                   </div>
                 </div>
-                <BookingLink :url="showtime.booking_url" class="shrink-0 self-start sm:self-auto" />
+                <BookingLink :url="showtime.booking_url" :provider="showtime.provider" class="shrink-0 self-start sm:self-auto" />
               </li>
             </ul>
           </section>

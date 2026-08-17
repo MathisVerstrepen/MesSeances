@@ -23,15 +23,15 @@ type reviewStoreStub struct {
 func (s *reviewStoreStub) PendingMatches(context.Context, int, int) ([]PendingMatch, error) {
 	return s.items, nil
 }
-func (s *reviewStoreStub) ReviewCandidate(_ context.Context, _ string, candidateID int64) (Candidate, error) {
+func (s *reviewStoreStub) ReviewCandidate(_ context.Context, _, _ string, candidateID int64) (Candidate, error) {
 	s.reviewedID = candidateID
 	return s.candidate, s.candidateErr
 }
-func (s *reviewStoreStub) ApproveReview(_ context.Context, _ string, candidateID int64, metadata Metadata, now time.Time) error {
+func (s *reviewStoreStub) ApproveReview(_ context.Context, _, _ string, candidateID int64, metadata Metadata, now time.Time) error {
 	s.approvedID, s.approved, s.approvedAt = candidateID, metadata, now
 	return nil
 }
-func (s *reviewStoreStub) RejectReview(_ context.Context, _ string, now time.Time) error {
+func (s *reviewStoreStub) RejectReview(_ context.Context, _, _ string, now time.Time) error {
 	s.rejectedAt = now
 	return nil
 }
@@ -53,7 +53,7 @@ func TestReviewServiceApprovesStoredCandidateUsingProviderDetails(t *testing.T) 
 	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 	store := &reviewStoreStub{candidate: Candidate{ID: 42, Title: "Film", Score: .91}}
 	provider := &reviewProviderStub{details: tmdb.Details{ID: 42, Title: "Film FR", OriginalTitle: "Film", BackdropURL: "https://image.tmdb.org/t/p/w780/42.jpg", Runtime: 101, Genres: []string{"Drame"}}}
-	err := NewReviewService(store, provider, func() time.Time { return now }).Approve(context.Background(), "200", 42)
+	err := NewReviewService(store, provider, func() time.Time { return now }).Approve(context.Background(), SourceUGC, "200", 42)
 	if err != nil || provider.calls != 1 || provider.lastID != 42 || store.reviewedID != 42 || store.approvedID != 42 || store.approved.ProviderMovieID != 42 || store.approved.LocalizedTitle != "Film FR" || store.approved.BackdropURL != provider.details.BackdropURL || !store.approvedAt.Equal(now) || !store.approved.RefreshAfter.Equal(now.Add(30*24*time.Hour)) {
 		t.Fatalf("approved=%+v at=%s calls=%d err=%v", store.approved, store.approvedAt, provider.calls, err)
 	}
@@ -62,7 +62,7 @@ func TestReviewServiceApprovesStoredCandidateUsingProviderDetails(t *testing.T) 
 func TestReviewServiceApprovesManualCandidateUsingProviderDetails(t *testing.T) {
 	store := &reviewStoreStub{candidate: Candidate{ID: 999, Score: 1}}
 	provider := &reviewProviderStub{details: tmdb.Details{ID: 999, Title: "Film manuel", Runtime: 101, Genres: []string{}}}
-	err := NewReviewService(store, provider, nil).Approve(context.Background(), "200", 999)
+	err := NewReviewService(store, provider, nil).Approve(context.Background(), SourceUGC, "200", 999)
 	if err != nil || provider.calls != 1 || provider.lastID != 999 || store.reviewedID != 999 || store.approvedID != 999 || store.approved.ProviderMovieID != 999 {
 		t.Fatalf("reviewed=%d approved=%d metadata=%+v calls=%d providerID=%d err=%v", store.reviewedID, store.approvedID, store.approved, provider.calls, provider.lastID, err)
 	}
@@ -71,7 +71,7 @@ func TestReviewServiceApprovesManualCandidateUsingProviderDetails(t *testing.T) 
 func TestReviewServiceDoesNotFetchWhenPreflightConflicts(t *testing.T) {
 	store := &reviewStoreStub{candidateErr: ErrReviewConflict}
 	provider := &reviewProviderStub{}
-	err := NewReviewService(store, provider, nil).Approve(context.Background(), "200", 999)
+	err := NewReviewService(store, provider, nil).Approve(context.Background(), SourceUGC, "200", 999)
 	if !errors.Is(err, ErrReviewConflict) || provider.calls != 0 {
 		t.Fatalf("calls=%d err=%v", provider.calls, err)
 	}
@@ -88,7 +88,7 @@ func TestReviewServiceDoesNotStoreProviderFailureOrMismatchedID(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			store := &reviewStoreStub{candidate: Candidate{ID: 42, Score: .9}}
-			err := NewReviewService(store, test.provider, nil).Approve(context.Background(), "200", 42)
+			err := NewReviewService(store, test.provider, nil).Approve(context.Background(), SourceUGC, "200", 42)
 			if err == nil || test.provider.calls != 1 || store.approvedID != 0 || store.approved.ProviderMovieID != 0 {
 				t.Fatalf("approved=%d metadata=%+v calls=%d err=%v", store.approvedID, store.approved, test.provider.calls, err)
 			}
@@ -98,7 +98,7 @@ func TestReviewServiceDoesNotStoreProviderFailureOrMismatchedID(t *testing.T) {
 
 func TestReviewServiceFailsClosedWithoutProvider(t *testing.T) {
 	store := &reviewStoreStub{candidate: Candidate{ID: 42, Score: .9}}
-	err := NewReviewService(store, nil, nil).Approve(context.Background(), "200", 42)
+	err := NewReviewService(store, nil, nil).Approve(context.Background(), SourceUGC, "200", 42)
 	if !errors.Is(err, ErrReviewUnavailable) || store.reviewedID != 0 || store.approvedID != 0 {
 		t.Fatalf("reviewed=%d approved=%d err=%v", store.reviewedID, store.approvedID, err)
 	}
@@ -141,11 +141,11 @@ func TestValidReviewCandidateAssignmentAndRejectionRules(t *testing.T) {
 func TestReviewServiceDecoratesAndSanitizesPendingWithoutProviderCalls(t *testing.T) {
 	store := &reviewStoreStub{items: []PendingMatch{
 		{
-			SourceMovieID: "200", SourceTitle: "Film", SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: StatusReviewRequired,
+			SourceProvider: SourceUGC, SourceMovieID: "200", SourceTitle: "Film", SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: StatusReviewRequired,
 			Candidates: []Candidate{{ID: 42, Title: "Film", PosterURL: "https://image.tmdb.org/t/p/w500/poster.jpg", DetailURL: "https://evil.example/candidate"}},
 		},
 		{
-			SourceMovieID: "201", SourceTitle: "Autre", SourcePosterURL: "https://evil.example/poster.jpg", Status: StatusUnmatched,
+			SourceProvider: SourceUGC, SourceMovieID: "201", SourceTitle: "Autre", SourcePosterURL: "https://evil.example/poster.jpg", Status: StatusUnmatched,
 			Candidates: []Candidate{{ID: 43, Title: "Autre", PosterURL: "http://image.tmdb.org/t/p/w500/poster.jpg"}},
 		},
 	}}

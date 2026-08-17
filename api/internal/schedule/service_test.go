@@ -18,6 +18,27 @@ func testDataset() Dataset {
 	return Dataset{SchemaVersion: 1, Provider: ProviderUGC, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-26", ProviderID: "26", Slug: "ugc-26", Name: "UGC Villeneuve", Address: "Villeneuve", City: "Villeneuve d'Ascq", PostalCode: "59650", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-99", ProviderID: "99", Slug: "ugc-99", Name: "UGC Lyon", Address: "Lyon", City: "Lyon", PostalCode: "69000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}}, Showtimes: []ShowtimeRecord{showing("100", "ugc-25", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "12:00", LanguageVOSTFR, 100), showing("104", "ugc-26", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "18:00", LanguageVOSTFR, 100), showing("101", "ugc-25", "201", "Film B", "", "14:30", LanguageVFSME, 95), showing("102", "ugc-26", "202", "Film C", "", "00:15", LanguageVO, 75), showing("103", "ugc-99", "203", "Film D", "", "12:30", LanguageVF, 90)}}
 }
 
+func kinepolisTestDataset() Dataset {
+	location, _ := time.LoadLocation(Timezone)
+	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 20:00", location)
+	return Dataset{SchemaVersion: SchemaVersion, Provider: ProviderKinepolis, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 13, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderKinepolis, ID: "kinepolis-LOM", ProviderID: "LOM", Slug: "kinepolis-LOM", Name: "Kinepolis Lomme", City: "Lomme", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderKinepolis, ID: "kinepolis-showing-VS1", ProviderShowingID: "VS1", ServiceDate: "2026-08-15", TheaterID: "kinepolis-LOM", Movie: MovieRecord{Provider: ProviderKinepolis, ProviderID: "HO200", Slug: "kinepolis-film-HO200", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://cdn.kinepolis.fr/images/posters/ho200.jpg", Overview: "Résumé Kinepolis", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: LanguageVF, ProviderVersion: "VF", Format: "IMAX", Room: "7", BookingURL: "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}}
+}
+
+func combinedTestDataset() Dataset {
+	ugc, kinepolis := testDataset(), kinepolisTestDataset()
+	for index := range ugc.Showtimes {
+		if ugc.Showtimes[index].Movie.ProviderID == "200" {
+			ugc.Showtimes[index].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, Overview: "Résumé TMDB", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg"}
+		}
+	}
+	kinepolis.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, Overview: "Résumé TMDB", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg"}
+	ugc.Provider = ProviderCombined
+	ugc.GeneratedAt = kinepolis.GeneratedAt
+	ugc.Theaters = append(ugc.Theaters, kinepolis.Theaters...)
+	ugc.Showtimes = append(ugc.Showtimes, kinepolis.Showtimes...)
+	return ugc
+}
+
 type testSource struct{ data Dataset }
 
 func (s testSource) Snapshot() Dataset { return cloneDataset(s.data) }
@@ -59,7 +80,7 @@ func TestTimelineLilleDefaultAndExplicitFrance(t *testing.T) {
 func TestTimelineMediaIsNullableAndUsesCatalogPosterPrecedence(t *testing.T) {
 	data := testDataset()
 	for i := range data.Showtimes {
-		if data.Showtimes[i].ProviderShowingID == "100" {
+		if data.Showtimes[i].Movie.ProviderID == "200" {
 			data.Showtimes[i].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
 		}
 	}
@@ -71,15 +92,15 @@ func TestTimelineMediaIsNullableAndUsesCatalogPosterPrecedence(t *testing.T) {
 	if err != nil || len(timeline.Theaters) != 2 || len(timeline.Theaters[0].Showtimes) != 2 || len(timeline.Theaters[1].Showtimes) != 2 {
 		t.Fatalf("timeline=%+v err=%v", timeline, err)
 	}
-	matched, missing, fallback := timeline.Theaters[0].Showtimes[0], timeline.Theaters[0].Showtimes[1], timeline.Theaters[1].Showtimes[0]
+	matched, missing, repeated := timeline.Theaters[0].Showtimes[0], timeline.Theaters[0].Showtimes[1], timeline.Theaters[1].Showtimes[0]
 	if matched.BackdropURL == nil || *matched.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" || missing.BackdropURL != nil {
 		t.Fatalf("matched=%+v missing=%+v", matched, missing)
 	}
 	if matched.PosterURL == nil || *matched.PosterURL != "https://image.tmdb.org/t/p/w500/a.jpg" {
 		t.Fatalf("enriched poster did not win: %+v", matched)
 	}
-	if fallback.PosterURL == nil || *fallback.PosterURL != "https://static.ugc.fr/posters/200.jpg" {
-		t.Fatalf("UGC poster fallback missing: %+v", fallback)
+	if repeated.PosterURL == nil || *repeated.PosterURL != "https://image.tmdb.org/t/p/w500/a.jpg" || repeated.Movie.Slug != "tmdb-film-42" {
+		t.Fatalf("matched movie identity changed across showtimes: %+v", repeated)
 	}
 	if missing.PosterURL != nil {
 		t.Fatalf("missing poster is not null: %+v", missing)
@@ -140,6 +161,114 @@ func TestTheatersCatalogAliasOrderingAndCopies(t *testing.T) {
 	}
 	if other := service.Theaters(TheaterCatalogQuery{Chain: "Pathé"}); len(other) != 0 {
 		t.Fatalf("non-UGC theaters=%+v", other)
+	}
+}
+
+func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
+	data := combinedTestDataset()
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all := service.Theaters(TheaterCatalogQuery{}); len(all) != 4 {
+		t.Fatalf("all=%+v", all)
+	}
+	kinepolis := service.Theaters(TheaterCatalogQuery{Chain: "KINEPOLIS"})
+	if len(kinepolis) != 1 || kinepolis[0].Provider != ProviderKinepolis {
+		t.Fatalf("kinepolis=%+v", kinepolis)
+	}
+	ugc := service.Theaters(TheaterCatalogQuery{Chain: "ugc"})
+	if len(ugc) != 3 || ugc[0].Provider != ProviderUGC {
+		t.Fatalf("ugc=%+v", ugc)
+	}
+	catalog, err := service.Movies(MovieCatalogQuery{PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Total != 4 || len(catalog.Items) != 4 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].Provider != ProviderUGC {
+		t.Fatalf("catalog=%+v", catalog)
+	}
+	schedule, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "tmdb-film-42", Date: "2026-08-15"})
+	if err != nil || len(schedule.Theaters) != 3 {
+		t.Fatalf("schedule=%+v err=%v", schedule, err)
+	}
+	wantShowtimes := map[string]struct {
+		provider string
+		booking  string
+	}{
+		"ugc-showing-100":       {ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=100"},
+		"ugc-showing-104":       {ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=104"},
+		"kinepolis-showing-VS1": {ProviderKinepolis, "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"},
+	}
+	for _, theater := range schedule.Theaters {
+		for _, showtime := range theater.Showtimes {
+			want, exists := wantShowtimes[showtime.ID]
+			if !exists || showtime.Provider != want.provider || showtime.Movie.Provider != want.provider || showtime.Movie.Slug != "tmdb-film-42" || showtime.BookingURL == nil || *showtime.BookingURL != want.booking {
+				t.Fatalf("showtime=%+v theater=%+v", showtime, theater)
+			}
+			delete(wantShowtimes, showtime.ID)
+		}
+	}
+	if len(wantShowtimes) != 0 {
+		t.Fatalf("missing showtimes=%+v", wantShowtimes)
+	}
+	for _, oldSlug := range []string{"ugc-film-200", "kinepolis-film-HO200"} {
+		_, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: oldSlug, Date: "2026-08-15"})
+		var notFound *NotFoundError
+		if !errors.As(err, &notFound) {
+			t.Fatalf("old slug %q error=%v", oldSlug, err)
+		}
+	}
+	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", TheaterIDs: []string{"kinepolis-LOM"}, Language: LanguageAll})
+	if err != nil || timeline.Theaters[0].Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Movie.Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" {
+		t.Fatalf("timeline=%+v err=%v", timeline, err)
+	}
+	slots, err := service.SearchSlot(SlotQuery{TheaterIDs: []string{"kinepolis-LOM"}, Date: "2026-08-15", StartAfter: "19:00", FinishBefore: "23:00", Language: LanguageAll})
+	if err != nil || len(slots) != 1 || slots[0].Showtime.Movie.Slug != "tmdb-film-42" || slots[0].Showtime.ID != "kinepolis-showing-VS1" {
+		t.Fatalf("slots=%+v err=%v", slots, err)
+	}
+}
+
+func TestUnmatchedSameTitleMoviesRemainProviderSpecific(t *testing.T) {
+	data := combinedTestDataset()
+	for index := range data.Showtimes {
+		if data.Showtimes[index].Movie.ProviderID == "200" || data.Showtimes[index].Movie.ProviderID == "HO200" {
+			data.Showtimes[index].Movie.Enrichment = nil
+		}
+	}
+	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := service.Movies(MovieCatalogQuery{Search: "Film A", PageSize: 1})
+	if err != nil || catalog.Total != 2 || len(catalog.Items) != 1 {
+		t.Fatalf("catalog=%+v err=%v", catalog, err)
+	}
+	secondPage, err := service.Movies(MovieCatalogQuery{Search: "Film A", Page: 2, PageSize: 1})
+	if err != nil || secondPage.Total != 2 || len(secondPage.Items) != 1 {
+		t.Fatalf("second page=%+v err=%v", secondPage, err)
+	}
+	slugs := map[string]bool{catalog.Items[0].Slug: true, secondPage.Items[0].Slug: true}
+	if !slugs["ugc-film-200"] || !slugs["kinepolis-film-HO200"] {
+		t.Fatalf("slugs=%+v", slugs)
+	}
+	ugc, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"})
+	if err != nil || len(ugc.Theaters) != 2 {
+		t.Fatalf("ugc=%+v err=%v", ugc, err)
+	}
+	for _, theater := range ugc.Theaters {
+		for _, showtime := range theater.Showtimes {
+			if showtime.Provider != ProviderUGC || showtime.Movie.Slug != "ugc-film-200" {
+				t.Fatalf("UGC detail crossed provider boundary: %+v", showtime)
+			}
+		}
+	}
+	kinepolis, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "kinepolis-film-HO200", Date: "2026-08-15"})
+	if err != nil || len(kinepolis.Theaters) != 1 || kinepolis.Theaters[0].Showtimes[0].Provider != ProviderKinepolis {
+		t.Fatalf("kinepolis=%+v err=%v", kinepolis, err)
 	}
 }
 

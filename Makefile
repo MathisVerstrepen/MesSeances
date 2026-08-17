@@ -41,9 +41,19 @@ dev:
 	exit "$$status"
 
 sync:
-	@if [ -z "$${PROXY_FILE:-}" ]; then \
+	@printf '%s\n' '[sync] starting'
+	@printf '%s\n' '[sync] validating proxy file'; \
+	if [ -z "$${PROXY_FILE:-}" ]; then \
 		printf '%s\n' 'Usage: make sync PROXY_FILE=/path/to/proxies.txt' >&2; \
+		printf '%s\n' '[sync] failed' >&2; \
 		exit 2; \
 	fi
-	@docker compose up -d --wait postgres
-	@cd api && go run ./cmd/sync-ugc -proxy-file "$$PROXY_FILE"
+	@printf '%s\n' '[sync] starting PostgreSQL'; \
+	docker compose up -d --wait postgres || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	@printf '%s\n' '[sync] starting UGC'; \
+	cd api && go run ./cmd/sync-ugc -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	@printf '%s\n' '[sync] UGC finished'
+	@printf '%s\n' '[sync] starting Kinepolis'; \
+	cd api && go run ./cmd/sync-kinepolis -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	@printf '%s\n' '[sync] Kinepolis finished'
+	@printf '%s\n' '[sync] complete'

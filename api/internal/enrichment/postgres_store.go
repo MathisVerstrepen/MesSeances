@@ -20,10 +20,10 @@ func (s *PostgresStore) PendingMatches(ctx context.Context, limit, offset int) (
 	if limit < 1 || limit > 100 || offset < 0 {
 		return nil, fmt.Errorf("invalid review pagination")
 	}
-	rows, err := s.pool.Query(ctx, `SELECT mm.source_movie_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), mm.status, mm.candidates, mm.evaluated_at
-FROM movie_matches mm JOIN movies m ON m.provider_id=mm.source_movie_id
-WHERE mm.source_provider='ugc' AND mm.metadata_provider='tmdb' AND mm.status IN ('review_required', 'unmatched')
-ORDER BY mm.evaluated_at, mm.source_movie_id LIMIT $1 OFFSET $2`, limit, offset)
+	rows, err := s.pool.Query(ctx, `SELECT mm.source_provider, mm.source_movie_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), mm.status, mm.candidates, mm.evaluated_at
+FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+WHERE mm.metadata_provider='tmdb' AND mm.status IN ('review_required', 'unmatched')
+ORDER BY mm.evaluated_at, mm.source_provider, mm.source_movie_id LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("read pending movie matches failed")
 	}
@@ -32,7 +32,7 @@ ORDER BY mm.evaluated_at, mm.source_movie_id LIMIT $1 OFFSET $2`, limit, offset)
 	for rows.Next() {
 		var item PendingMatch
 		var candidates []byte
-		if err := rows.Scan(&item.SourceMovieID, &item.SourceTitle, &item.SourceRuntimeMinutes, &item.SourcePosterURL, &item.Status, &candidates, &item.EvaluatedAt); err != nil || json.Unmarshal(candidates, &item.Candidates) != nil {
+		if err := rows.Scan(&item.SourceProvider, &item.SourceMovieID, &item.SourceTitle, &item.SourceRuntimeMinutes, &item.SourcePosterURL, &item.Status, &candidates, &item.EvaluatedAt); err != nil || json.Unmarshal(candidates, &item.Candidates) != nil {
 			return nil, fmt.Errorf("read pending movie matches failed")
 		}
 		items = append(items, item)
@@ -43,13 +43,13 @@ ORDER BY mm.evaluated_at, mm.source_movie_id LIMIT $1 OFFSET $2`, limit, offset)
 	return items, nil
 }
 
-func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceMovieID string, candidateID int64) (Candidate, error) {
+func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64) (Candidate, error) {
 	var status, normalizedTitle, currentTitle string
 	var sourceRuntime, currentRuntime int
 	var raw []byte
 	err := s.pool.QueryRow(ctx, `SELECT mm.status, mm.normalized_source_title, mm.source_runtime_minutes, mm.candidates, m.title, m.runtime_minutes
-FROM movie_matches mm JOIN movies m ON m.provider_id=mm.source_movie_id
-WHERE mm.source_provider='ugc' AND mm.source_movie_id=$1 AND mm.metadata_provider='tmdb'`, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
+FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb'`, sourceProvider, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Candidate{}, ErrReviewNotFound
 	}
@@ -63,7 +63,7 @@ WHERE mm.source_provider='ugc' AND mm.source_movie_id=$1 AND mm.metadata_provide
 	return candidate, nil
 }
 
-func (s *PostgresStore) ApproveReview(ctx context.Context, sourceMovieID string, candidateID int64, metadata Metadata, now time.Time) error {
+func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64, metadata Metadata, now time.Time) error {
 	if metadata.ProviderMovieID != candidateID || now.IsZero() {
 		return fmt.Errorf("invalid review approval")
 	}
@@ -79,7 +79,7 @@ func (s *PostgresStore) ApproveReview(ctx context.Context, sourceMovieID string,
 	if err != nil {
 		return err
 	}
-	status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, err := lockReview(ctx, tx, sourceMovieID)
+	status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, err := lockReview(ctx, tx, sourceProvider, sourceMovieID)
 	if err != nil {
 		return err
 	}
@@ -90,14 +90,14 @@ func (s *PostgresStore) ApproveReview(ctx context.Context, sourceMovieID string,
 	if err := writeMetadata(ctx, tx, metadata); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='matched', metadata_movie_id=$2, score=$3, evaluated_at=$4, retry_after=$5, updated_at=$4
-WHERE source_provider='ugc' AND source_movie_id=$1 AND metadata_provider='tmdb'`, sourceMovieID, candidateID, candidate.Score, now, metadata.RefreshAfter); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='matched', metadata_movie_id=$3, score=$4, evaluated_at=$5, retry_after=$6, updated_at=$5
+WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, candidateID, candidate.Score, now, metadata.RefreshAfter); err != nil {
 		return fmt.Errorf("write reviewed match failed")
 	}
 	return commitReview(ctx, tx, version)
 }
 
-func (s *PostgresStore) RejectReview(ctx context.Context, sourceMovieID string, now time.Time) error {
+func (s *PostgresStore) RejectReview(ctx context.Context, sourceProvider, sourceMovieID string, now time.Time) error {
 	if now.IsZero() {
 		return fmt.Errorf("invalid review rejection")
 	}
@@ -110,15 +110,15 @@ func (s *PostgresStore) RejectReview(ctx context.Context, sourceMovieID string, 
 	if err != nil {
 		return err
 	}
-	status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, err := lockReview(ctx, tx, sourceMovieID)
+	status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, err := lockReview(ctx, tx, sourceProvider, sourceMovieID)
 	if err != nil {
 		return err
 	}
 	if _, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, 0); !ok {
 		return ErrReviewConflict
 	}
-	if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='rejected', metadata_movie_id=NULL, score=NULL, evaluated_at=$2, retry_after=$2, updated_at=$2
-WHERE source_provider='ugc' AND source_movie_id=$1 AND metadata_provider='tmdb'`, sourceMovieID, now); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='rejected', metadata_movie_id=NULL, score=NULL, evaluated_at=$3, retry_after=$3, updated_at=$3
+WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, now); err != nil {
 		return fmt.Errorf("write rejected match failed")
 	}
 	return commitReview(ctx, tx, version)
@@ -155,13 +155,13 @@ func lockEnrichmentVersion(ctx context.Context, tx pgx.Tx) (int64, error) {
 	return version, nil
 }
 
-func lockReview(ctx context.Context, tx pgx.Tx, sourceMovieID string) (string, string, int, []byte, string, int, error) {
+func lockReview(ctx context.Context, tx pgx.Tx, sourceProvider, sourceMovieID string) (string, string, int, []byte, string, int, error) {
 	var status, normalizedTitle, currentTitle string
 	var sourceRuntime, currentRuntime int
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT mm.status, mm.normalized_source_title, mm.source_runtime_minutes, mm.candidates, m.title, m.runtime_minutes
-FROM movie_matches mm JOIN movies m ON m.provider_id=mm.source_movie_id
-WHERE mm.source_provider='ugc' AND mm.source_movie_id=$1 AND mm.metadata_provider='tmdb' FOR UPDATE OF mm`, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
+FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb' FOR UPDATE OF mm`, sourceProvider, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", "", 0, nil, "", 0, ErrReviewNotFound
 	}

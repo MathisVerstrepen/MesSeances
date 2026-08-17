@@ -71,7 +71,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 4 || migrationName != "004_movie_backdrop.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 6 || migrationName != "006_repair_multi_provider_schema.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	store := NewPostgresStore(pool)
@@ -158,6 +158,49 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("provider scoped replacement preserves UGC", func(t *testing.T) {
+		kinepolis := kinepolisTestDataset()
+		version, err := store.Replace(ctx, kinepolis)
+		if err != nil || version != 3 {
+			t.Fatalf("Kinepolis replace version=%d error=%v", version, err)
+		}
+		loaded, revision, err := store.Load(ctx)
+		if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 2 || len(loaded.Showtimes) != 2 {
+			t.Fatalf("combined revision=%+v dataset=%+v error=%v", revision, loaded, err)
+		}
+		providers := map[string]bool{}
+		for _, theater := range loaded.Theaters {
+			providers[theater.Provider] = true
+		}
+		if !providers[ProviderUGC] || !providers[ProviderKinepolis] {
+			t.Fatalf("providers=%v", providers)
+		}
+		for _, showing := range loaded.Showtimes {
+			if showing.Provider == ProviderKinepolis && showing.Movie.Enrichment != nil {
+				t.Fatal("UGC enrichment leaked into Kinepolis movie")
+			}
+		}
+		ugc := testDataset()
+		ugc.Theaters = append([]TheaterRecord(nil), ugc.Theaters[0])
+		ugc.Theaters[0].Name = "UGC Lille encore"
+		ugc.Showtimes = append([]ShowtimeRecord(nil), ugc.Showtimes[0])
+		version, err = store.Replace(ctx, ugc)
+		if err != nil || version != 4 {
+			t.Fatalf("UGC scoped replace version=%d error=%v", version, err)
+		}
+		loaded, _, err = store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != 2 {
+			t.Fatalf("second combined load=%+v error=%v", loaded, err)
+		}
+		foundKinepolis := false
+		for _, theater := range loaded.Theaters {
+			foundKinepolis = foundKinepolis || theater.Provider == ProviderKinepolis
+		}
+		if !foundKinepolis {
+			t.Fatal("UGC replacement removed Kinepolis")
+		}
+	})
+
 	t.Run("pre SQL rejection and rollback", func(t *testing.T) {
 		single := testDataset()
 		single.Scope = ScopeSingle
@@ -176,12 +219,157 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatal("constraint-breaking replacement accepted")
 		}
 		version, err := store.CurrentVersion(ctx)
-		if err != nil || version != 2 {
+		if err != nil || version != 4 {
 			t.Fatalf("version after rollback=%d error=%v", version, err)
 		}
 		loaded, _, err := store.Load(ctx)
-		if err != nil || len(loaded.Theaters) != 1 || loaded.Theaters[0].Name != "UGC Lille remplacé" {
+		if err != nil || len(loaded.Theaters) != 2 {
 			t.Fatalf("last good after rollback=%+v error=%v", loaded.Theaters, err)
 		}
 	})
+}
+
+func TestMigration006RepairsRecordedStale005(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate test schema nonce failed")
+	}
+	schema := "movieflow_migration006_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "movieflow_migration006_test_") {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE"); err != nil {
+			t.Error("drop integration schema failed")
+		}
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool configuration failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+	var currentSchema string
+	if err := pool.QueryRow(ctx, "SELECT current_schema()").Scan(&currentSchema); err != nil || currentSchema != schema {
+		t.Fatalf("isolated schema assertion failed: schema=%q err=%v", currentSchema, err)
+	}
+
+	if err := database.RunMigrations(ctx, pool); err != nil {
+		t.Fatal("create current schema fixture failed")
+	}
+	store := NewPostgresStore(pool)
+	if version, err := store.Replace(ctx, testDataset()); err != nil || version != 1 {
+		t.Fatalf("seed UGC schedule version=%d err=%v", version, err)
+	}
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	match := enrichment.Match{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(30 * 24 * time.Hour)}
+	metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", Overview: "Résumé préservé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", RuntimeMinutes: 100, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(30 * 24 * time.Hour)}
+	if err := enrichment.NewPostgresStore(pool).Publish(ctx, match, metadata); err != nil {
+		t.Fatal("seed enrichment failed")
+	}
+
+	if _, err := pool.Exec(ctx, `
+ALTER TABLE movies DROP COLUMN source_overview;
+ALTER TABLE movies DROP COLUMN source_release_date;
+ALTER TABLE movies DROP COLUMN source_genres;
+ALTER TABLE theaters DROP CONSTRAINT theaters_address_check;
+ALTER TABLE theaters ADD CONSTRAINT theaters_address_check CHECK (btrim(address) <> '');
+ALTER TABLE theaters DROP CONSTRAINT theaters_postal_code_check;
+ALTER TABLE theaters ADD CONSTRAINT theaters_postal_code_check CHECK (btrim(postal_code) <> '');
+DELETE FROM movieflow_schema_migrations WHERE version = 6;
+`, pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatal("create recorded stale migration 005 fixture failed")
+	}
+	var migrationCount, missingColumns, scheduleRows, matchRows, metadataRows int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 5 {
+		t.Fatalf("stale fixture migration count=%d err=%v", migrationCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='movies' AND column_name IN ('source_overview','source_release_date','source_genres')`).Scan(&missingColumns); err != nil || missingColumns != 0 {
+		t.Fatalf("stale fixture source columns=%d err=%v", missingColumns, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM showtimes").Scan(&scheduleRows); err != nil || scheduleRows == 0 {
+		t.Fatalf("stale fixture showtimes=%d err=%v", scheduleRows, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movie_matches WHERE source_provider='ugc' AND source_movie_id='200'").Scan(&matchRows); err != nil || matchRows != 1 {
+		t.Fatalf("stale fixture matches=%d err=%v", matchRows, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movie_metadata_cache WHERE provider='tmdb' AND provider_movie_id=42").Scan(&metadataRows); err != nil || metadataRows != 1 {
+		t.Fatalf("stale fixture metadata=%d err=%v", metadataRows, err)
+	}
+
+	if err := database.RunMigrations(ctx, pool); err != nil {
+		t.Fatal("run migration 006 on stale 005 failed")
+	}
+	var migrationName string
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 6 || migrationName != "006_repair_multi_provider_schema.sql" {
+		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
+	}
+	var sourceColumns, sourceConstraints int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='movies' AND ((column_name='source_overview' AND data_type='character varying' AND character_maximum_length=10000 AND is_nullable='YES') OR (column_name='source_release_date' AND data_type='date' AND is_nullable='YES') OR (column_name='source_genres' AND data_type='ARRAY' AND udt_name='_text' AND is_nullable='NO'))`).Scan(&sourceColumns); err != nil || sourceColumns != 3 {
+		t.Fatalf("repaired source columns=%d err=%v", sourceColumns, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_constraint WHERE conrelid='movies'::regclass AND conname IN ('movies_source_overview_check','movies_source_genres_check')`).Scan(&sourceConstraints); err != nil || sourceConstraints != 2 {
+		t.Fatalf("repaired source constraints=%d err=%v", sourceConstraints, err)
+	}
+	var preservedOverview string
+	if err := pool.QueryRow(ctx, "SELECT overview FROM movie_metadata_cache WHERE provider='tmdb' AND provider_movie_id=42").Scan(&preservedOverview); err != nil || preservedOverview != metadata.Overview {
+		t.Fatalf("preserved metadata overview=%q err=%v", preservedOverview, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM showtimes").Scan(&scheduleRows); err != nil || scheduleRows == 0 {
+		t.Fatalf("preserved showtimes=%d err=%v", scheduleRows, err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE movies SET source_overview=repeat('x',10001) WHERE provider='ugc' AND provider_id='200'"); err == nil {
+		t.Fatal("oversized source overview accepted")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE movies SET source_genres=array_fill('x'::text, ARRAY[33]) WHERE provider='ugc' AND provider_id='200'"); err == nil {
+		t.Fatal("oversized source genres accepted")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE theaters SET address='' WHERE provider='ugc'"); err == nil {
+		t.Fatal("empty UGC address accepted")
+	}
+
+	if version, err := store.Replace(ctx, kinepolisTestDataset()); err != nil || version != 2 {
+		t.Fatalf("Kinepolis replacement after repair version=%d err=%v", version, err)
+	}
+	ugcReplacement := testDataset()
+	ugcReplacement.GeneratedAt = ugcReplacement.GeneratedAt.Add(time.Minute)
+	if version, err := store.Replace(ctx, ugcReplacement); err != nil || version != 3 {
+		t.Fatalf("UGC replacement after repair version=%d err=%v", version, err)
+	}
+	loaded, revision, err := store.Load(ctx)
+	if err != nil || revision.ScheduleVersion != 3 || revision.EnrichmentVersion != 1 || loaded.Provider != ProviderCombined {
+		t.Fatalf("combined load after repair revision=%+v provider=%q err=%v", revision, loaded.Provider, err)
+	}
+	providers := map[string]bool{}
+	for _, theater := range loaded.Theaters {
+		providers[theater.Provider] = true
+	}
+	if !providers[ProviderUGC] || !providers[ProviderKinepolis] {
+		t.Fatalf("providers after replacements=%v", providers)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movie_matches WHERE source_provider='ugc' AND source_movie_id='200'").Scan(&matchRows); err != nil || matchRows != 1 {
+		t.Fatalf("preserved match rows after replacements=%d err=%v", matchRows, err)
+	}
 }

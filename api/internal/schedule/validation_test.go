@@ -110,3 +110,43 @@ func TestValidateDatasetRejectsUnsafeBackdropURLs(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateKinepolisDatasetIdentityPassesAndURLs(t *testing.T) {
+	data := kinepolisTestDataset()
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid Kinepolis dataset rejected: %v", err)
+	}
+	data.Showtimes[0].BookingURL = "https://www.ugc.fr/reservationSeances.html?id=VS1"
+	if err := ValidateDataset(data, true); err == nil {
+		t.Fatal("cross-provider booking URL accepted")
+	}
+	data = kinepolisTestDataset()
+	data.Showtimes[0].Movie.PosterURL = "https://evil.example/images/poster.jpg"
+	if err := ValidateDataset(data, true); err == nil {
+		t.Fatal("cross-provider image URL accepted")
+	}
+	data = kinepolisTestDataset()
+	data.Theaters[0].AcceptedPasses = []string{"UGC_ILLIMITE"}
+	if err := ValidateDataset(data, true); err == nil {
+		t.Fatal("unsupported Kinepolis pass accepted")
+	}
+}
+
+func TestValidateKinepolisPosterURLAllowsDotsInUnicodeFilenameAndRejectsTraversal(t *testing.T) {
+	data := kinepolisTestDataset()
+	data.Showtimes[0].Movie.PosterURL = "https://cdn.kinepolis.fr/images/FR/65459BAD/HO00016344/0000027026/Visite_déquipe_:_Ducobu_et_le_fantôme_de_Sa....jpg"
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid unicode Kinepolis poster rejected: %v", err)
+	}
+
+	for _, raw := range []string{
+		"https://cdn.kinepolis.fr/images/../etc/passwd",
+		"https://cdn.kinepolis.fr/images/a/../../b",
+	} {
+		data := kinepolisTestDataset()
+		data.Showtimes[0].Movie.PosterURL = raw
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("traversal poster accepted: %q", raw)
+		}
+	}
+}

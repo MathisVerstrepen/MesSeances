@@ -208,3 +208,30 @@ func TestValidateMatchRejectsUnsafeOrTransientCandidateURLs(t *testing.T) {
 		}
 	}
 }
+
+type qualificationStore struct{ matches map[string]Match }
+
+func (s *qualificationStore) Match(_ context.Context, provider, id, _ string) (Match, bool, error) {
+	value, ok := s.matches[provider+"\x00"+id]
+	return value, ok, nil
+}
+func (s *qualificationStore) Metadata(context.Context, string, int64, string) (Metadata, bool, error) {
+	return Metadata{}, false, nil
+}
+func (s *qualificationStore) SaveDecision(_ context.Context, match Match) error {
+	s.matches[match.SourceProvider+"\x00"+match.SourceMovieID] = match
+	return nil
+}
+func (s *qualificationStore) Publish(_ context.Context, match Match, _ Metadata) error {
+	s.matches[match.SourceProvider+"\x00"+match.SourceMovieID] = match
+	return nil
+}
+
+func TestMatcherQualifiesOverlappingMovieIDsBySourceProvider(t *testing.T) {
+	store := &qualificationStore{matches: map[string]Match{}}
+	provider := &fakeProvider{details: map[int64]tmdb.Details{}}
+	summary, err := NewMatcher(store, provider, func() time.Time { return matcherNow }).Run(context.Background(), []Movie{{SourceProvider: SourceUGC, ProviderID: "10", Title: "UGC", RuntimeMinutes: 90}, {SourceProvider: SourceKinepolis, ProviderID: "10", Title: "Kinepolis", RuntimeMinutes: 95}})
+	if err != nil || summary.Unmatched != 2 || len(store.matches) != 2 || store.matches[SourceUGC+"\x0010"].SourceProvider != SourceUGC || store.matches[SourceKinepolis+"\x0010"].SourceProvider != SourceKinepolis {
+		t.Fatalf("summary=%+v matches=%v err=%v", summary, store.matches, err)
+	}
+}

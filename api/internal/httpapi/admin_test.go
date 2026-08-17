@@ -16,15 +16,15 @@ import (
 type adminReviewStore struct{}
 
 func (adminReviewStore) PendingMatches(context.Context, int, int) ([]enrichment.PendingMatch, error) {
-	return []enrichment.PendingMatch{{SourceMovieID: "200", SourceTitle: "Film A", SourceRuntimeMinutes: 100, SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: enrichment.StatusUnmatched, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", PosterURL: "https://image.tmdb.org/t/p/w500/42.jpg", DetailURL: "https://evil.example/candidate"}}}}, nil
+	return []enrichment.PendingMatch{{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", SourceRuntimeMinutes: 100, SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: enrichment.StatusUnmatched, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", PosterURL: "https://image.tmdb.org/t/p/w500/42.jpg", DetailURL: "https://evil.example/candidate"}}}}, nil
 }
-func (adminReviewStore) ReviewCandidate(context.Context, string, int64) (enrichment.Candidate, error) {
+func (adminReviewStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, error) {
 	return enrichment.Candidate{ID: 42, Title: "Film A", Score: 1}, nil
 }
-func (adminReviewStore) ApproveReview(context.Context, string, int64, enrichment.Metadata, time.Time) error {
+func (adminReviewStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, time.Time) error {
 	return nil
 }
-func (adminReviewStore) RejectReview(context.Context, string, time.Time) error { return nil }
+func (adminReviewStore) RejectReview(context.Context, string, string, time.Time) error { return nil }
 
 type adminProvider struct{}
 
@@ -38,11 +38,11 @@ type adminReviewErrorStore struct {
 	approvalErr  error
 }
 
-func (s adminReviewErrorStore) ReviewCandidate(context.Context, string, int64) (enrichment.Candidate, error) {
+func (s adminReviewErrorStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, error) {
 	return enrichment.Candidate{ID: 42, Score: 1}, s.preflightErr
 }
 
-func (s adminReviewErrorStore) ApproveReview(context.Context, string, int64, enrichment.Metadata, time.Time) error {
+func (s adminReviewErrorStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, time.Time) error {
 	return s.approvalErr
 }
 
@@ -115,7 +115,7 @@ func TestAdminOriginAuthorizationAndCORS(t *testing.T) {
 	unauthorized := adminRequest(handler, http.MethodGet, "/api/v1/admin/tmdb-matches", "", "", nil)
 	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
 	cookie := loginAdmin(t, handler, "password")
-	reject := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/reject", "", "https://evil.example", cookie)
+	reject := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/reject", "", "https://evil.example", cookie)
 	assertAPIError(t, reject, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
 	preflight := httptest.NewRequest(http.MethodOptions, "/api/v1/admin/login", nil)
 	preflight.Header.Set("Origin", "http://localhost:3000")
@@ -130,15 +130,15 @@ func TestAdminOriginAuthorizationAndCORS(t *testing.T) {
 func TestAdminApproveRejectAndLogoutSuccess(t *testing.T) {
 	handler := configuredAdminHandler(t, "password", time.Now)
 	cookie := loginAdmin(t, handler, "password")
-	approve := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
+	approve := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
 	if approve.Code != http.StatusOK || strings.TrimSpace(approve.Body.String()) != `{"status":"matched"}` {
 		t.Fatalf("approve status=%d body=%s", approve.Code, approve.Body.String())
 	}
-	manual := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/approve", `{"tmdb_id":999}`, "http://localhost:3000", cookie)
+	manual := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", `{"tmdb_id":999}`, "http://localhost:3000", cookie)
 	if manual.Code != http.StatusOK || strings.TrimSpace(manual.Body.String()) != `{"status":"matched"}` {
 		t.Fatalf("manual approve status=%d body=%s", manual.Code, manual.Body.String())
 	}
-	reject := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/reject", "", "http://localhost:3000", cookie)
+	reject := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/reject", "", "http://localhost:3000", cookie)
 	if reject.Code != http.StatusOK || strings.TrimSpace(reject.Body.String()) != `{"status":"rejected"}` {
 		t.Fatalf("reject status=%d body=%s", reject.Code, reject.Body.String())
 	}
@@ -152,7 +152,7 @@ func TestAdminApproveFailsClosedWithoutTMDBProvider(t *testing.T) {
 	reviews := enrichment.NewReviewService(adminReviewStore{}, nil, time.Now)
 	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", Reviews: reviews})
 	cookie := loginAdmin(t, handler, "password")
-	approve := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
+	approve := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
 	assertAPIError(t, approve, http.StatusServiceUnavailable, "review_unavailable", "Service de validation indisponible.")
 }
 
@@ -169,7 +169,7 @@ func TestAdminApproveRejectsInvalidBodies(t *testing.T) {
 		`{"tmdb_id":42,"padding":"` + strings.Repeat("x", maxAdminBody) + `"}`,
 	}
 	for _, body := range tests {
-		response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/approve", body, "http://localhost:3000", cookie)
+		response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", body, "http://localhost:3000", cookie)
 		assertAPIError(t, response, http.StatusBadRequest, "invalid_request", "Requête invalide.")
 	}
 }
@@ -196,7 +196,7 @@ func TestAdminApproveErrorMappingsRemainUnchanged(t *testing.T) {
 			reviews := enrichment.NewReviewService(test.store, test.provider, time.Now)
 			handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", Reviews: reviews})
 			cookie := loginAdmin(t, handler, "password")
-			response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
+			response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
 			assertAPIError(t, response, test.wantStatus, test.wantCode, test.wantMessage)
 		})
 	}

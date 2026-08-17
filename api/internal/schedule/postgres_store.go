@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -55,27 +56,35 @@ func (s *PostgresStore) CurrentVersion(ctx context.Context) (int64, error) {
 }
 
 type movieRow struct {
-	providerID string
-	slug       string
-	title      string
-	runtime    int
-	poster     string
+	provider    string
+	providerID  string
+	slug        string
+	title       string
+	runtime     int
+	poster      string
+	overview    string
+	releaseDate string
+	genres      []string
 }
 
 func prepareMovies(data Dataset) ([]movieRow, error) {
 	byID := make(map[string]movieRow)
 	for _, showing := range data.Showtimes {
-		candidate := movieRow{showing.Movie.ProviderID, showing.Movie.Slug, showing.Movie.Title, showing.Movie.RuntimeMinutes, showing.Movie.PosterURL}
-		if prior, exists := byID[candidate.providerID]; exists && prior != candidate {
+		provider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
+		candidate := movieRow{provider, showing.Movie.ProviderID, showing.Movie.Slug, showing.Movie.Title, showing.Movie.RuntimeMinutes, showing.Movie.PosterURL, showing.Movie.Overview, showing.Movie.ReleaseDate, append([]string{}, showing.Movie.Genres...)}
+		key := provider + "\x00" + candidate.providerID
+		if prior, exists := byID[key]; exists && (prior.provider != candidate.provider || prior.providerID != candidate.providerID || prior.slug != candidate.slug || prior.title != candidate.title || prior.runtime != candidate.runtime || prior.poster != candidate.poster || prior.overview != candidate.overview || prior.releaseDate != candidate.releaseDate || strings.Join(prior.genres, "\x00") != strings.Join(candidate.genres, "\x00")) {
 			return nil, fmt.Errorf("conflicting movie metadata")
 		}
-		byID[candidate.providerID] = candidate
+		byID[key] = candidate
 	}
 	rows := make([]movieRow, 0, len(byID))
 	for _, movie := range byID {
 		rows = append(rows, movie)
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].providerID < rows[j].providerID })
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].provider+"\x00"+rows[i].providerID < rows[j].provider+"\x00"+rows[j].providerID
+	})
 	return rows, nil
 }
 
@@ -108,30 +117,36 @@ func (s *PostgresStore) Replace(ctx context.Context, data Dataset) (int64, error
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("read schedule replacement version failed")
 	}
-	for _, table := range []string{"showtimes", "theater_passes", "theater_dates", "passes", "movies", "theaters"} {
-		if _, err := tx.Exec(ctx, "DELETE FROM "+table); err != nil {
-			return 0, fmt.Errorf("clear schedule table failed")
-		}
+	if _, err := tx.Exec(ctx, "DELETE FROM showtimes WHERE provider=$1", data.Provider); err != nil {
+		return 0, fmt.Errorf("clear provider showtimes failed")
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM theaters WHERE provider=$1", data.Provider); err != nil {
+		return 0, fmt.Errorf("clear provider theaters failed")
+	}
+	if _, err := tx.Exec(ctx, "DELETE FROM movies WHERE provider=$1", data.Provider); err != nil {
+		return 0, fmt.Errorf("clear provider movies failed")
 	}
 	theaterRows := make([][]any, 0, len(data.Theaters))
 	dateRows := make([][]any, 0)
 	passLinkRows := make([][]any, 0, len(data.Theaters))
 	location, _ := time.LoadLocation(Timezone)
 	for _, theater := range data.Theaters {
-		theaterRows = append(theaterRows, []any{theater.ID, theater.ProviderID, theater.Slug, theater.Name, theater.Address, theater.City, theater.PostalCode})
+		theaterRows = append(theaterRows, []any{theater.ID, theater.ProviderID, theater.Slug, theater.Name, theater.Address, theater.City, theater.PostalCode, recordProvider(theater.Provider, theater.ID)})
 		for _, date := range theater.AvailableDates {
 			parsed, _ := time.ParseInLocation(dateLayout, date, location)
 			dateRows = append(dateRows, []any{theater.ID, parsed})
 		}
-		passLinkRows = append(passLinkRows, []any{theater.ID, "UGC_ILLIMITE"})
+		for _, pass := range theater.AcceptedPasses {
+			passLinkRows = append(passLinkRows, []any{theater.ID, pass})
+		}
 	}
-	if err := copyRows(ctx, tx, "theaters", []string{"id", "provider_id", "slug", "name", "address", "city", "postal_code"}, theaterRows); err != nil {
+	if err := copyRows(ctx, tx, "theaters", []string{"id", "provider_id", "slug", "name", "address", "city", "postal_code", "provider"}, theaterRows); err != nil {
 		return 0, fmt.Errorf("insert theaters failed")
 	}
 	if err := copyRows(ctx, tx, "theater_dates", []string{"theater_id", "service_date"}, dateRows); err != nil {
 		return 0, fmt.Errorf("insert theater dates failed")
 	}
-	if _, err := tx.Exec(ctx, "INSERT INTO passes (code) VALUES ('UGC_ILLIMITE')"); err != nil {
+	if _, err := tx.Exec(ctx, "INSERT INTO passes (code) VALUES ('UGC_ILLIMITE') ON CONFLICT DO NOTHING"); err != nil {
 		return 0, fmt.Errorf("insert passes failed")
 	}
 	if err := copyRows(ctx, tx, "theater_passes", []string{"theater_id", "pass_code"}, passLinkRows); err != nil {
@@ -143,22 +158,43 @@ func (s *PostgresStore) Replace(ctx context.Context, data Dataset) (int64, error
 		if movie.poster != "" {
 			poster = movie.poster
 		}
-		movieRows = append(movieRows, []any{movie.providerID, movie.slug, movie.title, int16(movie.runtime), poster})
+		var overview, releaseDate any
+		if movie.overview != "" {
+			overview = movie.overview
+		}
+		if movie.releaseDate != "" {
+			releaseDate = movie.releaseDate
+		}
+		movieRows = append(movieRows, []any{movie.providerID, movie.slug, movie.title, int16(movie.runtime), poster, movie.provider, overview, releaseDate, movie.genres})
 	}
-	if err := copyRows(ctx, tx, "movies", []string{"provider_id", "slug", "title", "runtime_minutes", "poster_url"}, movieRows); err != nil {
+	if err := copyRows(ctx, tx, "movies", []string{"provider_id", "slug", "title", "runtime_minutes", "poster_url", "provider", "source_overview", "source_release_date", "source_genres"}, movieRows); err != nil {
 		return 0, fmt.Errorf("insert movies failed")
 	}
 	showtimeRows := make([][]any, 0, len(data.Showtimes))
 	for _, showing := range data.Showtimes {
 		serviceDate, _ := time.ParseInLocation(dateLayout, showing.ServiceDate, location)
-		showtimeRows = append(showtimeRows, []any{showing.ID, showing.ProviderShowingID, serviceDate, showing.TheaterID, showing.Movie.ProviderID, showing.StartTime, showing.EndTime, showing.Language, showing.ProviderVersion, showing.Format, showing.Room, showing.BookingURL})
+		showtimeRows = append(showtimeRows, []any{showing.ID, showing.ProviderShowingID, serviceDate, showing.TheaterID, showing.Movie.ProviderID, showing.StartTime, showing.EndTime, showing.Language, showing.ProviderVersion, showing.Format, showing.Room, showing.BookingURL, recordProvider(showing.Provider, showing.ID)})
 	}
-	if err := copyRows(ctx, tx, "showtimes", []string{"id", "provider_showing_id", "service_date", "theater_id", "movie_provider_id", "start_time", "end_time", "language", "provider_version", "format", "room", "booking_url"}, showtimeRows); err != nil {
+	if err := copyRows(ctx, tx, "showtimes", []string{"id", "provider_showing_id", "service_date", "theater_id", "movie_provider_id", "start_time", "end_time", "language", "provider_version", "format", "room", "booking_url", "provider"}, showtimeRows); err != nil {
 		return 0, fmt.Errorf("insert showtimes failed")
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO provider_snapshots (provider, schema_version, scope, generated_at, timezone, window_from, window_through) VALUES ($1,$2,$3,$4,$5,$6,$7)
+ON CONFLICT (provider) DO UPDATE SET schema_version=EXCLUDED.schema_version,scope=EXCLUDED.scope,generated_at=EXCLUDED.generated_at,timezone=EXCLUDED.timezone,window_from=EXCLUDED.window_from,window_through=EXCLUDED.window_through`, data.Provider, data.SchemaVersion, data.Scope, data.GeneratedAt, data.Timezone, data.Window.From, data.Window.Through); err != nil {
+		return 0, fmt.Errorf("write provider snapshot metadata failed")
+	}
+	var combinedProvider string
+	var combinedGenerated time.Time
+	var combinedFrom, combinedThrough time.Time
+	if err := tx.QueryRow(ctx, `SELECT CASE WHEN count(*)=1 THEN min(provider) ELSE 'combined' END, max(generated_at), min(window_from), max(window_through) FROM provider_snapshots`).Scan(&combinedProvider, &combinedGenerated, &combinedFrom, &combinedThrough); err != nil {
+		return 0, fmt.Errorf("read combined provider failed")
+	}
+	var theaterCount, showtimeCount int
+	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM theaters), (SELECT count(*) FROM showtimes)`).Scan(&theaterCount, &showtimeCount); err != nil || !validDatasetRecordCounts(theaterCount, showtimeCount) || !ValidInclusiveDateWindow(combinedFrom, combinedThrough) {
+		return 0, fmt.Errorf("combined schedule limit exceeded")
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schedule_snapshot (singleton, version, schema_version, provider, scope, generated_at, timezone, window_from, window_through)
 VALUES (true, $1, $2, $3, $4, $5, $6, $7, $8)
-ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, schema_version=EXCLUDED.schema_version, provider=EXCLUDED.provider, scope=EXCLUDED.scope, generated_at=EXCLUDED.generated_at, timezone=EXCLUDED.timezone, window_from=EXCLUDED.window_from, window_through=EXCLUDED.window_through`, version, data.SchemaVersion, data.Provider, data.Scope, data.GeneratedAt, data.Timezone, data.Window.From, data.Window.Through); err != nil {
+ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, schema_version=EXCLUDED.schema_version, provider=EXCLUDED.provider, scope=EXCLUDED.scope, generated_at=EXCLUDED.generated_at, timezone=EXCLUDED.timezone, window_from=EXCLUDED.window_from, window_through=EXCLUDED.window_through`, version, data.SchemaVersion, combinedProvider, data.Scope, combinedGenerated, data.Timezone, combinedFrom, combinedThrough); err != nil {
 		return 0, fmt.Errorf("write schedule snapshot metadata failed")
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -196,7 +232,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 	data.Theaters = []TheaterRecord{}
 	data.Showtimes = []ShowtimeRecord{}
 	theaterIndex := map[string]int{}
-	rows, err := tx.Query(ctx, `SELECT id, provider_id, slug, name, address, city, postal_code FROM theaters ORDER BY provider_id, id`)
+	rows, err := tx.Query(ctx, `SELECT provider, id, provider_id, slug, name, address, city, postal_code FROM theaters ORDER BY provider, provider_id, id`)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 	}
@@ -206,7 +242,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule theater limit exceeded")
 		}
 		var theater TheaterRecord
-		if err := rows.Scan(&theater.ID, &theater.ProviderID, &theater.Slug, &theater.Name, &theater.Address, &theater.City, &theater.PostalCode); err != nil {
+		if err := rows.Scan(&theater.Provider, &theater.ID, &theater.ProviderID, &theater.Slug, &theater.Name, &theater.Address, &theater.City, &theater.PostalCode); err != nil {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 		}
@@ -259,7 +295,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater passes failed")
 		}
 		index, ok := theaterIndex[theaterID]
-		if !ok || code != "UGC_ILLIMITE" || len(data.Theaters[index].AcceptedPasses) != 0 {
+		if !ok || code != "UGC_ILLIMITE" || recordProvider(data.Theaters[index].Provider, theaterID) != ProviderUGC || len(data.Theaters[index].AcceptedPasses) != 0 {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("unrepresentable theater pass row")
 		}
@@ -272,15 +308,21 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 	}
 	rows.Close()
 	var passCount int
-	if err := tx.QueryRow(ctx, "SELECT count(*) FROM passes").Scan(&passCount); err != nil || passCount != 1 || linkedPasses != len(data.Theaters) {
+	ugcTheaters := 0
+	for _, theater := range data.Theaters {
+		if theater.Provider == ProviderUGC {
+			ugcTheaters++
+		}
+	}
+	if err := tx.QueryRow(ctx, "SELECT count(*) FROM passes").Scan(&passCount); err != nil || passCount != 1 || linkedPasses != ugcTheaters {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("unrepresentable pass rows")
 	}
 	movies := map[string]MovieRecord{}
-	rows, err = tx.Query(ctx, `SELECT m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), c.provider_movie_id, COALESCE(c.overview, ''), COALESCE(c.release_date::text, ''), COALESCE(c.genres, '{}'), COALESCE(c.poster_url, ''), COALESCE(c.backdrop_url, '')
+	rows, err = tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, c.provider_movie_id, COALESCE(c.overview, ''), COALESCE(c.release_date::text, ''), COALESCE(c.genres, '{}'), COALESCE(c.poster_url, ''), COALESCE(c.backdrop_url, '')
 FROM movies m
-LEFT JOIN movie_matches mm ON mm.source_provider='ugc' AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb' AND mm.status='matched'
+LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb' AND mm.status='matched'
 LEFT JOIN movie_metadata_cache c ON c.provider='tmdb' AND c.provider_movie_id=mm.metadata_movie_id AND c.locale='fr-FR'
-ORDER BY m.provider_id`)
+ORDER BY m.provider, m.provider_id`)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 	}
@@ -291,20 +333,24 @@ ORDER BY m.provider_id`)
 		}
 		var movie MovieRecord
 		var tmdbID *int64
+		var sourceOverview, sourceReleaseDate string
+		var sourceGenres []string
 		var overview, releaseDate, poster, backdrop string
 		var genres []string
-		if err := rows.Scan(&movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &tmdbID, &overview, &releaseDate, &genres, &poster, &backdrop); err != nil {
+		if err := rows.Scan(&movie.Provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &tmdbID, &overview, &releaseDate, &genres, &poster, &backdrop); err != nil {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 		}
+		movie.Overview, movie.ReleaseDate, movie.Genres = sourceOverview, sourceReleaseDate, append([]string(nil), sourceGenres...)
 		if tmdbID != nil && *tmdbID > 0 {
 			movie.Enrichment = &MovieEnrichment{TMDBID: *tmdbID, Overview: overview, ReleaseDate: releaseDate, Genres: append([]string(nil), genres...), PosterURL: poster, BackdropURL: backdrop}
 		}
-		if _, exists := movies[movie.ProviderID]; exists {
+		movieKey := movie.Provider + "\x00" + movie.ProviderID
+		if _, exists := movies[movieKey]; exists {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("duplicate movie row")
 		}
-		movies[movie.ProviderID] = movie
+		movies[movieKey] = movie
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -316,7 +362,7 @@ ORDER BY m.provider_id`)
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("load schedule timezone failed")
 	}
 	referencedMovies := map[string]bool{}
-	rows, err = tx.Query(ctx, `SELECT id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes ORDER BY theater_id, service_date, start_time, id`)
+	rows, err = tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes ORDER BY theater_id, service_date, start_time, id`)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 	}
@@ -328,11 +374,12 @@ ORDER BY m.provider_id`)
 		var showing ShowtimeRecord
 		var date time.Time
 		var movieID string
-		if err := rows.Scan(&showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &showing.Language, &showing.ProviderVersion, &showing.Format, &showing.Room, &showing.BookingURL); err != nil {
+		if err := rows.Scan(&showing.Provider, &showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &showing.Language, &showing.ProviderVersion, &showing.Format, &showing.Room, &showing.BookingURL); err != nil {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 		}
-		movie, ok := movies[movieID]
+		movieKey := showing.Provider + "\x00" + movieID
+		movie, ok := movies[movieKey]
 		if !ok {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("showtime references missing movie")
@@ -341,7 +388,7 @@ ORDER BY m.provider_id`)
 		showing.Movie = movie
 		showing.StartTime = showing.StartTime.In(location)
 		showing.EndTime = showing.EndTime.In(location)
-		referencedMovies[movieID] = true
+		referencedMovies[movieKey] = true
 		data.Showtimes = append(data.Showtimes, showing)
 	}
 	if err := rows.Err(); err != nil {

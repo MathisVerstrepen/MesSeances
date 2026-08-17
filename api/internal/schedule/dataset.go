@@ -3,12 +3,14 @@ package schedule
 import "time"
 
 const (
-	SchemaVersion = 1
-	ProviderUGC   = "ugc"
-	ScopeAll      = "all_cinemas"
-	ScopeSingle   = "single_cinema"
-	LanguageVO    = "VO"
-	LanguageVFSME = "VF_SME"
+	SchemaVersion     = 1
+	ProviderUGC       = "ugc"
+	ProviderKinepolis = "kinepolis"
+	ProviderCombined  = "combined"
+	ScopeAll          = "all_cinemas"
+	ScopeSingle       = "single_cinema"
+	LanguageVO        = "VO"
+	LanguageVFSME     = "VF_SME"
 )
 
 type Window struct {
@@ -28,6 +30,7 @@ type Dataset struct {
 }
 
 type TheaterRecord struct {
+	Provider       string   `json:"provider,omitempty"`
 	ID             string   `json:"id"`
 	ProviderID     string   `json:"provider_id"`
 	Slug           string   `json:"slug"`
@@ -40,11 +43,15 @@ type TheaterRecord struct {
 }
 
 type MovieRecord struct {
+	Provider       string           `json:"provider,omitempty"`
 	ProviderID     string           `json:"provider_id"`
 	Slug           string           `json:"slug"`
 	Title          string           `json:"title"`
 	RuntimeMinutes int              `json:"runtime_minutes"`
 	PosterURL      string           `json:"poster_url,omitempty"`
+	Overview       string           `json:"overview,omitempty"`
+	ReleaseDate    string           `json:"release_date,omitempty"`
+	Genres         []string         `json:"genres,omitempty"`
 	Enrichment     *MovieEnrichment `json:"-"`
 }
 
@@ -58,6 +65,7 @@ type MovieEnrichment struct {
 }
 
 type ShowtimeRecord struct {
+	Provider          string      `json:"provider,omitempty"`
 	ID                string      `json:"id"`
 	ProviderShowingID string      `json:"provider_showing_id"`
 	ServiceDate       string      `json:"service_date"`
@@ -81,6 +89,7 @@ func cloneDataset(in Dataset) Dataset {
 	}
 	out.Showtimes = append([]ShowtimeRecord(nil), in.Showtimes...)
 	for i := range out.Showtimes {
+		out.Showtimes[i].Movie.Genres = append([]string(nil), in.Showtimes[i].Movie.Genres...)
 		if in.Showtimes[i].Movie.Enrichment != nil {
 			value := *in.Showtimes[i].Movie.Enrichment
 			value.Genres = append([]string(nil), value.Genres...)

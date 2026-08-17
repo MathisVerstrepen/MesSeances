@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
 import type { CatalogMovie, MoviesResponse } from '~/types/api'
+import { safePosterUrl } from '~/utils/safeImageUrl'
 
 const PAGE_SIZE = 24
 
@@ -55,7 +56,11 @@ function changePage(nextPage: number) {
 }
 
 function posterAvailable(movie: CatalogMovie): boolean {
-  return Boolean(movie.poster_url?.trim()) && !failedPosters.value.includes(movie.slug)
+  return Boolean(posterUrl(movie)) && !failedPosters.value.includes(movie.slug)
+}
+
+function posterUrl(movie: CatalogMovie): string | null {
+  return safePosterUrl(movie.poster_url)
 }
 
 function markPosterUnavailable(slug: string) {
@@ -123,7 +128,7 @@ useHead({ title: 'Films à l’affiche — MovieFlow' })
             <div class="aspect-[2/3] overflow-hidden rounded-md border border-line bg-subtle shadow-sm">
               <img
                 v-if="posterAvailable(movie)"
-                :src="movie.poster_url!"
+                :src="posterUrl(movie)!"
                 :alt="`Affiche de ${movie.title}`"
                 class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
                 loading="lazy"

@@ -2,6 +2,7 @@
 import { Clock3, Film, MapPin, X } from '@lucide/vue'
 import type { TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
+import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
 type TimelineMode = 'theater' | 'movie'
 type FormatFilter = 'ALL' | 'STANDARD' | 'IMAX'
@@ -115,91 +116,6 @@ function handleEscape(event: KeyboardEvent) {
   if (event.key !== 'Escape' || !selected.value) return
   event.preventDefault()
   closeInspector()
-}
-
-function safeBookingUrl(url: string | null) {
-  if (!url) return null
-  try {
-    const parsed = new URL(url)
-    const hostname = parsed.hostname.toLowerCase()
-    return parsed.protocol === 'https:' && (hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) ? parsed.href : null
-  } catch {
-    return null
-  }
-}
-
-function safeBackdropUrl(url: string | null) {
-  const prefix = 'https://image.tmdb.org/t/p/w780/'
-  if (!url?.startsWith(prefix) || url.includes('\\')) return null
-
-  try {
-    const pathEnd = url.search(/[?#]/)
-    let decodedPath = url.slice('https://image.tmdb.org'.length, pathEnd === -1 ? undefined : pathEnd)
-    for (let depth = 0; depth < 3; depth += 1) {
-      const decoded = decodeURIComponent(decodedPath)
-      if (decoded === decodedPath) break
-      decodedPath = decoded
-    }
-    if (decodedPath.includes('%') || decodedPath.includes('\\') || decodedPath.split('/').some((segment) => segment === '.' || segment === '..')) return null
-
-    const parsed = new URL(url)
-    if (
-      parsed.protocol !== 'https:'
-      || parsed.hostname !== 'image.tmdb.org'
-      || parsed.port
-      || parsed.username
-      || parsed.password
-      || parsed.search
-      || parsed.hash
-      || !parsed.pathname.startsWith('/t/p/w780/')
-      || parsed.pathname === '/t/p/w780/'
-    ) return null
-
-    return parsed.href
-  } catch {
-    return null
-  }
-}
-
-function hasSafeImagePath(url: string, origin: string) {
-  const pathEnd = url.search(/[?#]/)
-  let decodedPath = url.slice(origin.length, pathEnd === -1 ? undefined : pathEnd)
-  for (let depth = 0; depth < 3; depth += 1) {
-    const decoded = decodeURIComponent(decodedPath)
-    if (decoded === decodedPath) break
-    decodedPath = decoded
-  }
-  return !decodedPath.includes('%')
-    && !decodedPath.includes('\\')
-    && !decodedPath.slice(1).split('/').some((segment) => segment === '')
-    && !decodedPath.split('/').some((segment) => segment === '.' || segment === '..')
-}
-
-function safePosterUrl(url: string | null) {
-  if (!url || url.includes('\\')) return null
-
-  try {
-    const parsed = new URL(url)
-    const hostname = parsed.hostname.toLowerCase()
-    const isTmdbPoster = hostname === 'image.tmdb.org'
-      && parsed.pathname.startsWith('/t/p/w500/')
-      && parsed.pathname !== '/t/p/w500/'
-    const isUgcPoster = (hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) && parsed.pathname !== '/'
-    if (
-      parsed.protocol !== 'https:'
-      || parsed.port
-      || parsed.username
-      || parsed.password
-      || parsed.search
-      || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster)
-      || !hasSafeImagePath(url, parsed.origin)
-    ) return null
-
-    return parsed.href
-  } catch {
-    return null
-  }
 }
 
 const selectedPosterUrl = computed(() => {
@@ -468,7 +384,7 @@ onBeforeUnmount(() => {
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-            <BookingLink :url="safeBookingUrl(selected.showtime.booking_url)" />
+            <BookingLink :url="selected.showtime.booking_url" :provider="selected.showtime.provider" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
               class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink transition hover:border-stone-400 hover:bg-subtle"
