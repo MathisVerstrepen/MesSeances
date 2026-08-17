@@ -372,6 +372,44 @@ func TestMovieCatalogEnrichmentPrecedenceAndNullableDefaults(t *testing.T) {
 	}
 }
 
+func TestMovieShowtimesBackdropUsesValidatedMatchedEnrichment(t *testing.T) {
+	tests := []struct {
+		name     string
+		backdrop string
+		want     *string
+	}{
+		{name: "matched", backdrop: "https://image.tmdb.org/t/p/w780/a.jpg", want: stringPointer("https://image.tmdb.org/t/p/w780/a.jpg")},
+		{name: "missing"},
+		{name: "rejected", backdrop: "https://example.com/t/p/w780/a.jpg"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := testDataset()
+			for index := range data.Showtimes {
+				if data.Showtimes[index].Movie.ProviderID == "200" {
+					data.Showtimes[index].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: test.backdrop}
+				}
+			}
+			service, err := NewService(testSource{data: data}, ServiceOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			schedule, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "tmdb-film-42", Date: "2026-08-15"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.want == nil && schedule.BackdropURL != nil {
+				t.Fatalf("backdrop=%q want nil", *schedule.BackdropURL)
+			}
+			if test.want != nil && (schedule.BackdropURL == nil || *schedule.BackdropURL != *test.want) {
+				t.Fatalf("backdrop=%v want %q", schedule.BackdropURL, *test.want)
+			}
+		})
+	}
+}
+
+func stringPointer(value string) *string { return &value }
+
 func TestMovieShowtimesScopesKnownEmptyAndUnknown(t *testing.T) {
 	service := testService(t)
 	schedule, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15", City: "Lille"})

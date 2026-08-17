@@ -180,10 +180,15 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 
 	data := s.source.Snapshot()
 	var movie MovieCatalogItem
+	var backdrop *string
 	found := false
 	for _, record := range data.Showtimes {
 		if publicMovieSlug(record.Movie) == query.Slug {
 			movie = materializeCatalogMovie(record.Movie)
+			if record.Movie.Enrichment != nil && validTMDBBackdropURL(record.Movie.Enrichment.BackdropURL) {
+				value := record.Movie.Enrichment.BackdropURL
+				backdrop = &value
+			}
 			found = true
 			break
 		}
@@ -214,7 +219,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 		}
 		return theaters[i].ID < theaters[j].ID
 	})
-	result := MovieSchedule{Movie: movie, Date: query.Date, Theaters: []MovieTheaterShowtimes{}}
+	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, Date: query.Date, Theaters: []MovieTheaterShowtimes{}}
 	for _, theater := range theaters {
 		showtimes := grouped[theater.ID]
 		if len(showtimes) == 0 {

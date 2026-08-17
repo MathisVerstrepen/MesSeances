@@ -4,7 +4,7 @@ export type FormatBrand = 'IMAX' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | 
 
 export const formatOptions: ReadonlyArray<{ value: QueryFormat; label: string; brand?: FormatBrand }> = [
   { value: 'ALL', label: 'Tous' },
-  { value: '2D', label: 'Standard' },
+  { value: '2D', label: '2D' },
   { value: '3D', label: '3D', brand: '3D' },
   { value: 'IMAX', label: 'IMAX', brand: 'IMAX' },
   { value: 'DOLBY', label: 'Dolby', brand: 'DOLBY' },

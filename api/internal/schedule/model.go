@@ -139,9 +139,10 @@ type MovieTheaterShowtimes struct {
 }
 
 type MovieSchedule struct {
-	Movie    MovieCatalogItem        `json:"movie"`
-	Date     string                  `json:"date"`
-	Theaters []MovieTheaterShowtimes `json:"theaters"`
+	Movie       MovieCatalogItem        `json:"movie"`
+	BackdropURL *string                 `json:"backdrop_url"`
+	Date        string                  `json:"date"`
+	Theaters    []MovieTheaterShowtimes `json:"theaters"`
 }
 
 type SlotResult struct {

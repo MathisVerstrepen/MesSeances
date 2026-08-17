@@ -235,8 +235,18 @@ func TestTimelineMediaTransportAndContractIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	movieShowtime := moviePayload["theaters"].([]any)[0].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+	if moviePayload["backdrop_url"] != "https://image.tmdb.org/t/p/w780/a.jpg" {
+		t.Fatalf("movie showtimes root backdrop=%+v", moviePayload)
+	}
 	if hasAnyKey(movieShowtime, "poster_url", "backdrop_url", "start_offset_minutes", "duration_minutes") {
 		t.Fatalf("timeline fields leaked to movie showtime: %+v", movieShowtime)
+	}
+	if hasAnyKey(moviePayload["movie"].(map[string]any), "backdrop_url") {
+		t.Fatalf("backdrop leaked to movie catalog item: %+v", moviePayload["movie"])
+	}
+	catalogResponse := performRequest(t, handler, "/api/v1/movies?page_size=2")
+	if catalogResponse.Code != http.StatusOK || strings.Contains(catalogResponse.Body.String(), "backdrop_url") {
+		t.Fatalf("backdrop leaked to catalog: status=%d body=%s", catalogResponse.Code, catalogResponse.Body.String())
 	}
 }
 
@@ -294,6 +304,20 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	}
 	if result.Movie.Slug != "tmdb-film-42" || result.Date != "2026-08-15" || len(result.Theaters) != 2 || result.Theaters[0].ID != "ugc-25" || result.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" || result.Theaters[0].Showtimes[0].StartTime.Location() != time.UTC {
 		t.Fatalf("schedule=%+v", result)
+	}
+	if result.BackdropURL == nil || *result.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" {
+		t.Fatalf("backdrop=%v", result.BackdropURL)
+	}
+	missing := performRequest(t, handler, "/api/v1/movies/ugc-film-201/showtimes?date=2026-08-15")
+	if missing.Code != http.StatusOK {
+		t.Fatalf("missing backdrop status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	var missingPayload map[string]any
+	if err := json.Unmarshal(missing.Body.Bytes(), &missingPayload); err != nil {
+		t.Fatal(err)
+	}
+	if backdrop, exists := missingPayload["backdrop_url"]; !exists || backdrop != nil {
+		t.Fatalf("missing backdrop must serialize as explicit null: %+v", missingPayload)
 	}
 	obsolete := performRequest(t, handler, "/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15")
 	assertAPIError(t, obsolete, http.StatusNotFound, "not_found", "Film introuvable.")

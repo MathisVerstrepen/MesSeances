@@ -207,6 +207,7 @@ export interface MovieShowtimesTheater {
 
 export interface MovieShowtimesResponse {
   movie: CatalogMovie
+  backdrop_url: string | null
   date: string
   theaters: MovieShowtimesTheater[]
 }

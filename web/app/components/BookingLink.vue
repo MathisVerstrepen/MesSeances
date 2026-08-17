@@ -1,9 +1,20 @@
 <script setup lang="ts">
+import type { VNode } from 'vue'
 import type { Provider } from '~/types/api'
+
+defineOptions({ inheritAttrs: false })
 
 const props = defineProps<{
   url?: string | null
   provider?: Provider | null
+  ariaLabel?: string
+  availableClass?: string
+  unavailableClass?: string
+  unstyled?: boolean
+}>()
+
+defineSlots<{
+  default?: (props: { available: boolean }) => VNode[]
 }>()
 
 const reservation = computed(() => {
@@ -38,15 +49,16 @@ const reservation = computed(() => {
 <template>
   <a
     v-if="reservation"
+    v-bind="$attrs"
     :href="reservation.url"
     target="_blank"
     rel="noopener noreferrer"
-    class="button-primary"
-    :aria-label="`${reservation.label}, ouverture dans un nouvel onglet`"
+    :class="[unstyled ? '' : 'button-primary', availableClass]"
+    :aria-label="`${ariaLabel || reservation.label}, ouverture dans un nouvel onglet`"
   >
-    <BrandedText :text="reservation.label" decorative />
+    <slot :available="true"><BrandedText :text="reservation.label" decorative /></slot>
   </a>
-  <span v-else class="inline-flex h-10 items-center text-sm font-medium text-muted">
-    Réservation indisponible
+  <span v-else v-bind="$attrs" :class="[unstyled ? '' : 'inline-flex h-10 items-center text-sm font-medium text-muted', unavailableClass]" aria-disabled="true">
+    <slot :available="false">Réservation indisponible</slot>
   </span>
 </template>
