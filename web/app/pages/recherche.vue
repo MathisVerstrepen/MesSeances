@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, CalendarSearch, ListFilter, LoaderCircle, Search, SlidersHorizontal } from '@lucide/vue'
+import { AlertTriangle, CalendarSearch, LoaderCircle, Search, SlidersHorizontal, X } from '@lucide/vue'
 import MovieSlotResultGroup from '~/components/MovieSlotResultGroup.vue'
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
@@ -43,6 +43,11 @@ const searchedDate = ref('')
 const selectedTheaterIds = ref<string[]>([])
 const theaterValidationMessage = ref('')
 const appliedSearch = ref<AppliedSearch | null>(null)
+const isFilterSheetOpen = ref(false)
+const filterForm = ref<HTMLFormElement | null>(null)
+const sheetCloseButton = ref<HTMLButtonElement | null>(null)
+const modifierButton = ref<HTMLButtonElement | null>(null)
+const resultsRegion = ref<HTMLElement | null>(null)
 const resultView = computed<ResultView>(() => singularQueryValue(route.query.view) === 'chronological' ? 'chronological' : 'movie')
 const chronologicalResults = computed(() => [...(results.value ?? [])].sort((first, second) => {
   const timeDifference = Date.parse(first.showtime.start_time) - Date.parse(second.showtime.start_time)
@@ -71,6 +76,11 @@ const activeFilterSummary = computed(() => {
   if (search.format !== 'ALL') items.push(search.format.replace('_', ' '))
   return items
 })
+const compactFilterSummary = computed(() => {
+  const search = appliedSearch.value
+  if (!search) return ''
+  return `${formatCompactDate(search.date)} · ${formatCompactTime(search.startAfter)}–${formatCompactTime(search.finishBefore)} · ${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
+})
 function createFallbackDates() {
   const [year, month, day] = todayInParis().split('-').map(Number)
   return Array.from({ length: 7 }, (_, offset) => {
@@ -90,6 +100,10 @@ let previousFavoriteIds: string[] = []
 let isReady = false
 let lastSearchKey = ''
 let requestId = 0
+let sheetTrigger: HTMLElement | null = null
+let bodyOverflowBeforeLock: string | null = null
+let mobileMediaQuery: MediaQueryList | null = null
+let resultScrollIntent = false
 
 interface AppliedSearch {
   theaterIds: string[]
@@ -99,6 +113,17 @@ interface AppliedSearch {
   language: Language
   format: QueryFormat
   includeAds: boolean
+}
+
+function formatCompactDate(date: string) {
+  const [year, month, day] = date.split('-').map(Number)
+  if (!year || !month || !day) return date
+  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', timeZone: 'Europe/Paris' }).format(new Date(Date.UTC(year, month - 1, day, 12)))
+}
+
+function formatCompactTime(time: string) {
+  const [hour, minute] = time.split(':')
+  return minute === '00' ? `${Number(hour)}h` : `${Number(hour)}h${minute}`
 }
 
 function bareQuery() {
@@ -130,11 +155,86 @@ async function setResultView(view: ResultView) {
   })
 }
 
-function editFilters() {
-  document.querySelector('#search-filters')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+function lockBodyScroll() {
+  if (bodyOverflowBeforeLock !== null) return
+  bodyOverflowBeforeLock = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+}
+
+function unlockBodyScroll() {
+  if (bodyOverflowBeforeLock === null) return
+  document.body.style.overflow = bodyOverflowBeforeLock
+  bodyOverflowBeforeLock = null
+}
+
+async function openFilterSheet(event: MouseEvent) {
+  sheetTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : modifierButton.value
+  isFilterSheetOpen.value = true
+  lockBodyScroll()
+  await nextTick()
+  sheetCloseButton.value?.focus()
+}
+
+function closeFilterSheet({ restoreFocus = true } = {}) {
+  if (!isFilterSheetOpen.value) return
+  isFilterSheetOpen.value = false
+  unlockBodyScroll()
+  if (restoreFocus && sheetTrigger?.isConnected) nextTick(() => sheetTrigger?.focus())
+}
+
+function sheetFocusableElements() {
+  if (!filterForm.value) return []
+  return [...filterForm.value.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true')
+}
+
+function handleSheetKeydown(event: KeyboardEvent) {
+  if (!isFilterSheetOpen.value) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeFilterSheet()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const focusable = sheetFocusableElements()
+  if (focusable.length === 0) {
+    event.preventDefault()
+    return
+  }
+  const first = focusable[0]!
+  const last = focusable.at(-1)!
+  if (event.shiftKey && (document.activeElement === first || !filterForm.value?.contains(document.activeElement))) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && (document.activeElement === last || !filterForm.value?.contains(document.activeElement))) {
+    event.preventDefault()
+    first.focus()
+  }
+}
+
+function isMobileViewport() {
+  return mobileMediaQuery?.matches ?? false
+}
+
+async function consumeResultScrollIntent() {
+  if (!resultScrollIntent) return
+  resultScrollIntent = false
+  await nextTick()
+  await nextTick()
+  if (!appliedSearch.value || !isMobileViewport() || !resultsRegion.value) return
+  resultsRegion.value.focus({ preventScroll: true })
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  resultsRegion.value.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+}
+
+function handleViewportChange(event: MediaQueryListEvent) {
+  if (!event.matches) closeFilterSheet({ restoreFocus: false })
 }
 
 function resetBareState() {
+  closeFilterSheet({ restoreFocus: false })
+  resultScrollIntent = false
   requestId++
   form.date = todayInParis()
   form.startAfter = '12:00'
@@ -213,8 +313,6 @@ async function runSearch(search: AppliedSearch) {
     })
     if (currentRequest === requestId) {
       results.value = response
-      searchedDate.value = search.date
-      appliedSearch.value = { ...search, theaterIds: [...search.theaterIds] }
     }
   } catch (error) {
     if (currentRequest === requestId) errorMessage.value = getFrenchApiError(error)
@@ -233,6 +331,8 @@ async function applyRoute() {
   }
 
   hydrateAppliedSearch(parsed)
+  appliedSearch.value = { ...parsed, theaterIds: [...parsed.theaterIds] }
+  searchedDate.value = parsed.date
   const query = submittedQuery(parsed)
   if (!queriesEqual(route.query, query)) {
     await router.replace({ query })
@@ -269,7 +369,12 @@ watch(selectedTheaterIds, (ids) => {
 })
 
 watch(() => route.query, () => {
-  if (isReady) applyRoute()
+  if (!isReady) return
+  if (isFilterSheetOpen.value) {
+    const parsed = parseAppliedSearch()
+    closeFilterSheet({ restoreFocus: parsed !== 'bare' && parsed !== null })
+  }
+  applyRoute()
 })
 
 async function initializePreferences() {
@@ -279,7 +384,18 @@ async function initializePreferences() {
   await applyRoute()
 }
 
-onMounted(initializePreferences)
+onMounted(() => {
+  mobileMediaQuery = window.matchMedia('(max-width: 1023px)')
+  mobileMediaQuery.addEventListener('change', handleViewportChange)
+  document.addEventListener('keydown', handleSheetKeydown)
+  initializePreferences()
+})
+
+onBeforeUnmount(() => {
+  mobileMediaQuery?.removeEventListener('change', handleViewportChange)
+  document.removeEventListener('keydown', handleSheetKeydown)
+  unlockBodyScroll()
+})
 
 async function submitSearch() {
   const selectedIds = favoriteTheaterIds.value.filter((id) => selectedTheaterIds.value.includes(id))
@@ -299,12 +415,19 @@ async function submitSearch() {
     format: form.format,
     includeAds: form.includeAds
   }
+  if (isMobileViewport()) {
+    resultScrollIntent = true
+    closeFilterSheet({ restoreFocus: false })
+  }
   const query = submittedQuery(search)
   if (queriesEqual(route.query, query)) {
-    if (errorMessage.value) await runSearch(search)
+    const searchRequest = errorMessage.value ? runSearch(search) : null
+    await consumeResultScrollIntent()
+    await searchRequest
     return
   }
   await router.push({ query })
+  await consumeResultScrollIntent()
 }
 </script>
 
@@ -313,10 +436,34 @@ async function submitSearch() {
     <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Trouver une séance</h1>
 
     <div class="mt-7 grid gap-8 lg:grid-cols-[320px_minmax(0,1fr)] lg:gap-10 lg:items-start">
-      <form id="search-filters" class="min-w-0 scroll-mt-28 lg:sticky lg:top-6 lg:border-r lg:border-line lg:pr-8" @submit.prevent="submitSearch">
+      <div v-if="isFilterSheetOpen" class="fixed inset-0 z-40 bg-black/45 lg:hidden" aria-hidden="true" @click.self="closeFilterSheet()" />
+
+      <form
+        id="search-filters"
+        ref="filterForm"
+        class="min-w-0 scroll-mt-28 lg:sticky lg:top-6 lg:block lg:max-h-none lg:overflow-visible lg:overscroll-auto lg:rounded-none lg:border-0 lg:border-r lg:border-line lg:bg-transparent lg:px-0 lg:pb-0 lg:pt-0 lg:shadow-none lg:pr-8"
+        :class="[
+          appliedSearch && !isFilterSheetOpen ? 'hidden' : '',
+          isFilterSheetOpen ? 'fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-b-0 border-line bg-surface px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-2xl sm:px-6' : ''
+        ]"
+        :role="isFilterSheetOpen ? 'dialog' : undefined"
+        :aria-modal="isFilterSheetOpen ? 'true' : undefined"
+        :aria-labelledby="isFilterSheetOpen ? 'search-filter-sheet-title' : undefined"
+        @submit.prevent="submitSearch"
+      >
         <div class="mb-5 flex items-center gap-2.5 border-b border-line pb-4">
           <SlidersHorizontal :size="18" class="text-accent" aria-hidden="true" />
-          <h2 class="font-semibold text-ink">Votre disponibilité</h2>
+          <h2 id="search-filter-sheet-title" class="font-semibold text-ink">{{ isFilterSheetOpen ? 'Modifier la recherche' : 'Votre disponibilité' }}</h2>
+          <button
+            v-if="isFilterSheetOpen"
+            ref="sheetCloseButton"
+            type="button"
+            class="ml-auto inline-flex size-10 items-center justify-center rounded-full text-muted transition hover:bg-subtle hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden"
+            aria-label="Fermer les filtres"
+            @click="closeFilterSheet()"
+          >
+            <X :size="20" aria-hidden="true" />
+          </button>
         </div>
 
         <div class="space-y-5">
@@ -391,7 +538,7 @@ async function submitSearch() {
         </div>
       </form>
 
-      <section aria-live="polite" aria-label="Résultats de recherche">
+      <section ref="resultsRegion" class="scroll-mt-28 outline-none" aria-live="polite" aria-label="Résultats de recherche" tabindex="-1">
         <div class="mb-4 flex items-end justify-between gap-4">
           <div>
             <p class="text-sm font-medium text-muted">Résultats</p>
@@ -399,16 +546,25 @@ async function submitSearch() {
           </div>
         </div>
 
-        <div v-if="results" class="sticky top-[6.5rem] z-20 mb-5 rounded-lg border border-line bg-surface/95 p-3 shadow-sm backdrop-blur lg:top-0">
-          <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div v-if="appliedSearch" class="sticky top-[6.5rem] z-20 mb-5 rounded-lg border border-line bg-surface/95 p-3 shadow-sm backdrop-blur lg:top-0" :class="results ? '' : 'lg:hidden'">
+          <div class="flex items-center justify-between gap-3 lg:hidden">
+            <p class="min-w-0 text-sm font-medium text-ink">{{ compactFilterSummary }}</p>
+            <button
+              ref="modifierButton"
+              type="button"
+              class="inline-flex h-10 shrink-0 items-center gap-1.5 rounded px-2 text-sm font-medium text-accent transition hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              aria-controls="search-filters"
+              :aria-expanded="isFilterSheetOpen"
+              @click="openFilterSheet"
+            >
+              <SlidersHorizontal :size="16" aria-hidden="true" /> Modifier
+            </button>
+          </div>
+
+          <div v-if="results" class="mt-3 flex flex-col gap-3 lg:mt-0 lg:flex-row lg:items-center lg:justify-between">
             <div class="min-w-0">
-              <div class="flex items-center justify-between gap-3">
-                <p class="shrink-0 font-semibold text-ink">{{ results.length }} séance{{ results.length > 1 ? 's' : '' }}</p>
-                <button type="button" class="inline-flex h-10 shrink-0 items-center gap-1.5 rounded px-2 text-sm font-medium text-accent transition hover:bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:hidden" @click="editFilters">
-                  <ListFilter :size="16" aria-hidden="true" /> Filtres
-                </button>
-              </div>
-              <ul class="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-sm text-muted" aria-label="Filtres appliqués">
+              <p class="shrink-0 font-semibold text-ink">{{ results.length }} séance{{ results.length > 1 ? 's' : '' }}</p>
+              <ul class="mt-1 hidden flex-wrap gap-x-2 gap-y-1 text-sm text-muted lg:flex" aria-label="Filtres appliqués">
                 <li v-for="(item, index) in activeFilterSummary" :key="item" class="flex items-center gap-2 capitalize">
                   <span v-if="index > 0" aria-hidden="true">·</span>
                   <span>{{ item }}</span>
