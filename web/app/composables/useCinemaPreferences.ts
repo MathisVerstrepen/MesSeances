@@ -1,6 +1,6 @@
 import type { Theater } from '~/types/api'
 
-const STORAGE_KEY = 'movieflow.favoriteTheaterIds.v1'
+const STORAGE_KEY = 'messeances.favoriteTheaterIds.v1'
 
 let initializationPromise: Promise<void> | null = null
 let memoryFavoriteIds: string[] | null = null
@@ -39,7 +39,7 @@ function storedFavoriteIds(): StoredFavoriteIds {
 }
 
 export function useCinemaPreferences() {
-  const api = useMovieFlowApi()
+  const api = useMesSeancesApi()
   const theaters = useState<Theater[]>('cinema-preferences:theaters', () => [])
   const favoriteTheaterIds = useState<string[]>('cinema-preferences:favorite-ids', () => [])
   const isInitialized = useState<boolean>('cinema-preferences:initialized', () => false)

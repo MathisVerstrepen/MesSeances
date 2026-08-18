@@ -5,7 +5,7 @@ import type { AdminSyncProviderState, AdminSyncResponse, AdminSyncState, AdminSy
 definePageMeta({ middleware: 'admin-auth' })
 
 const POLL_DELAY = 2000
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const status = ref<AdminSyncResponse | null>(null)
 const initialPending = ref(true)
 const statusRequestPending = ref(false)
@@ -146,7 +146,7 @@ onBeforeUnmount(() => {
   clearPolling()
 })
 
-useHead({ title: 'Synchronisation — MovieFlow' })
+useHead({ title: 'Synchronisation — MesSeances' })
 </script>
 
 <template>
@@ -158,7 +158,7 @@ useHead({ title: 'Synchronisation — MovieFlow' })
         </NuxtLink>
         <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Synchronisation des séances</h1>
       </div>
-      <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-stone-400 disabled:cursor-not-allowed disabled:opacity-50" :disabled="loggingOut" @click="logout">
+      <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50" :disabled="loggingOut" @click="logout">
         <LoaderCircle v-if="loggingOut" :size="17" class="animate-spin" aria-hidden="true" />
         <LogOut v-else :size="17" aria-hidden="true" />
         {{ loggingOut ? 'Déconnexion…' : 'Se déconnecter' }}
@@ -196,7 +196,7 @@ useHead({ title: 'Synchronisation — MovieFlow' })
         <div v-if="job" class="space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 id="status-title" class="text-lg font-semibold text-ink">{{ job.state === 'running' ? 'Synchronisation en cours' : 'Dernière synchronisation' }}</h2>
-            <span class="rounded-full px-3 py-1 text-sm font-semibold" :class="job.state === 'succeeded' ? 'bg-green-100 text-green-800' : job.state === 'failed' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'">
+            <span class="rounded-full px-3 py-1 text-sm font-semibold" :class="job.state === 'succeeded' ? 'bg-green-100 text-green-800' : job.state === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'">
               {{ stateLabels[job.state] }}
             </span>
           </div>

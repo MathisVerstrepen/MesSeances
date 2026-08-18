@@ -13,7 +13,7 @@ const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 const MODES: readonly TimelineMode[] = ['theater', 'movie']
 const ZOOMS: readonly string[] = ['15', '30', '60']
 
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const preferences = useCinemaPreferences()
@@ -157,7 +157,7 @@ onMounted(async () => {
   <main class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
     <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-center">
       <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Planning des séances</h1>
-      <NuxtLink to="/cinemas" class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-stone-400 hover:bg-subtle">
+      <NuxtLink to="/cinemas" class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover hover:bg-subtle">
         <Settings2 :size="17" aria-hidden="true" /> Personnaliser
         <span class="rounded-full bg-subtle px-2 py-0.5 text-xs text-muted">{{ preferences.favoriteTheaterIds.value.length }}</span>
       </NuxtLink>
@@ -170,7 +170,7 @@ onMounted(async () => {
           :key="option"
           type="button"
           class="h-10 rounded-full border px-4 text-sm font-medium capitalize transition"
-          :class="date === option ? 'border-accent bg-accent text-white' : 'border-line bg-surface text-ink hover:border-stone-400'"
+          :class="date === option ? 'border-accent bg-accent text-white' : 'border-line bg-surface text-ink hover:border-line-hover'"
           :aria-pressed="date === option"
           @click="updateTimelineQuery({ date: option === todayInParis() ? undefined : option })"
         >
@@ -184,14 +184,14 @@ onMounted(async () => {
         <fieldset>
           <legend class="mb-1.5 text-xs font-semibold text-muted">Affichage</legend>
           <div class="inline-flex rounded-md border border-line bg-surface p-1">
-            <button v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="mode === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="mode === option.value" @click="updateTimelineQuery({ mode: option.value === 'theater' ? undefined : option.value })">{{ option.label }}</button>
+            <button v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="mode === option.value ? 'bg-accent text-white' : 'text-muted hover:text-ink'" :aria-pressed="mode === option.value" @click="updateTimelineQuery({ mode: option.value === 'theater' ? undefined : option.value })">{{ option.label }}</button>
           </div>
         </fieldset>
 
         <fieldset>
           <legend class="mb-1.5 text-xs font-semibold text-muted">Format</legend>
           <div class="inline-flex max-w-[calc(100vw-2rem)] overflow-x-auto rounded-md border border-line bg-surface p-1 sm:max-w-[calc(100vw-3rem)]">
-            <button v-for="option in formatOptions" :key="option.value" type="button" class="h-8 shrink-0 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
+            <button v-for="option in formatOptions" :key="option.value" type="button" class="h-8 shrink-0 rounded px-3 text-sm font-medium transition" :class="formatFilter === option.value ? 'bg-accent text-white' : 'text-muted hover:text-ink'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
               <BrandLogo v-if="option.brand" :brand="option.brand" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
               <span v-else>{{ option.label }}</span>
             </button>
@@ -211,7 +211,7 @@ onMounted(async () => {
       <fieldset>
         <legend class="mb-1.5 text-xs font-semibold text-muted">Zoom</legend>
         <div class="inline-flex rounded-md border border-line bg-surface p-1">
-          <button v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="zoom === option.value ? 'bg-ink text-white' : 'text-muted hover:text-ink'" :aria-pressed="zoom === option.value" @click="updateTimelineQuery({ zoom: option.value === 60 ? undefined : String(option.value) })">{{ option.label }}</button>
+          <button v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]" :key="option.value" type="button" class="h-8 rounded px-3 text-sm font-medium transition" :class="zoom === option.value ? 'bg-accent text-white' : 'text-muted hover:text-ink'" :aria-pressed="zoom === option.value" @click="updateTimelineQuery({ zoom: option.value === 60 ? undefined : String(option.value) })">{{ option.label }}</button>
         </div>
       </fieldset>
     </div>

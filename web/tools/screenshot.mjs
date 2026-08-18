@@ -8,8 +8,8 @@ import { parseEnv } from 'node:util'
 
 const rootDirectory = fileURLToPath(new URL('../..', import.meta.url))
 const envFile = join(rootDirectory, '.env')
-const temporaryPrefix = join(tmpdir(), 'movieflow-screenshot-')
-const adminCookieName = 'movieflow_admin_session'
+const temporaryPrefix = join(tmpdir(), 'messeances-screenshot-')
+const adminCookieName = 'messeances_admin_session'
 const adminCookiePath = '/api/v1/admin'
 const adminSessionSeconds = 12 * 60 * 60
 const cdpCommandTimeoutMilliseconds = 15000
@@ -58,7 +58,7 @@ function parseURL(name, fallback) {
 function parseConfig() {
   const targetURL = parseURL('URL', 'http://localhost:3000/')
   const apiURL = parseURL('API_URL', 'http://localhost:8080')
-  const outputValue = cleanText('OUTPUT', '/tmp/opencode/movieflow-screenshot.png')
+  const outputValue = cleanText('OUTPUT', '/tmp/opencode/messeances-screenshot.png')
   if (extname(outputValue).toLowerCase() !== '.png') fail('OUTPUT must end with .png.')
 
   return {

@@ -223,7 +223,7 @@ onBeforeUnmount(() => {
     <div
       v-else
       ref="scroller"
-      class="cursor-grab select-none overflow-x-auto rounded-lg border border-line bg-surface active:cursor-grabbing [--timeline-label-width:136px] [scrollbar-color:#a8a69f_#f0efeb] max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:176px]"
+      class="cursor-grab select-none overflow-x-auto rounded-lg border border-line bg-surface active:cursor-grabbing [--timeline-label-width:136px] [scrollbar-color:var(--color-muted)_var(--color-subtle)] max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:176px]"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerEnd"
@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
           class="relative border-b border-line last:border-b-0"
           :style="{
             height: `${row.height}px`,
-            backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${15 * pixelsPerMinute - 1}px, rgba(222,221,215,0.45) ${15 * pixelsPerMinute}px), repeating-linear-gradient(to right, transparent 0, transparent ${60 * pixelsPerMinute - 1}px, rgba(190,188,180,0.65) ${60 * pixelsPerMinute}px)`,
+            backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${15 * pixelsPerMinute - 1}px, color-mix(in srgb, var(--color-line) 45%, transparent) ${15 * pixelsPerMinute}px), repeating-linear-gradient(to right, transparent 0, transparent ${60 * pixelsPerMinute - 1}px, color-mix(in srgb, var(--color-line-hover) 65%, transparent) ${60 * pixelsPerMinute}px)`,
             backgroundPosition: 'var(--timeline-label-width) 0, var(--timeline-label-width) 0'
           }"
         >
@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
             type="button"
             class="absolute h-[72px] overflow-hidden rounded-md border px-2.5 py-2 text-left transition focus:z-30"
             :class="[
-              item.showtime.language === 'VOSTFR' ? 'border-orange-200 bg-orange-50 text-orange-950 hover:border-accent' : 'border-stone-300 bg-stone-100 text-stone-900 hover:border-stone-500',
+              item.showtime.language === 'VOSTFR' ? 'border-primary-line bg-primary-soft text-primary hover:border-primary' : 'border-line bg-subtle text-ink hover:border-line-hover',
               selected?.showtime.id === item.showtime.id ? 'border-accent opacity-100 saturate-100 ring-1 ring-accent' : '',
               isPastShowtime(item.showtime.end_time) && selected?.showtime.id !== item.showtime.id ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100 focus:opacity-100 focus:saturate-100' : ''
             ]"
@@ -321,14 +321,14 @@ onBeforeUnmount(() => {
         class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[27rem] flex-col overflow-y-auto border-l border-line bg-surface shadow-2xl"
         aria-labelledby="timeline-showtime-inspector-title"
       >
-        <div class="relative h-48 shrink-0 overflow-hidden bg-stone-800 sm:h-56">
+        <div class="relative h-48 shrink-0 overflow-hidden bg-ink sm:h-56">
           <div
             v-if="safeBackdropUrl(selected.showtime.backdrop_url)"
             class="absolute inset-0"
             :style="selectedBackdropStyle(selected.showtime.backdrop_url)"
             aria-hidden="true"
           />
-          <div v-else class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-stone-700 to-stone-950" aria-hidden="true">
+          <div v-else class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-ink to-black" aria-hidden="true">
             <Film :size="42" class="text-white/40" />
           </div>
           <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40" aria-hidden="true" />
@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
             <BookingLink :url="selected.showtime.booking_url" :provider="selected.showtime.provider" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
-              class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink transition hover:border-stone-400 hover:bg-subtle"
+              class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink transition hover:border-line-hover hover:bg-subtle"
             >
               Voir le film
             </NuxtLink>

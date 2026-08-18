@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"movieflow/api/internal/tmdb"
+	"messeances/api/internal/tmdb"
 )
 
 const (

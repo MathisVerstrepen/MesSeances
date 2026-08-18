@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/synccontrol"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/synccontrol"
 )
 
 type fakeSyncController struct {

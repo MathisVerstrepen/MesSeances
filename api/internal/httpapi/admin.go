@@ -19,12 +19,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/synccontrol"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/synccontrol"
 )
 
 const (
-	adminCookieName = "movieflow_admin_session"
+	adminCookieName = "messeances_admin_session"
 	adminSessionTTL = 12 * time.Hour
 	maxAdminBody    = 4096
 	loginWindow     = 15 * time.Minute
@@ -66,7 +66,7 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	}
 	return &adminAPI{
 		origin: origin, password: password,
-		key:     sha256.Sum256([]byte("movieflow-admin-session-v1\x00" + password)),
+		key:     sha256.Sum256([]byte("messeances-admin-session-v1\x00" + password)),
 		reviews: options.Reviews, locals: options.LocalMovies, syncs: options.Syncs, now: options.Now,
 		limiter: &loginLimiter{attempts: make(map[string]loginAttempt)},
 	}

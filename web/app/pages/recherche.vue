@@ -12,7 +12,7 @@ const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before']
 const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 type ResultView = 'movie' | 'chronological'
 
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const { favoriteTheaterIds, favoriteTheaters, isInitialized, isLoading, error: preferencesError, initialize } = useCinemaPreferences()
@@ -496,7 +496,7 @@ async function submitSearch() {
                   :key="option"
                   type="button"
                   class="h-10 shrink-0 rounded-full border px-3 text-sm font-medium capitalize transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-                  :class="form.date === option ? 'border-accent bg-accent text-white' : 'border-line bg-surface text-ink hover:border-stone-400'"
+                  :class="form.date === option ? 'border-accent bg-accent text-white' : 'border-line bg-surface text-ink hover:border-line-hover'"
                   :aria-label="`Choisir ${formatLongDate(option)}`"
                   :aria-pressed="form.date === option"
                   @click="form.date = option"
@@ -577,7 +577,7 @@ async function submitSearch() {
                   :key="option.value"
                   type="button"
                   class="h-9 rounded px-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 sm:px-3"
-                  :class="resultView === option.value ? 'bg-ink text-white shadow-sm' : 'text-muted hover:text-ink'"
+                  :class="resultView === option.value ? 'bg-accent text-white shadow-sm' : 'text-muted hover:text-ink'"
                   :aria-pressed="resultView === option.value"
                   @click="setResultView(option.value)"
                 >

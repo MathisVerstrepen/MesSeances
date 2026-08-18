@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	runtimeconfig "movieflow/api/internal/config"
-	"movieflow/api/internal/database"
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/kinepolis"
-	"movieflow/api/internal/schedule"
-	"movieflow/api/internal/syncproxy"
-	"movieflow/api/internal/tmdb"
+	runtimeconfig "messeances/api/internal/config"
+	"messeances/api/internal/database"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/tmdb"
 )
 
 func main() {

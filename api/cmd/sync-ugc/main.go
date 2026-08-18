@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	runtimeconfig "movieflow/api/internal/config"
-	"movieflow/api/internal/database"
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/schedule"
-	"movieflow/api/internal/tmdb"
-	"movieflow/api/internal/ugc"
+	runtimeconfig "messeances/api/internal/config"
+	"messeances/api/internal/database"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/tmdb"
+	"messeances/api/internal/ugc"
 )
 
 type config struct {

@@ -6,7 +6,7 @@ DATABASE_URL ?= postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=
 export DATABASE_URL
 
 URL ?= http://localhost:3000/
-OUTPUT ?= /tmp/opencode/movieflow-screenshot.png
+OUTPUT ?= /tmp/opencode/messeances-screenshot.png
 WIDTH ?= 1440
 HEIGHT ?= 900
 WAIT_MS ?= 1000

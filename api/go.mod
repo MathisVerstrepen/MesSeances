@@ -1,4 +1,4 @@
-module movieflow/api
+module messeances/api
 
 go 1.25.0
 

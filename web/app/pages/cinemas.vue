@@ -169,7 +169,7 @@ onMounted(async () => {
           <div class="flex items-center gap-3 text-sm">
             <button
               type="button"
-              class="font-medium text-accent transition hover:text-orange-800 disabled:cursor-not-allowed disabled:text-muted"
+              class="font-medium text-accent transition hover:text-accent-hover disabled:cursor-not-allowed disabled:text-muted"
               :disabled="group.theaters.every((theater) => selectedIds.has(theater.id))"
               @click="updateGroup(group.theaters, true)"
             >
@@ -190,7 +190,7 @@ onMounted(async () => {
           <label
             v-for="theater in group.theaters"
             :key="theater.id"
-            class="flex cursor-pointer items-start gap-3 rounded-md border bg-surface p-4 transition hover:border-stone-400 focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-canvas"
+            class="flex cursor-pointer items-start gap-3 rounded-md border bg-surface p-4 transition hover:border-line-hover focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2 focus-within:ring-offset-canvas"
             :class="selectedIds.has(theater.id) ? 'border-accent' : 'border-line'"
           >
             <span class="mt-0.5 grid size-5 shrink-0 place-items-center rounded border" :class="selectedIds.has(theater.id) ? 'border-accent bg-accent text-white' : 'border-line'">

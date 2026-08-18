@@ -17,7 +17,7 @@ const SHOWTIME_LANGUAGES: readonly Showtime['language'][] = ['VOSTFR', 'VF', 'VO
 
 const route = useRoute()
 const router = useRouter()
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const preferences = useCinemaPreferences()
 const schedule = ref<MovieShowtimesResponse | null>(null)
 const selectedDate = ref('')
@@ -317,7 +317,7 @@ onBeforeUnmount(() => {
 })
 
 useHead(() => ({
-  title: schedule.value?.movie.title ? `${schedule.value.movie.title} — MovieFlow` : 'Séances du film — MovieFlow'
+  title: schedule.value?.movie.title ? `${schedule.value.movie.title} — MesSeances` : 'Séances du film — MesSeances'
 }))
 </script>
 
@@ -344,7 +344,7 @@ useHead(() => ({
         <button v-if="!preferences.isInitialized.value || preferences.favoriteTheaterIds.value.length" type="button" class="button-primary" @click="retryLoad">
           <RefreshCw :size="17" aria-hidden="true" /> Réessayer
         </button>
-        <NuxtLink to="/cinemas" class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink hover:border-stone-400">
+        <NuxtLink to="/cinemas" class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink hover:border-line-hover">
           Mes cinémas
         </NuxtLink>
       </div>
@@ -370,8 +370,8 @@ useHead(() => ({
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Voir ce film sur TMDB (nouvel onglet)"
-          class="absolute right-0 top-0 z-20 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition hover:bg-stone-100 focus-visible:ring-2 focus-visible:ring-accent"
-          :class="backdropAvailable ? 'right-4 top-4 hover:bg-white/15 focus-visible:ring-orange-200 focus-visible:ring-offset-stone-950 sm:right-6 lg:right-8' : undefined"
+          class="absolute right-0 top-0 z-20 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition hover:bg-subtle focus-visible:ring-2 focus-visible:ring-accent"
+          :class="backdropAvailable ? 'right-4 top-4 hover:bg-white/15 focus-visible:ring-accent-line focus-visible:ring-offset-black sm:right-6 lg:right-8' : undefined"
         >
           <img :src="tmdbLogo" alt="" class="h-auto w-20" />
         </a>
@@ -389,7 +389,7 @@ useHead(() => ({
           <div
             v-else
             class="flex h-full flex-col items-center justify-center gap-2 px-3 text-center"
-            :class="backdropAvailable ? 'text-stone-200' : 'text-muted'"
+            :class="backdropAvailable ? 'text-white/80' : 'text-muted'"
           >
             <Film :size="32" aria-hidden="true" />
             <span class="text-xs font-medium">Affiche indisponible</span>
@@ -397,7 +397,7 @@ useHead(() => ({
         </div>
         <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, tmdbUrl ? 'sm:pr-28' : undefined]">
           <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
-          <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" :class="backdropAvailable ? 'text-stone-200' : 'text-muted'">
+          <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" :class="backdropAvailable ? 'text-white/80' : 'text-muted'">
             <span>{{ schedule.movie.runtime_minutes }} min</span>
             <template v-if="releaseDateLabel">
               <span aria-hidden="true">·</span>
@@ -409,14 +409,14 @@ useHead(() => ({
               v-for="genre in schedule.movie.genres"
               :key="genre"
               class="rounded-full px-2.5 py-1 text-xs font-medium"
-              :class="backdropAvailable ? 'bg-white/15 text-white' : 'bg-subtle text-stone-700'"
+              :class="backdropAvailable ? 'bg-white/15 text-white' : 'bg-subtle text-ink'"
             >
               {{ genre }}
             </li>
           </ul>
           <div v-if="schedule.movie.overview?.trim()" class="mt-5 max-w-3xl">
             <h2 class="text-sm font-semibold" :class="backdropAvailable ? 'text-white' : 'text-ink'">Synopsis</h2>
-            <p class="mt-1.5 text-sm leading-6" :class="backdropAvailable ? 'text-stone-200' : 'text-muted'">{{ schedule.movie.overview }}</p>
+            <p class="mt-1.5 text-sm leading-6" :class="backdropAvailable ? 'text-white/80' : 'text-muted'">{{ schedule.movie.overview }}</p>
           </div>
         </div>
       </header>
@@ -449,7 +449,7 @@ useHead(() => ({
               aria-controls="showtime-panel"
               :tabindex="selectedDate === date ? 0 : -1"
               class="h-10 shrink-0 rounded-md px-4 text-sm font-semibold transition"
-              :class="selectedDate === date ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+              :class="selectedDate === date ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
               @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
               @keydown="selectAdjacentDate($event, index)"
             >
@@ -467,7 +467,7 @@ useHead(() => ({
                   :key="option.value"
                   type="button"
                   class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
-                  :class="activeLanguage === option.value ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                  :class="activeLanguage === option.value ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
                   :aria-pressed="activeLanguage === option.value"
                   @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
@@ -484,7 +484,7 @@ useHead(() => ({
                     :key="option.value"
                     type="button"
                     class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
-                    :class="activeTechnology === option.value ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                    :class="activeTechnology === option.value ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
                     :aria-pressed="activeTechnology === option.value"
                     @click="updateFilmQuery({ format: option.value === 'ALL' ? undefined : option.value })"
                   >
@@ -495,7 +495,7 @@ useHead(() => ({
               <button
                 type="button"
                 class="ml-auto inline-flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-medium transition"
-                :class="sortByNextShowtime ? 'bg-ink text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                :class="sortByNextShowtime ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
                 :aria-pressed="sortByNextShowtime"
                 aria-label="Trier les cinémas par prochain horaire"
                 @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
@@ -550,13 +550,13 @@ useHead(() => ({
                     class="group relative flex h-full min-h-28 w-full scroll-mt-[17rem] flex-col items-start justify-between overflow-hidden rounded-lg border p-3 text-left transition lg:scroll-mt-36"
                     :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'ring-2 ring-amber-400 ring-offset-1' : undefined"
                     :available-class="showtime.timingState === 'past' ? 'border-line bg-surface text-ink shadow-sm' : 'border-line bg-surface text-ink shadow-sm hover:border-accent hover:bg-surface hover:shadow-md'"
-                    unavailable-class="cursor-not-allowed border-dashed border-stone-300 bg-subtle text-muted shadow-none"
+                    unavailable-class="cursor-not-allowed border-dashed border-line bg-subtle text-muted shadow-none"
                   >
                     <div class="flex w-full items-baseline justify-between gap-2">
                       <span class="text-xl font-bold tracking-tight">{{ formatParisTime(showtime.start_time) }}</span>
                       <span class="text-xs font-normal text-muted">fin {{ formatParisTime(showtime.end_time) }}</span>
                     </div>
-                    <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium" :class="available ? 'text-muted' : 'text-stone-500'">
+                    <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted">
                       <span>{{ showtime.language }}</span>
                       <span aria-hidden="true">·</span>
                       <ShowtimeFormat :format="showtime.format" />
@@ -576,7 +576,7 @@ useHead(() => ({
                       preserveAspectRatio="none"
                       aria-hidden="true"
                       focusable="false"
-                      class="pointer-events-none absolute inset-0 size-full text-stone-500"
+                      class="pointer-events-none absolute inset-0 size-full text-muted"
                     >
                       <line x1="0" y1="100" x2="100" y2="0" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
                     </svg>

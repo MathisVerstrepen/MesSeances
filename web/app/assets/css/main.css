@@ -1,13 +1,21 @@
 @import "tailwindcss";
 
 @theme {
-  --color-canvas: #f7f6f2;
-  --color-surface: #ffffff;
-  --color-subtle: #f0efeb;
-  --color-line: #deddd7;
-  --color-ink: #181816;
-  --color-muted: #6f6e68;
-  --color-accent: #c2410c;
+  --color-canvas: #FCFAF8;
+  --color-surface: #FFFFFF;
+  --color-subtle: #F4F4F5;
+  --color-line: #E4E4E7;
+  --color-line-hover: #A1A1AA;
+  --color-ink: #27272A;
+  --color-muted: #71717A;
+  --color-primary: #991B1B;
+  --color-primary-hover: #7F1D1D;
+  --color-primary-soft: #FEF2F2;
+  --color-primary-line: #FECACA;
+  --color-accent: #1F6F78;
+  --color-accent-hover: #185A62;
+  --color-accent-soft: #EFF7F8;
+  --color-accent-line: #A8CDD1;
   --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -36,11 +44,11 @@
 
 @layer components {
   .field {
-    @apply h-10 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink transition hover:border-stone-400 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
+    @apply h-10 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink transition hover:border-line-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
   }
 
   .button-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-accent px-5 text-sm font-semibold text-white transition hover:bg-orange-800 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .state-panel {

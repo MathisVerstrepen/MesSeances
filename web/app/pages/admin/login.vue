@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, LoaderCircle, LockKeyhole } from '@lucide/vue'
 
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const password = ref('')
 const checkingSession = ref(true)
 const submitting = ref(false)
@@ -36,7 +36,7 @@ async function login() {
 }
 
 onMounted(checkSession)
-useHead({ title: 'Connexion administrateur — MovieFlow' })
+useHead({ title: 'Connexion administrateur — MesSeances' })
 </script>
 
 <template>

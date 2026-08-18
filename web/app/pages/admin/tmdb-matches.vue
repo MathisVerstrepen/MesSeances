@@ -16,7 +16,7 @@ definePageMeta({ middleware: 'admin-auth' })
 
 const PAGE_SIZE = 20
 const OWNED_QUERY_KEYS = ['page', 'groups_page'] as const
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 
@@ -373,7 +373,7 @@ onMounted(() => {
   isMounted = true
   applyRoute()
 })
-useHead({ title: 'Identités des films — MovieFlow' })
+useHead({ title: 'Identités des films — MesSeances' })
 </script>
 
 <template>
@@ -385,7 +385,7 @@ useHead({ title: 'Identités des films — MovieFlow' })
         </NuxtLink>
         <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Identités des films</h1>
       </div>
-      <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-stone-400 disabled:cursor-not-allowed disabled:opacity-50" :disabled="loggingOut" @click="logout">
+      <button type="button" class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50" :disabled="loggingOut" @click="logout">
         <LoaderCircle v-if="loggingOut" :size="17" class="animate-spin" aria-hidden="true" />
         <LogOut v-else :size="17" aria-hidden="true" />
         {{ loggingOut ? 'Déconnexion…' : 'Se déconnecter' }}
@@ -406,7 +406,7 @@ useHead({ title: 'Identités des films — MovieFlow' })
         </button>
       </div>
 
-      <div v-if="selectedSourceList.length" class="mt-4 rounded-lg border border-orange-200 bg-orange-50 p-4" aria-labelledby="merge-selection-title">
+      <div v-if="selectedSourceList.length" class="mt-4 rounded-lg border border-accent-line bg-accent-soft p-4" aria-labelledby="merge-selection-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h3 id="merge-selection-title" class="font-semibold text-ink">Sélection pour regroupement ({{ selectedSourceList.length }})</h3>
           <button type="button" class="text-sm font-semibold text-muted underline" :disabled="mergePending" @click="clearMergeSelection">Effacer</button>
@@ -414,9 +414,9 @@ useHead({ title: 'Identités des films — MovieFlow' })
         <fieldset class="mt-3" :disabled="mergePending">
           <legend class="sr-only">Choisir la source principale</legend>
           <ul class="flex flex-wrap gap-2">
-            <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-orange-200 bg-surface px-3 py-2 text-sm">
+            <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-accent-line bg-surface px-3 py-2 text-sm">
               <label class="flex cursor-pointer items-center gap-2">
-                <input v-model="primarySourceKey" type="radio" name="local-primary" :value="sourceKey(match)" class="accent-orange-700" />
+                <input v-model="primarySourceKey" type="radio" name="local-primary" :value="sourceKey(match)" class="accent-accent" />
                 <span><span class="font-semibold">{{ match.source_title }}</span> · {{ providerLabel(match.source_provider) }}</span>
               </label>
               <button type="button" class="text-muted hover:text-red-700" :aria-label="`Retirer ${match.source_title}`" @click="removeMergeSelection(match)"><X :size="16" aria-hidden="true" /></button>
@@ -446,9 +446,9 @@ useHead({ title: 'Identités des films — MovieFlow' })
         <li v-for="match in result.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
-              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-orange-700" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="mergePending" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
+              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-accent" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="mergePending" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
             </label>
-            <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-orange-100 text-orange-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : 'bg-stone-200 text-stone-700'">{{ statusLabel(match) }}</span>
+            <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-amber-100 text-amber-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : 'bg-subtle text-muted'">{{ statusLabel(match) }}</span>
           </div>
 
           <div class="grid min-w-0 gap-5" :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'">
@@ -470,9 +470,9 @@ useHead({ title: 'Identités des films — MovieFlow' })
             <fieldset v-if="match.status !== 'rejected'" class="min-w-0" :disabled="anyMutation">
               <legend class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Candidats TMDB</legend>
               <div v-if="match.candidates.length" class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-                <div v-for="candidate in match.candidates" :key="candidate.id" class="min-w-0 rounded-md border p-3 transition focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2" :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'border-accent bg-orange-50' : 'border-line bg-surface hover:border-stone-400'">
+                <div v-for="candidate in match.candidates" :key="candidate.id" class="min-w-0 rounded-md border p-3 transition focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2" :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:border-line-hover'">
                   <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
-                    <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-orange-700" />
+                    <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-accent" />
                     <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
                       <img v-if="posterAvailable(candidate.poster_url, candidatePosterKey(match, candidate))" :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(candidatePosterKey(match, candidate))" />
                       <span v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></span>
@@ -531,7 +531,7 @@ useHead({ title: 'Identités des films — MovieFlow' })
               <p class="mt-0.5 text-muted">Primaire : {{ providerLabel(group.primary.source_provider) }} · {{ group.primary.source_movie_id }}</p>
               <p v-if="group.metadata_source" class="mt-0.5 text-muted">
                 Métadonnées : {{ providerLabel(group.metadata_source.source_provider) }} · {{ group.metadata_source.source_movie_id }}
-                <span v-if="!sameSource(group.metadata_source, group.primary)" class="font-semibold text-orange-700">(repli)</span>
+                <span v-if="!sameSource(group.metadata_source, group.primary)" class="font-semibold text-amber-700">(repli)</span>
               </p>
               <p v-else class="mt-0.5 font-semibold text-red-700">Aucune source disponible</p>
             </div>

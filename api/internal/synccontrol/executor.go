@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/kinepolis"
-	"movieflow/api/internal/schedule"
-	"movieflow/api/internal/syncproxy"
-	"movieflow/api/internal/ugc"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/ugc"
 )
 
 const (

@@ -12,7 +12,7 @@ const credits: Array<{ brand: CreditBrand; name: string; url: string }> = [
   { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' }
 ]
 
-useHead({ title: 'Crédits — MovieFlow' })
+useHead({ title: 'Crédits — MesSeances' })
 </script>
 
 <template>
@@ -33,7 +33,7 @@ useHead({ title: 'Crédits — MovieFlow' })
         <a :href="credit.url" class="inline-flex min-h-24 items-center rounded-sm focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4" target="_blank" rel="noopener noreferrer" :aria-label="`Site officiel ${credit.name}, ouverture dans un nouvel onglet`">
           <BrandLogo :brand="credit.brand" variant="display" decorative />
         </a>
-        <p class="mt-4 max-w-md text-sm leading-relaxed text-muted">La marque et le logo {{ credit.name }} appartiennent à leurs propriétaires respectifs. Leur présence n’implique ni affiliation avec MovieFlow, ni approbation de MovieFlow.</p>
+        <p class="mt-4 max-w-md text-sm leading-relaxed text-muted">La marque et le logo {{ credit.name }} appartiennent à leurs propriétaires respectifs. Leur présence n’implique ni affiliation avec MesSeances, ni approbation de MesSeances.</p>
       </section>
     </div>
   </main>

@@ -15,7 +15,7 @@ import (
 
 	"golang.org/x/net/html"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 type Cinema struct {

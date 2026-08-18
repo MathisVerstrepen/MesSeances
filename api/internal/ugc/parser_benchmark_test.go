@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 var benchmarkShowtimes []schedule.ShowtimeRecord

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"movieflow/api/internal/tmdb"
+	"messeances/api/internal/tmdb"
 )
 
 type memoryStore struct {

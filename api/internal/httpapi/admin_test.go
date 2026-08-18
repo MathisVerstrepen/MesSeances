@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/tmdb"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/tmdb"
 )
 
 type adminReviewStore struct{}

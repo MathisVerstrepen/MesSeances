@@ -26,7 +26,7 @@ function queryValues<T extends object>(query: T) {
   return Object.fromEntries(Object.entries(query).filter((entry): entry is [string, string | number | boolean] => entry[1] !== undefined))
 }
 
-export function useMovieFlowApi() {
+export function useMesSeancesApi() {
   const config = useRuntimeConfig()
   const apiBase = config.public.apiBase.replace(/\/$/, '')
 

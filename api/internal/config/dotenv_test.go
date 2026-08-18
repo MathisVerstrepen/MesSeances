@@ -21,8 +21,8 @@ func TestLoadDotEnvFromCurrentDirectory(t *testing.T) {
 	if err := os.Mkdir(workingDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	currentKey := "MOVIEFLOW_DOTENV_CURRENT_TEST"
-	parentKey := "MOVIEFLOW_DOTENV_PARENT_IGNORED_TEST"
+	currentKey := "MESSEANCES_DOTENV_CURRENT_TEST"
+	parentKey := "MESSEANCES_DOTENV_PARENT_IGNORED_TEST"
 	unsetEnv(t, currentKey)
 	unsetEnv(t, parentKey)
 	writeDotEnv(t, filepath.Join(workingDirectory, ".env"), currentKey+"=current\n")
@@ -44,7 +44,7 @@ func TestLoadDotEnvFromParentDirectory(t *testing.T) {
 	if err := os.Mkdir(workingDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	key := "MOVIEFLOW_DOTENV_PARENT_TEST"
+	key := "MESSEANCES_DOTENV_PARENT_TEST"
 	unsetEnv(t, key)
 	writeDotEnv(t, filepath.Join(filepath.Dir(workingDirectory), ".env"), key+"=parent\n")
 
@@ -58,7 +58,7 @@ func TestLoadDotEnvFromParentDirectory(t *testing.T) {
 
 func TestLoadDotEnvPreservesProcessEnvironment(t *testing.T) {
 	workingDirectory := t.TempDir()
-	key := "MOVIEFLOW_DOTENV_PREEXISTING_TEST"
+	key := "MESSEANCES_DOTENV_PREEXISTING_TEST"
 	t.Setenv(key, "shell")
 	writeDotEnv(t, filepath.Join(workingDirectory, ".env"), key+"=file\n")
 

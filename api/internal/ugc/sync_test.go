@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 type fakeGetter struct {

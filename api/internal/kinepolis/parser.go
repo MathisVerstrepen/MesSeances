@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 type film struct {

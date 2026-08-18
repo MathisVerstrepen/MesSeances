@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"movieflow/api/internal/syncproxy"
+	"messeances/api/internal/syncproxy"
 )
 
 const (

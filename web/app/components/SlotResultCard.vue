@@ -66,8 +66,8 @@ function bookingLabel(result: SlotResult): string {
         <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
           <span class="flex items-center gap-1.5"><MapPin :size="14" aria-hidden="true" /> <BrandedText :text="result.theater.name" /></span>
           <span>{{ result.showtime.room }}</span>
-          <span class="font-medium text-stone-700">{{ result.showtime.language }}</span>
-          <ShowtimeFormat :format="result.showtime.format" class="font-medium text-stone-700" />
+          <span class="font-medium text-muted">{{ result.showtime.language }}</span>
+          <ShowtimeFormat :format="result.showtime.format" class="font-medium text-muted" />
         </div>
       </div>
       <BookingLink

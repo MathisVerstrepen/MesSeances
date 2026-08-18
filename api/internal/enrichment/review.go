@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"movieflow/api/internal/tmdb"
+	"messeances/api/internal/tmdb"
 )
 
 const reviewMetadataTTL = 30 * 24 * time.Hour

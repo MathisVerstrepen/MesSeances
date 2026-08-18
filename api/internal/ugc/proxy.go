@@ -3,7 +3,7 @@ package ugc
 import (
 	"io"
 
-	"movieflow/api/internal/syncproxy"
+	"messeances/api/internal/syncproxy"
 )
 
 type Proxy = syncproxy.Proxy

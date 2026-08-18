@@ -11,9 +11,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/schedule"
-	"movieflow/api/internal/synccontrol"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/synccontrol"
 )
 
 type API struct {

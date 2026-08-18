@@ -17,7 +17,7 @@ const SORT_OPTIONS = [
 const SORT_VALUES = SORT_OPTIONS.map((option) => option.value)
 const OWNED_QUERY_KEYS = ['q', 'sort', 'page'] as const
 
-const api = useMovieFlowApi()
+const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const searchInput = ref('')
@@ -146,7 +146,7 @@ onMounted(() => {
   applyRoute()
 })
 
-useHead({ title: 'Films à l’affiche — MovieFlow' })
+useHead({ title: 'Films à l’affiche — MesSeances' })
 </script>
 
 <template>
@@ -231,11 +231,11 @@ useHead({ title: 'Films à l’affiche — MovieFlow' })
       </ul>
 
       <nav v-if="totalPages > 1" class="mt-10 flex items-center justify-center gap-4 border-t border-line pt-6" aria-label="Pagination des films">
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink hover:border-stone-400 disabled:cursor-not-allowed disabled:opacity-50" :disabled="page <= 1 || pending" @click="changePage(page - 1)">
+        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50" :disabled="page <= 1 || pending" @click="changePage(page - 1)">
           Précédent
         </button>
         <span class="text-sm text-muted" aria-live="polite">Page {{ page }} sur {{ totalPages }}</span>
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink hover:border-stone-400 disabled:cursor-not-allowed disabled:opacity-50" :disabled="page >= totalPages || pending" @click="changePage(page + 1)">
+        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50" :disabled="page >= totalPages || pending" @click="changePage(page + 1)">
           Suivant
         </button>
       </nav>

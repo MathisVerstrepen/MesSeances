@@ -11,14 +11,14 @@ import (
 	"strings"
 	"time"
 
-	runtimeconfig "movieflow/api/internal/config"
-	"movieflow/api/internal/database"
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/httpapi"
-	"movieflow/api/internal/schedule"
-	"movieflow/api/internal/synccontrol"
-	"movieflow/api/internal/syncproxy"
-	"movieflow/api/internal/tmdb"
+	runtimeconfig "messeances/api/internal/config"
+	"messeances/api/internal/database"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/httpapi"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/synccontrol"
+	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/tmdb"
 )
 
 func main() {
@@ -84,7 +84,7 @@ func run(ctx context.Context) error {
 	port := envOrDefault("PORT", "8080")
 	adminOptions.Syncs = syncManager
 	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), adminOptions), ReadHeaderTimeout: 5 * time.Second}
-	log.Printf("API MovieFlow à l'écoute sur http://localhost:%s", port)
+	log.Printf("API MesSeances à l'écoute sur http://localhost:%s", port)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("API server failed")
 	}

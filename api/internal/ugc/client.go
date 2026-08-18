@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"movieflow/api/internal/syncproxy"
+	"messeances/api/internal/syncproxy"
 )
 
 const maxResponseBytes = 8 << 20
@@ -96,7 +96,7 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 			c.release(ordinal, false, false)
 			return FetchResult{}, fmt.Errorf("%s request rejected", kind)
 		}
-		req.Header.Set("User-Agent", "MovieFlow-schedule-sync/1.0")
+		req.Header.Set("User-Agent", "MesSeances-schedule-sync/1.0")
 		if kind == "sitemap" {
 			req.Header.Set("Accept", "application/xml,text/xml;q=0.9")
 		} else {

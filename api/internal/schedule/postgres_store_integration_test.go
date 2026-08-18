@@ -13,8 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"movieflow/api/internal/database"
-	"movieflow/api/internal/enrichment"
+	"messeances/api/internal/database"
+	"messeances/api/internal/enrichment"
 )
 
 func TestPostgresStoreIntegration(t *testing.T) {

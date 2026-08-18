@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 const SitemapURL = "https://www.ugc.fr/dynamique/sitemaps/frontend/sitemap.xml"

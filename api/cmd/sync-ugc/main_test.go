@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"movieflow/api/internal/enrichment"
-	"movieflow/api/internal/schedule"
-	"movieflow/api/internal/tmdb"
-	"movieflow/api/internal/ugc"
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/tmdb"
+	"messeances/api/internal/ugc"
 )
 
 type fakeWriter struct {

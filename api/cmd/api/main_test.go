@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"movieflow/api/internal/enrichment"
+	"messeances/api/internal/enrichment"
 )
 
 type testReadCloser struct {

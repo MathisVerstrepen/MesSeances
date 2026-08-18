@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 func fixture(t *testing.T, name string) *os.File {

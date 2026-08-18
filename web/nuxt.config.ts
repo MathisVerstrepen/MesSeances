@@ -10,13 +10,13 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: 'fr' },
-      title: 'MovieFlow — Vos séances, au bon moment',
+      title: 'MesSeances — Vos séances, au bon moment',
       meta: [
         {
           name: 'description',
           content: 'Explorez les séances de cinéma de Lille sur une frise horaire et trouvez celles qui tiennent dans votre créneau.'
         },
-        { name: 'theme-color', content: '#f7f6f2' }
+        { name: 'theme-color', content: '#FCFAF8' }
       ]
     }
   },

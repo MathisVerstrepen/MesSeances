@@ -1,6 +1,6 @@
-# MovieFlow
+# MesSeances
 
-MovieFlow fournit une API Go et une interface Nuxt en français pour consulter les séances UGC, gérer ses cinémas favoris et trouver un film compatible avec un créneau strict.
+MesSeances fournit une API Go et une interface Nuxt en français pour consulter les séances UGC, gérer ses cinémas favoris et trouver un film compatible avec un créneau strict.
 
 ## Fonctionnalités v1
 
@@ -15,7 +15,7 @@ Les liens de réservation ouvrent la page officielle du fournisseur dans un nouv
 
 ### Cinémas favoris
 
-Les favoris sont enregistrés uniquement dans le navigateur, sous la clé `movieflow.favoriteTheaterIds.v1` de `localStorage`. Ils ne créent aucun compte et ne sont pas synchronisés entre navigateurs ou appareils. Au premier chargement, MovieFlow sélectionne les cinémas correspondant à `city=Lille` ; si cette sélection est vide, le premier cinéma du catalogue devient le choix initial. Les identifiants absents de l’instantané courant sont supprimés et l’interface conserve toujours au moins un favori lorsque des cinémas sont disponibles.
+Les favoris sont enregistrés uniquement dans le navigateur, sous la clé `messeances.favoriteTheaterIds.v1` de `localStorage`. Ils ne créent aucun compte et ne sont pas synchronisés entre navigateurs ou appareils. Au premier chargement, MesSeances sélectionne les cinémas correspondant à `city=Lille` ; si cette sélection est vide, le premier cinéma du catalogue devient le choix initial. Les identifiants absents de l’instantané courant sont supprimés et l’interface conserve toujours au moins un favori lorsque des cinémas sont disponibles.
 
 Le planning, la fiche d’un film et la recherche par créneau utilisent ces favoris. La recherche permet d’en décocher temporairement certains sans modifier les favoris enregistrés.
 

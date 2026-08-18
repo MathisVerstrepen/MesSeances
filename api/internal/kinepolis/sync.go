@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"movieflow/api/internal/schedule"
+	"messeances/api/internal/schedule"
 )
 
 type Fetcher interface {

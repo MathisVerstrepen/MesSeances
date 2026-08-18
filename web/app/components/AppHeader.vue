@@ -34,11 +34,11 @@ onMounted(() => {
 
 <template>
   <aside class="sticky top-0 hidden h-screen flex-col border-r border-line bg-surface px-4 py-6 lg:flex">
-    <NuxtLink to="/" class="flex items-center gap-2.5 px-2 text-lg font-bold tracking-tight text-ink" aria-label="MovieFlow, accueil">
-      <span class="grid size-8 place-items-center rounded-md bg-accent text-white">
+    <NuxtLink to="/" class="flex items-center gap-2.5 px-2 text-lg font-bold tracking-tight text-ink" aria-label="MesSeances, accueil">
+      <span class="grid size-8 place-items-center rounded-md bg-primary text-white">
         <Clapperboard :size="18" aria-hidden="true" />
       </span>
-      <span>MovieFlow</span>
+      <span>MesSeances</span>
     </NuxtLink>
 
     <nav aria-label="Navigation principale" class="mt-10">
@@ -66,11 +66,11 @@ onMounted(() => {
 
   <header class="sticky top-0 z-30 border-b border-line bg-surface lg:hidden">
     <div class="flex h-14 items-center justify-between gap-4 px-4 sm:px-6">
-      <NuxtLink to="/" class="flex items-center gap-2 text-base font-bold tracking-tight text-ink" aria-label="MovieFlow, accueil">
-        <span class="grid size-8 place-items-center rounded-md bg-accent text-white">
+      <NuxtLink to="/" class="flex items-center gap-2 text-base font-bold tracking-tight text-ink" aria-label="MesSeances, accueil">
+        <span class="grid size-8 place-items-center rounded-md bg-primary text-white">
           <Clapperboard :size="18" aria-hidden="true" />
         </span>
-        <span>MovieFlow</span>
+        <span>MesSeances</span>
       </NuxtLink>
       <NuxtLink to="/cinemas" class="flex min-w-0 items-center gap-1.5 text-sm text-muted transition hover:text-ink" :aria-label="`Gérer mes cinémas, ${favoriteSummary}`">
         <MapPin :size="15" class="text-accent" aria-hidden="true" />
