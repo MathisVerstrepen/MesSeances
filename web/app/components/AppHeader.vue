@@ -5,7 +5,7 @@ const route = useRoute()
 const { favoriteTheaters, favoriteTheaterIds, isInitialized, isLoading, initialize } = useCinemaPreferences()
 
 const links = [
-  { to: '/', label: 'Planning', icon: CalendarRange },
+  { to: '/planning', label: 'Planning', icon: CalendarRange },
   { to: '/recherche', label: 'Trouver une séance', icon: Search },
   { to: '/films', label: 'Films', icon: Film },
   { to: '/cinemas', label: 'Mes cinémas', icon: Building2 }
