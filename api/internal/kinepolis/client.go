@@ -17,15 +17,16 @@ import (
 
 const (
 	ScheduleURL = "https://kinepolis.fr/?main_section=tous+les+films"
-	MaxBodySize = 16 << 20
+	MaxBodySize = 32 << 20
 	userAgent   = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	accept      = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
 	acceptLang  = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
 )
 
 var (
-	errRedirectHost  = errors.New("redirect host rejected")
-	errRedirectLimit = errors.New("redirect limit exceeded")
+	errRedirectHost     = errors.New("redirect host rejected")
+	errRedirectLimit    = errors.New("redirect limit exceeded")
+	errResponseTooLarge = errors.New("response too large")
 )
 
 type ClientConfig struct {
@@ -106,7 +107,14 @@ func (c *Client) Fetch(ctx context.Context) ([]byte, error) {
 		body, readErr := readBounded(response.Body)
 		response.Body.Close()
 		if readErr != nil {
-			return nil, fmt.Errorf("fetch Kinepolis schedule failed on proxy %d: response too large or unreadable", ordinal+1)
+			if errors.Is(readErr, errResponseTooLarge) {
+				return nil, fmt.Errorf("fetch Kinepolis schedule failed on proxy %d: response too large", ordinal+1)
+			}
+			c.unavailable[ordinal] = true
+			if c.availableFrom(start) >= 0 {
+				continue
+			}
+			return nil, fmt.Errorf("fetch Kinepolis schedule failed on proxy %d: response read", ordinal+1)
 		}
 		if syncproxy.IsChallenge(body) {
 			return nil, &TerminalError{category: fmt.Sprintf("challenge response via proxy %d", ordinal+1)}
@@ -148,8 +156,11 @@ func (c *Client) Fetch(ctx context.Context) ([]byte, error) {
 func readBounded(reader io.Reader) ([]byte, error) {
 	limited := io.LimitReader(reader, MaxBodySize+1)
 	body, err := io.ReadAll(limited)
-	if err != nil || len(body) > MaxBodySize {
-		return nil, fmt.Errorf("invalid response body")
+	if len(body) > MaxBodySize {
+		return nil, errResponseTooLarge
+	}
+	if err != nil {
+		return nil, err
 	}
 	return body, nil
 }

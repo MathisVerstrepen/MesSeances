@@ -69,6 +69,9 @@ export interface SlotTheater {
 export interface SlotResult {
   showtime: Showtime
   theater: SlotTheater
+  poster_url: string | null
+  backdrop_url: string | null
+  effective_start_time: string
   effective_end_time: string
   buffer_ads_minutes: number
   slack_before_minutes: number
@@ -191,6 +194,7 @@ export interface SlotQuery {
   start_after: string
   finish_before: string
   buffer_ads?: number
+  include_ads?: boolean
   language?: QueryLanguage
   format?: QueryFormat
 }

@@ -159,10 +159,13 @@ type MovieSchedule struct {
 type SlotResult struct {
 	Showtime           Showtime       `json:"showtime"`
 	Theater            TheaterSummary `json:"theater"`
+	EffectiveStartTime time.Time      `json:"effective_start_time"`
 	EffectiveEndTime   time.Time      `json:"effective_end_time"`
 	BufferAdsMinutes   int            `json:"buffer_ads_minutes"`
 	SlackBeforeMinutes int            `json:"slack_before_minutes"`
 	SlackAfterMinutes  int            `json:"slack_after_minutes"`
+	PosterURL          *string        `json:"poster_url"`
+	BackdropURL        *string        `json:"backdrop_url"`
 }
 
 type TimelineQuery struct {
@@ -198,6 +201,7 @@ type SlotQuery struct {
 	StartAfter   string
 	FinishBefore string
 	BufferAds    int
+	IncludeAds   bool
 	Language     string
 	Format       string
 }

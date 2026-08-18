@@ -62,12 +62,7 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 			}
 			showtime := materializeRecord(record)
 			offset := int(showtime.StartTime.Sub(timeline.WindowStartTime) / time.Minute)
-			poster := materializeCatalogMovie(record.Movie).PosterURL
-			var backdrop *string
-			if record.Movie.Enrichment != nil && validTMDBBackdropURL(record.Movie.Enrichment.BackdropURL) {
-				value := record.Movie.Enrichment.BackdropURL
-				backdrop = &value
-			}
+			poster, backdrop := materializeMovieMedia(record.Movie)
 			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes, PosterURL: poster, BackdropURL: backdrop})
 		}
 		sort.Slice(result.Showtimes, func(i, j int) bool { return result.Showtimes[i].StartTime.Before(result.Showtimes[j].StartTime) })
@@ -238,10 +233,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 	for _, record := range data.Showtimes {
 		if publicMovieSlug(record.Movie) == query.Slug {
 			movie = materializeCatalogMovie(record.Movie)
-			if record.Movie.Enrichment != nil && validTMDBBackdropURL(record.Movie.Enrichment.BackdropURL) {
-				value := record.Movie.Enrichment.BackdropURL
-				backdrop = &value
-			}
+			_, backdrop = materializeMovieMedia(record.Movie)
 			found = true
 			break
 		}
@@ -337,11 +329,16 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 				continue
 			}
 			showtime := materializeRecord(record)
+			effectiveStart := showtime.StartTime
+			if !query.IncludeAds {
+				effectiveStart = effectiveStart.Add(time.Duration(query.BufferAds) * time.Minute)
+			}
 			effectiveEnd := showtime.EndTime.Add(time.Duration(query.BufferAds) * time.Minute)
-			if showtime.StartTime.Before(start) || effectiveEnd.After(finish) {
+			if effectiveStart.Before(start) || effectiveEnd.After(finish) {
 				continue
 			}
-			results = append(results, SlotResult{Showtime: showtime, Theater: TheaterSummary{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Name: theater.Name, City: theater.City}, EffectiveEndTime: effectiveEnd, BufferAdsMinutes: query.BufferAds, SlackBeforeMinutes: int(showtime.StartTime.Sub(start) / time.Minute), SlackAfterMinutes: int(finish.Sub(effectiveEnd) / time.Minute)})
+			poster, backdrop := materializeMovieMedia(record.Movie)
+			results = append(results, SlotResult{Showtime: showtime, Theater: TheaterSummary{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Name: theater.Name, City: theater.City}, EffectiveStartTime: effectiveStart, EffectiveEndTime: effectiveEnd, BufferAdsMinutes: query.BufferAds, SlackBeforeMinutes: int(effectiveStart.Sub(start) / time.Minute), SlackAfterMinutes: int(finish.Sub(effectiveEnd) / time.Minute), PosterURL: poster, BackdropURL: backdrop})
 		}
 	}
 	sort.Slice(results, func(i, j int) bool {
@@ -472,11 +469,7 @@ func materializeRecord(record ShowtimeRecord) Showtime {
 	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Provider: provider, Slug: publicMovieSlug(record.Movie), Title: record.Movie.Title, RuntimeMinutes: record.Movie.RuntimeMinutes}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 }
 func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
-	var poster *string
-	if record.PosterURL != "" {
-		value := record.PosterURL
-		poster = &value
-	}
+	poster, _ := materializeMovieMedia(record)
 	item := MovieCatalogItem{Provider: recordProvider(record.Provider, record.Slug), Slug: publicMovieSlug(record), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: append([]string{}, record.Genres...)}
 	if record.Overview != "" {
 		value := record.Overview
@@ -500,12 +493,27 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 		if len(record.Enrichment.Genres) > 0 {
 			item.Genres = append([]string{}, record.Enrichment.Genres...)
 		}
-		if record.Enrichment.PosterURL != "" {
-			value := record.Enrichment.PosterURL
-			item.PosterURL = &value
-		}
 	}
 	return item
+}
+func materializeMovieMedia(record MovieRecord) (*string, *string) {
+	var poster *string
+	if record.PosterURL != "" {
+		value := record.PosterURL
+		poster = &value
+	}
+	var backdrop *string
+	if record.Enrichment != nil {
+		if record.Enrichment.TMDBID > 0 && record.Enrichment.PosterURL != "" {
+			value := record.Enrichment.PosterURL
+			poster = &value
+		}
+		if validTMDBBackdropURL(record.Enrichment.BackdropURL) {
+			value := record.Enrichment.BackdropURL
+			backdrop = &value
+		}
+	}
+	return poster, backdrop
 }
 func publicMovieSlug(record MovieRecord) string {
 	if record.LocalMovieID > 0 {

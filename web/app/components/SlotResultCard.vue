@@ -1,51 +1,86 @@
 <script setup lang="ts">
-import { Clock3, Film, MapPin } from '@lucide/vue'
+import { Film, MapPin } from '@lucide/vue'
 import type { SlotResult } from '~/types/api'
 import { formatParisTime } from '~/utils/date'
 
 defineProps<{ result: SlotResult }>()
+const posterFailed = ref(false)
+const backdropFailed = ref(false)
+
+function hasDelayedArrival(result: SlotResult): boolean {
+  return Date.parse(result.effective_start_time) !== Date.parse(result.showtime.start_time)
+}
+
+function bookingLabel(result: SlotResult): string {
+  return `Réserver ${result.showtime.movie.title}, séance annoncée à ${formatParisTime(result.showtime.start_time)} au cinéma ${result.theater.name}`
+}
 </script>
 
 <template>
-  <article class="p-5 transition hover:bg-subtle/50 sm:p-6">
-    <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-      <div class="min-w-0">
-        <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
-          <span :class="result.showtime.language === 'VOSTFR' ? 'bg-orange-50 text-orange-800' : 'bg-subtle text-stone-700'" class="rounded px-2 py-1">{{ result.showtime.language }}</span>
-          <ShowtimeFormat :format="result.showtime.format" class="rounded bg-subtle px-2 py-1 text-stone-700" />
-        </div>
-        <h2 class="mt-3 text-xl font-semibold text-ink">{{ result.showtime.movie.title }}</h2>
-        <div class="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted">
-          <span class="flex items-center gap-2"><MapPin :size="15" aria-hidden="true" /> <BrandedText :text="result.theater.name" /></span>
-          <span class="flex items-center gap-2"><Film :size="15" aria-hidden="true" /> {{ result.showtime.movie.runtime_minutes }} min · {{ result.showtime.room }}</span>
-        </div>
-      </div>
+  <article class="relative overflow-hidden p-4 transition hover:bg-subtle/50 sm:p-5">
+    <img
+      v-if="result.backdrop_url && !backdropFailed"
+      :src="result.backdrop_url"
+      alt=""
+      width="640"
+      height="180"
+      loading="lazy"
+      decoding="async"
+      class="pointer-events-none absolute inset-y-0 right-0 h-full w-1/2 object-cover opacity-[0.08]"
+      aria-hidden="true"
+      @error="backdropFailed = true"
+    >
+    <div class="pointer-events-none absolute inset-0 bg-gradient-to-r from-surface via-surface/95 to-transparent" aria-hidden="true" />
 
-      <div class="shrink-0 border-l-2 border-accent pl-4">
-        <p class="flex items-center gap-2 text-lg font-semibold text-ink">
-          <Clock3 :size="18" class="text-accent" aria-hidden="true" />
-          {{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}
-        </p>
-        <p class="mt-1 text-sm text-muted">Fin effective : {{ formatParisTime(result.effective_end_time) }}</p>
-        <div class="mt-4">
-          <BookingLink :url="result.showtime.booking_url" :provider="result.showtime.provider" />
+    <div class="relative grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+      <div class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden rounded border border-line bg-subtle sm:row-span-1 sm:w-[3.25rem]">
+        <img
+          v-if="result.poster_url && !posterFailed"
+          :src="result.poster_url"
+          :alt="`Affiche de ${result.showtime.movie.title}`"
+          width="52"
+          height="78"
+          loading="lazy"
+          decoding="async"
+          class="h-full w-full object-cover"
+          @error="posterFailed = true"
+        >
+        <Film v-else :size="18" class="text-muted/60" aria-hidden="true" />
+      </div>
+      <div class="col-start-2 border-l-2 border-accent pl-3 sm:col-start-auto">
+        <template v-if="hasDelayedArrival(result)">
+          <p class="text-sm font-semibold tabular-nums text-ink">Arrivée conseillée {{ formatParisTime(result.effective_start_time) }} → fin {{ formatParisTime(result.effective_end_time) }}</p>
+          <p class="mt-0.5 text-xs tabular-nums text-muted">Séance annoncée à {{ formatParisTime(result.showtime.start_time) }}</p>
+        </template>
+        <p v-else class="text-lg font-semibold tabular-nums text-ink">{{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+      </div>
+      <div class="col-start-2 min-w-0 sm:col-start-auto">
+        <h3 class="truncate text-base font-semibold text-ink">
+          <NuxtLink
+            :to="`/film/${result.showtime.movie.slug}`"
+            class="rounded-sm underline-offset-4 transition-colors hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+          >
+            {{ result.showtime.movie.title }}
+          </NuxtLink>
+        </h3>
+        <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+          <span class="flex items-center gap-1.5"><MapPin :size="14" aria-hidden="true" /> <BrandedText :text="result.theater.name" /></span>
+          <span>{{ result.showtime.room }}</span>
+          <span class="font-medium text-stone-700">{{ result.showtime.language }}</span>
+          <ShowtimeFormat :format="result.showtime.format" class="font-medium text-stone-700" />
         </div>
       </div>
+      <BookingLink
+        :url="result.showtime.booking_url"
+        :provider="result.showtime.provider"
+        :aria-label="bookingLabel(result)"
+        unstyled
+        class="col-span-2 mt-1 inline-flex min-h-10 items-center justify-end text-sm font-semibold sm:col-span-1 sm:mt-0"
+        available-class="text-accent underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+        unavailable-class="text-muted"
+      >
+        <template #default="{ available }">{{ available ? 'Réserver' : 'Indisponible' }}</template>
+      </BookingLink>
     </div>
-
-    <dl class="mt-5 grid grid-cols-2 border-t border-line pt-4 sm:grid-cols-3">
-      <div class="pr-3">
-        <dt class="text-xs text-muted">Avant la séance</dt>
-        <dd class="mt-1 font-semibold text-ink">{{ result.slack_before_minutes }} min</dd>
-      </div>
-      <div class="border-l border-line px-3">
-        <dt class="text-xs text-muted">Après la séance</dt>
-        <dd class="mt-1 font-semibold text-ink">{{ result.slack_after_minutes }} min</dd>
-      </div>
-      <div class="col-span-2 mt-4 border-t border-line pt-4 sm:col-span-1 sm:mt-0 sm:border-l sm:border-t-0 sm:px-3 sm:pt-0">
-        <dt class="text-xs text-muted">Publicités incluses</dt>
-        <dd class="mt-1 font-semibold text-ink">{{ result.buffer_ads_minutes }} min</dd>
-      </div>
-    </dl>
   </article>
 </template>

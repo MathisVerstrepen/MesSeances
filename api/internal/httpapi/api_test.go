@@ -218,13 +218,25 @@ func TestTimelineMediaTransportAndContractIsolation(t *testing.T) {
 	if matched["start_offset_minutes"] != float64(240) || matched["duration_minutes"] != float64(100) {
 		t.Fatalf("timeline timing changed: %+v", matched)
 	}
-	for _, target := range []string{
-		"/api/v1/search/slot?theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=17:00",
-	} {
-		other := performRequest(t, handler, target)
-		if other.Code != http.StatusOK || strings.Contains(other.Body.String(), "backdrop_url") || strings.Contains(other.Body.String(), "poster_url") {
-			t.Fatalf("timeline media leaked to %s: status=%d body=%s", target, other.Code, other.Body.String())
-		}
+	slotResponse := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-25,ugc-99&date=2026-08-15&start_after=12:00&finish_before=15:00&buffer_ads=0")
+	if slotResponse.Code != http.StatusOK {
+		t.Fatalf("slot status=%d body=%s", slotResponse.Code, slotResponse.Body.String())
+	}
+	var slots []map[string]any
+	if err := json.Unmarshal(slotResponse.Body.Bytes(), &slots); err != nil {
+		t.Fatal(err)
+	}
+	if len(slots) != 2 || slots[0]["poster_url"] != "https://image.tmdb.org/t/p/w500/a.jpg" || slots[0]["backdrop_url"] != "https://image.tmdb.org/t/p/w780/a.jpg" {
+		t.Fatalf("matched slot media=%+v", slots)
+	}
+	if poster, exists := slots[1]["poster_url"]; !exists || poster != nil {
+		t.Fatalf("missing slot poster must serialize as explicit null: %+v", slots[1])
+	}
+	if backdrop, exists := slots[1]["backdrop_url"]; !exists || backdrop != nil {
+		t.Fatalf("missing slot backdrop must serialize as explicit null: %+v", slots[1])
+	}
+	if showtime := slots[0]["showtime"].(map[string]any); hasAnyKey(showtime, "poster_url", "backdrop_url") || hasAnyKey(showtime["movie"].(map[string]any), "poster_url", "backdrop_url") {
+		t.Fatalf("slot media leaked into nested showtime: %+v", showtime)
 	}
 	movieResponse := performRequest(t, handler, "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15")
 	if movieResponse.Code != http.StatusOK {
@@ -363,8 +375,38 @@ func TestSearchSlotExactTheatersTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &results); err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Theater.ID != "ugc-99" || results[0].BufferAdsMinutes != 20 {
+	if len(results) != 1 || results[0].Theater.ID != "ugc-99" || results[0].BufferAdsMinutes != 20 || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime.Add(20*time.Minute)) {
 		t.Fatalf("results=%+v", results)
+	}
+}
+
+func TestSearchSlotIncludeAdsTransport(t *testing.T) {
+	handler := testHandler(t)
+	includedResponse := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:30&finish_before=14:30")
+	excludedResponse := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:50&finish_before=14:30&include_ads=false")
+	if includedResponse.Code != http.StatusOK || excludedResponse.Code != http.StatusOK {
+		t.Fatalf("included status=%d body=%s excluded status=%d body=%s", includedResponse.Code, includedResponse.Body.String(), excludedResponse.Code, excludedResponse.Body.String())
+	}
+	var included, excluded []schedule.SlotResult
+	if err := json.Unmarshal(includedResponse.Body.Bytes(), &included); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(excludedResponse.Body.Bytes(), &excluded); err != nil {
+		t.Fatal(err)
+	}
+	if len(included) != 1 || len(excluded) != 1 {
+		t.Fatalf("included=%+v excluded=%+v", included, excluded)
+	}
+	if !included[0].EffectiveStartTime.Equal(included[0].Showtime.StartTime) || !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(20*time.Minute)) || !included[0].EffectiveEndTime.Equal(excluded[0].EffectiveEndTime) {
+		t.Fatalf("included=%+v excluded=%+v", included[0], excluded[0])
+	}
+	if included[0].BufferAdsMinutes != 20 || excluded[0].BufferAdsMinutes != 20 || included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 0 || included[0].SlackAfterMinutes != 0 || excluded[0].SlackAfterMinutes != 0 {
+		t.Fatalf("included=%+v excluded=%+v", included[0], excluded[0])
+	}
+
+	tooLateIncluded := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:50&finish_before=14:30&include_ads=true")
+	if tooLateIncluded.Code != http.StatusOK || tooLateIncluded.Body.String() != "[]\n" {
+		t.Fatalf("too-late included status=%d body=%s", tooLateIncluded.Code, tooLateIncluded.Body.String())
 	}
 }
 
@@ -410,6 +452,7 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"slot unknown theater", "/api/v1/search/slot?theaters=inconnu&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"slot empty format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX."},
 		{"slot invalid format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=screenx", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX."},
+		{"slot invalid include ads", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&include_ads=0", "Le paramètre include_ads doit être true ou false."},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

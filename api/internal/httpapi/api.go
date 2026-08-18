@@ -195,6 +195,15 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 		}
 		buffer = parsed
 	}
+	includeAds := true
+	if query.Has("include_ads") {
+		rawValue := query.Get("include_ads")
+		if !strings.EqualFold(rawValue, "true") && !strings.EqualFold(rawValue, "false") {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre include_ads doit être true ou false.")
+			return
+		}
+		includeAds = strings.EqualFold(rawValue, "true")
+	}
 
 	result, err := api.schedule.SearchSlot(schedule.SlotQuery{
 		City:         query.Get("city"),
@@ -203,6 +212,7 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 		StartAfter:   query.Get("start_after"),
 		FinishBefore: query.Get("finish_before"),
 		BufferAds:    buffer,
+		IncludeAds:   includeAds,
 		Language:     language,
 		Format:       format,
 	})

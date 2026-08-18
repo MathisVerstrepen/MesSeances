@@ -112,6 +112,12 @@ func TestTimelineMediaIsNullableAndUsesCatalogPosterPrecedence(t *testing.T) {
 	if err != nil || len(results) != 2 {
 		t.Fatalf("slot results=%+v err=%v", results, err)
 	}
+	if results[0].PosterURL == nil || *results[0].PosterURL != "https://image.tmdb.org/t/p/w500/a.jpg" || results[0].BackdropURL == nil || *results[0].BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" {
+		t.Fatalf("slot enriched media=%+v", results[0])
+	}
+	if results[1].PosterURL != nil || results[1].BackdropURL != nil {
+		t.Fatalf("slot missing media must remain null: %+v", results[1])
+	}
 }
 
 func TestSearchSlotStrictBoundariesAndFilters(t *testing.T) {
@@ -136,6 +142,70 @@ func TestSearchSlotStrictBoundariesAndFilters(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSearchSlotAdsChangeEffectiveStartButNotEnd(t *testing.T) {
+	service := testService(t)
+	base := SlotQuery{TheaterIDs: []string{"ugc-25"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "14:00", BufferAds: 20, Language: LanguageAll}
+
+	includedQuery := base
+	includedQuery.IncludeAds = true
+	included, err := service.SearchSlot(includedQuery)
+	if err != nil || len(included) != 1 {
+		t.Fatalf("included=%+v err=%v", included, err)
+	}
+	excluded, err := service.SearchSlot(base)
+	if err != nil || len(excluded) != 1 {
+		t.Fatalf("excluded=%+v err=%v", excluded, err)
+	}
+	if !included[0].EffectiveStartTime.Equal(included[0].Showtime.StartTime) {
+		t.Fatalf("included effective start=%s showtime start=%s", included[0].EffectiveStartTime, included[0].Showtime.StartTime)
+	}
+	if !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(20 * time.Minute)) {
+		t.Fatalf("excluded effective start=%s showtime start=%s", excluded[0].EffectiveStartTime, excluded[0].Showtime.StartTime)
+	}
+	if !included[0].EffectiveEndTime.Equal(excluded[0].EffectiveEndTime) || !included[0].EffectiveEndTime.Equal(included[0].Showtime.EndTime.Add(20*time.Minute)) {
+		t.Fatalf("included end=%s excluded end=%s showtime end=%s", included[0].EffectiveEndTime, excluded[0].EffectiveEndTime, included[0].Showtime.EndTime)
+	}
+	if included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 20 || included[0].SlackAfterMinutes != 0 || excluded[0].SlackAfterMinutes != 0 {
+		t.Fatalf("included slack=%d/%d excluded slack=%d/%d", included[0].SlackBeforeMinutes, included[0].SlackAfterMinutes, excluded[0].SlackBeforeMinutes, excluded[0].SlackAfterMinutes)
+	}
+
+	exactExcluded := base
+	exactExcluded.StartAfter = "12:20"
+	results, err := service.SearchSlot(exactExcluded)
+	if err != nil || len(results) != 1 || results[0].SlackBeforeMinutes != 0 {
+		t.Fatalf("exact excluded boundary=%+v err=%v", results, err)
+	}
+	exactIncluded := exactExcluded
+	exactIncluded.IncludeAds = true
+	results, err = service.SearchSlot(exactIncluded)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("included after advertised start=%+v err=%v", results, err)
+	}
+}
+
+func TestSearchSlotExcludedAdsUsesEffectiveBoundariesAfterMidnight(t *testing.T) {
+	service := testService(t)
+	query := SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "00:35", FinishBefore: "01:50", BufferAds: 20, Language: LanguageAll}
+	results, err := service.SearchSlot(query)
+	if err != nil || len(results) != 1 {
+		t.Fatalf("excluded midnight=%+v err=%v", results, err)
+	}
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effectiveStart := results[0].EffectiveStartTime.In(location)
+	effectiveEnd := results[0].EffectiveEndTime.In(location)
+	if results[0].Showtime.ID != "ugc-showing-102" || effectiveStart.Day() != 16 || effectiveStart.Hour() != 0 || effectiveStart.Minute() != 35 || effectiveEnd.Day() != 16 || effectiveEnd.Hour() != 1 || effectiveEnd.Minute() != 50 {
+		t.Fatalf("excluded midnight result=%+v", results[0])
+	}
+	query.IncludeAds = true
+	results, err = service.SearchSlot(query)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("included midnight after advertised start=%+v err=%v", results, err)
 	}
 }
 
