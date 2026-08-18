@@ -78,6 +78,14 @@ func fakeSync(ctx context.Context, getter ugc.Getter, options ugc.SyncOptions) (
 
 func fixedNow() time.Time { return time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC) }
 
+func TestRunRejectsRemovedRequestInterval(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-request-interval", "0"}, &stdout, &stderr, fixedNow, dependencies{})
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "flag provided but not defined: -request-interval") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunRejectsRemovedCacheFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := runWithDependencies(context.Background(), []string{"-cache", "old.json"}, &stdout, &stderr, fixedNow, dependencies{})

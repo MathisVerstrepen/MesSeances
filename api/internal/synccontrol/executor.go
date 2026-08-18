@@ -42,7 +42,7 @@ func NewProductionExecutor(proxies []syncproxy.Proxy, writer schedule.SnapshotWr
 		proxies: append([]syncproxy.Proxy(nil), proxies...), writer: writer,
 		enrichmentStore: store, enrichmentProvider: provider, now: now,
 		newUGC: func(proxies []syncproxy.Proxy) (ugc.Getter, error) {
-			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, RequestInterval: requestInterval, Timeout: requestTimeout})
+			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: requestTimeout})
 		},
 		newKinepolis: func(proxies []syncproxy.Proxy) (kinepolis.Fetcher, error) {
 			return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: requestInterval, Timeout: requestTimeout})

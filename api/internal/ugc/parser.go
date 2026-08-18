@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -197,15 +198,94 @@ var blockPattern = regexp.MustCompile(`^bloc-showing-film-([1-9][0-9]*)$`)
 var runtimePattern = regexp.MustCompile(`\(([0-9]+)h([0-9]{1,2})?\)`)
 var sluggedFilmPathPattern = regexp.MustCompile(`^film_(.+)_([1-9][0-9]*)\.html$`)
 
+var (
+	parisLocationOnce sync.Once
+	parisLocation     *time.Location
+	parisLocationErr  error
+)
+
+func scheduleLocation() (*time.Location, error) {
+	parisLocationOnce.Do(func() {
+		parisLocation, parisLocationErr = time.LoadLocation(schedule.Timezone)
+	})
+	return parisLocation, parisLocationErr
+}
+
+type showingsParseCache struct {
+	elements map[*html.Node][]*html.Node
+	buttons  map[*html.Node][]*html.Node
+	rooms    map[*html.Node]*html.Node
+	formats  map[*html.Node]*html.Node
+	texts    map[*html.Node]string
+}
+
+func newShowingsParseCache() *showingsParseCache {
+	return &showingsParseCache{
+		elements: make(map[*html.Node][]*html.Node),
+		buttons:  make(map[*html.Node][]*html.Node),
+		rooms:    make(map[*html.Node]*html.Node),
+		formats:  make(map[*html.Node]*html.Node),
+		texts:    make(map[*html.Node]string),
+	}
+}
+
+func (cache *showingsParseCache) descendantElements(node *html.Node) []*html.Node {
+	if cached, ok := cache.elements[node]; ok {
+		return cached
+	}
+	nodes := descendants(node, func(candidate *html.Node) bool { return candidate.Type == html.ElementNode })
+	cache.elements[node] = nodes
+	return nodes
+}
+
+func (cache *showingsParseCache) descendantButtons(node *html.Node) []*html.Node {
+	if cached, ok := cache.buttons[node]; ok {
+		return cached
+	}
+	buttons := descendants(node, func(candidate *html.Node) bool {
+		return candidate.Type == html.ElementNode && candidate.Data == "button"
+	})
+	cache.buttons[node] = buttons
+	return buttons
+}
+
+func (cache *showingsParseCache) firstDescendantWithClass(node *html.Node, class string) *html.Node {
+	values := cache.rooms
+	if class == "screening-2D3D" {
+		values = cache.formats
+	}
+	if cached, ok := values[node]; ok {
+		return cached
+	}
+	var found *html.Node
+	walk(node, func(candidate *html.Node) {
+		if found == nil && candidate != node && candidate.Type == html.ElementNode && hasClass(candidate, class) {
+			found = candidate
+		}
+	})
+	values[node] = found
+	return found
+}
+
+func (cache *showingsParseCache) text(node *html.Node) string {
+	if cached, ok := cache.texts[node]; ok {
+		return cached
+	}
+	value := text(node)
+	cache.texts[node] = value
+	return value
+}
+
 func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.ShowtimeRecord, error) {
 	root, err := html.Parse(io.LimitReader(r, 8<<20))
 	if err != nil {
 		return nil, fmt.Errorf("parse showings: %w", err)
 	}
-	if err := validateShowingOwnership(root); err != nil {
+	cache := newShowingsParseCache()
+	if err := validateShowingOwnership(root, cache); err != nil {
 		return nil, err
 	}
-	location, err := time.LoadLocation(schedule.Timezone)
+	location, err := scheduleLocation()
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +304,7 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 			return
 		}
 		filmID := match[1]
-		buttons, malformedStructure := showingCandidates(block)
+		buttons, malformedStructure := showingCandidates(block, cache)
 		if len(buttons) > MaxShowingsPerResponse || len(records) > MaxShowingsPerResponse-len(buttons) {
 			err = fmt.Errorf("showings response limit exceeded")
 			return
@@ -236,13 +316,13 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		if len(buttons) == 0 {
 			return
 		}
-		title, runtime, poster, metaErr := parseMovieBlock(block, filmID, cinema.ProviderID)
+		title, runtime, poster, metaErr := parseMovieBlock(block, filmID, cinema.ProviderID, cache)
 		if metaErr != nil {
 			err = metaErr
 			return
 		}
 		for _, button := range buttons {
-			record, buttonErr := parseShowingButton(button, cinema.ProviderID, filmID, serviceDate, date, location, title, runtime, poster)
+			record, buttonErr := parseShowingButton(button, cinema.ProviderID, filmID, serviceDate, date, location, title, runtime, poster, cache)
 			if buttonErr != nil {
 				err = buttonErr
 				return
@@ -261,7 +341,7 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		return nil, err
 	}
 	if len(records) == 0 && !hasEmptyScheduleMarker(root) {
-		nextSessionOnly, validationErr := validateNextSessionOnly(root, cinema.ProviderID, date, location)
+		nextSessionOnly, validationErr := validateNextSessionOnly(root, cinema.ProviderID, date, location, cache)
 		if validationErr != nil {
 			return nil, validationErr
 		}
@@ -278,10 +358,10 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 	return records, nil
 }
 
-func parseMovieBlock(block *html.Node, filmID, cinemaID string) (string, int, string, error) {
+func parseMovieBlock(block *html.Node, filmID, cinemaID string, cache *showingsParseCache) (string, int, string, error) {
 	var canonicalTitles, legacyTitles []string
 	poster := ""
-	for _, node := range descendants(block, func(n *html.Node) bool { return n.Type == html.ElementNode }) {
+	for _, node := range cache.descendantElements(block) {
 		if node.Data == "a" {
 			if isCanonicalFilmHeading(node) {
 				if err := validateCanonicalFilmHref(attr(node, "href"), filmID, cinemaID); err != nil {
@@ -290,7 +370,7 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string) (string, int, st
 				if dataFilm := attrAny(node, "data-film", "data-film-id"); dataFilm != "" && dataFilm != filmID {
 					return "", 0, "", fmt.Errorf("film identity conflict")
 				}
-				visibleTitle := collapse(text(node))
+				visibleTitle := collapse(cache.text(node))
 				attributeTitle := collapse(attr(node, "title"))
 				if visibleTitle != "" && attributeTitle != "" && visibleTitle != attributeTitle {
 					return "", 0, "", fmt.Errorf("film title conflicting")
@@ -341,7 +421,7 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string) (string, int, st
 		}
 		title = legacyTitles[0]
 	}
-	match := runtimePattern.FindStringSubmatch(collapse(text(block)))
+	match := runtimePattern.FindStringSubmatch(collapse(cache.text(block)))
 	if len(match) == 0 {
 		return "", 0, "", fmt.Errorf("film runtime missing")
 	}
@@ -366,7 +446,7 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string) (string, int, st
 	return title, runtime, poster, nil
 }
 
-func showingCandidates(block *html.Node) ([]*html.Node, bool) {
+func showingCandidates(block *html.Node, cache *showingsParseCache) ([]*html.Node, bool) {
 	seen := map[*html.Node]bool{}
 	candidates := []*html.Node{}
 	add := func(button *html.Node) {
@@ -376,14 +456,14 @@ func showingCandidates(block *html.Node) ([]*html.Node, bool) {
 		}
 	}
 	malformedStructure := false
-	for _, node := range descendants(block, func(n *html.Node) bool { return n.Type == html.ElementNode }) {
+	for _, node := range cache.descendantElements(block) {
 		if node.Data == "button" && hasShowingAttribute(node) {
 			add(node)
 		}
 		if !isShowingStructure(node) {
 			continue
 		}
-		buttons := structuralShowingButtons(node, block)
+		buttons := structuralShowingButtons(node, block, cache)
 		if len(buttons) == 0 {
 			malformedStructure = true
 			continue
@@ -395,8 +475,8 @@ func showingCandidates(block *html.Node) ([]*html.Node, bool) {
 	return candidates, malformedStructure
 }
 
-func validateShowingOwnership(root *html.Node) error {
-	for _, candidate := range documentShowingCandidates(root) {
+func validateShowingOwnership(root *html.Node, cache *showingsParseCache) error {
+	for _, candidate := range documentShowingCandidates(root, cache) {
 		owners := 0
 		for ancestor := candidate.Parent; ancestor != nil; ancestor = ancestor.Parent {
 			if blockPattern.MatchString(attr(ancestor, "id")) {
@@ -410,7 +490,7 @@ func validateShowingOwnership(root *html.Node) error {
 	return nil
 }
 
-func documentShowingCandidates(root *html.Node) []*html.Node {
+func documentShowingCandidates(root *html.Node, cache *showingsParseCache) []*html.Node {
 	seen := map[*html.Node]bool{}
 	candidates := []*html.Node{}
 	add := func(node *html.Node) {
@@ -431,17 +511,13 @@ func documentShowingCandidates(root *html.Node) []*html.Node {
 		}
 		add(node)
 		if hasClass(node, "session") {
-			for _, button := range descendants(node, func(n *html.Node) bool {
-				return n.Type == html.ElementNode && n.Data == "button"
-			}) {
+			for _, button := range cache.descendantButtons(node) {
 				add(button)
 			}
 			return
 		}
 		if node.Parent != nil {
-			for _, button := range descendants(node.Parent, func(n *html.Node) bool {
-				return n.Type == html.ElementNode && n.Data == "button"
-			}) {
+			for _, button := range cache.descendantButtons(node.Parent) {
 				add(button)
 			}
 		}
@@ -453,11 +529,9 @@ func isShowingStructure(node *html.Node) bool {
 	return hasClass(node, "session") || hasClass(node, "screening-room") || hasClass(node, "screening-2D3D")
 }
 
-func structuralShowingButtons(node, block *html.Node) []*html.Node {
+func structuralShowingButtons(node, block *html.Node, cache *showingsParseCache) []*html.Node {
 	for container := node; container != nil; container = container.Parent {
-		buttons := descendants(container, func(n *html.Node) bool {
-			return n.Type == html.ElementNode && n.Data == "button"
-		})
+		buttons := cache.descendantButtons(container)
 		if container.Type == html.ElementNode && container.Data == "button" {
 			buttons = append([]*html.Node{container}, buttons...)
 		}
@@ -568,8 +642,8 @@ var frenchWeekdays = map[string]time.Weekday{
 	"samedi":   time.Saturday,
 }
 
-func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.Time, location *time.Location) (bool, error) {
-	if len(documentShowingCandidates(root)) != 0 {
+func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.Time, location *time.Location, cache *showingsParseCache) (bool, error) {
+	if len(documentShowingCandidates(root, cache)) != 0 {
 		return false, nil
 	}
 	blocks := []*html.Node{}
@@ -608,7 +682,7 @@ func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.
 	if !recognizedNextSessionRoot(root, allBlocks) {
 		return false, nil
 	}
-	documentMarkerDates, err := nextSessionMarkerDates(root, location)
+	documentMarkerDates, err := nextSessionMarkerDates(root, location, cache)
 	if err != nil {
 		return false, nil
 	}
@@ -629,7 +703,7 @@ func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.
 				return false, nil
 			}
 		}
-		markerDates, err := nextSessionMarkerDates(block, location)
+		markerDates, err := nextSessionMarkerDates(block, location, cache)
 		if err != nil || len(markerDates) > 1 {
 			return false, nil
 		}
@@ -641,10 +715,10 @@ func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.
 		}
 	}
 	for _, placeholder := range placeholders {
-		if placeholderCarriesIdentity(placeholder) || placeholderCarriesShowingEvidence(placeholder) || len(documentShowingCandidates(placeholder)) != 0 {
+		if placeholderCarriesIdentity(placeholder) || placeholderCarriesShowingEvidence(placeholder) || len(documentShowingCandidates(placeholder, cache)) != 0 {
 			return false, nil
 		}
-		markerDates, err := nextSessionMarkerDates(placeholder, location)
+		markerDates, err := nextSessionMarkerDates(placeholder, location, cache)
 		if err != nil || len(markerDates) != 1 || !markerDates[0].After(serviceDate) {
 			return false, nil
 		}
@@ -724,16 +798,16 @@ func placeholderCarriesShowingEvidence(block *html.Node) bool {
 	return found
 }
 
-func nextSessionMarkerDates(block *html.Node, location *time.Location) ([]time.Time, error) {
+func nextSessionMarkerDates(block *html.Node, location *time.Location, cache *showingsParseCache) ([]time.Time, error) {
 	dates := []time.Time{}
-	for _, node := range descendants(block, func(n *html.Node) bool { return n.Type == html.ElementNode }) {
-		value := collapse(text(node))
+	for _, node := range cache.descendantElements(block) {
+		value := collapse(cache.text(node))
 		if !nextSessionPrefixPattern.MatchString(value) {
 			continue
 		}
 		hasMatchingDescendant := false
-		for _, child := range descendants(node, func(n *html.Node) bool { return n.Type == html.ElementNode }) {
-			if nextSessionPattern.MatchString(collapse(text(child))) {
+		for _, child := range cache.descendantElements(node) {
+			if nextSessionPattern.MatchString(collapse(cache.text(child))) {
 				hasMatchingDescendant = true
 				break
 			}
@@ -774,7 +848,7 @@ func parseNextSessionDate(value string, location *time.Location) (time.Time, err
 	return date, nil
 }
 
-func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string, date time.Time, location *time.Location, title string, runtime int, poster string) (schedule.ShowtimeRecord, error) {
+func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string, date time.Time, location *time.Location, title string, runtime int, poster string, cache *showingsParseCache) (schedule.ShowtimeRecord, error) {
 	showingID := attrAny(button, "data-showing", "data-showing-id")
 	buttonFilm, filmIDOK := providerNumericID(button, []string{"data-filmid", "data-film-id"}, "data-film")
 	buttonCinema, cinemaIDOK := providerNumericID(button, []string{"data-cinemaid", "data-cinema-id"}, "data-cinema")
@@ -805,15 +879,14 @@ func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string,
 	if err != nil || (!sameDay(parsedAttrDate, date) && !sameDay(parsedAttrDate, startDate)) {
 		return schedule.ShowtimeRecord{}, fmt.Errorf("invalid showing date")
 	}
-	format := showingFormat(button)
+	format := showingFormat(button, cache)
 	if !validShowingFormat(format) {
 		return schedule.ShowtimeRecord{}, fmt.Errorf("unknown showing format")
 	}
 	room := ""
 	for ancestor := button.Parent; ancestor != nil; ancestor = ancestor.Parent {
-		for _, node := range descendants(ancestor, func(n *html.Node) bool { return n.Type == html.ElementNode && hasClass(n, "screening-room") }) {
-			room = collapse(text(node))
-			break
+		if node := cache.firstDescendantWithClass(ancestor, "screening-room"); node != nil {
+			room = collapse(cache.text(node))
 		}
 		if room != "" || blockPattern.MatchString(attr(ancestor, "id")) {
 			break
@@ -861,11 +934,10 @@ func normalizeLanguage(value string) (string, error) {
 		return "", fmt.Errorf("unknown showing version")
 	}
 }
-func showingFormat(button *html.Node) string {
+func showingFormat(button *html.Node, cache *showingsParseCache) string {
 	for ancestor := button.Parent; ancestor != nil; ancestor = ancestor.Parent {
-		nodes := descendants(ancestor, func(n *html.Node) bool { return n.Type == html.ElementNode && hasClass(n, "screening-2D3D") })
-		if len(nodes) > 0 {
-			value := strings.ToUpper(collapse(text(nodes[0])))
+		if node := cache.firstDescendantWithClass(ancestor, "screening-2D3D"); node != nil {
+			value := strings.ToUpper(collapse(cache.text(node)))
 			switch {
 			case strings.Contains(value, "IMAX"):
 				return "IMAX"
@@ -881,7 +953,7 @@ func showingFormat(button *html.Node) string {
 				return value
 			}
 		}
-		if hasClass(ancestor, "session") || len(descendants(ancestor, func(n *html.Node) bool { return n.Type == html.ElementNode && hasClass(n, "screening-room") })) > 0 {
+		if hasClass(ancestor, "session") || cache.firstDescendantWithClass(ancestor, "screening-room") != nil {
 			return "2D"
 		}
 		if blockPattern.MatchString(attr(ancestor, "id")) {
@@ -938,7 +1010,7 @@ func attrAny(node *html.Node, names ...string) string {
 	return ""
 }
 func hasClass(node *html.Node, class string) bool {
-	for _, candidate := range strings.Fields(attr(node, "class")) {
+	for candidate := range strings.FieldsSeq(attr(node, "class")) {
 		if candidate == class {
 			return true
 		}
@@ -974,7 +1046,17 @@ func text(node *html.Node) string {
 	appendVisibleText(node)
 	return builder.String()
 }
-func collapse(value string) string { return strings.Join(strings.Fields(value), " ") }
+func collapse(value string) string {
+	var result strings.Builder
+	result.Grow(len(value))
+	for field := range strings.FieldsSeq(value) {
+		if result.Len() > 0 {
+			result.WriteByte(' ')
+		}
+		result.WriteString(field)
+	}
+	return result.String()
+}
 func singleEqual(values []string, want string) bool {
 	if len(values) == 0 {
 		return false

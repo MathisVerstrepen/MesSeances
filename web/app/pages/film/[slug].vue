@@ -203,6 +203,11 @@ function bookingLabel(showtime: Showtime, theater: MovieShowtimesTheater, timing
   return `Séance de ${formatParisTime(showtime.start_time)} à ${theater.name}${timingLabel}, réserver`
 }
 
+function formatRoom(room: string): string {
+  const roomName = room.trim().replace(/^salle\b\s*/i, '')
+  return roomName ? `Salle ${roomName}` : 'Salle'
+}
+
 function isNotFoundError(cause: unknown): boolean {
   return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
 }
@@ -557,7 +562,7 @@ useHead(() => ({
                       <ShowtimeFormat :format="showtime.format" />
                       <template v-if="showtime.room">
                         <span aria-hidden="true">·</span>
-                        <span>Salle {{ showtime.room }}</span>
+                        <span>{{ formatRoom(showtime.room) }}</span>
                       </template>
                     </div>
                     <span v-if="showtime.timingState === 'warning'" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-700">

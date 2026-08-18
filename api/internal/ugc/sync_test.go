@@ -2,8 +2,12 @@ package ugc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,28 +15,37 @@ import (
 )
 
 type fakeGetter struct {
+	mu        sync.Mutex
 	responses map[string][]byte
 	finalURLs map[string]string
 	calls     int
 	failKind  string
+	get       func(context.Context, string, string) (FetchResult, error)
 }
 
-func (f *fakeGetter) Get(_ context.Context, kind, rawURL string) (FetchResult, error) {
+func (f *fakeGetter) Get(ctx context.Context, kind, rawURL string) (FetchResult, error) {
+	f.mu.Lock()
 	f.calls++
+	get := f.get
 	if kind == f.failKind {
+		f.mu.Unlock()
 		return FetchResult{}, fmt.Errorf("synthetic transport failure")
 	}
 	body, ok := f.responses[rawURL]
-	if !ok {
-		return FetchResult{}, fmt.Errorf("unexpected URL")
-	}
 	finalURL := rawURL
 	if configured := f.finalURLs[rawURL]; configured != "" {
 		finalURL = configured
 	}
+	f.mu.Unlock()
+	if get != nil {
+		return get(ctx, kind, rawURL)
+	}
+	if !ok {
+		return FetchResult{}, fmt.Errorf("unexpected URL")
+	}
 	return FetchResult{Body: body, FinalURL: finalURL}, nil
 }
-func (f *fakeGetter) RequestCount() int { return f.calls }
+func (f *fakeGetter) RequestCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.calls }
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
 	body, err := os.ReadFile("testdata/" + name)
@@ -51,6 +64,84 @@ func TestSyncCompleteDiscovery(t *testing.T) {
 	}
 	if data.Scope != schedule.ScopeAll || summary.Cinemas != 1 || summary.Skipped != 0 || summary.Dates != 1 || summary.Showtimes != 2 || summary.Requests != 3 {
 		t.Fatalf("data=%+v summary=%+v", data, summary)
+	}
+}
+
+func TestSyncPreservesCinemaDateAndShowtimeOrderAcrossReverseCompletion(t *testing.T) {
+	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=44</loc></url><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
+	cinemaURLs := map[string][]byte{
+		"https://www.ugc.fr/cinema.html?id=25": readFixture(t, "cinema.html"),
+		"https://www.ugc.fr/cinema.html?id=44": readFixture(t, "cinema-44.html"),
+	}
+	showingURLs := map[string][]byte{
+		"https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=15%2F08%2F2026&page=30007": readFixture(t, "showings.html"),
+		"https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=44&date=15%2F08%2F2026&page=30007": readFixture(t, "showings-44.html"),
+	}
+	cinemaStarted := make(chan string, 2)
+	showingsStarted := make(chan string, 2)
+	cinemaRelease := map[string]chan struct{}{"25": make(chan struct{}), "44": make(chan struct{})}
+	showingsRelease := map[string]chan struct{}{"25": make(chan struct{}), "44": make(chan struct{})}
+	getter := &fakeGetter{get: func(ctx context.Context, kind, rawURL string) (FetchResult, error) {
+		if kind == "sitemap" {
+			return FetchResult{Body: sitemap, FinalURL: rawURL}, nil
+		}
+		if strings.HasPrefix(kind, "cinema ") {
+			id := strings.TrimPrefix(kind, "cinema ")
+			cinemaStarted <- id
+			select {
+			case <-cinemaRelease[id]:
+				return FetchResult{Body: cinemaURLs[rawURL], FinalURL: rawURL}, nil
+			case <-ctx.Done():
+				return FetchResult{}, ctx.Err()
+			}
+		}
+		if strings.HasPrefix(kind, "showings cinema ") {
+			fields := strings.Fields(kind)
+			id := fields[2]
+			showingsStarted <- id
+			select {
+			case <-showingsRelease[id]:
+				return FetchResult{Body: showingURLs[rawURL], FinalURL: rawURL}, nil
+			case <-ctx.Done():
+				return FetchResult{}, ctx.Err()
+			}
+		}
+		return FetchResult{}, fmt.Errorf("unexpected request kind")
+	}}
+	type syncOutcome struct {
+		data    schedule.Dataset
+		summary SyncSummary
+		err     error
+	}
+	done := make(chan syncOutcome, 1)
+	go func() {
+		data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+		done <- syncOutcome{data: data, summary: summary, err: err}
+	}()
+	firstCinema, secondCinema := <-cinemaStarted, <-cinemaStarted
+	if firstCinema == secondCinema {
+		t.Fatalf("cinema starts=%q,%q", firstCinema, secondCinema)
+	}
+	close(cinemaRelease["44"])
+	close(cinemaRelease["25"])
+	firstShowings, secondShowings := <-showingsStarted, <-showingsStarted
+	if firstShowings == secondShowings {
+		t.Fatalf("showings starts=%q,%q", firstShowings, secondShowings)
+	}
+	close(showingsRelease["44"])
+	close(showingsRelease["25"])
+	outcome := <-done
+	if outcome.err != nil {
+		t.Fatal(outcome.err)
+	}
+	if len(outcome.data.Theaters) != 2 || outcome.data.Theaters[0].ProviderID != "25" || outcome.data.Theaters[1].ProviderID != "44" {
+		t.Fatalf("theaters=%+v", outcome.data.Theaters)
+	}
+	if len(outcome.data.Showtimes) != 3 || outcome.data.Showtimes[0].ProviderShowingID != "900" || outcome.data.Showtimes[1].ProviderShowingID != "901" || outcome.data.Showtimes[2].ProviderShowingID != "944" {
+		t.Fatalf("showtimes=%+v", outcome.data.Showtimes)
+	}
+	if outcome.summary.Cinemas != 2 || outcome.summary.Dates != 2 || outcome.summary.Requests != 5 || outcome.summary.Showtimes != 3 {
+		t.Fatalf("summary=%+v", outcome.summary)
 	}
 }
 
@@ -205,13 +296,40 @@ func TestSyncExpectedCinemaURLKeepsParseFailureTerminal(t *testing.T) {
 	}
 }
 func TestSyncStopsOnFailure(t *testing.T) {
-	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: readFixture(t, "sitemap.xml")}, failKind: "cinema 3"}
-	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
-	if err == nil {
-		t.Fatal("failure skipped")
+	sitemap := readFixture(t, "sitemap.xml")
+	siblingStarted := make(chan struct{})
+	siblingExited := make(chan struct{})
+	var queuedStarted atomic.Bool
+	getter := &fakeGetter{get: func(ctx context.Context, kind, rawURL string) (FetchResult, error) {
+		switch kind {
+		case "sitemap":
+			return FetchResult{Body: sitemap, FinalURL: rawURL}, nil
+		case "cinema 3":
+			<-siblingStarted
+			return FetchResult{}, fmt.Errorf("synthetic transport failure")
+		case "cinema 25":
+			close(siblingStarted)
+			<-ctx.Done()
+			close(siblingExited)
+			return FetchResult{}, ctx.Err()
+		case "cinema 46":
+			queuedStarted.Store(true)
+			return FetchResult{}, fmt.Errorf("queued request started")
+		default:
+			return FetchResult{}, fmt.Errorf("unexpected request")
+		}
+	}}
+	data, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
+	if err == nil || err.Error() != "synthetic transport failure" || len(data.Theaters) != 0 || queuedStarted.Load() {
+		t.Fatalf("data=%+v error=%v queued_started=%v", data, err, queuedStarted.Load())
 	}
-	if getter.calls != 2 {
-		t.Fatalf("calls=%d", getter.calls)
+	if getter.RequestCount() != 3 {
+		t.Fatalf("calls=%d", getter.RequestCount())
+	}
+	select {
+	case <-siblingExited:
+	default:
+		t.Fatal("sync returned before sibling worker exited")
 	}
 }
 
@@ -234,5 +352,94 @@ func TestCanAppendShowtimesBoundaries(t *testing.T) {
 	}
 	if canAppendShowtimes(schedule.MaxShowtimes, 1) || canAppendShowtimes(-1, 1) {
 		t.Fatal("showtime total overflow accepted")
+	}
+}
+
+func TestRunIndexedPhaseUsesExactlyTwoWorkersAndPreservesOrder(t *testing.T) {
+	jobs := []int{0, 1, 2, 3}
+	started := make(chan int, len(jobs))
+	gates := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	var active atomic.Int32
+	var maximum atomic.Int32
+	done := make(chan struct {
+		results []int
+		err     error
+	}, 1)
+	go func() {
+		results, err := runIndexedPhase(context.Background(), jobs, func(_ context.Context, job int) (int, error) {
+			current := active.Add(1)
+			for {
+				previous := maximum.Load()
+				if current <= previous || maximum.CompareAndSwap(previous, current) {
+					break
+				}
+			}
+			started <- job
+			<-gates[job]
+			active.Add(-1)
+			return job * 10, nil
+		})
+		done <- struct {
+			results []int
+			err     error
+		}{results: results, err: err}
+	}()
+	first, second := <-started, <-started
+	if first == second || maximum.Load() != ugcWorkerCount {
+		t.Fatalf("started=%d,%d maximum=%d", first, second, maximum.Load())
+	}
+	select {
+	case third := <-started:
+		t.Fatalf("third job %d started while two active", third)
+	default:
+	}
+	close(gates[second])
+	third := <-started
+	close(gates[first])
+	fourth := <-started
+	close(gates[fourth])
+	close(gates[third])
+	outcome := <-done
+	if outcome.err != nil {
+		t.Fatal(outcome.err)
+	}
+	want := []int{0, 10, 20, 30}
+	for index := range want {
+		if outcome.results[index] != want[index] {
+			t.Fatalf("results=%v want=%v", outcome.results, want)
+		}
+	}
+	if maximum.Load() != ugcWorkerCount {
+		t.Fatalf("maximum=%d", maximum.Load())
+	}
+}
+
+func TestRunIndexedPhaseFirstErrorCancelsSiblingAndQueuedJobs(t *testing.T) {
+	original := errors.New("original phase failure")
+	siblingStarted := make(chan struct{})
+	siblingExited := make(chan struct{})
+	var queuedStarted atomic.Bool
+	results, err := runIndexedPhase(context.Background(), []int{0, 1, 2}, func(ctx context.Context, job int) (int, error) {
+		switch job {
+		case 0:
+			<-siblingStarted
+			return 0, original
+		case 1:
+			close(siblingStarted)
+			<-ctx.Done()
+			close(siblingExited)
+			return 0, ctx.Err()
+		default:
+			queuedStarted.Store(true)
+			return job, nil
+		}
+	})
+	if !errors.Is(err, original) || results != nil || queuedStarted.Load() {
+		t.Fatalf("results=%v error=%v queued_started=%v", results, err, queuedStarted.Load())
+	}
+	select {
+	case <-siblingExited:
+	default:
+		t.Fatal("phase returned before in-flight sibling exited")
 	}
 }

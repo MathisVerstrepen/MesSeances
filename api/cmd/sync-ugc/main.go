@@ -20,7 +20,7 @@ import (
 type config struct {
 	proxyFile, from, through, cinemaID string
 	proxyLimit                         int
-	requestInterval, timeout           time.Duration
+	timeout                            time.Duration
 }
 
 type dependencies struct {
@@ -79,7 +79,6 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	flags.StringVar(&cfg.through, "through", today.AddDate(0, 0, 7).Format("2006-01-02"), "last service date (inclusive)")
 	flags.StringVar(&cfg.cinemaID, "cinema-id", "", "diagnostic cinema ID")
 	flags.IntVar(&cfg.proxyLimit, "proxy-limit", 0, "maximum proxies to use")
-	flags.DurationVar(&cfg.requestInterval, "request-interval", 2*time.Second, "delay between request starts")
 	flags.DurationVar(&cfg.timeout, "timeout", 20*time.Second, "per-request timeout")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -106,10 +105,6 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		fmt.Fprintln(stderr, "configuration error: proxy-limit cannot be negative")
 		return 2
 	}
-	if cfg.requestInterval < time.Second {
-		fmt.Fprintln(stderr, "configuration error: request-interval must be at least 1s")
-		return 2
-	}
 	if cfg.timeout < 5*time.Second || cfg.timeout > 60*time.Second {
 		fmt.Fprintln(stderr, "configuration error: timeout must be between 5s and 60s")
 		return 2
@@ -132,7 +127,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		}
 		proxies = proxies[:cfg.proxyLimit]
 	}
-	client, err := ugc.NewClient(ugc.ClientConfig{Proxies: proxies, RequestInterval: cfg.requestInterval, Timeout: cfg.timeout})
+	client, err := ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.timeout})
 	if err != nil {
 		fmt.Fprintln(stderr, "configuration error: invalid transport settings")
 		return 2

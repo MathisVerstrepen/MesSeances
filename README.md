@@ -76,7 +76,7 @@ cd api
 go run ./cmd/sync-ugc -proxy-file /chemin/vers/proxies.txt -cinema-id 25
 ```
 
-Toutes les requêtes UGC passent obligatoirement par les proxies fournis. Le client emploie `net/http`, une seule requête simultanée et un intervalle global de deux secondes. Il effectue au plus une nouvelle tentative après une erreur de transport ou un statut 5xx. Un statut 403 ou 429, une page de blocage ou un challenge arrête immédiatement la synchronisation. Ne jamais publier le fichier de proxies, ses identifiants ou sa sortie ; les messages ne contiennent que des compteurs et des informations publiques.
+Toutes les requêtes UGC passent obligatoirement par les proxies fournis. Après la requête de sitemap, le client emploie exactement deux workers pour les cinémas puis exactement deux workers pour les séances, sans attente artificielle. Chaque requête réserve un proxy exclusif et effectue jusqu’à quatre tentatives sur des proxies distincts après une erreur de transport ou un statut 5xx, avec des attentes de 500 ms, 1 s puis 2 s. Un statut 403 ou 429, une page de blocage ou un challenge arrête immédiatement la synchronisation. Ne jamais publier le fichier de proxies, ses identifiants ou sa sortie ; les messages ne contiennent que des compteurs et des informations publiques.
 
 ## Démarrage local
 

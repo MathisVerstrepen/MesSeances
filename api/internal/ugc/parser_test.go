@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -161,17 +162,30 @@ func TestParseShowings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 {
-		t.Fatalf("records=%d", len(records))
+	location, locationErr := time.LoadLocation(schedule.Timezone)
+	if locationErr != nil {
+		t.Fatal(locationErr)
 	}
-	if records[0].Language != schedule.LanguageVOSTFR || records[0].Format != "3D" || records[0].Movie.RuntimeMinutes != 83 || records[0].Room != "Salle 4" {
-		t.Fatalf("first=%+v", records[0])
+	movie := schedule.MovieRecord{ProviderID: "700", Slug: "ugc-film-700", Title: "L'Été & nous", RuntimeMinutes: 83, PosterURL: "https://www.ugc.fr/posters/700.jpg"}
+	firstStart := time.Date(2026, 8, 15, 12, 0, 0, 0, location)
+	secondStart := time.Date(2026, 8, 16, 0, 15, 0, 0, location)
+	want := []schedule.ShowtimeRecord{
+		{ID: "ugc-showing-900", ProviderShowingID: "900", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: movie, StartTime: firstStart, EndTime: firstStart.Add(83 * time.Minute), Language: schedule.LanguageVOSTFR, ProviderVersion: "VOSTF", Format: "3D", Room: "Salle 4", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=900"},
+		{ID: "ugc-showing-901", ProviderShowingID: "901", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: movie, StartTime: secondStart, EndTime: secondStart.Add(83 * time.Minute), Language: schedule.LanguageVFSME, ProviderVersion: "VFSTF", Format: "2D", Room: "Salle 4", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=901"},
 	}
-	if records[1].Language != schedule.LanguageVFSME || records[1].StartTime.Day() != 16 {
-		t.Fatalf("second=%+v", records[1])
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%+v\nwant=%+v", records, want)
 	}
-	if records[0].Movie.Title != "L'Été & nous" {
-		t.Fatalf("canonical title=%q", records[0].Movie.Title)
+}
+
+func TestParseShowingsPreservesNearestRoomAndFormatWithSharedNestedStructure(t *testing.T) {
+	body := `<article id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_public_1.html?cinemaId=25">Film</a></div><span>(2h)</span><div class="session"><span class="screening-room">Salle extérieure</span><span class="screening-2D3D">IMAX</span><div class="session"><span class="screening-room">Salle intérieure</span><span class="screening-2D3D">4DX</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div><button data-showing="11" data-film="1" data-cinema="25" data-version="VO" data-seancedate="15/08/2026" data-seancehour="13:00"></button></div></article>`
+	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].ProviderShowingID != "10" || records[0].Room != "Salle intérieure" || records[0].Format != "4DX" || records[1].ProviderShowingID != "11" || records[1].Room != "Salle extérieure" || records[1].Format != "IMAX" {
+		t.Fatalf("records=%+v", records)
 	}
 }
 

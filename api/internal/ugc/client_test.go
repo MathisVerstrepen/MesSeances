@@ -7,8 +7,37 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+type trackingReadCloser struct {
+	io.Reader
+	closed bool
+}
+
+func (body *trackingReadCloser) Close() error {
+	body.closed = true
+	return nil
+}
+
+type failingReader struct {
+	remaining int
+}
+
+func (reader *failingReader) Read(buffer []byte) (int, error) {
+	if reader.remaining == 0 {
+		return 0, errors.New("synthetic read failure")
+	}
+	n := min(len(buffer), reader.remaining)
+	for index := range n {
+		buffer[index] = 'x'
+	}
+	reader.remaining -= n
+	return n, nil
+}
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
@@ -23,9 +52,41 @@ func response(status int, body string) *http.Response {
 	return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}
 }
 
+func noRetrySleep(context.Context, time.Duration) error { return nil }
+
+func TestClientSuccessfulRequestsAdvanceRoundRobin(t *testing.T) {
+	order := []int{}
+	clients := make([]*http.Client, 3)
+	for index := range clients {
+		ordinal := index + 1
+		clients[index] = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			order = append(order, ordinal)
+			return response(http.StatusOK, "ok"), nil
+		})}
+	}
+	client := &Client{clients: clients, unavailable: make([]bool, len(clients))}
+	for range 4 {
+		if _, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := client.RequestCount(); got != 4 {
+		t.Fatalf("request count=%d", got)
+	}
+	want := []int{1, 2, 3, 1}
+	if len(order) != len(want) {
+		t.Fatalf("order=%v", order)
+	}
+	for index := range want {
+		if order[index] != want[index] {
+			t.Fatalf("order=%v want=%v", order, want)
+		}
+	}
+}
+
 func TestClientTerminalResponseDoesNotRotate(t *testing.T) {
 	first, second := 0, 0
-	c := &Client{config: ClientConfig{}, clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { first++; return response(403, "blocked"), nil })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { second++; return response(200, "ok"), nil })}}, unavailable: make([]bool, 2)}
+	c := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { first++; return response(403, "blocked"), nil })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { second++; return response(200, "ok"), nil })}}, unavailable: make([]bool, 2)}
 	_, err := c.Get(context.Background(), "showings", "https://www.ugc.fr/test")
 	var terminal *TerminalError
 	if !errors.As(err, &terminal) {
@@ -37,7 +98,7 @@ func TestClientTerminalResponseDoesNotRotate(t *testing.T) {
 }
 func TestClientChallengeRedactsSyntheticSecret(t *testing.T) {
 	secret := "synthetic-password"
-	c := &Client{config: ClientConfig{}, clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+	c := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return response(200, `<title>DataDome CAPTCHA</title>`+secret), nil
 	})}}, unavailable: make([]bool, 1)}
 	_, err := c.Get(context.Background(), "cinema", "https://www.ugc.fr/test")
@@ -50,16 +111,271 @@ func TestClientChallengeRedactsSyntheticSecret(t *testing.T) {
 }
 func TestClientRetriesOneServerFailure(t *testing.T) {
 	calls := 0
-	c := &Client{config: ClientConfig{}, clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return response(500, "temporary"), nil })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return response(200, "ok"), nil })}}, unavailable: make([]bool, 2)}
+	c := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return response(500, "temporary"), nil })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { calls++; return response(200, "ok"), nil })}}, unavailable: make([]bool, 2), sleep: noRetrySleep}
 	result, err := c.Get(context.Background(), "sitemap", "https://www.ugc.fr/test")
 	if err != nil || string(result.Body) != "ok" || result.FinalURL != "https://www.ugc.fr/test" || calls != 2 {
 		t.Fatalf("result=%+v calls=%d err=%v", result, calls, err)
 	}
 }
 
+func TestClientConcurrentCallsLeaseDistinctProxies(t *testing.T) {
+	started := make(chan int, 2)
+	release := make(chan struct{})
+	clients := make([]*http.Client, 2)
+	for index := range clients {
+		ordinal := index + 1
+		clients[index] = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			started <- ordinal
+			select {
+			case <-release:
+				return response(http.StatusOK, "ok"), nil
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			}
+		})}
+	}
+	client := &Client{clients: clients, unavailable: make([]bool, 2)}
+	errors := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+			errors <- err
+		}()
+	}
+	first, second := <-started, <-started
+	if first == second {
+		t.Fatalf("shared proxy ordinal=%d", first)
+	}
+	close(release)
+	for range 2 {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestClientRetriesFourDistinctProxiesWithExactBackoff(t *testing.T) {
+	clients := []*http.Client{
+		{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("transport") })},
+		{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(http.StatusBadGateway, "temporary"), nil })},
+		{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("transport") })},
+		{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(http.StatusOK, "ok"), nil })},
+	}
+	delays := []time.Duration{}
+	client := &Client{clients: clients, unavailable: make([]bool, 4), sleep: func(_ context.Context, delay time.Duration) error {
+		delays = append(delays, delay)
+		return nil
+	}}
+	result, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+	wantDelays := []time.Duration{500 * time.Millisecond, time.Second, 2 * time.Second}
+	if err != nil || string(result.Body) != "ok" || client.RequestCount() != 4 || len(delays) != len(wantDelays) {
+		t.Fatalf("result=%+v count=%d delays=%v error=%v", result, client.RequestCount(), delays, err)
+	}
+	for index := range wantDelays {
+		if delays[index] != wantDelays[index] {
+			t.Fatalf("delays=%v want=%v", delays, wantDelays)
+		}
+	}
+}
+
+func TestClientRetryAttemptBoundAndEarlyExhaustion(t *testing.T) {
+	for _, proxyCount := range []int{1, 2, 4, 5} {
+		t.Run(string(rune('0'+proxyCount))+" proxies", func(t *testing.T) {
+			var calls atomic.Int32
+			clients := make([]*http.Client, proxyCount)
+			for index := range clients {
+				clients[index] = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					calls.Add(1)
+					return response(http.StatusServiceUnavailable, "temporary"), nil
+				})}
+			}
+			delays := []time.Duration{}
+			client := &Client{clients: clients, unavailable: make([]bool, proxyCount), sleep: func(_ context.Context, delay time.Duration) error {
+				delays = append(delays, delay)
+				return nil
+			}}
+			if _, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test"); err == nil {
+				t.Fatal("all-failure request succeeded")
+			}
+			wantAttempts := min(proxyCount, maxRequestAttempts)
+			if int(calls.Load()) != wantAttempts || client.RequestCount() != wantAttempts || len(delays) != wantAttempts-1 {
+				t.Fatalf("calls=%d count=%d delays=%v want attempts=%d", calls.Load(), client.RequestCount(), delays, wantAttempts)
+			}
+		})
+	}
+}
+
+func TestClientCancellationDuringBackoffStopsRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sleepStarted := make(chan struct{})
+	var retries atomic.Int32
+	client := &Client{
+		clients: []*http.Client{
+			{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("transport") })},
+			{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				retries.Add(1)
+				return response(http.StatusOK, "unexpected"), nil
+			})},
+		},
+		unavailable: make([]bool, 2),
+		sleep: func(ctx context.Context, _ time.Duration) error {
+			close(sleepStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.Get(ctx, "showings", "https://www.ugc.fr/test")
+		done <- err
+	}()
+	<-sleepStarted
+	cancel()
+	err := <-done
+	if err == nil || !strings.Contains(err.Error(), "canceled") || client.RequestCount() != 1 || retries.Load() != 0 {
+		t.Fatalf("error=%v count=%d retries=%d", err, client.RequestCount(), retries.Load())
+	}
+}
+
+func TestClientCancellationDuringLeaseWaitStopsSafely(t *testing.T) {
+	requestStarted := make(chan struct{})
+	release := make(chan struct{})
+	client := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		close(requestStarted)
+		select {
+		case <-release:
+			return response(http.StatusOK, "ok"), nil
+		case <-request.Context().Done():
+			return nil, request.Context().Err()
+		}
+	})}}, unavailable: make([]bool, 1)}
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+		firstDone <- err
+	}()
+	<-requestStarted
+	waitCtx, cancel := context.WithCancel(context.Background())
+	waitDone := make(chan error, 1)
+	go func() {
+		_, err := client.Get(waitCtx, "showings", "https://www.ugc.fr/test")
+		waitDone <- err
+	}()
+	cancel()
+	if err := <-waitDone; err == nil || !strings.Contains(err.Error(), "canceled") {
+		t.Fatalf("wait error=%v", err)
+	}
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatal(err)
+	}
+	if client.RequestCount() != 1 {
+		t.Fatalf("count=%d", client.RequestCount())
+	}
+}
+
+func TestClientTerminalResponsesNeverRetryOrSleep(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "forbidden", status: http.StatusForbidden, body: "blocked"},
+		{name: "rate limited", status: http.StatusTooManyRequests, body: "blocked"},
+		{name: "challenge", status: http.StatusOK, body: `<title>DataDome CAPTCHA</title>`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var sleeps atomic.Int32
+			client := &Client{
+				clients:     []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(test.status, test.body), nil })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("terminal response retried"); return nil, nil })}},
+				unavailable: make([]bool, 2),
+				sleep:       func(context.Context, time.Duration) error { sleeps.Add(1); return nil },
+			}
+			_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+			var terminal *TerminalError
+			if !errors.As(err, &terminal) || client.RequestCount() != 1 || sleeps.Load() != 0 {
+				t.Fatalf("error=%v count=%d sleeps=%d", err, client.RequestCount(), sleeps.Load())
+			}
+		})
+	}
+}
+
+func TestClientConcurrentRequestCount(t *testing.T) {
+	const requests = 40
+	clients := make([]*http.Client, 2)
+	for index := range clients {
+		clients[index] = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(http.StatusOK, "ok"), nil })}
+	}
+	client := &Client{clients: clients, unavailable: make([]bool, 2)}
+	var workers sync.WaitGroup
+	workers.Add(requests)
+	for range requests {
+		go func() {
+			defer workers.Done()
+			if _, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test"); err != nil {
+				t.Errorf("Get: %v", err)
+			}
+		}()
+	}
+	workers.Wait()
+	if client.RequestCount() != requests {
+		t.Fatalf("count=%d want=%d", client.RequestCount(), requests)
+	}
+}
+
+func TestClientUsesContentLengthHintAndClosesBody(t *testing.T) {
+	body := &trackingReadCloser{Reader: strings.NewReader("public response")}
+	client := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: body, ContentLength: int64(len("public response")), Request: request}, nil
+	})}}, unavailable: make([]bool, 1)}
+	result, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+	if err != nil || string(result.Body) != "public response" || !body.closed {
+		t.Fatalf("result=%+v closed=%v error=%v", result, body.closed, err)
+	}
+}
+
+func TestReadBoundedContentLengthIsOnlyAHint(t *testing.T) {
+	tests := []struct {
+		name          string
+		bodyBytes     int
+		contentLength int64
+		wantError     bool
+	}{
+		{name: "honest known length", bodyBytes: 1024, contentLength: 1024},
+		{name: "unknown length", bodyBytes: 1024, contentLength: -1},
+		{name: "understated length", bodyBytes: 2048, contentLength: 32},
+		{name: "overstated length", bodyBytes: 1024, contentLength: maxResponseBytes * 2},
+		{name: "exact limit", bodyBytes: maxResponseBytes, contentLength: maxResponseBytes},
+		{name: "limit plus one", bodyBytes: maxResponseBytes + 1, contentLength: 1, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := readBounded(strings.NewReader(strings.Repeat("x", test.bodyBytes)), test.contentLength)
+			if test.wantError {
+				if err == nil || err.Error() != "too large" {
+					t.Fatalf("body=%d error=%v", len(body), err)
+				}
+				return
+			}
+			if err != nil || len(body) != test.bodyBytes {
+				t.Fatalf("body=%d want=%d error=%v", len(body), test.bodyBytes, err)
+			}
+		})
+	}
+}
+
+func TestReadBoundedReturnsReadFailure(t *testing.T) {
+	_, err := readBounded(&failingReader{remaining: 700}, 700)
+	if err == nil || err.Error() != "synthetic read failure" {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestClientExposesSanitizedFinalRedirectURL(t *testing.T) {
 	calls := 0
-	c := &Client{config: ClientConfig{}, clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+	c := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		calls++
 		if request.URL.Path == "/cinema.html" {
 			result := response(http.StatusFound, "redirect")
@@ -87,7 +403,7 @@ func TestClientRejectsNonExactInitialAuthority(t *testing.T) {
 	for _, raw := range urls {
 		t.Run(raw, func(t *testing.T) {
 			calls := 0
-			client := &Client{config: ClientConfig{}, clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			client := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 				calls++
 				return response(200, "ok"), nil
 			})}}, unavailable: make([]bool, 1)}

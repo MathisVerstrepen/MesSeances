@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	"movieflow/api/internal/schedule"
 )
 
 const SitemapURL = "https://www.ugc.fr/dynamique/sitemaps/frontend/sitemap.xml"
+const ugcWorkerCount = 2
 
 type Getter interface {
 	Get(context.Context, string, string) (FetchResult, error)
@@ -33,8 +35,100 @@ type SyncSummary struct {
 	GeneratedAt time.Time
 }
 
+type indexedJob[T any] struct {
+	index int
+	value T
+}
+
+type indexedResult[T any] struct {
+	index int
+	value T
+}
+
+func runIndexedPhase[J, R any](ctx context.Context, jobs []J, work func(context.Context, J) (R, error)) ([]R, error) {
+	if len(jobs) == 0 {
+		return []R{}, nil
+	}
+	phaseCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	jobQueue := make(chan indexedJob[J], len(jobs))
+	results := make(chan indexedResult[R], len(jobs))
+	for index, job := range jobs {
+		jobQueue <- indexedJob[J]{index: index, value: job}
+	}
+	close(jobQueue)
+
+	var workers sync.WaitGroup
+	var firstError error
+	var captureError sync.Once
+	workers.Add(ugcWorkerCount)
+	for range ugcWorkerCount {
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-phaseCtx.Done():
+					return
+				case job, ok := <-jobQueue:
+					if !ok {
+						return
+					}
+					if phaseCtx.Err() != nil {
+						return
+					}
+					result, err := work(phaseCtx, job.value)
+					if err != nil {
+						captureError.Do(func() {
+							firstError = err
+							cancel()
+						})
+						return
+					}
+					results <- indexedResult[R]{index: job.index, value: result}
+				}
+			}
+		}()
+	}
+	workers.Wait()
+	close(results)
+	if firstError != nil {
+		return nil, firstError
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	ordered := make([]R, len(jobs))
+	count := 0
+	for result := range results {
+		ordered[result.index] = result.value
+		count++
+	}
+	if count != len(jobs) {
+		return nil, fmt.Errorf("UGC phase canceled")
+	}
+	return ordered, nil
+}
+
+type cinemaFetchJob struct {
+	requestedID string
+}
+
+type cinemaFetchResult struct {
+	requestedID string
+	canonicalID string
+	inactive    bool
+	body        []byte
+}
+
+type showingsFetchJob struct {
+	requestedID string
+	cinema      Cinema
+	serviceDate string
+	rawURL      string
+}
+
 func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dataset, SyncSummary, error) {
-	location, err := time.LoadLocation(schedule.Timezone)
+	location, err := scheduleLocation()
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, err
 	}
@@ -77,40 +171,50 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		scope = schedule.ScopeSingle
 	}
 	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderUGC, Scope: scope, GeneratedAt: options.Now.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: options.From, Through: options.Through}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
-	dateCount := 0
 	skipped := 0
 	seenCanonical := map[string]bool{}
-	for _, id := range selected {
-		cinemaURL := "https://www.ugc.fr/cinema.html?id=" + url.QueryEscape(id)
-		page, requestErr := client.Get(ctx, "cinema "+id, cinemaURL)
+	cinemaJobs := make([]cinemaFetchJob, len(selected))
+	for index, id := range selected {
+		cinemaJobs[index] = cinemaFetchJob{requestedID: id}
+	}
+	cinemaResults, err := runIndexedPhase(ctx, cinemaJobs, func(phaseCtx context.Context, job cinemaFetchJob) (cinemaFetchResult, error) {
+		cinemaURL := "https://www.ugc.fr/cinema.html?id=" + url.QueryEscape(job.requestedID)
+		page, requestErr := client.Get(phaseCtx, "cinema "+job.requestedID, cinemaURL)
 		if requestErr != nil {
-			return schedule.Dataset{}, SyncSummary{}, requestErr
+			return cinemaFetchResult{}, requestErr
 		}
 		canonicalID, inactive, finalURLErr := classifyCinemaFinalURL(page.FinalURL)
 		if finalURLErr != nil {
-			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("cinema %s response has unexpected final URL", id)
+			return cinemaFetchResult{}, fmt.Errorf("cinema %s response has unexpected final URL", job.requestedID)
 		}
-		if inactive {
+		return cinemaFetchResult{requestedID: job.requestedID, canonicalID: canonicalID, inactive: inactive, body: page.Body}, nil
+	})
+	if err != nil {
+		return schedule.Dataset{}, SyncSummary{}, err
+	}
+	showingsJobs := []showingsFetchJob{}
+	for _, result := range cinemaResults {
+		if result.inactive {
 			if scope == schedule.ScopeSingle {
-				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("cinema %s is inactive: redirected to UGC cinema directory", id)
+				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("cinema %s is inactive: redirected to UGC cinema directory", result.requestedID)
 			}
 			skipped++
 			continue
 		}
-		if seenCanonical[canonicalID] {
+		if seenCanonical[result.canonicalID] {
 			skipped++
 			continue
 		}
-		seenCanonical[canonicalID] = true
-		cinema, parseErr := ParseCinema(bytes.NewReader(page.Body), canonicalID)
+		seenCanonical[result.canonicalID] = true
+		cinema, parseErr := ParseCinema(bytes.NewReader(result.body), result.canonicalID)
 		if parseErr != nil {
-			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse cinema %s: %w", id, parseErr)
+			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse cinema %s: %w", result.requestedID, parseErr)
 		}
 		intersected := []string{}
 		for _, value := range cinema.AdvertisedDates {
 			date, parseDateErr := time.ParseInLocation("2006-01-02", value, location)
 			if parseDateErr != nil {
-				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("invalid advertised date for cinema %s", id)
+				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("invalid advertised date for cinema %s", result.requestedID)
 			}
 			if !date.Before(from) && !date.After(through) {
 				intersected = append(intersected, value)
@@ -119,29 +223,37 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		if len(data.Theaters) >= schedule.MaxTheaters {
 			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync theater limit exceeded")
 		}
-		theater := schedule.TheaterRecord{ID: "ugc-" + canonicalID, ProviderID: canonicalID, Slug: "ugc-" + canonicalID, Name: cinema.Name, Address: cinema.Address, City: cinema.City, PostalCode: cinema.PostalCode, AvailableDates: intersected, AcceptedPasses: []string{"UGC_ILLIMITE"}}
+		theater := schedule.TheaterRecord{ID: "ugc-" + result.canonicalID, ProviderID: result.canonicalID, Slug: "ugc-" + result.canonicalID, Name: cinema.Name, Address: cinema.Address, City: cinema.City, PostalCode: cinema.PostalCode, AvailableDates: intersected, AcceptedPasses: []string{"UGC_ILLIMITE"}}
 		data.Theaters = append(data.Theaters, theater)
 		for _, serviceDate := range intersected {
-			dateCount++
 			parsed, _ := time.Parse("2006-01-02", serviceDate)
-			values := url.Values{"cinemaId": []string{canonicalID}, "date": []string{parsed.Format("02/01/2006")}, "page": []string{"30007"}}
+			values := url.Values{"cinemaId": []string{result.canonicalID}, "date": []string{parsed.Format("02/01/2006")}, "page": []string{"30007"}}
 			showingURL := "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?" + values.Encode()
-			showingPage, requestErr := client.Get(ctx, "showings cinema "+canonicalID+" date "+serviceDate, showingURL)
-			if requestErr != nil {
-				return schedule.Dataset{}, SyncSummary{}, requestErr
-			}
-			if !matchesFinalURL(showingPage.FinalURL, showingURL) {
-				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("showings cinema %s date %s response has unexpected final URL", id, serviceDate)
-			}
-			records, parseErr := ParseShowings(bytes.NewReader(showingPage.Body), cinema, serviceDate)
-			if parseErr != nil {
-				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse showings cinema %s date %s: %w", id, serviceDate, parseErr)
-			}
-			if !canAppendShowtimes(len(data.Showtimes), len(records)) {
-				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync showing limit exceeded")
-			}
-			data.Showtimes = append(data.Showtimes, records...)
+			showingsJobs = append(showingsJobs, showingsFetchJob{requestedID: result.requestedID, cinema: cinema, serviceDate: serviceDate, rawURL: showingURL})
 		}
+	}
+	showingsResults, err := runIndexedPhase(ctx, showingsJobs, func(phaseCtx context.Context, job showingsFetchJob) ([]schedule.ShowtimeRecord, error) {
+		showingPage, requestErr := client.Get(phaseCtx, "showings cinema "+job.cinema.ProviderID+" date "+job.serviceDate, job.rawURL)
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		if !matchesFinalURL(showingPage.FinalURL, job.rawURL) {
+			return nil, fmt.Errorf("showings cinema %s date %s response has unexpected final URL", job.requestedID, job.serviceDate)
+		}
+		records, parseErr := ParseShowings(bytes.NewReader(showingPage.Body), job.cinema, job.serviceDate)
+		if parseErr != nil {
+			return nil, fmt.Errorf("parse showings cinema %s date %s: %w", job.requestedID, job.serviceDate, parseErr)
+		}
+		return records, nil
+	})
+	if err != nil {
+		return schedule.Dataset{}, SyncSummary{}, err
+	}
+	for _, records := range showingsResults {
+		if !canAppendShowtimes(len(data.Showtimes), len(records)) {
+			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync showing limit exceeded")
+		}
+		data.Showtimes = append(data.Showtimes, records...)
 	}
 	if len(data.Theaters) == 0 {
 		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync produced no active cinemas")
@@ -152,7 +264,7 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 	if err := schedule.ValidateDataset(data, scope == schedule.ScopeAll); err != nil {
 		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("validate synchronized dataset: %w", err)
 	}
-	summary := SyncSummary{Scope: scope, Cinemas: len(data.Theaters), Dates: dateCount, Requests: client.RequestCount(), Showtimes: len(data.Showtimes), Skipped: skipped, GeneratedAt: data.GeneratedAt}
+	summary := SyncSummary{Scope: scope, Cinemas: len(data.Theaters), Dates: len(showingsJobs), Requests: client.RequestCount(), Showtimes: len(data.Showtimes), Skipped: skipped, GeneratedAt: data.GeneratedAt}
 	return data, summary, nil
 }
 

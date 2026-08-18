@@ -130,9 +130,12 @@ function isPastShowtime(endTime: string) {
   return new Date(endTime).getTime() <= now.value.getTime()
 }
 
-function backdropStyle(url: string | null, width: number) {
-  if (width < 80) return {}
-  const safeUrl = safeBackdropUrl(url)
+function planningImageUrl(backdropUrl: string | null, posterUrl: string | null) {
+  return safeBackdropUrl(backdropUrl) ?? safePosterUrl(posterUrl)
+}
+
+function planningImageStyle(backdropUrl: string | null, posterUrl: string | null) {
+  const safeUrl = planningImageUrl(backdropUrl, posterUrl)
   if (!safeUrl) return {}
 
   return {
@@ -272,7 +275,7 @@ onBeforeUnmount(() => {
               selected?.showtime.id === item.showtime.id ? 'border-accent opacity-100 saturate-100 ring-1 ring-accent' : '',
               isPastShowtime(item.showtime.end_time) && selected?.showtime.id !== item.showtime.id ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100 focus:opacity-100 focus:saturate-100' : ''
             ]"
-            :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, backdropStyle(item.showtime.backdrop_url, item.width)]"
+            :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
             :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${formatLabel(item.showtime.format)}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
@@ -284,16 +287,16 @@ onBeforeUnmount(() => {
             >
               <BrandedText
                 :text="mode === 'theater' ? item.showtime.movie.title : item.theater.name"
-                :logo-class="safeBackdropUrl(item.showtime.backdrop_url) ? 'brightness-0 invert' : ''"
+                :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''"
                 decorative
               />
             </span>
             <span
               class="mt-1 block truncate text-[11px] leading-[15px] text-current"
-              :class="item.width >= 80 && safeBackdropUrl(item.showtime.backdrop_url) ? 'opacity-90' : 'opacity-70'"
+              :class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'opacity-90' : 'opacity-70'"
             >
               {{ formatParisTime(item.showtime.start_time) }} · {{ item.showtime.language }} ·
-              <ShowtimeFormat :format="item.showtime.format" :logo-class="safeBackdropUrl(item.showtime.backdrop_url) ? 'brightness-0 invert' : ''" decorative />
+              <ShowtimeFormat :format="item.showtime.format" :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''" decorative />
             </span>
           </button>
         </div>
