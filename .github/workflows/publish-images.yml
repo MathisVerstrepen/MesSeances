@@ -42,4 +42,6 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.image.outputs.base }}-${{ matrix.suffix }}:${{ github.sha }}
+          tags: |
+            ${{ steps.image.outputs.base }}-${{ matrix.suffix }}:${{ github.sha }}
+            ${{ github.ref == 'refs/heads/main' && format('{0}-{1}:latest', steps.image.outputs.base, matrix.suffix) || '' }}
