@@ -10,6 +10,30 @@ const errorMessage = ref('')
 const failedPosters = ref<string[]>([])
 let requestId = 0
 
+const shortcuts = [
+  {
+    to: '/recherche',
+    eyebrow: '01 / Recherche',
+    title: 'Trouver une séance',
+    description: 'Partez de votre disponibilité, pas d’une liste interminable.',
+    icon: Search
+  },
+  {
+    to: '/planning',
+    eyebrow: '02 / Planning',
+    title: 'Composer ma sortie',
+    description: 'Comparez horaires, films et cinémas sur une seule frise.',
+    icon: CalendarRange
+  },
+  {
+    to: '/cinemas',
+    eyebrow: '03 / Cinémas',
+    title: 'Choisir mes salles',
+    description: 'Gardez vos cinémas favoris au centre de chaque recherche.',
+    icon: Building2
+  }
+]
+
 async function loadMovies() {
   const currentRequest = ++requestId
   pending.value = true
@@ -51,107 +75,255 @@ useHead({ title: 'MesSeances — Vos séances, au bon moment' })
 </script>
 
 <template>
-  <main>
-    <section class="mx-auto max-w-[1280px] px-4 pb-12 pt-12 sm:px-6 sm:pb-16 sm:pt-16 lg:px-10 lg:pb-20 lg:pt-24">
-      <div class="max-w-3xl">
-        <h1 class="text-4xl font-semibold tracking-tight text-ink sm:text-5xl lg:text-6xl">Vos séances, au bon moment.</h1>
-        <p class="mt-6 max-w-2xl text-lg leading-8 text-muted">
-          Consultez les séances de vos cinémas, visualisez votre journée et trouvez les films qui tiennent dans votre créneau.
-        </p>
-        <div class="mt-8 flex flex-col gap-3 sm:flex-row">
-          <NuxtLink to="/recherche" class="button-primary h-11 w-full sm:w-auto">
-            <Search :size="18" aria-hidden="true" /> Trouver une séance
-          </NuxtLink>
-          <NuxtLink to="/planning" class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink transition hover:border-line-hover hover:bg-subtle sm:w-auto">
-            <CalendarRange :size="18" aria-hidden="true" /> Voir le planning
-          </NuxtLink>
+  <main class="home-page overflow-hidden bg-[#f8f7f2]">
+    <section class="hero-intro border-b-2 border-ink bg-surface" aria-labelledby="home-title">
+      <div class="mx-auto grid max-w-[1440px] gap-10 px-4 pb-10 pt-12 sm:px-6 sm:pb-14 sm:pt-16 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,.55fr)] lg:items-end lg:px-10 lg:pb-16 lg:pt-20">
+        <div class="min-w-0">
+          <h1 id="home-title" class="hero-title text-[clamp(4.6rem,15vw,13rem)] font-black uppercase leading-[0.72] tracking-[-0.085em] text-ink">
+            Mes<span class="text-primary">.</span><br />Seances
+          </h1>
+        </div>
+
+        <div class="max-w-md lg:justify-self-end lg:pb-2">
+          <p class="text-balance text-2xl font-black leading-[0.95] tracking-[-0.04em] text-ink sm:text-3xl">
+            Le bon film.<br />Le bon cinéma.<br /><span class="inline-block bg-[#d7ff38] px-1">Au bon moment.</span>
+          </p>
+          <div class="mt-7 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
+            <NuxtLink to="/recherche" class="brutal-button bg-ink text-white hover:bg-primary">
+              <Search :size="18" aria-hidden="true" /> Trouver une séance
+            </NuxtLink>
+            <NuxtLink to="/planning" class="brutal-button border-2 border-ink bg-surface text-ink hover:bg-[#ffcf3f]">
+              Planning <ArrowRight :size="18" aria-hidden="true" />
+            </NuxtLink>
+          </div>
         </div>
       </div>
     </section>
 
-    <section class="border-y border-line bg-surface">
-      <div class="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10">
-        <h2 class="sr-only">Accès rapides</h2>
-        <ul class="grid gap-6 md:grid-cols-3 md:gap-0 md:divide-x md:divide-line">
-          <li>
-            <NuxtLink to="/recherche" class="group block rounded-md md:pr-8">
-              <Search :size="22" class="text-accent" aria-hidden="true" />
-              <h3 class="mt-4 flex items-center gap-2 text-base font-semibold text-ink group-hover:text-accent">
-                Trouver une séance <ArrowRight :size="16" aria-hidden="true" />
-              </h3>
-              <p class="mt-2 text-sm leading-6 text-muted">Indiquez votre disponibilité et affichez les séances qui tiennent dans ce créneau.</p>
-            </NuxtLink>
-          </li>
-          <li>
-            <NuxtLink to="/planning" class="group block rounded-md md:px-8">
-              <CalendarRange :size="22" class="text-accent" aria-hidden="true" />
-              <h3 class="mt-4 flex items-center gap-2 text-base font-semibold text-ink group-hover:text-accent">
-                Explorer le planning <ArrowRight :size="16" aria-hidden="true" />
-              </h3>
-              <p class="mt-2 text-sm leading-6 text-muted">Comparez les horaires par cinéma ou par film sur la frise.</p>
-            </NuxtLink>
-          </li>
-          <li>
-            <NuxtLink to="/cinemas" class="group block rounded-md md:pl-8">
-              <Building2 :size="22" class="text-accent" aria-hidden="true" />
-              <h3 class="mt-4 flex items-center gap-2 text-base font-semibold text-ink group-hover:text-accent">
-                Choisir mes cinémas <ArrowRight :size="16" aria-hidden="true" />
-              </h3>
-              <p class="mt-2 text-sm leading-6 text-muted">Sélectionnez les cinémas utilisés dans le planning et la recherche.</p>
+    <section class="poster-canvas relative border-b-2 border-ink" aria-labelledby="now-showing-title">
+      <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
+        <div class="relative z-10 flex items-center justify-between gap-4">
+          <h2 id="now-showing-title" class="font-mono text-xs font-bold uppercase tracking-[0.18em] text-ink">À l’affiche maintenant</h2>
+          <NuxtLink to="/films" class="editorial-link shrink-0 text-xs font-bold uppercase tracking-[0.12em]">
+            Tous les films <ArrowRight :size="15" aria-hidden="true" />
+          </NuxtLink>
+        </div>
+
+        <div v-if="pending" class="canvas-state" role="status" aria-live="polite">
+          <LoaderCircle :size="32" class="animate-spin" aria-hidden="true" />
+          <p>Chargement des films…</p>
+        </div>
+
+        <div v-else-if="errorMessage" class="canvas-state" role="alert">
+          <AlertTriangle :size="32" class="text-primary" aria-hidden="true" />
+          <p class="max-w-lg">{{ errorMessage }}</p>
+          <button type="button" class="brutal-button bg-ink text-white hover:bg-primary" @click="loadMovies">
+            <RefreshCw :size="17" aria-hidden="true" /> Réessayer
+          </button>
+        </div>
+
+        <div v-else-if="movies.length === 0" class="canvas-state">
+          <Film :size="34" aria-hidden="true" />
+          <p>Aucun film à l’affiche actuellement.</p>
+        </div>
+
+        <ul v-else class="poster-collage" aria-label="Films à l’affiche">
+          <li v-for="(movie, index) in movies" :key="movie.slug" :class="`poster-card poster-card--${index + 1}`">
+            <NuxtLink :to="`/film/${movie.slug}`" class="poster-link group" :aria-label="`${movie.title}, ${movie.runtime_minutes} minutes`">
+              <div class="poster-frame">
+                <img
+                  v-if="posterAvailable(movie)"
+                  :src="posterUrl(movie)!"
+                  :alt="`Affiche de ${movie.title}`"
+                  class="h-full w-full object-cover grayscale-[15%] transition duration-300 group-hover:grayscale-0"
+                  :loading="index < 3 ? 'eager' : 'lazy'"
+                  @error="markPosterUnavailable(movie.slug)"
+                />
+                <div v-else class="flex h-full flex-col items-center justify-center gap-2 bg-[#e8e6de] px-3 text-center text-muted">
+                  <Film :size="30" aria-hidden="true" />
+                  <span class="text-xs font-bold">Affiche indisponible</span>
+                </div>
+              </div>
+              <span class="poster-label">
+                <span class="line-clamp-1">{{ movie.title }}</span>
+                <span aria-hidden="true">↗</span>
+              </span>
             </NuxtLink>
           </li>
         </ul>
       </div>
     </section>
 
-    <section class="mx-auto max-w-[1280px] px-4 py-12 sm:px-6 sm:py-16 lg:px-10 lg:py-20">
-      <div class="flex items-center justify-between gap-4">
-        <h2 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Films à l’affiche</h2>
-        <NuxtLink to="/films" class="shrink-0 text-sm font-semibold text-accent transition hover:text-accent-hover">
-          Voir tous les films
-        </NuxtLink>
-      </div>
-
-      <div v-if="pending" class="state-panel mt-6" role="status" aria-live="polite">
-        <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" />
-        <p>Chargement des films…</p>
-      </div>
-
-      <div v-else-if="errorMessage" class="state-panel mt-6" role="alert">
-        <AlertTriangle :size="28" class="text-red-600" aria-hidden="true" />
-        <p class="max-w-lg">{{ errorMessage }}</p>
-        <button type="button" class="button-primary" @click="loadMovies">
-          <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-        </button>
-      </div>
-
-      <div v-else-if="movies.length === 0" class="state-panel mt-6">
-        <Film :size="30" class="text-muted" aria-hidden="true" />
-        <p>Aucun film à l’affiche actuellement.</p>
-      </div>
-
-      <ul v-else class="mt-6 grid grid-cols-2 gap-x-4 gap-y-7 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-6" aria-label="Films à l’affiche">
-        <li v-for="movie in movies" :key="movie.slug" class="min-w-0">
-          <NuxtLink :to="`/film/${movie.slug}`" class="group block rounded-md focus-visible:ring-offset-4">
-            <div class="aspect-[2/3] overflow-hidden rounded-md border border-line bg-subtle shadow-sm">
-              <img
-                v-if="posterAvailable(movie)"
-                :src="posterUrl(movie)!"
-                :alt="`Affiche de ${movie.title}`"
-                class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]"
-                loading="lazy"
-                @error="markPosterUnavailable(movie.slug)"
-              />
-              <div v-else class="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-muted">
-                <Film :size="32" aria-hidden="true" />
-                <span class="text-xs font-medium">Affiche indisponible</span>
-              </div>
+    <section class="border-b-2 border-ink bg-[#ffcf3f]" aria-labelledby="shortcuts-title">
+      <h2 id="shortcuts-title" class="sr-only">Accès rapides</h2>
+      <ul class="mx-auto grid max-w-[1440px] md:grid-cols-3">
+        <li v-for="shortcut in shortcuts" :key="shortcut.to" class="border-ink md:border-r-2 md:last:border-r-0">
+          <NuxtLink :to="shortcut.to" class="shortcut group flex h-full min-h-64 flex-col justify-between border-b-2 border-ink p-6 transition-colors hover:bg-[#d7ff38] md:border-b-0 lg:p-10">
+            <div class="flex items-start justify-between gap-4">
+              <span class="font-mono text-[11px] font-bold uppercase tracking-[0.16em]">{{ shortcut.eyebrow }}</span>
+              <component :is="shortcut.icon" :size="26" stroke-width="2.5" aria-hidden="true" />
             </div>
-            <h3 class="mt-3 line-clamp-2 text-sm font-semibold leading-snug text-ink group-hover:text-accent">{{ movie.title }}</h3>
-            <p class="mt-1 text-xs text-muted">{{ movie.runtime_minutes }} min</p>
+            <div class="mt-12">
+              <h3 class="text-3xl font-black leading-none tracking-[-0.04em] sm:text-4xl">{{ shortcut.title }}</h3>
+              <p class="mt-4 max-w-sm text-sm font-medium leading-6">{{ shortcut.description }}</p>
+              <span class="mt-6 inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.12em]">
+                Explorer <ArrowRight :size="16" class="transition-transform group-hover:translate-x-1" aria-hidden="true" />
+              </span>
+            </div>
           </NuxtLink>
         </li>
       </ul>
     </section>
   </main>
 </template>
+
+<style scoped>
+.hero-title {
+  text-wrap: balance;
+}
+
+.brutal-button {
+  display: inline-flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border-radius: 0.35rem;
+  padding: 0.75rem 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.brutal-button:hover {
+  transform: translateY(-2px);
+}
+
+.poster-canvas {
+  min-height: 43rem;
+  background-color: #f8f7f2;
+  background-image:
+    linear-gradient(rgba(39, 39, 42, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 39, 42, 0.09) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.editorial-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 0.2rem;
+}
+
+.canvas-state {
+  position: relative;
+  z-index: 1;
+  margin: 6rem auto;
+  display: flex;
+  min-height: 17rem;
+  max-width: 36rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  border: 2px solid #27272a;
+  border-radius: 0.4rem;
+  background: #fff;
+  padding: 2rem;
+  text-align: center;
+  font-weight: 700;
+  box-shadow: 8px 8px 0 #27272a;
+}
+
+.poster-collage {
+  position: relative;
+  min-height: 35rem;
+}
+
+.poster-card {
+  position: absolute;
+}
+
+.poster-card--1 { left: 1%; top: 11%; width: 10.5rem; transform: rotate(-3deg); }
+.poster-card--2 { left: 23%; top: 30%; width: 8.5rem; transform: rotate(2deg); }
+.poster-card--3 { left: 42%; top: 5%; width: 13rem; transform: rotate(-1deg); }
+.poster-card--4 { right: 28%; top: 44%; width: 8rem; transform: rotate(3deg); }
+.poster-card--5 { right: 11%; top: 8%; width: 10rem; transform: rotate(2deg); }
+.poster-card--6 { right: 0; top: 52%; width: 7rem; transform: rotate(-3deg); }
+
+.poster-link {
+  display: block;
+  border-radius: 0.4rem;
+  color: #27272a;
+  transition: transform 180ms ease;
+}
+
+.poster-link:hover {
+  transform: translateY(-4px) rotate(1deg);
+}
+
+.poster-frame {
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 2px solid #27272a;
+  border-radius: 0.4rem;
+  background: #e8e6de;
+  box-shadow: 7px 7px 0 rgba(39, 39, 42, 0.95);
+}
+
+.poster-label {
+  margin: 0.65rem 0 0 0.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border: 2px solid #27272a;
+  border-radius: 999px;
+  background: #d7ff38;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+@media (max-width: 767px) {
+  .poster-canvas {
+    min-height: auto;
+  }
+
+  .poster-collage {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem 1.25rem;
+    padding: 3rem 0 1.5rem;
+  }
+
+  .poster-card,
+  .poster-card--1,
+  .poster-card--2,
+  .poster-card--3,
+  .poster-card--4,
+  .poster-card--5,
+  .poster-card--6 {
+    position: static;
+    width: auto;
+    transform: none;
+  }
+
+  .poster-card:nth-child(even) {
+    margin-top: 2.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brutal-button:hover,
+  .poster-link:hover {
+    transform: none;
+  }
+}
+</style>
