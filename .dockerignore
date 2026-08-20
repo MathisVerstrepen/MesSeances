@@ -1,0 +1,12 @@
+.git
+.github
+.agents
+.codebase-memory
+.env*
+AGENTS.md
+api/bin
+web/node_modules
+web/.nuxt
+web/.output
+tmp
+*.log

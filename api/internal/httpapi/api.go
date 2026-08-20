@@ -43,6 +43,10 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
+type probeResponse struct {
+	Status string `json:"status"`
+}
+
 func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 	return NewHandlerWithAdmin(service, webOrigin, AdminOptions{})
 }
@@ -60,6 +64,12 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 		MaxAge:           300,
 	}))
 
+	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, probeResponse{Status: "ok"})
+	})
+	router.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
+	})
 	router.Get("/api/v1/timeline", api.timeline)
 	router.Get("/api/v1/theaters", api.theaters)
 	router.Get("/api/v1/movies", api.movies)

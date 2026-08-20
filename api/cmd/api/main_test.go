@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"io"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"messeances/api/internal/enrichment"
 )
@@ -15,6 +18,21 @@ type testReadCloser struct {
 }
 
 func (r testReadCloser) Close() error { return r.closeErr }
+
+type testHTTPServer struct {
+	serveStarted chan struct{}
+	serveRelease chan error
+	shutdown     func(context.Context) error
+}
+
+func (s *testHTTPServer) ListenAndServe() error {
+	close(s.serveStarted)
+	return <-s.serveRelease
+}
+
+func (s *testHTTPServer) Shutdown(ctx context.Context) error {
+	return s.shutdown(ctx)
+}
 
 func TestLoadSyncProxiesConfiguration(t *testing.T) {
 	called := false
@@ -57,5 +75,61 @@ func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	options := newAdminOptions("password", store, nil)
 	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil {
 		t.Fatalf("options=%+v", options)
+	}
+}
+
+func TestServeGracefulShutdownCancelsWorkersBeforeBoundedShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	workerCanceled := false
+	server := &testHTTPServer{
+		serveStarted: make(chan struct{}),
+		serveRelease: make(chan error, 1),
+	}
+	server.shutdown = func(ctx context.Context) error {
+		if !workerCanceled {
+			t.Fatal("Shutdown called before worker cancellation")
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("Shutdown context already canceled: %v", err)
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("Shutdown context has no deadline")
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 || remaining > shutdownTimeout {
+			t.Fatalf("Shutdown deadline remaining=%s", remaining)
+		}
+		server.serveRelease <- http.ErrServerClosed
+		return nil
+	}
+	if err := serve(ctx, server, func() { workerCanceled = true }); err != nil {
+		t.Fatalf("serve err=%v", err)
+	}
+}
+
+func TestServeAcceptsServerClosed(t *testing.T) {
+	server := &testHTTPServer{
+		serveStarted: make(chan struct{}),
+		serveRelease: make(chan error, 1),
+		shutdown:     func(context.Context) error { return nil },
+	}
+	server.serveRelease <- http.ErrServerClosed
+	if err := serve(context.Background(), server, func() {}); err != nil {
+		t.Fatalf("serve err=%v", err)
+	}
+}
+
+func TestServeSanitizesUnexpectedListenerError(t *testing.T) {
+	server := &testHTTPServer{
+		serveStarted: make(chan struct{}),
+		serveRelease: make(chan error, 1),
+		shutdown:     func(context.Context) error { return nil },
+	}
+	server.serveRelease <- errors.New("listen tcp: secret internal detail")
+	err := serve(context.Background(), server, func() {})
+	if err == nil || err.Error() != "API server failed" {
+		t.Fatalf("serve err=%v", err)
 	}
 }

@@ -104,6 +104,25 @@ func performRequest(t *testing.T, handler http.Handler, target string) *httptest
 	return response
 }
 
+func TestProbeContracts(t *testing.T) {
+	handler := testHandler(t)
+	for _, test := range []struct {
+		name   string
+		target string
+		body   string
+	}{
+		{name: "liveness", target: "/healthz", body: "{\"status\":\"ok\"}\n"},
+		{name: "readiness", target: "/readyz", body: "{\"status\":\"ready\"}\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := performRequest(t, handler, test.target)
+			if response.Code != http.StatusOK || response.Body.String() != test.body {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
 func TestTheatersTransport(t *testing.T) {
 	handler := testHandler(t)
 	response := performRequest(t, handler, "/api/v1/theaters?city=lille")

@@ -8,4 +8,5 @@ web/.nuxt/
 web/.output/
 .env*
 !.env.example
+!.env.production.example
 tmp/
