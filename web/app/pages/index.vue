@@ -86,7 +86,7 @@ useHead({ title: 'MesSeances — Vos séances, au bon moment' })
 
         <div class="max-w-md lg:justify-self-end lg:pb-2">
           <p class="text-balance text-2xl font-black leading-[0.95] tracking-[-0.04em] text-ink sm:text-3xl">
-            Le bon film.<br />Le bon cinéma.<br /><span class="inline-block bg-[#d7ff38] px-1">Au bon moment.</span>
+            Le bon film.<br />Le bon cinéma.<br /><span class="inline-block bg-highlight px-1">Au bon moment.</span>
           </p>
           <div class="mt-7 flex flex-col gap-3 sm:flex-row lg:flex-col xl:flex-row">
             <NuxtLink to="/recherche" class="brutal-button bg-ink text-white hover:bg-primary">
@@ -158,7 +158,7 @@ useHead({ title: 'MesSeances — Vos séances, au bon moment' })
       <h2 id="shortcuts-title" class="sr-only">Accès rapides</h2>
       <ul class="mx-auto grid max-w-[1440px] md:grid-cols-3">
         <li v-for="shortcut in shortcuts" :key="shortcut.to" class="border-ink md:border-r-2 md:last:border-r-0">
-          <NuxtLink :to="shortcut.to" class="shortcut group flex h-full min-h-64 flex-col justify-between border-b-2 border-ink p-6 transition-colors hover:bg-[#d7ff38] md:border-b-0 lg:p-10">
+          <NuxtLink :to="shortcut.to" class="shortcut group flex h-full min-h-64 flex-col justify-between border-b-2 border-ink p-6 transition-colors hover:bg-highlight md:border-b-0 lg:p-10">
             <div class="flex items-start justify-between gap-4">
               <span class="font-mono text-[11px] font-bold uppercase tracking-[0.16em]">{{ shortcut.eyebrow }}</span>
               <component :is="shortcut.icon" :size="26" stroke-width="2.5" aria-hidden="true" />
@@ -283,7 +283,7 @@ useHead({ title: 'MesSeances — Vos séances, au bon moment' })
   gap: 0.5rem;
   border: 2px solid #27272a;
   border-radius: 999px;
-  background: #d7ff38;
+  background: var(--color-highlight);
   padding: 0.35rem 0.55rem;
   font-size: 0.68rem;
   font-weight: 900;

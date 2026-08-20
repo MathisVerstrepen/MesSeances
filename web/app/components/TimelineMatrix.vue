@@ -438,7 +438,7 @@ onBeforeUnmount(() => {
 }
 
 .showtime-block:hover {
-  box-shadow: 3px 3px 0 #d7ff38;
+  box-shadow: 3px 3px 0 var(--color-highlight);
 }
 
 .showtime-block:focus-visible,
@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
 
 .showtime-block--selected {
   border-color: #27272a;
-  box-shadow: 4px 4px 0 #d7ff38, inset 0 -3px 0 #d7ff38;
+  box-shadow: 4px 4px 0 var(--color-highlight), inset 0 -3px 0 var(--color-highlight);
 }
 
 .inspector {

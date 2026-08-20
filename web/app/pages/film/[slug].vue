@@ -370,7 +370,7 @@ useHead(() => ({
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Voir ce film sur TMDB (nouvel onglet)"
-          class="absolute right-4 top-4 z-20 inline-flex min-h-11 min-w-11 items-center justify-center p-1 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-[#d7ff38] focus-visible:ring-offset-4 sm:right-6 sm:top-6 lg:right-8 lg:top-8"
+          class="absolute right-4 top-4 z-20 inline-flex min-h-11 min-w-11 items-center justify-center p-1 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-highlight focus-visible:ring-offset-4 sm:right-6 sm:top-6 lg:right-8 lg:top-8"
         >
           <img :src="tmdbLogo" alt="" class="h-auto w-20" />
         </a>
@@ -641,7 +641,7 @@ useHead(() => ({
 .date-tab--active {
   background: #27272a;
   color: #fff;
-  box-shadow: inset 0 -4px 0 #d7ff38;
+  box-shadow: inset 0 -4px 0 var(--color-highlight);
 }
 
 .filter-label {
@@ -724,7 +724,7 @@ useHead(() => ({
 }
 
 .brutal-action--light:hover {
-  background: #d7ff38;
+  background: var(--color-highlight);
 }
 
 @media (max-width: 639px) {

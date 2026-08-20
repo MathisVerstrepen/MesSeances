@@ -157,7 +157,7 @@ function scrollToTop() {
   aspect-ratio: 1;
   transform: rotate(8deg);
   border: 2px solid #27272a;
-  background: #d7ff38;
+  background: var(--color-highlight);
   box-shadow: 5px 5px 0 #27272a;
 }
 

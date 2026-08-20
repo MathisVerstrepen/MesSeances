@@ -272,7 +272,7 @@ useHead({ title: 'Films à l’affiche — MesSeances' })
   aspect-ratio: 1;
   transform: rotate(8deg);
   border: 2px solid #27272a;
-  background: #d7ff38;
+  background: var(--color-highlight);
   box-shadow: 5px 5px 0 #27272a;
 }
 
@@ -306,7 +306,7 @@ useHead({ title: 'Films à l’affiche — MesSeances' })
 }
 
 .catalog-field:focus {
-  box-shadow: inset 0 0 0 2px #d7ff38;
+  box-shadow: inset 0 0 0 2px var(--color-highlight);
 }
 
 .catalog-field:disabled,
@@ -381,7 +381,7 @@ useHead({ title: 'Films à l’affiche — MesSeances' })
   bottom: 0.4rem;
   border: 2px solid #27272a;
   border-radius: 999px;
-  background: #d7ff38;
+  background: var(--color-highlight);
   padding: 0.25rem 0.45rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.58rem;

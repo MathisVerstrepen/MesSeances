@@ -736,7 +736,7 @@ async function submitSearch() {
                   :key="option.value"
                   type="button"
                   class="h-9 px-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1 sm:px-3"
-                  :class="resultView === option.value ? 'bg-ink text-white shadow-[inset_0_-3px_0_#d7ff38]' : 'text-muted hover:bg-[#e8e6de] hover:text-ink'"
+                  :class="resultView === option.value ? 'bg-ink text-white shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'text-muted hover:bg-[#e8e6de] hover:text-ink'"
                   :aria-pressed="resultView === option.value"
                   @click="setResultView(option.value)"
                 >
@@ -812,7 +812,7 @@ async function submitSearch() {
 .date-choice--active {
   background: #27272a;
   color: #fff;
-  box-shadow: inset 0 -4px 0 #d7ff38;
+  box-shadow: inset 0 -4px 0 var(--color-highlight);
 }
 
 .date-choice:disabled {
@@ -861,7 +861,7 @@ async function submitSearch() {
 }
 
 :global(.editorial-calendar-menu .dp__active_date) {
-  box-shadow: inset 0 -3px 0 #d7ff38;
+  box-shadow: inset 0 -3px 0 var(--color-highlight);
 }
 
 :global(.editorial-calendar-menu .dp__today) {

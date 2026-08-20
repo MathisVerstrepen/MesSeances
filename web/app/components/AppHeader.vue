@@ -56,7 +56,7 @@ onMounted(() => {
           :key="link.to"
           :to="link.to"
           class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 border-r border-ink/20 px-1 text-center text-[9px] font-extrabold uppercase leading-tight tracking-[-0.01em] transition-colors last:border-r-0 sm:px-3 sm:text-[10px] lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:border-r-0 lg:px-4 lg:text-xs"
-          :class="isActive(link.to) ? 'bg-ink text-white' : 'text-ink hover:bg-[#d7ff38]'"
+          :class="isActive(link.to) ? 'bg-ink text-white' : 'text-ink hover:bg-highlight'"
           :aria-current="isActive(link.to) ? 'page' : undefined"
         >
           <component :is="link.icon" :size="15" stroke-width="2.5" aria-hidden="true" />
@@ -75,7 +75,7 @@ onMounted(() => {
     bottom: 0.55rem;
     left: 1rem;
     height: 3px;
-    background: #d7ff38;
+    background: var(--color-highlight);
     content: '';
   }
 }

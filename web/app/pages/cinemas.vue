@@ -277,7 +277,7 @@ onMounted(async () => {
   aspect-ratio: 1;
   transform: rotate(8deg);
   border: 2px solid #27272a;
-  background: #d7ff38;
+  background: var(--color-highlight);
   box-shadow: 5px 5px 0 #27272a;
 }
 
@@ -320,7 +320,7 @@ onMounted(async () => {
 }
 
 .cinema-search:focus {
-  box-shadow: inset 0 0 0 3px #d7ff38;
+  box-shadow: inset 0 0 0 3px var(--color-highlight);
 }
 
 .state-button:focus-visible,
@@ -411,7 +411,7 @@ onMounted(async () => {
 
 .theater-option--selected {
   background: #f1efe8;
-  box-shadow: inset 5px 0 0 #d7ff38;
+  box-shadow: inset 5px 0 0 var(--color-highlight);
 }
 
 .theater-option input:focus-visible + .theater-check {
@@ -422,7 +422,7 @@ onMounted(async () => {
 .theater-option--selected .theater-check {
   background: #27272a;
   color: #fff;
-  box-shadow: 3px 3px 0 #d7ff38;
+  box-shadow: 3px 3px 0 var(--color-highlight);
 }
 
 @media (max-width: 639px) {

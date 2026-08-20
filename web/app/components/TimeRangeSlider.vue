@@ -136,7 +136,7 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
       <div ref="track" class="absolute inset-x-[11px] inset-y-0">
         <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-[#d4d1c9]" aria-hidden="true" />
         <div
-          class="absolute top-1/2 h-1 -translate-y-1/2 bg-[#d7ff38]"
+          class="absolute top-1/2 h-1 -translate-y-1/2 bg-highlight"
           :style="{ left: `${startPercent}%`, width: `${selectedWidth}%` }"
           aria-hidden="true"
         />

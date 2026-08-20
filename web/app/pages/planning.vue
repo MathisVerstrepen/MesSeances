@@ -275,7 +275,7 @@ useHead({ title: 'Planning des séances — MesSeances' })
 .control-button--active {
   background: #27272a;
   color: #fff;
-  box-shadow: inset 0 -3px 0 #d7ff38;
+  box-shadow: inset 0 -3px 0 var(--color-highlight);
 }
 
 .date-button:focus-visible,
@@ -316,7 +316,7 @@ useHead({ title: 'Planning des séances — MesSeances' })
   min-width: 1.5rem;
   height: 1.5rem;
   place-items: center;
-  background: #d7ff38;
+  background: var(--color-highlight);
   color: #27272a;
 }
 
