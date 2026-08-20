@@ -67,14 +67,39 @@ func TestValidateDatasetResourceAndRuntimeBounds(t *testing.T) {
 	}
 	data = testDataset()
 	showing := &data.Showtimes[0]
-	showing.Movie.RuntimeMinutes = MaxRuntimeMinutes
-	showing.EndTime = showing.StartTime.Add(10 * time.Hour)
+	showing.Movie.RuntimeMinutes = 12 * 60
+	showing.EndTime = showing.StartTime.Add(12 * time.Hour)
 	if err := ValidateDataset(data, true); err != nil {
-		t.Fatalf("maximum runtime rejected: %v", err)
+		t.Fatalf("long runtime rejected: %v", err)
 	}
-	showing.EndTime = showing.StartTime.Add(9*time.Hour + 59*time.Minute)
+	showing.EndTime = showing.StartTime.Add(11*time.Hour + 59*time.Minute)
 	if err := ValidateDataset(data, true); err == nil || err.Error() != "invalid showing times" {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRuntimeDurationRepresentationBounds(t *testing.T) {
+	maxMinutes := int(int64(^uint64(0)>>1) / int64(time.Minute))
+	for _, test := range []struct {
+		name    string
+		minutes int
+		valid   bool
+	}{
+		{name: "negative", minutes: -1},
+		{name: "zero", minutes: 0},
+		{name: "long runtime", minutes: 12 * 60, valid: true},
+		{name: "largest representable", minutes: maxMinutes, valid: true},
+		{name: "duration overflow", minutes: maxMinutes + 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			duration, ok := RuntimeDuration(test.minutes)
+			if ok != test.valid {
+				t.Fatalf("RuntimeDuration(%d) valid=%v want=%v", test.minutes, ok, test.valid)
+			}
+			if ok && duration/time.Minute != time.Duration(test.minutes) {
+				t.Fatalf("RuntimeDuration(%d)=%v", test.minutes, duration)
+			}
+		})
 	}
 }
 

@@ -91,6 +91,21 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 	}
 }
 
+func TestParsePreservesMarathonRuntime(t *testing.T) {
+	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"MARATHON","title":"Marathon","duration":721}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"MARATHON-1","film":{"id":"MARATHON"}}]}};`)
+	data, err := Parse(body, "2026-08-15", "2026-08-15", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Showtimes) != 1 {
+		t.Fatalf("showtimes=%d", len(data.Showtimes))
+	}
+	showing := data.Showtimes[0]
+	if showing.Movie.RuntimeMinutes != 721 || showing.EndTime.Sub(showing.StartTime) != 721*time.Minute {
+		t.Fatalf("showing=%+v", showing)
+	}
+}
+
 func TestFormatCanonicalTechnologies(t *testing.T) {
 	tests := map[string]string{
 		"2D":                       schedule.Format2D,

@@ -436,21 +436,25 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string, cache *showingsP
 	if len(match) == 0 {
 		return "", 0, "", fmt.Errorf("film runtime missing")
 	}
-	hours, err := strconv.Atoi(match[1])
-	if err != nil || hours < 0 || hours > schedule.MaxRuntimeMinutes/60 {
+	hours, err := strconv.ParseUint(match[1], 10, 64)
+	if err != nil {
 		return "", 0, "", fmt.Errorf("invalid film runtime")
 	}
-	minutes := 0
+	minutes := uint64(0)
 	if match[2] != "" {
-		minutes, err = strconv.Atoi(match[2])
+		minutes, err = strconv.ParseUint(match[2], 10, 64)
 		if err != nil {
 			return "", 0, "", fmt.Errorf("invalid film runtime")
 		}
 	}
-	if minutes < 0 || minutes >= 60 {
+	if minutes >= 60 {
 		return "", 0, "", fmt.Errorf("invalid film runtime")
 	}
-	runtime := hours*60 + minutes
+	maxInt := uint64(^uint(0) >> 1)
+	if hours > (maxInt-minutes)/60 {
+		return "", 0, "", fmt.Errorf("invalid film runtime")
+	}
+	runtime := int(hours*60 + minutes)
 	if _, ok := schedule.RuntimeDuration(runtime); !ok {
 		return "", 0, "", fmt.Errorf("invalid film runtime")
 	}

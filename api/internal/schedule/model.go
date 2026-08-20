@@ -1,10 +1,12 @@
 package schedule
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 const (
-	Timezone          = "Europe/Paris"
-	MaxRuntimeMinutes = 600
+	Timezone = "Europe/Paris"
 
 	LanguageAll    = "ALL"
 	LanguageVOSTFR = "VOSTFR"
@@ -32,11 +34,11 @@ const (
 )
 
 func RuntimeDuration(minutes int) (time.Duration, bool) {
-	if minutes <= 0 || minutes > MaxRuntimeMinutes {
+	if minutes <= 0 || uint64(minutes) > uint64(math.MaxInt64)/uint64(time.Minute) {
 		return 0, false
 	}
-	duration := time.Duration(minutes) * time.Minute
-	return duration, duration > 0 && duration/time.Minute == time.Duration(minutes)
+	duration := time.Duration(int64(minutes) * int64(time.Minute))
+	return duration, true
 }
 
 // ValidationError describes a query value that does not satisfy the schedule contract.

@@ -591,14 +591,20 @@ func TestParseShowingsAllowsNonShowingFilmBlock(t *testing.T) {
 
 func TestParseShowingsRuntimeBounds(t *testing.T) {
 	validButton := `<button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button>`
+	maxDurationMinutes := int(int64(^uint64(0)>>1) / int64(time.Minute))
+	runtimeText := func(minutes int) string {
+		return fmt.Sprintf("(%dh%02d)", minutes/60, minutes%60)
+	}
 	tests := []struct {
 		name    string
 		runtime string
 		want    int
 	}{
-		{name: "maximum", runtime: "(10h)", want: schedule.MaxRuntimeMinutes},
-		{name: "above maximum", runtime: "(10h01)"},
-		{name: "huge", runtime: "(999999h)"},
+		{name: "long runtime", runtime: "(12h01)", want: 12*60 + 1},
+		{name: "very long runtime", runtime: "(999999h)", want: 999999 * 60},
+		{name: "largest duration", runtime: runtimeText(maxDurationMinutes), want: maxDurationMinutes},
+		{name: "invalid minutes", runtime: "(10h60)"},
+		{name: "duration overflow", runtime: runtimeText(maxDurationMinutes + 1)},
 		{name: "atoi overflow", runtime: "(999999999999999999999999999999999999999999h)"},
 	}
 	for _, test := range tests {
@@ -611,7 +617,7 @@ func TestParseShowingsRuntimeBounds(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || len(records) != 1 || records[0].Movie.RuntimeMinutes != test.want || records[0].EndTime.Sub(records[0].StartTime) != 10*time.Hour {
+			if err != nil || len(records) != 1 || records[0].Movie.RuntimeMinutes != test.want || records[0].EndTime.Sub(records[0].StartTime) != time.Duration(test.want)*time.Minute {
 				t.Fatalf("records=%+v error=%v", records, err)
 			}
 		})

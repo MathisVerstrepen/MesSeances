@@ -43,7 +43,7 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 	currentMovies, _ := value(variables, "current_movies").(map[string]any)
 	for _, object := range objectSlice(value(currentMovies, "films")) {
 		candidate := parseFilm(object)
-		if candidate.id != "" && candidate.title != "" && candidate.runtime > 0 {
+		if _, validRuntime := schedule.RuntimeDuration(candidate.runtime); candidate.id != "" && candidate.title != "" && validRuntime {
 			films[candidate.id] = candidate
 		}
 	}
@@ -81,6 +81,10 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 		if !ok {
 			return schedule.Dataset{}, fmt.Errorf("session references unknown film")
 		}
+		runtime, validRuntime := schedule.RuntimeDuration(movie.runtime)
+		if !validRuntime {
+			return schedule.Dataset{}, fmt.Errorf("session references unknown film")
+		}
 		showingID := stringValue(session, "vistaSessionId")
 		start, err := time.Parse(time.RFC3339, stringValue(session, "showtime"))
 		if err != nil {
@@ -108,7 +112,7 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 		}
 		dates[complexID][serviceDate] = true
 		providerVersion := sessionAttributes(session)
-		data.Showtimes = append(data.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: serviceDate, TheaterID: "kinepolis-" + complexID, Movie: schedule.MovieRecord{Provider: schedule.ProviderKinepolis, ProviderID: movie.id, Slug: "kinepolis-film-" + movie.id, Title: movie.title, RuntimeMinutes: movie.runtime, PosterURL: movie.poster, Overview: movie.overview, ReleaseDate: movie.releaseDate, Genres: append([]string(nil), movie.genres...)}, StartTime: local, EndTime: local.Add(time.Duration(movie.runtime) * time.Minute), Language: language(providerVersion), ProviderVersion: nonempty(providerVersion, "standard"), Format: sessionFormat(session, filmObject, providerVersion), Room: stringValue(session, "hall"), BookingURL: "https://kinepolis.fr/direct-vista-redirect/" + showingID + "/0/" + complexID + "/0"})
+		data.Showtimes = append(data.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: serviceDate, TheaterID: "kinepolis-" + complexID, Movie: schedule.MovieRecord{Provider: schedule.ProviderKinepolis, ProviderID: movie.id, Slug: "kinepolis-film-" + movie.id, Title: movie.title, RuntimeMinutes: movie.runtime, PosterURL: movie.poster, Overview: movie.overview, ReleaseDate: movie.releaseDate, Genres: append([]string(nil), movie.genres...)}, StartTime: local, EndTime: local.Add(runtime), Language: language(providerVersion), ProviderVersion: nonempty(providerVersion, "standard"), Format: sessionFormat(session, filmObject, providerVersion), Room: stringValue(session, "hall"), BookingURL: "https://kinepolis.fr/direct-vista-redirect/" + showingID + "/0/" + complexID + "/0"})
 		_ = name
 	}
 	if len(data.Showtimes) == 0 {
