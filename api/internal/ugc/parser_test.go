@@ -200,12 +200,11 @@ func TestParseShowingsRejectsEmptySuffixFilmBlockIdentityConflict(t *testing.T) 
 	}
 }
 
-func TestParseShowingsRejectsEmptySuffixFilmBlockMissingOrInvalidIdentity(t *testing.T) {
+func TestParseShowingsRejectsEmptySuffixFilmBlockInvalidIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		identity string
 	}{
-		{name: "missing"},
 		{name: "zero", identity: ` data-filmid="0"`},
 		{name: "nonnumeric", identity: ` data-filmid="film"`},
 	} {
@@ -216,6 +215,55 @@ func TestParseShowingsRejectsEmptySuffixFilmBlockMissingOrInvalidIdentity(t *tes
 				t.Fatalf("error=%v", err)
 			}
 		})
+	}
+}
+
+func TestParseShowingsSkipsIdentitylessPackageBesideValidFilm(t *testing.T) {
+	records, err := ParseShowings(fixture(t, "showings-identityless-package.html"), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil || len(records) != 1 || records[0].ProviderShowingID != "10" {
+		t.Fatalf("records=%+v error=%v", records, err)
+	}
+}
+
+func TestParseShowingsAcceptsIdentitylessPackageOnly(t *testing.T) {
+	for _, identity := range []string{"", ` data-filmid="" data-film=""`} {
+		body := `<div id="bloc-showing-film-"><button data-showing="package-1"` + identity + ` data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div>`
+		records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+		if err != nil || len(records) != 0 {
+			t.Fatalf("identity=%q records=%+v error=%v", identity, records, err)
+		}
+	}
+}
+
+func TestParseShowingsRejectsMalformedIdentitylessPackageIdentity(t *testing.T) {
+	validButton := func(identity string) string {
+		return `<button data-showing="10" ` + identity + ` data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button>`
+	}
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "mixed empty and positive", content: validButton(`data-filmid=""`) + validButton(`data-filmid="1"`)},
+		{name: "zero", content: validButton(`data-filmid="0"`)},
+		{name: "nonnumeric", content: validButton(`data-filmid="film"`)},
+		{name: "aliases conflict", content: validButton(`data-filmid="1" data-film-id="2"`)},
+		{name: "empty with canonical link", content: `<div class="block--title text-uppercase"><a class="color--dark-blue" href="film_test_1.html?cinemaId=25">Film</a></div>` + validButton(`data-filmid=""`)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ParseShowings(strings.NewReader(`<div id="bloc-showing-film-">`+test.content+`</div>`), Cinema{ProviderID: "25"}, "2026-08-15")
+			if err == nil || err.Error() != "showing required attribute missing or conflicting" {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestParseShowingsDoesNotSwallowNestedCanonicalBlock(t *testing.T) {
+	body := `<div id="bloc-showing-film-"><button data-showing="package-1" data-filmid="" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="11:00"></button><div id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_test_1.html?cinemaId=25">Film</a></div><span>(2h)</span><button data-showing="10" data-filmid="1" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div></div>`
+	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil || len(records) != 1 || records[0].Movie.ProviderID != "1" {
+		t.Fatalf("records=%+v error=%v", records, err)
 	}
 }
 

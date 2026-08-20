@@ -284,11 +284,11 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		return nil, fmt.Errorf("parse showings: %w", err)
 	}
 	cache := newShowingsParseCache()
-	derivedFilmIDs, err := deriveEmptyFilmBlockIDs(root, cache)
+	derivedFilmIDs, identitylessPackages, err := classifyEmptyFilmBlocks(root, cache)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateShowingOwnership(root, cache, derivedFilmIDs); err != nil {
+	if err := validateShowingOwnership(root, cache, derivedFilmIDs, identitylessPackages); err != nil {
 		return nil, err
 	}
 	location, err := scheduleLocation()
@@ -303,6 +303,9 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 	byID := map[string]schedule.ShowtimeRecord{}
 	walk(root, func(block *html.Node) {
 		if err != nil || block.Type != html.ElementNode {
+			return
+		}
+		if identitylessPackages[block] {
 			return
 		}
 		filmID, ok := showingBlockFilmID(block, derivedFilmIDs)
@@ -346,6 +349,9 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		return nil, err
 	}
 	if len(records) == 0 && !hasEmptyScheduleMarker(root) {
+		if hasOnlyIdentitylessPackageBlocks(root, identitylessPackages) {
+			return records, nil
+		}
 		nextSessionOnly, validationErr := validateNextSessionOnly(root, cinema.ProviderID, date, location, cache)
 		if validationErr != nil {
 			return nil, validationErr
@@ -462,6 +468,9 @@ func showingCandidates(block *html.Node, cache *showingsParseCache) ([]*html.Nod
 	}
 	malformedStructure := false
 	for _, node := range cache.descendantElements(block) {
+		if !directlyOwnedByFilmBlock(node, block) {
+			continue
+		}
 		if node.Data == "button" && hasShowingAttribute(node) {
 			add(node)
 		}
@@ -469,19 +478,23 @@ func showingCandidates(block *html.Node, cache *showingsParseCache) ([]*html.Nod
 			continue
 		}
 		buttons := structuralShowingButtons(node, block, cache)
-		if len(buttons) == 0 {
-			malformedStructure = true
-			continue
-		}
+		directButtons := 0
 		for _, button := range buttons {
-			add(button)
+			if directlyOwnedByFilmBlock(button, block) {
+				add(button)
+				directButtons++
+			}
+		}
+		if directButtons == 0 {
+			malformedStructure = true
 		}
 	}
 	return candidates, malformedStructure
 }
 
-func deriveEmptyFilmBlockIDs(root *html.Node, cache *showingsParseCache) (map[*html.Node]string, error) {
+func classifyEmptyFilmBlocks(root *html.Node, cache *showingsParseCache) (map[*html.Node]string, map[*html.Node]bool, error) {
 	filmIDs := map[*html.Node]string{}
+	identitylessPackages := map[*html.Node]bool{}
 	var err error
 	walk(root, func(block *html.Node) {
 		if err != nil || block.Type != html.ElementNode || attr(block, "id") != emptyFilmBlockID {
@@ -492,17 +505,66 @@ func deriveEmptyFilmBlockIDs(root *html.Node, cache *showingsParseCache) (map[*h
 			return
 		}
 		filmID := ""
+		hasEmptyIdentity := false
 		for _, button := range buttons {
-			buttonFilm, ok := providerNumericID(button, []string{"data-filmid", "data-film-id"}, "data-film")
-			if !ok || filmID != "" && buttonFilm != filmID {
+			buttonFilm, hasIdentity, valid := strictProviderFilmID(button)
+			if !valid || hasIdentity && hasEmptyIdentity || hasIdentity && filmID != "" && buttonFilm != filmID || !hasIdentity && filmID != "" {
 				err = fmt.Errorf("showing required attribute missing or conflicting")
 				return
 			}
-			filmID = buttonFilm
+			if hasIdentity {
+				filmID = buttonFilm
+			} else {
+				hasEmptyIdentity = true
+			}
+		}
+		if hasEmptyIdentity {
+			if hasDirectCanonicalFilmLink(block) {
+				err = fmt.Errorf("showing required attribute missing or conflicting")
+				return
+			}
+			identitylessPackages[block] = true
+			return
 		}
 		filmIDs[block] = filmID
 	})
-	return filmIDs, err
+	return filmIDs, identitylessPackages, err
+}
+
+func strictProviderFilmID(button *html.Node) (string, bool, bool) {
+	filmID := ""
+	for _, attribute := range button.Attr {
+		switch strings.ToLower(attribute.Key) {
+		case "data-filmid", "data-film-id", "data-film":
+			value := strings.TrimSpace(attribute.Val)
+			if value == "" {
+				continue
+			}
+			if _, ok := positiveNumericID(value); !ok || filmID != "" && value != filmID {
+				return "", true, false
+			}
+			filmID = value
+		}
+	}
+	return filmID, filmID != "", true
+}
+
+func hasDirectCanonicalFilmLink(block *html.Node) bool {
+	for _, node := range descendants(block, isCanonicalFilmHeading) {
+		if directlyOwnedByFilmBlock(node, block) {
+			return true
+		}
+	}
+	return false
+}
+
+func directlyOwnedByFilmBlock(node, block *html.Node) bool {
+	for ancestor := node.Parent; ancestor != nil; ancestor = ancestor.Parent {
+		if isShowingBlockBoundary(ancestor) {
+			return ancestor == block
+		}
+	}
+	return false
 }
 
 func showingBlockFilmID(block *html.Node, derivedFilmIDs map[*html.Node]string) (string, bool) {
@@ -513,8 +575,11 @@ func showingBlockFilmID(block *html.Node, derivedFilmIDs map[*html.Node]string) 
 	return filmID, ok
 }
 
-func validateShowingOwnership(root *html.Node, cache *showingsParseCache, derivedFilmIDs map[*html.Node]string) error {
+func validateShowingOwnership(root *html.Node, cache *showingsParseCache, derivedFilmIDs map[*html.Node]string, identitylessPackages map[*html.Node]bool) error {
 	for _, candidate := range documentShowingCandidates(root, cache) {
+		if directlyOwnedByAnyFilmBlock(candidate, identitylessPackages) {
+			continue
+		}
 		owners := 0
 		for ancestor := candidate.Parent; ancestor != nil; ancestor = ancestor.Parent {
 			if _, ok := showingBlockFilmID(ancestor, derivedFilmIDs); ok {
@@ -526,6 +591,36 @@ func validateShowingOwnership(root *html.Node, cache *showingsParseCache, derive
 		}
 	}
 	return nil
+}
+
+func directlyOwnedByAnyFilmBlock(node *html.Node, blocks map[*html.Node]bool) bool {
+	for ancestor := node.Parent; ancestor != nil; ancestor = ancestor.Parent {
+		if isShowingBlockBoundary(ancestor) {
+			return blocks[ancestor]
+		}
+	}
+	return false
+}
+
+func hasOnlyIdentitylessPackageBlocks(root *html.Node, identitylessPackages map[*html.Node]bool) bool {
+	if len(identitylessPackages) == 0 {
+		return false
+	}
+	onlyPackages := true
+	walk(root, func(node *html.Node) {
+		if !onlyPackages || node.Type != html.ElementNode {
+			return
+		}
+		id := attr(node, "id")
+		if id == emptyFilmBlockID {
+			onlyPackages = identitylessPackages[node]
+			return
+		}
+		if strings.HasPrefix(id, "bloc-showing-") {
+			onlyPackages = false
+		}
+	})
+	return onlyPackages
 }
 
 func documentShowingCandidates(root *html.Node, cache *showingsParseCache) []*html.Node {
@@ -1004,6 +1099,11 @@ func showingFormat(button *html.Node, cache *showingsParseCache) string {
 func isShowingFilmBlock(node *html.Node) bool {
 	id := attr(node, "id")
 	return id == emptyFilmBlockID || blockPattern.MatchString(id)
+}
+
+func isShowingBlockBoundary(node *html.Node) bool {
+	id := attr(node, "id")
+	return strings.HasPrefix(id, emptyFilmBlockID) || strings.HasPrefix(id, "bloc-showing-movie-")
 }
 
 func validShowingFormat(v string) bool {
