@@ -20,8 +20,8 @@ function bookingLabel(result: SlotResult): string {
 </script>
 
 <template>
-  <article v-if="movie" class="overflow-hidden rounded-lg border border-line bg-surface">
-    <header class="relative overflow-hidden border-b border-line bg-subtle px-4 py-4 sm:px-5">
+  <article v-if="movie" class="overflow-hidden border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
+    <header class="relative overflow-hidden border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-5 sm:py-5">
       <img
         v-if="backdropUrl && !backdropFailed"
         :src="backdropUrl"
@@ -30,14 +30,14 @@ function bookingLabel(result: SlotResult): string {
         height="240"
         loading="lazy"
         decoding="async"
-        class="absolute inset-0 h-full w-full object-cover"
+        class="absolute inset-0 h-full w-full object-cover opacity-15"
         aria-hidden="true"
         @error="backdropFailed = true"
       >
-      <div class="absolute inset-0 bg-gradient-to-r from-surface via-surface/95 to-surface/65" aria-hidden="true" />
+      <div class="absolute inset-0 bg-[#f1efe8]/85" aria-hidden="true" />
 
       <div class="relative flex items-center gap-4">
-        <div class="flex aspect-[2/3] w-16 shrink-0 items-center justify-center overflow-hidden rounded border border-line bg-subtle shadow-sm sm:w-[4.5rem]">
+        <div class="flex aspect-[2/3] w-16 shrink-0 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[4px_4px_0_#27272a] sm:w-[4.5rem]">
           <img
             v-if="posterUrl && !posterFailed"
             :src="posterUrl"
@@ -53,30 +53,30 @@ function bookingLabel(result: SlotResult): string {
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div class="min-w-0">
-            <h3 class="text-lg font-semibold leading-snug text-ink">
+            <h3 class="text-xl font-black leading-snug tracking-[-0.03em] text-ink sm:text-2xl">
               <NuxtLink
                 :to="`/film/${movie.slug}`"
-                class="rounded-sm underline-offset-4 transition-colors hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                class="underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
               >
                 {{ movie.title }}
               </NuxtLink>
             </h3>
-            <p class="mt-0.5 text-sm text-muted">{{ movie.runtime_minutes }} min</p>
+            <p class="mt-1 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">{{ movie.runtime_minutes }} min</p>
           </div>
-          <p class="shrink-0 text-sm font-medium text-muted">{{ results.length }} séance{{ results.length > 1 ? 's' : '' }}</p>
+          <p class="shrink-0 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-ink">{{ results.length }} séance{{ results.length > 1 ? 's' : '' }}</p>
         </div>
       </div>
     </header>
 
-    <ul class="divide-y divide-line" aria-label="Séances compatibles">
-      <li v-for="result in results" :key="result.showtime.id" class="grid gap-x-4 gap-y-2 p-4 transition hover:bg-subtle/40 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+    <ul class="divide-y-2 divide-ink" aria-label="Séances compatibles">
+      <li v-for="result in results" :key="result.showtime.id" class="grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
         <div class="min-w-0">
           <template v-if="hasDelayedArrival(result)">
-            <p class="text-sm font-semibold tabular-nums text-ink">Arrivée conseillée {{ formatParisTime(result.effective_start_time) }} → fin {{ formatParisTime(result.effective_end_time) }}</p>
-            <p class="mt-0.5 text-xs tabular-nums text-muted">Séance annoncée à {{ formatParisTime(result.showtime.start_time) }}</p>
+            <p class="text-sm font-black tabular-nums text-ink">Arrivée conseillée {{ formatParisTime(result.effective_start_time) }} → fin {{ formatParisTime(result.effective_end_time) }}</p>
+            <p class="mt-1 font-mono text-[9px] font-bold uppercase tabular-nums tracking-[0.08em] text-muted">Séance annoncée à {{ formatParisTime(result.showtime.start_time) }}</p>
           </template>
-          <p v-else class="text-lg font-semibold tabular-nums text-ink">{{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
-          <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
+          <p v-else class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+          <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <BrandedText :text="result.theater.name" /></span>
             <span>{{ result.showtime.room }}</span>
             <span class="font-medium text-muted">{{ result.showtime.language }}</span>
@@ -88,8 +88,8 @@ function bookingLabel(result: SlotResult): string {
           :provider="result.showtime.provider"
           :aria-label="bookingLabel(result)"
           unstyled
-          class="inline-flex min-h-10 items-center justify-end text-sm font-semibold"
-          available-class="text-accent underline-offset-4 hover:underline focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+          class="inline-flex min-h-10 items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em]"
+          available-class="text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
           unavailable-class="text-muted"
         >
           <template #default="{ available }">{{ available ? 'Réserver' : 'Indisponible' }}</template>

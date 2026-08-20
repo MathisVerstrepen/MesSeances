@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	runtimeconfig "messeances/api/internal/config"
@@ -25,10 +27,19 @@ func main() {
 	if err := runtimeconfig.LoadDotEnv(); err != nil {
 		log.Fatal("configuration error")
 	}
-	if err := run(context.Background()); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
 		log.Fatal(err)
 	}
 }
+
+type httpServer interface {
+	ListenAndServe() error
+	Shutdown(context.Context) error
+}
+
+const shutdownTimeout = 10 * time.Second
 
 func run(ctx context.Context) error {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -85,10 +96,33 @@ func run(ctx context.Context) error {
 	adminOptions.Syncs = syncManager
 	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), adminOptions), ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("API MesSeances à l'écoute sur http://localhost:%s", port)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("API server failed")
+	return serve(ctx, server, stopWorkers)
+}
+
+func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFunc) error {
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serveErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("API server failed")
+		}
+		return nil
+	case <-ctx.Done():
+		stopWorkers()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return fmt.Errorf("API server shutdown failed")
+		}
+		if err := <-serveErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("API server failed")
+		}
+		return nil
 	}
-	return nil
 }
 
 func newAdminOptions(password string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {

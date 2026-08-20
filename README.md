@@ -105,6 +105,88 @@ Ouvrir `http://localhost:3000`. L’API écoute par défaut sur `http://localhos
 
 Au démarrage, l’API exige `DATABASE_URL`, applique les migrations et charge un instantané national complet et valide. Une base vide ou invalide provoque un arrêt. Ensuite, l’API vérifie la version PostgreSQL et charge chaque nouvelle version complète en mémoire. Une panne de lecture ou un instantané invalide conserve la dernière version valide en mémoire. Aucun import JSON, fichier de séances ou repli synthétique n’existe.
 
+## Déploiement en production
+
+Le workflow GitHub Actions `.github/workflows/publish-images.yml` construit les deux images Linux `amd64` après chaque push sur `main` ou lancement manuel. Un run entièrement réussi publie `ghcr.io/<propriétaire>/<dépôt>-api:<sha-complet>` et `ghcr.io/<propriétaire>/<dépôt>-web:<sha-complet>`. Le serveur doit toujours utiliser le même SHA Git complet et immuable pour les deux images.
+
+### Préparer le serveur
+
+Cloner le dépôt ou copier `compose.production.yaml` et `.env.production.example`, puis créer le fichier de configuration protégé :
+
+```sh
+umask 077
+cp .env.production.example .env.production
+chmod 600 .env.production
+openssl rand -hex 32
+openssl rand -hex 32
+```
+
+Reporter séparément les deux valeurs hexadécimales dans `POSTGRES_PASSWORD` et `ADMIN_PASSWORD`, puis renseigner `IMAGE_BASE`, le SHA complet `IMAGE_TAG`, les origines publiques et les ports. Les valeurs hexadécimales évitent tout encodage supplémentaire dans `DATABASE_URL`. `WEB_ORIGIN` doit être l’origine frontend HTTPS exacte, sans chemin. `NUXT_PUBLIC_API_BASE` est l’origine publique visible par le navigateur avant `/api/v1`, normalement la même origine lorsque nginx route aussi l’API. Le jeton TMDB reste facultatif.
+
+Créer hors du dépôt le fichier de proxies indiqué par le chemin hôte absolu `PROXY_FILE_HOST`. Il doit appartenir à l’administrateur ou à l’UID/GID numérique `10001`, être lisible par l’UID conteneur `10001`, et ne jamais être lisible par le groupe ou les autres utilisateurs. Par exemple, sous un compte privilégié :
+
+```sh
+install -o 10001 -g 10001 -m 0400 /chemin/source/proxies.txt /srv/messeances/secrets/proxies.txt
+```
+
+Ne jamais versionner ni afficher `.env.production`, le fichier de proxies, les jetons ou le résultat rendu de `docker compose config` : ce dernier contient les secrets interpolés.
+
+Si les paquets GHCR sont privés, créer un jeton GitHub limité à `read:packages`, puis se connecter sans placer le jeton dans l’historique :
+
+```sh
+read -rsp 'Jeton GHCR: ' GHCR_TOKEN && printf '\n'
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u VOTRE_UTILISATEUR --password-stdin
+unset GHCR_TOKEN
+```
+
+### Initialiser une base vide
+
+Télécharger les deux images, démarrer uniquement PostgreSQL, puis exécuter une fois les synchronisations UGC et Kinepolis dans cet ordre :
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml pull
+docker compose --env-file .env.production -f compose.production.yaml up -d --wait postgres
+docker compose --env-file .env.production -f compose.production.yaml run --rm api sync-ugc -proxy-file /run/secrets/sync-proxies.txt
+docker compose --env-file .env.production -f compose.production.yaml run --rm api sync-kinepolis -proxy-file /run/secrets/sync-proxies.txt
+docker compose --env-file .env.production -f compose.production.yaml up -d --wait
+```
+
+Chaque binaire de synchronisation applique d’abord les migrations embarquées, puis remplace ses données dans une transaction complète. L’API réapplique sans danger les mêmes migrations sous verrou au démarrage et refuse d’écouter si une migration échoue ou si l’instantané initial est vide ou invalide. Aucun conteneur de migration séparé n’est nécessaire.
+
+Après l’initialisation, les synchronisations récurrentes se lancent uniquement manuellement depuis `/admin/sync` avec la cible `all`. Aucun planificateur n’est installé. Les commandes CLI ci-dessus sont réservées à l’initialisation ou à une récupération explicitement pilotée par l’opérateur.
+
+### Exploiter et mettre à jour
+
+Vérifier les services et sondes depuis l’hôte :
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml ps
+curl --fail http://127.0.0.1:8080/healthz
+curl --fail http://127.0.0.1:8080/readyz
+curl --fail http://127.0.0.1:3000/
+docker compose --env-file .env.production -f compose.production.yaml logs --tail=100 api web postgres
+```
+
+Pour une mise à jour, remplacer `IMAGE_TAG` par le SHA complet d’un run où les deux images ont réussi, puis exécuter :
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml pull
+docker compose --env-file .env.production -f compose.production.yaml up -d --wait
+```
+
+Pour revenir en arrière, remettre un ancien SHA publié compatible avec l’historique de migrations, puis répéter `pull` et `up -d --wait`. Les migrations sont uniquement progressives : ne jamais effacer leur historique ni rétrograder vers un binaire qui ne connaît pas une migration déjà appliquée. Le volume PostgreSQL reste inchangé pendant mise à jour et rollback.
+
+Arrêter les services sans supprimer les données :
+
+```sh
+docker compose --env-file .env.production -f compose.production.yaml stop -t 15
+docker compose --env-file .env.production -f compose.production.yaml down
+```
+
+Ne pas utiliser `down -v`, sauf suppression délibérée des données. Compose ne publie aucun port PostgreSQL et publie l’API et Nuxt uniquement sur `127.0.0.1`.
+
+Le nginx global de l’hôte reste seul responsable des domaines publics, du routage vers les deux ports loopback, de TLS et des certificats. Il doit conserver l’en-tête `Origin` et transmettre `X-Forwarded-Proto: https` pour les cookies administrateur sécurisés. Ce dépôt ne fournit ni configuration nginx/TLS, ni pare-feu, ni DNS, ni sauvegarde, ni déploiement SSH.
+
 ## Configuration
 
 Les exécutables Go chargent automatiquement le premier fichier `.env` trouvé dans le répertoire courant puis son parent. Un `.env` placé à la racine fonctionne donc depuis la racine du dépôt comme depuis `api/`. Les variables déjà définies dans l’environnement du processus restent prioritaires et les deux fichiers ne sont jamais fusionnés. Copier `.env.example` vers `.env` pour démarrer ; un fichier existant illisible ou mal formé bloque le démarrage avec une erreur de configuration générique.
@@ -116,6 +198,8 @@ Les exécutables Go chargent automatiquement le premier fichier `.env` trouvé d
 - `PORT` : port de l’API, `8080` par défaut.
 - `WEB_ORIGIN` : origine autorisée par CORS, `http://localhost:3000` par défaut.
 - `NUXT_PUBLIC_API_BASE` : URL de base utilisée par Nuxt, `http://localhost:8080` par défaut.
+- `GET /healthz` : sonde de vie sans accès PostgreSQL.
+- `GET /readyz` : sonde de disponibilité active après migrations et chargement de l’instantané initial.
 
 ## API v1
 
@@ -165,6 +249,7 @@ Ces commandes n’effectuent aucune synchronisation réseau UGC ni aucun appel T
 
 ```sh
 docker compose config
+docker compose --env-file .env.production.example -f compose.production.yaml config
 cd api && go test ./...
 npm --prefix web run typecheck
 ```

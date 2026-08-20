@@ -322,29 +322,29 @@ useHead(() => ({
 </script>
 
 <template>
-  <main class="mx-auto max-w-[1120px] px-4 py-6 sm:px-6 sm:py-8 lg:px-10 lg:py-10">
-    <div v-if="pending && !schedule" class="state-panel" role="status" aria-live="polite">
-      <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" />
+  <main class="film-page mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
+    <div v-if="pending && !schedule" class="film-state" role="status" aria-live="polite">
+      <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
       <p>Chargement des séances…</p>
     </div>
 
-    <div v-else-if="notFound" class="state-panel" role="alert">
-      <Film :size="30" class="text-muted" aria-hidden="true" />
+    <div v-else-if="notFound" class="film-state" role="alert">
+      <Film :size="36" aria-hidden="true" />
       <div>
-        <p class="text-lg font-semibold text-ink">Film introuvable</p>
+        <p class="text-2xl font-black tracking-[-0.04em] text-ink">Film introuvable</p>
         <p class="mt-1 text-sm">Ce film n’est pas disponible dans le catalogue actuel.</p>
       </div>
-      <NuxtLink to="/films" class="button-primary">Voir les films</NuxtLink>
+      <NuxtLink to="/films" class="brutal-action">Voir les films</NuxtLink>
     </div>
 
-    <div v-else-if="errorMessage && !schedule" class="state-panel" role="alert">
-      <AlertTriangle :size="28" class="text-red-600" aria-hidden="true" />
+    <div v-else-if="errorMessage && !schedule" class="film-state" role="alert">
+      <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
       <p class="max-w-lg">{{ errorMessage }}</p>
       <div class="flex flex-wrap justify-center gap-3">
-        <button v-if="!preferences.isInitialized.value || preferences.favoriteTheaterIds.value.length" type="button" class="button-primary" @click="retryLoad">
+        <button v-if="!preferences.isInitialized.value || preferences.favoriteTheaterIds.value.length" type="button" class="brutal-action" @click="retryLoad">
           <RefreshCw :size="17" aria-hidden="true" /> Réessayer
         </button>
-        <NuxtLink to="/cinemas" class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink hover:border-line-hover">
+        <NuxtLink to="/cinemas" class="brutal-action brutal-action--light">
           Mes cinémas
         </NuxtLink>
       </div>
@@ -352,8 +352,8 @@ useHead(() => ({
 
     <template v-else-if="schedule">
       <header
-        class="relative grid gap-6 border-b pb-8 sm:grid-cols-[144px_minmax(0,1fr)] sm:items-start"
-        :class="backdropAvailable ? 'isolate overflow-hidden rounded-lg border-transparent px-4 pt-6 sm:px-6 lg:px-8' : 'border-line'"
+        class="movie-hero relative grid gap-7 overflow-hidden border-2 border-ink p-5 shadow-[8px_8px_0_#27272a] sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end sm:p-7 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10 lg:p-10"
+        :class="backdropAvailable ? 'isolate text-white' : 'bg-surface'"
       >
         <img
           v-if="backdropAvailable"
@@ -363,21 +363,19 @@ useHead(() => ({
           class="absolute inset-0 -z-20 size-full object-cover"
           @error="backdropFailed = true"
         />
-        <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-gradient-to-r from-black/95 via-black/80 to-black/70" aria-hidden="true" />
+        <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
         <a
           v-if="tmdbUrl"
           :href="tmdbUrl"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Voir ce film sur TMDB (nouvel onglet)"
-          class="absolute right-0 top-0 z-20 inline-flex min-h-11 min-w-11 items-center justify-center rounded-md p-2 transition hover:bg-subtle focus-visible:ring-2 focus-visible:ring-accent"
-          :class="backdropAvailable ? 'right-4 top-4 hover:bg-white/15 focus-visible:ring-accent-line focus-visible:ring-offset-black sm:right-6 lg:right-8' : undefined"
+          class="absolute right-4 top-4 z-20 inline-flex min-h-11 min-w-11 items-center justify-center p-1 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-highlight focus-visible:ring-offset-4 sm:right-6 sm:top-6 lg:right-8 lg:top-8"
         >
           <img :src="tmdbLogo" alt="" class="h-auto w-20" />
         </a>
         <div
-          class="aspect-[2/3] w-32 overflow-hidden rounded-md border shadow-sm sm:w-36"
-          :class="backdropAvailable ? 'relative z-10 border-white/25 bg-black/40' : 'border-line bg-subtle'"
+          class="relative z-10 mx-auto aspect-[2/3] w-40 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] lg:w-[220px]"
         >
           <img
             v-if="posterAvailable"
@@ -388,52 +386,50 @@ useHead(() => ({
           />
           <div
             v-else
-            class="flex h-full flex-col items-center justify-center gap-2 px-3 text-center"
-            :class="backdropAvailable ? 'text-white/80' : 'text-muted'"
+            class="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-muted"
           >
             <Film :size="32" aria-hidden="true" />
-            <span class="text-xs font-medium">Affiche indisponible</span>
+            <span class="text-xs font-bold">Affiche indisponible</span>
           </div>
         </div>
         <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, tmdbUrl ? 'sm:pr-28' : undefined]">
-          <h1 class="text-2xl font-semibold tracking-tight sm:text-3xl" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
-          <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm" :class="backdropAvailable ? 'text-white/80' : 'text-muted'">
-            <span>{{ schedule.movie.runtime_minutes }} min</span>
+          <h1 class="movie-title text-[clamp(3rem,7vw,7rem)] font-black uppercase leading-[0.82] tracking-[-0.075em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
+          <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
+            <span class="meta-chip">{{ schedule.movie.runtime_minutes }} min</span>
             <template v-if="releaseDateLabel">
-              <span aria-hidden="true">·</span>
-              <time :datetime="schedule.movie.release_date!">{{ releaseDateLabel }}</time>
+              <time :datetime="schedule.movie.release_date!" class="meta-chip">{{ releaseDateLabel }}</time>
             </template>
           </div>
           <ul v-if="schedule.movie.genres.length" class="mt-3 flex flex-wrap gap-2" aria-label="Genres">
             <li
               v-for="genre in schedule.movie.genres"
               :key="genre"
-              class="rounded-full px-2.5 py-1 text-xs font-medium"
-              :class="backdropAvailable ? 'bg-white/15 text-white' : 'bg-subtle text-ink'"
+              class="genre-chip"
             >
               {{ genre }}
             </li>
           </ul>
-          <div v-if="schedule.movie.overview?.trim()" class="mt-5 max-w-3xl">
-            <h2 class="text-sm font-semibold" :class="backdropAvailable ? 'text-white' : 'text-ink'">Synopsis</h2>
-            <p class="mt-1.5 text-sm leading-6" :class="backdropAvailable ? 'text-white/80' : 'text-muted'">{{ schedule.movie.overview }}</p>
+          <div v-if="schedule.movie.overview?.trim()" class="mt-7 max-w-3xl border-l-2 pl-4" :class="backdropAvailable ? 'border-white' : 'border-ink'">
+            <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.18em]" :class="backdropAvailable ? 'text-white/70' : 'text-muted'">Synopsis</h2>
+            <p class="mt-2 text-sm font-medium leading-6 sm:text-base" :class="backdropAvailable ? 'text-white/90' : 'text-ink'">{{ schedule.movie.overview }}</p>
           </div>
         </div>
       </header>
 
-      <section class="mt-7" aria-labelledby="schedule-heading">
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <section class="schedule-section mt-12 border-t-2 border-ink pt-8 sm:mt-16 sm:pt-10" aria-labelledby="schedule-heading">
+        <div class="flex flex-col gap-3 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
           <div>
-            <h2 id="schedule-heading" class="flex flex-wrap items-baseline gap-x-2 text-xl font-semibold text-ink">
+            <p class="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">Programmation</p>
+            <h2 id="schedule-heading" class="mt-2 flex flex-wrap items-baseline gap-x-3 text-4xl font-black tracking-[-0.05em] text-ink sm:text-5xl">
               <span>Séances</span>
-              <span class="font-medium text-muted"><span aria-hidden="true">·</span> {{ visibleShowtimeCount }} horaire{{ visibleShowtimeCount === 1 ? '' : 's' }}</span>
+              <span class="font-mono text-xs font-bold uppercase tracking-[0.1em] text-muted">{{ visibleShowtimeCount }} horaire{{ visibleShowtimeCount === 1 ? '' : 's' }}</span>
             </h2>
-            <p class="mt-1 text-sm capitalize text-muted">{{ formatLongDate(selectedDate) }}</p>
+            <p class="mt-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted">{{ formatLongDate(selectedDate) }}</p>
           </div>
-          <NuxtLink to="/cinemas" class="shrink-0 self-start text-sm font-medium text-accent hover:underline">Modifier mes cinémas</NuxtLink>
+          <NuxtLink to="/cinemas" class="editorial-link shrink-0 self-start sm:self-end">Modifier mes cinémas</NuxtLink>
         </div>
 
-        <div class="sticky top-[6.5rem] z-20 -mx-4 mt-4 bg-canvas/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:top-0 lg:-mx-10 lg:px-10">
+        <div class="filter-dock sticky top-[7.5rem] z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 px-4 py-4 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:px-6 lg:top-[4.5rem] lg:-mx-10 lg:px-10">
           <div
             class="flex gap-2 overflow-x-auto pb-1"
             role="tablist"
@@ -448,26 +444,26 @@ useHead(() => ({
               :aria-selected="selectedDate === date"
               aria-controls="showtime-panel"
               :tabindex="selectedDate === date ? 0 : -1"
-              class="h-10 shrink-0 rounded-md px-4 text-sm font-semibold transition"
-              :class="selectedDate === date ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+              class="date-tab"
+              :class="selectedDate === date ? 'date-tab--active' : undefined"
               @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
               @keydown="selectAdjacentDate($event, index)"
             >
               {{ formatDateLabel(date) }}
             </button>
-            <span v-if="availableDates.length === 0" class="inline-flex h-10 items-center text-sm text-muted">{{ formatDateLabel(selectedDate) }}</span>
+            <span v-if="availableDates.length === 0" class="inline-flex h-10 items-center font-mono text-xs font-bold uppercase">{{ formatDateLabel(selectedDate) }}</span>
           </div>
 
-          <div class="mt-2 flex flex-col gap-2">
+          <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
             <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="language-filter-label" class="text-xs font-semibold uppercase tracking-wide text-muted">Langue</span>
+              <span id="language-filter-label" class="filter-label">Langue</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="language-filter-label">
                 <button
                   v-for="option in languageOptions"
                   :key="option.value"
                   type="button"
-                  class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
-                  :class="activeLanguage === option.value ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                  class="filter-button"
+                  :class="activeLanguage === option.value ? 'filter-button--active' : undefined"
                   :aria-pressed="activeLanguage === option.value"
                   @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
@@ -477,14 +473,14 @@ useHead(() => ({
             </div>
             <div class="flex min-w-0 items-center gap-2">
               <template v-if="technologyFormats.length > 1">
-                <span id="technology-filter-label" class="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">Technologie</span>
+                <span id="technology-filter-label" class="filter-label">Technologie</span>
                 <div class="flex min-w-0 gap-1 overflow-x-auto" role="group" aria-labelledby="technology-filter-label">
                   <button
                     v-for="option in technologyOptions"
                     :key="option.value"
                     type="button"
-                    class="h-8 shrink-0 rounded px-2 text-sm font-medium transition"
-                    :class="activeTechnology === option.value ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                    class="filter-button"
+                    :class="activeTechnology === option.value ? 'filter-button--active' : undefined"
                     :aria-pressed="activeTechnology === option.value"
                     @click="updateFilmQuery({ format: option.value === 'ALL' ? undefined : option.value })"
                   >
@@ -494,8 +490,8 @@ useHead(() => ({
               </template>
               <button
                 type="button"
-                class="ml-auto inline-flex h-8 shrink-0 items-center gap-1 rounded px-2 text-xs font-medium transition"
-                :class="sortByNextShowtime ? 'bg-accent text-white' : 'text-muted hover:bg-subtle hover:text-ink'"
+                class="sort-button ml-auto"
+                :class="sortByNextShowtime ? 'filter-button--active' : undefined"
                 :aria-pressed="sortByNextShowtime"
                 aria-label="Trier les cinémas par prochain horaire"
                 @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
@@ -508,38 +504,38 @@ useHead(() => ({
         </div>
 
         <div id="showtime-panel" role="tabpanel" :aria-labelledby="availableDates.length ? `date-tab-${selectedDate}` : undefined" :aria-busy="pending">
-          <div v-if="pending" class="state-panel mt-6" role="status" aria-live="polite">
-            <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" />
+          <div v-if="pending" class="film-state mt-10" role="status" aria-live="polite">
+            <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
             <p>Chargement des séances…</p>
           </div>
 
-          <div v-else-if="errorMessage" class="state-panel mt-6" role="alert">
-            <AlertTriangle :size="28" class="text-red-600" aria-hidden="true" />
+          <div v-else-if="errorMessage" class="film-state mt-10" role="alert">
+            <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
             <p class="max-w-lg">{{ errorMessage }}</p>
-            <button type="button" class="button-primary" @click="loadSchedule">
+            <button type="button" class="brutal-action" @click="loadSchedule">
               <RefreshCw :size="17" aria-hidden="true" /> Réessayer
             </button>
           </div>
 
-          <div v-else-if="schedule.theaters.length === 0" class="state-panel mt-6">
-            <CalendarDays :size="30" class="text-muted" aria-hidden="true" />
+          <div v-else-if="schedule.theaters.length === 0" class="film-state mt-10">
+            <CalendarDays :size="36" aria-hidden="true" />
             <p>Aucune séance dans vos cinémas favoris à cette date.</p>
           </div>
 
-          <div v-else-if="visibleTheaters.length === 0" class="state-panel mt-6">
-            <CalendarDays :size="30" class="text-muted" aria-hidden="true" />
+          <div v-else-if="visibleTheaters.length === 0" class="film-state mt-10">
+            <CalendarDays :size="36" aria-hidden="true" />
             <p>Aucune séance ne correspond à ces filtres.</p>
-            <button type="button" class="button-primary" @click="resetFilters">Voir toutes les séances</button>
+            <button type="button" class="brutal-action" @click="resetFilters">Voir toutes les séances</button>
           </div>
 
-          <div v-else class="mt-6 space-y-9">
-            <section v-for="theater in visibleTheaters" :key="theater.id" :aria-labelledby="`theater-${theater.id}`">
-              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-                <h3 :id="`theater-${theater.id}`" class="text-lg font-semibold text-ink"><BrandedText :text="theater.name" /></h3>
-                <span class="flex items-center gap-1.5 text-sm text-muted"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</span>
+          <div v-else class="mt-10 space-y-10">
+            <section v-for="theater in visibleTheaters" :key="theater.id" class="theater-section border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a]" :aria-labelledby="`theater-${theater.id}`">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-6">
+                <h3 :id="`theater-${theater.id}`" class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl"><BrandedText :text="theater.name" /></h3>
+                <span class="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</span>
               </div>
 
-              <ul class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(168px,1fr))]">
+              <ul class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-6">
                 <li v-for="showtime in theater.showtimes" :key="showtime.id" class="min-w-0">
                   <BookingLink
                     v-slot="{ available }"
@@ -547,16 +543,16 @@ useHead(() => ({
                     :provider="showtime.provider"
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
-                    class="group relative flex h-full min-h-28 w-full scroll-mt-[17rem] flex-col items-start justify-between overflow-hidden rounded-lg border p-3 text-left transition lg:scroll-mt-36"
-                    :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'ring-2 ring-amber-400 ring-offset-1' : undefined"
-                    :available-class="showtime.timingState === 'past' ? 'border-line bg-surface text-ink shadow-sm' : 'border-line bg-surface text-ink shadow-sm hover:border-accent hover:bg-surface hover:shadow-md'"
-                    unavailable-class="cursor-not-allowed border-dashed border-line bg-subtle text-muted shadow-none"
+                    class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between overflow-hidden border-2 p-3 text-left lg:scroll-mt-52"
+                    :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'showtime-card--warning' : undefined"
+                    :available-class="showtime.timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]'"
+                    unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
                   >
                     <div class="flex w-full items-baseline justify-between gap-2">
-                      <span class="text-xl font-bold tracking-tight">{{ formatParisTime(showtime.start_time) }}</span>
-                      <span class="text-xs font-normal text-muted">fin {{ formatParisTime(showtime.end_time) }}</span>
+                      <span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(showtime.start_time) }}</span>
+                      <span class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(showtime.end_time) }}</span>
                     </div>
-                    <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted">
+                    <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
                       <span>{{ showtime.language }}</span>
                       <span aria-hidden="true">·</span>
                       <ShowtimeFormat :format="showtime.format" />
@@ -565,11 +561,11 @@ useHead(() => ({
                         <span>{{ formatRoom(showtime.room) }}</span>
                       </template>
                     </div>
-                    <span v-if="showtime.timingState === 'warning'" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-amber-700">
+                    <span v-if="showtime.timingState === 'warning'" class="mt-2 inline-flex items-center gap-1 text-xs font-black text-amber-800">
                       <AlertTriangle :size="14" aria-hidden="true" /> Séance commencée
                     </span>
                     <span v-else-if="showtime.timingState === 'past'" class="sr-only">Séance passée</span>
-                    <span v-if="!available" class="mt-2 text-xs font-semibold">Réservation indisponible</span>
+                    <span v-if="!available" class="mt-2 text-xs font-black">Réservation indisponible</span>
                     <svg
                       v-if="showtime.timingState === 'past'"
                       viewBox="0 0 100 100"
@@ -590,3 +586,155 @@ useHead(() => ({
     </template>
   </main>
 </template>
+
+<style scoped>
+.film-page {
+  background-color: #f8f7f2;
+  background-image:
+    linear-gradient(rgba(39, 39, 42, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 39, 42, 0.07) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.meta-chip,
+.genre-chip {
+  border: 2px solid #27272a;
+  background: #ffcf3f;
+  padding: 0.35rem 0.55rem;
+  color: #27272a;
+  line-height: 1;
+}
+
+.genre-chip {
+  background: #fff;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.editorial-link {
+  display: inline-block;
+  border-bottom: 2px solid currentColor;
+  padding-bottom: 0.2rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.date-tab {
+  min-height: 2.75rem;
+  flex-shrink: 0;
+  border: 2px solid #27272a;
+  background: #fff;
+  padding: 0.65rem 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.date-tab:hover {
+  background: #e8e6de;
+}
+
+.date-tab--active {
+  background: #27272a;
+  color: #fff;
+  box-shadow: inset 0 -4px 0 var(--color-highlight);
+}
+
+.filter-label {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.filter-button,
+.sort-button {
+  display: inline-flex;
+  min-height: 2rem;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1.5px solid #27272a;
+  background: transparent;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.filter-button:hover,
+.sort-button:hover {
+  background: #e8e6de;
+}
+
+.filter-button--active {
+  background: #27272a;
+  color: #fff;
+}
+
+.showtime-card--warning {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+.film-state {
+  display: flex;
+  min-height: 22rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  border: 2px solid #27272a;
+  background: #fff;
+  padding: 2rem;
+  text-align: center;
+  font-weight: 800;
+  box-shadow: 8px 8px 0 #27272a;
+}
+
+.brutal-action {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 2px solid #27272a;
+  background: #27272a;
+  padding: 0.65rem 1rem;
+  color: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.brutal-action:hover {
+  background: #991b1b;
+}
+
+.brutal-action--light {
+  background: #fff;
+  color: #27272a;
+}
+
+.brutal-action--light:hover {
+  background: var(--color-highlight);
+}
+
+@media (max-width: 639px) {
+  .movie-title {
+    overflow-wrap: anywhere;
+  }
+
+  .film-state {
+    min-height: 19rem;
+  }
+}
+
+</style>

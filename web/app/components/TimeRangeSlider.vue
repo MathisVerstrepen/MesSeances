@@ -123,8 +123,8 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
 </script>
 
 <template>
-  <fieldset>
-    <legend class="mb-1.5 text-sm font-medium text-ink">Créneau horaire</legend>
+  <fieldset class="time-range">
+    <legend class="mb-2 font-mono text-[10px] font-black uppercase tracking-[0.14em] text-ink">Créneau horaire</legend>
 
     <div
       class="relative h-11 touch-none select-none"
@@ -134,9 +134,9 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
       @pointercancel="onPointerEnd"
     >
       <div ref="track" class="absolute inset-x-[11px] inset-y-0">
-        <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-line" aria-hidden="true" />
+        <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-[#d4d1c9]" aria-hidden="true" />
         <div
-          class="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-accent"
+          class="absolute top-1/2 h-1 -translate-y-1/2 bg-highlight"
           :style="{ left: `${startPercent}%`, width: `${selectedWidth}%` }"
           aria-hidden="true"
         />
@@ -150,12 +150,12 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
           :aria-valuemax="Math.max(endIndex - 1, 0)"
           :aria-valuenow="startIndex"
           :aria-valuetext="startValueText"
-          class="pointer-events-none absolute top-0 z-10 flex size-11 -translate-x-1/2 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+          class="pointer-events-none absolute top-0 z-10 flex size-11 -translate-x-1/2 items-center justify-center focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
           :style="{ left: `${startPercent}%` }"
           @focus="activeHandle = 'start'"
           @keydown="onKeydown('start', $event)"
         >
-          <span class="size-[22px] rounded-full border-2 border-accent bg-surface shadow-sm" aria-hidden="true" />
+          <span class="size-[22px] border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]" aria-hidden="true" />
         </button>
 
         <button
@@ -167,29 +167,48 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
           :aria-valuemax="lastIndex"
           :aria-valuenow="endIndex"
           :aria-valuetext="endValueText"
-          class="pointer-events-none absolute top-0 z-10 flex size-11 -translate-x-1/2 items-center justify-center rounded-full focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+          class="pointer-events-none absolute top-0 z-10 flex size-11 -translate-x-1/2 items-center justify-center focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
           :style="{ left: `${endPercent}%` }"
           @focus="activeHandle = 'end'"
           @keydown="onKeydown('end', $event)"
         >
-          <span class="size-[22px] rounded-full border-2 border-accent bg-surface shadow-sm" aria-hidden="true" />
+          <span class="size-[22px] border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]" aria-hidden="true" />
         </button>
       </div>
     </div>
 
     <div class="mt-1 grid grid-cols-2 gap-3">
-      <label class="block text-sm font-medium text-ink">
-        <span class="mb-1.5 block">À partir de</span>
-        <select v-model="startModel" class="field">
+      <label class="block">
+        <span class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink">À partir de</span>
+        <select v-model="startModel" class="time-field">
           <option v-for="option in options" :key="`start-${option.value}`" :value="option.value">{{ option.label }}</option>
         </select>
       </label>
-      <label class="block text-sm font-medium text-ink">
-        <span class="mb-1.5 block">Terminé avant</span>
-        <select v-model="endModel" class="field">
+      <label class="block">
+        <span class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink">Terminé avant</span>
+        <select v-model="endModel" class="time-field">
           <option v-for="option in options" :key="`end-${option.value}`" :value="option.value">{{ option.label }}</option>
         </select>
       </label>
     </div>
   </fieldset>
 </template>
+
+<style scoped>
+.time-field {
+  height: 3rem;
+  width: 100%;
+  border: 2px solid #27272a;
+  border-radius: 0;
+  background: #fff;
+  padding: 0 0.65rem;
+  color: #27272a;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.time-field:focus-visible {
+  outline: 3px solid #27272a;
+  outline-offset: 3px;
+}
+</style>
