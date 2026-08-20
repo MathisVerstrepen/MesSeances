@@ -30,8 +30,10 @@ let dragStartX = 0
 let dragStartScroll = 0
 let didDrag = false
 let suppressClick = false
+let initialScrollFrame: number | undefined
 
 const pixelsPerMinute = computed(() => 60 / props.zoom)
+const INITIAL_SCROLL_GUTTER = 12
 const windowMinutes = computed(() => Math.max(1, Math.round((new Date(props.timeline.window_end_time).getTime() - new Date(props.timeline.window_start_time).getTime()) / 60_000)))
 const railWidth = computed(() => windowMinutes.value * pixelsPerMinute.value)
 const hourLabels = computed(() => {
@@ -195,15 +197,29 @@ function captureClick(event: MouseEvent) {
   event.stopPropagation()
 }
 
+function alignInitialScroll() {
+  if (!scroller.value) return
+  const earliestOffset = rows.value.reduce((earliest, row) => {
+    const rowOffset = row.showtimes[0]?.showtime.start_offset_minutes
+    return rowOffset === undefined ? earliest : Math.min(earliest, rowOffset)
+  }, Number.POSITIVE_INFINITY)
+  if (!Number.isFinite(earliestOffset)) return
+
+  const maximumScroll = Math.max(0, scroller.value.scrollWidth - scroller.value.clientWidth)
+  scroller.value.scrollLeft = Math.min(Math.max(earliestOffset * pixelsPerMinute.value - INITIAL_SCROLL_GUTTER, 0), maximumScroll)
+}
+
 onMounted(() => {
   clockTimer = window.setInterval(() => { now.value = new Date() }, 60_000)
   window.addEventListener('keydown', handleEscape)
   window.addEventListener('pointerup', pointerEnd)
   window.addEventListener('pointercancel', pointerEnd)
+  initialScrollFrame = window.requestAnimationFrame(alignInitialScroll)
 })
 
 onBeforeUnmount(() => {
   if (clockTimer) window.clearInterval(clockTimer)
+  if (initialScrollFrame !== undefined) window.cancelAnimationFrame(initialScrollFrame)
   window.removeEventListener('keydown', handleEscape)
   window.removeEventListener('pointerup', pointerEnd)
   window.removeEventListener('pointercancel', pointerEnd)
@@ -211,19 +227,19 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section aria-label="Frise des séances">
+  <section class="timeline-matrix" aria-label="Frise des séances">
     <p class="sr-only" aria-live="polite">
       {{ selected ? `Détails de la séance ${selected.showtime.movie.title}` : '' }}
     </p>
-    <div v-if="rows.length === 0" class="state-panel">
-      <Film :size="28" class="text-muted" aria-hidden="true" />
+    <div v-if="rows.length === 0" class="timeline-state">
+      <Film :size="30" aria-hidden="true" />
       <p>Aucune séance pour ce format.</p>
     </div>
 
     <div
       v-else
       ref="scroller"
-      class="cursor-grab select-none overflow-x-auto rounded-lg border border-line bg-surface active:cursor-grabbing [--timeline-label-width:136px] [scrollbar-color:var(--color-muted)_var(--color-subtle)] max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:176px]"
+      class="timeline-scroller relative z-0 isolate cursor-grab select-none overflow-x-auto border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] active:cursor-grabbing [--timeline-label-width:132px] [scrollbar-color:#27272a_#e8e6de] max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:184px]"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerEnd"
@@ -232,14 +248,14 @@ onBeforeUnmount(() => {
       @dragstart.prevent
     >
       <div class="relative" :style="{ width: `calc(var(--timeline-label-width) + ${railWidth}px)` }">
-        <div class="relative h-12 border-b border-line bg-subtle">
-          <div class="sticky left-0 z-30 flex h-full items-center border-r border-line bg-subtle px-3 text-xs font-semibold text-muted sm:px-4" style="width: var(--timeline-label-width)">
+        <div class="relative h-11 border-b-2 border-ink bg-[#f1efe8]">
+          <div class="sticky left-0 z-30 flex h-full items-center border-r-2 border-ink bg-[#f1efe8] px-3 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:px-4" style="width: var(--timeline-label-width)">
             {{ mode === 'theater' ? 'Cinémas' : 'Films' }}
           </div>
           <span
             v-for="hour in hourLabels"
             :key="hour.offset"
-            class="absolute top-0 flex h-full -translate-x-1/2 snap-start items-center text-xs font-medium text-muted"
+            class="absolute top-0 flex h-full -translate-x-1/2 snap-start items-center font-mono text-[10px] font-black text-ink"
             :style="{ left: `calc(var(--timeline-label-width) + ${hour.offset * pixelsPerMinute}px)` }"
           >
             {{ hour.label }}
@@ -249,16 +265,16 @@ onBeforeUnmount(() => {
         <div
           v-for="row in rows"
           :key="row.id"
-          class="relative border-b border-line last:border-b-0"
+          class="relative border-b-2 border-ink last:border-b-0"
           :style="{
             height: `${row.height}px`,
             backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${15 * pixelsPerMinute - 1}px, color-mix(in srgb, var(--color-line) 45%, transparent) ${15 * pixelsPerMinute}px), repeating-linear-gradient(to right, transparent 0, transparent ${60 * pixelsPerMinute - 1}px, color-mix(in srgb, var(--color-line-hover) 65%, transparent) ${60 * pixelsPerMinute}px)`,
             backgroundPosition: 'var(--timeline-label-width) 0, var(--timeline-label-width) 0'
           }"
         >
-          <div class="sticky left-0 z-20 flex h-full flex-col justify-center border-r border-line bg-surface px-3 sm:px-4" style="width: var(--timeline-label-width)">
-            <strong class="line-clamp-2 text-sm leading-snug text-ink"><BrandedText :text="row.label" /></strong>
-            <span class="mt-1 flex items-center gap-1 text-xs text-muted">
+          <div class="sticky left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:px-4" style="width: var(--timeline-label-width)">
+            <strong class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"><BrandedText :text="row.label" /></strong>
+            <span class="mt-1 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-ink">
               <MapPin v-if="mode === 'theater'" :size="12" aria-hidden="true" />
               <Film v-else :size="12" aria-hidden="true" />
               {{ row.secondary }}
@@ -269,10 +285,10 @@ onBeforeUnmount(() => {
             v-for="item in row.showtimes"
             :key="`${item.theater.id}-${item.showtime.id}`"
             type="button"
-            class="absolute h-[72px] overflow-hidden rounded-md border px-2.5 py-2 text-left transition focus:z-30"
+            class="showtime-block absolute h-[72px] overflow-hidden border-2 px-2.5 py-2 text-left focus:z-30"
             :class="[
-              item.showtime.language === 'VOSTFR' ? 'border-primary-line bg-primary-soft text-primary hover:border-primary' : 'border-line bg-subtle text-ink hover:border-line-hover',
-              selected?.showtime.id === item.showtime.id ? 'border-accent opacity-100 saturate-100 ring-1 ring-accent' : '',
+              item.showtime.language === 'VOSTFR' ? 'border-primary bg-primary-soft text-primary' : 'border-ink bg-[#e8e6de] text-ink',
+              selected?.showtime.id === item.showtime.id ? 'showtime-block--selected opacity-100 saturate-100' : '',
               isPastShowtime(item.showtime.end_time) && selected?.showtime.id !== item.showtime.id ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100 focus:opacity-100 focus:saturate-100' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
@@ -301,8 +317,8 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
-        <div v-if="currentTimeOffset !== null" class="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-red-500" :style="{ left: `calc(var(--timeline-label-width) + ${currentTimeOffset * pixelsPerMinute}px)` }">
-          <span class="absolute top-1 -translate-x-1/2 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">Maintenant</span>
+        <div v-if="currentTimeOffset !== null" class="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-primary" :style="{ left: `calc(var(--timeline-label-width) + ${currentTimeOffset * pixelsPerMinute}px)` }">
+          <span class="absolute top-1 -translate-x-1/2 border border-ink bg-primary px-1.5 py-0.5 font-mono text-[9px] font-black uppercase text-white">Maintenant</span>
         </div>
       </div>
     </div>
@@ -318,7 +334,7 @@ onBeforeUnmount(() => {
       <aside
         v-if="selected"
         id="timeline-showtime-inspector"
-        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[27rem] flex-col overflow-y-auto border-l border-line bg-surface shadow-2xl"
+        class="inspector fixed inset-y-0 right-0 z-50 flex w-full max-w-[29rem] flex-col overflow-y-auto border-l-2 border-ink bg-[#f8f7f2] shadow-[-8px_0_0_#27272a]"
         aria-labelledby="timeline-showtime-inspector-title"
       >
         <div class="relative h-48 shrink-0 overflow-hidden bg-ink sm:h-56">
@@ -335,7 +351,7 @@ onBeforeUnmount(() => {
           <button
             ref="inspectorCloseButton"
             type="button"
-            class="absolute right-4 top-4 inline-flex size-10 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            class="inspector-close absolute right-4 top-4 inline-flex size-10 items-center justify-center border-2 border-white bg-ink text-white hover:bg-primary"
             aria-label="Fermer les détails de la séance"
             @click="closeInspector()"
           >
@@ -344,7 +360,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="relative flex-1 px-5 pb-6 sm:px-6">
-          <div class="-mt-16 mb-5 h-40 w-[108px] overflow-hidden rounded-md border-4 border-surface bg-subtle shadow-lg">
+          <div class="-mt-16 mb-5 h-40 w-[108px] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
             <img
               v-if="selectedPosterUrl"
               :src="selectedPosterUrl"
@@ -358,27 +374,27 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <p class="text-sm font-semibold text-accent">Séance sélectionnée</p>
-          <h2 id="timeline-showtime-inspector-title" class="mt-1 text-2xl font-semibold leading-tight text-ink">
+          <p class="font-mono text-[10px] font-black uppercase tracking-[0.14em] text-primary">Séance sélectionnée</p>
+          <h2 id="timeline-showtime-inspector-title" class="mt-2 text-3xl font-black leading-[0.95] tracking-[-0.045em] text-ink">
             {{ selected.showtime.movie.title }}
           </h2>
-          <p class="mt-2 text-sm text-muted">{{ selected.showtime.movie.runtime_minutes }} min</p>
+          <p class="mt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-ink">{{ selected.showtime.movie.runtime_minutes }} min</p>
 
-          <dl class="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-4 border-y border-line py-5 text-sm">
-            <dt class="font-medium text-muted">Date</dt>
+          <dl class="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-4 border-y-2 border-ink py-5 text-sm">
+            <dt class="font-medium text-ink">Date</dt>
             <dd class="text-right font-medium capitalize text-ink">{{ formatLongDate(timeline.date) }}</dd>
-            <dt class="font-medium text-muted">Horaire</dt>
+            <dt class="font-medium text-ink">Horaire</dt>
             <dd class="flex items-center justify-end gap-2 font-semibold text-ink">
-              <Clock3 :size="16" class="text-accent" aria-hidden="true" />
+              <Clock3 :size="16" class="text-primary" aria-hidden="true" />
               {{ formatParisTime(selected.showtime.start_time) }} → {{ formatParisTime(selected.showtime.end_time) }}
             </dd>
-            <dt class="font-medium text-muted">Cinéma</dt>
+            <dt class="font-medium text-ink">Cinéma</dt>
             <dd class="text-right font-medium text-ink"><BrandedText :text="selected.theater.name" /></dd>
-            <dt class="font-medium text-muted">Ville</dt>
+            <dt class="font-medium text-ink">Ville</dt>
             <dd class="text-right font-medium text-ink">{{ selected.theater.city }}</dd>
-            <dt class="font-medium text-muted">Salle</dt>
+            <dt class="font-medium text-ink">Salle</dt>
             <dd class="text-right font-medium text-ink">{{ selected.showtime.room }}</dd>
-            <dt class="font-medium text-muted">Version</dt>
+            <dt class="font-medium text-ink">Version</dt>
             <dd class="text-right font-medium text-ink">{{ selected.showtime.language }} · <ShowtimeFormat :format="selected.showtime.format" /></dd>
           </dl>
 
@@ -386,7 +402,7 @@ onBeforeUnmount(() => {
             <BookingLink :url="selected.showtime.booking_url" :provider="selected.showtime.provider" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
-              class="inline-flex h-10 items-center justify-center rounded-md border border-line bg-surface px-5 text-sm font-semibold text-ink transition hover:border-line-hover hover:bg-subtle"
+              class="film-link inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de]"
             >
               Voir le film
             </NuxtLink>
@@ -396,3 +412,63 @@ onBeforeUnmount(() => {
     </Transition>
   </section>
 </template>
+
+<style scoped>
+.timeline-state {
+  display: flex;
+  min-height: max(20rem, calc(100vh - 23rem));
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  border: 2px solid #27272a;
+  background: #fff;
+  padding: 2rem;
+  text-align: center;
+  font-weight: 800;
+  box-shadow: 6px 6px 0 #27272a;
+}
+
+.timeline-scroller {
+  min-height: max(24rem, calc(100vh - 20rem));
+}
+
+.showtime-block {
+  box-shadow: 3px 3px 0 rgba(39, 39, 42, 0.72);
+}
+
+.showtime-block:hover {
+  box-shadow: 3px 3px 0 #d7ff38;
+}
+
+.showtime-block:focus-visible,
+.inspector-close:focus-visible,
+.film-link:focus-visible {
+  outline: 3px solid #1f6f78;
+  outline-offset: 2px;
+}
+
+.showtime-block--selected {
+  border-color: #27272a;
+  box-shadow: 4px 4px 0 #d7ff38, inset 0 -3px 0 #d7ff38;
+}
+
+.inspector {
+  background-image:
+    linear-gradient(rgba(39, 39, 42, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(39, 39, 42, 0.055) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@media (max-width: 639px) {
+  .timeline-scroller {
+    min-height: 24rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showtime-block {
+    transition: none;
+  }
+}
+</style>

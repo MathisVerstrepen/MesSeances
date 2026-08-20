@@ -429,7 +429,7 @@ useHead(() => ({
           <NuxtLink to="/cinemas" class="editorial-link shrink-0 self-start sm:self-end">Modifier mes cinémas</NuxtLink>
         </div>
 
-        <div class="filter-dock sticky top-[7.5rem] z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#ffcf3f]/95 px-4 py-4 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:px-6 lg:top-[4.5rem] lg:-mx-10 lg:px-10">
+        <div class="filter-dock sticky top-[7.5rem] z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 px-4 py-4 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:px-6 lg:top-[4.5rem] lg:-mx-10 lg:px-10">
           <div
             class="flex gap-2 overflow-x-auto pb-1"
             role="tablist"
@@ -530,7 +530,7 @@ useHead(() => ({
 
           <div v-else class="mt-10 space-y-10">
             <section v-for="theater in visibleTheaters" :key="theater.id" class="theater-section border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a]" :aria-labelledby="`theater-${theater.id}`">
-              <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#d7ff38] px-4 py-4 sm:px-6">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-6">
                 <h3 :id="`theater-${theater.id}`" class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl"><BrandedText :text="theater.name" /></h3>
                 <span class="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</span>
               </div>
@@ -545,7 +545,7 @@ useHead(() => ({
                     unstyled
                     class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between overflow-hidden border-2 p-3 text-left lg:scroll-mt-52"
                     :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'showtime-card--warning' : undefined"
-                    :available-class="showtime.timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#ffcf3f]'"
+                    :available-class="showtime.timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]'"
                     unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
                   >
                     <div class="flex w-full items-baseline justify-between gap-2">
@@ -634,13 +634,13 @@ useHead(() => ({
   text-transform: uppercase;
 }
 
-.date-tab:hover,
-.date-tab--active {
-  background: #27272a;
-  color: #fff;
+.date-tab:hover {
+  background: #e8e6de;
 }
 
 .date-tab--active {
+  background: #27272a;
+  color: #fff;
   box-shadow: inset 0 -4px 0 #d7ff38;
 }
 
@@ -668,18 +668,13 @@ useHead(() => ({
 }
 
 .filter-button:hover,
-.sort-button:hover,
+.sort-button:hover {
+  background: #e8e6de;
+}
+
 .filter-button--active {
   background: #27272a;
   color: #fff;
-}
-
-.showtime-card {
-  transition: background-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
-}
-
-.showtime-card[href]:hover {
-  transform: translateY(-2px);
 }
 
 .showtime-card--warning {
@@ -742,13 +737,4 @@ useHead(() => ({
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .showtime-card {
-    transition: none;
-  }
-
-  .showtime-card[href]:hover {
-    transform: none;
-  }
-}
 </style>
