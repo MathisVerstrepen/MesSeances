@@ -14,7 +14,7 @@ API_URL ?= http://localhost:8080
 CHROME_BIN ?= google-chrome
 
 prod:
-	docker compose --env-file .env.production -f compose.production.yaml up -d --wait --pull always
+	docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml up -d --wait --pull always
 
 dev:
 	@set -eu; \
@@ -41,7 +41,7 @@ dev:
 	trap cleanup EXIT; \
 	trap 'exit 130' INT; \
 	trap 'exit 143' TERM; \
-	docker compose up -d --wait postgres; \
+	docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres; \
 	mkdir -p api/bin; \
 	setsid bash -c 'cd api && exec go run github.com/air-verse/air@v1.61.7 -c .air.toml' & api_pid=$$!; \
 	setsid npm --prefix web run dev & web_pid=$$!; \
@@ -70,7 +70,7 @@ sync:
 		exit 2; \
 	fi
 	@printf '%s\n' '[sync] starting PostgreSQL'; \
-	docker compose up -d --wait postgres || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
 	@printf '%s\n' '[sync] starting UGC'; \
 	cd api && go run ./cmd/sync-ugc -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
 	@printf '%s\n' '[sync] UGC finished'

@@ -17,9 +17,9 @@ jobs:
       matrix:
         include:
           - suffix: api
-            dockerfile: Dockerfile.api
+            dockerfile: deploy/Dockerfile.api
           - suffix: web
-            dockerfile: Dockerfile.web
+            dockerfile: deploy/Dockerfile.web
     steps:
       - uses: actions/checkout@v4
 

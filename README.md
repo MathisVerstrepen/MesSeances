@@ -37,6 +37,7 @@ Install dependencies from the repository root:
 cd api && go mod download
 cd ..
 npm --prefix web install
+cp deploy/.env.example deploy/.env
 ```
 
 MesSeances does not start with an empty database. Populate PostgreSQL with a complete schedule snapshot first:
@@ -56,7 +57,7 @@ Open [http://localhost:3000](http://localhost:3000). The API runs at `http://loc
 To stop PostgreSQL later without deleting local data:
 
 ```sh
-docker compose down
+docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml down
 ```
 
 ## Contributor checks
@@ -64,7 +65,7 @@ docker compose down
 These checks do not run a provider synchronization or make real TMDB calls:
 
 ```sh
-docker compose config
+docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
 cd api && go test ./...
 cd ..
 npm --prefix web run typecheck

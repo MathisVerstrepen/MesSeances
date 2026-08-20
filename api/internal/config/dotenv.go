@@ -20,10 +20,10 @@ func LoadDotEnv() error {
 }
 
 func loadDotEnvFrom(workingDirectory string) error {
-	paths := []string{filepath.Join(workingDirectory, ".env")}
+	paths := []string{filepath.Join(workingDirectory, "deploy", ".env")}
 	parent := filepath.Dir(workingDirectory)
 	if parent != workingDirectory {
-		paths = append(paths, filepath.Join(parent, ".env"))
+		paths = append(paths, filepath.Join(parent, "deploy", ".env"))
 	}
 
 	for _, path := range paths {

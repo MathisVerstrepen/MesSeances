@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseEnv } from 'node:util'
 
 const rootDirectory = fileURLToPath(new URL('../..', import.meta.url))
-const envFile = join(rootDirectory, '.env')
+const envFile = join(rootDirectory, 'deploy', '.env')
 const temporaryPrefix = join(tmpdir(), 'messeances-screenshot-')
 const adminCookieName = 'messeances_admin_session'
 const adminCookiePath = '/api/v1/admin'
@@ -89,7 +89,7 @@ async function loadAdminPassword(apiURL) {
   try {
     values = parseEnv(await readFile(envFile, 'utf8'))
   } catch {
-    fail('Root .env is unavailable or invalid.')
+    fail('Deployment .env is unavailable or invalid.')
   }
   if (!values.ADMIN_PASSWORD) fail('ADMIN_PASSWORD is unavailable.')
   return values.ADMIN_PASSWORD
