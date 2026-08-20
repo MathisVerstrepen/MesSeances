@@ -64,7 +64,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 
 	store := NewPostgresStore(pool)
 	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
-	unmatched := Match{SourceProvider: SourceUGC, SourceMovieID: "200", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 100, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
+	unmatched := Match{SourceProvider: SourceUGC, SourceMovieID: "200", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 721, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
 	if err := store.SaveDecision(ctx, unmatched); err != nil {
 		t.Fatal(err)
 	}
@@ -79,14 +79,14 @@ func TestPostgresStoreIntegration(t *testing.T) {
 
 	matched := unmatched
 	matched.Status, matched.MetadataMovieID, matched.Score = StatusMatched, 42, 1
-	matched.Candidates = []Candidate{{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: 100, Score: 1}}
+	matched.Candidates = []Candidate{{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: 721, Score: 1}}
 	matched.RetryAfter = now.Add(metadataTTL)
-	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", RuntimeMinutes: 100, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
+	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", RuntimeMinutes: 721, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
 	if err := store.Publish(ctx, matched, metadata); err != nil {
 		t.Fatal(err)
 	}
 	loadedMetadata, found, err := store.Metadata(ctx, ProviderTMDB, 42, LocaleFrench)
-	if err != nil || !found || loadedMetadata.Overview != "Résumé" || loadedMetadata.BackdropURL != metadata.BackdropURL || len(loadedMetadata.Genres) != 1 {
+	if err != nil || !found || loadedMetadata.RuntimeMinutes != 721 || loadedMetadata.Overview != "Résumé" || loadedMetadata.BackdropURL != metadata.BackdropURL || len(loadedMetadata.Genres) != 1 {
 		t.Fatalf("metadata=%+v found=%v error=%v", loadedMetadata, found, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 1 {

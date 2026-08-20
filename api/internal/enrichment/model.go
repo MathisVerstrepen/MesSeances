@@ -2,6 +2,7 @@ package enrichment
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -89,11 +90,11 @@ func validateMatch(match Match) error {
 	if !validSourceIdentity(match.SourceProvider, match.SourceMovieID) || match.MetadataProvider != ProviderTMDB || strings.TrimSpace(match.NormalizedSourceTitle) == "" || len(match.NormalizedSourceTitle) > 1024 {
 		return fmt.Errorf("invalid match identity")
 	}
-	if match.SourceRuntimeMinutes < 1 || match.SourceRuntimeMinutes > 600 || len(match.Candidates) > 5 || match.EvaluatedAt.IsZero() || match.RetryAfter.IsZero() {
+	if !validRuntimeMinutes(match.SourceRuntimeMinutes) || len(match.Candidates) > 5 || match.EvaluatedAt.IsZero() || match.RetryAfter.IsZero() {
 		return fmt.Errorf("invalid match data")
 	}
 	for _, candidate := range match.Candidates {
-		if candidate.ID <= 0 || strings.TrimSpace(candidate.Title) == "" || len(candidate.Title) > 1024 || len(candidate.OriginalTitle) > 1024 || candidate.Runtime < 0 || candidate.Runtime > 600 || candidate.Score < 0 || candidate.Score > 1 || candidate.DetailURL != "" || candidate.PosterURL != "" && !validTMDBPosterURL(candidate.PosterURL) {
+		if candidate.ID <= 0 || strings.TrimSpace(candidate.Title) == "" || len(candidate.Title) > 1024 || len(candidate.OriginalTitle) > 1024 || candidate.Runtime < 0 || candidate.Runtime != 0 && !validRuntimeMinutes(candidate.Runtime) || candidate.Score < 0 || candidate.Score > 1 || candidate.DetailURL != "" || candidate.PosterURL != "" && !validTMDBPosterURL(candidate.PosterURL) {
 			return fmt.Errorf("invalid match candidate")
 		}
 	}
@@ -131,7 +132,7 @@ func validateMetadata(metadata Metadata) error {
 	if metadata.Provider != ProviderTMDB || metadata.ProviderMovieID <= 0 || metadata.Locale != LocaleFrench || strings.TrimSpace(metadata.ProviderTitle) == "" || len(metadata.ProviderTitle) > 1024 || strings.TrimSpace(metadata.LocalizedTitle) == "" || len(metadata.LocalizedTitle) > 1024 {
 		return fmt.Errorf("invalid metadata identity")
 	}
-	if metadata.RuntimeMinutes < 1 || metadata.RuntimeMinutes > 600 || len(metadata.Overview) > 10000 || len(metadata.Genres) > 32 || metadata.FetchedAt.IsZero() || metadata.RefreshAfter.IsZero() {
+	if !validRuntimeMinutes(metadata.RuntimeMinutes) || len(metadata.Overview) > 10000 || len(metadata.Genres) > 32 || metadata.FetchedAt.IsZero() || metadata.RefreshAfter.IsZero() {
 		return fmt.Errorf("invalid metadata")
 	}
 	if metadata.ReleaseDate != "" {
@@ -155,4 +156,8 @@ func validateMetadata(metadata Metadata) error {
 		}
 	}
 	return nil
+}
+
+func validRuntimeMinutes(minutes int) bool {
+	return minutes > 0 && int64(minutes) <= int64(math.MaxInt64/time.Minute)
 }

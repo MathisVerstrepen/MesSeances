@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestMigration004Integration(t *testing.T) {
+func TestMigrationsIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -61,7 +62,7 @@ func TestMigration004Integration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 8 {
+	if err != nil || len(migrations) != 9 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -89,9 +90,64 @@ VALUES ('tmdb',$1,'fr-FR','Original','Localisé','Résumé','https://image.tmdb.
 			t.Fatal("insert pre-migration metadata failed")
 		}
 	}
+	if _, err := pool.Exec(ctx, "INSERT INTO movies (provider_id, slug, title, runtime_minutes) VALUES ('10','ugc-film-10','Marathon',600)"); err != nil {
+		t.Fatal("insert pre-migration movie failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
+VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNow); err != nil {
+		t.Fatal("insert pre-migration match failed")
+	}
 
 	if err := RunMigrations(ctx, pool); err != nil {
-		t.Fatal("run migration 004 failed")
+		t.Fatal("run pending migrations failed")
+	}
+	for table, column := range map[string]string{
+		"movies":               "runtime_minutes",
+		"movie_matches":        "source_runtime_minutes",
+		"movie_metadata_cache": "runtime_minutes",
+	} {
+		var dataType, nullable string
+		if err := pool.QueryRow(ctx, `SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=$1 AND column_name=$2`, table, column).Scan(&dataType, &nullable); err != nil || dataType != "integer" || nullable != "NO" {
+			t.Fatalf("%s.%s type=%q nullable=%q err=%v", table, column, dataType, nullable, err)
+		}
+	}
+	for _, constraint := range []string{
+		"movies_runtime_minutes_positive_check",
+		"movie_matches_source_runtime_minutes_positive_check",
+		"movie_metadata_cache_runtime_minutes_positive_check",
+	} {
+		var exists bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname=$1)`, constraint).Scan(&exists); err != nil || !exists {
+			t.Fatalf("constraint %q exists=%t err=%v", constraint, exists, err)
+		}
+	}
+	updates := []string{
+		"UPDATE movies SET runtime_minutes=%d WHERE provider_id='10'",
+		"UPDATE movie_matches SET source_runtime_minutes=%d WHERE source_movie_id='10'",
+		"UPDATE movie_metadata_cache SET runtime_minutes=%d WHERE provider_movie_id=41",
+	}
+	for _, statement := range updates {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(statement, 721)); err != nil {
+			t.Fatalf("marathon runtime rejected by %s: %v", statement, err)
+		}
+	}
+	for _, runtime := range []int{0, -1} {
+		for _, statement := range updates {
+			query := fmt.Sprintf(statement, runtime)
+			if _, err := pool.Exec(ctx, query); err == nil {
+				t.Fatalf("invalid runtime accepted: %s", query)
+			}
+		}
+	}
+	for _, query := range []string{
+		"SELECT runtime_minutes FROM movies WHERE provider_id='10'",
+		"SELECT source_runtime_minutes FROM movie_matches WHERE source_movie_id='10'",
+		"SELECT runtime_minutes FROM movie_metadata_cache WHERE provider_movie_id=41",
+	} {
+		var runtime int
+		if err := pool.QueryRow(ctx, query).Scan(&runtime); err != nil || runtime != 721 {
+			t.Fatalf("marathon runtime not preserved by %s: runtime=%d err=%v", query, runtime, err)
+		}
 	}
 	var freshAfter, staleAfter, appliedAt time.Time
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=41").Scan(&freshAfter); err != nil {
@@ -148,7 +204,7 @@ VALUES ('tmdb',$1,'fr-FR','Original','Localisé','Résumé','https://image.tmdb.
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 8 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 9 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {

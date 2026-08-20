@@ -172,7 +172,7 @@ func (s *PostgresStore) Replace(ctx context.Context, data Dataset) (int64, error
 		if movie.releaseDate != "" {
 			releaseDate = movie.releaseDate
 		}
-		movieRows = append(movieRows, []any{movie.providerID, movie.slug, movie.title, int16(movie.runtime), poster, movie.provider, overview, releaseDate, movie.genres})
+		movieRows = append(movieRows, []any{movie.providerID, movie.slug, movie.title, movie.runtime, poster, movie.provider, overview, releaseDate, movie.genres})
 	}
 	if err := copyRows(ctx, tx, "movies", []string{"provider_id", "slug", "title", "runtime_minutes", "poster_url", "provider", "source_overview", "source_release_date", "source_genres"}, movieRows); err != nil {
 		return 0, fmt.Errorf("insert movies failed")

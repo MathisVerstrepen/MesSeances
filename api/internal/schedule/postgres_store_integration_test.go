@@ -71,7 +71,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 8 || migrationName != "008_local_movie_groups.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 9 || migrationName != "009_widen_runtime_minutes.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	localTx, err := pool.Begin(ctx)
@@ -218,6 +218,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 
 	t.Run("provider scoped replacement preserves UGC", func(t *testing.T) {
 		kinepolis := kinepolisTestDataset()
+		kinepolis.Showtimes[0].Movie.RuntimeMinutes = 721
+		kinepolis.Showtimes[0].EndTime = kinepolis.Showtimes[0].StartTime.Add(721 * time.Minute)
 		version, err := store.Replace(ctx, kinepolis)
 		if err != nil || version != 3 {
 			t.Fatalf("Kinepolis replace version=%d error=%v", version, err)
@@ -227,6 +229,13 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("combined revision=%+v dataset=%+v error=%v", revision, loaded, err)
 		}
 		providers := map[string]bool{}
+		marathonLoaded := false
+		for _, showing := range loaded.Showtimes {
+			marathonLoaded = marathonLoaded || showing.Movie.ProviderID == "HO200" && showing.Movie.RuntimeMinutes == 721 && showing.EndTime.Equal(showing.StartTime.Add(721*time.Minute))
+		}
+		if !marathonLoaded {
+			t.Fatal("721-minute movie did not round trip")
+		}
 		for _, theater := range loaded.Theaters {
 			providers[theater.Provider] = true
 		}

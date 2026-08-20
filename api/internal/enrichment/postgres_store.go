@@ -82,7 +82,7 @@ WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='
 }
 
 func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64, metadata Metadata, fallbackRuntime int, now time.Time) error {
-	if metadata.ProviderMovieID != candidateID || fallbackRuntime < 0 || fallbackRuntime > 600 || fallbackRuntime != 0 && metadata.RuntimeMinutes != fallbackRuntime || now.IsZero() {
+	if metadata.ProviderMovieID != candidateID || fallbackRuntime < 0 || fallbackRuntime != 0 && (!validRuntimeMinutes(fallbackRuntime) || metadata.RuntimeMinutes != fallbackRuntime) || now.IsZero() {
 		return fmt.Errorf("invalid review approval")
 	}
 	if err := validateMetadata(metadata); err != nil {
@@ -179,7 +179,7 @@ VALUES ($1,$2,'tmdb','rejected',NULL,NULL,$3,$4,$5,$6,$6,$6) ON CONFLICT DO NOTH
 
 func validReviewCandidate(status, normalizedTitle string, sourceRuntime int, raw []byte, currentTitle string, currentRuntime int, candidateID int64) (Candidate, bool) {
 	assignable := status == StatusReviewRequired || status == StatusUnmatched
-	if !assignable || sourceRuntime < 1 || sourceRuntime > 600 || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime {
+	if !assignable || !validRuntimeMinutes(sourceRuntime) || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime {
 		return Candidate{}, false
 	}
 	var candidates []Candidate
