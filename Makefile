@@ -1,4 +1,4 @@
-.PHONY: dev screenshot sync
+.PHONY: dev prod screenshot sync
 
 SHELL := /bin/bash
 
@@ -12,6 +12,9 @@ HEIGHT ?= 900
 WAIT_MS ?= 1000
 API_URL ?= http://localhost:8080
 CHROME_BIN ?= google-chrome
+
+prod:
+	docker compose --env-file .env.production -f compose.production.yaml up -d --wait --pull always
 
 dev:
 	@set -eu; \
