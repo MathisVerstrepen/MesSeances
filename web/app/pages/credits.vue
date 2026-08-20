@@ -1,15 +1,32 @@
 <script setup lang="ts">
-type CreditBrand = 'UGC' | 'IMAX' | 'KINEPOLIS' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type CreditBrand = 'UGC' | 'IMAX' | 'KINEPOLIS' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
-const credits: Array<{ brand: CreditBrand; name: string; url: string }> = [
-  { brand: 'UGC', name: 'UGC', url: 'https://www.ugc.fr/' },
-  { brand: 'KINEPOLIS', name: 'Kinepolis', url: 'https://kinepolis.fr/' },
-  { brand: 'IMAX', name: 'IMAX', url: 'https://www.imax.com/' },
-  { brand: '3D', name: '3D', url: 'https://kinepolis.fr/3d/' },
-  { brand: 'DOLBY', name: 'Dolby', url: 'https://www.dolby.com/' },
-  { brand: 'SCREENX', name: 'ScreenX', url: 'https://kinepolis.fr/screenx/' },
-  { brand: 'LASER_ULTRA', name: 'Laser ULTRA by Kinepolis', url: 'https://kinepolis.fr/laser-ultra/' },
-  { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' }
+interface Credit {
+  brand: CreditBrand
+  name: string
+  url: string
+}
+
+const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; credits: Credit[] }> = [
+  {
+    id: 'operators',
+    title: 'Exploitants',
+    credits: [
+      { brand: 'UGC', name: 'UGC', url: 'https://www.ugc.fr/' },
+      { brand: 'KINEPOLIS', name: 'Kinepolis', url: 'https://kinepolis.fr/' }
+    ]
+  },
+  {
+    id: 'technologies',
+    title: 'Technologies',
+    credits: [
+      { brand: 'IMAX', name: 'IMAX', url: 'https://www.imax.com/' },
+      { brand: 'DOLBY', name: 'Dolby', url: 'https://www.dolby.com/' },
+      { brand: 'SCREENX', name: 'ScreenX', url: 'https://kinepolis.fr/screenx/' },
+      { brand: 'LASER_ULTRA', name: 'Laser ULTRA by Kinepolis', url: 'https://kinepolis.fr/laser-ultra/' },
+      { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' }
+    ]
+  }
 ]
 
 useHead({ title: 'Crédits — MesSeances' })
@@ -45,13 +62,16 @@ useHead({ title: 'Crédits — MesSeances' })
           </div>
         </section>
 
-        <section class="mt-14 sm:mt-20" aria-labelledby="providers-heading">
+        <section v-for="section in creditSections" :key="section.id" class="mt-14 sm:mt-20" :aria-labelledby="`${section.id}-heading`">
           <header class="mb-5 flex items-end justify-between gap-5 border-b-2 border-ink pb-4">
-            <h2 id="providers-heading" class="text-2xl font-black uppercase tracking-[-0.03em] text-ink sm:text-4xl">Exploitants & technologies</h2>
+            <h2 :id="`${section.id}-heading`" class="text-2xl font-black uppercase tracking-[-0.03em] text-ink sm:text-4xl">{{ section.title }}</h2>
           </header>
 
-          <div class="provider-grid grid border-l-2 border-t-2 border-ink sm:grid-cols-2 xl:grid-cols-4">
-            <section v-for="credit in credits" :key="credit.brand" class="provider-item flex min-w-0 flex-col border-b-2 border-r-2 border-ink bg-surface" :aria-labelledby="`credit-${credit.brand}`">
+          <div
+            class="provider-grid grid border-l-2 border-t-2 border-ink sm:grid-cols-2"
+            :class="section.id === 'technologies' ? 'xl:grid-cols-5' : ''"
+          >
+            <section v-for="credit in section.credits" :key="credit.brand" class="provider-item flex min-w-0 flex-col border-b-2 border-r-2 border-ink bg-surface" :aria-labelledby="`credit-${credit.brand}`">
               <div class="flex items-center justify-between border-b-2 border-ink bg-[#f1efe8] px-4 py-3">
                 <h3 :id="`credit-${credit.brand}`" class="font-mono text-[0.65rem] font-black uppercase tracking-[0.12em] text-ink">{{ credit.name }}</h3>
               </div>
@@ -62,7 +82,9 @@ useHead({ title: 'Crédits — MesSeances' })
                 rel="noopener noreferrer"
                 :aria-label="`Site officiel ${credit.name}, ouverture dans un nouvel onglet`"
               >
-                <BrandLogo :brand="credit.brand" variant="display" decorative />
+                <span class="provider-logo">
+                  <BrandLogo :brand="credit.brand" variant="display" decorative />
+                </span>
               </a>
               <p class="mt-auto border-t-2 border-ink px-4 py-5 text-xs leading-5 text-ink">La marque et le logo {{ credit.name }} appartiennent à leurs propriétaires respectifs. Leur présence n’implique ni affiliation avec MesSeances, ni approbation de MesSeances.</p>
             </section>
@@ -112,11 +134,6 @@ useHead({ title: 'Crédits — MesSeances' })
   text-transform: uppercase;
 }
 
-.hero-aside {
-  position: relative;
-  z-index: 1;
-}
-
 .credits-canvas {
   background-color: #f8f7f2;
   background-image:
@@ -151,6 +168,21 @@ useHead({ title: 'Crédits — MesSeances' })
 
 .provider-item:nth-child(3n) .provider-link {
   box-shadow: inset 0 -4px 0 var(--color-accent);
+}
+
+.provider-logo {
+  display: flex;
+  width: 100%;
+  height: 4rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.provider-logo :deep(img) {
+  width: auto !important;
+  max-width: min(100%, 13rem) !important;
+  height: 4rem !important;
+  object-fit: contain;
 }
 
 @media (max-width: 1023px) {
