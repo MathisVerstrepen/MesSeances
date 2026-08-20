@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ArrowUp, MapPin } from '@lucide/vue'
+import { ArrowUp } from '@lucide/vue'
 
-const { favoriteTheaters, favoriteTheaterIds, isInitialized, isLoading } = useCinemaPreferences()
 const currentYear = new Date().getFullYear()
 
 const explorerLinks = [
@@ -10,18 +9,6 @@ const explorerLinks = [
   { to: '/films', label: 'Films' },
   { to: '/cinemas', label: 'Cinémas' }
 ]
-
-const favoriteSummary = computed(() => {
-  if (isLoading.value) return 'Chargement des cinémas…'
-  if (!isInitialized.value) return 'Mes cinémas favoris'
-
-  const count = favoriteTheaterIds.value.length
-  const cities = [...new Set(favoriteTheaters.value.map((theater) => theater.city))]
-
-  if (count === 0) return 'Aucun cinéma favori'
-  if (cities.length === 1) return `${cities[0]} · ${count} ${count === 1 ? 'cinéma' : 'cinémas'}`
-  return `${count} cinémas · ${cities.length} villes`
-})
 
 function scrollToTop() {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -33,19 +20,11 @@ function scrollToTop() {
   <footer class="editorial-footer relative overflow-hidden border-t-2 border-ink bg-[#f8f7f2] text-ink">
     <div class="footer-grid">
       <div class="mx-auto grid max-w-[1440px] gap-12 px-4 py-12 sm:px-6 sm:py-16 md:grid-cols-[1.1fr_2fr] lg:gap-20 lg:px-10 lg:py-20">
-        <div class="flex flex-col justify-between gap-8">
+        <div class="flex items-start">
           <NuxtLink to="/" class="inline-flex w-fit items-center gap-2 font-black tracking-[-0.04em]" aria-label="MesSeances, accueil">
             <span class="grid size-8 place-items-center border-2 border-ink bg-surface font-mono text-xs shadow-[3px_3px_0_#27272a]" aria-hidden="true">MS</span>
             <span>MesSeances<span class="text-primary">.</span></span>
           </NuxtLink>
-
-          <div class="max-w-xs border-l-2 border-ink pl-4">
-            <p class="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted">Vos cinémas</p>
-            <p class="mt-2 flex items-center gap-2 text-sm font-black">
-              <MapPin :size="17" class="shrink-0 text-primary" stroke-width="2.5" aria-hidden="true" />
-              <span>{{ favoriteSummary }}</span>
-            </p>
-          </div>
         </div>
 
         <nav aria-label="Navigation de pied de page" class="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3">
