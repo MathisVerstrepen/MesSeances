@@ -194,6 +194,8 @@ func ParseCinema(r io.Reader, expectedID string) (Cinema, error) {
 	return result, nil
 }
 
+const emptyFilmBlockID = "bloc-showing-film-"
+
 var blockPattern = regexp.MustCompile(`^bloc-showing-film-([1-9][0-9]*)$`)
 var runtimePattern = regexp.MustCompile(`\(([0-9]+)h([0-9]{1,2})?\)`)
 var sluggedFilmPathPattern = regexp.MustCompile(`^film_(.+)_([1-9][0-9]*)\.html$`)
@@ -282,7 +284,11 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		return nil, fmt.Errorf("parse showings: %w", err)
 	}
 	cache := newShowingsParseCache()
-	if err := validateShowingOwnership(root, cache); err != nil {
+	derivedFilmIDs, err := deriveEmptyFilmBlockIDs(root, cache)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateShowingOwnership(root, cache, derivedFilmIDs); err != nil {
 		return nil, err
 	}
 	location, err := scheduleLocation()
@@ -299,11 +305,10 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		if err != nil || block.Type != html.ElementNode {
 			return
 		}
-		match := blockPattern.FindStringSubmatch(attr(block, "id"))
-		if len(match) != 2 {
+		filmID, ok := showingBlockFilmID(block, derivedFilmIDs)
+		if !ok {
 			return
 		}
-		filmID := match[1]
 		buttons, malformedStructure := showingCandidates(block, cache)
 		if len(buttons) > MaxShowingsPerResponse || len(records) > MaxShowingsPerResponse-len(buttons) {
 			err = fmt.Errorf("showings response limit exceeded")
@@ -475,11 +480,44 @@ func showingCandidates(block *html.Node, cache *showingsParseCache) ([]*html.Nod
 	return candidates, malformedStructure
 }
 
-func validateShowingOwnership(root *html.Node, cache *showingsParseCache) error {
+func deriveEmptyFilmBlockIDs(root *html.Node, cache *showingsParseCache) (map[*html.Node]string, error) {
+	filmIDs := map[*html.Node]string{}
+	var err error
+	walk(root, func(block *html.Node) {
+		if err != nil || block.Type != html.ElementNode || attr(block, "id") != emptyFilmBlockID {
+			return
+		}
+		buttons, _ := showingCandidates(block, cache)
+		if len(buttons) == 0 {
+			return
+		}
+		filmID := ""
+		for _, button := range buttons {
+			buttonFilm, ok := providerNumericID(button, []string{"data-filmid", "data-film-id"}, "data-film")
+			if !ok || filmID != "" && buttonFilm != filmID {
+				err = fmt.Errorf("showing required attribute missing or conflicting")
+				return
+			}
+			filmID = buttonFilm
+		}
+		filmIDs[block] = filmID
+	})
+	return filmIDs, err
+}
+
+func showingBlockFilmID(block *html.Node, derivedFilmIDs map[*html.Node]string) (string, bool) {
+	if match := blockPattern.FindStringSubmatch(attr(block, "id")); len(match) == 2 {
+		return match[1], true
+	}
+	filmID, ok := derivedFilmIDs[block]
+	return filmID, ok
+}
+
+func validateShowingOwnership(root *html.Node, cache *showingsParseCache, derivedFilmIDs map[*html.Node]string) error {
 	for _, candidate := range documentShowingCandidates(root, cache) {
 		owners := 0
 		for ancestor := candidate.Parent; ancestor != nil; ancestor = ancestor.Parent {
-			if blockPattern.MatchString(attr(ancestor, "id")) {
+			if _, ok := showingBlockFilmID(ancestor, derivedFilmIDs); ok {
 				owners++
 			}
 		}
@@ -657,7 +695,7 @@ func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.
 		if !strings.HasPrefix(id, "bloc-showing-film-") {
 			return
 		}
-		if id == "bloc-showing-film-" {
+		if id == emptyFilmBlockID {
 			placeholders = append(placeholders, node)
 			return
 		}
@@ -888,7 +926,7 @@ func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string,
 		if node := cache.firstDescendantWithClass(ancestor, "screening-room"); node != nil {
 			room = collapse(cache.text(node))
 		}
-		if room != "" || blockPattern.MatchString(attr(ancestor, "id")) {
+		if room != "" || isShowingFilmBlock(ancestor) {
 			break
 		}
 	}
@@ -956,12 +994,18 @@ func showingFormat(button *html.Node, cache *showingsParseCache) string {
 		if hasClass(ancestor, "session") || cache.firstDescendantWithClass(ancestor, "screening-room") != nil {
 			return "2D"
 		}
-		if blockPattern.MatchString(attr(ancestor, "id")) {
+		if isShowingFilmBlock(ancestor) {
 			break
 		}
 	}
 	return "2D"
 }
+
+func isShowingFilmBlock(node *html.Node) bool {
+	id := attr(node, "id")
+	return id == emptyFilmBlockID || blockPattern.MatchString(id)
+}
+
 func validShowingFormat(v string) bool {
 	switch v {
 	case "2D", "3D", "IMAX", "DOLBY", "4DX":

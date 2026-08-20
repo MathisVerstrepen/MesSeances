@@ -178,6 +178,47 @@ func TestParseShowings(t *testing.T) {
 	}
 }
 
+func TestParseShowingsDerivesEmptySuffixFilmBlockIdentity(t *testing.T) {
+	records, err := ParseShowings(fixture(t, "showings-empty-suffix-derived.html"), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records=%+v", records)
+	}
+	record := records[0]
+	if record.ProviderShowingID != "98765" || record.Movie.ProviderID != "18421" || record.Movie.Title != "FILM CAPTURÉ" || record.Movie.RuntimeMinutes != 107 {
+		t.Fatalf("record=%+v", record)
+	}
+}
+
+func TestParseShowingsRejectsEmptySuffixFilmBlockIdentityConflict(t *testing.T) {
+	body := `<div id="bloc-showing-film-"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_test_1.html?cinemaId=25">Film</a></div><span>(2h)</span><button data-showing="10" data-filmid="1" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button><button data-showing="11" data-filmid="2" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="13:00"></button></div>`
+	_, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err == nil || err.Error() != "showing required attribute missing or conflicting" {
+		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestParseShowingsRejectsEmptySuffixFilmBlockMissingOrInvalidIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		identity string
+	}{
+		{name: "missing"},
+		{name: "zero", identity: ` data-filmid="0"`},
+		{name: "nonnumeric", identity: ` data-filmid="film"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `<div id="bloc-showing-film-"><button data-showing="10"` + test.identity + ` data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div>`
+			_, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+			if err == nil || err.Error() != "showing required attribute missing or conflicting" {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
 func TestParseShowingsPreservesNearestRoomAndFormatWithSharedNestedStructure(t *testing.T) {
 	body := `<article id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_public_1.html?cinemaId=25">Film</a></div><span>(2h)</span><div class="session"><span class="screening-room">Salle extérieure</span><span class="screening-2D3D">IMAX</span><div class="session"><span class="screening-room">Salle intérieure</span><span class="screening-2D3D">4DX</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div><button data-showing="11" data-film="1" data-cinema="25" data-version="VO" data-seancedate="15/08/2026" data-seancehour="13:00"></button></div></article>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
