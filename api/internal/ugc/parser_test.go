@@ -542,15 +542,33 @@ func TestParserResourceLimits(t *testing.T) {
 		}
 	})
 	t.Run("advertised dates", func(t *testing.T) {
-		var page strings.Builder
-		page.WriteString(`<html><head><title>UGC Test, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC Test</h1><p class="address">Adresse</p></section><input name="cinemaId" value="25">`)
-		start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		for offset := 0; offset <= schedule.MaxAdvertisedDatesPerTheater; offset++ {
-			fmt.Fprintf(&page, `<button id="nav_date_%s"></button>`, start.AddDate(0, 0, offset).Format("2006-01-02"))
-		}
-		page.WriteString(`</body></html>`)
-		if _, err := ParseCinema(strings.NewReader(page.String()), "25"); err == nil || err.Error() != "cinema advertised date limit exceeded" {
-			t.Fatalf("error=%v", err)
+		for _, test := range []struct {
+			name      string
+			dateCount int
+			wantError string
+		}{
+			{name: "maximum", dateCount: schedule.MaxAdvertisedDatesPerTheater},
+			{name: "above maximum", dateCount: schedule.MaxAdvertisedDatesPerTheater + 1, wantError: "cinema advertised date limit exceeded"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				var page strings.Builder
+				page.WriteString(`<html><head><title>UGC Test, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC Test</h1><p class="address">Adresse</p></section><input name="cinemaId" value="25">`)
+				start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+				for offset := 0; offset < test.dateCount; offset++ {
+					fmt.Fprintf(&page, `<button id="nav_date_%s"></button>`, start.AddDate(0, 0, offset).Format("2006-01-02"))
+				}
+				page.WriteString(`</body></html>`)
+				cinema, err := ParseCinema(strings.NewReader(page.String()), "25")
+				if test.wantError != "" {
+					if err == nil || err.Error() != test.wantError {
+						t.Fatalf("error=%v", err)
+					}
+					return
+				}
+				if err != nil || len(cinema.AdvertisedDates) != test.dateCount {
+					t.Fatalf("advertised dates=%d error=%v", len(cinema.AdvertisedDates), err)
+				}
+			})
 		}
 	})
 	t.Run("showings response", func(t *testing.T) {

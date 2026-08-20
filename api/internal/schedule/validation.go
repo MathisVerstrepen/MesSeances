@@ -12,7 +12,7 @@ import (
 
 const (
 	MaxTheaters                  = 256
-	MaxAdvertisedDatesPerTheater = 64
+	MaxAdvertisedDatesPerTheater = 512
 	MaxShowtimes                 = 250000
 	maxIdentityLength            = 128
 	maxNameAndTitleLength        = 1024
