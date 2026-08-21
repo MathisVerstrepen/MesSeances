@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "nuxt dev",
     "build": "nuxt build",
+    "generate-pwa-assets": "pwa-assets-generator",
     "lint": "oxlint",
     "typecheck": "nuxt typecheck",
     "postinstall": "nuxt prepare"
@@ -20,6 +21,8 @@
   "devDependencies": {
     "@oxlint/plugins": "1.78.0",
     "@tailwindcss/vite": "4.3.3",
+    "@vite-pwa/assets-generator": "1.0.2",
+    "@vite-pwa/nuxt": "1.1.1",
     "oxlint": "1.78.0",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
