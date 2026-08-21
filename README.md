@@ -26,7 +26,7 @@ The application interface is in French.
 
 ### Requirements
 
-- Go 1.25
+- Go 1.25.13
 - Node.js 22.23.1 and npm 10.9.8 (verified versions)
 - Docker with Docker Compose
 - A valid proxy file for the initial provider synchronization

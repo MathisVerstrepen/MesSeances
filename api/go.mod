@@ -1,11 +1,11 @@
 module messeances/api
 
-go 1.25.0
+go 1.25.13
 
 require (
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-chi/cors v1.2.2
-	github.com/jackc/pgx/v5 v5.7.6
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
 	github.com/refraction-networking/utls v1.8.2
 	golang.org/x/net v0.58.0

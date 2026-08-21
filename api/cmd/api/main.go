@@ -39,7 +39,14 @@ type httpServer interface {
 	Shutdown(context.Context) error
 }
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout         = 10 * time.Second
+	serverReadHeaderTimeout = 5 * time.Second
+	serverReadTimeout       = 15 * time.Second
+	serverWriteTimeout      = 30 * time.Second
+	serverIdleTimeout       = 120 * time.Second
+	serverMaxHeaderBytes    = 1 << 20
+)
 
 func run(ctx context.Context) error {
 	databaseURL := os.Getenv("DATABASE_URL")
@@ -94,7 +101,15 @@ func run(ctx context.Context) error {
 	}
 	port := envOrDefault("PORT", "8080")
 	adminOptions.Syncs = syncManager
-	server := &http.Server{Addr: ":" + port, Handler: httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), adminOptions), ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{
+		Addr:              ":" + port,
+		Handler:           httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), adminOptions),
+		ReadHeaderTimeout: serverReadHeaderTimeout,
+		ReadTimeout:       serverReadTimeout,
+		WriteTimeout:      serverWriteTimeout,
+		IdleTimeout:       serverIdleTimeout,
+		MaxHeaderBytes:    serverMaxHeaderBytes,
+	}
 	log.Printf("API MesSeances à l'écoute sur http://localhost:%s", port)
 	return serve(ctx, server, stopWorkers)
 }

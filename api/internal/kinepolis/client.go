@@ -150,7 +150,6 @@ func (c *Client) Fetch(ctx context.Context) ([]byte, error) {
 		c.next = (ordinal + 1) % len(c.clients)
 		return body, nil
 	}
-	return nil, fmt.Errorf("fetch Kinepolis schedule failed")
 }
 
 func readBounded(reader io.Reader) ([]byte, error) {
