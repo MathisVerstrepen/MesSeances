@@ -41,7 +41,7 @@ type Window struct {
 }
 
 type Executor interface {
-	Run(context.Context, Target, Window) (ProviderOutcome, error)
+	Run(context.Context, Target, Window) (map[Target]ProviderOutcome, error)
 }
 
 type ProviderStatus struct {
@@ -161,15 +161,21 @@ func (m *Manager) run(target Target, window Window) {
 	}
 	for _, provider := range providers {
 		m.setProvider(provider, ProviderRunning)
-		outcome, err := m.executor.Run(m.ctx, provider, window)
-		if err != nil {
-			code := FailureInternal
-			var runError *RunError
-			if errors.As(err, &runError) {
-				code = runError.Code
-			}
-			m.setProviderFailure(provider, code)
-			m.finishFailure(code)
+	}
+	outcomes, err := m.executor.Run(m.ctx, target, window)
+	if err != nil {
+		code, failedProvider := FailureInternal, Target("")
+		var runError *RunError
+		if errors.As(err, &runError) {
+			code, failedProvider = runError.Code, runError.Provider
+		}
+		m.finishOperationFailure(code, failedProvider)
+		return
+	}
+	for _, provider := range providers {
+		outcome, ok := outcomes[provider]
+		if !ok {
+			m.finishOperationFailure(FailureInternal, "")
 			return
 		}
 		m.setProviderSuccess(provider, outcome)
@@ -179,6 +185,24 @@ func (m *Manager) run(target Target, window Window) {
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
 	m.mu.Unlock()
+}
+
+func (m *Manager) finishOperationFailure(code FailureCode, failedProvider Target) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for provider, status := range m.status.Providers {
+		if status.State != ProviderRunning && status.State != ProviderPending {
+			continue
+		}
+		if failedProvider == "" || provider == string(failedProvider) || code == FailureReplacement {
+			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
+		} else {
+			m.status.Providers[provider] = ProviderStatus{State: ProviderSkipped}
+		}
+	}
+	m.status.State = StateFailed
+	finished := m.now().UTC()
+	m.status.FinishedAt = &finished
 }
 
 func (m *Manager) setProvider(provider Target, state string) {

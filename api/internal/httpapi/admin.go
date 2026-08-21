@@ -17,7 +17,6 @@ type adminAPI struct {
 	locals   *enrichment.LocalMovieService
 	syncs    SyncController
 	now      func() time.Time
-	limiter  *loginLimiter
 }
 
 type sessionResponse struct {
@@ -40,7 +39,6 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	return &adminAPI{
 		origin: origin, password: password, key: key, hasKey: hasKey,
 		reviews: options.Reviews, locals: options.LocalMovies, syncs: options.Syncs, now: options.Now,
-		limiter: &loginLimiter{attempts: make(map[string]loginAttempt)},
 	}
 }
 

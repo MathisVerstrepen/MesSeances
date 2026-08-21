@@ -295,7 +295,7 @@ func TestSyncFailsWhenAllSitemapCinemasAreStale(t *testing.T) {
 	staleURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, staleURL: readFixture(t, "cinemas-directory.html")}, finalURLs: map[string]string{staleURL: "https://www.ugc.fr/cinemas.html?id=1"}}
 	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
-	if err == nil || err.Error() != "sync produced no active cinemas" {
+	if err == nil || err.Error() != "sync produced no active cinemas" || !errors.Is(err, schedule.ErrDatasetValidation) {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -305,7 +305,7 @@ func TestSyncFailsWithoutShowtimes(t *testing.T) {
 	cinemaURL := "https://www.ugc.fr/cinema.html?id=25"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, cinemaURL: readFixture(t, "cinema.html")}}
 	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-20", Through: "2026-08-20", Now: time.Now()})
-	if err == nil || err.Error() != "sync produced no showtimes" {
+	if err == nil || err.Error() != "sync produced no showtimes" || !errors.Is(err, schedule.ErrDatasetValidation) {
 		t.Fatalf("error=%v", err)
 	}
 }

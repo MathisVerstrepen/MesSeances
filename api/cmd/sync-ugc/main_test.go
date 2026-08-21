@@ -25,7 +25,7 @@ type fakeWriter struct {
 	onReplace func()
 }
 
-func (w *fakeWriter) Replace(context.Context, schedule.Dataset) (int64, error) {
+func (w *fakeWriter) Replace(context.Context, []schedule.Dataset) (int64, error) {
 	w.calls++
 	if w.onReplace != nil {
 		w.onReplace()
@@ -94,8 +94,9 @@ func assertJSONLog(t *testing.T, raw, event, code string) {
 
 type commandExecutorFunc func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
 
-func (f commandExecutorFunc) Run(ctx context.Context, target synccontrol.Target, window synccontrol.Window) (synccontrol.ProviderOutcome, error) {
-	return f(ctx, target, window)
+func (f commandExecutorFunc) Run(ctx context.Context, target synccontrol.Target, window synccontrol.Window) (map[synccontrol.Target]synccontrol.ProviderOutcome, error) {
+	outcome, err := f(ctx, target, window)
+	return map[synccontrol.Target]synccontrol.ProviderOutcome{target: outcome}, err
 }
 
 func testExecutorFactory(t *testing.T) func(synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
@@ -103,7 +104,7 @@ func testExecutorFactory(t *testing.T) func(synccontrol.ProductionExecutorOption
 	return func(options synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
 		return commandExecutorFunc(func(ctx context.Context, _ synccontrol.Target, _ synccontrol.Window) (synccontrol.ProviderOutcome, error) {
 			data := commandDataset(schedule.ScopeAll)
-			version, err := options.Writer.Replace(ctx, data)
+			version, err := options.Writer.Replace(ctx, []schedule.Dataset{data})
 			if err != nil {
 				return synccontrol.ProviderOutcome{}, synccontrol.NewRunError(synccontrol.FailureReplacement, err)
 			}

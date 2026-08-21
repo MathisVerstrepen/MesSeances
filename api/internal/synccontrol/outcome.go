@@ -6,6 +6,7 @@ import (
 )
 
 type FailureCode string
+type FailureStage string
 
 const (
 	FailureNone            FailureCode = "none"
@@ -15,6 +16,16 @@ const (
 	FailureReplacement     FailureCode = "replacement_failed"
 	FailureCanceled        FailureCode = "canceled"
 	FailureInternal        FailureCode = "internal_failure"
+)
+
+const (
+	StageNone              FailureStage = "none"
+	StageClientCreation    FailureStage = "client_creation"
+	StageProviderFetch     FailureStage = "provider_fetch"
+	StageDatasetValidation FailureStage = "dataset_validation"
+	StagePublication       FailureStage = "publication"
+	StageEnrichment        FailureStage = "enrichment"
+	StageOrchestration     FailureStage = "orchestration"
 )
 
 type SyncOutcome struct {
@@ -46,12 +57,18 @@ type ProviderOutcome struct {
 }
 
 type RunError struct {
-	Code  FailureCode
-	cause error
+	Code     FailureCode
+	Provider Target
+	Stage    FailureStage
+	cause    error
 }
 
 func NewRunError(code FailureCode, cause error) *RunError {
-	return &RunError{Code: code, cause: cause}
+	return &RunError{Code: code, Stage: StageOrchestration, cause: cause}
+}
+
+func newProviderRunError(provider Target, stage FailureStage, code FailureCode, cause error) *RunError {
+	return &RunError{Code: code, Provider: provider, Stage: stage, cause: cause}
 }
 
 func (e *RunError) Error() string { return fmt.Sprintf("sync run failed: %s", e.Code) }

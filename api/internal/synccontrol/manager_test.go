@@ -9,14 +9,26 @@ import (
 )
 
 type executorFunc func(context.Context, Target, Window) (ProviderOutcome, error)
+type executorMapFunc func(context.Context, Target, Window) (map[Target]ProviderOutcome, error)
 
-func (f executorFunc) Run(ctx context.Context, target Target, window Window) (ProviderOutcome, error) {
+func (f executorMapFunc) Run(ctx context.Context, target Target, window Window) (map[Target]ProviderOutcome, error) {
 	return f(ctx, target, window)
+}
+
+func (f executorFunc) Run(ctx context.Context, target Target, window Window) (map[Target]ProviderOutcome, error) {
+	outcome, err := f(ctx, target, window)
+	if err != nil {
+		return nil, err
+	}
+	if target == TargetAll {
+		return map[Target]ProviderOutcome{TargetUGC: outcome, TargetKinepolis: outcome}, nil
+	}
+	return map[Target]ProviderOutcome{target: outcome}, nil
 }
 
 func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	now := time.Date(2026, 8, 17, 23, 30, 0, 0, time.FixedZone("test", -4*60*60))
-	started := make(chan Target, 2)
+	started := make(chan Target, 1)
 	release := make(chan struct{})
 	manager, err := NewManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) (ProviderOutcome, error) {
 		if window != (Window{From: "2026-08-18", Through: "2026-08-25"}) {
@@ -39,24 +51,16 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	if _, err := manager.Start(TargetUGC); !errors.Is(err, ErrInProgress) {
 		t.Fatalf("overlap err=%v", err)
 	}
-	if target := <-started; target != TargetUGC {
-		t.Fatalf("first=%s", target)
+	if target := <-started; target != TargetAll {
+		t.Fatalf("target=%s", target)
 	}
 	status := manager.Status()
-	if status.Providers["ugc"].State != ProviderRunning {
+	if status.Providers["ugc"].State != ProviderRunning || status.Providers["kinepolis"].State != ProviderRunning {
 		t.Fatalf("status=%+v", status)
 	}
 	status.Providers["ugc"] = ProviderStatus{State: "mutated"}
 	if manager.Status().Providers["ugc"].State == "mutated" {
 		t.Fatal("status snapshot mutated manager state")
-	}
-	release <- struct{}{}
-	if target := <-started; target != TargetKinepolis {
-		t.Fatalf("second=%s", target)
-	}
-	status = manager.Status()
-	if status.Providers["ugc"].State != ProviderSucceeded || status.Providers["kinepolis"].State != ProviderRunning {
-		t.Fatalf("status=%+v", status)
 	}
 	release <- struct{}{}
 	status = waitForTerminal(t, manager)
@@ -74,8 +78,8 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 		wantUGC  string
 		wantKin  string
 	}{
-		{name: "failure skips later provider", target: TargetAll, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
-			return ProviderOutcome{}, errors.New("secret")
+		{name: "failure skips other provider", target: TargetAll, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
+			return ProviderOutcome{}, newProviderRunError(TargetUGC, StageDatasetValidation, FailureDatasetRejected, errors.New("secret"))
 		}, wantUGC: ProviderFailed, wantKin: ProviderSkipped},
 		{name: "panic becomes failure", target: TargetKinepolis, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { panic("secret") }, wantUGC: ProviderNotRequested, wantKin: ProviderFailed},
 		{name: "single provider succeeds", target: TargetUGC, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }, wantUGC: ProviderSucceeded, wantKin: ProviderNotRequested},
@@ -242,5 +246,24 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	provider = waitForTerminal(t, manager).Providers[string(TargetKinepolis)]
 	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil {
 		t.Fatalf("provider=%+v", provider)
+	}
+}
+
+func TestManagerMarksEveryProviderFailedOnSharedPublicationFailure(t *testing.T) {
+	manager, err := NewManager(context.Background(), time.Now, executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
+		return nil, newProviderRunError("", StagePublication, FailureReplacement, errors.New("secret"))
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(TargetAll); err != nil {
+		t.Fatal(err)
+	}
+	status := waitForTerminal(t, manager)
+	for _, provider := range []string{string(TargetUGC), string(TargetKinepolis)} {
+		got := status.Providers[provider]
+		if got.State != ProviderFailed || got.ErrorCode != FailureReplacement || got.Outcome != nil {
+			t.Fatalf("provider=%s status=%+v", provider, got)
+		}
 	}
 }

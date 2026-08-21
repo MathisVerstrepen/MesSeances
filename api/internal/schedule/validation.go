@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"time"
 )
+
+var ErrDatasetValidation = errors.New("dataset validation failed")
 
 const (
 	maxIdentityLength     = 128

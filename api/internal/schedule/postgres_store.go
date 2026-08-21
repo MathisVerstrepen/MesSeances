@@ -24,7 +24,7 @@ type SnapshotRevision struct {
 	EnrichmentVersion int64
 }
 type SnapshotWriter interface {
-	Replace(context.Context, Dataset) (int64, error)
+	Replace(context.Context, []Dataset) (int64, error)
 }
 type PostgresStore struct{ pool *pgxpool.Pool }
 

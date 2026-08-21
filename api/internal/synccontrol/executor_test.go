@@ -1,8 +1,10 @@
 package synccontrol
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -16,9 +18,19 @@ import (
 	"messeances/api/internal/ugc"
 )
 
-type writerFunc func(context.Context, schedule.Dataset) (int64, error)
+type observedSync struct {
+	provider, result, stage, code, enrichment string
+}
 
-func (f writerFunc) Replace(ctx context.Context, data schedule.Dataset) (int64, error) {
+type captureSyncObserver struct{ observations []observedSync }
+
+func (o *captureSyncObserver) ObserveSync(provider, result, stage, code, enrichment string, _ time.Duration, _ map[string]int) {
+	o.observations = append(o.observations, observedSync{provider, result, stage, code, enrichment})
+}
+
+type writerFunc func(context.Context, []schedule.Dataset) (int64, error)
+
+func (f writerFunc) Replace(ctx context.Context, data []schedule.Dataset) (int64, error) {
 	return f(ctx, data)
 }
 
@@ -63,8 +75,8 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 	events := []string{}
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		writer: writerFunc(func(_ context.Context, data schedule.Dataset) (int64, error) {
-			events = append(events, "commit:"+data.Provider)
+		writer: writerFunc(func(_ context.Context, data []schedule.Dataset) (int64, error) {
+			events = append(events, "commit:"+data[0].Provider)
 			return 1, nil
 		}),
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
@@ -99,11 +111,127 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 	}
 }
 
+func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
+	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	writes, enrichments := 0, 0
+	executor := &ProductionExecutor{
+		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
+			writes++
+			if len(datasets) != 2 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis {
+				t.Fatalf("datasets=%+v", datasets)
+			}
+			return 11, nil
+		}),
+		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
+		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
+		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
+		},
+		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
+		},
+		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
+			enrichments++
+			if writes != 1 {
+				t.Fatal("enrichment ran before publication")
+			}
+			return nil, nil
+		},
+	}
+	outcomes, err := executor.Run(context.Background(), TargetAll, window)
+	if err != nil || writes != 1 || enrichments != 2 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 {
+		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
+	}
+}
+
+func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAtomic(t *testing.T) {
+	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	writes, enrichments := 0, 0
+	executor := &ProductionExecutor{
+		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, nil }),
+		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil }, newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
+		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
+		},
+		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+			return schedule.Dataset{}, kinepolis.SyncSummary{}, errors.New("second-provider-secret")
+		},
+		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
+	}
+	_, err := executor.Run(context.Background(), TargetAll, window)
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Provider != TargetKinepolis || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {
+		t.Fatalf("err=%v writes=%d enrichments=%d", err, writes, enrichments)
+	}
+	executor.syncKinepolis = func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+		return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
+	}
+	executor.writer = writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
+		writes++
+		return 0, errors.New("publication-secret")
+	})
+	_, err = executor.Run(context.Background(), TargetAll, window)
+	if !errors.As(err, &runErr) || runErr.Stage != StagePublication || runErr.Code != FailureReplacement || writes != 1 || enrichments != 0 {
+		t.Fatalf("err=%v writes=%d enrichments=%d", err, writes, enrichments)
+	}
+}
+
+func TestProductionExecutorTelemetryIsBoundedAndRedacted(t *testing.T) {
+	const secret = "synthetic-telemetry-secret"
+	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	tests := []struct {
+		name      string
+		configure func(*ProductionExecutor)
+		want      observedSync
+	}{
+		{name: "client", configure: func(e *ProductionExecutor) { e.newUGC = func() (ugc.Getter, error) { return nil, errors.New(secret) } }, want: observedSync{"ugc", "failed", "client_creation", "client_creation_failed", ""}},
+		{name: "fetch", configure: func(e *ProductionExecutor) {
+			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				return schedule.Dataset{}, ugc.SyncSummary{}, errors.New(secret)
+			}
+		}, want: observedSync{"ugc", "failed", "provider_fetch", "provider_sync_failed", ""}},
+		{name: "validation", configure: func(e *ProductionExecutor) {
+			e.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+				return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%w: %s", schedule.ErrDatasetValidation, secret)
+			}
+		}, want: observedSync{"ugc", "failed", "dataset_validation", "dataset_rejected", ""}},
+		{name: "publication", configure: func(e *ProductionExecutor) {
+			e.writer = writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 0, errors.New(secret) })
+		}, want: observedSync{"ugc", "failed", "publication", "replacement_failed", ""}},
+		{name: "enrichment", configure: func(e *ProductionExecutor) {
+			e.enrich = func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
+				return &enrichment.Summary{Failed: 1}, errors.New(secret)
+			}
+		}, want: observedSync{"ugc", "succeeded", "none", "none", "degraded"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			observer := &captureSyncObserver{}
+			executor := &ProductionExecutor{
+				now: time.Now, logger: slog.New(slog.NewJSONHandler(&logs, nil)), observer: observer,
+				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
+				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
+				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+					return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
+				},
+			}
+			test.configure(executor)
+			_, _ = executor.Run(context.Background(), TargetUGC, window)
+			if strings.Contains(logs.String(), secret) || len(observer.observations) != 1 || observer.observations[0] != test.want {
+				t.Fatalf("logs=%q observations=%+v want=%+v", logs.String(), observer.observations, test.want)
+			}
+		})
+	}
+}
+
 func TestProductionExecutorRejectsInvalidDataAndCommitFailure(t *testing.T) {
 	writes := 0
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		writer: writerFunc(func(context.Context, schedule.Dataset) (int64, error) { writes++; return 0, errors.New("db secret") }),
+		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, errors.New("db secret") }),
 		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			return schedule.Dataset{}, ugc.SyncSummary{}, nil
@@ -125,7 +253,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 	base := func() *ProductionExecutor {
 		return &ProductionExecutor{
 			now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
-			writer: writerFunc(func(context.Context, schedule.Dataset) (int64, error) { return 7, nil }),
+			writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
 			newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
 			syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 				return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
@@ -166,7 +294,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 			return err
 		}},
 		{name: "replacement", code: FailureReplacement, run: func(e *ProductionExecutor) error {
-			e.writer = writerFunc(func(context.Context, schedule.Dataset) (int64, error) { return 0, errors.New("secret") })
+			e.writer = writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 0, errors.New("secret") })
 			_, err := e.Run(context.Background(), TargetUGC, window)
 			return err
 		}},
@@ -194,10 +322,34 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 			assertRunErrorCode(t, test.run(base()), test.code)
 		})
 	}
-	if err := stageError(context.Background(), FailureReplacement, context.DeadlineExceeded); err == nil {
+	if err := stageError(context.Background(), TargetUGC, StagePublication, FailureReplacement, context.DeadlineExceeded); err == nil {
 		t.Fatal("child timeout returned nil")
 	} else {
 		assertRunErrorCode(t, err, FailureReplacement)
+	}
+}
+
+func TestProductionExecutorClassifiesEmptyUGCOutputsAsDatasetRejections(t *testing.T) {
+	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	for _, name := range []string{"zero cinemas", "zero showtimes"} {
+		t.Run(name, func(t *testing.T) {
+			executor := &ProductionExecutor{
+				now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
+					t.Fatal("published rejected dataset")
+					return 0, nil
+				}),
+				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
+				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+					return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%w: %s", schedule.ErrDatasetValidation, name)
+				},
+			}
+			_, err := executor.Run(context.Background(), TargetUGC, window)
+			var runErr *RunError
+			if !errors.As(err, &runErr) || runErr.Stage != StageDatasetValidation || runErr.Code != FailureDatasetRejected {
+				t.Fatalf("err=%v", err)
+			}
+		})
 	}
 }
 
@@ -225,13 +377,14 @@ func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			executor := &ProductionExecutor{
 				now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), enrich: test.enrich,
-				writer: writerFunc(func(context.Context, schedule.Dataset) (int64, error) { return 7, nil }),
+				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
 				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
 				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 					return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
 				},
 			}
-			outcome, err := executor.Run(context.Background(), TargetUGC, window)
+			outcomes, err := executor.Run(context.Background(), TargetUGC, window)
+			outcome := outcomes[TargetUGC]
 			if err != nil || outcome.Sync.Version != 7 || outcome.Enrichment.Status != test.status {
 				t.Fatalf("outcome=%+v err=%v", outcome, err)
 			}

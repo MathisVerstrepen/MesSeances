@@ -132,7 +132,7 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 		data.Theaters = append(data.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-" + id, ProviderID: id, Slug: "kinepolis-" + id, Name: complexes[id], City: complexCity(complexes[id]), AvailableDates: available, AcceptedPasses: []string{}})
 	}
 	if err := schedule.ValidateDataset(data, true); err != nil {
-		return schedule.Dataset{}, fmt.Errorf("validate Kinepolis schedule: %w", err)
+		return schedule.Dataset{}, fmt.Errorf("%w: %v", schedule.ErrDatasetValidation, err)
 	}
 	return data, nil
 }

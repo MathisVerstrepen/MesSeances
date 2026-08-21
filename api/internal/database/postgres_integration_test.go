@@ -62,7 +62,7 @@ func TestMigrationsIntegration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 9 {
+	if err != nil || len(migrations) != 10 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -89,6 +89,10 @@ func TestMigrationsIntegration(t *testing.T) {
 VALUES ('tmdb',$1,'fr-FR','Original','Localisé','Résumé','https://image.tmdb.org/t/p/w500/a.jpg',90,ARRAY['Drame'],$2,$3)`, id, fetchedAt, refresh); err != nil {
 			t.Fatal("insert pre-migration metadata failed")
 		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO schedule_snapshot (version, schema_version, provider, scope, generated_at, timezone, window_from, window_through)
+VALUES (1,1,'ugc','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23')`, databaseNow); err != nil {
+		t.Fatal("insert pre-migration snapshot failed")
 	}
 	if _, err := pool.Exec(ctx, "INSERT INTO movies (provider_id, slug, title, runtime_minutes) VALUES ('10','ugc-film-10','Marathon',600)"); err != nil {
 		t.Fatal("insert pre-migration movie failed")
@@ -204,10 +208,76 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 9 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 10 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
 		t.Fatalf("repeat run changed stale refresh=%s err=%v", repeatedRefresh, err)
+	}
+}
+
+func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate schema nonce failed")
+	}
+	schema := "movieflow_orphan_migration_test_" + hex.EncodeToString(nonce)
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	identifier := pgx.Identifier{schema}.Sanitize()
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+	migrations, err := embeddedMigrations()
+	if err != nil || len(migrations) != 10 {
+		t.Fatalf("migrations=%d err=%v", len(migrations), err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal("create migration history failed")
+	}
+	for _, migration := range migrations[:9] {
+		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			t.Fatalf("apply migration %d failed: %v", migration.version, err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
+			t.Fatal("record migration failed")
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (provider_id,slug,title,runtime_minutes,provider) VALUES ('10','ugc-film-10','Orphan',90,'ugc')`); err != nil {
+		t.Fatal("insert orphan schedule row failed")
+	}
+	if err := RunMigrations(ctx, pool); err == nil {
+		t.Fatal("orphan schedule migration succeeded")
+	}
+	var recorded, generationColumns int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=10`).Scan(&recorded); err != nil || recorded != 0 {
+		t.Fatalf("migration recorded=%d err=%v", recorded, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND column_name='generation_id'`).Scan(&generationColumns); err != nil || generationColumns != 0 {
+		t.Fatalf("generation columns after rollback=%d err=%v", generationColumns, err)
 	}
 }

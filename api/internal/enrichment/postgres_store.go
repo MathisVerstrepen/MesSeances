@@ -12,7 +12,16 @@ import (
 
 type PostgresStore struct{ pool *pgxpool.Pool }
 
+const scheduleGenerationLockID int64 = 6211428337968315
+
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore { return &PostgresStore{pool: pool} }
+
+func lockScheduleGeneration(ctx context.Context, tx pgx.Tx) error {
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", scheduleGenerationLockID); err != nil {
+		return fmt.Errorf("lock active schedule generation failed")
+	}
+	return nil
+}
 
 func lockEnrichmentVersion(ctx context.Context, tx pgx.Tx) (int64, error) {
 	var version int64

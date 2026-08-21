@@ -64,6 +64,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 
 	store := NewPostgresStore(pool)
 	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `INSERT INTO schedule_snapshot (version, schema_version, provider, scope, generated_at, timezone, window_from, window_through)
+VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23')`, now); err != nil {
+		t.Fatal("insert active schedule snapshot failed")
+	}
 	unmatched := Match{SourceProvider: SourceUGC, SourceMovieID: "200", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 721, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
 	if err := store.SaveDecision(ctx, unmatched); err != nil {
 		t.Fatal(err)
@@ -102,21 +106,40 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		t.Fatalf("failed publication changed version=%d error=%v", version, err)
 	}
 
-	if _, err := pool.Exec(ctx, `INSERT INTO movies (provider_id, slug, title, runtime_minutes, poster_url) VALUES
-	('17950','ugc-film-17950','Film historique',100,NULL),
-	('201','ugc-film-201','Film à revoir',100,'https://static.ugc.fr/posters/201.jpg'),
-	('202','ugc-film-202','Titre modifié',90,NULL),
-	('203','ugc-film-203','Film refusé',95,NULL),
-	('205','ugc-film-205','Ancien film',88,NULL),
-	('206','ugc-film-206','Film sans correspondance',97,NULL),
-	('207','ugc-film-207','Film déjà associé',99,NULL),
-	('208','ugc-film-208','Film déjà refusé',96,NULL),
-	('209','ugc-film-209','Film qui change',102,NULL),
-	('210','ugc-film-210','Film historique refusé',103,NULL)`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes, poster_url) VALUES
+	(1,'17950','ugc-film-17950','Film historique',100,NULL),
+	(1,'201','ugc-film-201','Film à revoir',100,'https://static.ugc.fr/posters/201.jpg'),
+	(1,'202','ugc-film-202','Titre modifié',90,NULL),
+	(1,'203','ugc-film-203','Film refusé',95,NULL),
+	(1,'205','ugc-film-205','Ancien film',88,NULL),
+	(1,'206','ugc-film-206','Film sans correspondance',97,NULL),
+	(1,'207','ugc-film-207','Film déjà associé',99,NULL),
+	(1,'208','ugc-film-208','Film déjà refusé',96,NULL),
+	(1,'209','ugc-film-209','Film qui change',102,NULL),
+	(1,'210','ugc-film-210','Film historique refusé',103,NULL)`); err != nil {
 		t.Fatal("insert review movies failed")
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO movies (provider, provider_id, slug, title, runtime_minutes) VALUES ('kinepolis','HO00016099','kinepolis-film-HO00016099','Film historique',100)`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes) VALUES (1,'kinepolis','HO00016099','kinepolis-film-HO00016099','Film historique',100)`); err != nil {
 		t.Fatal("insert missing Kinepolis review movie failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes) VALUES (2,'201','ugc-film-201','Inactive poison',1)`); err != nil {
+		t.Fatal("insert inactive duplicate movie failed")
+	}
+	pendingActive, err := store.PendingMatches(ctx, 100, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active201 := 0
+	for _, item := range pendingActive {
+		if item.SourceProvider == SourceUGC && item.SourceMovieID == "201" {
+			active201++
+			if item.SourceTitle != "Film à revoir" || item.SourceRuntimeMinutes != 100 {
+				t.Fatalf("inactive movie leaked into pending review: %+v", item)
+			}
+		}
+	}
+	if active201 != 1 {
+		t.Fatalf("active movie 201 count=%d", active201)
 	}
 	review := Match{SourceProvider: SourceUGC, SourceMovieID: "201", MetadataProvider: ProviderTMDB, Status: StatusReviewRequired, NormalizedSourceTitle: NormalizeTitle("Film à revoir"), SourceRuntimeMinutes: 100, Candidates: []Candidate{{ID: 52, Title: "Film à revoir", Runtime: 100, Score: .92, PosterURL: "https://image.tmdb.org/t/p/w500/52.jpg"}}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
 	if err := store.SaveDecision(ctx, review); err != nil {
@@ -274,7 +297,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		t.Fatalf("matched assignment error=%v", err)
 	}
 
-	if _, err := pool.Exec(ctx, `INSERT INTO movies (provider_id, slug, title, runtime_minutes) VALUES ('204','ugc-film-204','Film concurrent',105)`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes) VALUES (1,'204','ugc-film-204','Film concurrent',105)`); err != nil {
 		t.Fatal(err)
 	}
 	concurrent := review
@@ -333,19 +356,19 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 
 	t.Run("local movie groups", func(t *testing.T) {
-		if _, err := pool.Exec(ctx, `INSERT INTO movies (provider_id, slug, title, runtime_minutes, poster_url) VALUES
-			('301','ugc-film-301','Local principal',101,'https://static.ugc.fr/posters/301.jpg'),
-			('302','ugc-film-302','Local secondaire',102,NULL),
-			('303','ugc-film-303','Local rejeté associé',102,NULL),
-			('310','ugc-film-310','Concurrent commun',100,NULL),
-			('311','ugc-film-311','Concurrent A',100,NULL),
-			('312','ugc-film-312','Concurrent B',100,NULL),
-			('320','ugc-film-320','Décision concurrente',103,NULL),
-			('321','ugc-film-321','Fusion concurrente',103,NULL)`); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes, poster_url) VALUES
+			(1,'301','ugc-film-301','Local principal',101,'https://static.ugc.fr/posters/301.jpg'),
+			(1,'302','ugc-film-302','Local secondaire',102,NULL),
+			(1,'303','ugc-film-303','Local rejeté associé',102,NULL),
+			(1,'310','ugc-film-310','Concurrent commun',100,NULL),
+			(1,'311','ugc-film-311','Concurrent A',100,NULL),
+			(1,'312','ugc-film-312','Concurrent B',100,NULL),
+			(1,'320','ugc-film-320','Décision concurrente',103,NULL),
+			(1,'321','ugc-film-321','Fusion concurrente',103,NULL)`); err != nil {
 			t.Fatal("insert local UGC movies failed")
 		}
-		if _, err := pool.Exec(ctx, `INSERT INTO movies (provider, provider_id, slug, title, runtime_minutes, poster_url) VALUES
-			('kinepolis','LOCAL-A','kinepolis-film-LOCAL-A','Local Kinepolis',99,'https://cdn.kinepolis.fr/images/local-a.jpg')`); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes, poster_url) VALUES
+			(1,'kinepolis','LOCAL-A','kinepolis-film-LOCAL-A','Local Kinepolis',99,'https://cdn.kinepolis.fr/images/local-a.jpg')`); err != nil {
 			t.Fatal("insert local Kinepolis movie failed")
 		}
 		rejected := Match{SourceProvider: SourceUGC, SourceMovieID: "302", MetadataProvider: ProviderTMDB, Status: StatusRejected, NormalizedSourceTitle: NormalizeTitle("Local secondaire"), SourceRuntimeMinutes: 102, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now}
@@ -491,8 +514,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	t.Run("reject unmatched Kinepolis review", func(t *testing.T) {
 		const movieID = "HO00016253"
 		const title = "Film Kinepolis sans correspondance"
-		if _, err := pool.Exec(ctx, `INSERT INTO movies (provider, provider_id, slug, title, runtime_minutes)
-VALUES ('kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes)
+VALUES (1,'kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); err != nil {
 			t.Fatal("insert unmatched Kinepolis movie failed")
 		}
 		decision := Match{
@@ -532,5 +555,49 @@ VALUES ('kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); er
 			}
 		}
 		t.Fatal("rejected Kinepolis movie missing from pending matches")
+	})
+
+	t.Run("generation promotion lock serializes local merge", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id,provider_id,slug,title,runtime_minutes) VALUES (1,'901','ugc-film-901','Lock A',90),(1,'902','ugc-film-902','Lock B',90)`); err != nil {
+			t.Fatal("insert lock test movies failed")
+		}
+		publicationTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rollback(publicationTx)
+		if _, err := publicationTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, scheduleGenerationLockID); err != nil {
+			t.Fatal("acquire publication lock failed")
+		}
+		result := make(chan error, 1)
+		go func() {
+			_, mergeErr := store.MergeLocalMovies(context.Background(), []LocalMovieSource{{SourceProvider: SourceUGC, SourceMovieID: "901"}, {SourceProvider: SourceUGC, SourceMovieID: "902"}}, LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: "901"})
+			result <- mergeErr
+		}()
+		deadline := time.Now().Add(time.Second)
+		blocked := false
+		for time.Now().Before(deadline) {
+			if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND query LIKE '%pg_advisory_xact_lock%')`).Scan(&blocked); err != nil {
+				t.Fatal("inspect advisory wait failed")
+			}
+			if blocked {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !blocked {
+			t.Fatal("local merge did not wait for generation promotion lock")
+		}
+		if err := publicationTx.Commit(ctx); err != nil {
+			t.Fatal("release publication lock failed")
+		}
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Fatalf("serialized merge failed: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("serialized merge did not resume")
+		}
 	})
 }

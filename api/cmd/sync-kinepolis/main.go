@@ -37,7 +37,7 @@ type databaseServices struct {
 }
 
 type fullExecutor interface {
-	Run(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
+	Run(context.Context, synccontrol.Target, synccontrol.Window) (map[synccontrol.Target]synccontrol.ProviderOutcome, error)
 }
 
 func productionDependencies() dependencies {
@@ -160,11 +160,12 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 		logCLIError(logger, "sync_command_failed", "configuration_error")
 		return 1
 	}
-	outcome, err := executor.Run(ctx, synccontrol.TargetKinepolis, synccontrol.Window{From: from, Through: through})
+	outcomes, err := executor.Run(ctx, synccontrol.TargetKinepolis, synccontrol.Window{From: from, Through: through})
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", syncFailureCode(err))
 		return 1
 	}
+	outcome := outcomes[synccontrol.TargetKinepolis]
 	summary := outcome.Sync
 	fmt.Fprintf(stdout, "sync complete provider=kinepolis version=%d cinemas=%d showtimes=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Showtimes, summary.GeneratedAt.Format(time.RFC3339))
 	renderEnrichment(stdout, outcome.Enrichment)

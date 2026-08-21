@@ -37,7 +37,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 	data.Theaters = []TheaterRecord{}
 	data.Showtimes = []ShowtimeRecord{}
 	theaterIndex := map[string]int{}
-	rows, err := tx.Query(ctx, `SELECT provider, id, provider_id, slug, name, address, city, postal_code FROM theaters ORDER BY provider, provider_id, id`)
+	rows, err := tx.Query(ctx, `SELECT provider, id, provider_id, slug, name, address, city, postal_code FROM theaters WHERE generation_id=$1 ORDER BY provider, provider_id, id`, revision.ScheduleVersion)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 	}
@@ -61,7 +61,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 	}
 	rows.Close()
-	rows, err = tx.Query(ctx, `SELECT theater_id, service_date FROM theater_dates ORDER BY theater_id, service_date`)
+	rows, err = tx.Query(ctx, `SELECT theater_id, service_date FROM theater_dates WHERE generation_id=$1 ORDER BY theater_id, service_date`, revision.ScheduleVersion)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater dates failed")
 	}
@@ -84,7 +84,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater dates failed")
 	}
 	rows.Close()
-	rows, err = tx.Query(ctx, `SELECT tp.theater_id, tp.pass_code FROM theater_passes tp ORDER BY tp.theater_id, tp.pass_code`)
+	rows, err = tx.Query(ctx, `SELECT tp.theater_id, tp.pass_code FROM theater_passes tp WHERE tp.generation_id=$1 ORDER BY tp.theater_id, tp.pass_code`, revision.ScheduleVersion)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater passes failed")
 	}
@@ -123,7 +123,8 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 FROM movies m
 LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb' AND mm.status='matched'
 LEFT JOIN movie_metadata_cache c ON c.provider='tmdb' AND c.provider_movie_id=mm.metadata_movie_id AND c.locale='fr-FR'
-ORDER BY m.provider, m.provider_id`)
+WHERE m.generation_id=$1
+ORDER BY m.provider, m.provider_id`, revision.ScheduleVersion)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 	}
@@ -162,7 +163,7 @@ ORDER BY m.provider, m.provider_id`)
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("load schedule timezone failed")
 	}
 	referencedMovies := map[string]bool{}
-	rows, err = tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes ORDER BY theater_id, service_date, start_time, id`)
+	rows, err = tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes WHERE generation_id=$1 ORDER BY theater_id, service_date, start_time, id`, revision.ScheduleVersion)
 	if err != nil {
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 	}

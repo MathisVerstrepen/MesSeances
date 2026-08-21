@@ -222,16 +222,14 @@ func TestAdminApproveErrorMappingsRemainUnchanged(t *testing.T) {
 	}
 }
 
-func TestAdminGenericFailuresBodyLimitRateLimitAndMissingConfig(t *testing.T) {
+func TestAdminGenericFailuresBodyLimitAndMissingConfig(t *testing.T) {
 	handler := configuredAdminHandler(t, "password", time.Now)
 	oversized := adminRequest(handler, http.MethodPost, "/api/v1/admin/login", `{"password":"`+strings.Repeat("x", maxAdminBody)+`"}`, "http://localhost:3000", nil)
 	assertAPIError(t, oversized, http.StatusUnauthorized, "authentication_failed", "Authentification impossible.")
-	for index := 0; index < maxLoginFails-1; index++ {
+	for index := 0; index < 6; index++ {
 		failed := adminRequest(handler, http.MethodPost, "/api/v1/admin/login", `{"password":"wrong"}`, "http://localhost:3000", nil)
 		assertAPIError(t, failed, http.StatusUnauthorized, "authentication_failed", "Authentification impossible.")
 	}
-	limited := adminRequest(handler, http.MethodPost, "/api/v1/admin/login", `{"password":"wrong"}`, "http://localhost:3000", nil)
-	assertAPIError(t, limited, http.StatusTooManyRequests, "authentication_failed", "Authentification impossible.")
 	unconfigured := testHandlerWithAdmin(t, AdminOptions{})
 	unavailable := adminRequest(unconfigured, http.MethodGet, "/api/v1/admin/session", "", "", nil)
 	assertAPIError(t, unavailable, http.StatusServiceUnavailable, "admin_unavailable", "Service administrateur indisponible.")

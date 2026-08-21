@@ -1,12 +1,36 @@
 package schedule
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+type refreshObservation struct{ result, stage, reason string }
+type captureRefreshObserver struct {
+	refreshes []refreshObservation
+	freshness [][3]time.Time
+	successes []time.Time
+	revisions []SnapshotRevision
+}
+
+func (o *captureRefreshObserver) ObserveScheduleRefresh(result, stage, reason string, _ time.Duration) {
+	o.refreshes = append(o.refreshes, refreshObservation{result, stage, reason})
+}
+func (o *captureRefreshObserver) SetScheduleRevision(schedule, enrichment int64) {
+	o.revisions = append(o.revisions, SnapshotRevision{schedule, enrichment})
+}
+func (o *captureRefreshObserver) SetScheduleFreshness(generatedAt, windowStart, windowEnd time.Time) {
+	o.freshness = append(o.freshness, [3]time.Time{generatedAt, windowStart, windowEnd})
+}
+func (o *captureRefreshObserver) SetScheduleRefreshLastSuccess(at time.Time) {
+	o.successes = append(o.successes, at)
+}
 
 type fakeSnapshotReader struct {
 	mu                sync.Mutex
@@ -19,15 +43,32 @@ type fakeSnapshotReader struct {
 	useLoadVersion    bool
 	loads             int
 	checks            int
+	versionStarted    chan struct{}
+	versionRelease    chan struct{}
 	loadStarted       chan struct{}
 	loadRelease       chan struct{}
 }
 
-func (f *fakeSnapshotReader) CurrentRevision(context.Context) (SnapshotRevision, error) {
+func (f *fakeSnapshotReader) CurrentRevision(ctx context.Context) (SnapshotRevision, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.checks++
-	return SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion}, f.versionErr
+	started, release := f.versionStarted, f.versionRelease
+	revision, err := SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion}, f.versionErr
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return SnapshotRevision{}, ctx.Err()
+		}
+	}
+	return revision, err
 }
 
 func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, SnapshotRevision, error) {
@@ -161,6 +202,125 @@ func TestPostgresSourcePollFailuresRetainLastGoodAndRetry(t *testing.T) {
 	source.refresh(context.Background())
 	if source.Snapshot() == want {
 		t.Fatal("failed revision was not retried")
+	}
+}
+
+func TestPostgresSourceFreshnessStagesReasonsAndFailureRetention(t *testing.T) {
+	const secret = "synthetic-refresh-secret"
+	data := testDataset()
+	reader := &fakeSnapshotReader{version: 1, data: data}
+	observer := &captureRefreshObserver{}
+	var logs bytes.Buffer
+	source, err := NewPostgresSource(context.Background(), reader, SourceOptions{Observer: observer, Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, _ := time.LoadLocation(Timezone)
+	wantStart, _ := time.ParseInLocation(dateLayout, data.Window.From, location)
+	wantThrough, _ := time.ParseInLocation(dateLayout, data.Window.Through, location)
+	if len(observer.freshness) != 1 || !observer.freshness[0][0].Equal(data.GeneratedAt) || !observer.freshness[0][1].Equal(wantStart) || !observer.freshness[0][2].Equal(wantThrough.AddDate(0, 0, 1)) || len(observer.successes) != 1 {
+		t.Fatalf("initial freshness=%+v successes=%d", observer.freshness, len(observer.successes))
+	}
+	source.refresh(context.Background())
+	if got := observer.refreshes[len(observer.refreshes)-1]; got != (refreshObservation{"unchanged", "none", "none"}) || len(observer.successes) != 2 || len(observer.freshness) != 1 {
+		t.Fatalf("unchanged=%+v successes=%d freshness=%d", observer.refreshes, len(observer.successes), len(observer.freshness))
+	}
+
+	reader.mu.Lock()
+	reader.versionErr = errors.New(secret)
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+	reader.mu.Lock()
+	reader.versionErr = nil
+	reader.version = 0
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+	reader.mu.Lock()
+	reader.version = 2
+	reader.loadErr = errors.New(secret)
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+	reader.mu.Lock()
+	reader.loadErr = nil
+	reader.useLoadVersion = true
+	reader.loadVersion = 0
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+	reader.mu.Lock()
+	reader.useLoadVersion = false
+	reader.data = testDataset()
+	reader.data.GeneratedAt = time.Time{}
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+
+	versionStarted := make(chan struct{}, 1)
+	reader.mu.Lock()
+	reader.data = testDataset()
+	reader.versionStarted = versionStarted
+	reader.versionRelease = make(chan struct{})
+	reader.mu.Unlock()
+	checkCtx, cancelCheck := context.WithCancel(context.Background())
+	checkDone := make(chan struct{})
+	go func() {
+		source.refresh(checkCtx)
+		close(checkDone)
+	}()
+	<-versionStarted
+	cancelCheck()
+	<-checkDone
+	reader.mu.Lock()
+	reader.versionStarted = nil
+	reader.versionRelease = nil
+	reader.mu.Unlock()
+
+	loadStarted := make(chan struct{}, 1)
+	reader.mu.Lock()
+	reader.loadStarted = loadStarted
+	reader.loadRelease = make(chan struct{})
+	reader.mu.Unlock()
+	loadCtx, cancelLoad := context.WithCancel(context.Background())
+	loadDone := make(chan struct{})
+	go func() {
+		source.refresh(loadCtx)
+		close(loadDone)
+	}()
+	<-loadStarted
+	cancelLoad()
+	<-loadDone
+	reader.mu.Lock()
+	reader.loadStarted = nil
+	reader.loadRelease = nil
+	reader.mu.Unlock()
+
+	wantFailures := []refreshObservation{
+		{"check_failed", "revision_check", "read_failed"},
+		{"invalid_revision", "revision_check", "invalid_revision"},
+		{"load_failed", "snapshot_load", "read_failed"},
+		{"invalid_revision", "snapshot_load", "invalid_revision"},
+		{"invalid_dataset", "dataset_validation", "invalid_dataset"},
+		{"canceled", "revision_check", "canceled"},
+		{"canceled", "snapshot_load", "canceled"},
+	}
+	if len(observer.refreshes) != 1+len(wantFailures) {
+		t.Fatalf("refreshes=%+v", observer.refreshes)
+	}
+	for i, want := range wantFailures {
+		if observer.refreshes[i+1] != want {
+			t.Fatalf("refresh[%d]=%+v want=%+v", i+1, observer.refreshes[i+1], want)
+		}
+	}
+	if len(observer.freshness) != 1 || len(observer.successes) != 2 || strings.Contains(logs.String(), secret) {
+		t.Fatalf("freshness=%d successes=%d logs=%q", len(observer.freshness), len(observer.successes), logs.String())
+	}
+
+	replacement := testDataset()
+	replacement.GeneratedAt = replacement.GeneratedAt.Add(time.Hour)
+	reader.mu.Lock()
+	reader.data = replacement
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+	if got := observer.refreshes[len(observer.refreshes)-1]; got != (refreshObservation{"reloaded", "none", "none"}) || len(observer.freshness) != 2 || len(observer.successes) != 3 || !observer.freshness[1][0].Equal(replacement.GeneratedAt) {
+		t.Fatalf("reload=%+v freshness=%+v successes=%d", observer.refreshes, observer.freshness, len(observer.successes))
 	}
 }
 

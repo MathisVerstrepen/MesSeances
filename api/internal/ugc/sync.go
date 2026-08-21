@@ -35,6 +35,21 @@ type SyncSummary struct {
 	GeneratedAt time.Time
 }
 
+type datasetValidationError struct {
+	message string
+	cause   error
+}
+
+func (e datasetValidationError) Error() string { return e.message }
+func (e datasetValidationError) Unwrap() error { return e.cause }
+func (e datasetValidationError) Is(target error) bool {
+	return target == schedule.ErrDatasetValidation
+}
+
+func newDatasetValidationError(message string, cause error) error {
+	return datasetValidationError{message: message, cause: cause}
+}
+
 type indexedJob[T any] struct {
 	index int
 	value T
@@ -247,13 +262,13 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		data.Showtimes = append(data.Showtimes, records...)
 	}
 	if len(data.Theaters) == 0 {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync produced no active cinemas")
+		return schedule.Dataset{}, SyncSummary{}, newDatasetValidationError("sync produced no active cinemas", nil)
 	}
 	if len(data.Showtimes) == 0 {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync produced no showtimes")
+		return schedule.Dataset{}, SyncSummary{}, newDatasetValidationError("sync produced no showtimes", nil)
 	}
 	if err := schedule.ValidateDataset(data, scope == schedule.ScopeAll); err != nil {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("validate synchronized dataset: %w", err)
+		return schedule.Dataset{}, SyncSummary{}, newDatasetValidationError("validate synchronized dataset: "+err.Error(), err)
 	}
 	summary := SyncSummary{Scope: scope, Cinemas: len(data.Theaters), Dates: len(showingsJobs), Requests: client.RequestCount(), Showtimes: len(data.Showtimes), Skipped: skipped, GeneratedAt: data.GeneratedAt}
 	return data, summary, nil

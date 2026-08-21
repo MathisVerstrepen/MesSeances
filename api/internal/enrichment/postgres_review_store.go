@@ -15,7 +15,8 @@ func (s *PostgresStore) PendingMatches(ctx context.Context, limit, offset int) (
 		return nil, fmt.Errorf("invalid review pagination")
 	}
 	rows, err := s.pool.Query(ctx, `SELECT m.provider, m.provider_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(mm.status, 'review_required'), COALESCE(mm.candidates, '[]'::jsonb), COALESCE(mm.evaluated_at, CURRENT_TIMESTAMP)
-FROM movies m LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb'
+FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
+LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb'
 WHERE (mm.status IS NULL OR mm.status IN ('review_required', 'unmatched', 'rejected'))
   AND NOT EXISTS (SELECT 1 FROM local_movie_group_members lmgm WHERE lmgm.source_provider=m.provider AND lmgm.source_movie_id=m.provider_id)
 ORDER BY (mm.evaluated_at IS NULL), mm.evaluated_at, m.provider, m.provider_id LIMIT $1 OFFSET $2`, limit, offset)
@@ -51,12 +52,13 @@ func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceProvider, sou
 	var raw []byte
 	err = s.pool.QueryRow(ctx, `SELECT mm.status, mm.normalized_source_title, mm.source_runtime_minutes, mm.candidates, m.title, m.runtime_minutes
 FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
 WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb'`, sourceProvider, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
 	if errors.Is(err, pgx.ErrNoRows) {
 		if candidateID <= 0 {
 			return Candidate{}, 0, ErrReviewConflict
 		}
-		if movieErr := s.pool.QueryRow(ctx, `SELECT title, runtime_minutes FROM movies WHERE provider=$1 AND provider_id=$2`, sourceProvider, sourceMovieID).Scan(&currentTitle, &currentRuntime); errors.Is(movieErr, pgx.ErrNoRows) {
+		if movieErr := s.pool.QueryRow(ctx, `SELECT m.title, m.runtime_minutes FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version WHERE m.provider=$1 AND m.provider_id=$2`, sourceProvider, sourceMovieID).Scan(&currentTitle, &currentRuntime); errors.Is(movieErr, pgx.ErrNoRows) {
 			return Candidate{}, 0, ErrReviewNotFound
 		} else if movieErr != nil {
 			return Candidate{}, 0, fmt.Errorf("read review candidate failed")
@@ -85,6 +87,9 @@ func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourc
 		return fmt.Errorf("begin review approval failed")
 	}
 	defer rollback(tx)
+	if err := lockScheduleGeneration(ctx, tx); err != nil {
+		return err
+	}
 	version, err := lockEnrichmentVersion(ctx, tx)
 	if err != nil {
 		return err
@@ -135,6 +140,9 @@ func (s *PostgresStore) RejectReview(ctx context.Context, sourceProvider, source
 		return fmt.Errorf("begin review rejection failed")
 	}
 	defer rollback(tx)
+	if err := lockScheduleGeneration(ctx, tx); err != nil {
+		return err
+	}
 	version, err := lockEnrichmentVersion(ctx, tx)
 	if err != nil {
 		return err
@@ -198,9 +206,10 @@ func lockReview(ctx context.Context, tx pgx.Tx, sourceProvider, sourceMovieID st
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT mm.status, mm.normalized_source_title, mm.source_runtime_minutes, mm.candidates, m.title, m.runtime_minutes
 FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
 WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb' FOR UPDATE OF mm, m`, sourceProvider, sourceMovieID).Scan(&status, &normalizedTitle, &sourceRuntime, &raw, &currentTitle, &currentRuntime)
 	if errors.Is(err, pgx.ErrNoRows) {
-		if movieErr := tx.QueryRow(ctx, `SELECT title, runtime_minutes FROM movies WHERE provider=$1 AND provider_id=$2 FOR SHARE`, sourceProvider, sourceMovieID).Scan(&currentTitle, &currentRuntime); errors.Is(movieErr, pgx.ErrNoRows) {
+		if movieErr := tx.QueryRow(ctx, `SELECT m.title, m.runtime_minutes FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version WHERE m.provider=$1 AND m.provider_id=$2 FOR SHARE OF m`, sourceProvider, sourceMovieID).Scan(&currentTitle, &currentRuntime); errors.Is(movieErr, pgx.ErrNoRows) {
 			return "", "", 0, nil, "", 0, false, ErrReviewNotFound
 		} else if movieErr != nil {
 			return "", "", 0, nil, "", 0, false, fmt.Errorf("lock reviewed match failed")

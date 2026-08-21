@@ -18,7 +18,7 @@ const operationTimeout = 2 * time.Minute
 type EnrichFunc func(context.Context, []enrichment.Movie) (*enrichment.Summary, error)
 
 type SyncObserver interface {
-	ObserveSync(provider, result, errorCode, enrichmentStatus string, duration time.Duration, records map[string]int)
+	ObserveSync(provider, result, stage, errorCode, enrichmentStatus string, duration time.Duration, records map[string]int)
 }
 
 type ProductionExecutorOptions struct {
@@ -54,58 +54,90 @@ func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecut
 	}, nil
 }
 
-func (e *ProductionExecutor) Run(ctx context.Context, provider Target, window Window) (outcome ProviderOutcome, runErr error) {
+func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Window) (map[Target]ProviderOutcome, error) {
 	started := time.Now()
-	defer func() { e.observe(provider, outcome, runErr, time.Since(started)) }()
+	providers := []Target{target}
+	if target == TargetAll {
+		providers = []Target{TargetUGC, TargetKinepolis}
+	} else if target != TargetUGC && target != TargetKinepolis {
+		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
+	}
+	datasets := make([]schedule.Dataset, 0, len(providers))
+	syncOutcomes := make(map[Target]SyncOutcome, len(providers))
+	for _, provider := range providers {
+		data, syncOutcome, err := e.prepare(ctx, provider, window)
+		if err != nil {
+			e.observe(provider, ProviderOutcome{}, err, time.Since(started))
+			return nil, err
+		}
+		datasets = append(datasets, data)
+		syncOutcomes[provider] = syncOutcome
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
+	version, err := e.writer.Replace(writeCtx, datasets)
+	cancel()
+	if err != nil {
+		runErr := stageError(ctx, "", StagePublication, FailureReplacement, err)
+		for _, provider := range providers {
+			e.observe(provider, ProviderOutcome{}, runErr, time.Since(started))
+		}
+		return nil, runErr
+	}
+	outcomes := make(map[Target]ProviderOutcome, len(providers))
+	for i, provider := range providers {
+		syncOutcome := syncOutcomes[provider]
+		syncOutcome.Version = version
+		outcome := ProviderOutcome{Sync: syncOutcome, Enrichment: e.runEnrichment(ctx, provider, datasets[i])}
+		outcomes[provider] = outcome
+		e.observe(provider, outcome, nil, time.Since(started))
+	}
+	return outcomes, nil
+}
 
+func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, window Window) (schedule.Dataset, SyncOutcome, error) {
 	var data schedule.Dataset
-	var syncOutcome SyncOutcome
+	var outcome SyncOutcome
 	var err error
 	switch provider {
 	case TargetUGC:
 		if e.newUGC == nil {
-			return outcome, NewRunError(FailureInternal, nil)
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
 		}
 		client, clientErr := e.newUGC()
 		if clientErr != nil {
-			return outcome, NewRunError(FailureClientCreation, clientErr)
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
 		var summary ugc.SyncSummary
 		data, summary, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
-		syncOutcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: summary.Requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: summary.Requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
 	case TargetKinepolis:
 		if e.newKinepolis == nil {
-			return outcome, NewRunError(FailureInternal, nil)
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
 		}
 		client, clientErr := e.newKinepolis()
 		if clientErr != nil {
-			return outcome, NewRunError(FailureClientCreation, clientErr)
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
 		var summary kinepolis.SyncSummary
 		data, summary, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
-		syncOutcome = SyncOutcome{Cinemas: summary.Cinemas, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	default:
-		return outcome, NewRunError(FailureInternal, ErrInvalidTarget)
+		return data, outcome, newProviderRunError(provider, StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
 	if err != nil {
-		return outcome, stageError(ctx, FailureProviderSync, err)
+		if errors.Is(err, schedule.ErrDatasetValidation) {
+			return data, outcome, stageError(ctx, provider, StageDatasetValidation, FailureDatasetRejected, err)
+		}
+		return data, outcome, stageError(ctx, provider, StageProviderFetch, FailureProviderSync, err)
 	}
 	if data.Scope != schedule.ScopeAll || data.Provider != string(provider) || schedule.ValidateDataset(data, true) != nil {
-		return outcome, NewRunError(FailureDatasetRejected, nil)
+		return data, outcome, newProviderRunError(provider, StageDatasetValidation, FailureDatasetRejected, nil)
 	}
-	writeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
-	version, err := e.writer.Replace(writeCtx, data)
-	cancel()
-	if err != nil {
-		return outcome, stageError(ctx, FailureReplacement, err)
-	}
-	syncOutcome.Version = version
-	outcome.Sync = syncOutcome
-	outcome.Enrichment = e.runEnrichment(ctx, provider, data)
-	return outcome, nil
+	return data, outcome, nil
 }
 
 func (e *ProductionExecutor) runEnrichment(ctx context.Context, provider Target, data schedule.Dataset) EnrichmentOutcome {
+	started := time.Now()
 	if e.enrich == nil {
 		return EnrichmentOutcome{Status: "skipped"}
 	}
@@ -121,34 +153,39 @@ func (e *ProductionExecutor) runEnrichment(ctx context.Context, provider Target,
 	}
 	if err != nil {
 		outcome.Status = "degraded"
-		e.logger.WarnContext(ctx, "sync_enrichment_degraded", "component", "sync", "provider", string(provider), "error_code", "enrichment_failed")
+		counts := EnrichmentCounts{}
+		if outcome.Counts != nil {
+			counts = *outcome.Counts
+		}
+		e.logger.WarnContext(ctx, "sync_enrichment_degraded", "component", "sync", "provider", string(provider), "result", "degraded", "stage", string(StageEnrichment), "error_code", "enrichment_failed", "duration", time.Since(started).Seconds(), "reused", counts.Reused, "matched", counts.Matched, "review_required", counts.ReviewRequired, "unmatched", counts.Unmatched, "failed", counts.Failed)
 	}
 	return outcome
 }
 
-func stageError(ctx context.Context, code FailureCode, cause error) error {
+func stageError(ctx context.Context, provider Target, stage FailureStage, code FailureCode, cause error) error {
 	if ctx.Err() != nil {
-		return NewRunError(FailureCanceled, cause)
+		return newProviderRunError(provider, stage, FailureCanceled, cause)
 	}
-	return NewRunError(code, cause)
+	return newProviderRunError(provider, stage, code, cause)
 }
 
 func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, err error, duration time.Duration) {
-	result, code := "succeeded", FailureNone
+	result, code, stage := "succeeded", FailureNone, StageNone
+	records := map[string]int{"cinemas": outcome.Sync.Cinemas, "dates": outcome.Sync.Dates, "requests": outcome.Sync.Requests, "showtimes": outcome.Sync.Showtimes, "skipped": outcome.Sync.Skipped}
 	if err != nil {
 		result = "failed"
 		code = FailureInternal
 		var runError *RunError
 		if errors.As(err, &runError) {
 			code = runError.Code
+			stage = runError.Stage
 		}
-		e.logger.Error("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "error_code", string(code), "duration", duration.Seconds())
+		e.logger.Error("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "stage", string(stage), "error_code", string(code), "duration", duration.Seconds(), "cinemas", records["cinemas"], "dates", records["dates"], "requests", records["requests"], "showtimes", records["showtimes"], "skipped", records["skipped"])
 	} else {
-		e.logger.Info("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "error_code", string(code), "duration", duration.Seconds())
+		e.logger.Info("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "stage", string(stage), "error_code", string(code), "duration", duration.Seconds(), "cinemas", records["cinemas"], "dates", records["dates"], "requests", records["requests"], "showtimes", records["showtimes"], "skipped", records["skipped"])
 	}
 	if e.observer != nil {
-		records := map[string]int{"cinemas": outcome.Sync.Cinemas, "dates": outcome.Sync.Dates, "requests": outcome.Sync.Requests, "showtimes": outcome.Sync.Showtimes, "skipped": outcome.Sync.Skipped}
-		e.observer.ObserveSync(string(provider), result, string(code), outcome.Enrichment.Status, duration, records)
+		e.observer.ObserveSync(string(provider), result, string(stage), string(code), outcome.Enrichment.Status, duration, records)
 	}
 }
 

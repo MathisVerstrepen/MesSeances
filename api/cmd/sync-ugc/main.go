@@ -37,7 +37,7 @@ type dependencies struct {
 }
 
 type fullExecutor interface {
-	Run(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
+	Run(context.Context, synccontrol.Target, synccontrol.Window) (map[synccontrol.Target]synccontrol.ProviderOutcome, error)
 }
 
 type databaseServices struct {
@@ -189,11 +189,12 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		logCLIError(logger, "sync_command_failed", "configuration_error")
 		return 1
 	}
-	outcome, err := executor.Run(ctx, synccontrol.TargetUGC, synccontrol.Window{From: cfg.from, Through: cfg.through})
+	outcomes, err := executor.Run(ctx, synccontrol.TargetUGC, synccontrol.Window{From: cfg.from, Through: cfg.through})
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", syncFailureCode(err))
 		return 1
 	}
+	outcome := outcomes[synccontrol.TargetUGC]
 	summary := outcome.Sync
 	fmt.Fprintf(stdout, "sync complete mode=all_cinemas persisted=true version=%d cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
 	renderEnrichment(stdout, logger, outcome.Enrichment)

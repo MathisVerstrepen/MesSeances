@@ -80,13 +80,14 @@ func (fakeFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
 
 type fakeExecutor func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
 
-func (f fakeExecutor) Run(ctx context.Context, target synccontrol.Target, window synccontrol.Window) (synccontrol.ProviderOutcome, error) {
-	return f(ctx, target, window)
+func (f fakeExecutor) Run(ctx context.Context, target synccontrol.Target, window synccontrol.Window) (map[synccontrol.Target]synccontrol.ProviderOutcome, error) {
+	outcome, err := f(ctx, target, window)
+	return map[synccontrol.Target]synccontrol.ProviderOutcome{target: outcome}, err
 }
 
 type fakeWriter struct{}
 
-func (fakeWriter) Replace(context.Context, schedule.Dataset) (int64, error) { return 1, nil }
+func (fakeWriter) Replace(context.Context, []schedule.Dataset) (int64, error) { return 1, nil }
 
 func TestRunFullPathUsesInjectedDependenciesAndRedactsFailure(t *testing.T) {
 	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")

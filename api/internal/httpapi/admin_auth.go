@@ -5,57 +5,35 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
 	adminCookieName = "messeances_admin_session"
 	adminSessionTTL = 12 * time.Hour
-	loginWindow     = 15 * time.Minute
-	maxLoginFails   = 5
 )
-
-type loginAttempt struct {
-	failures int
-	resetAt  time.Time
-}
-
-type loginLimiter struct {
-	mu       sync.Mutex
-	attempts map[string]loginAttempt
-}
 
 func (a *adminAPI) login(w http.ResponseWriter, r *http.Request) {
 	if !a.configured() {
 		writeError(w, http.StatusServiceUnavailable, "admin_unavailable", "Service administrateur indisponible.")
 		return
 	}
-	ip := clientAddress(r.RemoteAddr)
 	now := a.now().UTC()
-	if !a.limiter.allowed(ip, now) {
-		writeError(w, http.StatusTooManyRequests, "authentication_failed", "Authentification impossible.")
-		return
-	}
 	var input struct {
 		Password string `json:"password"`
 	}
 	if err := decodeAdminJSON(w, r, &input); err != nil {
-		a.limiter.failed(ip, now)
 		writeError(w, http.StatusUnauthorized, "authentication_failed", "Authentification impossible.")
 		return
 	}
 	want, got := sha256.Sum256([]byte(a.password)), sha256.Sum256([]byte(input.Password))
 	if subtle.ConstantTimeCompare(want[:], got[:]) != 1 {
-		a.limiter.failed(ip, now)
 		writeError(w, http.StatusUnauthorized, "authentication_failed", "Authentification impossible.")
 		return
 	}
-	a.limiter.succeeded(ip)
 	expires := now.Add(adminSessionTTL)
 	http.SetCookie(w, &http.Cookie{Name: adminCookieName, Value: a.sign(expires), Path: "/api/v1/admin", Expires: expires, MaxAge: int(adminSessionTTL.Seconds()), HttpOnly: true, Secure: requestIsHTTPS(r), SameSite: http.SameSiteStrictMode})
 	writeJSON(w, http.StatusOK, sessionResponse{Authenticated: true})
@@ -139,60 +117,9 @@ func (a *adminAPI) authenticated(r *http.Request) bool {
 	return hmac.Equal(signature, mac.Sum(nil))
 }
 
-func clientAddress(remoteAddr string) string {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err == nil {
-		return host
-	}
-	return remoteAddr
-}
-
 func requestIsHTTPS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
 	return strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")
-}
-
-func (l *loginLimiter) allowed(address string, now time.Time) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	entry, ok := l.attempts[address]
-	if ok && !now.Before(entry.resetAt) {
-		delete(l.attempts, address)
-		ok = false
-	}
-	if !ok && len(l.attempts) >= 10000 {
-		for key, candidate := range l.attempts {
-			if !now.Before(candidate.resetAt) {
-				delete(l.attempts, key)
-			}
-		}
-		if len(l.attempts) >= 10000 {
-			return false
-		}
-	}
-	if !ok {
-		return true
-	}
-	return entry.failures < maxLoginFails
-}
-
-func (l *loginLimiter) failed(address string, now time.Time) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	entry, ok := l.attempts[address]
-	if !ok || !now.Before(entry.resetAt) {
-		entry = loginAttempt{resetAt: now.Add(loginWindow)}
-	}
-	entry.failures++
-	if len(l.attempts) < 10000 || ok {
-		l.attempts[address] = entry
-	}
-}
-
-func (l *loginLimiter) succeeded(address string) {
-	l.mu.Lock()
-	delete(l.attempts, address)
-	l.mu.Unlock()
 }

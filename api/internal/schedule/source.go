@@ -20,8 +20,10 @@ type PostgresSource struct {
 }
 
 type RefreshObserver interface {
-	ObserveScheduleRefresh(result string, duration time.Duration)
+	ObserveScheduleRefresh(result, stage, reason string, duration time.Duration)
 	SetScheduleRevision(schedule, enrichment int64)
+	SetScheduleFreshness(generatedAt, windowStart, windowEnd time.Time)
+	SetScheduleRefreshLastSuccess(time.Time)
 }
 
 type SourceOptions struct {
@@ -50,6 +52,10 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 	source := &PostgresSource{reader: reader, revision: revision, logger: options.Logger, observer: options.Observer}
 	source.view.Store(NewSnapshotView(data))
 	source.setRevisionMetrics(revision)
+	source.setFreshnessMetrics(data)
+	if source.observer != nil {
+		source.observer.SetScheduleRefreshLastSuccess(time.Now())
+	}
 	return source, nil
 }
 
@@ -75,31 +81,39 @@ func (s *PostgresSource) runTicks(ctx context.Context, ticks <-chan time.Time) {
 func (s *PostgresSource) refresh(ctx context.Context) {
 	started := time.Now()
 	result := "unchanged"
+	stage, reason := "none", "none"
 	defer func() {
 		if s.observer != nil {
-			s.observer.ObserveScheduleRefresh(result, time.Since(started))
+			s.observer.ObserveScheduleRefresh(result, stage, reason, time.Since(started))
+			if result == "unchanged" || result == "reloaded" {
+				s.observer.SetScheduleRefreshLastSuccess(time.Now())
+			}
 		}
 		if result != "unchanged" {
 			level := slog.LevelWarn
 			if result == "reloaded" {
 				level = slog.LevelInfo
 			}
-			s.logger.Log(ctx, level, "schedule_refresh_completed", "component", "schedule", "result", result, "duration", time.Since(started).Seconds())
+			s.logger.Log(ctx, level, "schedule_refresh_completed", "component", "schedule", "result", result, "stage", stage, "reason", reason, "duration", time.Since(started).Seconds())
 		}
 	}()
 	checkCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
 	currentRevision, err := s.reader.CurrentRevision(checkCtx)
 	cancel()
 	if err != nil {
+		stage = "revision_check"
 		if ctx.Err() != nil {
 			result = "canceled"
+			reason = "canceled"
 		} else {
 			result = "check_failed"
+			reason = "read_failed"
 		}
 		return
 	}
 	if currentRevision.ScheduleVersion <= 0 || currentRevision.EnrichmentVersion < 0 {
 		result = "invalid_revision"
+		stage, reason = "revision_check", "invalid_revision"
 		return
 	}
 	if currentRevision == s.revision {
@@ -109,26 +123,47 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 	data, loadedRevision, err := s.reader.Load(loadCtx)
 	cancel()
 	if err != nil {
+		stage = "snapshot_load"
 		if ctx.Err() != nil {
 			result = "canceled"
+			reason = "canceled"
 		} else {
 			result = "load_failed"
+			reason = "read_failed"
 		}
 		return
 	}
 	if loadedRevision.ScheduleVersion <= 0 || loadedRevision.EnrichmentVersion < 0 {
 		result = "invalid_revision"
+		stage, reason = "snapshot_load", "invalid_revision"
 		return
 	}
 	if ValidateDataset(data, true) != nil {
 		result = "invalid_dataset"
+		stage, reason = "dataset_validation", "invalid_dataset"
 		return
 	}
 	view := NewSnapshotView(data)
 	s.view.Store(view)
 	s.revision = loadedRevision
 	s.setRevisionMetrics(loadedRevision)
+	s.setFreshnessMetrics(data)
 	result = "reloaded"
+}
+
+func (s *PostgresSource) setFreshnessMetrics(data Dataset) {
+	if s.observer == nil {
+		return
+	}
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		return
+	}
+	from, fromErr := time.ParseInLocation(dateLayout, data.Window.From, location)
+	through, throughErr := time.ParseInLocation(dateLayout, data.Window.Through, location)
+	if fromErr == nil && throughErr == nil {
+		s.observer.SetScheduleFreshness(data.GeneratedAt, from, through.AddDate(0, 0, 1))
+	}
 }
 
 func (s *PostgresSource) setRevisionMetrics(revision SnapshotRevision) {

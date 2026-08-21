@@ -50,7 +50,8 @@ SELECT g.id, g.primary_source_provider, g.primary_source_movie_id,
        movie.provider IS NOT NULL, movie.title, movie.runtime_minutes, movie.poster_url
 FROM selected_groups g
 JOIN local_movie_group_members member ON member.local_movie_id=g.id
-LEFT JOIN movies movie ON movie.provider=member.source_provider AND movie.provider_id=member.source_movie_id
+LEFT JOIN schedule_snapshot ss ON ss.singleton=true
+LEFT JOIN movies movie ON movie.generation_id=ss.version AND movie.provider=member.source_provider AND movie.provider_id=member.source_movie_id
 ORDER BY g.id, member.source_provider, member.source_movie_id`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("read local movie groups failed")
@@ -90,6 +91,9 @@ func (s *PostgresStore) MergeLocalMovies(ctx context.Context, members []LocalMov
 		return LocalMovieGroup{}, fmt.Errorf("begin local movie merge failed")
 	}
 	defer rollback(tx)
+	if err := lockScheduleGeneration(ctx, tx); err != nil {
+		return LocalMovieGroup{}, err
+	}
 	version, err := lockEnrichmentVersion(ctx, tx)
 	if err != nil {
 		return LocalMovieGroup{}, err
@@ -97,7 +101,7 @@ func (s *PostgresStore) MergeLocalMovies(ctx context.Context, members []LocalMov
 	group := LocalMovieGroup{Primary: primary, Members: make([]LocalMovieMember, 0, len(members))}
 	for _, source := range members {
 		member := LocalMovieMember{LocalMovieSource: source}
-		if err := tx.QueryRow(ctx, `SELECT title, runtime_minutes, poster_url FROM movies WHERE provider=$1 AND provider_id=$2 FOR UPDATE`, source.SourceProvider, source.SourceMovieID).Scan(&member.SourceTitle, &member.SourceRuntimeMinutes, &member.SourcePosterURL); errors.Is(err, pgx.ErrNoRows) {
+		if err := tx.QueryRow(ctx, `SELECT m.title, m.runtime_minutes, m.poster_url FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version WHERE m.provider=$1 AND m.provider_id=$2 FOR UPDATE OF m`, source.SourceProvider, source.SourceMovieID).Scan(&member.SourceTitle, &member.SourceRuntimeMinutes, &member.SourcePosterURL); errors.Is(err, pgx.ErrNoRows) {
 			return LocalMovieGroup{}, ErrLocalMovieConflict
 		} else if err != nil {
 			return LocalMovieGroup{}, fmt.Errorf("lock local movie source failed")
@@ -146,6 +150,9 @@ func (s *PostgresStore) UnmergeLocalMovie(ctx context.Context, id int64) error {
 		return fmt.Errorf("begin local movie unmerge failed")
 	}
 	defer rollback(tx)
+	if err := lockScheduleGeneration(ctx, tx); err != nil {
+		return err
+	}
 	version, err := lockEnrichmentVersion(ctx, tx)
 	if err != nil {
 		return err

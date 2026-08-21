@@ -1,0 +1,38 @@
+groups:
+  - name: messeances-schedule
+    rules:
+      - alert: MesseancesScheduleRefreshStalled
+        expr: time() - messeances_schedule_refresh_last_success_timestamp_seconds > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Schedule refresh checks have stalled
+      - alert: MesseancesScheduleWindowExpired
+        expr: time() > messeances_schedule_window_end_timestamp_seconds
+        for: 15m
+        labels:
+          severity: critical
+        annotations:
+          summary: Published schedule window has expired
+      - alert: MesseancesScheduleRefreshFailures
+        expr: sum(increase(messeances_schedule_refresh_total{result=~"check_failed|invalid_revision|load_failed|invalid_dataset"}[10m])) >= 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Schedule refresh repeatedly fails
+      - alert: MesseancesProviderSyncFailures
+        expr: sum(increase(messeances_sync_runs_total{result="failed"}[30m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Provider synchronization failed
+      - alert: MesseancesEnrichmentDegraded
+        expr: sum(increase(messeances_sync_enrichment_total{status="degraded"}[30m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Movie enrichment is degraded
