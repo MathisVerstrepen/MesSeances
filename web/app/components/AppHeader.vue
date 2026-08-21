@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Building2, CalendarRange, Clapperboard, Film, MapPin, Search } from '@lucide/vue'
+import { CalendarRange, Clapperboard, Film, MapPin, Search } from '@lucide/vue'
 
 const route = useRoute()
 const { favoriteTheaters, favoriteTheaterIds, isInitialized, isLoading, initialize } = useCinemaPreferences()
@@ -7,9 +7,13 @@ const { favoriteTheaters, favoriteTheaterIds, isInitialized, isLoading, initiali
 const links = [
   { to: '/planning', label: 'Planning', icon: CalendarRange },
   { to: '/recherche', label: 'Trouver une séance', icon: Search },
-  { to: '/films', label: 'Films', icon: Film },
-  { to: '/cinemas', label: 'Mes cinémas', icon: Building2 }
+  { to: '/films', label: 'Films', icon: Film }
 ]
+
+const hasCompactPageControls = computed(() => route.path.startsWith('/film/')
+  || route.path === '/recherche'
+  || route.path === '/planning'
+  || route.path === '/films')
 
 const favoriteSummary = computed(() => {
   if (!isInitialized.value && isLoading.value) return 'Chargement…'
@@ -32,7 +36,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <header class="sticky top-0 z-30 border-b-2 border-ink bg-[#f8f7f2]/95 backdrop-blur-sm">
+  <header
+    class="top-0 z-30 border-b-2 border-ink bg-[#f8f7f2]/95 backdrop-blur-sm"
+    :class="hasCompactPageControls ? 'relative lg:sticky' : 'sticky'"
+  >
     <div class="mx-auto flex min-h-16 max-w-[1440px] flex-wrap items-center px-4 sm:px-6 lg:min-h-[4.5rem] lg:flex-nowrap lg:px-10">
       <NuxtLink to="/" class="brand-link flex h-16 shrink-0 items-center gap-2.5 font-black tracking-[-0.04em] text-ink lg:h-[4.5rem]" aria-label="MesSeances, accueil">
         <span class="grid size-9 rotate-[-2deg] place-items-center rounded-[3px] border-2 border-ink bg-[#ffcf3f] shadow-[3px_3px_0_#27272a]">
@@ -50,7 +57,7 @@ onMounted(() => {
         <span class="max-w-28 truncate sm:max-w-44">{{ favoriteSummary }}</span>
       </NuxtLink>
 
-      <nav aria-label="Navigation principale" class="order-3 -mx-4 grid w-[calc(100%+2rem)] grid-cols-4 border-t-2 border-ink sm:-mx-6 sm:w-[calc(100%+3rem)] lg:order-none lg:ml-auto lg:flex lg:w-auto lg:border-t-0">
+      <nav aria-label="Navigation principale" class="order-3 -mx-4 grid w-[calc(100%+2rem)] grid-cols-3 border-t-2 border-ink sm:-mx-6 sm:w-[calc(100%+3rem)] lg:order-none lg:ml-auto lg:flex lg:w-auto lg:border-t-0">
         <NuxtLink
           v-for="link in links"
           :key="link.to"

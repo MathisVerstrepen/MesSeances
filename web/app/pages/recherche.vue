@@ -246,6 +246,10 @@ async function setResultView(view: ResultView) {
   })
 }
 
+function toggleResultView() {
+  void setResultView(resultView.value === 'movie' ? 'chronological' : 'movie')
+}
+
 function lockBodyScroll() {
   if (bodyOverflowBeforeLock !== null) return
   bodyOverflowBeforeLock = document.body.style.overflow
@@ -705,22 +709,40 @@ async function submitSearch() {
           </div>
         </div>
 
-        <div v-if="appliedSearch" class="sticky top-[7.5rem] z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 p-3 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem]" :class="results ? '' : 'lg:hidden'">
-          <div class="flex items-center justify-between gap-3 lg:hidden">
-            <p class="min-w-0 text-sm font-medium text-ink">{{ compactFilterSummary }}</p>
+        <div v-if="appliedSearch" class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3" :class="results ? '' : 'lg:hidden'">
+          <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] divide-x-2 divide-ink lg:hidden">
+            <p class="flex min-h-12 min-w-14 flex-col items-center justify-center px-2 font-mono font-black leading-none text-ink">
+              <span class="text-base">{{ results?.length ?? '—' }}</span>
+              <span class="mt-1 text-[9px] uppercase">séance{{ results?.length === 1 ? '' : 's' }}</span>
+            </p>
             <button
               ref="modifierButton"
               type="button"
-              class="inline-flex h-10 shrink-0 items-center gap-1.5 border-2 border-ink bg-surface px-2 font-mono text-[10px] font-bold uppercase hover:bg-[#e8e6de] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+              class="flex min-h-12 min-w-0 items-center gap-2 bg-surface px-3 text-left hover:bg-[#e8e6de] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink"
               aria-controls="search-filters"
               :aria-expanded="isFilterSheetOpen"
+              :aria-label="`Modifier les filtres. Filtres appliqués : ${compactFilterSummary}`"
               @click="openFilterSheet"
             >
-              <SlidersHorizontal :size="16" aria-hidden="true" /> Modifier
+              <SlidersHorizontal :size="17" class="shrink-0" aria-hidden="true" />
+              <span class="flex min-w-0 flex-col font-mono font-black uppercase leading-none">
+                <span class="text-[10px]">Filtres</span>
+                <span class="mt-1 truncate text-[9px] text-muted">{{ compactFilterSummary }}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="min-h-12 min-w-16 px-2 font-mono text-[10px] font-black uppercase text-muted hover:bg-[#e8e6de] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink"
+              :class="resultView === 'chronological' ? 'bg-ink text-white shadow-[inset_0_-3px_0_var(--color-highlight)]' : undefined"
+              :aria-pressed="resultView === 'chronological'"
+              aria-label="Affichage chronologique"
+              @click="toggleResultView"
+            >
+              Chrono
             </button>
           </div>
 
-          <div v-if="results" class="mt-3 flex flex-col gap-3 lg:mt-0 lg:flex-row lg:items-center lg:justify-between">
+          <div v-if="results" class="hidden lg:flex lg:items-center lg:justify-between lg:gap-3">
             <div class="min-w-0">
               <p class="shrink-0 font-semibold text-ink">{{ results.length }} séance{{ results.length > 1 ? 's' : '' }}</p>
               <ul class="mt-1 hidden flex-wrap gap-x-2 gap-y-1 text-sm text-ink lg:flex" aria-label="Filtres appliqués">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
 import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
@@ -10,6 +10,7 @@ import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 type LanguageFilter = 'ALL' | Showtime['language']
 type TechnologyFilter = 'ALL' | ShowtimeFormat
 type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
+type MobileControlPanel = 'date' | 'filters'
 
 const SHOWTIME_WARNING_DURATION_MS = 20 * 60 * 1000
 const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'sort'] as const
@@ -29,6 +30,9 @@ const backdropFailed = ref(false)
 const activeLanguage = ref<LanguageFilter>('ALL')
 const activeTechnology = ref<TechnologyFilter>('ALL')
 const sortByNextShowtime = ref(false)
+const openMobilePanel = ref<MobileControlPanel | null>(null)
+const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
+const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
 const currentTime = ref<number | null>(null)
 let requestId = 0
 let currentTimeTimer: number | undefined
@@ -82,6 +86,29 @@ const technologyOptions = computed<Array<{ value: TechnologyFilter; label: strin
   { value: 'ALL', label: 'Tous' },
   ...technologyFormats.value.map((format) => ({ value: format, label: formatLabel(format) }))
 ])
+const activeFilterSummary = computed(() => {
+  const values: string[] = []
+  if (activeLanguage.value !== 'ALL') values.push(activeLanguage.value)
+  if (activeTechnology.value !== 'ALL') values.push(formatLabel(activeTechnology.value))
+  return values.length ? values.join(' · ') : 'Tous'
+})
+
+function toggleMobilePanel(panel: MobileControlPanel) {
+  openMobilePanel.value = openMobilePanel.value === panel ? null : panel
+}
+
+function closeMobilePanel(event?: KeyboardEvent) {
+  const panel = openMobilePanel.value
+  openMobilePanel.value = null
+  if (!event || !panel) return
+  nextTick(() => (panel === 'date' ? mobileDateTrigger.value : mobileFilterTrigger.value)?.focus())
+}
+
+function selectMobileDate(date: string) {
+  updateFilmQuery({ date: date === fallbackDate() ? undefined : date })
+  openMobilePanel.value = null
+  nextTick(() => mobileDateTrigger.value?.focus())
+}
 
 function matchesFilter(showtime: Showtime): boolean {
   const matchesLanguage = activeLanguage.value === 'ALL' || showtime.language === activeLanguage.value
@@ -429,7 +456,123 @@ useHead(() => ({
           <NuxtLink to="/cinemas" class="editorial-link shrink-0 self-start sm:self-end">Modifier mes cinémas</NuxtLink>
         </div>
 
-        <div class="filter-dock sticky top-[7.5rem] z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 px-4 py-4 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:px-6 lg:top-[4.5rem] lg:-mx-10 lg:px-10">
+        <div class="filter-dock sticky top-0 z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 lg:hidden">
+          <div class="grid grid-cols-3 divide-x-2 divide-ink">
+            <button
+              id="mobile-date-trigger"
+              ref="mobileDateTrigger"
+              type="button"
+              class="compact-control"
+              aria-controls="mobile-date-panel"
+              :aria-expanded="openMobilePanel === 'date'"
+              :aria-label="`Choisir une date, sélection actuelle : ${formatDateLabel(selectedDate)}`"
+              @click="toggleMobilePanel('date')"
+            >
+              <CalendarDays :size="17" aria-hidden="true" />
+              <span class="compact-control__text">
+                <span>Date</span>
+                <span class="truncate">{{ formatDateLabel(selectedDate) }}</span>
+              </span>
+            </button>
+            <button
+              id="mobile-filter-trigger"
+              ref="mobileFilterTrigger"
+              type="button"
+              class="compact-control"
+              aria-controls="mobile-filter-panel"
+              :aria-expanded="openMobilePanel === 'filters'"
+              :aria-label="`Filtres, sélection actuelle : ${activeFilterSummary}`"
+              @click="toggleMobilePanel('filters')"
+            >
+              <SlidersHorizontal :size="17" aria-hidden="true" />
+              <span class="compact-control__text">
+                <span>Filtres</span>
+                <span class="truncate">{{ activeFilterSummary }}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="compact-control"
+              :class="sortByNextShowtime ? 'compact-control--active' : undefined"
+              :aria-pressed="sortByNextShowtime"
+              aria-label="Trier les cinémas par prochain horaire"
+              @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
+            >
+              <ArrowDownUp :size="17" aria-hidden="true" />
+              <span class="min-w-0 truncate">Horaire</span>
+            </button>
+          </div>
+
+          <div
+            v-show="openMobilePanel === 'date'"
+            id="mobile-date-panel"
+            class="border-t-2 border-ink px-4 py-3 sm:px-6"
+            @keydown.esc.stop="closeMobilePanel($event)"
+          >
+            <div class="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
+              <button
+                v-for="(date, index) in availableDates"
+                :id="`mobile-date-tab-${date}`"
+                :key="date"
+                type="button"
+                role="tab"
+                :aria-selected="selectedDate === date"
+                aria-controls="showtime-panel"
+                :tabindex="selectedDate === date ? 0 : -1"
+                class="date-tab"
+                :class="selectedDate === date ? 'date-tab--active' : undefined"
+                @click="selectMobileDate(date)"
+                @keydown="selectAdjacentDate($event, index)"
+              >
+                {{ formatDateLabel(date) }}
+              </button>
+              <span v-if="availableDates.length === 0" class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">{{ formatDateLabel(selectedDate) }}</span>
+            </div>
+          </div>
+
+          <div
+            v-show="openMobilePanel === 'filters'"
+            id="mobile-filter-panel"
+            class="space-y-3 border-t-2 border-ink px-4 py-3 sm:px-6"
+            @keydown.esc.stop="closeMobilePanel($event)"
+          >
+            <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
+              <span id="mobile-language-filter-label" class="filter-label">Langue</span>
+              <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-language-filter-label">
+                <button
+                  v-for="option in languageOptions"
+                  :key="option.value"
+                  type="button"
+                  class="filter-button"
+                  :class="activeLanguage === option.value ? 'filter-button--active' : undefined"
+                  :aria-pressed="activeLanguage === option.value"
+                  @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+            <div v-if="technologyFormats.length > 1" class="flex flex-wrap items-center gap-2">
+              <span id="mobile-technology-filter-label" class="filter-label">Technologie</span>
+              <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-technology-filter-label">
+                <button
+                  v-for="option in technologyOptions"
+                  :key="option.value"
+                  type="button"
+                  class="filter-button"
+                  :class="activeTechnology === option.value ? 'filter-button--active' : undefined"
+                  :aria-pressed="activeTechnology === option.value"
+                  @click="updateFilmQuery({ format: option.value === 'ALL' ? undefined : option.value })"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+            </div>
+            <p v-if="languages.length <= 1 && technologyFormats.length <= 1" class="font-mono text-xs font-bold uppercase">Aucun filtre disponible</p>
+          </div>
+        </div>
+
+        <div class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block">
           <div
             class="flex gap-2 overflow-x-auto pb-1"
             role="tablist"
@@ -437,7 +580,7 @@ useHead(() => ({
           >
             <button
               v-for="(date, index) in availableDates"
-              :id="`date-tab-${date}`"
+              :id="`desktop-date-tab-${date}`"
               :key="date"
               type="button"
               role="tab"
@@ -503,7 +646,7 @@ useHead(() => ({
           </div>
         </div>
 
-        <div id="showtime-panel" role="tabpanel" :aria-labelledby="availableDates.length ? `date-tab-${selectedDate}` : undefined" :aria-busy="pending">
+        <div id="showtime-panel" role="tabpanel" :aria-label="`Séances du ${formatLongDate(selectedDate)}`" :aria-busy="pending">
           <div v-if="pending" class="film-state mt-10" role="status" aria-live="polite">
             <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
             <p>Chargement des séances…</p>
@@ -620,6 +763,45 @@ useHead(() => ({
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.compact-control {
+  display: flex;
+  min-width: 0;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.compact-control:hover {
+  background: #e8e6de;
+}
+
+.compact-control--active {
+  background: #27272a;
+  color: #fff;
+}
+
+.compact-control__text {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.compact-control__text > :last-child {
+  color: var(--color-muted);
+  font-size: 0.58rem;
+}
+
+.compact-control--active .compact-control__text > :last-child {
+  color: inherit;
 }
 
 .date-tab {
