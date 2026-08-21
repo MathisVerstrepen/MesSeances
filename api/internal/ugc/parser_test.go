@@ -517,27 +517,27 @@ func TestParseShowingsNextSessionOnlyRejectsInvalidFragments(t *testing.T) {
 	}
 }
 
-func TestParseShowingsNextSessionOnlyFilmBlockLimit(t *testing.T) {
+func TestParseShowingsNextSessionOnlyAcceptsManyFilmBlocks(t *testing.T) {
 	var body strings.Builder
-	for id := 1; id <= MaxFilmBlocksPerResponse+1; id++ {
+	for id := 1; id <= 513; id++ {
 		filmID := strconv.Itoa(id)
 		body.WriteString(nextSessionBlock(filmID, "film_test_"+filmID+".html?cinemaId=11", "Prochaine séance le samedi 15 août 2026"))
 	}
-	_, err := ParseShowings(strings.NewReader(body.String()), Cinema{ProviderID: "11"}, "2026-08-14")
-	if err == nil || err.Error() != "film block limit exceeded" {
-		t.Fatalf("error=%v", err)
+	records, err := ParseShowings(strings.NewReader(body.String()), Cinema{ProviderID: "11"}, "2026-08-14")
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%d error=%v", len(records), err)
 	}
 }
 
-func TestParseShowingsNextSessionOnlyPlaceholderLimit(t *testing.T) {
+func TestParseShowingsNextSessionOnlyAcceptsManyPlaceholders(t *testing.T) {
 	var body strings.Builder
 	body.WriteString(nextSessionBlock("1", "film_test_1.html?cinemaId=11", "Prochaine séance le samedi 15 août 2026"))
-	for range MaxFilmBlocksPerResponse {
+	for range 513 {
 		body.WriteString(`<article id="bloc-showing-film-"><p>Prochaine séance le samedi 15 août 2026</p></article>`)
 	}
-	_, err := ParseShowings(strings.NewReader(body.String()), Cinema{ProviderID: "11"}, "2026-08-14")
-	if err == nil || err.Error() != "film block limit exceeded" {
-		t.Fatalf("error=%v", err)
+	records, err := ParseShowings(strings.NewReader(body.String()), Cinema{ProviderID: "11"}, "2026-08-14")
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%d error=%v", len(records), err)
 	}
 }
 
@@ -624,27 +624,24 @@ func TestParseShowingsRuntimeBounds(t *testing.T) {
 	}
 }
 
-func TestParserResourceLimits(t *testing.T) {
+func TestParserAcceptsCountsAboveFormerLimits(t *testing.T) {
 	t.Run("cinemas", func(t *testing.T) {
 		var sitemap strings.Builder
 		sitemap.WriteString(`<?xml version="1.0"?><urlset>`)
-		for id := 1; id <= schedule.MaxTheaters+1; id++ {
+		for id := 1; id <= 257; id++ {
 			fmt.Fprintf(&sitemap, `<url><loc>https://www.ugc.fr/cinema.html?id=%d</loc></url>`, id)
 		}
 		sitemap.WriteString(`</urlset>`)
-		if _, err := ParseSitemap(strings.NewReader(sitemap.String())); err == nil || err.Error() != "sitemap cinema limit exceeded" {
-			t.Fatalf("error=%v", err)
+		ids, err := ParseSitemap(strings.NewReader(sitemap.String()))
+		if err != nil || len(ids) != 257 {
+			t.Fatalf("ids=%d error=%v", len(ids), err)
 		}
 	})
 	t.Run("advertised dates", func(t *testing.T) {
 		for _, test := range []struct {
 			name      string
 			dateCount int
-			wantError string
-		}{
-			{name: "maximum", dateCount: schedule.MaxAdvertisedDatesPerTheater},
-			{name: "above maximum", dateCount: schedule.MaxAdvertisedDatesPerTheater + 1, wantError: "cinema advertised date limit exceeded"},
-		} {
+		}{{name: "above former maximum", dateCount: 513}} {
 			t.Run(test.name, func(t *testing.T) {
 				var page strings.Builder
 				page.WriteString(`<html><head><title>UGC Test, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC Test</h1><p class="address">Adresse</p></section><input name="cinemaId" value="25">`)
@@ -654,12 +651,6 @@ func TestParserResourceLimits(t *testing.T) {
 				}
 				page.WriteString(`</body></html>`)
 				cinema, err := ParseCinema(strings.NewReader(page.String()), "25")
-				if test.wantError != "" {
-					if err == nil || err.Error() != test.wantError {
-						t.Fatalf("error=%v", err)
-					}
-					return
-				}
 				if err != nil || len(cinema.AdvertisedDates) != test.dateCount {
 					t.Fatalf("advertised dates=%d error=%v", len(cinema.AdvertisedDates), err)
 				}
@@ -668,13 +659,14 @@ func TestParserResourceLimits(t *testing.T) {
 	})
 	t.Run("showings response", func(t *testing.T) {
 		var page strings.Builder
-		page.WriteString(`<div id="bloc-showing-film-1">`)
-		for id := 1; id <= MaxShowingsPerResponse+1; id++ {
-			fmt.Fprintf(&page, `<button data-showing="%d"></button>`, id)
+		page.WriteString(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span>`)
+		for id := 1; id <= 4097; id++ {
+			fmt.Fprintf(&page, `<button data-showing="%d" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button>`, id)
 		}
 		page.WriteString(`</div>`)
-		if _, err := ParseShowings(strings.NewReader(page.String()), Cinema{ProviderID: "25"}, "2026-08-15"); err == nil || err.Error() != "showings response limit exceeded" {
-			t.Fatalf("error=%v", err)
+		records, err := ParseShowings(strings.NewReader(page.String()), Cinema{ProviderID: "25"}, "2026-08-15")
+		if err != nil || len(records) != 4097 {
+			t.Fatalf("records=%d error=%v", len(records), err)
 		}
 	})
 }

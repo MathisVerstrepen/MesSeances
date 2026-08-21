@@ -128,3 +128,84 @@ func waitForTerminal(t *testing.T, manager *Manager) Status {
 	t.Fatal("manager did not reach terminal state")
 	return Status{}
 }
+
+func TestManagerCloseCancelsWaitsAndIsIdempotent(t *testing.T) {
+	observedCancellation := make(chan struct{})
+	release := make(chan struct{})
+	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) error {
+		<-ctx.Done()
+		close(observedCancellation)
+		<-release
+		return ctx.Err()
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(TargetUGC); err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan struct{})
+	go func() {
+		manager.Close()
+		close(closed)
+	}()
+	select {
+	case <-observedCancellation:
+	case <-time.After(time.Second):
+		t.Fatal("executor did not observe cancellation")
+	}
+	select {
+	case <-closed:
+		t.Fatal("Close returned before executor completed")
+	default:
+	}
+	close(release)
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not join executor")
+	}
+	manager.Close()
+	if _, err := manager.Start(TargetKinepolis); !errors.Is(err, ErrClosed) {
+		t.Fatalf("start after close err=%v", err)
+	}
+	status := manager.Status()
+	if status.State != StateFailed || status.Providers[string(TargetUGC)].State != ProviderFailed || status.FinishedAt == nil {
+		t.Fatalf("terminal status=%+v", status)
+	}
+}
+
+func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
+	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) error { return nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.Close()
+	manager.Close()
+	if _, err := manager.Start(TargetUGC); !errors.Is(err, ErrClosed) {
+		t.Fatalf("start after pre-close err=%v", err)
+	}
+
+	for range 100 {
+		manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		startDone := make(chan error, 1)
+		go func() {
+			_, err := manager.Start(TargetUGC)
+			startDone <- err
+		}()
+		manager.Close()
+		err = <-startDone
+		if err != nil && !errors.Is(err, ErrClosed) {
+			t.Fatalf("concurrent start err=%v", err)
+		}
+		if _, err := manager.Start(TargetUGC); !errors.Is(err, ErrClosed) {
+			t.Fatalf("post-race start err=%v", err)
+		}
+	}
+}

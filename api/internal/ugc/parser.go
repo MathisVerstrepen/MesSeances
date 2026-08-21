@@ -27,9 +27,6 @@ type Cinema struct {
 	AdvertisedDates []string
 }
 
-const MaxShowingsPerResponse = 4096
-const MaxFilmBlocksPerResponse = 512
-
 func ParseSitemap(r io.Reader) ([]string, error) {
 	decoder := xml.NewDecoder(io.LimitReader(r, 8<<20))
 	seen := map[string]bool{}
@@ -67,9 +64,6 @@ func ParseSitemap(r io.Reader) ([]string, error) {
 			continue
 		}
 		if !seen[id] {
-			if len(ids) >= schedule.MaxTheaters {
-				return nil, fmt.Errorf("sitemap cinema limit exceeded")
-			}
 			seen[id] = true
 			ids = append(ids, id)
 		}
@@ -139,10 +133,6 @@ func ParseCinema(r io.Reader, expectedID string) (Cinema, error) {
 			ids = append(ids, strings.TrimSpace(attr(node, "value")))
 		}
 		if match := dateIDPattern.FindStringSubmatch(attr(node, "id")); len(match) == 2 {
-			if !dates[match[1]] && len(dates) >= schedule.MaxAdvertisedDatesPerTheater {
-				err = fmt.Errorf("cinema advertised date limit exceeded")
-				return
-			}
 			dates[match[1]] = true
 		}
 		if node.Data == "h1" && hasAncestorID(node, "cinema-heading") {
@@ -313,10 +303,6 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 			return
 		}
 		buttons, malformedStructure := showingCandidates(block, cache)
-		if len(buttons) > MaxShowingsPerResponse || len(records) > MaxShowingsPerResponse-len(buttons) {
-			err = fmt.Errorf("showings response limit exceeded")
-			return
-		}
 		if malformedStructure {
 			err = fmt.Errorf("showing required attribute missing or conflicting")
 			return
@@ -811,9 +797,6 @@ func validateNextSessionOnly(root *html.Node, cinemaID string, serviceDate time.
 	})
 	if malformedBlock || len(blocks) == 0 {
 		return false, nil
-	}
-	if len(blocks)+len(placeholders) > MaxFilmBlocksPerResponse {
-		return false, fmt.Errorf("film block limit exceeded")
 	}
 	allBlocks := append(append([]*html.Node{}, blocks...), placeholders...)
 	if !recognizedNextSessionRoot(root, allBlocks) {

@@ -45,19 +45,18 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 	if err := validateLanguage(query.Language); err != nil {
 		return Timeline{}, err
 	}
-	data := s.source.Snapshot()
-	selected, err := s.selectedTheaters(data, query.TheaterIDs)
+	view := s.source.Snapshot()
+	selected, err := s.selectedTheaters(view, query.TheaterIDs)
 	if err != nil {
 		return Timeline{}, err
 	}
 	timeline := Timeline{Date: query.Date, Timezone: Timezone, WindowStartTime: localTime(date, 8, 0).UTC(), WindowEndTime: localTime(date.AddDate(0, 0, 1), 2, 0).UTC(), Theaters: make([]TimelineTheater, 0)}
-	for _, theater := range data.Theaters {
-		if !selected[theater.ID] {
-			continue
-		}
+	for _, theaterPosition := range selected {
+		theater := view.data.Theaters[theaterPosition]
 		result := TimelineTheater{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, AcceptedPasses: append([]string(nil), theater.AcceptedPasses...), Showtimes: []TimelineShowtime{}}
-		for _, record := range data.Showtimes {
-			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) {
+		for _, showingPosition := range view.theaterDate[theaterDateKey{theaterID: theater.ID, date: query.Date}] {
+			record := view.data.Showtimes[showingPosition]
+			if !matchesLanguage(record.Language, query.Language) {
 				continue
 			}
 			showtime := materializeRecord(record)
@@ -78,14 +77,16 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 	}
 
 	city := strings.TrimSpace(query.City)
-	data := s.source.Snapshot()
-	result := make([]Theater, 0, len(data.Theaters))
-	for _, theater := range data.Theaters {
+	view := s.source.Snapshot()
+	positions := view.theaterCatalog
+	if city != "" {
+		positions = view.catalogPositionsForCities(s.cityLookupValues(city))
+	}
+	result := make([]Theater, 0, len(positions))
+	for _, position := range positions {
+		theater := view.data.Theaters[position]
 		provider := recordProvider(theater.Provider, theater.ID)
 		if chain != "" && !strings.EqualFold(chain, provider) {
-			continue
-		}
-		if city != "" && !s.cityMatches(theater.City, city) {
 			continue
 		}
 		result = append(result, Theater{
@@ -100,15 +101,6 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 			AcceptedPasses: append([]string(nil), theater.AcceptedPasses...),
 		})
 	}
-	sort.Slice(result, func(i, j int) bool {
-		if compareNormalized(result[i].City, result[j].City) != 0 {
-			return compareNormalized(result[i].City, result[j].City) < 0
-		}
-		if compareNormalized(result[i].Name, result[j].Name) != 0 {
-			return compareNormalized(result[i].Name, result[j].Name) < 0
-		}
-		return result[i].ID < result[j].ID
-	})
 	return result
 }
 
@@ -138,22 +130,23 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		item          MovieCatalogItem
 		showtimeCount int
 	}
-	unique := make(map[string]groupedMovie)
-	for _, record := range s.source.Snapshot().Showtimes {
-		if search != "" && !strings.Contains(normalized(record.Movie.Title), search) {
-			continue
+	view := s.source.Snapshot()
+	grouped := make([]groupedMovie, 0, len(view.movieOrder))
+	for _, slug := range view.movieOrder {
+		movie := view.movieBySlug[slug]
+		groupedMovie := groupedMovie{}
+		for _, variant := range movie.variants {
+			if search != "" && !strings.Contains(variant.title, search) {
+				continue
+			}
+			if groupedMovie.showtimeCount == 0 {
+				groupedMovie.item = materializeCatalogMovie(view.data.Showtimes[variant.firstShowtime].Movie)
+			}
+			groupedMovie.showtimeCount += variant.count
 		}
-		slug := publicMovieSlug(record.Movie)
-		movie, exists := unique[slug]
-		if !exists {
-			movie.item = materializeCatalogMovie(record.Movie)
+		if groupedMovie.showtimeCount > 0 {
+			grouped = append(grouped, groupedMovie)
 		}
-		movie.showtimeCount++
-		unique[slug] = movie
-	}
-	grouped := make([]groupedMovie, 0, len(unique))
-	for _, movie := range unique {
-		grouped = append(grouped, movie)
 	}
 	sortMode := normalizeMovieCatalogSort(query.Sort)
 	sort.Slice(grouped, func(i, j int) bool {
@@ -226,46 +219,35 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 		return MovieSchedule{}, invalid("Les paramètres city et theaters sont mutuellement exclusifs.")
 	}
 
-	data := s.source.Snapshot()
-	var movie MovieCatalogItem
-	var backdrop *string
-	found := false
-	for _, record := range data.Showtimes {
-		if publicMovieSlug(record.Movie) == query.Slug {
-			movie = materializeCatalogMovie(record.Movie)
-			_, backdrop = materializeMovieMedia(record.Movie)
-			found = true
-			break
-		}
-	}
+	view := s.source.Snapshot()
+	movieIndex, found := view.movieBySlug[query.Slug]
 	if !found {
 		return MovieSchedule{}, &NotFoundError{Message: "Film introuvable."}
 	}
+	representative := view.data.Showtimes[movieIndex.firstShowtime].Movie
+	movie := materializeCatalogMovie(representative)
+	_, backdrop := materializeMovieMedia(representative)
 
-	selected, err := s.selectTheaters(data, query.TheaterIDs, city, false)
+	selected, err := s.selectTheaters(view, query.TheaterIDs, city, false)
 	if err != nil {
 		return MovieSchedule{}, err
 	}
 	grouped := make(map[string][]Showtime)
-	for _, record := range data.Showtimes {
-		if publicMovieSlug(record.Movie) != query.Slug || record.ServiceDate != query.Date || !selected[record.TheaterID] {
+	selectedIDs := make(map[string]bool, len(selected))
+	for _, position := range selected {
+		selectedIDs[view.data.Theaters[position].ID] = true
+	}
+	for _, showingPosition := range view.movieDate[movieDateKey{slug: query.Slug, date: query.Date}] {
+		record := view.data.Showtimes[showingPosition]
+		if !selectedIDs[record.TheaterID] {
 			continue
 		}
 		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(record))
 	}
 
-	theaters := append([]TheaterRecord(nil), data.Theaters...)
-	sort.Slice(theaters, func(i, j int) bool {
-		if compareNormalized(theaters[i].City, theaters[j].City) != 0 {
-			return compareNormalized(theaters[i].City, theaters[j].City) < 0
-		}
-		if compareNormalized(theaters[i].Name, theaters[j].Name) != 0 {
-			return compareNormalized(theaters[i].Name, theaters[j].Name) < 0
-		}
-		return theaters[i].ID < theaters[j].ID
-	})
 	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, Date: query.Date, Theaters: []MovieTheaterShowtimes{}}
-	for _, theater := range theaters {
+	for _, theaterPosition := range view.theaterCatalog {
+		theater := view.data.Theaters[theaterPosition]
 		showtimes := grouped[theater.ID]
 		if len(showtimes) == 0 {
 			continue
@@ -314,18 +296,17 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 	if err := validateSlotFormat(query.Format); err != nil {
 		return nil, err
 	}
-	data := s.source.Snapshot()
-	selected, err := s.selectTheaters(data, query.TheaterIDs, city, false)
+	view := s.source.Snapshot()
+	selected, err := s.selectTheaters(view, query.TheaterIDs, city, false)
 	if err != nil {
 		return nil, err
 	}
 	results := []SlotResult{}
-	for _, theater := range data.Theaters {
-		if !selected[theater.ID] {
-			continue
-		}
-		for _, record := range data.Showtimes {
-			if record.TheaterID != theater.ID || record.ServiceDate != query.Date || !matchesLanguage(record.Language, query.Language) || !matchesFormat(record.Format, query.Format) {
+	for _, theaterPosition := range selected {
+		theater := view.data.Theaters[theaterPosition]
+		for _, showingPosition := range view.theaterDate[theaterDateKey{theaterID: theater.ID, date: query.Date}] {
+			record := view.data.Showtimes[showingPosition]
+			if !matchesLanguage(record.Language, query.Language) || !matchesFormat(record.Format, query.Format) {
 				continue
 			}
 			showtime := materializeRecord(record)
@@ -353,66 +334,59 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 	return results, nil
 }
 
-func (s *Service) selectedTheaters(data Dataset, ids []string) (map[string]bool, error) {
-	return s.selectTheaters(data, ids, "", true)
+func (s *Service) selectedTheaters(view *SnapshotView, ids []string) ([]int, error) {
+	return s.selectTheaters(view, ids, "", true)
 }
 
-func (s *Service) selectTheaters(data Dataset, ids []string, city string, useDefault bool) (map[string]bool, error) {
-	selected := map[string]bool{}
-	known := map[string]TheaterRecord{}
-	for _, theater := range data.Theaters {
-		known[theater.ID] = theater
-	}
+func (s *Service) selectTheaters(view *SnapshotView, ids []string, city string, useDefault bool) ([]int, error) {
 	if len(ids) > 0 {
+		selected := make([]int, 0, len(ids))
+		seen := make(map[int]bool, len(ids))
 		for _, id := range ids {
 			if id == "" {
 				return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
 			}
-			if _, ok := known[id]; !ok {
+			position, ok := view.theaterByID[id]
+			if !ok {
 				return nil, invalid("Le paramètre theaters contient un identifiant de cinéma inconnu.")
 			}
-			selected[id] = true
+			if !seen[position] {
+				seen[position] = true
+				selected = append(selected, position)
+			}
 		}
+		sort.Ints(selected)
 		return selected, nil
 	}
 	requestedCity := strings.TrimSpace(city)
 	if useDefault {
-		requestedCity = s.options.DefaultCity
-		for _, theater := range data.Theaters {
-			if s.cityMatches(theater.City, requestedCity) {
-				selected[theater.ID] = true
-			}
-		}
-		return selected, nil
+		return view.positionsForCities(s.cityLookupValues(s.options.DefaultCity)), nil
 	}
 	if requestedCity == "" {
-		for _, theater := range data.Theaters {
-			selected[theater.ID] = true
-		}
-		return selected, nil
+		return append([]int(nil), view.theaterPositions...), nil
 	}
-	for _, theater := range data.Theaters {
-		if s.cityMatches(theater.City, requestedCity) {
-			selected[theater.ID] = true
-		}
-	}
-	return selected, nil
+	return view.positionsForCities(s.cityLookupValues(requestedCity)), nil
 }
 
-func (s *Service) cityMatches(actual, requested string) bool {
-	if strings.EqualFold(actual, requested) {
-		return true
-	}
+func (s *Service) cityLookupValues(requested string) []string {
+	values := []string{requested}
 	for alias, cities := range s.options.CityAliases {
 		if strings.EqualFold(alias, requested) {
 			for _, city := range cities {
-				if strings.EqualFold(actual, city) {
-					return true
+				duplicate := false
+				for _, value := range values {
+					if strings.EqualFold(value, city) {
+						duplicate = true
+						break
+					}
+				}
+				if !duplicate {
+					values = append(values, city)
 				}
 			}
 		}
 	}
-	return false
+	return values
 }
 
 func (s *Service) parseDate(value string) (time.Time, error) {

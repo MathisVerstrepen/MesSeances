@@ -32,6 +32,7 @@ const (
 var (
 	ErrInvalidTarget = errors.New("invalid sync target")
 	ErrInProgress    = errors.New("sync already in progress")
+	ErrClosed        = errors.New("sync manager closed")
 )
 
 type Window struct {
@@ -61,6 +62,9 @@ type Status struct {
 type Manager struct {
 	mu       sync.Mutex
 	ctx      context.Context
+	cancel   context.CancelFunc
+	wg       sync.WaitGroup
+	closed   bool
 	now      func() time.Time
 	executor Executor
 	location *time.Location
@@ -79,7 +83,8 @@ func NewManager(ctx context.Context, now func() time.Time, executor Executor) (*
 	if now == nil {
 		now = time.Now
 	}
-	return &Manager{ctx: ctx, now: now, executor: executor, location: location}, nil
+	executorCtx, cancel := context.WithCancel(ctx)
+	return &Manager{ctx: executorCtx, cancel: cancel, now: now, executor: executor, location: location}, nil
 }
 
 func ValidTarget(target Target) bool {
@@ -92,6 +97,9 @@ func (m *Manager) Start(target Target) (Status, error) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.closed || m.ctx.Err() != nil {
+		return Status{}, ErrClosed
+	}
 	if m.status.State == StateRunning {
 		return Status{}, ErrInProgress
 	}
@@ -115,8 +123,22 @@ func (m *Manager) Start(target Target) (Status, error) {
 		Through: today.AddDate(0, 0, 7).Format("2006-01-02"), Providers: providers,
 	}
 	accepted := cloneStatus(m.status)
-	go m.run(target, Window{From: m.status.From, Through: m.status.Through})
+	m.wg.Add(1)
+	go func(window Window) {
+		defer m.wg.Done()
+		m.run(target, window)
+	}(Window{From: m.status.From, Through: m.status.Through})
 	return accepted, nil
+}
+
+func (m *Manager) Close() {
+	m.mu.Lock()
+	if !m.closed {
+		m.closed = true
+		m.cancel()
+	}
+	m.mu.Unlock()
+	m.wg.Wait()
 }
 
 func (m *Manager) Status() Status {

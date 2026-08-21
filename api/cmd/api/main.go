@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -88,6 +89,7 @@ func run(ctx context.Context) error {
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 	var syncManager httpapi.SyncController
+	var concreteSyncManager *synccontrol.Manager
 	if len(proxies) != 0 {
 		executor, err := synccontrol.NewProductionExecutor(proxies, schedule.NewPostgresStore(pool), enrichmentStore, enrichmentProvider, time.Now)
 		if err != nil {
@@ -97,8 +99,26 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
+		concreteSyncManager = manager
 		syncManager = manager
 	}
+	var polling sync.WaitGroup
+	polling.Add(1)
+	go func() {
+		defer polling.Done()
+		source.Run(workerCtx)
+	}()
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			stopWorkers()
+			if concreteSyncManager != nil {
+				concreteSyncManager.Close()
+			}
+			polling.Wait()
+		})
+	}
+	defer cleanup()
 	port := envOrDefault("PORT", "8080")
 	adminOptions.Syncs = syncManager
 	server := &http.Server{
@@ -111,7 +131,7 @@ func run(ctx context.Context) error {
 		MaxHeaderBytes:    serverMaxHeaderBytes,
 	}
 	log.Printf("API MesSeances à l'écoute sur http://localhost:%s", port)
-	return serve(ctx, server, stopWorkers)
+	return serve(ctx, server, cleanup)
 }
 
 func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFunc) error {

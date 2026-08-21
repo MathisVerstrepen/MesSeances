@@ -67,6 +67,40 @@ func TestSyncCompleteDiscovery(t *testing.T) {
 	}
 }
 
+func TestSyncAcceptsActiveCinemasAboveFormerLimit(t *testing.T) {
+	var sitemap strings.Builder
+	sitemap.WriteString(`<?xml version="1.0"?><urlset>`)
+	for id := 1; id <= 257; id++ {
+		fmt.Fprintf(&sitemap, `<url><loc>https://www.ugc.fr/cinema.html?id=%d</loc></url>`, id)
+	}
+	sitemap.WriteString(`</urlset>`)
+	getter := &fakeGetter{get: func(_ context.Context, kind, rawURL string) (FetchResult, error) {
+		if kind == "sitemap" {
+			return FetchResult{Body: []byte(sitemap.String()), FinalURL: rawURL}, nil
+		}
+		fields := strings.Fields(kind)
+		if len(fields) < 2 {
+			return FetchResult{}, fmt.Errorf("unexpected request kind")
+		}
+		id := fields[1]
+		if fields[0] == "cinema" {
+			body := fmt.Sprintf(`<html><head><title>UGC Test, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC %s</h1><p class="address">1 rue Test 59000 Lille</p></section><input name="cinemaId" value="%s"><button id="nav_date_2026-08-15"></button></body></html>`, id, id)
+			return FetchResult{Body: []byte(body), FinalURL: rawURL}, nil
+		}
+		if fields[0] == "showings" {
+			id = fields[2]
+			showingID := "9" + id
+			body := fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="%s" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div>`, showingID, id)
+			return FetchResult{Body: []byte(body), FinalURL: rawURL}, nil
+		}
+		return FetchResult{}, fmt.Errorf("unexpected request kind")
+	}}
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 || summary.Cinemas != 257 || summary.Showtimes != 257 {
+		t.Fatalf("theaters=%d showtimes=%d summary=%+v err=%v", len(data.Theaters), len(data.Showtimes), summary, err)
+	}
+}
+
 func TestSyncPreservesCinemaDateAndShowtimeOrderAcrossReverseCompletion(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=44</loc></url><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
 	cinemaURLs := map[string][]byte{
@@ -343,15 +377,6 @@ func TestSyncDateWindowUsesParisCalendarDays(t *testing.T) {
 	_, _, err = Sync(context.Background(), getter, SyncOptions{From: "2026-10-18", Through: "2026-11-01", Now: time.Now()})
 	if err == nil || err.Error() != "invalid date window" || getter.calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, getter.calls)
-	}
-}
-
-func TestCanAppendShowtimesBoundaries(t *testing.T) {
-	if !canAppendShowtimes(schedule.MaxShowtimes-1, 1) {
-		t.Fatal("maximum total should be accepted")
-	}
-	if canAppendShowtimes(schedule.MaxShowtimes, 1) || canAppendShowtimes(-1, 1) {
-		t.Fatal("showtime total overflow accepted")
 	}
 }
 

@@ -2,6 +2,8 @@ package kinepolis
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -88,6 +90,27 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 	}
 	if data.Showtimes[1].Language != schedule.LanguageVFSME || data.Showtimes[1].Format != "3D" {
 		t.Fatalf("normalized=%+v", data.Showtimes[1])
+	}
+}
+
+func TestParseAcceptsTheatersAboveFormerSharedLimit(t *testing.T) {
+	complexes := make([]map[string]any, 257)
+	sessions := make([]map[string]any, 257)
+	for index := range complexes {
+		id := fmt.Sprintf("C%03d", index)
+		complexes[index] = map[string]any{"id": id, "name": "Kinepolis " + id}
+		sessions[index] = map[string]any{"complexOperator": id, "showtime": "2026-08-15T18:00:00+02:00", "vistaSessionId": fmt.Sprintf("S%03d", index), "film": map[string]any{"id": "F1"}}
+	}
+	settings := map[string]any{"complexes": complexes, "current_movies": map[string]any{"films": []map[string]any{{"id": "F1", "title": "Film", "duration": 90}}, "sessions": sessions}}
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := append([]byte("Drupal.settings.variables = "), encoded...)
+	body = append(body, ';')
+	data, err := Parse(body, "2026-08-15", "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
+	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 {
+		t.Fatalf("theaters=%d showtimes=%d err=%v", len(data.Theaters), len(data.Showtimes), err)
 	}
 }
 

@@ -12,10 +12,10 @@ import (
 )
 
 type fixtureSource struct {
-	data schedule.Dataset
+	view *schedule.SnapshotView
 }
 
-func (s fixtureSource) Snapshot() schedule.Dataset { return s.data }
+func (s fixtureSource) Snapshot() *schedule.SnapshotView { return s.view }
 
 func testHandler(t *testing.T) http.Handler {
 	return testHandlerWithAdmin(t, AdminOptions{})
@@ -83,7 +83,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 			showtime("102", "ugc-99", "201", "Film B", "", "12:30"),
 		},
 	}
-	service, err := schedule.NewService(fixtureSource{data: data}, schedule.ServiceOptions{
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{
 		DefaultCity: "Lille",
 		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
 	})
@@ -149,7 +149,7 @@ func TestTheatersKinepolisChainAndCombinedProviderDTOs(t *testing.T) {
 	ugc := schedule.TheaterRecord{Provider: schedule.ProviderUGC, ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}
 	kine := schedule.TheaterRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-LOM", ProviderID: "LOM", Slug: "kinepolis-LOM", Name: "Kinepolis Lomme", City: "Lomme", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}
 	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderCombined, Scope: schedule.ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: schedule.Timezone, Window: schedule.Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []schedule.TheaterRecord{ugc, kine}, Showtimes: []schedule.ShowtimeRecord{{Provider: schedule.ProviderUGC, ID: "ugc-showing-1", ProviderShowingID: "1", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: schedule.MovieRecord{Provider: schedule.ProviderUGC, ProviderID: "1", Slug: "ugc-film-1", Title: "Film partagé", RuntimeMinutes: 90, Enrichment: &schedule.MovieEnrichment{TMDBID: 42}}, StartTime: start, EndTime: start.Add(90 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=1"}, {Provider: schedule.ProviderKinepolis, ID: "kinepolis-showing-VS1", ProviderShowingID: "VS1", ServiceDate: "2026-08-15", TheaterID: "kinepolis-LOM", Movie: schedule.MovieRecord{Provider: schedule.ProviderKinepolis, ProviderID: "HO1", Slug: "kinepolis-film-HO1", Title: "Film partagé", RuntimeMinutes: 100, Enrichment: &schedule.MovieEnrichment{TMDBID: 42}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "IMAX", BookingURL: "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}}
-	service, err := schedule.NewService(fixtureSource{data: data}, schedule.ServiceOptions{})
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

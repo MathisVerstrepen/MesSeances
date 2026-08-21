@@ -11,14 +11,11 @@ import (
 )
 
 const (
-	MaxTheaters                  = 256
-	MaxAdvertisedDatesPerTheater = 512
-	MaxShowtimes                 = 250000
-	maxIdentityLength            = 128
-	maxNameAndTitleLength        = 1024
-	maxAddressLength             = 2048
-	maxShortFieldLength          = 256
-	maxURLLength                 = 4096
+	maxIdentityLength     = 128
+	maxNameAndTitleLength = 1024
+	maxAddressLength      = 2048
+	maxShortFieldLength   = 256
+	maxURLLength          = 4096
 )
 
 func ValidInclusiveDateWindow(from, through time.Time) bool {
@@ -46,9 +43,6 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 	through, err := time.ParseInLocation(dateLayout, data.Window.Through, location)
 	if err != nil || through.Format(dateLayout) != data.Window.Through || !ValidInclusiveDateWindow(from, through) {
 		return fmt.Errorf("invalid dataset window")
-	}
-	if !validDatasetRecordCounts(len(data.Theaters), len(data.Showtimes)) {
-		return fmt.Errorf("schedule dataset record limit exceeded")
 	}
 	if len(data.Theaters) == 0 || len(data.Showtimes) == 0 {
 		return fmt.Errorf("complete dataset must contain theaters and showtimes")
@@ -78,9 +72,6 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		}
 		providerTheaters[providerKey] = true
 		theaters[theater.ID] = theater
-		if len(theater.AvailableDates) > MaxAdvertisedDatesPerTheater {
-			return fmt.Errorf("theater available date limit exceeded")
-		}
 		seenDates := map[string]bool{}
 		for _, value := range theater.AvailableDates {
 			date, err := time.ParseInLocation(dateLayout, value, location)
@@ -180,10 +171,6 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 
 func sameLocalMovieMetadata(a, b MovieRecord) bool {
 	return a.LocalMetadataProvider == b.LocalMetadataProvider && a.Title == b.Title && a.RuntimeMinutes == b.RuntimeMinutes && a.PosterURL == b.PosterURL && a.Overview == b.Overview && a.ReleaseDate == b.ReleaseDate && strings.Join(a.Genres, "\x00") == strings.Join(b.Genres, "\x00")
-}
-
-func validDatasetRecordCounts(theaters, showtimes int) bool {
-	return theaters >= 0 && theaters <= MaxTheaters && showtimes >= 0 && showtimes <= MaxShowtimes
 }
 
 func normalizeDataset(data *Dataset) {

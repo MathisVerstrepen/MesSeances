@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -44,25 +45,9 @@ func TestValidInclusiveDateWindowAcrossParisDST(t *testing.T) {
 }
 
 func TestValidateDatasetResourceAndRuntimeBounds(t *testing.T) {
-	if validDatasetRecordCounts(MaxTheaters+1, 1) || validDatasetRecordCounts(1, MaxShowtimes+1) || !validDatasetRecordCounts(MaxTheaters, MaxShowtimes) {
-		t.Fatal("record limits inconsistent")
-	}
-	if MaxAdvertisedDatesPerTheater != 512 {
-		t.Fatalf("advertised date limit=%d", MaxAdvertisedDatesPerTheater)
-	}
 	data := testDataset()
 	data.Theaters[0].Name = strings.Repeat("x", maxNameAndTitleLength+1)
 	if err := ValidateDataset(data, true); err == nil || err.Error() != "theater field limit exceeded" {
-		t.Fatalf("error=%v", err)
-	}
-	data = testDataset()
-	data.Theaters[0].AvailableDates = make([]string, MaxAdvertisedDatesPerTheater)
-	if err := ValidateDataset(data, true); err == nil || err.Error() == "theater available date limit exceeded" {
-		t.Fatalf("maximum advertised date count rejected by resource limit: %v", err)
-	}
-	data = testDataset()
-	data.Theaters[0].AvailableDates = make([]string, MaxAdvertisedDatesPerTheater+1)
-	if err := ValidateDataset(data, true); err == nil || err.Error() != "theater available date limit exceeded" {
 		t.Fatalf("error=%v", err)
 	}
 	data = testDataset()
@@ -75,6 +60,23 @@ func TestValidateDatasetResourceAndRuntimeBounds(t *testing.T) {
 	showing.EndTime = showing.StartTime.Add(11*time.Hour + 59*time.Minute)
 	if err := ValidateDataset(data, true); err == nil || err.Error() != "invalid showing times" {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestValidateDatasetAcceptsTheatersAboveFormerRecordCap(t *testing.T) {
+	data := testDataset()
+	template := data.Theaters[0]
+	data.Theaters = make([]TheaterRecord, 257)
+	for index := range data.Theaters {
+		id := strconv.Itoa(index + 1)
+		theater := template
+		theater.ID = "ugc-" + id
+		theater.ProviderID = id
+		theater.Slug = theater.ID
+		data.Theaters[index] = theater
+	}
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("257-theater dataset rejected: %v", err)
 	}
 }
 

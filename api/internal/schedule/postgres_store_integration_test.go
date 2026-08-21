@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -203,7 +204,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err := pool.QueryRow(ctx, "SELECT count(*) FROM theaters WHERE id IN ('ugc-26', 'ugc-99')").Scan(&oldRows); err != nil || oldRows != 0 {
 			t.Fatalf("old rows=%d", oldRows)
 		}
-		if got := source.Snapshot().Theaters[0].Name; got != "UGC Lille remplacé" {
+		source.refresh(ctx)
+		if got := source.Snapshot().data.Theaters[0].Name; got != "UGC Lille remplacé" {
 			t.Fatalf("refreshed name=%q", got)
 		}
 		service, err := NewService(source, ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
@@ -341,11 +343,12 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("merge group=%+v err=%v", group, err)
 		}
 		localSlug := group.LocalMovieID
+		source.refresh(ctx)
 		loaded := source.Snapshot()
-		if len(loaded.Showtimes) != len(ugcCanonical.Showtimes)+len(kinepolisFallback.Showtimes) {
-			t.Fatalf("merged snapshot showtimes=%d", len(loaded.Showtimes))
+		if len(loaded.data.Showtimes) != len(ugcCanonical.Showtimes)+len(kinepolisFallback.Showtimes) {
+			t.Fatalf("merged snapshot showtimes=%d", len(loaded.data.Showtimes))
 		}
-		for _, showing := range loaded.Showtimes {
+		for _, showing := range loaded.data.Showtimes {
 			if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
 				continue
 			}
@@ -382,7 +385,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if version, err := store.Replace(ctx, ugcCanonical); err != nil || version != 7 {
 			t.Fatalf("grouped UGC replace version=%d err=%v", version, err)
 		}
-		if got := publicMovieSlug(source.Snapshot().Showtimes[0].Movie); got != localSlug {
+		source.refresh(ctx)
+		if got := publicMovieSlug(source.Snapshot().data.Showtimes[0].Movie); got != localSlug {
 			t.Fatalf("local ID after UGC replace=%q", got)
 		}
 		kinepolisFallback.GeneratedAt = kinepolisFallback.GeneratedAt.Add(time.Minute)
@@ -400,9 +404,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if version, err := store.Replace(ctx, ugcWithoutPrimary); err != nil || version != 9 {
 			t.Fatalf("remove primary version=%d err=%v", version, err)
 		}
+		source.refresh(ctx)
 		fallbackSnapshot := source.Snapshot()
 		fallbackFound := false
-		for _, showing := range fallbackSnapshot.Showtimes {
+		for _, showing := range fallbackSnapshot.data.Showtimes {
 			if showing.Movie.ProviderID != "HO200" {
 				continue
 			}
@@ -419,8 +424,9 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if version, err := store.Replace(ctx, ugcCanonical); err != nil || version != 10 {
 			t.Fatalf("restore primary version=%d err=%v", version, err)
 		}
+		source.refresh(ctx)
 		restored := source.Snapshot()
-		for _, showing := range restored.Showtimes {
+		for _, showing := range restored.data.Showtimes {
 			if showing.Movie.ProviderID == "HO200" && (showing.Movie.Title != "Canonique UGC" || showing.Movie.LocalMetadataProvider != ProviderUGC) {
 				t.Fatalf("restored primary not canonical: %+v", showing.Movie)
 			}
@@ -429,9 +435,10 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err := localService.Unmerge(ctx, localSlug); err != nil {
 			t.Fatalf("unmerge failed: %v", err)
 		}
+		source.refresh(ctx)
 		unmerged := source.Snapshot()
 		seenSlugs := map[string]bool{}
-		for _, showing := range unmerged.Showtimes {
+		for _, showing := range unmerged.data.Showtimes {
 			if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
 				continue
 			}
@@ -596,5 +603,65 @@ DELETE FROM movieflow_schema_migrations WHERE version >= 6;
 	}
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movie_matches WHERE source_provider='ugc' AND source_movie_id='200'").Scan(&matchRows); err != nil || matchRows != 1 {
 		t.Fatalf("preserved match rows after replacements=%d err=%v", matchRows, err)
+	}
+}
+
+func TestPostgresStoreRecordCountsIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate test schema nonce failed")
+	}
+	schema := "movieflow_count_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	if err := database.RunMigrations(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	data := testDataset()
+	template := data.Theaters[0]
+	data.Theaters = make([]TheaterRecord, 257)
+	for index := range data.Theaters {
+		id := strconv.Itoa(index + 1)
+		theater := template
+		theater.ID = "ugc-" + id
+		theater.ProviderID = id
+		theater.Slug = theater.ID
+		data.Theaters[index] = theater
+	}
+	store := NewPostgresStore(pool)
+	if _, err := store.Replace(ctx, data); err != nil {
+		t.Fatalf("replace 257 theaters: %v", err)
+	}
+	loaded, _, err := store.Load(ctx)
+	if err != nil || len(loaded.Theaters) != 257 || len(loaded.Showtimes) != len(data.Showtimes) {
+		t.Fatalf("loaded theaters=%d showtimes=%d err=%v", len(loaded.Theaters), len(loaded.Showtimes), err)
 	}
 }

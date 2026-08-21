@@ -195,9 +195,8 @@ ON CONFLICT (provider) DO UPDATE SET schema_version=EXCLUDED.schema_version,scop
 	if err := tx.QueryRow(ctx, `SELECT CASE WHEN count(*)=1 THEN min(provider) ELSE 'combined' END, max(generated_at), min(window_from), max(window_through) FROM provider_snapshots`).Scan(&combinedProvider, &combinedGenerated, &combinedFrom, &combinedThrough); err != nil {
 		return 0, fmt.Errorf("read combined provider failed")
 	}
-	var theaterCount, showtimeCount int
-	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM theaters), (SELECT count(*) FROM showtimes)`).Scan(&theaterCount, &showtimeCount); err != nil || !validDatasetRecordCounts(theaterCount, showtimeCount) || !ValidInclusiveDateWindow(combinedFrom, combinedThrough) {
-		return 0, fmt.Errorf("combined schedule limit exceeded")
+	if !ValidInclusiveDateWindow(combinedFrom, combinedThrough) {
+		return 0, fmt.Errorf("combined schedule window exceeded")
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schedule_snapshot (singleton, version, schema_version, provider, scope, generated_at, timezone, window_from, window_through)
 VALUES (true, $1, $2, $3, $4, $5, $6, $7, $8)
@@ -244,10 +243,6 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theaters failed")
 	}
 	for rows.Next() {
-		if len(data.Theaters) >= MaxTheaters {
-			rows.Close()
-			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule theater limit exceeded")
-		}
 		var theater TheaterRecord
 		if err := rows.Scan(&theater.Provider, &theater.ID, &theater.ProviderID, &theater.Slug, &theater.Name, &theater.Address, &theater.City, &theater.PostalCode); err != nil {
 			rows.Close()
@@ -279,7 +274,7 @@ func (s *PostgresStore) Load(ctx context.Context) (Dataset, SnapshotRevision, er
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("read theater dates failed")
 		}
 		index, ok := theaterIndex[theaterID]
-		if !ok || len(data.Theaters[index].AvailableDates) >= MaxAdvertisedDatesPerTheater {
+		if !ok {
 			rows.Close()
 			return Dataset{}, SnapshotRevision{}, fmt.Errorf("unrepresentable theater date row")
 		}
@@ -334,10 +329,6 @@ ORDER BY m.provider, m.provider_id`)
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read movies failed")
 	}
 	for rows.Next() {
-		if len(movies) >= MaxShowtimes {
-			rows.Close()
-			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule movie limit exceeded")
-		}
 		var movie MovieRecord
 		var tmdbID *int64
 		var sourceOverview, sourceReleaseDate string
@@ -377,10 +368,6 @@ ORDER BY m.provider, m.provider_id`)
 		return Dataset{}, SnapshotRevision{}, fmt.Errorf("read showtimes failed")
 	}
 	for rows.Next() {
-		if len(data.Showtimes) >= MaxShowtimes {
-			rows.Close()
-			return Dataset{}, SnapshotRevision{}, fmt.Errorf("schedule showing limit exceeded")
-		}
 		var showing ShowtimeRecord
 		var date time.Time
 		var movieID string
@@ -437,10 +424,6 @@ func materializeLocalMovies(ctx context.Context, tx pgx.Tx, movies map[string]Mo
 		return fmt.Errorf("read local movie groups failed")
 	}
 	for rows.Next() {
-		if len(groups) >= MaxShowtimes {
-			rows.Close()
-			return fmt.Errorf("local movie group limit exceeded")
-		}
 		group := localMovieGroupRow{}
 		if err := rows.Scan(&group.id, &group.primaryProvider, &group.primaryMovieID); err != nil {
 			rows.Close()
@@ -466,14 +449,8 @@ func materializeLocalMovies(ctx context.Context, tx pgx.Tx, movies map[string]Mo
 	if err != nil {
 		return fmt.Errorf("read local movie members failed")
 	}
-	memberCount := 0
 	memberGroups := make(map[string]int64)
 	for rows.Next() {
-		memberCount++
-		if memberCount > MaxShowtimes {
-			rows.Close()
-			return fmt.Errorf("local movie member limit exceeded")
-		}
 		var localMovieID int64
 		var provider, movieID string
 		if err := rows.Scan(&localMovieID, &provider, &movieID); err != nil {

@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,16 +40,19 @@ func combinedTestDataset() Dataset {
 	return ugc
 }
 
-type testSource struct{ data Dataset }
+type testSource struct{ view *SnapshotView }
 
-func (s testSource) Snapshot() Dataset { return cloneDataset(s.data) }
+func (s testSource) Snapshot() *SnapshotView { return s.view }
+
+func newTestSource(data Dataset) testSource { return testSource{view: NewSnapshotView(data)} }
 
 func testService(t *testing.T) *Service {
 	t.Helper()
-	source := testSource{data: testDataset()}
-	if err := ValidateDataset(source.data, true); err != nil {
+	data := testDataset()
+	if err := ValidateDataset(data, true); err != nil {
 		t.Fatal(err)
 	}
+	source := newTestSource(data)
 	service, err := NewService(source, ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +88,7 @@ func TestTimelineMediaIsNullableAndUsesCatalogPosterPrecedence(t *testing.T) {
 			data.Showtimes[i].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
 		}
 	}
-	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +218,7 @@ func TestSearchSlotFormatFilteringAndValidation(t *testing.T) {
 	data.Showtimes[0].Format = Format3D
 	data.Showtimes[1].Format = FormatScreenX
 	data.Showtimes[2].Format = FormatLaserUltra
-	service, err := NewService(testSource{data: data}, ServiceOptions{CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
+	service, err := NewService(newTestSource(data), ServiceOptions{CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +286,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,7 +356,7 @@ func TestUnmatchedSameTitleMoviesRemainProviderSpecific(t *testing.T) {
 			data.Showtimes[index].Movie.Enrichment = nil
 		}
 	}
-	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +418,7 @@ func TestLocalMovieAggregatesCanonicalMetadataAndSourceShowtimes(t *testing.T) {
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatalf("valid local movie rejected: %v", err)
 	}
-	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +522,7 @@ func TestMoviesCatalogSortOrdersAndDefaults(t *testing.T) {
 		record("c-2", "slug-c", "Charlie", 90, "", 0),
 		record("d-1", "slug-d", "Alpha", 110, "2025-01-01", 0),
 	}
-	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +571,7 @@ func TestMovieCatalogEnrichmentPrecedenceAndNullableDefaults(t *testing.T) {
 			data.Showtimes[index].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg"}
 		}
 	}
-	service, err := NewService(testSource{data: data}, ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -602,7 +606,7 @@ func TestMovieShowtimesBackdropUsesValidatedMatchedEnrichment(t *testing.T) {
 					data.Showtimes[index].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: test.backdrop}
 				}
 			}
-			service, err := NewService(testSource{data: data}, ServiceOptions{})
+			service, err := NewService(newTestSource(data), ServiceOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -670,5 +674,138 @@ func TestSearchSlotRequiresOneScopeAndValidatesExactTheaters(t *testing.T) {
 	base.TheaterIDs = []string{"unknown"}
 	if _, err := service.SearchSlot(base); err == nil {
 		t.Fatal("unknown theater accepted")
+	}
+}
+
+func TestCityIndexPreservesEqualFoldAliasSemantics(t *testing.T) {
+	data := testDataset()
+	data.Theaters[0].City = " Lille "
+	data.Theaters[1].City = "Évry"
+	data.Theaters[2].City = "Lyon"
+	direct, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := direct.Theaters(TheaterCatalogQuery{City: " Lille "}); len(got) != 0 {
+		t.Fatalf("trimmed direct request matched padded stored city: %+v", got)
+	}
+	service, err := NewService(newTestSource(data), ServiceOptions{CityAliases: map[string][]string{
+		"ZONE": {"ÉVRY", "Lyon"},
+		"zone": {"évry", "Lyon"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := service.Theaters(TheaterCatalogQuery{City: "ZoNe"})
+	if len(got) != 2 || got[0].ID != "ugc-99" || got[1].ID != "ugc-26" {
+		t.Fatalf("alias union=%+v", got)
+	}
+	positions, err := service.selectTheaters(service.source.Snapshot(), nil, "ZoNe", false)
+	if err != nil || len(positions) != 2 || positions[0] != 1 || positions[1] != 2 {
+		t.Fatalf("indexed source order=%v err=%v", positions, err)
+	}
+}
+
+func TestTheatersUsesPublicationCatalogOrderForFilters(t *testing.T) {
+	data := testDataset()
+	data.Theaters[0].City, data.Theaters[0].Name = "Zebra", "Zulu"
+	data.Theaters[1].Provider = ProviderKinepolis
+	data.Theaters[1].City, data.Theaters[1].Name = "Alpha", "Bravo"
+	data.Theaters[2].City, data.Theaters[2].Name = "Alpha", "Alpha"
+	service, err := NewService(newTestSource(data), ServiceOptions{CityAliases: map[string][]string{"AREA": {"Zebra", "Alpha"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIDs := func(label string, theaters []Theater, want ...string) {
+		t.Helper()
+		if len(theaters) != len(want) {
+			t.Fatalf("%s count=%d theaters=%+v", label, len(theaters), theaters)
+		}
+		for index := range want {
+			if theaters[index].ID != want[index] {
+				t.Fatalf("%s theater[%d]=%q want=%q", label, index, theaters[index].ID, want[index])
+			}
+		}
+	}
+	assertIDs("unfiltered", service.Theaters(TheaterCatalogQuery{}), "ugc-99", "ugc-26", "ugc-25")
+	assertIDs("chain", service.Theaters(TheaterCatalogQuery{Chain: ProviderUGC}), "ugc-99", "ugc-25")
+	assertIDs("selective alias", service.Theaters(TheaterCatalogQuery{City: "area"}), "ugc-99", "ugc-26", "ugc-25")
+	view := service.source.Snapshot()
+	positions := view.catalogPositionsForCities(service.cityLookupValues("area"))
+	if len(positions) != 3 || positions[0] != 2 || positions[1] != 1 || positions[2] != 0 {
+		t.Fatalf("catalog positions=%v", positions)
+	}
+}
+
+func TestEmptyDefaultCityPreservesDefaultAndExplicitScopeSemantics(t *testing.T) {
+	data := testDataset()
+	service, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll})
+	if err != nil || len(timeline.Theaters) != 0 {
+		t.Fatalf("empty default timeline=%+v err=%v", timeline, err)
+	}
+	all, err := service.selectTheaters(service.source.Snapshot(), nil, "", false)
+	if err != nil || len(all) != len(data.Theaters) {
+		t.Fatalf("explicit empty city positions=%v err=%v", all, err)
+	}
+
+	data.Theaters[0].City = ""
+	service, err = NewService(newTestSource(data), ServiceOptions{CityAliases: map[string][]string{"": {"Lyon"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeline, err = service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll})
+	if err != nil || len(timeline.Theaters) != 2 || timeline.Theaters[0].ID != "ugc-25" || timeline.Theaters[1].ID != "ugc-99" {
+		t.Fatalf("empty default direct/alias timeline=%+v err=%v", timeline, err)
+	}
+}
+
+func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
+	data := testDataset()
+	base := data.Showtimes[0]
+	record := func(id, title, slug string, tmdbID int64) ShowtimeRecord {
+		value := base
+		value.ID = id
+		value.ProviderShowingID = strings.TrimPrefix(id, "ugc-showing-")
+		value.Movie.Title = title
+		value.Movie.Slug = slug
+		value.Movie.ProviderID = strings.TrimPrefix(slug, "ugc-film-")
+		value.BookingURL = "https://www.ugc.fr/reservationSeances.html?id=" + value.ProviderShowingID
+		if tmdbID > 0 {
+			value.Movie.Enrichment = &MovieEnrichment{TMDBID: tmdbID}
+		} else {
+			value.Movie.Enrichment = nil
+		}
+		return value
+	}
+	data.Showtimes = []ShowtimeRecord{
+		record("ugc-showing-501", "Alpha", "ugc-film-10", 42),
+		record("ugc-showing-502", "Bêta", "ugc-film-11", 42),
+		record("ugc-showing-503", "Bêta", "ugc-film-12", 42),
+		record("ugc-showing-504", "Gamma", "ugc-film-20", 0),
+		record("ugc-showing-505", "Gamma", "ugc-film-20", 0),
+	}
+	service, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, err := service.Movies(MovieCatalogQuery{Sort: MovieCatalogSortShowtimesDesc, PageSize: 1})
+	if err != nil || all.Total != 2 || len(all.Items) != 1 || all.Items[0].Slug != "tmdb-film-42" || all.Items[0].Title != "Alpha" {
+		t.Fatalf("all=%+v err=%v", all, err)
+	}
+	second, err := service.Movies(MovieCatalogQuery{Sort: MovieCatalogSortShowtimesDesc, Page: 2, PageSize: 1})
+	if err != nil || second.Total != 2 || len(second.Items) != 1 || second.Items[0].Title != "Gamma" {
+		t.Fatalf("second=%+v err=%v", second, err)
+	}
+	filtered, err := service.Movies(MovieCatalogQuery{Search: " bêta ", Sort: MovieCatalogSortShowtimesDesc, PageSize: 10})
+	if err != nil || filtered.Total != 1 || len(filtered.Items) != 1 || filtered.Items[0].Slug != "tmdb-film-42" || filtered.Items[0].Title != "Bêta" {
+		t.Fatalf("filtered=%+v err=%v", filtered, err)
+	}
+	variants := service.source.Snapshot().movieBySlug["tmdb-film-42"].variants
+	if len(variants) != 2 || variants[0].count != 1 || variants[1].count != 2 {
+		t.Fatalf("variants=%+v", variants)
 	}
 }

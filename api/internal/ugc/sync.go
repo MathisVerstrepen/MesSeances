@@ -152,9 +152,6 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		return schedule.Dataset{}, SyncSummary{}, err
 	}
 	selected := ids
-	if len(selected) > schedule.MaxTheaters {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sitemap cinema limit exceeded")
-	}
 	scope := schedule.ScopeAll
 	if options.CinemaID != "" {
 		found := false
@@ -220,9 +217,6 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 				intersected = append(intersected, value)
 			}
 		}
-		if len(data.Theaters) >= schedule.MaxTheaters {
-			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync theater limit exceeded")
-		}
 		theater := schedule.TheaterRecord{ID: "ugc-" + result.canonicalID, ProviderID: result.canonicalID, Slug: "ugc-" + result.canonicalID, Name: cinema.Name, Address: cinema.Address, City: cinema.City, PostalCode: cinema.PostalCode, AvailableDates: intersected, AcceptedPasses: []string{"UGC_ILLIMITE"}}
 		data.Theaters = append(data.Theaters, theater)
 		for _, serviceDate := range intersected {
@@ -250,9 +244,6 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		return schedule.Dataset{}, SyncSummary{}, err
 	}
 	for _, records := range showingsResults {
-		if !canAppendShowtimes(len(data.Showtimes), len(records)) {
-			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sync showing limit exceeded")
-		}
 		data.Showtimes = append(data.Showtimes, records...)
 	}
 	if len(data.Theaters) == 0 {
@@ -323,10 +314,6 @@ func parseFinalURL(raw string) (*url.URL, error) {
 		return nil, fmt.Errorf("invalid final URL")
 	}
 	return parsed, nil
-}
-
-func canAppendShowtimes(current, additional int) bool {
-	return current >= 0 && additional >= 0 && current <= schedule.MaxShowtimes && additional <= schedule.MaxShowtimes-current
 }
 
 func ValidateCinemaID(value string) error {
