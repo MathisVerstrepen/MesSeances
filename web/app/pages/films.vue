@@ -259,6 +259,10 @@ useHead({ title: 'Films à l’affiche — MesSeances' })
 </template>
 
 <style scoped>
+.catalog-title {
+  font-family: "Noto Sans Variable", sans-serif;
+}
+
 .catalog-title span:first-of-type {
   -webkit-text-stroke: 2px #27272a;
   color: transparent;

@@ -11,6 +11,7 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@fontsource-variable/noto-sans": "5.3.0",
     "@lucide/vue": "1.31.0",
     "@vuepic/vue-datepicker": "14.0.0",
     "date-fns": "4.4.0",

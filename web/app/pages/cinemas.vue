@@ -264,6 +264,10 @@ onMounted(async () => {
   text-transform: uppercase;
 }
 
+.cinemas-title {
+  font-family: "Noto Sans Variable", sans-serif;
+}
+
 .cinemas-title span:first-of-type {
   -webkit-text-stroke: 2px #27272a;
   color: transparent;
