@@ -152,7 +152,7 @@ onMounted(async () => {
   else await loadTimeline()
 })
 
-useHead({ title: 'Planning des séances — MesSeances' })
+useHead({ title: 'Planning des séances - MesSeances' })
 </script>
 
 <template>

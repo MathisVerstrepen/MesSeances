@@ -373,7 +373,7 @@ onMounted(() => {
   isMounted = true
   applyRoute()
 })
-useHead({ title: 'Identités des films — MesSeances' })
+useHead({ title: 'Identités des films - MesSeances' })
 </script>
 
 <template>

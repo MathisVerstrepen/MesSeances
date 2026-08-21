@@ -146,7 +146,7 @@ onMounted(() => {
   applyRoute()
 })
 
-useHead({ title: 'Films à l’affiche — MesSeances' })
+useHead({ title: 'Films à l’affiche - MesSeances' })
 </script>
 
 <template>

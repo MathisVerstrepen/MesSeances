@@ -146,7 +146,7 @@ onBeforeUnmount(() => {
   clearPolling()
 })
 
-useHead({ title: 'Synchronisation — MesSeances' })
+useHead({ title: 'Synchronisation - MesSeances' })
 </script>
 
 <template>

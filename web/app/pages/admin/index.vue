@@ -21,7 +21,7 @@ async function logout() {
   }
 }
 
-useHead({ title: 'Administration — MesSeances' })
+useHead({ title: 'Administration - MesSeances' })
 </script>
 
 <template>

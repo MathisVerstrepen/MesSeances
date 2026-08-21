@@ -344,7 +344,7 @@ onBeforeUnmount(() => {
 })
 
 useHead(() => ({
-  title: schedule.value?.movie.title ? `${schedule.value.movie.title} — MesSeances` : 'Séances du film — MesSeances'
+  title: schedule.value?.movie.title ? `${schedule.value.movie.title} - MesSeances` : 'Séances du film - MesSeances'
 }))
 </script>
 

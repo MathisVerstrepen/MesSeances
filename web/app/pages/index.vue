@@ -71,7 +71,7 @@ function markPosterUnavailable(slug: string) {
 
 onMounted(loadMovies)
 
-useHead({ title: 'MesSeances — Vos séances, au bon moment' })
+useHead({ title: 'MesSeances - Vos séances, au bon moment' })
 </script>
 
 <template>

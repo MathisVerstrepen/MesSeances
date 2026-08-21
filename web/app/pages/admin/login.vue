@@ -36,7 +36,7 @@ async function login() {
 }
 
 onMounted(checkSession)
-useHead({ title: 'Connexion administrateur — MesSeances' })
+useHead({ title: 'Connexion administrateur - MesSeances' })
 </script>
 
 <template>

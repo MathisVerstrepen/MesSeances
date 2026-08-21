@@ -14,7 +14,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { lang: 'fr' },
-      title: 'MesSeances — Vos séances, au bon moment',
+      title: 'MesSeances - Vos séances, au bon moment',
       meta: [
         {
           name: 'description',
@@ -39,7 +39,7 @@ export default defineNuxtConfig({
       installPrompt: false
     },
     manifest: {
-      name: 'MesSeances — Vos séances, au bon moment',
+      name: 'MesSeances - Vos séances, au bon moment',
       short_name: 'MesSeances',
       description: 'Explorez les séances de cinéma de Lille sur une frise horaire et trouvez celles qui tiennent dans votre créneau.',
       lang: 'fr',

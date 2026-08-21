@@ -712,7 +712,7 @@ async function submitSearch() {
         <div v-if="appliedSearch" class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3" :class="results ? '' : 'lg:hidden'">
           <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] divide-x-2 divide-ink lg:hidden">
             <p class="flex min-h-12 min-w-14 flex-col items-center justify-center px-2 font-mono font-black leading-none text-ink">
-              <span class="text-base">{{ results?.length ?? '—' }}</span>
+              <span class="text-base">{{ results?.length ?? '-' }}</span>
               <span class="mt-1 text-[9px] uppercase">séance{{ results?.length === 1 ? '' : 's' }}</span>
             </p>
             <button

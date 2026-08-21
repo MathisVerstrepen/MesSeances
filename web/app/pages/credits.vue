@@ -29,7 +29,7 @@ const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; c
   }
 ]
 
-useHead({ title: 'Crédits — MesSeances' })
+useHead({ title: 'Crédits - MesSeances' })
 </script>
 
 <template>
