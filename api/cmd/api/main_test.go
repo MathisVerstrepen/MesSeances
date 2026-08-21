@@ -70,9 +70,21 @@ func TestLoadSyncProxiesConfiguration(t *testing.T) {
 	}
 }
 
+func TestValidateAdminConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		password, secret string
+		wantError        bool
+	}{{"", "", false}, {"", "secret-only", false}, {"password", "session-secret", false}, {"password", "", true}, {"password", " \t", true}} {
+		err := validateAdminConfiguration(test.password, test.secret)
+		if (err != nil) != test.wantError || err != nil && err.Error() != "configuration error" {
+			t.Fatalf("password=%q secret=%q err=%v", test.password, test.secret, err)
+		}
+	}
+}
+
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
-	options := newAdminOptions("password", store, nil)
+	options := newAdminOptions("password", "session-secret", store, nil)
 	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil {
 		t.Fatalf("options=%+v", options)
 	}

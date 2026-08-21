@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,20 +17,26 @@ import (
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/httpapi"
+	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/tmdb"
+	"messeances/api/internal/ugc"
 )
 
 func main() {
+	logger := observability.NewLogger(os.Stderr)
 	if err := runtimeconfig.LoadDotEnv(); err != nil {
-		log.Fatal("configuration error")
+		logger.Error("process_start_failed", "component", "api", "error_code", "configuration_error")
+		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx); err != nil {
-		log.Fatal(err)
+		logger.Error("process_stopped", "component", "api", "error_code", "process_failure")
+		os.Exit(1)
 	}
 }
 
@@ -50,6 +55,13 @@ const (
 )
 
 func run(ctx context.Context) error {
+	logger := observability.NewLogger(os.Stderr)
+	metrics := observability.NewMetrics()
+	adminPassword := os.Getenv("ADMIN_PASSWORD")
+	adminSessionSecret := os.Getenv("ADMIN_SESSION_SECRET")
+	if err := validateAdminConfiguration(adminPassword, adminSessionSecret); err != nil {
+		return err
+	}
 	databaseURL := os.Getenv("DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
 		return fmt.Errorf("database configuration is missing")
@@ -68,7 +80,7 @@ func run(ctx context.Context) error {
 	if err := database.RunMigrations(startupCtx, pool); err != nil {
 		return fmt.Errorf("database migration failed")
 	}
-	source, err := schedule.NewPostgresSource(startupCtx, schedule.NewPostgresStore(pool))
+	source, err := schedule.NewPostgresSource(startupCtx, schedule.NewPostgresStore(pool), schedule.SourceOptions{Logger: logger, Observer: metrics})
 	if err != nil {
 		return fmt.Errorf("schedule snapshot startup failed")
 	}
@@ -85,13 +97,30 @@ func run(ctx context.Context) error {
 		}
 		enrichmentProvider = tmdbClient
 	}
-	adminOptions := newAdminOptions(os.Getenv("ADMIN_PASSWORD"), enrichmentStore, enrichmentProvider)
+	adminOptions := newAdminOptions(adminPassword, adminSessionSecret, enrichmentStore, enrichmentProvider)
+	adminOptions.Logger = logger
+	adminOptions.Metrics = metrics
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 	var syncManager httpapi.SyncController
 	var concreteSyncManager *synccontrol.Manager
 	if len(proxies) != 0 {
-		executor, err := synccontrol.NewProductionExecutor(proxies, schedule.NewPostgresStore(pool), enrichmentStore, enrichmentProvider, time.Now)
+		var enrich synccontrol.EnrichFunc
+		if enrichmentProvider != nil {
+			enrich = func(ctx context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
+				summary, err := enrichment.NewMatcher(enrichmentStore, enrichmentProvider, time.Now).Run(ctx, movies)
+				return &summary, err
+			}
+		}
+		executor, err := synccontrol.NewProductionExecutor(synccontrol.ProductionExecutorOptions{
+			Writer: schedule.NewPostgresStore(pool), Now: time.Now, Logger: logger, Observer: metrics, Enrich: enrich,
+			NewUGC: func() (ugc.Getter, error) {
+				return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: 20 * time.Second})
+			},
+			NewKinepolis: func() (kinepolis.Fetcher, error) {
+				return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: 2 * time.Second, Timeout: 20 * time.Second})
+			},
+		})
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
@@ -130,8 +159,15 @@ func run(ctx context.Context) error {
 		IdleTimeout:       serverIdleTimeout,
 		MaxHeaderBytes:    serverMaxHeaderBytes,
 	}
-	log.Printf("API MesSeances à l'écoute sur http://localhost:%s", port)
+	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
+}
+
+func validateAdminConfiguration(password, sessionSecret string) error {
+	if strings.TrimSpace(password) != "" && strings.TrimSpace(sessionSecret) == "" {
+		return fmt.Errorf("configuration error")
+	}
+	return nil
 }
 
 func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFunc) error {
@@ -160,11 +196,12 @@ func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFun
 	}
 }
 
-func newAdminOptions(password string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {
+func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {
 	return httpapi.AdminOptions{
-		Password:    password,
-		Reviews:     enrichment.NewReviewService(store, provider, nil),
-		LocalMovies: enrichment.NewLocalMovieService(store),
+		Password:      password,
+		SessionSecret: sessionSecret,
+		Reviews:       enrichment.NewReviewService(store, provider, nil),
+		LocalMovies:   enrichment.NewLocalMovieService(store),
 	}
 }
 

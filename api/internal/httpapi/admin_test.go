@@ -2,9 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +59,7 @@ func (adminMismatchedProvider) Details(context.Context, int64) (tmdb.Details, er
 func configuredAdminHandler(t *testing.T, password string, now func() time.Time) http.Handler {
 	t.Helper()
 	reviews := enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, now)
-	return testHandlerWithAdmin(t, AdminOptions{Password: password, Reviews: reviews, Now: now})
+	return testHandlerWithAdmin(t, AdminOptions{Password: password, SessionSecret: "test-session-secret", Reviews: reviews, Now: now})
 }
 
 func adminRequest(handler http.Handler, method, target, body, origin string, cookie *http.Cookie) *httptest.ResponseRecorder {
@@ -98,8 +102,24 @@ func TestAdminSessionSecurityAndRotation(t *testing.T) {
 	}
 	rotated := configuredAdminHandler(t, "rotated-password", clock)
 	status := adminRequest(rotated, http.MethodGet, "/api/v1/admin/session", "", "", cookie)
-	if status.Code != http.StatusOK || strings.TrimSpace(status.Body.String()) != `{"authenticated":false}` {
+	if status.Code != http.StatusOK || strings.TrimSpace(status.Body.String()) != `{"authenticated":true}` {
 		t.Fatalf("rotated status=%d body=%s", status.Code, status.Body.String())
+	}
+	reviews := enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, clock)
+	secretRotated := testHandlerWithAdmin(t, AdminOptions{Password: "rotated-password", SessionSecret: "different-session-secret", Reviews: reviews, Now: clock})
+	status = adminRequest(secretRotated, http.MethodGet, "/api/v1/admin/session", "", "", cookie)
+	if strings.TrimSpace(status.Body.String()) != `{"authenticated":false}` {
+		t.Fatalf("secret-rotated body=%s", status.Body.String())
+	}
+	oldExpiry := now.Add(time.Hour)
+	payload := "v1." + strconv.FormatInt(oldExpiry.Unix(), 10)
+	oldKey := sha256.Sum256([]byte("messeances-admin-session-v1\x00synthetic-admin-password"))
+	mac := hmac.New(sha256.New, oldKey[:])
+	_, _ = mac.Write([]byte(payload))
+	oldCookie := &http.Cookie{Name: adminCookieName, Value: payload + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))}
+	status = adminRequest(handler, http.MethodGet, "/api/v1/admin/session", "", "", oldCookie)
+	if strings.TrimSpace(status.Body.String()) != `{"authenticated":false}` {
+		t.Fatalf("legacy cookie body=%s", status.Body.String())
 	}
 	now = now.Add(12 * time.Hour)
 	status = adminRequest(handler, http.MethodGet, "/api/v1/admin/session", "", "", cookie)
@@ -150,7 +170,7 @@ func TestAdminApproveRejectAndLogoutSuccess(t *testing.T) {
 
 func TestAdminApproveFailsClosedWithoutTMDBProvider(t *testing.T) {
 	reviews := enrichment.NewReviewService(adminReviewStore{}, nil, time.Now)
-	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", Reviews: reviews})
+	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
 	cookie := loginAdmin(t, handler, "password")
 	approve := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
 	assertAPIError(t, approve, http.StatusServiceUnavailable, "review_unavailable", "Service de validation indisponible.")
@@ -194,7 +214,7 @@ func TestAdminApproveErrorMappingsRemainUnchanged(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			reviews := enrichment.NewReviewService(test.store, test.provider, time.Now)
-			handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", Reviews: reviews})
+			handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
 			cookie := loginAdmin(t, handler, "password")
 			response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/approve", `{"tmdb_id":42}`, "http://localhost:3000", cookie)
 			assertAPIError(t, response, test.wantStatus, test.wantCode, test.wantMessage)

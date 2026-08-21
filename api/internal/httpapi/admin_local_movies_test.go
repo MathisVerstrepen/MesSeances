@@ -44,9 +44,10 @@ func localMovieAdminHandler(t *testing.T, store *adminLocalMovieStore) http.Hand
 	t.Helper()
 	reviews := enrichment.NewReviewService(adminReviewStore{}, nil, nil)
 	return testHandlerWithAdmin(t, AdminOptions{
-		Password:    "password",
-		Reviews:     reviews,
-		LocalMovies: enrichment.NewLocalMovieService(store),
+		Password:      "password",
+		SessionSecret: "test-session-secret",
+		Reviews:       reviews,
+		LocalMovies:   enrichment.NewLocalMovieService(store),
 	})
 }
 
@@ -126,7 +127,7 @@ func TestAdminLocalMovieSecurityAndStrictInputs(t *testing.T) {
 
 func TestAdminLocalMovieUnavailableFailsClosed(t *testing.T) {
 	reviews := enrichment.NewReviewService(adminReviewStore{}, nil, nil)
-	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", Reviews: reviews})
+	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
 	cookie := loginAdmin(t, handler, "password")
 	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/local-movie-groups", "", "", cookie)
 	if response.Header().Get("Cache-Control") != "no-store" {

@@ -2,97 +2,154 @@ package synccontrol
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/schedule"
-	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/ugc"
 )
 
-const (
-	requestInterval  = 2 * time.Second
-	requestTimeout   = 20 * time.Second
-	operationTimeout = 2 * time.Minute
-)
+const operationTimeout = 2 * time.Minute
+
+type EnrichFunc func(context.Context, []enrichment.Movie) (*enrichment.Summary, error)
+
+type SyncObserver interface {
+	ObserveSync(provider, result, errorCode, enrichmentStatus string, duration time.Duration, records map[string]int)
+}
+
+type ProductionExecutorOptions struct {
+	Writer       schedule.SnapshotWriter
+	NewUGC       func() (ugc.Getter, error)
+	NewKinepolis func() (kinepolis.Fetcher, error)
+	Enrich       EnrichFunc
+	Now          func() time.Time
+	Logger       *slog.Logger
+	Observer     SyncObserver
+}
 
 type ProductionExecutor struct {
-	proxies            []syncproxy.Proxy
-	writer             schedule.SnapshotWriter
-	enrichmentStore    enrichment.Store
-	enrichmentProvider enrichment.Provider
-	now                func() time.Time
-	newUGC             func([]syncproxy.Proxy) (ugc.Getter, error)
-	newKinepolis       func([]syncproxy.Proxy) (kinepolis.Fetcher, error)
-	syncUGC            func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
-	syncKinepolis      func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
-	enrich             func(context.Context, enrichment.Store, enrichment.Provider, []enrichment.Movie) error
+	writer        schedule.SnapshotWriter
+	newUGC        func() (ugc.Getter, error)
+	newKinepolis  func() (kinepolis.Fetcher, error)
+	enrich        EnrichFunc
+	now           func() time.Time
+	logger        *slog.Logger
+	observer      SyncObserver
+	syncUGC       func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
+	syncKinepolis func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
 }
 
-func NewProductionExecutor(proxies []syncproxy.Proxy, writer schedule.SnapshotWriter, store enrichment.Store, provider enrichment.Provider, now func() time.Time) (*ProductionExecutor, error) {
-	if len(proxies) == 0 || writer == nil {
+func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || (options.NewUGC == nil && options.NewKinepolis == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
-	if now == nil {
-		now = time.Now
-	}
-	executor := &ProductionExecutor{
-		proxies: append([]syncproxy.Proxy(nil), proxies...), writer: writer,
-		enrichmentStore: store, enrichmentProvider: provider, now: now,
-		newUGC: func(proxies []syncproxy.Proxy) (ugc.Getter, error) {
-			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: requestTimeout})
-		},
-		newKinepolis: func(proxies []syncproxy.Proxy) (kinepolis.Fetcher, error) {
-			return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: requestInterval, Timeout: requestTimeout})
-		},
+	return &ProductionExecutor{
+		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis,
+		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer,
 		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync,
-		enrich: func(ctx context.Context, store enrichment.Store, provider enrichment.Provider, movies []enrichment.Movie) error {
-			_, err := enrichment.NewMatcher(store, provider, time.Now).Run(ctx, movies)
-			return err
-		},
-	}
-	return executor, nil
+	}, nil
 }
 
-func (e *ProductionExecutor) Run(ctx context.Context, provider Target, window Window) error {
+func (e *ProductionExecutor) Run(ctx context.Context, provider Target, window Window) (outcome ProviderOutcome, runErr error) {
+	started := time.Now()
+	defer func() { e.observe(provider, outcome, runErr, time.Since(started)) }()
+
 	var data schedule.Dataset
+	var syncOutcome SyncOutcome
 	var err error
 	switch provider {
 	case TargetUGC:
-		client, clientErr := e.newUGC(e.proxies)
-		if clientErr != nil {
-			return fmt.Errorf("create UGC client")
+		if e.newUGC == nil {
+			return outcome, NewRunError(FailureInternal, nil)
 		}
-		data, _, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
+		client, clientErr := e.newUGC()
+		if clientErr != nil {
+			return outcome, NewRunError(FailureClientCreation, clientErr)
+		}
+		var summary ugc.SyncSummary
+		data, summary, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
+		syncOutcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: summary.Requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
 	case TargetKinepolis:
-		client, clientErr := e.newKinepolis(e.proxies)
-		if clientErr != nil {
-			return fmt.Errorf("create Kinepolis client")
+		if e.newKinepolis == nil {
+			return outcome, NewRunError(FailureInternal, nil)
 		}
-		data, _, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
+		client, clientErr := e.newKinepolis()
+		if clientErr != nil {
+			return outcome, NewRunError(FailureClientCreation, clientErr)
+		}
+		var summary kinepolis.SyncSummary
+		data, summary, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
+		syncOutcome = SyncOutcome{Cinemas: summary.Cinemas, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	default:
-		return ErrInvalidTarget
+		return outcome, NewRunError(FailureInternal, ErrInvalidTarget)
 	}
 	if err != nil {
-		return fmt.Errorf("provider sync failed")
+		return outcome, stageError(ctx, FailureProviderSync, err)
 	}
 	if data.Scope != schedule.ScopeAll || data.Provider != string(provider) || schedule.ValidateDataset(data, true) != nil {
-		return fmt.Errorf("provider dataset rejected")
+		return outcome, NewRunError(FailureDatasetRejected, nil)
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, operationTimeout)
-	_, err = e.writer.Replace(writeCtx, data)
+	version, err := e.writer.Replace(writeCtx, data)
 	cancel()
 	if err != nil {
-		return fmt.Errorf("provider replacement failed")
+		return outcome, stageError(ctx, FailureReplacement, err)
 	}
-	if e.enrichmentStore != nil && e.enrichmentProvider != nil {
-		enrichCtx, enrichCancel := context.WithTimeout(ctx, operationTimeout)
-		_ = e.enrich(enrichCtx, e.enrichmentStore, e.enrichmentProvider, enrichmentMovies(provider, data))
-		enrichCancel()
+	syncOutcome.Version = version
+	outcome.Sync = syncOutcome
+	outcome.Enrichment = e.runEnrichment(ctx, provider, data)
+	return outcome, nil
+}
+
+func (e *ProductionExecutor) runEnrichment(ctx context.Context, provider Target, data schedule.Dataset) EnrichmentOutcome {
+	if e.enrich == nil {
+		return EnrichmentOutcome{Status: "skipped"}
 	}
-	return nil
+	enrichCtx, cancel := context.WithTimeout(ctx, operationTimeout)
+	summary, err := e.enrich(enrichCtx, enrichmentMovies(provider, data))
+	cancel()
+	if summary == nil && err == nil {
+		return EnrichmentOutcome{Status: "skipped"}
+	}
+	outcome := EnrichmentOutcome{Status: "complete"}
+	if summary != nil {
+		outcome.Counts = &EnrichmentCounts{Reused: summary.Reused, Matched: summary.Matched, ReviewRequired: summary.ReviewRequired, Unmatched: summary.Unmatched, Failed: summary.Failed}
+	}
+	if err != nil {
+		outcome.Status = "degraded"
+		e.logger.WarnContext(ctx, "sync_enrichment_degraded", "component", "sync", "provider", string(provider), "error_code", "enrichment_failed")
+	}
+	return outcome
+}
+
+func stageError(ctx context.Context, code FailureCode, cause error) error {
+	if ctx.Err() != nil {
+		return NewRunError(FailureCanceled, cause)
+	}
+	return NewRunError(code, cause)
+}
+
+func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, err error, duration time.Duration) {
+	result, code := "succeeded", FailureNone
+	if err != nil {
+		result = "failed"
+		code = FailureInternal
+		var runError *RunError
+		if errors.As(err, &runError) {
+			code = runError.Code
+		}
+		e.logger.Error("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "error_code", string(code), "duration", duration.Seconds())
+	} else {
+		e.logger.Info("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "error_code", string(code), "duration", duration.Seconds())
+	}
+	if e.observer != nil {
+		records := map[string]int{"cinemas": outcome.Sync.Cinemas, "dates": outcome.Sync.Dates, "requests": outcome.Sync.Requests, "showtimes": outcome.Sync.Showtimes, "skipped": outcome.Sync.Skipped}
+		e.observer.ObserveSync(string(provider), result, string(code), outcome.Enrichment.Status, duration, records)
+	}
 }
 
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {

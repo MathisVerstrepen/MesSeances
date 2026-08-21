@@ -54,6 +54,10 @@ make dev
 
 Open [http://localhost:3000](http://localhost:3000). The API runs at `http://localhost:8080` by default.
 
+When admin access is enabled, configure both `ADMIN_PASSWORD` and an independently generated `ADMIN_SESSION_SECRET`. Password rotation changes login credentials without invalidating active sessions; session-secret rotation invalidates all active sessions. Leaving both blank disables admin access locally.
+
+Backend operational logs use JSON on stderr. Prometheus metrics are available without application authentication at `GET /metrics` on the API listener. Restrict this endpoint with deployment network or reverse-proxy controls; production Compose keeps the API host binding on loopback.
+
 To stop PostgreSQL later without deleting local data:
 
 ```sh

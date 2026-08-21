@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
 )
 
@@ -120,6 +122,37 @@ func TestProbeContracts(t *testing.T) {
 				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestMetricsIsPublicAndGETOnly(t *testing.T) {
+	handler := testHandler(t)
+	get := httptest.NewRecorder()
+	handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if get.Code != http.StatusOK || !strings.HasPrefix(get.Header().Get("Content-Type"), "text/plain") || !strings.Contains(get.Body.String(), "go_info") {
+		t.Fatalf("GET status=%d content-type=%q body=%q", get.Code, get.Header().Get("Content-Type"), get.Body.String())
+	}
+	for _, method := range []string{http.MethodHead, http.MethodPost, http.MethodPut} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(method, "/metrics", nil))
+		if response.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("method=%s status=%d body=%q", method, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestPanicRecoveryRedactsPanicRequestAndHeaders(t *testing.T) {
+	secret := "synthetic-secret"
+	var logs bytes.Buffer
+	logger := observability.NewLogger(&logs)
+	handler := recoverJSON(logger)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic(secret) }))
+	request := httptest.NewRequest(http.MethodGet, "/anything?token="+secret, nil)
+	request.Header.Set("Authorization", "Bearer "+secret)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	combined := response.Body.String() + logs.String()
+	if response.Code != http.StatusInternalServerError || strings.Contains(combined, secret) || !strings.Contains(logs.String(), `"error_code":"internal_failure"`) {
+		t.Fatalf("status=%d body=%q logs=%q", response.Code, response.Body.String(), logs.String())
 	}
 }
 

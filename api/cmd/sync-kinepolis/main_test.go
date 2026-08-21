@@ -3,11 +3,18 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"messeances/api/internal/enrichment"
+	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/schedule"
+	"messeances/api/internal/synccontrol"
 )
 
 func fixedNow() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) }
@@ -18,22 +25,39 @@ func runTest(t *testing.T, args []string) (int, string) {
 	return code, stderr.String()
 }
 
+func assertJSONLog(t *testing.T, raw, event, code string) {
+	t.Helper()
+	var entry map[string]any
+	if json.Unmarshal([]byte(strings.TrimSpace(raw)), &entry) != nil {
+		t.Fatalf("invalid JSON log=%q", raw)
+	}
+	if entry["msg"] != event || entry["error_code"] != code || entry["component"] != "sync_kinepolis" {
+		t.Fatalf("log=%+v", entry)
+	}
+}
+
 func TestRunRejectsMissingAndInvalidProxyBeforeDatabaseOrNetwork(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
-	if code, stderr := runTest(t, nil); code != 2 || !strings.Contains(stderr, "proxy-file is required") {
+	if code, stderr := runTest(t, nil); code != 2 {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
+	} else {
+		assertJSONLog(t, stderr, "configuration_failed", "configuration_error")
 	}
 	missing := filepath.Join(t.TempDir(), "missing.txt")
-	if code, stderr := runTest(t, []string{"-proxy-file", missing}); code != 2 || !strings.Contains(stderr, "proxy file unavailable") {
+	if code, stderr := runTest(t, []string{"-proxy-file", missing}); code != 2 {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
+	} else {
+		assertJSONLog(t, stderr, "configuration_failed", "configuration_error")
 	}
 	secret := "synthetic-password"
 	invalid := filepath.Join(t.TempDir(), "invalid.txt")
 	if err := os.WriteFile(invalid, []byte("http://user:"+secret+"@missing-port\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if code, stderr := runTest(t, []string{"-proxy-file", invalid}); code != 2 || !strings.Contains(stderr, "proxy file is invalid") || strings.Contains(stderr, secret) {
+	if code, stderr := runTest(t, []string{"-proxy-file", invalid}); code != 2 || strings.Contains(stderr, secret) {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
+	} else {
+		assertJSONLog(t, stderr, "configuration_failed", "configuration_error")
 	}
 }
 
@@ -44,9 +68,136 @@ func TestRunAcceptsValidProxyThenRequiresDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stderr := runTest(t, []string{"-proxy-file", proxyFile})
-	if code != 2 || !strings.Contains(stderr, "DATABASE_URL is required") {
+	if code != 2 {
 		t.Fatalf("code=%d stderr=%q", code, stderr)
 	}
+	assertJSONLog(t, stderr, "configuration_failed", "configuration_error")
+}
+
+type fakeFetcher struct{}
+
+func (fakeFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
+
+type fakeExecutor func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
+
+func (f fakeExecutor) Run(ctx context.Context, target synccontrol.Target, window synccontrol.Window) (synccontrol.ProviderOutcome, error) {
+	return f(ctx, target, window)
+}
+
+type fakeWriter struct{}
+
+func (fakeWriter) Replace(context.Context, schedule.Dataset) (int64, error) { return 1, nil }
+
+func TestRunFullPathUsesInjectedDependenciesAndRedactsFailure(t *testing.T) {
+	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")
+	if err := os.WriteFile(proxyFile, []byte("127.0.0.1:8080\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	secret := "synthetic-provider-secret"
+	closed := false
+	deps := dependencies{
+		getenv: func(name string) string {
+			if name == "DATABASE_URL" {
+				return "postgres://configured"
+			}
+			return ""
+		},
+		newClient: func(kinepolis.ClientConfig) (kinepolis.Fetcher, error) { return fakeFetcher{}, nil },
+		openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+			return databaseServices{writer: fakeWriter{}}, func() { closed = true }, nil
+		},
+		newTMDB: func(string) (enrichment.Provider, error) { t.Fatal("TMDB called"); return nil, nil },
+		enrich: func(context.Context, enrichment.Store, enrichment.Provider, []enrichment.Movie) (enrichment.Summary, error) {
+			t.Fatal("enrichment called")
+			return enrichment.Summary{}, nil
+		},
+		newExecutor: func(synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
+			return fakeExecutor(func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error) {
+				return synccontrol.ProviderOutcome{}, synccontrol.NewRunError(synccontrol.FailureProviderSync, errors.New(secret))
+			}), nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-proxy-file", proxyFile}, fixedNow, &stdout, &stderr, deps)
+	if code != 1 || !closed || stdout.Len() != 0 || strings.Contains(stderr.String(), secret) {
+		t.Fatalf("code=%d closed=%v stdout=%q stderr=%q", code, closed, stdout.String(), stderr.String())
+	}
+	assertJSONLog(t, stderr.String(), "sync_command_failed", "provider_sync_failed")
+}
+
+func TestRunFullPathPreservesStdoutForTypedEnrichmentOutcomes(t *testing.T) {
+	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")
+	if err := os.WriteFile(proxyFile, []byte("127.0.0.1:8080\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	generated := time.Date(2026, 8, 15, 12, 30, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		enrichment synccontrol.EnrichmentOutcome
+		wantLine   string
+	}{
+		{name: "skipped", enrichment: synccontrol.EnrichmentOutcome{Status: "skipped"}, wantLine: "enrichment=skipped\n"},
+		{name: "complete", enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Reused: 1, Matched: 2, ReviewRequired: 3, Unmatched: 4, Failed: 5}}, wantLine: "enrichment=complete reused=1 matched=2 review_required=3 unmatched=4 failed=5\n"},
+		{name: "degraded", enrichment: synccontrol.EnrichmentOutcome{Status: "degraded", Counts: &synccontrol.EnrichmentCounts{Failed: 1}}, wantLine: "enrichment=degraded reused=0 matched=0 review_required=0 unmatched=0 failed=1\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			closed := false
+			deps := dependencies{
+				getenv: func(name string) string {
+					if name == "DATABASE_URL" {
+						return "postgres://configured"
+					}
+					return ""
+				},
+				newClient: func(kinepolis.ClientConfig) (kinepolis.Fetcher, error) { return fakeFetcher{}, nil },
+				openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+					return databaseServices{writer: fakeWriter{}}, func() { closed = true }, nil
+				},
+				newExecutor: func(synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
+					return fakeExecutor(func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error) {
+						return synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 7, Cinemas: 2, Showtimes: 11, GeneratedAt: generated}, Enrichment: test.enrichment}, nil
+					}), nil
+				},
+			}
+			var stdout, stderr bytes.Buffer
+			code := runWithDependencies(context.Background(), []string{"-proxy-file", proxyFile}, fixedNow, &stdout, &stderr, deps)
+			want := "sync complete provider=kinepolis version=7 cinemas=2 showtimes=11 generated_at=2026-08-15T12:30:00Z\n" + test.wantLine
+			if code != 0 || !closed || stdout.String() != want || stderr.Len() != 0 {
+				t.Fatalf("code=%d closed=%v stdout=%q stderr=%q", code, closed, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunFullPathReportsReplacementFailureCode(t *testing.T) {
+	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")
+	if err := os.WriteFile(proxyFile, []byte("127.0.0.1:8080\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	deps := dependencies{
+		getenv: func(name string) string {
+			if name == "DATABASE_URL" {
+				return "postgres://configured"
+			}
+			return ""
+		},
+		newClient: func(kinepolis.ClientConfig) (kinepolis.Fetcher, error) { return fakeFetcher{}, nil },
+		openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+			return databaseServices{writer: fakeWriter{}}, func() {}, nil
+		},
+		newExecutor: func(synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
+			return fakeExecutor(func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error) {
+				return synccontrol.ProviderOutcome{}, synccontrol.NewRunError(synccontrol.FailureReplacement, errors.New("secret"))
+			}), nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-proxy-file", proxyFile}, fixedNow, &stdout, &stderr, deps)
+	if code != 1 || stdout.Len() != 0 || strings.Contains(stderr.String(), "secret") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	assertJSONLog(t, stderr.String(), "sync_command_failed", "replacement_failed")
 }
 
 func TestRunRejectsOtherInvalidConfiguration(t *testing.T) {

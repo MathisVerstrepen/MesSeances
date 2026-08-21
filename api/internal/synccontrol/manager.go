@@ -41,11 +41,13 @@ type Window struct {
 }
 
 type Executor interface {
-	Run(context.Context, Target, Window) error
+	Run(context.Context, Target, Window) (ProviderOutcome, error)
 }
 
 type ProviderStatus struct {
-	State string `json:"state"`
+	State     string           `json:"state"`
+	Outcome   *ProviderOutcome `json:"outcome,omitempty"`
+	ErrorCode FailureCode      `json:"error_code,omitempty"`
 }
 
 type Status struct {
@@ -150,7 +152,7 @@ func (m *Manager) Status() Status {
 func (m *Manager) run(target Target, window Window) {
 	defer func() {
 		if recover() != nil {
-			m.finishFailure()
+			m.finishFailure(FailureInternal)
 		}
 	}()
 	providers := []Target{target}
@@ -159,12 +161,18 @@ func (m *Manager) run(target Target, window Window) {
 	}
 	for _, provider := range providers {
 		m.setProvider(provider, ProviderRunning)
-		if err := m.executor.Run(m.ctx, provider, window); err != nil {
-			m.setProvider(provider, ProviderFailed)
-			m.finishFailure()
+		outcome, err := m.executor.Run(m.ctx, provider, window)
+		if err != nil {
+			code := FailureInternal
+			var runError *RunError
+			if errors.As(err, &runError) {
+				code = runError.Code
+			}
+			m.setProviderFailure(provider, code)
+			m.finishFailure(code)
 			return
 		}
-		m.setProvider(provider, ProviderSucceeded)
+		m.setProviderSuccess(provider, outcome)
 	}
 	m.mu.Lock()
 	m.status.State = StateSucceeded
@@ -179,13 +187,25 @@ func (m *Manager) setProvider(provider Target, state string) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) finishFailure() {
+func (m *Manager) setProviderSuccess(provider Target, outcome ProviderOutcome) {
+	m.mu.Lock()
+	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
+	m.mu.Unlock()
+}
+
+func (m *Manager) setProviderFailure(provider Target, code FailureCode) {
+	m.mu.Lock()
+	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
+	m.mu.Unlock()
+}
+
+func (m *Manager) finishFailure(code FailureCode) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for provider, status := range m.status.Providers {
 		switch status.State {
 		case ProviderRunning:
-			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed}
+			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
 		case ProviderPending:
 			m.status.Providers[provider] = ProviderStatus{State: ProviderSkipped}
 		}
@@ -204,8 +224,21 @@ func cloneStatus(status Status) Status {
 	if status.Providers != nil {
 		copy.Providers = make(map[string]ProviderStatus, len(status.Providers))
 		for provider, state := range status.Providers {
+			state.Outcome = cloneOutcome(state.Outcome)
 			copy.Providers[provider] = state
 		}
 	}
 	return copy
+}
+
+func cloneOutcome(outcome *ProviderOutcome) *ProviderOutcome {
+	if outcome == nil {
+		return nil
+	}
+	copy := *outcome
+	if outcome.Enrichment.Counts != nil {
+		counts := *outcome.Enrichment.Counts
+		copy.Enrichment.Counts = &counts
+	}
+	return &copy
 }

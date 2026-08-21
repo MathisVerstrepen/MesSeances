@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-type executorFunc func(context.Context, Target, Window) error
+type executorFunc func(context.Context, Target, Window) (ProviderOutcome, error)
 
-func (f executorFunc) Run(ctx context.Context, target Target, window Window) error {
+func (f executorFunc) Run(ctx context.Context, target Target, window Window) (ProviderOutcome, error) {
 	return f(ctx, target, window)
 }
 
@@ -18,13 +18,13 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	now := time.Date(2026, 8, 17, 23, 30, 0, 0, time.FixedZone("test", -4*60*60))
 	started := make(chan Target, 2)
 	release := make(chan struct{})
-	manager, err := NewManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) error {
+	manager, err := NewManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) (ProviderOutcome, error) {
 		if window != (Window{From: "2026-08-18", Through: "2026-08-25"}) {
 			t.Errorf("window=%+v", window)
 		}
 		started <- target
 		<-release
-		return nil
+		return ProviderOutcome{}, nil
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -74,9 +74,11 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 		wantUGC  string
 		wantKin  string
 	}{
-		{name: "failure skips later provider", target: TargetAll, executor: func(context.Context, Target, Window) error { return errors.New("secret") }, wantUGC: ProviderFailed, wantKin: ProviderSkipped},
-		{name: "panic becomes failure", target: TargetKinepolis, executor: func(context.Context, Target, Window) error { panic("secret") }, wantUGC: ProviderNotRequested, wantKin: ProviderFailed},
-		{name: "single provider succeeds", target: TargetUGC, executor: func(context.Context, Target, Window) error { return nil }, wantUGC: ProviderSucceeded, wantKin: ProviderNotRequested},
+		{name: "failure skips later provider", target: TargetAll, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
+			return ProviderOutcome{}, errors.New("secret")
+		}, wantUGC: ProviderFailed, wantKin: ProviderSkipped},
+		{name: "panic becomes failure", target: TargetKinepolis, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { panic("secret") }, wantUGC: ProviderNotRequested, wantKin: ProviderFailed},
+		{name: "single provider succeeds", target: TargetUGC, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }, wantUGC: ProviderSucceeded, wantKin: ProviderNotRequested},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -96,10 +98,10 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	entered := make(chan struct{})
-	manager, err := NewManager(ctx, time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) error {
+	manager, err := NewManager(ctx, time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
 		close(entered)
 		<-ctx.Done()
-		return ctx.Err()
+		return ProviderOutcome{}, ctx.Err()
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -132,11 +134,11 @@ func waitForTerminal(t *testing.T, manager *Manager) Status {
 func TestManagerCloseCancelsWaitsAndIsIdempotent(t *testing.T) {
 	observedCancellation := make(chan struct{})
 	release := make(chan struct{})
-	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) error {
+	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
 		<-ctx.Done()
 		close(observedCancellation)
 		<-release
-		return ctx.Err()
+		return ProviderOutcome{}, ctx.Err()
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +178,7 @@ func TestManagerCloseCancelsWaitsAndIsIdempotent(t *testing.T) {
 }
 
 func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
-	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) error { return nil }))
+	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,9 +189,9 @@ func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
 	}
 
 	for range 100 {
-		manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) error {
+		manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
 			<-ctx.Done()
-			return ctx.Err()
+			return ProviderOutcome{}, ctx.Err()
 		}))
 		if err != nil {
 			t.Fatal(err)
@@ -207,5 +209,38 @@ func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
 		if _, err := manager.Start(TargetUGC); !errors.Is(err, ErrClosed) {
 			t.Fatalf("post-race start err=%v", err)
 		}
+	}
+}
+
+func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
+	counts := &EnrichmentCounts{Matched: 2}
+	outcome := ProviderOutcome{Sync: SyncOutcome{Version: 9, Cinemas: 3, Showtimes: 12}, Enrichment: EnrichmentOutcome{Status: "complete", Counts: counts}}
+	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return outcome, nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(TargetUGC); err != nil {
+		t.Fatal(err)
+	}
+	status := waitForTerminal(t, manager)
+	provider := status.Providers[string(TargetUGC)]
+	if provider.State != ProviderSucceeded || provider.Outcome == nil || provider.Outcome.Sync.Version != 9 || provider.Outcome.Enrichment.Counts == nil || provider.Outcome.Enrichment.Counts.Matched != 2 || provider.ErrorCode != "" {
+		t.Fatalf("provider=%+v", provider)
+	}
+	provider.Outcome.Enrichment.Counts.Matched = 99
+	if manager.Status().Providers[string(TargetUGC)].Outcome.Enrichment.Counts.Matched != 2 {
+		t.Fatal("returned outcome aliases manager state")
+	}
+
+	manager, err = NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) {
+		return ProviderOutcome{}, NewRunError(FailureDatasetRejected, errors.New("secret"))
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = manager.Start(TargetKinepolis)
+	provider = waitForTerminal(t, manager).Providers[string(TargetKinepolis)]
+	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil {
+		t.Fatalf("provider=%+v", provider)
 	}
 }

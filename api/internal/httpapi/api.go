@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/synccontrol"
 )
@@ -22,11 +25,14 @@ type API struct {
 }
 
 type AdminOptions struct {
-	Password    string
-	Reviews     *enrichment.ReviewService
-	LocalMovies *enrichment.LocalMovieService
-	Syncs       SyncController
-	Now         func() time.Time
+	Password      string
+	SessionSecret string
+	Reviews       *enrichment.ReviewService
+	LocalMovies   *enrichment.LocalMovieService
+	Syncs         SyncController
+	Now           func() time.Time
+	Logger        *slog.Logger
+	Metrics       *observability.Metrics
 }
 
 type SyncController interface {
@@ -52,10 +58,17 @@ func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 }
 
 func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options AdminOptions) http.Handler {
+	if options.Logger == nil {
+		options.Logger = observability.NewLogger(io.Discard)
+	}
+	if options.Metrics == nil {
+		options.Metrics = observability.NewMetrics()
+	}
 	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options)}
 	router := chi.NewRouter()
+	router.Use(observability.HTTPMiddleware(options.Logger, options.Metrics))
 	router.Use(jsonContentType)
-	router.Use(recoverJSON)
+	router.Use(recoverJSON(options.Logger))
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{webOrigin},
 		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
@@ -70,6 +83,7 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 	router.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
+	router.Get("/metrics", options.Metrics.Handler().ServeHTTP)
 	router.Get("/api/v1/timeline", api.timeline)
 	router.Get("/api/v1/theaters", api.theaters)
 	router.Get("/api/v1/movies", api.movies)
@@ -292,13 +306,16 @@ func jsonContentType(next http.Handler) http.Handler {
 	})
 }
 
-func recoverJSON(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			if recover() != nil {
-				writeError(w, http.StatusInternalServerError, "internal_error", "Une erreur interne est survenue.")
-			}
-		}()
-		next.ServeHTTP(w, r)
-	})
+func recoverJSON(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if recover() != nil {
+					logger.ErrorContext(r.Context(), "http_panic_recovered", "component", "http", "error_code", "internal_failure")
+					writeError(w, http.StatusInternalServerError, "internal_error", "Une erreur interne est survenue.")
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
 }

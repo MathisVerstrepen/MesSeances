@@ -30,7 +30,7 @@ func (c *fakeSyncController) Status() synccontrol.Status { return c.status }
 func syncAdminHandler(t *testing.T, controller SyncController) http.Handler {
 	t.Helper()
 	reviews := enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, time.Now)
-	return testHandlerWithAdmin(t, AdminOptions{Password: "password", Reviews: reviews, Syncs: controller})
+	return testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews, Syncs: controller})
 }
 
 func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
@@ -80,5 +80,25 @@ func TestAdminStartSyncContract(t *testing.T) {
 	assertAPIError(t, failed, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
 	if strings.Contains(failed.Body.String(), "secret") {
 		t.Fatalf("leaked body=%s", failed.Body.String())
+	}
+}
+
+func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
+	secret := "synthetic-secret"
+	finished := time.Date(2026, 8, 17, 13, 0, 0, 0, time.UTC)
+	controller := &fakeSyncController{status: synccontrol.Status{
+		ID: "4", Target: synccontrol.TargetAll, State: synccontrol.StateFailed,
+		StartedAt: finished.Add(-time.Minute), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24",
+		Providers: map[string]synccontrol.ProviderStatus{
+			"ugc":       {State: synccontrol.ProviderSucceeded, Outcome: &synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 9, Cinemas: 3, Showtimes: 12}, Enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Matched: 2}}}},
+			"kinepolis": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync},
+		},
+	}}
+	handler := syncAdminHandler(t, controller)
+	cookie := loginAdmin(t, handler, "password")
+	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs?cause="+secret, "", "", cookie)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
+		t.Fatalf("status=%d body=%s", response.Code, body)
 	}
 }

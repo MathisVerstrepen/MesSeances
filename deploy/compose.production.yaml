@@ -27,6 +27,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-movieflow}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-movieflow}?sslmode=disable
       TMDB_API_READ_ACCESS_TOKEN: ${TMDB_API_READ_ACCESS_TOKEN:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?ADMIN_SESSION_SECRET is required}
       PROXY_FILE: /run/secrets/sync-proxies.txt
       PORT: "8080"
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}

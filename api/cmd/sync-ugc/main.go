@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -12,7 +14,9 @@ import (
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
 )
@@ -29,6 +33,11 @@ type dependencies struct {
 	openDatabase func(context.Context, string) (databaseServices, func(), error)
 	newTMDB      func(string) (enrichment.Provider, error)
 	enrich       func(context.Context, enrichment.Store, enrichment.Provider, []enrichment.Movie) (enrichment.Summary, error)
+	newExecutor  func(synccontrol.ProductionExecutorOptions) (fullExecutor, error)
+}
+
+type fullExecutor interface {
+	Run(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
 }
 
 type databaseServices struct {
@@ -49,12 +58,15 @@ func productionDependencies() dependencies {
 		return databaseServices{writer: schedule.NewPostgresStore(pool), enrichment: enrichment.NewPostgresStore(pool)}, pool.Close, nil
 	}, newTMDB: func(token string) (enrichment.Provider, error) { return tmdb.NewClient(token) }, enrich: func(ctx context.Context, store enrichment.Store, provider enrichment.Provider, movies []enrichment.Movie) (enrichment.Summary, error) {
 		return enrichment.NewMatcher(store, provider, time.Now).Run(ctx, movies)
+	}, newExecutor: func(options synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
+		return synccontrol.NewProductionExecutor(options)
 	}}
 }
 
 func main() {
+	logger := observability.NewLogger(os.Stderr)
 	if err := runtimeconfig.LoadDotEnv(); err != nil {
-		fmt.Fprintln(os.Stderr, "configuration error")
+		logger.Error("process_start_failed", "component", "sync_ugc", "error_code", "configuration_error")
 		os.Exit(2)
 	}
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr, time.Now))
@@ -65,9 +77,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 }
 
 func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.Writer, now func() time.Time, deps dependencies) int {
+	logger := observability.NewLogger(stderr)
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
-		fmt.Fprintln(stderr, "configuration error: schedule timezone unavailable")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	today := now().In(location)
@@ -84,63 +97,63 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		return 2
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "configuration error: unexpected arguments")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	from, err := time.ParseInLocation("2006-01-02", cfg.from, location)
 	if err != nil || from.Format("2006-01-02") != cfg.from {
-		fmt.Fprintln(stderr, "configuration error: from must use YYYY-MM-DD")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	through, err := time.ParseInLocation("2006-01-02", cfg.through, location)
 	if err != nil || through.Format("2006-01-02") != cfg.through || !schedule.ValidInclusiveDateWindow(from, through) {
-		fmt.Fprintln(stderr, "configuration error: date window must contain 1 to 14 inclusive days")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	if err := ugc.ValidateCinemaID(cfg.cinemaID); err != nil {
-		fmt.Fprintln(stderr, "configuration error: cinema-id must be a positive integer")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	if cfg.proxyLimit < 0 {
-		fmt.Fprintln(stderr, "configuration error: proxy-limit cannot be negative")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	if cfg.timeout < 5*time.Second || cfg.timeout > 60*time.Second {
-		fmt.Fprintln(stderr, "configuration error: timeout must be between 5s and 60s")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	proxyFile, err := os.Open(cfg.proxyFile)
 	if err != nil {
-		fmt.Fprintln(stderr, "configuration error: proxy file unavailable")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	proxies, parseErr := ugc.ParseProxies(proxyFile)
 	closeErr := proxyFile.Close()
 	if parseErr != nil || closeErr != nil {
-		fmt.Fprintln(stderr, "configuration error: proxy file is invalid")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	if cfg.proxyLimit > 0 {
 		if cfg.proxyLimit > len(proxies) {
-			fmt.Fprintln(stderr, "configuration error: proxy-limit exceeds available entries")
+			logCLIError(logger, "configuration_failed", "configuration_error")
 			return 2
 		}
 		proxies = proxies[:cfg.proxyLimit]
 	}
 	client, err := ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.timeout})
 	if err != nil {
-		fmt.Fprintln(stderr, "configuration error: invalid transport settings")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	options := ugc.SyncOptions{From: cfg.from, Through: cfg.through, CinemaID: cfg.cinemaID, Now: now()}
 	if cfg.cinemaID != "" {
 		data, summary, err := deps.sync(ctx, client, options)
 		if err != nil {
-			fmt.Fprintf(stderr, "sync failed: %v\n", err)
+			logCLIError(logger, "sync_command_failed", "provider_sync_failed")
 			return 1
 		}
 		if err := schedule.ValidateDataset(data, false); err != nil || data.Scope != schedule.ScopeSingle {
-			fmt.Fprintln(stderr, "sync failed: diagnostic dataset rejected")
+			logCLIError(logger, "sync_command_failed", "dataset_rejected")
 			return 1
 		}
 		fmt.Fprintf(stdout, "sync complete mode=single_cinema persisted=false cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
@@ -148,61 +161,65 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	}
 	databaseURL := deps.getenv("DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
-		fmt.Fprintln(stderr, "configuration error: DATABASE_URL is required")
+		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	openCtx, openCancel := context.WithTimeout(ctx, 30*time.Second)
 	services, closeDatabase, err := deps.openDatabase(openCtx, databaseURL)
 	openCancel()
 	if err != nil {
-		fmt.Fprintln(stderr, "sync failed: database startup failed")
+		logCLIError(logger, "sync_command_failed", "database_startup_failed")
 		return 1
 	}
 	defer closeDatabase()
-	data, summary, err := deps.sync(ctx, client, options)
+	enrich := func(enrichCtx context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
+		token := strings.TrimSpace(deps.getenv("TMDB_API_READ_ACCESS_TOKEN"))
+		if token == "" {
+			return nil, nil
+		}
+		provider, err := deps.newTMDB(token)
+		if err != nil || services.enrichment == nil {
+			return nil, fmt.Errorf("enrichment setup failed")
+		}
+		summary, err := deps.enrich(enrichCtx, services.enrichment, provider, movies)
+		return &summary, err
+	}
+	executor, err := deps.newExecutor(synccontrol.ProductionExecutorOptions{Writer: services.writer, NewUGC: func() (ugc.Getter, error) { return client, nil }, Enrich: enrich, Now: now, Logger: logger})
 	if err != nil {
-		fmt.Fprintf(stderr, "sync failed: %v\n", err)
+		logCLIError(logger, "sync_command_failed", "configuration_error")
 		return 1
 	}
-	if data.Scope != schedule.ScopeAll || schedule.ValidateDataset(data, true) != nil {
-		fmt.Fprintln(stderr, "sync failed: complete dataset rejected")
+	outcome, err := executor.Run(ctx, synccontrol.TargetUGC, synccontrol.Window{From: cfg.from, Through: cfg.through})
+	if err != nil {
+		logCLIError(logger, "sync_command_failed", syncFailureCode(err))
 		return 1
 	}
-	writeCtx, writeCancel := context.WithTimeout(ctx, 2*time.Minute)
-	version, err := services.writer.Replace(writeCtx, data)
-	writeCancel()
-	if err != nil {
-		fmt.Fprintln(stderr, "sync failed: database replacement failed")
-		return 1
-	}
-	fmt.Fprintf(stdout, "sync complete mode=all_cinemas persisted=true version=%d cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", version, summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
-	token := strings.TrimSpace(deps.getenv("TMDB_API_READ_ACCESS_TOKEN"))
-	if token == "" {
-		fmt.Fprintln(stdout, "enrichment=skipped")
-		return 0
-	}
-	provider, err := deps.newTMDB(token)
-	if err != nil || services.enrichment == nil {
-		fmt.Fprintln(stderr, "warning: movie enrichment degraded")
-		fmt.Fprintln(stdout, "enrichment=degraded")
-		return 0
-	}
-	moviesByID := map[string]enrichment.Movie{}
-	for _, showing := range data.Showtimes {
-		moviesByID[showing.Movie.ProviderID] = enrichment.Movie{SourceProvider: enrichment.SourceUGC, ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}
-	}
-	movies := make([]enrichment.Movie, 0, len(moviesByID))
-	for _, movie := range moviesByID {
-		movies = append(movies, movie)
-	}
-	enrichmentCtx, enrichmentCancel := context.WithTimeout(ctx, 2*time.Minute)
-	enrichmentSummary, err := deps.enrich(enrichmentCtx, services.enrichment, provider, movies)
-	enrichmentCancel()
-	if err != nil {
-		fmt.Fprintln(stderr, "warning: movie enrichment degraded")
-		fmt.Fprintf(stdout, "enrichment=degraded reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", enrichmentSummary.Reused, enrichmentSummary.Matched, enrichmentSummary.ReviewRequired, enrichmentSummary.Unmatched, enrichmentSummary.Failed)
-		return 0
-	}
-	fmt.Fprintf(stdout, "enrichment=complete reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", enrichmentSummary.Reused, enrichmentSummary.Matched, enrichmentSummary.ReviewRequired, enrichmentSummary.Unmatched, enrichmentSummary.Failed)
+	summary := outcome.Sync
+	fmt.Fprintf(stdout, "sync complete mode=all_cinemas persisted=true version=%d cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
+	renderEnrichment(stdout, logger, outcome.Enrichment)
 	return 0
+}
+
+func syncFailureCode(err error) string {
+	var runError *synccontrol.RunError
+	if errors.As(err, &runError) {
+		return string(runError.Code)
+	}
+	return string(synccontrol.FailureInternal)
+}
+
+func renderEnrichment(stdout io.Writer, logger *slog.Logger, outcome synccontrol.EnrichmentOutcome) {
+	if outcome.Status == "degraded" {
+		logger.Warn("sync_enrichment_degraded", "component", "sync_ugc", "error_code", "enrichment_failed")
+	}
+	if outcome.Counts == nil {
+		fmt.Fprintf(stdout, "enrichment=%s\n", outcome.Status)
+		return
+	}
+	c := outcome.Counts
+	fmt.Fprintf(stdout, "enrichment=%s reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", outcome.Status, c.Reused, c.Matched, c.ReviewRequired, c.Unmatched, c.Failed)
+}
+
+func logCLIError(logger *slog.Logger, event, code string) {
+	logger.Error(event, "component", "sync_ugc", "error_code", code)
 }
