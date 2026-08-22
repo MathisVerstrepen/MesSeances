@@ -105,9 +105,48 @@ type Theater struct {
 	Name           string   `json:"name"`
 	Address        string   `json:"address"`
 	City           string   `json:"city"`
+	CitySlug       string   `json:"city_slug"`
 	PostalCode     string   `json:"postal_code"`
 	AvailableDates []string `json:"available_dates"`
 	AcceptedPasses []string `json:"accepted_passes"`
+}
+
+type City struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type CityTheater struct {
+	Provider Provider `json:"provider"`
+	ID       string   `json:"id"`
+	Slug     string   `json:"slug"`
+	Name     string   `json:"name"`
+}
+
+type CityInventoryItem struct {
+	Name     string        `json:"name"`
+	Slug     string        `json:"slug"`
+	Theaters []CityTheater `json:"theaters"`
+}
+
+type CityInventory struct {
+	GeneratedAt time.Time           `json:"generated_at"`
+	Items       []CityInventoryItem `json:"items"`
+}
+
+type CityDetail struct {
+	GeneratedAt time.Time          `json:"generated_at"`
+	City        City               `json:"city"`
+	Theaters    []Theater          `json:"theaters"`
+	Movies      []MovieCatalogItem `json:"movies"`
+}
+
+type TheaterShowtimes struct {
+	GeneratedAt time.Time          `json:"generated_at"`
+	Timezone    string             `json:"timezone"`
+	Theater     Theater            `json:"theater"`
+	Date        *string            `json:"date"`
+	Showtimes   []TimelineShowtime `json:"showtimes"`
 }
 
 type MovieCatalogItem struct {
@@ -182,6 +221,12 @@ type MovieShowtimesQuery struct {
 	Date       string
 	City       string
 	TheaterIDs []string
+}
+
+type TheaterShowtimesQuery struct {
+	Slug         string
+	Date         string
+	DateProvided bool
 }
 
 type SlotQuery struct {

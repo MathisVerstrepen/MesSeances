@@ -5,6 +5,7 @@ import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeF
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel, isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
@@ -388,6 +389,64 @@ const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url)
 const robots = computed(() => schedule.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
   ? 'index,follow'
   : 'noindex,follow')
+const filmJsonLd = computed(() => {
+  const currentSchedule = schedule.value
+  if (!currentSchedule || pending.value || errorMessage.value || notFound.value) return null
+
+  const movieUrl = canonicalUrl.value
+  const movieId = `${movieUrl}#movie`
+  const images = [safePosterUrl(currentSchedule.movie.poster_url), safeBackdropUrl(currentSchedule.backdrop_url)]
+    .filter((value): value is string => Boolean(value))
+  const movie: JsonLdNode = {
+    '@type': 'Movie',
+    '@id': movieId,
+    name: currentSchedule.movie.title,
+    url: movieUrl
+  }
+  if (currentSchedule.movie.runtime_minutes > 0) movie.duration = `PT${currentSchedule.movie.runtime_minutes}M`
+  if (currentSchedule.movie.overview?.trim()) movie.description = currentSchedule.movie.overview.trim()
+  if (releaseDateLabel.value && currentSchedule.movie.release_date) movie.datePublished = currentSchedule.movie.release_date
+  if (currentSchedule.movie.genres.length) movie.genre = currentSchedule.movie.genres
+  if (images.length === 1) movie.image = images[0]
+  else if (images.length > 1) movie.image = images
+  if (tmdbUrl.value) movie.sameAs = tmdbUrl.value
+
+  const graph: JsonLdNode[] = [
+    movie,
+    {
+      '@type': 'BreadcrumbList',
+      '@id': `${movieUrl}#breadcrumb`,
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Accueil', item: absoluteSiteUrl(config.public.siteUrl, '/') },
+        { '@type': 'ListItem', position: 2, name: 'Films', item: absoluteSiteUrl(config.public.siteUrl, '/films') },
+        { '@type': 'ListItem', position: 3, name: currentSchedule.movie.title, item: movieUrl }
+      ]
+    }
+  ]
+  const seenShowtimes = new Set<string>()
+  for (const theater of visibleTheaters.value) {
+    const theaterUrl = absoluteSiteUrl(config.public.siteUrl, `/cinema/${encodeURIComponent(theater.slug)}`)
+    const theaterId = `${theaterUrl}#cinema`
+    graph.push({ '@type': 'MovieTheater', '@id': theaterId, name: theater.name, url: theaterUrl })
+    for (const showtime of theater.showtimes) {
+      const showtimeId = showtime.id.trim()
+      const start = Date.parse(showtime.start_time)
+      const end = Date.parse(showtime.end_time)
+      if (!showtimeId || seenShowtimes.has(showtimeId) || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
+      seenShowtimes.add(showtimeId)
+      graph.push({
+        '@type': 'ScreeningEvent',
+        '@id': `${theaterUrl}#screening-${encodeURIComponent(showtimeId)}`,
+        name: `${currentSchedule.movie.title} à ${theater.name}`,
+        startDate: showtime.start_time,
+        endDate: showtime.end_time,
+        location: { '@id': theaterId },
+        workPresented: { '@id': movieId }
+      })
+    }
+  }
+  return serializeJsonLd({ '@context': 'https://schema.org', '@graph': graph })
+})
 
 useSeoMeta({
   robots,
@@ -405,7 +464,10 @@ useSeoMeta({
   twitterDescription: seoDescription,
   twitterImage: seoImageUrl
 })
-useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
+useHead(() => ({
+  link: [{ rel: 'canonical', href: canonicalUrl.value }],
+  script: filmJsonLd.value ? [{ key: 'film-jsonld', type: 'application/ld+json', innerHTML: filmJsonLd.value }] : []
+}))
 </script>
 
 <template>
@@ -743,7 +805,11 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
           <div v-else class="mt-10 space-y-10">
             <section v-for="theater in visibleTheaters" :key="theater.id" class="theater-section border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a]" :aria-labelledby="`theater-${theater.id}`">
               <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-6">
-                <h3 :id="`theater-${theater.id}`" class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl"><BrandedText :text="theater.name" /></h3>
+                <h3 :id="`theater-${theater.id}`" class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl">
+                  <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">
+                    <BrandedText :text="theater.name" />
+                  </NuxtLink>
+                </h3>
                 <span class="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</span>
               </div>
 

@@ -86,6 +86,9 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 	router.Get("/metrics", options.Metrics.Handler().ServeHTTP)
 	router.Get("/api/v1/timeline", api.timeline)
 	router.Get("/api/v1/theaters", api.theaters)
+	router.Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
+	router.Get("/api/v1/cities", api.cities)
+	router.Get("/api/v1/cities/{slug}", api.city)
 	router.Get("/api/v1/movies", api.movies)
 	router.Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
 	router.Get("/api/v1/search/slot", api.searchSlot)
@@ -141,6 +144,29 @@ func (api *API) theaters(w http.ResponseWriter, r *http.Request) {
 		City:  query.Get("city"),
 		Chain: schedule.Provider(query.Get("chain")),
 	}))
+}
+
+func (api *API) theaterShowtimes(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	result, err := api.schedule.TheaterShowtimes(schedule.TheaterShowtimesQuery{Slug: chi.URLParam(r, "slug"), Date: query.Get("date"), DateProvided: query.Has("date")})
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (api *API) cities(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, api.schedule.Cities())
+}
+
+func (api *API) city(w http.ResponseWriter, r *http.Request) {
+	result, err := api.schedule.City(chi.URLParam(r, "slug"))
+	if err != nil {
+		writeServiceError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (api *API) movies(w http.ResponseWriter, r *http.Request) {

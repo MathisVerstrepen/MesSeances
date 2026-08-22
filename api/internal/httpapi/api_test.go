@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -166,7 +168,7 @@ func TestTheatersTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &theaters); err != nil {
 		t.Fatal(err)
 	}
-	if len(theaters) != 2 || theaters[0].ID != "ugc-25" || theaters[1].ID != "ugc-26" || theaters[0].PostalCode != "59000" || theaters[0].Provider != schedule.ProviderUGC {
+	if len(theaters) != 2 || theaters[0].ID != "ugc-25" || theaters[1].ID != "ugc-26" || theaters[0].PostalCode != "59000" || theaters[0].Provider != schedule.ProviderUGC || theaters[0].CitySlug != "lille" || theaters[1].CitySlug != "villeneuve-d-ascq" {
 		t.Fatalf("theaters=%+v", theaters)
 	}
 
@@ -174,6 +176,71 @@ func TestTheatersTransport(t *testing.T) {
 	if empty.Code != http.StatusOK || strings.TrimSpace(empty.Body.String()) != "[]" {
 		t.Fatalf("non-UGC status=%d body=%s", empty.Code, empty.Body.String())
 	}
+}
+
+func TestCitiesTransportContracts(t *testing.T) {
+	handler := testHandler(t)
+	inventory := performRequest(t, handler, "/api/v1/cities")
+	wantInventory := "{\"generated_at\":\"2026-08-14T12:00:00Z\",\"items\":[{\"name\":\"Lille\",\"slug\":\"lille\",\"theaters\":[{\"provider\":\"ugc\",\"id\":\"ugc-25\",\"slug\":\"ugc-lille\",\"name\":\"UGC Lille\"}]},{\"name\":\"Lyon\",\"slug\":\"lyon\",\"theaters\":[{\"provider\":\"ugc\",\"id\":\"ugc-99\",\"slug\":\"ugc-lyon\",\"name\":\"UGC Lyon\"}]},{\"name\":\"Villeneuve d'Ascq\",\"slug\":\"villeneuve-d-ascq\",\"theaters\":[{\"provider\":\"ugc\",\"id\":\"ugc-26\",\"slug\":\"ugc-villeneuve\",\"name\":\"UGC Villeneuve\"}]}]}\n"
+	if inventory.Code != http.StatusOK || inventory.Body.String() != wantInventory {
+		t.Fatalf("inventory status=%d body=%s", inventory.Code, inventory.Body.String())
+	}
+
+	detail := performRequest(t, handler, "/api/v1/cities/lille")
+	if detail.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", detail.Code, detail.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(detail.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sortedKeys(payload), []string{"city", "generated_at", "movies", "theaters"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" {
+		t.Fatalf("detail root=%+v", payload)
+	}
+	city := payload["city"].(map[string]any)
+	theaters := payload["theaters"].([]any)
+	movies := payload["movies"].([]any)
+	if !reflect.DeepEqual(city, map[string]any{"name": "Lille", "slug": "lille"}) || len(theaters) != 1 || theaters[0].(map[string]any)["city_slug"] != "lille" || len(movies) != 1 || movies[0].(map[string]any)["slug"] != "tmdb-film-42" {
+		t.Fatalf("detail=%+v", payload)
+	}
+	assertAPIError(t, performRequest(t, handler, "/api/v1/cities/Lille"), http.StatusNotFound, "not_found", "Ville introuvable.")
+	assertAPIError(t, performRequest(t, handler, "/api/v1/cities/inconnue"), http.StatusNotFound, "not_found", "Ville introuvable.")
+}
+
+func TestTheaterShowtimesTransportContracts(t *testing.T) {
+	handler := testHandler(t)
+	response := performRequest(t, handler, "/api/v1/theaters/ugc-lille/showtimes")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sortedKeys(payload), []string{"date", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
+		t.Fatalf("payload=%+v", payload)
+	}
+	theater := payload["theater"].(map[string]any)
+	showtimes := payload["showtimes"].([]any)
+	if theater["slug"] != "ugc-lille" || theater["city_slug"] != "lille" || len(showtimes) != 1 || showtimes[0].(map[string]any)["id"] != "ugc-showing-100" {
+		t.Fatalf("payload=%+v", payload)
+	}
+	empty := performRequest(t, handler, "/api/v1/theaters/ugc-lille/showtimes?date=2027-01-01")
+	if empty.Code != http.StatusOK || !strings.Contains(empty.Body.String(), `"date":"2027-01-01","showtimes":[]`) {
+		t.Fatalf("empty status=%d body=%s", empty.Code, empty.Body.String())
+	}
+	assertAPIError(t, performRequest(t, handler, "/api/v1/theaters/ugc-lille/showtimes?date=15-08-2026"), http.StatusBadRequest, "invalid_query", "Le paramètre date doit respecter le format YYYY-MM-DD.")
+	assertAPIError(t, performRequest(t, handler, "/api/v1/theaters/ugc-lille/showtimes?date="), http.StatusBadRequest, "invalid_query", "Le paramètre date est requis.")
+	assertAPIError(t, performRequest(t, handler, "/api/v1/theaters/UGC-lille/showtimes"), http.StatusNotFound, "not_found", "Cinéma introuvable.")
+}
+
+func sortedKeys(values map[string]any) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	return keys
 }
 
 func TestTheatersKinepolisChainAndCombinedProviderDTOs(t *testing.T) {

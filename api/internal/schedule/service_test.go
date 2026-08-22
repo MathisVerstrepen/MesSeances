@@ -1,7 +1,9 @@
 package schedule
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -808,5 +810,120 @@ func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
 	variants := service.source.Snapshot().movieBySlug["tmdb-film-42"].variants
 	if len(variants) != 2 || variants[0].count != 1 || variants[1].count != 2 {
 		t.Fatalf("variants=%+v", variants)
+	}
+}
+
+func TestCitySlugNormalizationAndCollisionAssignment(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		want string
+	}{
+		{name: "  Villeneuve d'Ascq  ", want: "villeneuve-d-ascq"},
+		{name: "Évry-Courcouronnes", want: "evry-courcouronnes"},
+		{name: "Cœur d’Æsir", want: "coeur-d-aesir"},
+		{name: "東京", want: "ville"},
+	} {
+		if got := cityBaseSlug(test.name); got != test.want {
+			t.Fatalf("cityBaseSlug(%q)=%q want %q", test.name, got, test.want)
+		}
+	}
+
+	identityMap := func(labelsByFold map[string][]string) map[string]string {
+		result := make(map[string]string)
+		for _, identity := range buildCityIdentities(labelsByFold) {
+			result[identity.foldKey] = identity.slug
+		}
+		return result
+	}
+	forward := identityMap(map[string][]string{foldKey("Évry"): {"Évry"}, foldKey("Evry"): {"Evry"}})
+	reverse := identityMap(map[string][]string{foldKey("Evry"): {"Evry"}, foldKey("Évry"): {"Évry"}})
+	want := map[string]string{foldKey("Évry"): "evry--b6b4bc41", foldKey("Evry"): "evry--5a2839c1"}
+	if !reflect.DeepEqual(forward, want) || !reflect.DeepEqual(reverse, want) {
+		t.Fatalf("forward=%v reverse=%v want=%v", forward, reverse, want)
+	}
+}
+
+func TestCityInventoryAndDetailUseExactBucketsAndDeterministicOrders(t *testing.T) {
+	data := testDataset()
+	data.Theaters[2].City = "Lille"
+	duplicate := data.Showtimes[0]
+	duplicate.ID = "ugc-showing-099"
+	duplicate.ProviderShowingID = "099"
+	data.Showtimes = append([]ShowtimeRecord{duplicate}, data.Showtimes...)
+	service, err := NewService(newTestSource(data), ServiceOptions{CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inventory := service.Cities()
+	if !inventory.GeneratedAt.Equal(data.GeneratedAt) || len(inventory.Items) != 2 {
+		t.Fatalf("inventory=%+v", inventory)
+	}
+	wantCities := []string{"Lille:lille", "Villeneuve d'Ascq:villeneuve-d-ascq"}
+	for index, want := range wantCities {
+		got := inventory.Items[index].Name + ":" + inventory.Items[index].Slug
+		wantTheaters := 1
+		if index == 0 {
+			wantTheaters = 2
+		}
+		if got != want || len(inventory.Items[index].Theaters) != wantTheaters {
+			t.Fatalf("items[%d]=%+v want %q", index, inventory.Items[index], want)
+		}
+	}
+
+	detail, err := service.City("lille")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !detail.GeneratedAt.Equal(data.GeneratedAt) || detail.City != (City{Name: "Lille", Slug: "lille"}) || len(detail.Theaters) != 2 || detail.Theaters[0].Name != "UGC Lille" || detail.Theaters[1].Name != "UGC Lyon" || detail.Theaters[0].CitySlug != "lille" || len(detail.Movies) != 3 || detail.Movies[0].Title != "Film A" || detail.Movies[1].Title != "Film B" || detail.Movies[2].Title != "Film D" {
+		t.Fatalf("detail=%+v", detail)
+	}
+	if _, err := service.City("Lille"); err == nil {
+		t.Fatal("noncanonical city slug accepted")
+	}
+	var notFound *NotFoundError
+	if _, err := service.City("unknown"); !errors.As(err, &notFound) || notFound.Message != "Ville introuvable." {
+		t.Fatalf("unknown city error=%v", err)
+	}
+}
+
+func TestTheaterShowtimesDateSemanticsOrderingAndExactSlug(t *testing.T) {
+	data := testDataset()
+	data.Theaters[0].AvailableDates = []string{"2026-08-16", "2026-08-15"}
+	tie := data.Showtimes[0]
+	tie.ID = "ugc-showing-050"
+	tie.ProviderShowingID = "050"
+	data.Showtimes = append(data.Showtimes, tie)
+	data.Theaters = append(data.Theaters, TheaterRecord{ID: "ugc-empty", ProviderID: "empty", Slug: "ugc-empty", Name: "UGC Empty", City: "Lille", AvailableDates: []string{}, AcceptedPasses: []string{}})
+	service, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-25"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.GeneratedAt.Equal(data.GeneratedAt) || result.Timezone != Timezone || result.Date == nil || *result.Date != "2026-08-15" || result.Theater.CitySlug != "lille" || len(result.Showtimes) != 3 || result.Showtimes[0].ID != "ugc-showing-050" || result.Showtimes[1].ID != "ugc-showing-100" || result.Showtimes[0].StartOffsetMinutes != 240 {
+		t.Fatalf("default result=%+v", result)
+	}
+	explicit, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-25", Date: "2027-01-01"})
+	if err != nil || explicit.Date == nil || *explicit.Date != "2027-01-01" || len(explicit.Showtimes) != 0 {
+		t.Fatalf("explicit=%+v err=%v", explicit, err)
+	}
+	empty, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-empty"})
+	if err != nil || empty.Date != nil || len(empty.Showtimes) != 0 || empty.Showtimes == nil {
+		t.Fatalf("empty=%+v err=%v", empty, err)
+	}
+	emptyJSON, err := json.Marshal(empty)
+	if err != nil || !strings.Contains(string(emptyJSON), `"date":null,"showtimes":[]`) {
+		t.Fatalf("empty JSON=%s err=%v", emptyJSON, err)
+	}
+	if _, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "ugc-25", Date: "15-08-2026"}); err == nil {
+		t.Fatal("invalid date accepted")
+	}
+	var notFound *NotFoundError
+	if _, err := service.TheaterShowtimes(TheaterShowtimesQuery{Slug: "UGC-25"}); !errors.As(err, &notFound) || notFound.Message != "Cinéma introuvable." {
+		t.Fatalf("case variant error=%v", err)
 	}
 }

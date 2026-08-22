@@ -20,7 +20,12 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 		if chain != "" && !strings.EqualFold(chain, string(provider)) {
 			continue
 		}
-		result = append(result, Theater{Provider: provider, ID: theater.ID, Slug: theater.Slug, Name: theater.Name, Address: theater.Address, City: theater.City, PostalCode: theater.PostalCode, AvailableDates: append([]string(nil), theater.AvailableDates...), AcceptedPasses: append([]string(nil), theater.AcceptedPasses...)})
+		result = append(result, materializeTheater(view, position))
 	}
 	return result
+}
+
+func materializeTheater(view *SnapshotView, position int) Theater {
+	theater := view.data.Theaters[position]
+	return Theater{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, Address: theater.Address, City: theater.City, CitySlug: view.cityBuckets[view.theaterCity[position]].slug, PostalCode: theater.PostalCode, AvailableDates: append([]string{}, theater.AvailableDates...), AcceptedPasses: append([]string{}, theater.AcceptedPasses...)}
 }

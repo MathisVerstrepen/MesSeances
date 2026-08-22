@@ -18,8 +18,10 @@ type movieDateKey struct {
 
 type cityBucket struct {
 	city             string
+	slug             string
 	positions        []int
 	catalogPositions []int
+	movieSlugs       []string
 }
 
 type movieTitleVariant struct {
@@ -38,8 +40,11 @@ type movieIndex struct {
 type SnapshotView struct {
 	data             Dataset
 	theaterByID      map[string]int
+	theaterBySlug    map[string]int
 	cityBuckets      []cityBucket
 	cityBucketByFold map[string]int
+	cityBucketBySlug map[string]int
+	theaterCity      []int
 	theaterDate      map[theaterDateKey][]int
 	movieBySlug      map[string]movieIndex
 	movieOrder       []string
@@ -55,16 +60,21 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 	view := &SnapshotView{
 		data:             cloneDataset(data),
 		theaterByID:      make(map[string]int, len(data.Theaters)),
+		theaterBySlug:    make(map[string]int, len(data.Theaters)),
 		cityBucketByFold: make(map[string]int),
+		cityBucketBySlug: make(map[string]int),
 		theaterDate:      make(map[theaterDateKey][]int),
 		movieBySlug:      make(map[string]movieIndex),
 		movieDate:        make(map[movieDateKey][]int),
 		theaterPositions: make([]int, len(data.Theaters)),
 		theaterCatalog:   make([]int, len(data.Theaters)),
 		theaterRank:      make([]int, len(data.Theaters)),
+		theaterCity:      make([]int, len(data.Theaters)),
 	}
+	labelsByFold := make(map[string][]string)
 	for position, theater := range view.data.Theaters {
 		view.theaterByID[theater.ID] = position
+		view.theaterBySlug[theater.Slug] = position
 		view.theaterPositions[position] = position
 		view.theaterCatalog[position] = position
 		cityKey := foldKey(theater.City)
@@ -74,7 +84,15 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 			bucket = len(view.cityBuckets) - 1
 			view.cityBucketByFold[cityKey] = bucket
 		}
+		labelsByFold[cityKey] = append(labelsByFold[cityKey], theater.City)
+		view.theaterCity[position] = bucket
 		view.cityBuckets[bucket].positions = append(view.cityBuckets[bucket].positions, position)
+	}
+	for _, identity := range buildCityIdentities(labelsByFold) {
+		bucket := view.cityBucketByFold[identity.foldKey]
+		view.cityBuckets[bucket].city = identity.name
+		view.cityBuckets[bucket].slug = identity.slug
+		view.cityBucketBySlug[identity.slug] = bucket
 	}
 	sort.Slice(view.theaterCatalog, func(i, j int) bool {
 		left, right := view.data.Theaters[view.theaterCatalog[i]], view.data.Theaters[view.theaterCatalog[j]]
@@ -93,9 +111,16 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		view.cityBuckets[bucket].catalogPositions = append(view.cityBuckets[bucket].catalogPositions, position)
 	}
 	variantPositions := make(map[string]map[string]int)
+	cityMovies := make([]map[string]bool, len(view.cityBuckets))
+	for index := range cityMovies {
+		cityMovies[index] = make(map[string]bool)
+	}
 	for position, showing := range view.data.Showtimes {
 		view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}] = append(view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}], position)
 		slug := publicMovieSlug(showing.Movie)
+		if theaterPosition, exists := view.theaterByID[showing.TheaterID]; exists {
+			cityMovies[view.theaterCity[theaterPosition]][slug] = true
+		}
 		view.movieDate[movieDateKey{slug: slug, date: showing.ServiceDate}] = append(view.movieDate[movieDateKey{slug: slug, date: showing.ServiceDate}], position)
 		movie, exists := view.movieBySlug[slug]
 		if !exists {
@@ -112,6 +137,12 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		}
 		movie.variants[variantPosition].count++
 		view.movieBySlug[slug] = movie
+	}
+	for bucket := range view.cityBuckets {
+		for slug := range cityMovies[bucket] {
+			view.cityBuckets[bucket].movieSlugs = append(view.cityBuckets[bucket].movieSlugs, slug)
+		}
+		sort.Strings(view.cityBuckets[bucket].movieSlugs)
 	}
 	return view
 }

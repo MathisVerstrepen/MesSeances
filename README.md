@@ -10,6 +10,7 @@ The application interface is in French.
 - **Find screenings within a strict time window.** Set when a movie may start and must finish. MesSeances only returns screenings that fit completely, with an optional allowance for trailers and ads.
 - **Browse the current movie catalog.** See current films from the landing page, search the full schedule catalog, and open detailed pages with available screenings, artwork, synopsis, release information, and genres when metadata is available.
 - **Choose favorite cinemas.** Search cinemas by name or city and keep a local selection that drives the timeline, movie pages, and time-window search. Favorites stay in the current browser; no account is required.
+- **Discover cinemas by city.** Open public cinema pages for current and selected-date screenings, or browse exact-city pages for cinemas and films in the current schedule window.
 - **Compare supported providers.** Movie pages combine UGC and Kinepolis showtimes when their listings have been matched as the same film.
 - **Book with the cinema.** Available booking actions open the provider's official booking page in a new tab.
 - **Run schedule updates from the admin area.** Authenticated administrators can start UGC and Kinepolis synchronizations together or separately and follow current status.
@@ -81,3 +82,12 @@ cd ..
 npm --prefix web run typecheck
 npm --prefix web run lint
 ```
+
+With the API and Nuxt already running, verify SSR metadata, structured data, public discovery routes, sitemap inventory, and crawler error behavior:
+
+```sh
+npm --prefix web run verify:crawlability
+EXPECT_UPSTREAM_FAILURE=1 npm --prefix web run verify:crawlability
+```
+
+Run the failure mode with Nuxt configured against an intentionally unavailable API origin. Neither command starts services or triggers provider/TMDB requests.

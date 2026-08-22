@@ -9,6 +9,8 @@ import type {
   AdminSyncTarget,
   AdminUnmergeLocalMovieResponse,
   ApiErrorResponse,
+  CitiesResponse,
+  CityDetailResponse,
   MoviesQuery,
   MoviesResponse,
   MovieShowtimesQuery,
@@ -17,6 +19,7 @@ import type {
   SlotQuery,
   SlotResult,
   Theater,
+  TheaterShowtimesResponse,
   TheaterQuery,
   TimelineQuery,
   TimelineResponse
@@ -50,6 +53,17 @@ export function useMesSeancesApi() {
     },
     theaters(query: TheaterQuery = {}) {
       return $fetch<Theater[]>(`${apiBase}/api/v1/theaters`, { query: queryValues(query) })
+    },
+    cities() {
+      return $fetch<CitiesResponse>(`${apiBase}/api/v1/cities`)
+    },
+    city(slug: string) {
+      return $fetch<CityDetailResponse>(`${apiBase}/api/v1/cities/${encodeURIComponent(slug)}`)
+    },
+    theaterShowtimes(slug: string, date?: string) {
+      return $fetch<TheaterShowtimesResponse>(`${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/showtimes`, {
+        query: date ? { date } : undefined
+      })
     },
     movies(query: MoviesQuery = {}) {
       return $fetch<MoviesResponse>(`${apiBase}/api/v1/movies`, { query: queryValues(query) })

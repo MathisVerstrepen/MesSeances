@@ -206,9 +206,46 @@ export interface Theater {
   name: string
   address: string
   city: string
+  city_slug: string
   postal_code: string
   available_dates: string[]
   accepted_passes: string[]
+}
+
+export interface City {
+  name: string
+  slug: string
+}
+
+export interface CityTheater {
+  provider: Provider
+  id: string
+  slug: string
+  name: string
+}
+
+export interface CityInventoryItem extends City {
+  theaters: CityTheater[]
+}
+
+export interface CitiesResponse {
+  generated_at: string
+  items: CityInventoryItem[]
+}
+
+export interface CityDetailResponse {
+  generated_at: string
+  city: City
+  theaters: Theater[]
+  movies: CatalogMovie[]
+}
+
+export interface TheaterShowtimesResponse {
+  generated_at: string
+  timezone: 'Europe/Paris'
+  theater: Theater
+  date: string | null
+  showtimes: TimelineShowtime[]
 }
 
 export interface TheaterQuery {

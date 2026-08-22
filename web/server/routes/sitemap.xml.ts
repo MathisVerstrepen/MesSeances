@@ -9,6 +9,15 @@ interface CatalogPage {
   generated_at: string
 }
 
+interface CityInventory {
+  generated_at: string
+  items: Array<{
+    name: string
+    slug: string
+    theaters: Array<{ provider: string; id: string; slug: string; name: string }>
+  }>
+}
+
 const PAGE_SIZE = 100
 
 function xmlEscape(value: string): string {
@@ -36,6 +45,28 @@ function assertPage(page: CatalogPage, expectedPage: number, total: number, gene
   }
 }
 
+function nonempty(value: string): boolean {
+  return value.trim().length > 0
+}
+
+function validateCities(inventory: CityInventory, generatedAt: string) {
+  if (inventory.generated_at !== generatedAt || !Array.isArray(inventory.items)) throw new Error('Inconsistent city inventory snapshot')
+  const citySlugs: string[] = []
+  const theaterSlugs: string[] = []
+  const theaterIds = new Set<string>()
+  for (const city of inventory.items) {
+    if (!nonempty(city.name) || !nonempty(city.slug) || !Array.isArray(city.theaters) || city.theaters.length === 0) throw new Error('Invalid city inventory item')
+    citySlugs.push(city.slug)
+    for (const theater of city.theaters) {
+      if (!nonempty(theater.provider) || !nonempty(theater.id) || !nonempty(theater.slug) || !nonempty(theater.name) || theaterIds.has(theater.id)) throw new Error('Invalid city theater inventory')
+      theaterIds.add(theater.id)
+      theaterSlugs.push(theater.slug)
+    }
+  }
+  if (new Set(citySlugs).size !== citySlugs.length || new Set(theaterSlugs).size !== theaterSlugs.length) throw new Error('Duplicate city or theater identity')
+  return { citySlugs: citySlugs.sort(), theaterSlugs: theaterSlugs.sort() }
+}
+
 export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig(event)
   const apiBase = config.apiBase.replace(/\/$/, '')
@@ -50,11 +81,15 @@ export default defineEventHandler(async (event) => {
       }
     })
 
-    const firstPage = await fetchPage(1)
+    const [firstPage, cityInventory] = await Promise.all([
+      fetchPage(1),
+      $fetch<CityInventory>(`${apiBase}/api/v1/cities`)
+    ])
     if (!Number.isSafeInteger(firstPage.total) || firstPage.total < 0 || !validTimestamp(firstPage.generated_at)) {
       throw new Error('Invalid movie catalog metadata')
     }
     assertPage(firstPage, 1, firstPage.total, firstPage.generated_at)
+    const { citySlugs, theaterSlugs } = validateCities(cityInventory, firstPage.generated_at)
 
     const movies = [...firstPage.items]
     const pageCount = Math.max(1, Math.ceil(firstPage.total / PAGE_SIZE))
@@ -70,13 +105,20 @@ export default defineEventHandler(async (event) => {
     }
     slugs.sort()
 
-    const dataPaths = ['/', '/films', ...slugs.map((slug) => `/film/${encodeURIComponent(slug)}`)]
+    const dataPaths = [
+      '/',
+      '/films',
+      ...citySlugs.map((slug) => `/ville/${encodeURIComponent(slug)}/cinemas`),
+      ...theaterSlugs.map((slug) => `/cinema/${encodeURIComponent(slug)}`),
+      ...slugs.map((slug) => `/film/${encodeURIComponent(slug)}`)
+    ]
     const staticPaths = ['/planning', '/recherche']
     const entries = [
       ...dataPaths.slice(0, 2).map((path) => ({ path, lastmod: firstPage.generated_at })),
       ...staticPaths.map((path) => ({ path, lastmod: null })),
       ...dataPaths.slice(2).map((path) => ({ path, lastmod: firstPage.generated_at }))
     ]
+    if (new Set(entries.map((entry) => entry.path)).size !== entries.length) throw new Error('Duplicate sitemap URL')
     const body = entries.map(({ path, lastmod }) => {
       const location = xmlEscape(absoluteSiteUrl(config.public.siteUrl, path))
       return `  <url>\n    <loc>${location}</loc>${lastmod ? `\n    <lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}\n  </url>`

@@ -11,6 +11,8 @@ const links = [
 ]
 
 const hasCompactPageControls = computed(() => route.path.startsWith('/film/')
+  || route.path.startsWith('/cinema/')
+  || route.path.startsWith('/ville/')
   || route.path === '/recherche'
   || route.path === '/planning'
   || route.path === '/films')
@@ -51,6 +53,8 @@ onMounted(() => {
       <NuxtLink
         to="/cinemas"
         class="order-2 ml-auto flex min-w-0 items-center gap-1.5 border-l-2 border-ink pl-3 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-ink transition-colors hover:text-primary lg:order-none lg:ml-6 lg:pl-4"
+        :class="route.path === '/cinemas' || route.path.startsWith('/cinema/') || route.path.startsWith('/ville/') ? 'text-primary' : undefined"
+        :aria-current="route.path === '/cinemas' || route.path.startsWith('/cinema/') || route.path.startsWith('/ville/') ? 'page' : undefined"
         :aria-label="`Gérer mes cinémas, ${favoriteSummary}`"
       >
         <MapPin :size="15" class="shrink-0 text-primary" stroke-width="2.5" aria-hidden="true" />

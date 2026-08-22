@@ -191,7 +191,9 @@ onMounted(async () => {
             <section v-for="group in visibleGroups" :key="group.city" class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
               <header class="grid gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
                 <div class="min-w-0">
-                  <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">{{ group.city }}</h3>
+                  <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">
+                    <NuxtLink :to="`/ville/${encodeURIComponent(group.theaters[0]!.city_slug)}/cinemas`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ group.city }}</NuxtLink>
+                  </h3>
                   <p class="utility-label mt-1">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
                 <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier les favoris à ${group.city}`">
@@ -214,30 +216,23 @@ onMounted(async () => {
                 </div>
               </header>
 
-              <div class="grid sm:grid-cols-2">
-                <label
+              <div class="theater-grid grid sm:grid-cols-2">
+                <div
                   v-for="theater in group.theaters"
                   :key="theater.id"
-                  class="theater-option group relative flex cursor-pointer items-start gap-4 border-b-2 border-ink p-4 sm:p-5"
+                  class="theater-option border-b-2 border-ink p-4 sm:p-5"
                   :class="[
-                    selectedIds.has(theater.id) ? 'theater-option--selected' : 'bg-surface hover:bg-[#f1efe8]',
+                    selectedIds.has(theater.id) ? 'theater-option--selected' : 'bg-surface',
                     group.theaters.length === 1 ? 'theater-option--full sm:col-span-2' : ''
                   ]"
                 >
-                  <input
-                    type="checkbox"
-                    class="peer sr-only"
-                    :checked="selectedIds.has(theater.id)"
-                    @change="toggleTheater(theater.id, $event)"
-                  />
-                  <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true">
-                    <Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" />
-                  </span>
-                  <span class="min-w-0">
-                    <BrandedText :text="theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" />
-                    <span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span>
-                  </span>
-                </label>
+                  <label class="group flex cursor-pointer items-start gap-4">
+                    <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id, $event)" />
+                    <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
+                    <span class="min-w-0"><BrandedText :text="theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
+                  </label>
+                  <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
+                </div>
               </div>
             </section>
           </div>
