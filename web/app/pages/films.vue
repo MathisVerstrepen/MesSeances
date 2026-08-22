@@ -138,6 +138,13 @@ function markPosterUnavailable(slug: string) {
   if (!failedPosters.value.includes(slug)) failedPosters.value = [...failedPosters.value, slug]
 }
 
+function formatRuntime(runtimeMinutes: number): string {
+  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0) return 'Durée non renseignée'
+  const hours = Math.floor(runtimeMinutes / 60)
+  const minutes = runtimeMinutes % 60
+  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
+}
+
 watch(() => route.query, () => {
   if (isMounted) applyRoute()
 })
@@ -233,11 +240,10 @@ useHead({ title: 'Films à l’affiche - MesSeances' })
                     <Film :size="32" aria-hidden="true" />
                     <span class="text-xs font-bold">Affiche indisponible</span>
                   </div>
-                  <span class="runtime-badge">{{ movie.runtime_minutes }} min</span>
                 </div>
                 <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
                   <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
-                  <span class="mt-3 inline-block border-b-2 border-ink font-mono text-[9px] font-bold uppercase tracking-[0.14em]">Voir le film</span>
+                  <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">{{ formatRuntime(movie.runtime_minutes) }}</span>
                 </div>
               </NuxtLink>
             </li>
@@ -377,20 +383,6 @@ useHead({ title: 'Films à l’affiche - MesSeances' })
   border: 2px solid #27272a;
   background: #e8e6de;
   box-shadow: 5px 5px 0 #27272a;
-}
-
-.runtime-badge {
-  position: absolute;
-  right: 0.4rem;
-  bottom: 0.4rem;
-  border: 2px solid #27272a;
-  border-radius: 999px;
-  background: var(--color-highlight);
-  padding: 0.25rem 0.45rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.58rem;
-  font-weight: 900;
-  line-height: 1;
 }
 
 .page-button {
