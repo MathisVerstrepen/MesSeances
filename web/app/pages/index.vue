@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowRight, Building2, CalendarRange, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
+import { AlertTriangle, ArrowRight, Building2, CalendarRange, Film, RefreshCw, Search } from '@lucide/vue'
 import type { CatalogMovie } from '~/types/api'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 
@@ -100,7 +100,7 @@ useHead({ title: 'MesSeances - Vos séances, au bon moment' })
       </div>
     </section>
 
-    <section class="poster-canvas relative border-b-2 border-ink" aria-labelledby="now-showing-title">
+    <section class="poster-canvas relative border-b-2 border-ink" aria-labelledby="now-showing-title" :aria-busy="pending">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
         <div class="relative z-10 flex items-center justify-between gap-4">
           <h2 id="now-showing-title" class="font-mono text-xs font-bold uppercase tracking-[0.18em] text-ink">À l’affiche maintenant</h2>
@@ -109,10 +109,14 @@ useHead({ title: 'MesSeances - Vos séances, au bon moment' })
           </NuxtLink>
         </div>
 
-        <div v-if="pending" class="canvas-state" role="status" aria-live="polite">
-          <LoaderCircle :size="32" class="animate-spin" aria-hidden="true" />
-          <p>Chargement des films…</p>
-        </div>
+        <ul v-if="pending" class="poster-collage" aria-hidden="true">
+          <li v-for="index in 6" :key="index" :class="`poster-card poster-card--${index}`">
+            <div class="poster-skeleton">
+              <div class="poster-frame poster-frame--skeleton" />
+              <div class="poster-label poster-label--skeleton" />
+            </div>
+          </li>
+        </ul>
 
         <div v-else-if="errorMessage" class="canvas-state" role="alert">
           <AlertTriangle :size="32" class="text-primary" aria-hidden="true" />
@@ -262,6 +266,11 @@ useHead({ title: 'MesSeances - Vos séances, au bon moment' })
   transition: transform 180ms ease;
 }
 
+.poster-skeleton {
+  display: block;
+  border-radius: 0.4rem;
+}
+
 .poster-link:hover {
   transform: translateY(-4px) rotate(1deg);
 }
@@ -273,6 +282,12 @@ useHead({ title: 'MesSeances - Vos séances, au bon moment' })
   border-radius: 0.4rem;
   background: #e8e6de;
   box-shadow: 7px 7px 0 rgba(39, 39, 42, 0.95);
+}
+
+.poster-frame--skeleton,
+.poster-label--skeleton {
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
+  background: #d8d5cc;
 }
 
 .poster-label {
@@ -288,6 +303,22 @@ useHead({ title: 'MesSeances - Vos séances, au bon moment' })
   font-size: 0.68rem;
   font-weight: 900;
   line-height: 1;
+}
+
+.poster-label--skeleton {
+  height: 1.75rem;
+  border-radius: 999px;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 767px) {
@@ -321,6 +352,11 @@ useHead({ title: 'MesSeances - Vos séances, au bon moment' })
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .poster-frame--skeleton,
+  .poster-label--skeleton {
+    animation: none;
+  }
+
   .brutal-button:hover,
   .poster-link:hover {
     transform: none;
