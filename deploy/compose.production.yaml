@@ -56,7 +56,9 @@ services:
       api:
         condition: service_healthy
     environment:
+      NUXT_API_BASE: http://api:8080
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:?NUXT_PUBLIC_API_BASE is required}
+      NUXT_PUBLIC_SITE_URL: ${WEB_ORIGIN:?WEB_ORIGIN is required}
     ports:
       - "127.0.0.1:${WEB_PUBLISHED_PORT:-3000}:3000"
     healthcheck:

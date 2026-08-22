@@ -6,6 +6,7 @@ import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '
 import { formatLabel, isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
+import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 type LanguageFilter = 'ALL' | Showtime['language']
 type TechnologyFilter = 'ALL' | ShowtimeFormat
@@ -34,6 +35,7 @@ const openMobilePanel = ref<MobileControlPanel | null>(null)
 const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
 const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
 const currentTime = ref<number | null>(null)
+const isPersonalizedSchedule = ref(false)
 let requestId = 0
 let currentTimeTimer: number | undefined
 let isReady = false
@@ -164,6 +166,7 @@ function fallbackDate(): string {
 
 function isAvailableDate(value: string | undefined): value is string {
   if (!value) return false
+  if (!preferences.isInitialized.value) return true
   return availableDates.value.length > 0 ? availableDates.value.includes(value) : value === todayInParis()
 }
 
@@ -266,14 +269,19 @@ async function loadSchedule() {
     })
     if (currentRequest === requestId) {
       schedule.value = response
+      isPersonalizedSchedule.value = true
       await nextTick()
       await normalizeDynamicFilters()
     }
   } catch (error) {
     if (currentRequest === requestId) {
-      schedule.value = null
       notFound.value = isNotFoundError(error)
-      if (!notFound.value) errorMessage.value = getFrenchApiError(error)
+      if (notFound.value) {
+        schedule.value = null
+        isPersonalizedSchedule.value = false
+      } else {
+        errorMessage.value = getFrenchApiError(error)
+      }
     }
   } finally {
     if (currentRequest === requestId) pending.value = false
@@ -301,7 +309,6 @@ async function initializePreferencesAndLoad() {
   await preferences.initialize()
   if (!preferences.isInitialized.value) {
     pending.value = false
-    schedule.value = null
     errorMessage.value = preferences.error.value || 'Impossible de charger vos cinémas favoris.'
     return
   }
@@ -315,6 +322,30 @@ async function retryLoad() {
   else await loadSchedule()
 }
 
+hydrateRoute()
+const initialScheduleKey = `${slug.value}|${selectedDate.value}`
+const initialResult = await useAsyncData(`film-schedule:${initialScheduleKey}`, async () => {
+  try {
+    const response = await api.movieShowtimes(slug.value, { date: selectedDate.value })
+    return { kind: 'success' as const, schedule: response, errorMessage: '' }
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return { kind: 'not-found' as const, schedule: null, errorMessage: '' }
+    }
+    return { kind: 'upstream-error' as const, schedule: null, errorMessage: getFrenchApiError(error) }
+  }
+})
+
+const initialState = initialResult.data.value
+schedule.value = initialState?.schedule ?? null
+notFound.value = initialState?.kind === 'not-found'
+errorMessage.value = initialState?.errorMessage ?? ''
+pending.value = false
+if (import.meta.server && initialState?.kind !== 'success') {
+  const event = useRequestEvent()
+  if (event) setResponseStatus(event, initialState?.kind === 'not-found' ? 404 : 502)
+}
+
 watch(
   () => preferences.favoriteTheaterIds.value.join(','),
   () => {
@@ -326,6 +357,7 @@ watch(() => route.query, () => {
 })
 watch(slug, () => {
   schedule.value = null
+  isPersonalizedSchedule.value = false
   posterFailed.value = false
   backdropFailed.value = false
   lastScheduleKey = ''
@@ -343,9 +375,33 @@ onBeforeUnmount(() => {
   if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
 })
 
-useHead(() => ({
-  title: schedule.value?.movie.title ? `${schedule.value.movie.title} - MesSeances` : 'Séances du film - MesSeances'
-}))
+const config = useRuntimeConfig()
+const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(slug.value)}`))
+const fallbackImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
+const seoTitle = computed(() => schedule.value?.movie.title ? `${schedule.value.movie.title} - MesSeances` : 'Séances du film - MesSeances')
+const seoDescription = computed(() => {
+  const movie = schedule.value?.movie
+  if (!movie) return 'Consultez les séances, horaires et cinémas disponibles pour ce film sur MesSeances.'
+  return movie.overview?.trim() || `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
+})
+const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url) ?? safePosterUrl(schedule.value?.movie.poster_url) ?? fallbackImageUrl)
+
+useSeoMeta({
+  title: seoTitle,
+  description: seoDescription,
+  ogTitle: seoTitle,
+  ogDescription: seoDescription,
+  ogUrl: canonicalUrl,
+  ogType: 'video.movie',
+  ogImage: seoImageUrl,
+  ogSiteName: 'MesSeances',
+  ogLocale: 'fr_FR',
+  twitterCard: 'summary_large_image',
+  twitterTitle: seoTitle,
+  twitterDescription: seoDescription,
+  twitterImage: seoImageUrl
+})
+useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
 </script>
 
 <template>
@@ -662,7 +718,7 @@ useHead(() => ({
 
           <div v-else-if="schedule.theaters.length === 0" class="film-state mt-10">
             <CalendarDays :size="36" aria-hidden="true" />
-            <p>Aucune séance dans vos cinémas favoris à cette date.</p>
+            <p>{{ isPersonalizedSchedule ? 'Aucune séance dans vos cinémas favoris à cette date.' : 'Aucune séance à cette date.' }}</p>
           </div>
 
           <div v-else-if="visibleTheaters.length === 0" class="film-state mt-10">

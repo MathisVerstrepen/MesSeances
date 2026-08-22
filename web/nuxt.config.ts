@@ -60,8 +60,10 @@ export default defineNuxtConfig({
     }
   },
   runtimeConfig: {
+    apiBase: 'http://localhost:8080',
     public: {
-      apiBase: 'http://localhost:8080'
+      apiBase: 'http://localhost:8080',
+      siteUrl: 'http://localhost:3000'
     }
   },
   typescript: {

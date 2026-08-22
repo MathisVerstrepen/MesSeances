@@ -3,6 +3,7 @@ import { AlertTriangle, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vu
 import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
 import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { safePosterUrl } from '~/utils/safeImageUrl'
+import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const PAGE_SIZE = 24
 const DEFAULT_SORT: MovieSort = 'showtimes_desc'
@@ -145,15 +146,67 @@ function formatRuntime(runtimeMinutes: number): string {
   return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
 }
 
+hydrateRoute()
+const initialLoadKey = `${appliedSearch.value}|${sort.value}|${page.value}`
+const initialResult = await useAsyncData(`films-catalog:${initialLoadKey}`, async () => {
+  try {
+    const response = await api.movies({
+      currently_screened: true,
+      search: appliedSearch.value || undefined,
+      sort: sort.value,
+      page: page.value,
+      page_size: PAGE_SIZE
+    })
+    return { catalog: response, errorMessage: '' }
+  } catch (error) {
+    return { catalog: null, errorMessage: getFrenchApiError(error) }
+  }
+})
+
+catalog.value = initialResult.data.value?.catalog ?? null
+errorMessage.value = initialResult.data.value?.errorMessage ?? ''
+pending.value = false
+lastLoadKey = initialLoadKey
+if (import.meta.server && errorMessage.value) {
+  const event = useRequestEvent()
+  if (event) setResponseStatus(event, 502)
+}
+
 watch(() => route.query, () => {
   if (isMounted) applyRoute()
 })
 onMounted(() => {
   isMounted = true
-  applyRoute()
+  const lastPage = Math.max(1, Math.ceil((catalog.value?.total ?? 0) / PAGE_SIZE))
+  if (catalog.value && page.value > lastPage) {
+    router.replace({ query: filmQuery(appliedSearch.value, lastPage, sort.value) })
+  } else {
+    applyRoute()
+  }
 })
 
-useHead({ title: 'Films à l’affiche - MesSeances' })
+const config = useRuntimeConfig()
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/films')
+const socialImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
+const pageTitle = 'Films à l’affiche - MesSeances'
+const pageDescription = 'Parcourez les films actuellement au cinéma, recherchez un titre et consultez toutes les séances disponibles.'
+
+useSeoMeta({
+  title: pageTitle,
+  description: pageDescription,
+  ogTitle: pageTitle,
+  ogDescription: pageDescription,
+  ogUrl: canonicalUrl,
+  ogType: 'website',
+  ogImage: socialImageUrl,
+  ogSiteName: 'MesSeances',
+  ogLocale: 'fr_FR',
+  twitterCard: 'summary_large_image',
+  twitterTitle: pageTitle,
+  twitterDescription: pageDescription,
+  twitterImage: socialImageUrl
+})
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>

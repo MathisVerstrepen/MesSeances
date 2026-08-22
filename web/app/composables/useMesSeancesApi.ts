@@ -28,7 +28,7 @@ function queryValues<T extends object>(query: T) {
 
 export function useMesSeancesApi() {
   const config = useRuntimeConfig()
-  const apiBase = config.public.apiBase.replace(/\/$/, '')
+  const apiBase = (import.meta.server ? config.apiBase : config.public.apiBase).replace(/\/$/, '')
 
   async function withAdminRedirect<T>(request: Promise<T>): Promise<T> {
     try {

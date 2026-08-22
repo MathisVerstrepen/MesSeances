@@ -2,6 +2,7 @@
 import { AlertTriangle, ArrowRight, Building2, CalendarRange, Film, RefreshCw, Search } from '@lucide/vue'
 import type { CatalogMovie } from '~/types/api'
 import { safePosterUrl } from '~/utils/safeImageUrl'
+import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const api = useMesSeancesApi()
 const movies = ref<CatalogMovie[]>([])
@@ -69,9 +70,51 @@ function markPosterUnavailable(slug: string) {
   if (!failedPosters.value.includes(slug)) failedPosters.value = [...failedPosters.value, slug]
 }
 
-onMounted(loadMovies)
+const initialResult = await useAsyncData('home-current-movies', async () => {
+  try {
+    const response = await api.movies({
+      currently_screened: true,
+      sort: 'showtimes_desc',
+      page: 1,
+      page_size: 6
+    })
+    return { movies: response.items.slice(0, 6), errorMessage: '' }
+  } catch (error) {
+    const emptyMovies: CatalogMovie[] = []
+    return { movies: emptyMovies, errorMessage: getFrenchApiError(error) }
+  }
+})
 
-useHead({ title: 'MesSeances - Vos séances, au bon moment' })
+movies.value = initialResult.data.value?.movies ?? []
+errorMessage.value = initialResult.data.value?.errorMessage ?? ''
+pending.value = false
+if (import.meta.server && errorMessage.value) {
+  const event = useRequestEvent()
+  if (event) setResponseStatus(event, 502)
+}
+
+const config = useRuntimeConfig()
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/')
+const socialImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
+const pageTitle = 'MesSeances - Vos séances, au bon moment'
+const pageDescription = 'Découvrez les films actuellement à l’affiche et trouvez rapidement la séance de cinéma qui correspond à votre emploi du temps.'
+
+useSeoMeta({
+  title: pageTitle,
+  description: pageDescription,
+  ogTitle: pageTitle,
+  ogDescription: pageDescription,
+  ogUrl: canonicalUrl,
+  ogType: 'website',
+  ogImage: socialImageUrl,
+  ogSiteName: 'MesSeances',
+  ogLocale: 'fr_FR',
+  twitterCard: 'summary_large_image',
+  twitterTitle: pageTitle,
+  twitterDescription: pageDescription,
+  twitterImage: socialImageUrl
+})
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
