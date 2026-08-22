@@ -106,6 +106,63 @@ function absoluteHttpUrl(value, label) {
   assert(['http:', 'https:'].includes(parsed.protocol), `${label}: expected absolute HTTP(S) URL`)
 }
 
+function hasSafeImagePath(url, origin) {
+  const pathEnd = url.search(/[?#]/)
+  let decodedPath = url.slice(origin.length, pathEnd === -1 ? undefined : pathEnd)
+  try {
+    for (let depth = 0; depth < 3; depth++) {
+      const decoded = decodeURIComponent(decodedPath)
+      if (decoded === decodedPath) break
+      decodedPath = decoded
+    }
+  } catch {
+    return false
+  }
+  return !decodedPath.includes('%')
+    && !decodedPath.includes('\\')
+    && !decodedPath.slice(1).split('/').some((segment) => segment === '')
+    && !decodedPath.split('/').some((segment) => segment === '.' || segment === '..')
+}
+
+function safePosterUrl(value) {
+  if (!value || String(value).includes('\\')) return null
+  try {
+    const parsed = new URL(String(value))
+    const hostname = parsed.hostname.toLowerCase()
+    const allowed = (hostname === 'image.tmdb.org' && parsed.pathname.startsWith('/t/p/w500/') && parsed.pathname !== '/t/p/w500/')
+      || ((hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) && parsed.pathname !== '/')
+      || (hostname === 'cdn.kinepolis.fr' && parsed.pathname.startsWith('/images/') && parsed.pathname !== '/images/')
+    return parsed.protocol === 'https:' && !parsed.port && !parsed.username && !parsed.password && !parsed.search && !parsed.hash && allowed && hasSafeImagePath(String(value), parsed.origin) ? parsed.href : null
+  } catch {
+    return null
+  }
+}
+
+function safeBackdropUrl(value) {
+  const url = String(value ?? '')
+  const prefix = 'https://image.tmdb.org/t/p/w780/'
+  if (!url.startsWith(prefix) || url.includes('\\')) return null
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && parsed.hostname === 'image.tmdb.org' && !parsed.port && !parsed.username && !parsed.password && !parsed.search && !parsed.hash && parsed.pathname.startsWith('/t/p/w780/') && parsed.pathname !== '/t/p/w780/' && hasSafeImagePath(url, parsed.origin) ? parsed.href : null
+  } catch {
+    return null
+  }
+}
+
+function reservationUrl(showtime) {
+  const value = String(showtime.booking_url ?? '').trim()
+  if (!value) return null
+  try {
+    const parsed = new URL(value)
+    const hostProvider = parsed.hostname.toLowerCase() === 'www.ugc.fr' ? 'ugc' : parsed.hostname.toLowerCase() === 'kinepolis.fr' ? 'kinepolis' : null
+    if (parsed.protocol !== 'https:' || !hostProvider || (showtime.provider && showtime.provider !== hostProvider) || parsed.username || parsed.password || parsed.port) return null
+    return parsed.href
+  } catch {
+    return null
+  }
+}
+
 async function get(url, accept = 'text/html,application/json') {
   const response = await fetch(url, { headers: { accept }, redirect: 'manual' })
   return { response, body: await response.text() }
@@ -268,6 +325,9 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
     [`/film/${encodedSlug}?foreign=1`, `${siteUrl}/film/${encodedSlug}`],
     [`/ville/${encodeURIComponent(city.slug)}/cinemas?foreign=1`, `${siteUrl}/ville/${encodeURIComponent(city.slug)}/cinemas`],
     [`/cinema/${encodeURIComponent(theater.slug)}?date=bad`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`],
+    [`/cinema/${encodeURIComponent(theater.slug)}?date=2026-02-31`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`],
+    [`/cinema/${encodeURIComponent(theater.slug)}?date=`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`],
+    [`/cinema/${encodeURIComponent(theater.slug)}?date=2026-01-01&date=2026-01-02`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`],
     [`/cinema/${encodeURIComponent(theater.slug)}?foreign=1`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`]
   ]
   if (defaultDate) noindexCanonicalCases.push([`/cinema/${encodeURIComponent(theater.slug)}?date=${defaultDate}`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`])
@@ -408,6 +468,91 @@ function verifyCinemaJsonLd(html, response, path) {
   assertStableInternalLinks(html, path)
 }
 
+function groupedShowtimes(response) {
+  const groups = new Map()
+  for (const showtime of response.showtimes) {
+    const slug = showtime.movie.slug
+    const current = groups.get(slug)
+    if (current) {
+      current.showtimes.push(showtime)
+      current.posterUrl ||= safePosterUrl(showtime.poster_url)
+      current.backdropUrl ||= safeBackdropUrl(showtime.backdrop_url)
+    } else {
+      groups.set(slug, {
+        movie: showtime.movie,
+        showtimes: [showtime],
+        posterUrl: safePosterUrl(showtime.poster_url),
+        backdropUrl: safeBackdropUrl(showtime.backdrop_url)
+      })
+    }
+  }
+  return [...groups.values()]
+}
+
+function verifyCinemaRendering(html, response, path) {
+  assert(response.date, `${path}: API selected date is empty`)
+  assert(tags(html, 'time').some((tag) => tag.datetime === response.date), `${path}: selected date <time> missing or incorrect`)
+  const text = visibleText(html)
+  if (response.showtimes.length === 0) assert(text.includes('Aucune séance à cette date'), `${path}: empty-date state missing`)
+
+  const images = tags(html, 'img').filter((image) => image['data-media-kind'])
+  const fallbacks = tags(html, 'div').filter((element) => element['data-poster-fallback'])
+  for (const group of groupedShowtimes(response)) {
+    assert(text.includes(group.movie.title), `${path}: film title ${group.movie.title} missing`)
+    for (const [kind, expected] of [['poster', group.posterUrl], ['backdrop', group.backdropUrl]]) {
+      const matching = images.filter((image) => image['data-movie-slug'] === group.movie.slug && image['data-media-kind'] === kind)
+      assert(matching.length === (expected ? 1 : 0), `${path}: ${kind} count mismatch for ${group.movie.slug}`)
+      if (expected) assert(matching[0].src === expected, `${path}: ${kind} source mismatch for ${group.movie.slug}`)
+    }
+    if (!group.posterUrl) assert(fallbacks.some((fallback) => fallback['data-poster-fallback'] === group.movie.slug), `${path}: poster fallback missing for ${group.movie.slug}`)
+  }
+
+  const bookingAnchors = tags(html, 'a').filter((anchor) => anchor['data-showtime-id'])
+  const unavailableCards = tags(html, 'span').filter((span) => span['data-showtime-id'])
+  for (const showtime of response.showtimes) {
+    const expected = reservationUrl(showtime)
+    const anchors = bookingAnchors.filter((anchor) => anchor['data-showtime-id'] === showtime.id)
+    const unavailable = unavailableCards.filter((span) => span['data-showtime-id'] === showtime.id)
+    if (expected) {
+      assert(anchors.length === 1 && unavailable.length === 0, `${path}: booking anchor mismatch for ${showtime.id}`)
+      assert(anchors[0].href === expected && anchors[0].target === '_blank', `${path}: booking target mismatch for ${showtime.id}`)
+      assert(new Set(String(anchors[0].rel ?? '').split(/\s+/)).has('noopener') && new Set(String(anchors[0].rel ?? '').split(/\s+/)).has('noreferrer'), `${path}: booking rel mismatch for ${showtime.id}`)
+      assert(anchors[0]['aria-label']?.includes(showtime.movie.title) && anchors[0]['aria-label']?.includes(response.theater.name), `${path}: booking label lacks film or cinema for ${showtime.id}`)
+    } else {
+      assert(anchors.length === 0 && unavailable.length === 1 && unavailable[0]['aria-disabled'] === 'true', `${path}: unavailable booking card mismatch for ${showtime.id}`)
+    }
+  }
+}
+
+async function discoverCinemaFixture(theaters) {
+  let best = null
+  for (const theater of theaters) {
+    for (const date of theater.available_dates ?? []) {
+      const result = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(theater.slug)}/showtimes?date=${encodeURIComponent(date)}`)
+      assert(result.response.status === 200, `API cinema fixture ${theater.slug} ${date}: expected 200, received ${result.response.status}`)
+      const response = JSON.parse(result.body)
+      const groups = groupedShowtimes(response)
+      const mediaGroups = groups.filter((group) => group.posterUrl || group.backdropUrl).length
+      const availableBooking = response.showtimes.some((showtime) => reservationUrl(showtime))
+      const unavailableBooking = response.showtimes.some((showtime) => !reservationUrl(showtime))
+      const score = groups.length * 10 + mediaGroups * 4 + Number(availableBooking) * 2 + Number(unavailableBooking)
+      if (!best || score > best.score) best = { theater, date, response, groups: groups.length, mediaGroups, availableBooking, unavailableBooking, score }
+      if (groups.length >= 2 && mediaGroups >= 2 && availableBooking && unavailableBooking) return best
+    }
+  }
+  return best
+}
+
+async function discoverTodayEmptyFixture(theaters, today) {
+  for (const theater of theaters) {
+    const result = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(theater.slug)}/showtimes?date=${today}`)
+    assert(result.response.status === 200, `API today-empty fixture ${theater.slug}: expected 200, received ${result.response.status}`)
+    const response = JSON.parse(result.body)
+    if (response.showtimes.length === 0) return { theater, response }
+  }
+  return null
+}
+
 function todayInParis() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
@@ -448,13 +593,14 @@ async function verifyNormalMode() {
 
   const city = inventory.items[0]
   const theater = inventory.theaters[0]
-  const theaterApi = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(theater.slug)}/showtimes`)
+  const today = todayInParis()
+  const theaterApi = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(theater.slug)}/showtimes?date=${today}`)
   assert(theaterApi.response.status === 200, 'API representative theater showtimes unavailable')
   const theaterResponse = JSON.parse(theaterApi.body)
   assert(theaterResponse.generated_at === catalog.generatedAt, 'Representative theater generation mismatch')
 
   await verifyDiscovery(catalog, inventory)
-  await verifyIndexMatrix(catalog, movie, city, theater, theaterResponse.date)
+  await verifyIndexMatrix(catalog, movie, city, theater, today)
   await verifyCatalogLinks(catalog)
 
   const encodedSlug = encodeURIComponent(movie.slug)
@@ -492,12 +638,41 @@ async function verifyNormalMode() {
   const cinemaPath = `/cinema/${encodeURIComponent(theater.slug)}`
   const cinemaPage = await get(`${webUrl}${cinemaPath}`)
   verifyCinemaJsonLd(cinemaPage.body, theaterResponse, cinemaPath)
+  verifyCinemaRendering(cinemaPage.body, theaterResponse, cinemaPath)
   assert(visibleText(cinemaPage.body).includes(theater.name), `${cinemaPath}: cinema name missing from SSR body`)
+
+  const cinemaFixture = await discoverCinemaFixture(cityDetails.flatMap((detail) => detail.theaters))
+  if (cinemaFixture) {
+    const fixturePath = `/cinema/${encodeURIComponent(cinemaFixture.theater.slug)}?date=${encodeURIComponent(cinemaFixture.date)}`
+    const fixturePage = await get(`${webUrl}${fixturePath}`)
+    verifyPolicy(fixturePage, fixturePath, 'noindex,follow', `${siteUrl}/cinema/${encodeURIComponent(cinemaFixture.theater.slug)}`)
+    verifyCinemaJsonLd(fixturePage.body, cinemaFixture.response, fixturePath)
+    verifyCinemaRendering(fixturePage.body, cinemaFixture.response, fixturePath)
+    console.log(`Cinema fixture: ${cinemaFixture.theater.slug} ${cinemaFixture.date}; ${cinemaFixture.groups} film group(s), ${cinemaFixture.mediaGroups} media-backed group(s), booking available=${cinemaFixture.availableBooking}, unavailable=${cinemaFixture.unavailableBooking}.`)
+    if (cinemaFixture.groups < 2) console.log('Unconfirmed coverage: no explicit-date cinema fixture with multiple film groups was available.')
+    if (cinemaFixture.mediaGroups === 0) console.log('Unconfirmed coverage: no source-backed cinema media fixture was available.')
+    if (!cinemaFixture.availableBooking) console.log('Unconfirmed coverage: no valid cinema booking URL fixture was available.')
+    if (!cinemaFixture.unavailableBooking) console.log('Unconfirmed coverage: no unavailable cinema booking fixture was available.')
+  } else {
+    console.log('Unconfirmed coverage: no cinema with an available explicit date was returned by API discovery.')
+  }
+
+  const todayEmptyFixture = await discoverTodayEmptyFixture(cityDetails.flatMap((detail) => detail.theaters), today)
+  if (todayEmptyFixture) {
+    const emptyPath = `/cinema/${encodeURIComponent(todayEmptyFixture.theater.slug)}`
+    const emptyPage = await get(`${webUrl}${emptyPath}`)
+    verifyPolicy(emptyPage, emptyPath, 'index,follow', `${siteUrl}${emptyPath}`)
+    verifyCinemaJsonLd(emptyPage.body, todayEmptyFixture.response, emptyPath)
+    verifyCinemaRendering(emptyPage.body, todayEmptyFixture.response, emptyPath)
+    console.log(`Today-empty fixture: ${todayEmptyFixture.theater.slug} ${today}; queryless page returned 200 with explicit empty state.`)
+  } else {
+    console.log('Unconfirmed coverage: no cinema without sessions today was available.')
+  }
 
   const complete = cityDetails.flatMap((detail) => detail.theaters).find((item) => item.address.trim() && item.city.trim() && item.postal_code.trim())
   const incomplete = cityDetails.flatMap((detail) => detail.theaters).find((item) => !(item.address.trim() && item.city.trim() && item.postal_code.trim()))
   for (const sample of [complete, incomplete].filter(Boolean)) {
-    const apiResult = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(sample.slug)}/showtimes`)
+    const apiResult = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(sample.slug)}/showtimes?date=${today}`)
     const sampleResponse = JSON.parse(apiResult.body)
     const samplePath = `/cinema/${encodeURIComponent(sample.slug)}`
     const page = await get(`${webUrl}${samplePath}`)
