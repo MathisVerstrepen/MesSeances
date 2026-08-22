@@ -10,13 +10,16 @@ import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/
 import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import type { LocationQuery } from 'vue-router'
 
 const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads'] as const
+const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
 const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before'] as const
 const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
-type ResultView = 'movie' | 'chronological'
+type ResultGrouping = 'movie' | 'chronological'
+type ResultLayout = 'lines' | 'boxes'
 
 const api = useMesSeancesApi()
 const route = useRoute()
@@ -59,7 +62,16 @@ const isCalendarOpen = ref(false)
 const isCompactCalendarViewport = ref(false)
 const isCenteredCalendar = computed(() => isFilterSheetOpen.value && isCompactCalendarViewport.value)
 const todayDate = ref(todayInParis())
-const resultView = computed<ResultView>(() => singularQueryValue(route.query.view) === 'chronological' ? 'chronological' : 'movie')
+const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
+const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
+const groupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
+  { value: 'movie', label: 'Par film' },
+  { value: 'chronological', label: 'Chronologique' }
+]
+const layoutOptions: [{ value: ResultLayout; label: string }, { value: ResultLayout; label: string }] = [
+  { value: 'lines', label: 'Lignes' },
+  { value: 'boxes', label: 'Boîtes' }
+]
 const chronologicalResults = computed(() => [...(results.value ?? [])].sort((first, second) => {
   const timeDifference = Date.parse(first.showtime.start_time) - Date.parse(second.showtime.start_time)
   return timeDifference || first.showtime.id.localeCompare(second.showtime.id)
@@ -218,11 +230,20 @@ function formatCompactTime(time: string) {
   return minute === '00' ? `${Number(hour)}h` : `${Number(hour)}h${minute}`
 }
 
+function canonicalDisplayValues(query: LocationQuery) {
+  return {
+    grouping: singularQueryValue(query.grouping) === 'chronological' ? 'chronological' : undefined,
+    layout: singularQueryValue(query.layout) === 'boxes' ? 'boxes' : undefined
+  }
+}
+
+function withCanonicalDisplayQuery(query: LocationQuery) {
+  return mergeOwnedQuery(query, DISPLAY_QUERY_KEYS, canonicalDisplayValues(query))
+}
+
 function bareQuery() {
   const query = mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {})
-  return mergeOwnedQuery(query, ['view'], {
-    view: singularQueryValue(route.query.view) === 'chronological' ? 'chronological' : undefined
-  })
+  return withCanonicalDisplayQuery(query)
 }
 
 function submittedQuery(search: AppliedSearch) {
@@ -235,20 +256,29 @@ function submittedQuery(search: AppliedSearch) {
     format: search.format === 'ALL' ? undefined : search.format,
     include_ads: search.includeAds ? undefined : '0'
   })
-  return mergeOwnedQuery(query, ['view'], {
-    view: singularQueryValue(route.query.view) === 'chronological' ? 'chronological' : undefined
+  return withCanonicalDisplayQuery(query)
+}
+
+async function setResultGrouping(grouping: string) {
+  if (grouping !== 'movie' && grouping !== 'chronological') return
+  if (grouping === resultGrouping.value) return
+  await router.push({
+    query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
+      grouping: grouping === 'chronological' ? grouping : undefined,
+      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined
+    })
   })
 }
 
-async function setResultView(view: ResultView) {
-  if (view === resultView.value) return
-  await router.replace({
-    query: mergeOwnedQuery(route.query, ['view'], { view: view === 'chronological' ? view : undefined })
+async function setResultLayout(layout: string) {
+  if (layout !== 'lines' && layout !== 'boxes') return
+  if (layout === resultLayout.value) return
+  await router.push({
+    query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
+      grouping: resultGrouping.value === 'chronological' ? 'chronological' : undefined,
+      layout: layout === 'boxes' ? layout : undefined
+    })
   })
-}
-
-function toggleResultView() {
-  void setResultView(resultView.value === 'movie' ? 'chronological' : 'movie')
 }
 
 function lockBodyScroll() {
@@ -723,7 +753,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </div>
 
         <div v-if="appliedSearch" class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3" :class="results ? '' : 'lg:hidden'">
-          <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] divide-x-2 divide-ink lg:hidden">
+          <div class="grid grid-cols-[auto_minmax(0,1fr)_minmax(3.5rem,auto)_minmax(3.5rem,auto)] divide-x-2 divide-ink lg:hidden">
             <p class="flex min-h-12 min-w-14 flex-col items-center justify-center px-2 font-mono font-black leading-none text-ink">
               <span class="text-base">{{ results?.length ?? '-' }}</span>
               <span class="mt-1 text-[9px] uppercase">séance{{ results?.length === 1 ? '' : 's' }}</span>
@@ -743,16 +773,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 <span class="mt-1 truncate text-[9px] text-muted">{{ compactFilterSummary }}</span>
               </span>
             </button>
-            <button
-              type="button"
-              class="min-h-12 min-w-16 px-2 font-mono text-[10px] font-black uppercase text-muted hover:bg-[#e8e6de] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ink"
-              :class="resultView === 'chronological' ? 'bg-ink text-white shadow-[inset_0_-3px_0_var(--color-highlight)]' : undefined"
-              :aria-pressed="resultView === 'chronological'"
-              aria-label="Affichage chronologique"
-              @click="toggleResultView"
-            >
-              Chrono
-            </button>
+            <ResultSettingMenu id="mobile-result-grouping" label="Groupe" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
+            <ResultSettingMenu id="mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
           </div>
 
           <div v-if="results" class="hidden lg:flex lg:items-center lg:justify-between lg:gap-3">
@@ -765,18 +787,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 </li>
               </ul>
             </div>
-            <div class="grid w-full grid-cols-2 border-2 border-ink bg-surface p-1 sm:w-auto" role="group" aria-label="Affichage des résultats">
-                <button
-                  v-for="option in [{ value: 'movie' as const, label: 'Par film' }, { value: 'chronological' as const, label: 'Chronologique' }]"
-                  :key="option.value"
-                  type="button"
-                  class="h-9 px-2 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1 sm:px-3"
-                  :class="resultView === option.value ? 'bg-ink text-white shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'text-muted hover:bg-[#e8e6de] hover:text-ink'"
-                  :aria-pressed="resultView === option.value"
-                  @click="setResultView(option.value)"
-                >
-                  {{ option.label }}
-                </button>
+            <div class="flex shrink-0 items-stretch border-2 border-ink bg-surface divide-x-2 divide-ink" role="group" aria-label="Réglages des résultats">
+              <ResultSettingMenu id="desktop-result-grouping" class="w-40" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
+              <ResultSettingMenu id="desktop-result-layout" class="w-32" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
             </div>
           </div>
         </div>
@@ -793,12 +806,17 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <CalendarSearch :size="30" class="text-muted" aria-hidden="true" />
           <p>Aucune séance ne tient entièrement dans ce créneau.</p>
         </div>
-        <div v-else-if="results && resultView === 'movie'" class="space-y-4">
-          <MovieSlotResultGroup v-for="group in movieGroups" :key="group.key" :results="group.slots" />
+        <div v-else-if="results && resultGrouping === 'movie'" class="space-y-4">
+          <MovieSlotResultGroup v-for="group in movieGroups" :key="group.key" :results="group.slots" :layout="resultLayout" />
         </div>
-        <div v-else-if="results" class="divide-y-2 divide-ink border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
+        <div v-else-if="results && resultLayout === 'lines'" class="divide-y-2 divide-ink border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
           <SlotResultCard v-for="result in chronologicalResults" :key="result.showtime.id" :result="result" />
         </div>
+        <ul v-else-if="results" class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4" aria-label="Séances compatibles par ordre chronologique">
+          <li v-for="result in chronologicalResults" :key="result.showtime.id" class="min-w-0">
+            <SlotResultBox :result="result" show-movie />
+          </li>
+        </ul>
         <div v-else class="search-state">
           <CalendarSearch :size="32" aria-hidden="true" />
           <p>Définissez votre créneau pour voir les séances compatibles.</p>
