@@ -3,14 +3,7 @@ package schedule
 import "time"
 
 const (
-	SchemaVersion     = 1
-	ProviderUGC       = "ugc"
-	ProviderKinepolis = "kinepolis"
-	ProviderCombined  = "combined"
-	ScopeAll          = "all_cinemas"
-	ScopeSingle       = "single_cinema"
-	LanguageVO        = "VO"
-	LanguageVFSME     = "VF_SME"
+	SchemaVersion = 1
 )
 
 type Window struct {
@@ -20,8 +13,8 @@ type Window struct {
 
 type Dataset struct {
 	SchemaVersion int              `json:"schema_version"`
-	Provider      string           `json:"provider"`
-	Scope         string           `json:"scope"`
+	Provider      Provider         `json:"provider"`
+	Scope         Scope            `json:"scope"`
 	GeneratedAt   time.Time        `json:"generated_at"`
 	Timezone      string           `json:"timezone"`
 	Window        Window           `json:"window"`
@@ -30,7 +23,7 @@ type Dataset struct {
 }
 
 type TheaterRecord struct {
-	Provider       string   `json:"provider,omitempty"`
+	Provider       Provider `json:"provider,omitempty"`
 	ID             string   `json:"id"`
 	ProviderID     string   `json:"provider_id"`
 	Slug           string   `json:"slug"`
@@ -43,7 +36,7 @@ type TheaterRecord struct {
 }
 
 type MovieRecord struct {
-	Provider              string           `json:"provider,omitempty"`
+	Provider              Provider         `json:"provider,omitempty"`
 	ProviderID            string           `json:"provider_id"`
 	Slug                  string           `json:"slug"`
 	Title                 string           `json:"title"`
@@ -54,7 +47,7 @@ type MovieRecord struct {
 	Genres                []string         `json:"genres,omitempty"`
 	Enrichment            *MovieEnrichment `json:"-"`
 	LocalMovieID          int64            `json:"-"`
-	LocalMetadataProvider string           `json:"-"`
+	LocalMetadataProvider Provider         `json:"-"`
 }
 
 type MovieEnrichment struct {
@@ -67,7 +60,7 @@ type MovieEnrichment struct {
 }
 
 type ShowtimeRecord struct {
-	Provider          string      `json:"provider,omitempty"`
+	Provider          Provider    `json:"provider,omitempty"`
 	ID                string      `json:"id"`
 	ProviderShowingID string      `json:"provider_showing_id"`
 	ServiceDate       string      `json:"service_date"`
@@ -75,9 +68,9 @@ type ShowtimeRecord struct {
 	Movie             MovieRecord `json:"movie"`
 	StartTime         time.Time   `json:"start_time"`
 	EndTime           time.Time   `json:"end_time"`
-	Language          string      `json:"language"`
+	Language          Language    `json:"language"`
 	ProviderVersion   string      `json:"provider_version"`
-	Format            string      `json:"format"`
+	Format            Format      `json:"format"`
 	Room              string      `json:"room"`
 	BookingURL        string      `json:"booking_url"`
 }

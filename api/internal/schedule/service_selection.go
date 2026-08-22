@@ -96,24 +96,24 @@ func (s *Service) parseServiceClock(date time.Time, value, parameter string) (ti
 	return localTime(date, hour, minute).UTC(), nil
 }
 
-func validateLanguage(language string) error {
+func validateLanguage(language Language) error {
 	if language != LanguageAll && language != LanguageVOSTFR && language != LanguageVF {
 		return invalid("Le paramètre language doit être ALL, VOSTFR ou VF.")
 	}
 	return nil
 }
 
-func matchesLanguage(session, requested string) bool {
+func matchesLanguage(session, requested Language) bool {
 	return requested == LanguageAll || requested == session || requested == LanguageVF && session == LanguageVFSME
 }
 
-func validateSlotFormat(format string) error {
+func validateSlotFormat(format Format) error {
 	if format != "" && format != FormatAll && !validFormat(format) {
 		return invalid("Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX.")
 	}
 	return nil
 }
 
-func matchesFormat(session, requested string) bool {
+func matchesFormat(session, requested Format) bool {
 	return requested == "" || requested == FormatAll || requested == session
 }

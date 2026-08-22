@@ -1,15 +1,15 @@
-package schedule
+package schedulepg
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"math"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"messeances/api/internal/schedule"
 )
 
 type movieRow struct {
@@ -24,25 +24,12 @@ type movieRow struct {
 	genres      []string
 }
 
-func prepareMovies(data Dataset) ([]movieRow, error) {
-	byID := make(map[string]movieRow)
-	for _, showing := range data.Showtimes {
-		provider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
-		candidate := movieRow{provider, showing.Movie.ProviderID, showing.Movie.Slug, showing.Movie.Title, showing.Movie.RuntimeMinutes, showing.Movie.PosterURL, showing.Movie.Overview, showing.Movie.ReleaseDate, append([]string{}, showing.Movie.Genres...)}
-		key := provider + "\x00" + candidate.providerID
-		if prior, exists := byID[key]; exists && (prior.provider != candidate.provider || prior.providerID != candidate.providerID || prior.slug != candidate.slug || prior.title != candidate.title || prior.runtime != candidate.runtime || prior.poster != candidate.poster || prior.overview != candidate.overview || prior.releaseDate != candidate.releaseDate || strings.Join(prior.genres, "\x00") != strings.Join(candidate.genres, "\x00")) {
-			return nil, fmt.Errorf("conflicting movie metadata")
-		}
-		byID[key] = candidate
+func publicationMovieRows(movies []schedule.MovieRecord) []movieRow {
+	rows := make([]movieRow, 0, len(movies))
+	for _, movie := range movies {
+		rows = append(rows, movieRow{string(movie.Provider), movie.ProviderID, movie.Slug, movie.Title, movie.RuntimeMinutes, movie.PosterURL, movie.Overview, movie.ReleaseDate, append([]string{}, movie.Genres...)})
 	}
-	rows := make([]movieRow, 0, len(byID))
-	for _, movie := range byID {
-		rows = append(rows, movie)
-	}
-	sort.Slice(rows, func(i, j int) bool {
-		return rows[i].provider+"\x00"+rows[i].providerID < rows[j].provider+"\x00"+rows[j].providerID
-	})
-	return rows, nil
+	return rows
 }
 
 func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, rows [][]any) error {
@@ -53,31 +40,27 @@ func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, ro
 	return err
 }
 
-func (s *PostgresStore) Replace(ctx context.Context, datasets []Dataset) (int64, error) {
+func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (int64, error) {
 	if len(datasets) == 0 || len(datasets) > 2 {
 		return 0, fmt.Errorf("invalid schedule replacement batch")
 	}
-	datasets = append([]Dataset(nil), datasets...)
+	datasets = append([]schedule.Dataset(nil), datasets...)
 	movieSets := make([][]movieRow, len(datasets))
-	providers := make(map[string]bool, len(datasets))
+	providers := make(map[schedule.Provider]bool, len(datasets))
 	for i := range datasets {
-		if err := ValidateDataset(datasets[i], true); err != nil {
+		publication, err := schedule.PreparePublication(datasets[i])
+		if err != nil {
 			return 0, err
 		}
-		if datasets[i].Provider != ProviderUGC && datasets[i].Provider != ProviderKinepolis || providers[datasets[i].Provider] {
+		datasets[i] = publication.Dataset
+		if datasets[i].Provider != schedule.ProviderUGC && datasets[i].Provider != schedule.ProviderKinepolis || providers[datasets[i].Provider] {
 			return 0, fmt.Errorf("invalid schedule replacement providers")
 		}
 		if i > 0 && (datasets[i].Scope != datasets[0].Scope || datasets[i].Timezone != datasets[0].Timezone || datasets[i].SchemaVersion != datasets[0].SchemaVersion) {
 			return 0, fmt.Errorf("incompatible schedule replacement datasets")
 		}
 		providers[datasets[i].Provider] = true
-		var err error
-		movieSets[i], err = prepareMovies(datasets[i])
-		if err != nil {
-			return 0, err
-		}
-		datasets[i] = cloneDataset(datasets[i])
-		normalizeDataset(&datasets[i])
+		movieSets[i] = publicationMovieRows(publication.Movies)
 	}
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -118,26 +101,25 @@ func (s *PostgresStore) Replace(ctx context.Context, datasets []Dataset) (int64,
 		}
 	}
 	for batchIndex, data := range datasets {
-		if _, err := tx.Exec(ctx, "DELETE FROM showtimes WHERE generation_id=$1 AND provider=$2", version, data.Provider); err != nil {
+		if _, err := tx.Exec(ctx, "DELETE FROM showtimes WHERE generation_id=$1 AND provider=$2", version, string(data.Provider)); err != nil {
 			return 0, fmt.Errorf("clear candidate provider showtimes failed")
 		}
-		if _, err := tx.Exec(ctx, "DELETE FROM theaters WHERE generation_id=$1 AND provider=$2", version, data.Provider); err != nil {
+		if _, err := tx.Exec(ctx, "DELETE FROM theaters WHERE generation_id=$1 AND provider=$2", version, string(data.Provider)); err != nil {
 			return 0, fmt.Errorf("clear candidate provider theaters failed")
 		}
-		if _, err := tx.Exec(ctx, "DELETE FROM movies WHERE generation_id=$1 AND provider=$2", version, data.Provider); err != nil {
+		if _, err := tx.Exec(ctx, "DELETE FROM movies WHERE generation_id=$1 AND provider=$2", version, string(data.Provider)); err != nil {
 			return 0, fmt.Errorf("clear candidate provider movies failed")
 		}
-		if _, err := tx.Exec(ctx, "DELETE FROM provider_snapshots WHERE generation_id=$1 AND provider=$2", version, data.Provider); err != nil {
+		if _, err := tx.Exec(ctx, "DELETE FROM provider_snapshots WHERE generation_id=$1 AND provider=$2", version, string(data.Provider)); err != nil {
 			return 0, fmt.Errorf("clear candidate provider metadata failed")
 		}
 		theaterRows := make([][]any, 0, len(data.Theaters))
 		dateRows := make([][]any, 0)
 		passLinkRows := make([][]any, 0, len(data.Theaters))
-		location, _ := time.LoadLocation(Timezone)
 		for _, theater := range data.Theaters {
-			theaterRows = append(theaterRows, []any{theater.ID, theater.ProviderID, theater.Slug, theater.Name, theater.Address, theater.City, theater.PostalCode, recordProvider(theater.Provider, theater.ID), version})
+			theaterRows = append(theaterRows, []any{theater.ID, theater.ProviderID, theater.Slug, theater.Name, theater.Address, theater.City, theater.PostalCode, string(theater.Provider), version})
 			for _, date := range theater.AvailableDates {
-				parsed, _ := time.ParseInLocation(dateLayout, date, location)
+				parsed, _ := schedule.ParseServiceDate(date)
 				dateRows = append(dateRows, []any{theater.ID, parsed, version})
 			}
 			for _, pass := range theater.AcceptedPasses {
@@ -176,13 +158,13 @@ func (s *PostgresStore) Replace(ctx context.Context, datasets []Dataset) (int64,
 		}
 		showtimeRows := make([][]any, 0, len(data.Showtimes))
 		for _, showing := range data.Showtimes {
-			serviceDate, _ := time.ParseInLocation(dateLayout, showing.ServiceDate, location)
-			showtimeRows = append(showtimeRows, []any{showing.ID, showing.ProviderShowingID, serviceDate, showing.TheaterID, showing.Movie.ProviderID, showing.StartTime, showing.EndTime, showing.Language, showing.ProviderVersion, showing.Format, showing.Room, showing.BookingURL, recordProvider(showing.Provider, showing.ID), version})
+			serviceDate, _ := schedule.ParseServiceDate(showing.ServiceDate)
+			showtimeRows = append(showtimeRows, []any{showing.ID, showing.ProviderShowingID, serviceDate, showing.TheaterID, showing.Movie.ProviderID, showing.StartTime, showing.EndTime, string(showing.Language), showing.ProviderVersion, string(showing.Format), showing.Room, showing.BookingURL, string(showing.Provider), version})
 		}
 		if err := copyRows(ctx, tx, "showtimes", []string{"id", "provider_showing_id", "service_date", "theater_id", "movie_provider_id", "start_time", "end_time", "language", "provider_version", "format", "room", "booking_url", "provider", "generation_id"}, showtimeRows); err != nil {
 			return 0, fmt.Errorf("insert showtimes failed")
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO provider_snapshots (generation_id, provider, schema_version, scope, generated_at, timezone, window_from, window_through) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, version, data.Provider, data.SchemaVersion, data.Scope, data.GeneratedAt, data.Timezone, data.Window.From, data.Window.Through); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO provider_snapshots (generation_id, provider, schema_version, scope, generated_at, timezone, window_from, window_through) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, version, string(data.Provider), data.SchemaVersion, string(data.Scope), data.GeneratedAt, data.Timezone, data.Window.From, data.Window.Through); err != nil {
 			return 0, fmt.Errorf("write provider snapshot metadata failed")
 		}
 	}
@@ -192,12 +174,12 @@ func (s *PostgresStore) Replace(ctx context.Context, datasets []Dataset) (int64,
 	if err := tx.QueryRow(ctx, `SELECT CASE WHEN count(*)=1 THEN min(provider) ELSE 'combined' END, max(generated_at), min(window_from), max(window_through) FROM provider_snapshots WHERE generation_id=$1`, version).Scan(&combinedProvider, &combinedGenerated, &combinedFrom, &combinedThrough); err != nil {
 		return 0, fmt.Errorf("read combined provider failed")
 	}
-	if !ValidInclusiveDateWindow(combinedFrom, combinedThrough) {
+	if !schedule.ValidInclusiveDateWindow(combinedFrom, combinedThrough) {
 		return 0, fmt.Errorf("combined schedule window exceeded")
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO schedule_snapshot (singleton, version, schema_version, provider, scope, generated_at, timezone, window_from, window_through)
 	VALUES (true, $1, $2, $3, $4, $5, $6, $7, $8)
-	ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, schema_version=EXCLUDED.schema_version, provider=EXCLUDED.provider, scope=EXCLUDED.scope, generated_at=EXCLUDED.generated_at, timezone=EXCLUDED.timezone, window_from=EXCLUDED.window_from, window_through=EXCLUDED.window_through`, version, datasets[0].SchemaVersion, combinedProvider, datasets[0].Scope, combinedGenerated, datasets[0].Timezone, combinedFrom, combinedThrough); err != nil {
+	ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, schema_version=EXCLUDED.schema_version, provider=EXCLUDED.provider, scope=EXCLUDED.scope, generated_at=EXCLUDED.generated_at, timezone=EXCLUDED.timezone, window_from=EXCLUDED.window_from, window_through=EXCLUDED.window_through`, version, datasets[0].SchemaVersion, combinedProvider, string(datasets[0].Scope), combinedGenerated, datasets[0].Timezone, combinedFrom, combinedThrough); err != nil {
 		return 0, fmt.Errorf("write schedule snapshot metadata failed")
 	}
 	if err := tx.Commit(ctx); err != nil {

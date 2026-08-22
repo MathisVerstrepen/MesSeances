@@ -168,14 +168,14 @@ func TestValidateKinepolisDatasetIdentityPassesAndURLs(t *testing.T) {
 }
 
 func TestValidateDatasetCanonicalFormats(t *testing.T) {
-	for _, format := range []string{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
+	for _, format := range []Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
 		data := testDataset()
 		data.Showtimes[0].Format = format
 		if err := ValidateDataset(data, true); err != nil {
 			t.Errorf("canonical format %q rejected: %v", format, err)
 		}
 	}
-	for _, format := range []string{FormatAll, "screenx", "LASER ULTRA"} {
+	for _, format := range []Format{FormatAll, "screenx", "LASER ULTRA"} {
 		data := testDataset()
 		data.Showtimes[0].Format = format
 		if err := ValidateDataset(data, true); err == nil {

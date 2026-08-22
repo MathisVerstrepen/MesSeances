@@ -11,11 +11,11 @@ func compareNormalized(a, b string) int { return strings.Compare(normalized(a), 
 func localTime(date time.Time, hour, minute int) time.Time {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, date.Location())
 }
-func recordProvider(explicit, identity string) string {
+func recordProvider(explicit Provider, identity string) Provider {
 	if explicit != "" {
 		return explicit
 	}
-	if strings.HasPrefix(identity, ProviderKinepolis+"-") {
+	if strings.HasPrefix(identity, string(ProviderKinepolis)+"-") {
 		return ProviderKinepolis
 	}
 	return ProviderUGC

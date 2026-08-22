@@ -11,22 +11,24 @@ import (
 )
 
 type Target string
+type JobState string
+type ProviderState string
 
 const (
 	TargetAll       Target = "all"
 	TargetUGC       Target = "ugc"
 	TargetKinepolis Target = "kinepolis"
 
-	StateRunning   = "running"
-	StateSucceeded = "succeeded"
-	StateFailed    = "failed"
+	StateRunning   JobState = "running"
+	StateSucceeded JobState = "succeeded"
+	StateFailed    JobState = "failed"
 
-	ProviderNotRequested = "not_requested"
-	ProviderPending      = "pending"
-	ProviderRunning      = "running"
-	ProviderSucceeded    = "succeeded"
-	ProviderFailed       = "failed"
-	ProviderSkipped      = "skipped"
+	ProviderNotRequested ProviderState = "not_requested"
+	ProviderPending      ProviderState = "pending"
+	ProviderRunning      ProviderState = "running"
+	ProviderSucceeded    ProviderState = "succeeded"
+	ProviderFailed       ProviderState = "failed"
+	ProviderSkipped      ProviderState = "skipped"
 )
 
 var (
@@ -45,7 +47,7 @@ type Executor interface {
 }
 
 type ProviderStatus struct {
-	State     string           `json:"state"`
+	State     ProviderState    `json:"state"`
 	Outcome   *ProviderOutcome `json:"outcome,omitempty"`
 	ErrorCode FailureCode      `json:"error_code,omitempty"`
 }
@@ -53,7 +55,7 @@ type ProviderStatus struct {
 type Status struct {
 	ID         string                    `json:"id"`
 	Target     Target                    `json:"target"`
-	State      string                    `json:"state"`
+	State      JobState                  `json:"state"`
 	StartedAt  time.Time                 `json:"started_at"`
 	FinishedAt *time.Time                `json:"finished_at"`
 	From       string                    `json:"from"`
@@ -205,7 +207,7 @@ func (m *Manager) finishOperationFailure(code FailureCode, failedProvider Target
 	m.status.FinishedAt = &finished
 }
 
-func (m *Manager) setProvider(provider Target, state string) {
+func (m *Manager) setProvider(provider Target, state ProviderState) {
 	m.mu.Lock()
 	m.status.Providers[string(provider)] = ProviderStatus{State: state}
 	m.mu.Unlock()

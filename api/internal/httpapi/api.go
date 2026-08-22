@@ -120,7 +120,7 @@ func (api *API) timeline(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	language := schedule.LanguageAll
 	if query.Has("language") {
-		language = query.Get("language")
+		language = schedule.Language(query.Get("language"))
 	}
 
 	result, err := api.schedule.Timeline(schedule.TimelineQuery{
@@ -139,7 +139,7 @@ func (api *API) theaters(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	writeJSON(w, http.StatusOK, api.schedule.Theaters(schedule.TheaterCatalogQuery{
 		City:  query.Get("city"),
-		Chain: query.Get("chain"),
+		Chain: schedule.Provider(query.Get("chain")),
 	}))
 }
 
@@ -198,11 +198,11 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	language := schedule.LanguageAll
 	if query.Has("language") {
-		language = query.Get("language")
+		language = schedule.Language(query.Get("language"))
 	}
 	format := schedule.FormatAll
 	if query.Has("format") {
-		format = query.Get("format")
+		format = schedule.Format(query.Get("format"))
 		if format == "" {
 			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX.")
 			return

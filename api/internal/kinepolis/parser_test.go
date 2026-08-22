@@ -130,7 +130,7 @@ func TestParsePreservesMarathonRuntime(t *testing.T) {
 }
 
 func TestFormatCanonicalTechnologies(t *testing.T) {
-	tests := map[string]string{
+	tests := map[string]schedule.Format{
 		"2D":                       schedule.Format2D,
 		"3D":                       schedule.Format3D,
 		"ScreenX":                  schedule.FormatScreenX,

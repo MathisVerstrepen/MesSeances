@@ -56,6 +56,10 @@ Open [http://localhost:3000](http://localhost:3000). The API runs at `http://loc
 
 When admin access is enabled, configure both `ADMIN_PASSWORD` and an independently generated `ADMIN_SESSION_SECRET`. Password rotation changes login credentials without invalidating active sessions; session-secret rotation invalidates all active sessions. Leaving both blank disables admin access locally.
 
+Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout must be between 5s and 60s, Kinepolis interval must be at least 1s, and operation timeout must be positive. Explicit `-timeout` and `-request-interval` command flags override corresponding environment values.
+
+`PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
+
 Backend operational logs use JSON on stderr. Prometheus metrics are available without application authentication at `GET /metrics` on the API listener. Restrict this endpoint with deployment network or reverse-proxy controls; production Compose keeps the API host binding on loopback.
 
 To stop PostgreSQL later without deleting local data:

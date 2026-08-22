@@ -29,7 +29,7 @@ func positiveNumericID(value string) (string, bool) {
 	number, err := strconv.ParseUint(value, 10, 64)
 	return value, err == nil && number > 0
 }
-func normalizeLanguage(value string) (string, error) {
+func normalizeLanguage(value string) (schedule.Language, error) {
 	switch value {
 	case "VOSTF", "VOSTFR":
 		return schedule.LanguageVOSTFR, nil
@@ -43,7 +43,7 @@ func normalizeLanguage(value string) (string, error) {
 		return "", fmt.Errorf("unknown showing version")
 	}
 }
-func showingFormat(button *html.Node, cache *showingsParseCache) string {
+func showingFormat(button *html.Node, cache *showingsParseCache) schedule.Format {
 	for ancestor := button.Parent; ancestor != nil; ancestor = ancestor.Parent {
 		if node := cache.firstDescendantWithClass(ancestor, "screening-2D3D"); node != nil {
 			value := strings.ToUpper(collapse(cache.text(node)))
@@ -59,7 +59,7 @@ func showingFormat(button *html.Node, cache *showingsParseCache) string {
 			case value == "" || strings.Contains(value, "2D"):
 				return "2D"
 			default:
-				return value
+				return schedule.Format(value)
 			}
 		}
 		if hasClass(ancestor, "session") || cache.firstDescendantWithClass(ancestor, "screening-room") != nil {

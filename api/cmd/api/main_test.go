@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -70,15 +71,60 @@ func TestLoadSyncProxiesConfiguration(t *testing.T) {
 	}
 }
 
-func TestValidateAdminConfiguration(t *testing.T) {
-	for _, test := range []struct {
-		password, secret string
-		wantError        bool
-	}{{"", "", false}, {"", "secret-only", false}, {"password", "session-secret", false}, {"password", "", true}, {"password", " \t", true}} {
-		err := validateAdminConfiguration(test.password, test.secret)
-		if (err != nil) != test.wantError || err != nil && err.Error() != "configuration error" {
-			t.Fatalf("password=%q secret=%q err=%v", test.password, test.secret, err)
+func TestLoadAPIConfigurationIgnoresSyncTimingWhenCapabilityDisabled(t *testing.T) {
+	values := map[string]string{
+		"DATABASE_URL":                    "postgres://configured",
+		"SYNC_REQUEST_TIMEOUT":            "malformed-secret",
+		"SYNC_KINEPOLIS_REQUEST_INTERVAL": "malformed-secret",
+		"SYNC_OPERATION_TIMEOUT":          "malformed-secret",
+	}
+	getenv := func(name string) string { return values[name] }
+	cfg, syncConfig, err := loadAPIConfiguration(getenv)
+	if err != nil || cfg.Proxy.Path != "" || syncConfig.Sync.OperationTimeout != 0 {
+		t.Fatalf("cfg=%+v sync=%+v err=%v", cfg, syncConfig, err)
+	}
+	values["PROXY_FILE"] = "/configured/proxies.txt"
+	if _, _, err := loadAPIConfiguration(getenv); err == nil || strings.Contains(err.Error(), "malformed-secret") {
+		t.Fatalf("enabled capability err=%v", err)
+	}
+}
+
+func TestAPIStartupRejectsNonCanonicalOriginsBeforeAuthHandoff(t *testing.T) {
+	for _, origin := range []string{"https://EXAMPLE.com", "https://example.com:443", "http://example.com:80"} {
+		values := map[string]string{
+			"DATABASE_URL":         "postgres://configured",
+			"WEB_ORIGIN":           origin,
+			"ADMIN_PASSWORD":       "password",
+			"ADMIN_SESSION_SECRET": "session-secret",
 		}
+		_, _, err := loadAPIConfiguration(func(name string) string { return values[name] })
+		if err == nil || err.Error() != "configuration error" || strings.Contains(err.Error(), origin) {
+			t.Fatalf("origin=%q err=%v", origin, err)
+		}
+	}
+}
+
+func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
+	values := map[string]string{
+		"DATABASE_URL":         "postgres://configured",
+		"WEB_ORIGIN":           "https://example.com:8443",
+		"ADMIN_PASSWORD":       "password",
+		"ADMIN_SESSION_SECRET": "session-secret",
+	}
+	cfg, _, err := loadAPIConfiguration(func(name string) string { return values[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
+	adminOptions.Now = time.Now
+	handler := newAPIHandler(nil, cfg, adminOptions)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", cfg.Server.Origin)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Access-Control-Allow-Origin") != cfg.Server.Origin || len(response.Result().Cookies()) != 1 {
+		t.Fatalf("status=%d headers=%v body=%s cookies=%v", response.Code, response.Header(), response.Body.String(), response.Result().Cookies())
 	}
 }
 

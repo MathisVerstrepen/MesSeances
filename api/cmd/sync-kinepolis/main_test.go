@@ -74,6 +74,98 @@ func TestRunAcceptsValidProxyThenRequiresDatabase(t *testing.T) {
 	assertJSONLog(t, stderr, "configuration_failed", "configuration_error")
 }
 
+func TestRunHelpReturnsBeforeEnvironmentConfiguration(t *testing.T) {
+	deps := dependencies{getenv: func(string) string {
+		t.Fatal("environment read during help")
+		return ""
+	}}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-h"}, fixedNow, &stdout, &stderr, deps)
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "Usage of sync-kinepolis:") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunTimingEnvironmentAndExplicitOverridesReachKinepolisClient(t *testing.T) {
+	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")
+	if err := os.WriteFile(proxyFile, []byte("127.0.0.1:8080\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name         string
+		requestEnv   string
+		intervalEnv  string
+		args         []string
+		wantRequest  time.Duration
+		wantInterval time.Duration
+	}{
+		{name: "environment", requestEnv: "7s", intervalEnv: "3s", wantRequest: 7 * time.Second, wantInterval: 3 * time.Second},
+		{name: "explicit overrides", requestEnv: "malformed-secret", intervalEnv: "malformed-secret", args: []string{"-timeout", "8s", "-request-interval", "4s"}, wantRequest: 8 * time.Second, wantInterval: 4 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got kinepolis.ClientConfig
+			deps := dependencies{
+				getenv: func(name string) string {
+					switch name {
+					case "SYNC_REQUEST_TIMEOUT":
+						return test.requestEnv
+					case "SYNC_KINEPOLIS_REQUEST_INTERVAL":
+						return test.intervalEnv
+					default:
+						t.Fatalf("unexpected environment lookup %q", name)
+						return ""
+					}
+				},
+				newClient: func(config kinepolis.ClientConfig) (kinepolis.Fetcher, error) {
+					got = config
+					return nil, errors.New("stop after client construction")
+				},
+			}
+			args := append([]string{"-proxy-file", proxyFile}, test.args...)
+			var stdout, stderr bytes.Buffer
+			if code := runWithDependencies(context.Background(), args, fixedNow, &stdout, &stderr, deps); code != 2 || got.Timeout != test.wantRequest || got.RequestInterval != test.wantInterval {
+				t.Fatalf("code=%d config=%+v stdout=%q stderr=%q", code, got, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunOperationTimeoutReachesKinepolisExecutor(t *testing.T) {
+	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")
+	if err := os.WriteFile(proxyFile, []byte("127.0.0.1:8080\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var got time.Duration
+	deps := dependencies{
+		getenv: func(name string) string {
+			switch name {
+			case "DATABASE_URL":
+				return "postgres://configured"
+			case "SYNC_OPERATION_TIMEOUT":
+				return "37s"
+			default:
+				return ""
+			}
+		},
+		newClient: func(kinepolis.ClientConfig) (kinepolis.Fetcher, error) { return fakeFetcher{}, nil },
+		openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+			return databaseServices{writer: fakeWriter{}}, func() {}, nil
+		},
+		newExecutor: func(options synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
+			got = options.OperationTimeout
+			return fakeExecutor(func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error) {
+				return synccontrol.ProviderOutcome{Enrichment: synccontrol.EnrichmentOutcome{Status: "skipped"}}, nil
+			}), nil
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-proxy-file", proxyFile}, fixedNow, &stdout, &stderr, deps)
+	if code != 0 || got != 37*time.Second {
+		t.Fatalf("code=%d operation timeout=%s stdout=%q stderr=%q", code, got, stdout.String(), stderr.String())
+	}
+}
+
 type fakeFetcher struct{}
 
 func (fakeFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }

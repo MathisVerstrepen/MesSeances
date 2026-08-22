@@ -9,12 +9,12 @@ import (
 
 func testDataset() Dataset {
 	location, _ := time.LoadLocation(Timezone)
-	showing := func(id, theater, movieID, title, poster, clock, language string, runtime int) ShowtimeRecord {
+	showing := func(id, theater, movieID, title, poster, clock string, language Language, runtime int) ShowtimeRecord {
 		start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 "+clock, location)
 		if start.Hour() < 8 {
 			start = start.AddDate(0, 0, 1)
 		}
-		return ShowtimeRecord{ID: "ugc-showing-" + id, ProviderShowingID: id, ServiceDate: "2026-08-15", TheaterID: theater, Movie: MovieRecord{ProviderID: movieID, Slug: "ugc-film-" + movieID, Title: title, RuntimeMinutes: runtime, PosterURL: poster}, StartTime: start, EndTime: start.Add(time.Duration(runtime) * time.Minute), Language: language, ProviderVersion: language, Format: "2D", Room: "Salle 1", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=" + id}
+		return ShowtimeRecord{ID: "ugc-showing-" + id, ProviderShowingID: id, ServiceDate: "2026-08-15", TheaterID: theater, Movie: MovieRecord{ProviderID: movieID, Slug: "ugc-film-" + movieID, Title: title, RuntimeMinutes: runtime, PosterURL: poster}, StartTime: start, EndTime: start.Add(time.Duration(runtime) * time.Minute), Language: language, ProviderVersion: string(language), Format: Format2D, Room: "Salle 1", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=" + id}
 	}
 	return Dataset{SchemaVersion: 1, Provider: ProviderUGC, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-26", ProviderID: "26", Slug: "ugc-26", Name: "UGC Villeneuve", Address: "Villeneuve", City: "Villeneuve d'Ascq", PostalCode: "59650", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-99", ProviderID: "99", Slug: "ugc-99", Name: "UGC Lyon", Address: "Lyon", City: "Lyon", PostalCode: "69000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}}, Showtimes: []ShowtimeRecord{showing("100", "ugc-25", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "12:00", LanguageVOSTFR, 100), showing("104", "ugc-26", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "18:00", LanguageVOSTFR, 100), showing("101", "ugc-25", "201", "Film B", "", "14:30", LanguageVFSME, 95), showing("102", "ugc-26", "202", "Film C", "", "00:15", LanguageVO, 75), showing("103", "ugc-99", "203", "Film D", "", "12:30", LanguageVF, 90)}}
 }
@@ -225,7 +225,7 @@ func TestSearchSlotFormatFilteringAndValidation(t *testing.T) {
 	base := SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "20:00", Language: LanguageAll}
 	for _, test := range []struct {
 		name   string
-		format string
+		format Format
 		want   []string
 	}{
 		{"omitted defaults to all", "", []string{"ugc-showing-100", "ugc-showing-101", "ugc-showing-104"}},
@@ -313,7 +313,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 		t.Fatalf("schedule=%+v err=%v", schedule, err)
 	}
 	wantShowtimes := map[string]struct {
-		provider string
+		provider Provider
 		booking  string
 	}{
 		"ugc-showing-100":       {ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=100"},
@@ -435,7 +435,7 @@ func TestLocalMovieAggregatesCanonicalMetadataAndSourceShowtimes(t *testing.T) {
 		t.Fatalf("detail=%+v err=%v", detail, err)
 	}
 	want := map[string]struct {
-		provider string
+		provider Provider
 		booking  string
 	}{
 		"ugc-showing-100":       {ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=100"},

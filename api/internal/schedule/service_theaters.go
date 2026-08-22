@@ -3,8 +3,8 @@ package schedule
 import "strings"
 
 func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
-	chain := strings.TrimSpace(query.Chain)
-	if chain != "" && !strings.EqualFold(chain, ProviderUGC) && !strings.EqualFold(chain, ProviderKinepolis) {
+	chain := strings.TrimSpace(string(query.Chain))
+	if chain != "" && !strings.EqualFold(chain, string(ProviderUGC)) && !strings.EqualFold(chain, string(ProviderKinepolis)) {
 		return []Theater{}
 	}
 	city := strings.TrimSpace(query.City)
@@ -17,7 +17,7 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 	for _, position := range positions {
 		theater := view.data.Theaters[position]
 		provider := recordProvider(theater.Provider, theater.ID)
-		if chain != "" && !strings.EqualFold(chain, provider) {
+		if chain != "" && !strings.EqualFold(chain, string(provider)) {
 			continue
 		}
 		result = append(result, Theater{Provider: provider, ID: theater.ID, Slug: theater.Slug, Name: theater.Name, Address: theater.Address, City: theater.City, PostalCode: theater.PostalCode, AvailableDates: append([]string(nil), theater.AvailableDates...), AcceptedPasses: append([]string(nil), theater.AcceptedPasses...)})

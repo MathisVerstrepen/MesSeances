@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
 	runtimeconfig "messeances/api/internal/config"
@@ -16,6 +15,7 @@ import (
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/schedulepg"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
@@ -29,6 +29,7 @@ type config struct {
 
 type dependencies struct {
 	getenv       func(string) string
+	newClient    func(ugc.ClientConfig) (ugc.Getter, error)
 	sync         func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
 	openDatabase func(context.Context, string) (databaseServices, func(), error)
 	newTMDB      func(string) (enrichment.Provider, error)
@@ -46,7 +47,7 @@ type databaseServices struct {
 }
 
 func productionDependencies() dependencies {
-	return dependencies{getenv: os.Getenv, sync: ugc.Sync, openDatabase: func(ctx context.Context, databaseURL string) (databaseServices, func(), error) {
+	return dependencies{getenv: os.Getenv, newClient: func(config ugc.ClientConfig) (ugc.Getter, error) { return ugc.NewClient(config) }, sync: ugc.Sync, openDatabase: func(ctx context.Context, databaseURL string) (databaseServices, func(), error) {
 		pool, err := database.OpenPool(ctx, databaseURL)
 		if err != nil {
 			return databaseServices{}, nil, fmt.Errorf("database open failed")
@@ -55,7 +56,7 @@ func productionDependencies() dependencies {
 			pool.Close()
 			return databaseServices{}, nil, fmt.Errorf("database migration failed")
 		}
-		return databaseServices{writer: schedule.NewPostgresStore(pool), enrichment: enrichment.NewPostgresStore(pool)}, pool.Close, nil
+		return databaseServices{writer: schedulepg.NewStore(pool), enrichment: enrichment.NewPostgresStore(pool)}, pool.Close, nil
 	}, newTMDB: func(token string) (enrichment.Provider, error) { return tmdb.NewClient(token) }, enrich: func(ctx context.Context, store enrichment.Store, provider enrichment.Provider, movies []enrichment.Movie) (enrichment.Summary, error) {
 		return enrichment.NewMatcher(store, provider, time.Now).Run(ctx, movies)
 	}, newExecutor: func(options synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
@@ -78,6 +79,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, now func(
 
 func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.Writer, now func() time.Time, deps dependencies) int {
 	logger := observability.NewLogger(stderr)
+	if deps.getenv == nil {
+		deps.getenv = func(string) string { return "" }
+	}
+	if deps.newClient == nil {
+		deps.newClient = func(config ugc.ClientConfig) (ugc.Getter, error) { return ugc.NewClient(config) }
+	}
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
@@ -118,10 +125,18 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
-	if cfg.timeout < 5*time.Second || cfg.timeout > 60*time.Second {
+	overrides := &runtimeconfig.Overrides{}
+	flags.Visit(func(flag *flag.Flag) {
+		if flag.Name == "timeout" {
+			overrides.RequestTimeout = &cfg.timeout
+		}
+	})
+	timing, err := runtimeconfig.Load(runtimeconfig.UGCTiming, deps.getenv, overrides)
+	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
+	cfg.timeout = timing.Sync.RequestTimeout
 	proxyFile, err := os.Open(cfg.proxyFile)
 	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
@@ -140,7 +155,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		}
 		proxies = proxies[:cfg.proxyLimit]
 	}
-	client, err := ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.timeout})
+	client, err := deps.newClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.timeout})
 	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
@@ -159,13 +174,13 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		fmt.Fprintf(stdout, "sync complete mode=single_cinema persisted=false cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
 		return 0
 	}
-	databaseURL := deps.getenv("DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
+	fullConfig, err := runtimeconfig.Load(runtimeconfig.SyncFull, deps.getenv, nil)
+	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	openCtx, openCancel := context.WithTimeout(ctx, 30*time.Second)
-	services, closeDatabase, err := deps.openDatabase(openCtx, databaseURL)
+	services, closeDatabase, err := deps.openDatabase(openCtx, fullConfig.Database.URL)
 	openCancel()
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", "database_startup_failed")
@@ -173,7 +188,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	}
 	defer closeDatabase()
 	enrich := func(enrichCtx context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
-		token := strings.TrimSpace(deps.getenv("TMDB_API_READ_ACCESS_TOKEN"))
+		token := fullConfig.TMDB.Token
 		if token == "" {
 			return nil, nil
 		}
@@ -184,7 +199,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		summary, err := deps.enrich(enrichCtx, services.enrichment, provider, movies)
 		return &summary, err
 	}
-	executor, err := deps.newExecutor(synccontrol.ProductionExecutorOptions{Writer: services.writer, NewUGC: func() (ugc.Getter, error) { return client, nil }, Enrich: enrich, Now: now, Logger: logger})
+	executor, err := deps.newExecutor(synccontrol.ProductionExecutorOptions{Writer: services.writer, NewUGC: func() (ugc.Getter, error) { return client, nil }, Enrich: enrich, Now: now, Logger: logger, OperationTimeout: fullConfig.Sync.OperationTimeout})
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", "configuration_error")
 		return 1

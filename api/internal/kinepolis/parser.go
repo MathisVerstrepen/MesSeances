@@ -394,7 +394,7 @@ func collectStrings(value any, destination *[]string) {
 		}
 	}
 }
-func language(v string) string {
+func language(v string) schedule.Language {
 	lower := strings.ToLower(v)
 	if strings.Contains(lower, "sme") {
 		return schedule.LanguageVFSME
@@ -407,14 +407,14 @@ func language(v string) string {
 	}
 	return schedule.LanguageVF
 }
-func sessionFormat(session, film map[string]any, attributes string) string {
+func sessionFormat(session, film map[string]any, attributes string) schedule.Format {
 	parts := []string{stringValue(film, "format", "name"), attributes}
 	for _, key := range []string{"hall", "room", "screen", "technology"} {
 		collectStrings(value(session, key), &parts)
 	}
 	return format(strings.Join(parts, " "))
 }
-func format(v string) string {
+func format(v string) schedule.Format {
 	lower := strings.ToLower(v)
 	if strings.Contains(lower, "laser ultra") {
 		return schedule.FormatLaserUltra
@@ -422,7 +422,10 @@ func format(v string) string {
 	if strings.Contains(lower, "screenx") || strings.Contains(lower, "screen x") || strings.Contains(lower, "screen-x") {
 		return schedule.FormatScreenX
 	}
-	for _, item := range []struct{ needle, value string }{
+	for _, item := range []struct {
+		needle string
+		value  schedule.Format
+	}{
 		{"4dx", schedule.Format4DX},
 		{"imax", schedule.FormatIMAX},
 		{"dolby", schedule.FormatDolby},

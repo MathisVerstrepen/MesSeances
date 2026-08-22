@@ -26,7 +26,7 @@ type SyncOptions struct {
 	Now      time.Time
 }
 type SyncSummary struct {
-	Scope       string
+	Scope       schedule.Scope
 	Cinemas     int
 	Dates       int
 	Requests    int

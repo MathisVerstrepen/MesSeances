@@ -63,10 +63,10 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if provider == ProviderUGC && (theater.Address == "" || theater.PostalCode == "") {
 			return fmt.Errorf("theater has missing required field")
 		}
-		if !validProviderIdentity(provider, "theater", theater.ProviderID) || theater.ID != provider+"-"+theater.ProviderID || theater.Slug != theater.ID {
+		if !validProviderIdentity(provider, "theater", theater.ProviderID) || theater.ID != string(provider)+"-"+theater.ProviderID || theater.Slug != theater.ID {
 			return fmt.Errorf("invalid theater identity")
 		}
-		providerKey := provider + "\x00" + theater.ProviderID
+		providerKey := string(provider) + "\x00" + theater.ProviderID
 		if providerTheaters[providerKey] {
 			return fmt.Errorf("invalid or duplicate provider theater identity")
 		}
@@ -97,15 +97,15 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 			return fmt.Errorf("showing field limit exceeded")
 		}
 		theater, ok := theaters[showing.TheaterID]
-		providerShowingKey := provider + "\x00" + showing.ProviderShowingID
-		if !ok || provider != recordProvider(theater.Provider, theater.ID) || data.Provider != ProviderCombined && provider != data.Provider || showing.ID == "" || showing.ProviderShowingID == "" || showing.ID != provider+"-showing-"+showing.ProviderShowingID || !validProviderIdentity(provider, "showing", showing.ProviderShowingID) || showings[showing.ID] || providerShowings[providerShowingKey] {
+		providerShowingKey := string(provider) + "\x00" + showing.ProviderShowingID
+		if !ok || provider != recordProvider(theater.Provider, theater.ID) || data.Provider != ProviderCombined && provider != data.Provider || showing.ID == "" || showing.ProviderShowingID == "" || showing.ID != string(provider)+"-showing-"+showing.ProviderShowingID || !validProviderIdentity(provider, "showing", showing.ProviderShowingID) || showings[showing.ID] || providerShowings[providerShowingKey] {
 			return fmt.Errorf("invalid or duplicate showing identity")
 		}
 		showings[showing.ID] = true
 		providerShowings[providerShowingKey] = true
 		runtime, validRuntime := RuntimeDuration(showing.Movie.RuntimeMinutes)
 		movieProvider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
-		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != provider+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime {
+		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime {
 			return fmt.Errorf("invalid movie")
 		}
 		if showing.Movie.LocalMovieID < 0 || showing.Movie.LocalMovieID == 0 && showing.Movie.LocalMetadataProvider != "" {
@@ -115,7 +115,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 			if !validProvider(showing.Movie.LocalMetadataProvider, false) || showing.Movie.Enrichment != nil {
 				return fmt.Errorf("invalid local movie")
 			}
-			sourceKey := provider + "\x00" + showing.Movie.ProviderID
+			sourceKey := string(provider) + "\x00" + showing.Movie.ProviderID
 			if priorID, exists := sourceLocalMovies[sourceKey]; exists && priorID != showing.Movie.LocalMovieID {
 				return fmt.Errorf("inconsistent local movie identity")
 			}
@@ -216,10 +216,10 @@ func contains(values []string, value string) bool {
 	return false
 }
 
-func validLanguage(v string) bool {
+func validLanguage(v Language) bool {
 	return v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME
 }
-func validFormat(v string) bool {
+func validFormat(v Format) bool {
 	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX
 }
 
@@ -232,7 +232,7 @@ func validUGCURL(raw string, allowAssets bool) bool {
 	return host == "www.ugc.fr" || allowAssets && strings.HasSuffix(host, ".ugc.fr")
 }
 
-func validBookingURL(provider, raw, showingID, theaterProviderID string) bool {
+func validBookingURL(provider Provider, raw, showingID, theaterProviderID string) bool {
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" || parsed.RawPath != "" {
 		return false
@@ -249,11 +249,11 @@ func validBookingURL(provider, raw, showingID, theaterProviderID string) bool {
 
 var providerIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
-func validProvider(provider string, combined bool) bool {
+func validProvider(provider Provider, combined bool) bool {
 	return provider == ProviderUGC || provider == ProviderKinepolis || combined && provider == ProviderCombined
 }
 
-func validProviderIdentity(provider, kind, value string) bool {
+func validProviderIdentity(provider Provider, kind, value string) bool {
 	if !providerIdentity.MatchString(value) {
 		return false
 	}
@@ -264,7 +264,7 @@ func validProviderIdentity(provider, kind, value string) bool {
 	return provider == ProviderKinepolis
 }
 
-func validProviderImageURL(provider, raw string) bool {
+func validProviderImageURL(provider Provider, raw string) bool {
 	if provider == ProviderUGC {
 		return validUGCURL(raw, true)
 	}

@@ -54,6 +54,13 @@ func (commandProvider) Details(context.Context, int64) (tmdb.Details, error) {
 	return tmdb.Details{}, nil
 }
 
+type commandGetter struct{}
+
+func (commandGetter) Get(context.Context, string, string) (ugc.FetchResult, error) {
+	return ugc.FetchResult{}, nil
+}
+func (commandGetter) RequestCount() int { return 0 }
+
 func proxyFile(t *testing.T, content string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "proxies.txt")
@@ -63,7 +70,7 @@ func proxyFile(t *testing.T, content string) string {
 	return path
 }
 
-func commandDataset(scope string) schedule.Dataset {
+func commandDataset(scope schedule.Scope) schedule.Dataset {
 	location, _ := time.LoadLocation(schedule.Timezone)
 	start := time.Date(2026, 8, 15, 12, 0, 0, 0, location)
 	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderUGC, Scope: scope, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: schedule.Timezone, Window: schedule.Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []schedule.TheaterRecord{{ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}}, Showtimes: []schedule.ShowtimeRecord{{ID: "ugc-showing-100", ProviderShowingID: "100", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: schedule.MovieRecord{ProviderID: "10", Slug: "ugc-film-10", Title: "Film", RuntimeMinutes: 90}, StartTime: start, EndTime: start.Add(90 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", Room: "Salle 1", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=100"}}}
@@ -142,12 +149,91 @@ func TestRunRejectsRemovedCacheFlag(t *testing.T) {
 	}
 }
 
+func TestRunHelpReturnsBeforeEnvironmentConfiguration(t *testing.T) {
+	deps := dependencies{getenv: func(string) string {
+		t.Fatal("environment read during help")
+		return ""
+	}}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-h"}, &stdout, &stderr, fixedNow, deps)
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "Usage of sync-ugc:") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunTimingEnvironmentAndExplicitOverrideReachUGCClient(t *testing.T) {
+	path := proxyFile(t, "http://127.0.0.1:8080\n")
+	tests := []struct {
+		name string
+		env  string
+		args []string
+		want time.Duration
+	}{
+		{name: "environment", env: "7s", want: 7 * time.Second},
+		{name: "explicit override", env: "malformed-secret", args: []string{"-timeout", "8s"}, want: 8 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var got ugc.ClientConfig
+			deps := dependencies{
+				getenv: func(name string) string {
+					if name != "SYNC_REQUEST_TIMEOUT" {
+						t.Fatalf("unexpected environment lookup %q", name)
+					}
+					return test.env
+				},
+				newClient: func(config ugc.ClientConfig) (ugc.Getter, error) {
+					got = config
+					return nil, errors.New("stop after client construction")
+				},
+			}
+			args := append([]string{"-proxy-file", path, "-cinema-id", "25", "-from", "2026-08-15", "-through", "2026-08-15"}, test.args...)
+			var stdout, stderr bytes.Buffer
+			if code := runWithDependencies(context.Background(), args, &stdout, &stderr, fixedNow, deps); code != 2 || got.Timeout != test.want {
+				t.Fatalf("code=%d timeout=%s stdout=%q stderr=%q", code, got.Timeout, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunOperationTimeoutReachesUGCExecutor(t *testing.T) {
+	path := proxyFile(t, "http://127.0.0.1:8080\n")
+	writer := &fakeWriter{version: 4}
+	var got time.Duration
+	deps := dependencies{
+		getenv: func(name string) string {
+			switch name {
+			case "DATABASE_URL":
+				return "postgres://configured"
+			case "SYNC_OPERATION_TIMEOUT":
+				return "37s"
+			default:
+				return ""
+			}
+		},
+		newClient: func(ugc.ClientConfig) (ugc.Getter, error) { return commandGetter{}, nil },
+		sync:      fakeSync,
+		openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+			return databaseServices{writer: writer}, func() {}, nil
+		},
+		newExecutor: func(options synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
+			got = options.OperationTimeout
+			return testExecutorFactory(t)(options)
+		},
+	}
+	var stdout, stderr bytes.Buffer
+	code := runWithDependencies(context.Background(), []string{"-proxy-file", path, "-from", "2026-08-15", "-through", "2026-08-15"}, &stdout, &stderr, fixedNow, deps)
+	if code != 0 || got != 37*time.Second {
+		t.Fatalf("code=%d operation timeout=%s stdout=%q stderr=%q", code, got, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunCompleteMissingDatabaseURLBeforeSyncOrDatabase(t *testing.T) {
 	path := proxyFile(t, "http://127.0.0.1:8080\n")
 	syncCalled, databaseCalled := false, false
 	deps := dependencies{getenv: func(name string) string {
-		if name != "DATABASE_URL" {
-			t.Fatalf("env=%q", name)
+		if name == "DATABASE_URL" {
+			return ""
 		}
 		return ""
 	}, sync: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
@@ -167,7 +253,12 @@ func TestRunCompleteMissingDatabaseURLBeforeSyncOrDatabase(t *testing.T) {
 
 func TestRunDiagnosticNeverTouchesDatabase(t *testing.T) {
 	path := proxyFile(t, "http://127.0.0.1:8080\n")
-	deps := dependencies{getenv: func(string) string { t.Fatal("environment lookup called"); return "" }, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+	deps := dependencies{getenv: func(name string) string {
+		if name != "SYNC_REQUEST_TIMEOUT" {
+			t.Fatalf("unexpected environment lookup %q", name)
+		}
+		return ""
+	}, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
 		t.Fatal("database opener called")
 		return databaseServices{}, nil, nil
 	}}
@@ -202,7 +293,12 @@ func TestRunCompletePersistsExactlyOnceAndCloses(t *testing.T) {
 func TestRunDatabaseErrorIsRedacted(t *testing.T) {
 	path := proxyFile(t, "http://127.0.0.1:8080\n")
 	secret := "synthetic-password"
-	deps := dependencies{getenv: func(string) string { return "postgres://user:" + secret + "@bad" }, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
+	deps := dependencies{getenv: func(name string) string {
+		if name == "DATABASE_URL" {
+			return "postgres://user:" + secret + "@bad"
+		}
+		return ""
+	}, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
 		return databaseServices{}, nil, errors.New("parse " + secret)
 	}}
 	var stdout, stderr bytes.Buffer
@@ -292,7 +388,6 @@ func TestRunReplacementFailureNeverStartsEnrichment(t *testing.T) {
 		if name == "DATABASE_URL" {
 			return "postgres://configured"
 		}
-		t.Fatalf("post-commit env lookup %q", name)
 		return ""
 	}, sync: fakeSync, openDatabase: func(context.Context, string) (databaseServices, func(), error) {
 		return databaseServices{writer: writer}, func() {}, nil

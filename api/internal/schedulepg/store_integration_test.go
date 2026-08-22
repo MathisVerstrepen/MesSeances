@@ -1,4 +1,4 @@
-package schedule
+package schedulepg
 
 import (
 	"context"
@@ -18,7 +18,73 @@ import (
 
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/schedule"
 )
+
+var ErrNoCompleteSnapshot = schedule.ErrNoCompleteSnapshot
+
+type Dataset = schedule.Dataset
+type Window = schedule.Window
+type TheaterRecord = schedule.TheaterRecord
+type MovieRecord = schedule.MovieRecord
+type ShowtimeRecord = schedule.ShowtimeRecord
+
+const (
+	Timezone          = schedule.Timezone
+	ProviderUGC       = schedule.ProviderUGC
+	ProviderKinepolis = schedule.ProviderKinepolis
+	ProviderCombined  = schedule.ProviderCombined
+	ScopeAll          = schedule.ScopeAll
+	ScopeSingle       = schedule.ScopeSingle
+	LanguageAll       = schedule.LanguageAll
+	LanguageVOSTFR    = schedule.LanguageVOSTFR
+	LanguageVF        = schedule.LanguageVF
+	Format2D          = schedule.Format2D
+	Format3D          = schedule.Format3D
+	FormatIMAX        = schedule.FormatIMAX
+	FormatDolby       = schedule.FormatDolby
+	FormatScreenX     = schedule.FormatScreenX
+	FormatLaserUltra  = schedule.FormatLaserUltra
+	Format4DX         = schedule.Format4DX
+)
+
+type PostgresSource = schedule.PostgresSource
+type ServiceOptions = schedule.ServiceOptions
+type TimelineQuery = schedule.TimelineQuery
+type MovieCatalogQuery = schedule.MovieCatalogQuery
+type MovieShowtimesQuery = schedule.MovieShowtimesQuery
+
+var NewPostgresSource = schedule.NewPostgresSource
+var NewService = schedule.NewService
+var RuntimeDuration = schedule.RuntimeDuration
+
+func testDataset() Dataset {
+	location, _ := time.LoadLocation(Timezone)
+	showing := func(id, theater, movieID, title, poster, clock string, language schedule.Language, runtime int) ShowtimeRecord {
+		start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 "+clock, location)
+		if start.Hour() < 8 {
+			start = start.AddDate(0, 0, 1)
+		}
+		return ShowtimeRecord{ID: "ugc-showing-" + id, ProviderShowingID: id, ServiceDate: "2026-08-15", TheaterID: theater, Movie: MovieRecord{ProviderID: movieID, Slug: "ugc-film-" + movieID, Title: title, RuntimeMinutes: runtime, PosterURL: poster}, StartTime: start, EndTime: start.Add(time.Duration(runtime) * time.Minute), Language: language, ProviderVersion: string(language), Format: Format2D, Room: "Salle 1", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=" + id}
+	}
+	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderUGC, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-26", ProviderID: "26", Slug: "ugc-26", Name: "UGC Villeneuve", Address: "Villeneuve", City: "Villeneuve d'Ascq", PostalCode: "59650", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-99", ProviderID: "99", Slug: "ugc-99", Name: "UGC Lyon", Address: "Lyon", City: "Lyon", PostalCode: "69000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}}, Showtimes: []ShowtimeRecord{showing("100", "ugc-25", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "12:00", LanguageVOSTFR, 100), showing("104", "ugc-26", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "18:00", LanguageVOSTFR, 100), showing("101", "ugc-25", "201", "Film B", "", "14:30", LanguageVF, 95), showing("102", "ugc-26", "202", "Film C", "", "00:15", LanguageVF, 75), showing("103", "ugc-99", "203", "Film D", "", "12:30", LanguageVF, 90)}}
+}
+
+func kinepolisTestDataset() Dataset {
+	location, _ := time.LoadLocation(Timezone)
+	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 20:00", location)
+	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderKinepolis, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 13, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderKinepolis, ID: "kinepolis-LOM", ProviderID: "LOM", Slug: "kinepolis-LOM", Name: "Kinepolis Lomme", City: "Lomme", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderKinepolis, ID: "kinepolis-showing-VS1", ProviderShowingID: "VS1", ServiceDate: "2026-08-15", TheaterID: "kinepolis-LOM", Movie: MovieRecord{Provider: ProviderKinepolis, ProviderID: "HO200", Slug: "kinepolis-film-HO200", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://cdn.kinepolis.fr/images/posters/ho200.jpg", Overview: "Résumé Kinepolis", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: LanguageVF, ProviderVersion: "VF", Format: FormatIMAX, Room: "7", BookingURL: "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}}
+}
+
+func testMovieSlug(movie MovieRecord) string {
+	if movie.LocalMovieID > 0 {
+		return "local-film-" + strconv.FormatInt(movie.LocalMovieID, 10)
+	}
+	if movie.Enrichment != nil && movie.Enrichment.TMDBID > 0 {
+		return "tmdb-film-" + strconv.FormatInt(movie.Enrichment.TMDBID, 10)
+	}
+	return movie.Slug
+}
 
 func TestPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -130,7 +196,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		t.Fatal("duplicate source membership accepted")
 	}
 	_ = duplicateTx.Rollback(ctx)
-	store := NewPostgresStore(pool)
+	store := NewStore(pool)
 	if _, err := store.CurrentRevision(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
 		t.Fatalf("missing current version error=%v", err)
 	}
@@ -166,8 +232,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if !nullPosterFound {
 			t.Fatal("NULL poster did not round trip")
 		}
-		for _, format := range []string{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
-			if _, err := pool.Exec(ctx, "UPDATE showtimes SET format=$1 WHERE id='ugc-showing-100'", format); err != nil {
+		for _, format := range []schedule.Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
+			if _, err := pool.Exec(ctx, "UPDATE showtimes SET format=$1 WHERE id='ugc-showing-100'", string(format)); err != nil {
 				t.Fatalf("canonical database format %q rejected: %v", format, err)
 			}
 		}
@@ -216,9 +282,9 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err := pool.QueryRow(ctx, "SELECT count(*) FROM theaters WHERE generation_id=2 AND id IN ('ugc-26', 'ugc-99')").Scan(&oldRows); err != nil || oldRows != 0 {
 			t.Fatalf("old rows=%d", oldRows)
 		}
-		source.refresh(ctx)
-		if got := source.Snapshot().data.Theaters[0].Name; got != "UGC Lille remplacé" {
-			t.Fatalf("refreshed name=%q", got)
+		source, err = NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
 		}
 		service, err := NewService(source, ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
 		if err != nil {
@@ -242,7 +308,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 2 || len(loaded.Showtimes) != 2 {
 			t.Fatalf("combined revision=%+v dataset=%+v error=%v", revision, loaded, err)
 		}
-		providers := map[string]bool{}
+		providers := map[schedule.Provider]bool{}
 		marathonLoaded := false
 		for _, showing := range loaded.Showtimes {
 			marathonLoaded = marathonLoaded || showing.Movie.ProviderID == "HO200" && showing.Movie.RuntimeMinutes == 721 && showing.EndTime.Equal(showing.StartTime.Add(721*time.Minute))
@@ -355,18 +421,21 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("merge group=%+v err=%v", group, err)
 		}
 		localSlug := group.LocalMovieID
-		source.refresh(ctx)
-		loaded := source.Snapshot()
-		if len(loaded.data.Showtimes) != len(ugcCanonical.Showtimes)+len(kinepolisFallback.Showtimes) {
-			t.Fatalf("merged snapshot showtimes=%d", len(loaded.data.Showtimes))
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Showtimes) != len(ugcCanonical.Showtimes)+len(kinepolisFallback.Showtimes) {
+			t.Fatalf("merged snapshot showtimes=%d err=%v", len(loaded.Showtimes), err)
 		}
-		for _, showing := range loaded.data.Showtimes {
+		for _, showing := range loaded.Showtimes {
 			if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
 				continue
 			}
-			if showing.Movie.LocalMovieID != group.ID || publicMovieSlug(showing.Movie) != localSlug || showing.Movie.Title != "Canonique UGC" || showing.Movie.RuntimeMinutes != 120 || showing.Movie.PosterURL != "https://static.ugc.fr/posters/canonical.jpg" || showing.Movie.Overview != "Résumé canonique UGC" || showing.Movie.ReleaseDate != "2026-03-04" || len(showing.Movie.Genres) != 2 || showing.Movie.Enrichment != nil || !showing.EndTime.Equal(showing.StartTime.Add(120*time.Minute)) {
+			if showing.Movie.LocalMovieID != group.ID || testMovieSlug(showing.Movie) != localSlug || showing.Movie.Title != "Canonique UGC" || showing.Movie.RuntimeMinutes != 120 || showing.Movie.PosterURL != "https://static.ugc.fr/posters/canonical.jpg" || showing.Movie.Overview != "Résumé canonique UGC" || showing.Movie.ReleaseDate != "2026-03-04" || len(showing.Movie.Genres) != 2 || showing.Movie.Enrichment != nil || !showing.EndTime.Equal(showing.StartTime.Add(120*time.Minute)) {
 				t.Fatalf("canonical local showing=%+v", showing)
 			}
+		}
+		source, err = NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
 		}
 		publicService, err := NewService(source, ServiceOptions{})
 		if err != nil {
@@ -380,7 +449,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err != nil || len(detail.Theaters) != 3 {
 			t.Fatalf("local detail=%+v err=%v", detail, err)
 		}
-		providers := map[string]bool{}
+		providers := map[schedule.Provider]bool{}
 		for _, theater := range detail.Theaters {
 			for _, showing := range theater.Showtimes {
 				providers[showing.Provider] = true
@@ -397,8 +466,11 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version != 7 {
 			t.Fatalf("grouped UGC replace version=%d err=%v", version, err)
 		}
-		source.refresh(ctx)
-		if got := publicMovieSlug(source.Snapshot().data.Showtimes[0].Movie); got != localSlug {
+		loaded, _, err = store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := testMovieSlug(loaded.Showtimes[0].Movie); got != localSlug {
 			t.Fatalf("local ID after UGC replace=%q", got)
 		}
 		kinepolisFallback.GeneratedAt = kinepolisFallback.GeneratedAt.Add(time.Minute)
@@ -416,15 +488,17 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if version, err := store.Replace(ctx, []Dataset{ugcWithoutPrimary}); err != nil || version != 9 {
 			t.Fatalf("remove primary version=%d err=%v", version, err)
 		}
-		source.refresh(ctx)
-		fallbackSnapshot := source.Snapshot()
+		fallbackSnapshot, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
 		fallbackFound := false
-		for _, showing := range fallbackSnapshot.data.Showtimes {
+		for _, showing := range fallbackSnapshot.Showtimes {
 			if showing.Movie.ProviderID != "HO200" {
 				continue
 			}
 			fallbackFound = true
-			if publicMovieSlug(showing.Movie) != localSlug || showing.Movie.Title != "Fallback Kinepolis" || showing.Movie.RuntimeMinutes != 80 || showing.Movie.LocalMetadataProvider != ProviderKinepolis || !showing.EndTime.Equal(showing.StartTime.Add(80*time.Minute)) {
+			if testMovieSlug(showing.Movie) != localSlug || showing.Movie.Title != "Fallback Kinepolis" || showing.Movie.RuntimeMinutes != 80 || showing.Movie.LocalMetadataProvider != ProviderKinepolis || !showing.EndTime.Equal(showing.StartTime.Add(80*time.Minute)) {
 				t.Fatalf("fallback showing=%+v", showing)
 			}
 		}
@@ -436,9 +510,11 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version != 10 {
 			t.Fatalf("restore primary version=%d err=%v", version, err)
 		}
-		source.refresh(ctx)
-		restored := source.Snapshot()
-		for _, showing := range restored.data.Showtimes {
+		restored, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, showing := range restored.Showtimes {
 			if showing.Movie.ProviderID == "HO200" && (showing.Movie.Title != "Canonique UGC" || showing.Movie.LocalMetadataProvider != ProviderUGC) {
 				t.Fatalf("restored primary not canonical: %+v", showing.Movie)
 			}
@@ -447,17 +523,19 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err := localService.Unmerge(ctx, localSlug); err != nil {
 			t.Fatalf("unmerge failed: %v", err)
 		}
-		source.refresh(ctx)
-		unmerged := source.Snapshot()
+		unmerged, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
 		seenSlugs := map[string]bool{}
-		for _, showing := range unmerged.data.Showtimes {
+		for _, showing := range unmerged.Showtimes {
 			if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
 				continue
 			}
-			if showing.Movie.LocalMovieID != 0 || publicMovieSlug(showing.Movie) == localSlug {
+			if showing.Movie.LocalMovieID != 0 || testMovieSlug(showing.Movie) == localSlug {
 				t.Fatalf("local identity survived unmerge: %+v", showing.Movie)
 			}
-			seenSlugs[publicMovieSlug(showing.Movie)] = true
+			seenSlugs[testMovieSlug(showing.Movie)] = true
 			providerRuntime, _ := RuntimeDuration(showing.Movie.RuntimeMinutes)
 			if !showing.EndTime.Equal(showing.StartTime.Add(providerRuntime)) {
 				t.Fatalf("provider runtime not restored: %+v", showing)
@@ -465,6 +543,14 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		}
 		if !seenSlugs["ugc-film-200"] || !seenSlugs["kinepolis-film-HO200"] {
 			t.Fatalf("provider identities after unmerge=%v", seenSlugs)
+		}
+		source, err = NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		publicService, err = NewService(source, ServiceOptions{})
+		if err != nil {
+			t.Fatal(err)
 		}
 		if _, err := publicService.MovieShowtimes(MovieShowtimesQuery{Slug: localSlug, Date: "2026-08-15"}); err == nil {
 			t.Fatal("deleted local slug remained public")
@@ -574,12 +660,12 @@ func TestPostgresStoreIntegration(t *testing.T) {
 }
 
 func shiftedDataset(data Dataset, days int) Dataset {
-	data = cloneDataset(data)
+	publication, _ := schedule.PreparePublication(data)
+	data = publication.Dataset
 	data.GeneratedAt = data.GeneratedAt.AddDate(0, 0, days)
-	location, _ := time.LoadLocation(Timezone)
 	shiftDate := func(value string) string {
-		parsed, _ := time.ParseInLocation(dateLayout, value, location)
-		return parsed.AddDate(0, 0, days).Format(dateLayout)
+		parsed, _ := schedule.ParseServiceDate(value)
+		return schedule.FormatServiceDate(parsed.AddDate(0, 0, days))
 	}
 	data.Window.From = shiftDate(data.Window.From)
 	data.Window.Through = shiftDate(data.Window.Through)
@@ -700,7 +786,7 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run migration 006 on stale 005 failed")
 	}
-	store := NewPostgresStore(pool)
+	store := NewStore(pool)
 	var migrationName string
 	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 10 || migrationName != "010_schedule_generations.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
@@ -741,7 +827,7 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	if err != nil || revision.ScheduleVersion != 3 || revision.EnrichmentVersion != 1 || loaded.Provider != ProviderCombined {
 		t.Fatalf("combined load after repair revision=%+v provider=%q err=%v", revision, loaded.Provider, err)
 	}
-	providers := map[string]bool{}
+	providers := map[schedule.Provider]bool{}
 	for _, theater := range loaded.Theaters {
 		providers[theater.Provider] = true
 	}
@@ -803,7 +889,7 @@ func TestPostgresStoreRecordCountsIntegration(t *testing.T) {
 		theater.Slug = theater.ID
 		data.Theaters[index] = theater
 	}
-	store := NewPostgresStore(pool)
+	store := NewStore(pool)
 	if _, err := store.Replace(ctx, []Dataset{data}); err != nil {
 		t.Fatalf("replace 257 theaters: %v", err)
 	}

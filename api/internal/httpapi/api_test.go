@@ -49,7 +49,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 			StartTime:       start,
 			EndTime:         start.Add(100 * time.Minute),
 			Language:        schedule.LanguageVOSTFR,
-			ProviderVersion: schedule.LanguageVOSTFR,
+			ProviderVersion: string(schedule.LanguageVOSTFR),
 			Format:          "2D",
 			Room:            "Salle 1",
 			BookingURL:      "https://www.ugc.fr/reservationSeances.html?id=" + id,
@@ -220,7 +220,7 @@ func TestTheatersKinepolisChainAndCombinedProviderDTOs(t *testing.T) {
 		t.Fatalf("detail status=%d payload=%+v", detail.Code, movieSchedule)
 	}
 	want := map[string]struct {
-		provider string
+		provider schedule.Provider
 		booking  string
 	}{"ugc-showing-1": {schedule.ProviderUGC, "https://www.ugc.fr/reservationSeances.html?id=1"}, "kinepolis-showing-VS1": {schedule.ProviderKinepolis, "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}
 	for _, theater := range movieSchedule.Theaters {

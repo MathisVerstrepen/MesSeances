@@ -76,7 +76,7 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		writer: writerFunc(func(_ context.Context, data []schedule.Dataset) (int64, error) {
-			events = append(events, "commit:"+data[0].Provider)
+			events = append(events, "commit:"+string(data[0].Provider))
 			return 1, nil
 		}),
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
@@ -358,7 +358,7 @@ func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
 	tests := []struct {
 		name   string
 		enrich EnrichFunc
-		status string
+		status EnrichmentState
 		counts *EnrichmentCounts
 	}{
 		{name: "nil function", status: "skipped"},
@@ -409,14 +409,14 @@ func assertRunErrorCode(t *testing.T, err error, code FailureCode) {
 	}
 }
 
-func validDataset(t *testing.T, provider string, window Window) schedule.Dataset {
+func validDataset(t *testing.T, provider schedule.Provider, window Window) schedule.Dataset {
 	t.Helper()
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		t.Fatal(err)
 	}
 	start := time.Date(2026, 8, 17, 12, 0, 0, 0, location)
-	theaterID, theaterProviderID, movieID, showingID := provider+"-cinema", "cinema", "movie", "showing"
+	theaterID, theaterProviderID, movieID, showingID := string(provider)+"-cinema", "cinema", "movie", "showing"
 	address, postal, passes := "", "", []string{}
 	booking := "https://kinepolis.fr/direct-vista-redirect/showing/0/cinema/0"
 	if provider == schedule.ProviderUGC {
@@ -426,6 +426,6 @@ func validDataset(t *testing.T, provider string, window Window) schedule.Dataset
 	}
 	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: provider, Scope: schedule.ScopeAll, GeneratedAt: time.Now().UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: window.From, Through: window.Through},
 		Theaters:  []schedule.TheaterRecord{{ID: theaterID, ProviderID: theaterProviderID, Slug: theaterID, Name: "Cinéma", Address: address, City: "Lille", PostalCode: postal, AvailableDates: []string{window.From}, AcceptedPasses: passes}},
-		Showtimes: []schedule.ShowtimeRecord{{ID: provider + "-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: window.From, TheaterID: theaterID, Movie: schedule.MovieRecord{ProviderID: movieID, Slug: provider + "-film-" + movieID, Title: "Film", RuntimeMinutes: 100}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", BookingURL: booking}},
+		Showtimes: []schedule.ShowtimeRecord{{ID: string(provider) + "-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: window.From, TheaterID: theaterID, Movie: schedule.MovieRecord{ProviderID: movieID, Slug: string(provider) + "-film-" + movieID, Title: "Film", RuntimeMinutes: 100}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", BookingURL: booking}},
 	}
 }

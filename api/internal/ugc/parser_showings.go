@@ -838,7 +838,7 @@ func isShowingBlockBoundary(node *html.Node) bool {
 	return strings.HasPrefix(id, emptyFilmBlockID) || strings.HasPrefix(id, "bloc-showing-movie-")
 }
 
-func validShowingFormat(v string) bool {
+func validShowingFormat(v schedule.Format) bool {
 	switch v {
 	case "2D", "3D", "IMAX", "DOLBY", "4DX":
 		return true

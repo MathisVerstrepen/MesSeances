@@ -75,8 +75,8 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 		target   Target
 		executor executorFunc
 		cancel   context.CancelFunc
-		wantUGC  string
-		wantKin  string
+		wantUGC  ProviderState
+		wantKin  ProviderState
 	}{
 		{name: "failure skips other provider", target: TargetAll, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
 			return ProviderOutcome{}, newProviderRunError(TargetUGC, StageDatasetValidation, FailureDatasetRejected, errors.New("secret"))

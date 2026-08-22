@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
 	runtimeconfig "messeances/api/internal/config"
@@ -17,6 +16,7 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/schedulepg"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/tmdb"
@@ -53,7 +53,7 @@ func productionDependencies() dependencies {
 				pool.Close()
 				return databaseServices{}, nil, fmt.Errorf("database migration failed")
 			}
-			return databaseServices{writer: schedule.NewPostgresStore(pool), enrichment: enrichment.NewPostgresStore(pool)}, pool.Close, nil
+			return databaseServices{writer: schedulepg.NewStore(pool), enrichment: enrichment.NewPostgresStore(pool)}, pool.Close, nil
 		},
 		newTMDB: func(token string) (enrichment.Provider, error) { return tmdb.NewClient(token) },
 		enrich: func(ctx context.Context, store enrichment.Store, provider enrichment.Provider, movies []enrichment.Movie) (enrichment.Summary, error) {
@@ -84,6 +84,9 @@ func runWithIO(ctx context.Context, args []string, now func() time.Time, stdout,
 
 func runWithDependencies(ctx context.Context, args []string, now func() time.Time, stdout, stderr io.Writer, deps dependencies) int {
 	logger := observability.NewLogger(stderr)
+	if deps.getenv == nil {
+		deps.getenv = func(string) string { return "" }
+	}
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
@@ -112,6 +115,21 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
+	overrides := &runtimeconfig.Overrides{}
+	flags.Visit(func(flag *flag.Flag) {
+		switch flag.Name {
+		case "timeout":
+			overrides.RequestTimeout = &timeout
+		case "request-interval":
+			overrides.KinepolisRequestInterval = &requestInterval
+		}
+	})
+	timing, err := runtimeconfig.Load(runtimeconfig.KinepolisTiming, deps.getenv, overrides)
+	if err != nil {
+		logCLIError(logger, "configuration_failed", "configuration_error")
+		return 2
+	}
+	timeout, requestInterval = timing.Sync.RequestTimeout, timing.Sync.KinepolisRequestInterval
 	file, err := os.Open(proxyFile)
 	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
@@ -128,13 +146,13 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
-	databaseURL := strings.TrimSpace(deps.getenv("DATABASE_URL"))
-	if databaseURL == "" {
+	fullConfig, err := runtimeconfig.Load(runtimeconfig.SyncFull, deps.getenv, nil)
+	if err != nil {
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
 	startup, cancel := context.WithTimeout(ctx, 30*time.Second)
-	services, closeDatabase, err := deps.openDatabase(startup, databaseURL)
+	services, closeDatabase, err := deps.openDatabase(startup, fullConfig.Database.URL)
 	cancel()
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", "database_startup_failed")
@@ -142,7 +160,7 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 	}
 	defer closeDatabase()
 	enrich := func(enrichCtx context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
-		token := strings.TrimSpace(deps.getenv("TMDB_API_READ_ACCESS_TOKEN"))
+		token := fullConfig.TMDB.Token
 		if token == "" {
 			return nil, nil
 		}
@@ -154,7 +172,7 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 		return &summary, err
 	}
 	executor, err := deps.newExecutor(synccontrol.ProductionExecutorOptions{
-		Writer: services.writer, NewKinepolis: func() (kinepolis.Fetcher, error) { return client, nil }, Enrich: enrich, Now: now, Logger: logger,
+		Writer: services.writer, NewKinepolis: func() (kinepolis.Fetcher, error) { return client, nil }, Enrich: enrich, Now: now, Logger: logger, OperationTimeout: fullConfig.Sync.OperationTimeout,
 	})
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", "configuration_error")

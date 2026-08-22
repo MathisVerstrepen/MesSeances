@@ -7,6 +7,13 @@ import (
 
 type FailureCode string
 type FailureStage string
+type EnrichmentState string
+
+const (
+	EnrichmentSkipped  EnrichmentState = "skipped"
+	EnrichmentComplete EnrichmentState = "complete"
+	EnrichmentDegraded EnrichmentState = "degraded"
+)
 
 const (
 	FailureNone            FailureCode = "none"
@@ -47,7 +54,7 @@ type EnrichmentCounts struct {
 }
 
 type EnrichmentOutcome struct {
-	Status string            `json:"status"`
+	Status EnrichmentState   `json:"status"`
 	Counts *EnrichmentCounts `json:"counts,omitempty"`
 }
 

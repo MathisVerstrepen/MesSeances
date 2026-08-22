@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/schedulepg"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/tmdb"
@@ -57,22 +57,17 @@ const (
 func run(ctx context.Context) error {
 	logger := observability.NewLogger(os.Stderr)
 	metrics := observability.NewMetrics()
-	adminPassword := os.Getenv("ADMIN_PASSWORD")
-	adminSessionSecret := os.Getenv("ADMIN_SESSION_SECRET")
-	if err := validateAdminConfiguration(adminPassword, adminSessionSecret); err != nil {
+	cfg, syncConfig, err := loadAPIConfiguration(os.Getenv)
+	if err != nil {
 		return err
 	}
-	databaseURL := os.Getenv("DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		return fmt.Errorf("database configuration is missing")
-	}
-	proxies, err := loadSyncProxies(strings.TrimSpace(os.Getenv("PROXY_FILE")), func(path string) (io.ReadCloser, error) { return os.Open(path) })
+	proxies, err := loadSyncProxies(cfg.Proxy.Path, func(path string) (io.ReadCloser, error) { return os.Open(path) })
 	if err != nil {
 		return err
 	}
 	startupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	pool, err := database.OpenPool(startupCtx, databaseURL)
+	pool, err := database.OpenPool(startupCtx, cfg.Database.URL)
 	if err != nil {
 		return fmt.Errorf("database startup failed")
 	}
@@ -80,7 +75,8 @@ func run(ctx context.Context) error {
 	if err := database.RunMigrations(startupCtx, pool); err != nil {
 		return fmt.Errorf("database migration failed")
 	}
-	source, err := schedule.NewPostgresSource(startupCtx, schedule.NewPostgresStore(pool), schedule.SourceOptions{Logger: logger, Observer: metrics})
+	store := schedulepg.NewStore(pool)
+	source, err := schedule.NewPostgresSource(startupCtx, store, schedule.SourceOptions{Logger: logger, Observer: metrics})
 	if err != nil {
 		return fmt.Errorf("schedule snapshot startup failed")
 	}
@@ -90,14 +86,14 @@ func run(ctx context.Context) error {
 	}
 	enrichmentStore := enrichment.NewPostgresStore(pool)
 	var enrichmentProvider enrichment.Provider
-	if token := strings.TrimSpace(os.Getenv("TMDB_API_READ_ACCESS_TOKEN")); token != "" {
-		tmdbClient, err := tmdb.NewClient(token)
+	if cfg.TMDB.Token != "" {
+		tmdbClient, err := tmdb.NewClient(cfg.TMDB.Token)
 		if err != nil {
 			return fmt.Errorf("TMDB configuration is invalid")
 		}
 		enrichmentProvider = tmdbClient
 	}
-	adminOptions := newAdminOptions(adminPassword, adminSessionSecret, enrichmentStore, enrichmentProvider)
+	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
 	adminOptions.Logger = logger
 	adminOptions.Metrics = metrics
 	workerCtx, stopWorkers := context.WithCancel(ctx)
@@ -113,12 +109,12 @@ func run(ctx context.Context) error {
 			}
 		}
 		executor, err := synccontrol.NewProductionExecutor(synccontrol.ProductionExecutorOptions{
-			Writer: schedule.NewPostgresStore(pool), Now: time.Now, Logger: logger, Observer: metrics, Enrich: enrich,
+			Writer: store, Now: time.Now, Logger: logger, Observer: metrics, Enrich: enrich, OperationTimeout: syncConfig.Sync.OperationTimeout,
 			NewUGC: func() (ugc.Getter, error) {
-				return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: 20 * time.Second})
+				return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: syncConfig.Sync.RequestTimeout})
 			},
 			NewKinepolis: func() (kinepolis.Fetcher, error) {
-				return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: 2 * time.Second, Timeout: 20 * time.Second})
+				return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: syncConfig.Sync.KinepolisRequestInterval, Timeout: syncConfig.Sync.RequestTimeout})
 			},
 		})
 		if err != nil {
@@ -148,11 +144,10 @@ func run(ctx context.Context) error {
 		})
 	}
 	defer cleanup()
-	port := envOrDefault("PORT", "8080")
 	adminOptions.Syncs = syncManager
 	server := &http.Server{
-		Addr:              ":" + port,
-		Handler:           httpapi.NewHandlerWithAdmin(service, envOrDefault("WEB_ORIGIN", "http://localhost:3000"), adminOptions),
+		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler:           newAPIHandler(service, cfg, adminOptions),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -163,11 +158,23 @@ func run(ctx context.Context) error {
 	return serve(ctx, server, cleanup)
 }
 
-func validateAdminConfiguration(password, sessionSecret string) error {
-	if strings.TrimSpace(password) != "" && strings.TrimSpace(sessionSecret) == "" {
-		return fmt.Errorf("configuration error")
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions) http.Handler {
+	return httpapi.NewHandlerWithAdmin(service, cfg.Server.Origin, adminOptions)
+}
+
+func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {
+	cfg, err := runtimeconfig.Load(runtimeconfig.APIBase, getenv, nil)
+	if err != nil {
+		return runtimeconfig.Config{}, runtimeconfig.Config{}, err
 	}
-	return nil
+	if cfg.Proxy.Path == "" {
+		return cfg, runtimeconfig.Config{}, nil
+	}
+	syncConfig, err := runtimeconfig.Load(runtimeconfig.APISync, getenv, nil)
+	if err != nil {
+		return runtimeconfig.Config{}, runtimeconfig.Config{}, err
+	}
+	return cfg, syncConfig, nil
 }
 
 func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFunc) error {
@@ -219,11 +226,4 @@ func loadSyncProxies(path string, open func(string) (io.ReadCloser, error)) ([]s
 		return nil, fmt.Errorf("sync configuration is invalid")
 	}
 	return proxies, nil
-}
-
-func envOrDefault(name, fallback string) string {
-	if value := os.Getenv(name); value != "" {
-		return value
-	}
-	return fallback
 }

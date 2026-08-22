@@ -7,19 +7,6 @@ import (
 
 const (
 	Timezone = "Europe/Paris"
-
-	LanguageAll    = "ALL"
-	LanguageVOSTFR = "VOSTFR"
-	LanguageVF     = "VF"
-
-	FormatAll        = "ALL"
-	Format2D         = "2D"
-	Format3D         = "3D"
-	FormatIMAX       = "IMAX"
-	FormatDolby      = "DOLBY"
-	FormatScreenX    = "SCREENX"
-	FormatLaserUltra = "LASER_ULTRA"
-	Format4DX        = "4DX"
 )
 
 type MovieCatalogSort string
@@ -60,20 +47,20 @@ func (e *NotFoundError) Error() string {
 }
 
 type Movie struct {
-	Provider       string `json:"provider"`
-	Slug           string `json:"slug"`
-	Title          string `json:"title"`
-	RuntimeMinutes int    `json:"runtime_minutes"`
+	Provider       Provider `json:"provider"`
+	Slug           string   `json:"slug"`
+	Title          string   `json:"title"`
+	RuntimeMinutes int      `json:"runtime_minutes"`
 }
 
 type Showtime struct {
-	Provider   string    `json:"provider"`
+	Provider   Provider  `json:"provider"`
 	ID         string    `json:"id"`
 	Movie      Movie     `json:"movie"`
 	StartTime  time.Time `json:"start_time"`
 	EndTime    time.Time `json:"end_time"`
-	Language   string    `json:"language"`
-	Format     string    `json:"format"`
+	Language   Language  `json:"language"`
+	Format     Format    `json:"format"`
 	Room       string    `json:"room"`
 	BookingURL *string   `json:"booking_url"`
 }
@@ -87,7 +74,7 @@ type TimelineShowtime struct {
 }
 
 type TimelineTheater struct {
-	Provider       string             `json:"provider"`
+	Provider       Provider           `json:"provider"`
 	ID             string             `json:"id"`
 	Slug           string             `json:"slug"`
 	Name           string             `json:"name"`
@@ -105,14 +92,14 @@ type Timeline struct {
 }
 
 type TheaterSummary struct {
-	Provider string `json:"provider"`
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	City     string `json:"city"`
+	Provider Provider `json:"provider"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	City     string   `json:"city"`
 }
 
 type Theater struct {
-	Provider       string   `json:"provider"`
+	Provider       Provider `json:"provider"`
 	ID             string   `json:"id"`
 	Slug           string   `json:"slug"`
 	Name           string   `json:"name"`
@@ -124,7 +111,7 @@ type Theater struct {
 }
 
 type MovieCatalogItem struct {
-	Provider       string   `json:"provider"`
+	Provider       Provider `json:"provider"`
 	Slug           string   `json:"slug"`
 	Title          string   `json:"title"`
 	RuntimeMinutes int      `json:"runtime_minutes"`
@@ -143,7 +130,7 @@ type MovieCatalog struct {
 }
 
 type MovieTheaterShowtimes struct {
-	Provider  string     `json:"provider"`
+	Provider  Provider   `json:"provider"`
 	ID        string     `json:"id"`
 	Slug      string     `json:"slug"`
 	Name      string     `json:"name"`
@@ -173,12 +160,12 @@ type SlotResult struct {
 type TimelineQuery struct {
 	Date       string
 	TheaterIDs []string
-	Language   string
+	Language   Language
 }
 
 type TheaterCatalogQuery struct {
 	City  string
-	Chain string
+	Chain Provider
 }
 
 type MovieCatalogQuery struct {
@@ -204,6 +191,6 @@ type SlotQuery struct {
 	FinishBefore string
 	BufferAds    int
 	IncludeAds   bool
-	Language     string
-	Format       string
+	Language     Language
+	Format       Format
 }
