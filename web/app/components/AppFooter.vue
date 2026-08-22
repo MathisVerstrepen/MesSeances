@@ -41,6 +41,15 @@ function scrollToTop() {
             <h2 class="footer-heading">À propos</h2>
             <ul class="mt-5 space-y-3">
               <li><NuxtLink to="/credits" class="footer-link">Crédits &amp; sources</NuxtLink></li>
+              <li>
+                <a
+                  href="https://github.com/MathisVerstrepen/MesSeances"
+                  class="footer-link"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Voir le projet MesSeances sur GitHub (nouvel onglet)"
+                >Projet GitHub</a>
+              </li>
             </ul>
           </div>
 
@@ -56,9 +65,18 @@ function scrollToTop() {
 
     <div class="border-y-2 border-ink bg-surface">
       <div class="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 font-mono text-[10px] font-bold uppercase tracking-[0.1em] sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-10">
-        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6">
+        <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
           <p>© {{ currentYear }} MesSeances</p>
-          <p class="text-muted">Données UGC, Kinepolis et TMDB</p>
+          <p>
+            Made with ❤️ by
+            <a
+              href="https://github.com/MathisVerstrepen"
+              class="meta-link"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Profil GitHub de Mathis Verstrepen (nouvel onglet)"
+            >Mathis Verstrepen</a>
+          </p>
         </div>
         <button type="button" class="return-top group inline-flex w-fit items-center gap-2 border-b-2 border-ink pb-1" aria-label="Retourner en haut de la page" @click="scrollToTop">
           Retour en haut
@@ -101,6 +119,15 @@ function scrollToTop() {
 
 .footer-link:hover {
   border-color: currentColor;
+  color: #991b1b;
+}
+
+.meta-link {
+  border-bottom: 1px solid currentColor;
+  transition: color 150ms ease;
+}
+
+.meta-link:hover {
   color: #991b1b;
 }
 
