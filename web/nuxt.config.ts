@@ -64,7 +64,9 @@ export default defineNuxtConfig({
     apiBase: 'http://localhost:8080',
     public: {
       apiBase: 'http://localhost:8080',
-      siteUrl: 'http://localhost:3000'
+      siteUrl: 'http://localhost:3000',
+      umamiScriptUrl: '',
+      umamiWebsiteId: ''
     }
   },
   typescript: {

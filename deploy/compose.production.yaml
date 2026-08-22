@@ -17,6 +17,42 @@ services:
       retries: 10
       start_period: 10s
 
+  umami-postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${UMAMI_POSTGRES_DB:-umami}
+      POSTGRES_USER: ${UMAMI_POSTGRES_USER:-umami}
+      POSTGRES_PASSWORD: ${UMAMI_POSTGRES_PASSWORD:?UMAMI_POSTGRES_PASSWORD is required}
+    volumes:
+      - umami_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  umami:
+    image: ${UMAMI_IMAGE:?UMAMI_IMAGE is required}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      umami-postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${UMAMI_POSTGRES_USER:-umami}:${UMAMI_POSTGRES_PASSWORD:?UMAMI_POSTGRES_PASSWORD is required}@umami-postgres:5432/${UMAMI_POSTGRES_DB:-umami}
+      APP_SECRET: ${UMAMI_APP_SECRET:?UMAMI_APP_SECRET is required}
+      TWO_FACTOR_ENCRYPTION_KEY: ${UMAMI_TWO_FACTOR_ENCRYPTION_KEY:?UMAMI_TWO_FACTOR_ENCRYPTION_KEY is required}
+    ports:
+      - "127.0.0.1:${UMAMI_PUBLISHED_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:3000/api/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
   api:
     image: ${IMAGE_BASE:?IMAGE_BASE is required}-api:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: unless-stopped
@@ -59,6 +95,8 @@ services:
       NUXT_API_BASE: http://api:8080
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:?NUXT_PUBLIC_API_BASE is required}
       NUXT_PUBLIC_SITE_URL: ${WEB_ORIGIN:?WEB_ORIGIN is required}
+      NUXT_PUBLIC_UMAMI_SCRIPT_URL: ${NUXT_PUBLIC_UMAMI_SCRIPT_URL:-}
+      NUXT_PUBLIC_UMAMI_WEBSITE_ID: ${NUXT_PUBLIC_UMAMI_WEBSITE_ID:-}
     ports:
       - "127.0.0.1:${WEB_PUBLISHED_PORT:-3000}:3000"
     healthcheck:
@@ -70,3 +108,4 @@ services:
 
 volumes:
   postgres_data:
+  umami_postgres_data:

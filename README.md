@@ -65,6 +65,17 @@ Nuxt uses three distinct origins. `NUXT_API_BASE` is private to server-side rend
 
 Backend operational logs use JSON on stderr. Prometheus metrics are available without application authentication at `GET /metrics` on the API listener. Restrict this endpoint with deployment network or reverse-proxy controls; production Compose keeps the API host binding on loopback.
 
+## Production analytics
+
+Production Compose includes self-hosted Umami 3.3.1 and a dedicated PostgreSQL 15 service. Analytics storage is isolated in the `umami_postgres_data` volume, and its database has no published host port. Umami failure does not block the API or web services. The dashboard is bound to host loopback at `127.0.0.1:3001` by default.
+
+Bootstrap Umami in two stages:
+
+1. Copy `deploy/.env.production.example` to ignored `deploy/.env.production`. Generate independent values for `UMAMI_POSTGRES_PASSWORD`, `UMAMI_APP_SECRET`, and `UMAMI_TWO_FACTOR_ENCRYPTION_KEY`; `openssl rand -hex 32` produces a URL-safe 64-character value suitable for each. Keep both `NUXT_PUBLIC_UMAMI_*` values empty, run `make prod`, and reach the loopback dashboard through operator-managed access such as an SSH tunnel to port 3001. Sign in with Umami's initial `admin` / `umami` credentials, immediately replace the password, and create the MesSeances website.
+2. Configure operator-managed public routing, DNS, and TLS so visitors can reach the tracker script without publishing the Compose port directly. Keep dashboard access restricted. This repository does not provision a reverse proxy, DNS, certificates, or public dashboard access. Set `NUXT_PUBLIC_UMAMI_SCRIPT_URL` to the browser-reachable absolute script URL and `NUXT_PUBLIC_UMAMI_WEBSITE_ID` to the website UUID, then rerun `make prod`. Both values are intentionally public and are not credentials; leaving either empty disables tracker injection.
+
+Keep Umami secrets only in ignored deployment environment files. Back up `umami_postgres_data` under the same retention policy as other production data. Normal Compose recreation preserves named volumes. Never run `docker compose down -v`: `-v` deletes both application and analytics database volumes.
+
 To stop PostgreSQL later without deleting local data:
 
 ```sh
@@ -77,6 +88,7 @@ These checks do not run a provider synchronization or make real TMDB calls:
 
 ```sh
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
+docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
 cd api && go test ./...
 cd ..
 npm --prefix web run typecheck

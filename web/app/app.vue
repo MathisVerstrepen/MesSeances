@@ -14,8 +14,17 @@ const globalGraph: JsonLdDocument = {
   ]
 }
 const globalJsonLd = serializeJsonLd(globalGraph)
+const umamiScriptUrl = config.public.umamiScriptUrl.trim()
+const umamiWebsiteId = config.public.umamiWebsiteId.trim()
 
-useHead({ script: [{ type: 'application/ld+json', innerHTML: globalJsonLd }] })
+useHead({
+  script: [
+    { type: 'application/ld+json', innerHTML: globalJsonLd },
+    ...(umamiScriptUrl && umamiWebsiteId
+      ? [{ key: 'umami-analytics', defer: true, src: umamiScriptUrl, 'data-website-id': umamiWebsiteId }]
+      : [])
+  ]
+})
 </script>
 
 <template>
