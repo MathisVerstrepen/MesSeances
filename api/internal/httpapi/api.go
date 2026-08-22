@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -16,12 +17,25 @@ import (
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/shortlink"
 	"messeances/api/internal/synccontrol"
 )
 
 type API struct {
-	schedule *schedule.Service
-	admin    *adminAPI
+	schedule   *schedule.Service
+	admin      *adminAPI
+	shortlinks ShortlinkService
+	origin     string
+}
+
+type ShortlinkService interface {
+	Create(context.Context, string) (shortlink.Link, error)
+	Resolve(context.Context, string) (shortlink.Link, error)
+}
+
+type HandlerOptions struct {
+	Admin      AdminOptions
+	Shortlinks ShortlinkService
 }
 
 type AdminOptions struct {
@@ -54,21 +68,25 @@ type probeResponse struct {
 }
 
 func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
-	return NewHandlerWithAdmin(service, webOrigin, AdminOptions{})
+	return NewHandlerWithOptions(service, webOrigin, HandlerOptions{})
 }
 
 func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options AdminOptions) http.Handler {
-	if options.Logger == nil {
-		options.Logger = observability.NewLogger(io.Discard)
+	return NewHandlerWithOptions(service, webOrigin, HandlerOptions{Admin: options})
+}
+
+func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options HandlerOptions) http.Handler {
+	if options.Admin.Logger == nil {
+		options.Admin.Logger = observability.NewLogger(io.Discard)
 	}
-	if options.Metrics == nil {
-		options.Metrics = observability.NewMetrics()
+	if options.Admin.Metrics == nil {
+		options.Admin.Metrics = observability.NewMetrics()
 	}
-	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options)}
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, origin: webOrigin}
 	router := chi.NewRouter()
-	router.Use(observability.HTTPMiddleware(options.Logger, options.Metrics))
+	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
 	router.Use(jsonContentType)
-	router.Use(recoverJSON(options.Logger))
+	router.Use(recoverJSON(options.Admin.Logger))
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{webOrigin},
 		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
@@ -83,7 +101,7 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 	router.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
-	router.Get("/metrics", options.Metrics.Handler().ServeHTTP)
+	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
 	router.Get("/api/v1/timeline", api.timeline)
 	router.Get("/api/v1/theaters", api.theaters)
 	router.Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
@@ -92,6 +110,8 @@ func NewHandlerWithAdmin(service *schedule.Service, webOrigin string, options Ad
 	router.Get("/api/v1/movies", api.movies)
 	router.Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
 	router.Get("/api/v1/search/slot", api.searchSlot)
+	router.With(api.noStoreShortlink, api.requireShortlinkOrigin).Post("/api/v1/shortlinks", api.createShortlink)
+	router.Get("/api/v1/shortlinks/{code}", api.resolveShortlink)
 	router.Route("/api/v1/admin", func(router chi.Router) {
 		router.Use(api.admin.noStore)
 		router.With(api.admin.requireOrigin).Post("/login", api.admin.login)

@@ -105,7 +105,10 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
     <template v-else-if="detail">
       <nav class="breadcrumb" aria-label="Fil d’Ariane"><ol class="flex flex-wrap items-center gap-2"><li><NuxtLink to="/">Accueil</NuxtLink></li><li aria-hidden="true">/</li><li><NuxtLink to="/cinemas">Cinémas</NuxtLink></li><li aria-hidden="true">/</li><li aria-current="page">{{ detail.city.name }}</li></ol></nav>
       <header class="border-2 border-ink bg-surface p-5 shadow-[8px_8px_0_#27272a] sm:p-8">
-        <p class="utility-label">Cinémas · ville</p>
+        <div class="flex items-start justify-between gap-4">
+          <p class="utility-label pt-1">Cinémas · ville</p>
+          <ShareButton class="shrink-0" />
+        </div>
         <h1 class="mt-4 break-words text-[clamp(3rem,10vw,8rem)] font-black uppercase leading-[0.8] tracking-[-0.08em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
         <p class="utility-label mt-6">{{ detail.theaters.length }} cinéma{{ detail.theaters.length === 1 ? '' : 's' }} · {{ detail.movies.length }} film{{ detail.movies.length === 1 ? '' : 's' }}</p>
       </header>

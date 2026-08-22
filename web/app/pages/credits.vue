@@ -39,6 +39,7 @@ useHead({ title: 'Crédits - MesSeances' })
         <p class="utility-label mb-5">Attributions · Sources</p>
         <h1 class="credits-title text-ink">Crédits</h1>
       </div>
+      <ShareButton class="relative z-10 lg:justify-self-end" />
     </header>
 
     <div class="credits-canvas border-y-2 border-ink">

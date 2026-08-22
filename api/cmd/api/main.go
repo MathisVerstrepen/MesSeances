@@ -20,6 +20,7 @@ import (
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/schedulepg"
+	"messeances/api/internal/shortlink"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/tmdb"
@@ -145,9 +146,10 @@ func run(ctx context.Context) error {
 	}
 	defer cleanup()
 	adminOptions.Syncs = syncManager
+	shortlinkService := shortlink.NewService(shortlink.NewPostgresStore(pool), shortlink.ServiceOptions{})
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:           newAPIHandler(service, cfg, adminOptions),
+		Handler:           newAPIHandler(service, cfg, adminOptions, shortlinkService),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -158,8 +160,8 @@ func run(ctx context.Context) error {
 	return serve(ctx, server, cleanup)
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions) http.Handler {
-	return httpapi.NewHandlerWithAdmin(service, cfg.Server.Origin, adminOptions)
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService) http.Handler {
+	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{Admin: adminOptions, Shortlinks: shortlinks})
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {

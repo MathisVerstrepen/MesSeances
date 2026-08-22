@@ -18,6 +18,7 @@ import type {
   Provider,
   SlotQuery,
   SlotResult,
+  ShortLinkResponse,
   Theater,
   TheaterShowtimesResponse,
   TheaterQuery,
@@ -70,6 +71,12 @@ export function useMesSeancesApi() {
     },
     movieShowtimes(slug: string, query: MovieShowtimesQuery) {
       return $fetch<MovieShowtimesResponse>(`${apiBase}/api/v1/movies/${encodeURIComponent(slug)}/showtimes`, { query: queryValues(query) })
+    },
+    createShortLink(target: string) {
+      return $fetch<ShortLinkResponse>(`${apiBase}/api/v1/shortlinks`, {
+        method: 'POST',
+        body: { target }
+      })
     },
     adminSession() {
       return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, { credentials: 'include' })

@@ -21,7 +21,7 @@ const SHOWTIME_LANGUAGES: readonly Showtime['language'][] = ['VOSTFR', 'VF', 'VO
 const route = useRoute()
 const router = useRouter()
 const api = useMesSeancesApi()
-const preferences = useCinemaPreferences()
+const preferences = usePageCinemaSelection()
 const schedule = ref<MovieShowtimesResponse | null>(null)
 const selectedDate = ref('')
 const pending = ref(true)
@@ -47,7 +47,7 @@ const slug = computed(() => {
   return Array.isArray(value) ? value[0] ?? '' : value ?? ''
 })
 
-const availableDates = computed(() => [...new Set(preferences.favoriteTheaters.value.flatMap((theater) => theater.available_dates))].sort())
+const availableDates = computed(() => [...new Set(preferences.activeTheaters.value.flatMap((theater) => theater.available_dates))].sort())
 const posterUrl = computed(() => safePosterUrl(schedule.value?.movie.poster_url))
 const posterAvailable = computed(() => Boolean(posterUrl.value) && !posterFailed.value)
 const backdropUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url))
@@ -136,7 +136,7 @@ function showtimeTimingState(showtime: Showtime): ShowtimeTimingState {
 const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Array<Showtime & { timingState: ShowtimeTimingState }> }>>(() => {
   if (!schedule.value) return []
 
-  const favoriteOrder = new Map(preferences.favoriteTheaterIds.value.map((id, index) => [id, index]))
+  const favoriteOrder = new Map(preferences.activeTheaterIds.value.map((id, index) => [id, index]))
   const sourceOrder = new Map(schedule.value.theaters.map((theater, index) => [theater.id, index]))
   const theaters = schedule.value.theaters
     .map((theater) => ({
@@ -251,10 +251,10 @@ async function loadSchedule() {
     return
   }
   if (!slug.value || !selectedDate.value) return
-  if (preferences.favoriteTheaterIds.value.length === 0) {
+  if (preferences.activeTheaterIds.value.length === 0) {
     pending.value = false
     schedule.value = null
-    errorMessage.value = preferences.error.value || 'Sélectionnez au moins un cinéma favori pour consulter les séances.'
+    errorMessage.value = preferences.error.value || 'Sélectionnez au moins un cinéma pour consulter les séances.'
     return
   }
 
@@ -266,7 +266,7 @@ async function loadSchedule() {
   try {
     const response = await api.movieShowtimes(slug.value, {
       date: selectedDate.value,
-      theaters: preferences.favoriteTheaterIds.value.join(',')
+      theaters: preferences.activeTheaterIds.value.join(',')
     })
     if (currentRequest === requestId) {
       schedule.value = response
@@ -296,7 +296,7 @@ async function applyRoute() {
     return
   }
 
-  const key = `${slug.value}|${selectedDate.value}|${preferences.favoriteTheaterIds.value.join(',')}`
+  const key = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
   if (key === lastScheduleKey) return
   lastScheduleKey = key
   await loadSchedule()
@@ -348,7 +348,7 @@ if (import.meta.server && initialState?.kind !== 'success') {
 }
 
 watch(
-  () => preferences.favoriteTheaterIds.value.join(','),
+  () => preferences.activeTheaterIds.value.join(','),
   () => {
     if (isReady) applyRoute()
   }
@@ -490,7 +490,7 @@ useHead(() => ({
       <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
       <p class="max-w-lg">{{ errorMessage }}</p>
       <div class="flex flex-wrap justify-center gap-3">
-        <button v-if="!preferences.isInitialized.value || preferences.favoriteTheaterIds.value.length" type="button" class="brutal-action" @click="retryLoad">
+        <button v-if="!preferences.isInitialized.value || preferences.activeTheaterIds.value.length" type="button" class="brutal-action" @click="retryLoad">
           <RefreshCw :size="17" aria-hidden="true" /> Réessayer
         </button>
         <NuxtLink to="/cinemas" class="brutal-action brutal-action--light">
@@ -584,8 +584,13 @@ useHead(() => ({
             </h2>
             <p class="mt-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted">{{ formatLongDate(selectedDate) }}</p>
           </div>
-          <NuxtLink to="/cinemas" class="editorial-link shrink-0 self-start sm:self-end">Modifier mes cinémas</NuxtLink>
+          <div class="flex flex-wrap items-center gap-3 self-start sm:justify-end sm:self-end">
+            <NuxtLink to="/cinemas" class="editorial-link shrink-0">Modifier mes cinémas</NuxtLink>
+            <ShareButton />
+          </div>
         </div>
+
+        <SharedTheaterNotice v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value" class="mt-5" />
 
         <div class="filter-dock sticky top-0 z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 lg:hidden">
           <div class="grid grid-cols-3 divide-x-2 divide-ink">
@@ -793,7 +798,7 @@ useHead(() => ({
 
           <div v-else-if="schedule.theaters.length === 0" class="film-state mt-10">
             <CalendarDays :size="36" aria-hidden="true" />
-            <p>{{ isPersonalizedSchedule ? 'Aucune séance dans vos cinémas favoris à cette date.' : 'Aucune séance à cette date.' }}</p>
+            <p>{{ isPersonalizedSchedule ? 'Aucune séance dans ces cinémas à cette date.' : 'Aucune séance à cette date.' }}</p>
           </div>
 
           <div v-else-if="visibleTheaters.length === 0" class="film-state mt-10">

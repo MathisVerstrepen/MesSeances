@@ -209,10 +209,13 @@ useHead(() => ({
       </header>
 
       <section class="mt-12" aria-labelledby="cinema-showtimes-heading">
-        <div class="border-b-2 border-ink pb-5">
-          <p class="utility-label">Programmation</p>
-          <h2 id="cinema-showtimes-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Séances</h2>
-          <p v-if="response.date" class="mt-2 font-mono text-xs font-bold uppercase capitalize text-muted"><time :datetime="response.date">{{ formatLongDate(response.date) }}</time></p>
+        <div class="flex items-end justify-between gap-4 border-b-2 border-ink pb-5">
+          <div>
+            <p class="utility-label">Programmation</p>
+            <h2 id="cinema-showtimes-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Séances</h2>
+            <p v-if="response.date" class="mt-2 font-mono text-xs font-bold uppercase capitalize text-muted"><time :datetime="response.date">{{ formatLongDate(response.date) }}</time></p>
+          </div>
+          <ShareButton class="shrink-0" />
         </div>
         <div v-if="response.theater.available_dates.length" class="mt-5 flex gap-2 overflow-x-auto pb-2" aria-label="Choisir une date">
           <button v-for="date in response.theater.available_dates" :key="date" type="button" class="date-button" :class="response.date === date ? 'date-button--active' : undefined" :aria-pressed="response.date === date" @click="selectDate(date)">{{ formatDateLabel(date) }}</button>

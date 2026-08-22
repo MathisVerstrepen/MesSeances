@@ -7,6 +7,7 @@
     "build": "nuxt build",
     "generate-pwa-assets": "pwa-assets-generator",
     "lint": "oxlint",
+    "test:unit": "node --experimental-strip-types --test tests/shortLinkTarget.test.ts",
     "typecheck": "nuxt typecheck",
     "verify:crawlability": "node tools/verify-crawlability.mjs",
     "postinstall": "nuxt prepare"

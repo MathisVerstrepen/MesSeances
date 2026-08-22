@@ -24,7 +24,15 @@ type ResultLayout = 'lines' | 'boxes'
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
-const { favoriteTheaterIds, favoriteTheaters, isInitialized, isLoading, error: preferencesError, initialize } = useCinemaPreferences()
+const {
+  activeTheaterIds,
+  activeTheaters,
+  isInitialized,
+  isLoading,
+  error: preferencesError,
+  initialize,
+  isSharedSelectionDifferent
+} = usePageCinemaSelection()
 
 interface SearchForm {
   date: string
@@ -112,7 +120,7 @@ function addCalendarDays(date: string, offset: number) {
 }
 
 const availableDateOptions = computed(() => {
-  const available = new Set(favoriteTheaters.value.flatMap((theater) => theater.available_dates ?? []))
+  const available = new Set(activeTheaters.value.flatMap((theater) => theater.available_dates ?? []))
   return [...available].sort()
 })
 const hasAvailableDates = computed(() => availableDateOptions.value.length > 0)
@@ -127,8 +135,8 @@ const datePickerDate = computed<Date | null>({
   }
 })
 const favoriteSummary = computed(() => {
-  const count = favoriteTheaterIds.value.length
-  return `${count} cinéma${count > 1 ? 's' : ''} favori${count > 1 ? 's' : ''} inclus`
+  const count = activeTheaterIds.value.length
+  return `${count} cinéma${count > 1 ? 's' : ''} inclus`
 })
 const calendarAriaLabels = {
   menu: 'Calendrier des dates disponibles',
@@ -429,8 +437,8 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   const finishBefore = singularQueryValue(route.query.finish_before)
   if (!theaterValue || !date || !availableDateOptions.value.includes(date) || !startAfter || !finishBefore || !validTimes.has(startAfter) || !validTimes.has(finishBefore)) return null
 
-  if (favoriteTheaterIds.value.length === 0) return null
-  const theaterIds = [...favoriteTheaterIds.value]
+  if (activeTheaterIds.value.length === 0) return null
+  const theaterIds = [...activeTheaterIds.value]
 
   const languageValue = singularQueryValue(route.query.language)
   const formatValue = singularQueryValue(route.query.format)
@@ -507,7 +515,7 @@ async function applyRoute() {
 }
 
 watch(
-  favoriteTheaterIds,
+  activeTheaterIds,
   (favoriteIds) => {
     if (favoriteIds.length > 0) theaterValidationMessage.value = ''
     if (isReady && OWNED_QUERY_KEYS.some((key) => key in route.query)) applyRoute()
@@ -554,9 +562,9 @@ onBeforeUnmount(() => {
 })
 
 async function submitSearch() {
-  const theaterIds = [...favoriteTheaterIds.value]
+  const theaterIds = [...activeTheaterIds.value]
   if (theaterIds.length === 0) {
-    theaterValidationMessage.value = 'Ajoutez au moins un cinéma favori pour lancer la recherche.'
+    theaterValidationMessage.value = 'Sélectionnez au moins un cinéma pour lancer la recherche.'
     return
   }
 
@@ -603,6 +611,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   <main class="search-page mx-auto max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
     <h1 class="sr-only">Trouver une séance</h1>
 
+    <SharedTheaterNotice v-if="isInitialized && isSharedSelectionDifferent" class="mb-8" />
+
     <div class="grid gap-8 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-12">
       <div v-if="isFilterSheetOpen" class="fixed inset-0 z-40 bg-black/60 lg:hidden" aria-hidden="true" @click.self="closeFilterSheet()" />
 
@@ -645,8 +655,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <div v-else-if="isLoading || !isInitialized" class="clear-both flex min-h-11 items-center gap-2 border-2 border-ink bg-surface px-3 text-sm text-muted">
               <LoaderCircle :size="16" class="animate-spin" aria-hidden="true" /> Chargement des cinémas…
             </div>
-            <p v-else-if="favoriteTheaterIds.length" class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm font-bold text-ink">{{ favoriteSummary }}</p>
-            <p v-else class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary">Aucun cinéma favori. Ajoutez-en pour lancer une recherche.</p>
+            <p v-else-if="activeTheaterIds.length" class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm font-bold text-ink">{{ favoriteSummary }}</p>
+            <p v-else class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary">Aucun cinéma sélectionné. Ajoutez-en pour lancer une recherche.</p>
             <p v-if="theaterValidationMessage" id="theater-selection-message" class="mt-1.5 text-sm text-red-700" role="alert">{{ theaterValidationMessage }}</p>
           </fieldset>
 
@@ -710,7 +720,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 </template>
               </VueDatePicker>
             </div>
-            <p v-if="isInitialized && !hasAvailableDates" class="mt-2 text-sm font-semibold text-ink" role="status">Aucune date de séance disponible pour vos cinémas favoris.</p>
+            <p v-if="isInitialized && !hasAvailableDates" class="mt-2 text-sm font-semibold text-ink" role="status">Aucune date de séance disponible pour ces cinémas.</p>
           </fieldset>
 
           <label class="block">
@@ -736,7 +746,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <span>Inclure les publicités (+20 min)</span>
           </label>
 
-          <button type="submit" class="search-submit w-full" :disabled="pending || isLoading || !isInitialized || favoriteTheaterIds.length === 0 || !hasAvailableDates">
+          <button type="submit" class="search-submit w-full" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasAvailableDates">
             <LoaderCircle v-if="pending" :size="18" class="animate-spin" aria-hidden="true" />
             <Search v-else :size="18" aria-hidden="true" />
             {{ pending ? 'Recherche…' : 'Trouver une séance' }}
@@ -750,6 +760,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <p class="utility-label">Résultats</p>
             <h2 class="mt-2 text-3xl font-black capitalize tracking-[-0.045em] text-ink sm:text-4xl">{{ searchedDate ? formatLongDate(searchedDate) : 'Lancez votre recherche' }}</h2>
           </div>
+          <ShareButton class="shrink-0" />
         </div>
 
         <div v-if="appliedSearch" class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3" :class="results ? '' : 'lg:hidden'">

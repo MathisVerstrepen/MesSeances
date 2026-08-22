@@ -62,7 +62,7 @@ func TestMigrationsIntegration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 10 {
+	if err != nil || len(migrations) != 11 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -208,7 +208,7 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 10 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 11 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
@@ -253,7 +253,7 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 10 {
+	if err != nil || len(migrations) != 11 {
 		t.Fatalf("migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {

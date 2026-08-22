@@ -17,7 +17,7 @@ const ZOOMS: readonly string[] = ['15', '30', '60']
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
-const preferences = useCinemaPreferences()
+const preferences = usePageCinemaSelection()
 const date = ref(todayInParis())
 const language = ref<Language>('ALL')
 const mode = ref<TimelineMode>('theater')
@@ -44,6 +44,12 @@ async function loadTimeline() {
     return
   }
   if (!preferences.isInitialized.value) return
+  if (preferences.activeTheaterIds.value.length === 0) {
+    timeline.value = null
+    errorMessage.value = ''
+    pending.value = false
+    return
+  }
 
   const currentRequest = ++requestId
   pending.value = true
@@ -52,7 +58,7 @@ async function loadTimeline() {
     const response = await api.timeline({
       date: date.value,
       language: language.value,
-      theaters: preferences.favoriteTheaterIds.value.join(',')
+      theaters: preferences.activeTheaterIds.value.join(',')
     })
     if (currentRequest === requestId) timeline.value = response
   } catch (error) {
@@ -100,7 +106,7 @@ async function applyRoute() {
     await router.replace({ query: canonicalQuery })
     return
   }
-  const key = `${date.value}|${language.value}|${preferences.favoriteTheaterIds.value.join(',')}`
+  const key = `${date.value}|${language.value}|${preferences.activeTheaterIds.value.join(',')}`
   if (preferences.isInitialized.value && key !== lastTimelineKey) {
     lastTimelineKey = key
     await loadTimeline()
@@ -126,7 +132,7 @@ function createFallbackDates() {
 }
 
 const dateOptions = computed(() => {
-  const available = new Set(preferences.favoriteTheaters.value.flatMap((theater) => theater.available_dates))
+  const available = new Set(preferences.activeTheaters.value.flatMap((theater) => theater.available_dates))
   const options = available.size > 0 ? [...available].sort() : createFallbackDates()
   if (!options.includes(date.value)) options.push(date.value)
   return options.sort()
@@ -138,7 +144,7 @@ const rawShowtimeCount = computed(() => timeline.value?.theaters.reduce((total, 
 watch(() => route.query, () => {
   if (isMounted) applyRoute()
 })
-watch(preferences.favoriteTheaterIds, () => {
+watch(preferences.activeTheaterIds, () => {
   if (preferences.isInitialized.value && !isInitializing) applyRoute()
 })
 
@@ -193,8 +199,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <NuxtLink to="/cinemas" class="personalize-button shrink-0">
           <Settings2 :size="17" aria-hidden="true" />
           <span class="hidden sm:inline">Cinémas</span>
-          <strong>{{ preferences.favoriteTheaterIds.value.length }}</strong>
+          <strong>{{ preferences.activeTheaterIds.value.length }}</strong>
         </NuxtLink>
+        <ShareButton class="shrink-0" />
       </div>
 
       <div class="grid gap-3 p-2 sm:p-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-end">
@@ -232,6 +239,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </fieldset>
       </div>
     </section>
+
+    <SharedTheaterNotice v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value" class="mt-4" />
 
     <section class="mt-4 min-w-0" aria-labelledby="planning-date-title">
       <div class="mb-2 flex items-end justify-between gap-4 border-b-2 border-ink px-1 pb-2">

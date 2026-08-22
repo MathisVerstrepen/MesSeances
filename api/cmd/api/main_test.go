@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/httpapi"
+	"messeances/api/internal/shortlink"
 )
 
 type testReadCloser struct {
@@ -24,6 +26,16 @@ type testHTTPServer struct {
 	serveStarted chan struct{}
 	serveRelease chan error
 	shutdown     func(context.Context) error
+}
+
+type testShortlinkService struct{}
+
+func (testShortlinkService) Create(_ context.Context, target string) (shortlink.Link, error) {
+	return shortlink.Link{Code: "AAAAAAAAAAAAAAAAAAAAAA", Target: target}, nil
+}
+
+func (testShortlinkService) Resolve(_ context.Context, code string) (shortlink.Link, error) {
+	return shortlink.Link{Code: code, Target: "/"}, nil
 }
 
 func (s *testHTTPServer) ListenAndServe() error {
@@ -117,7 +129,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	}
 	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions)
+	handler := newAPIHandler(nil, cfg, adminOptions, nil)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -133,6 +145,26 @@ func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	options := newAdminOptions("password", "session-secret", store, nil)
 	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil {
 		t.Fatalf("options=%+v", options)
+	}
+}
+
+func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
+	values := map[string]string{
+		"DATABASE_URL": "postgres://configured",
+		"WEB_ORIGIN":   "http://localhost:3000",
+	}
+	cfg, _, err := loadAPIConfiguration(func(name string) string { return values[name] })
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{})
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Origin", cfg.Server.Origin)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated || response.Body.String() != `{"code":"AAAAAAAAAAAAAAAAAAAAAA","target":"/"}`+"\n" {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 

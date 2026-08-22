@@ -85,6 +85,11 @@ export interface ApiErrorResponse {
   }
 }
 
+export interface ShortLinkResponse {
+  code: string
+  target: string
+}
+
 export interface AdminSessionResponse {
   authenticated: boolean
 }

@@ -282,7 +282,10 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
           <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
             {{ appliedSearch ? `Résultats pour « ${appliedSearch} »` : 'Tous les films' }}
           </h2>
-          <p class="font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
+          <div class="flex flex-wrap items-center gap-3 sm:justify-end">
+            <p class="font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
+            <ShareButton />
+          </div>
         </div>
 
         <div v-if="pending" class="catalog-state" role="status" aria-live="polite">
