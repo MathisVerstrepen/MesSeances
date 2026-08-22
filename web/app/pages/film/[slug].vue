@@ -385,8 +385,12 @@ const seoDescription = computed(() => {
   return movie.overview?.trim() || `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
 })
 const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url) ?? safePosterUrl(schedule.value?.movie.poster_url) ?? fallbackImageUrl)
+const robots = computed(() => schedule.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
+  ? 'index,follow'
+  : 'noindex,follow')
 
 useSeoMeta({
+  robots,
   title: seoTitle,
   description: seoDescription,
   ogTitle: seoTitle,
@@ -434,6 +438,15 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
     </div>
 
     <template v-else-if="schedule">
+      <nav class="mb-6 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted" aria-label="Fil d’Ariane">
+        <ol class="flex flex-wrap items-center gap-2">
+          <li><NuxtLink to="/" class="hover:text-primary">Accueil</NuxtLink></li>
+          <li aria-hidden="true">/</li>
+          <li><NuxtLink to="/films" class="hover:text-primary">Films</NuxtLink></li>
+          <li aria-hidden="true">/</li>
+          <li class="text-ink" aria-current="page">{{ schedule.movie.title }}</li>
+        </ol>
+      </nav>
       <header
         class="movie-hero relative grid gap-7 overflow-hidden border-2 border-ink p-5 shadow-[8px_8px_0_#27272a] sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end sm:p-7 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10 lg:p-10"
         :class="backdropAvailable ? 'isolate text-white' : 'bg-surface'"

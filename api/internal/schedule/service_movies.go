@@ -20,7 +20,8 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	if pageSize < 1 || pageSize > maxMovieCatalogPageSize {
 		return MovieCatalog{}, invalid("Le paramètre page_size doit être un entier compris entre 1 et 100.")
 	}
-	result := MovieCatalog{Items: []MovieCatalogItem{}, Page: page, PageSize: pageSize}
+	view := s.source.Snapshot()
+	result := MovieCatalog{GeneratedAt: view.data.GeneratedAt, Items: []MovieCatalogItem{}, Page: page, PageSize: pageSize}
 	if query.CurrentlyScreened != nil && !*query.CurrentlyScreened {
 		return result, nil
 	}
@@ -29,7 +30,6 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		item          MovieCatalogItem
 		showtimeCount int
 	}
-	view := s.source.Snapshot()
 	grouped := make([]groupedMovie, 0, len(view.movieOrder))
 	for _, slug := range view.movieOrder {
 		movie := view.movieBySlug[slug]

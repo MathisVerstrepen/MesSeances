@@ -9,6 +9,7 @@ import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads'] as const
 const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before'] as const
@@ -554,6 +555,18 @@ async function submitSearch() {
   await router.push({ query })
   await consumeResultScrollIntent()
 }
+
+const config = useRuntimeConfig()
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/recherche')
+const pageTitle = 'Trouver une séance - MesSeances'
+const pageDescription = 'Trouvez les séances qui tiennent entièrement dans votre créneau horaire.'
+
+useSeoMeta({
+  title: pageTitle,
+  description: pageDescription,
+  robots: computed(() => Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+})
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>

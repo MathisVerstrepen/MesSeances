@@ -229,6 +229,7 @@ export interface MoviesResponse {
   page: number
   page_size: number
   total: number
+  generated_at: string
 }
 
 export interface MovieShowtimesQuery {

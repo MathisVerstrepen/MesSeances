@@ -4,6 +4,7 @@ import type { Language, QueryFormat, TimelineResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
@@ -152,7 +153,17 @@ onMounted(async () => {
   else await loadTimeline()
 })
 
-useHead({ title: 'Planning des séances - MesSeances' })
+const config = useRuntimeConfig()
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/planning')
+const pageTitle = 'Planning des séances - MesSeances'
+const pageDescription = 'Visualisez les séances de vos cinémas sur une frise et organisez votre sortie.'
+
+useSeoMeta({
+  title: pageTitle,
+  description: pageDescription,
+  robots: computed(() => Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+})
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>

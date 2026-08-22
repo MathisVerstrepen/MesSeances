@@ -325,6 +325,7 @@ func hasAnyKey(values map[string]any, keys ...string) bool {
 
 func TestMoviesTransport(t *testing.T) {
 	handler := testHandler(t)
+	wantGeneratedAt := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
 	response := performRequest(t, handler, "/api/v1/movies?search=film&page=1&page_size=1")
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
@@ -333,8 +334,11 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
+	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
 		t.Fatalf("catalog=%+v", catalog)
+	}
+	if !strings.Contains(response.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
+		t.Fatalf("snapshot timestamp missing from catalog transport: %s", response.Body.String())
 	}
 	if strings.Contains(response.Body.String(), `"movie":{"slug":"tmdb-film-42","tmdb_id"`) {
 		t.Fatal("nested movie contract unexpectedly enriched")
@@ -351,8 +355,11 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(empty.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Total != 0 || catalog.Page != 1 || catalog.PageSize != 24 || len(catalog.Items) != 0 {
+	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Total != 0 || catalog.Page != 1 || catalog.PageSize != 24 || len(catalog.Items) != 0 {
 		t.Fatalf("empty catalog=%+v", catalog)
+	}
+	if !strings.Contains(empty.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
+		t.Fatalf("snapshot timestamp missing from empty catalog transport: %s", empty.Body.String())
 	}
 
 	for _, test := range []struct {

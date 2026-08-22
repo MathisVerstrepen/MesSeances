@@ -471,11 +471,12 @@ func TestLocalMovieAggregatesCanonicalMetadataAndSourceShowtimes(t *testing.T) {
 
 func TestMoviesCatalogPaginationSearchAndCurrentScope(t *testing.T) {
 	service := testService(t)
+	wantGeneratedAt := testDataset().GeneratedAt
 	catalog, err := service.Movies(MovieCatalogQuery{Page: 1, PageSize: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Total != 4 || len(catalog.Items) != 2 || catalog.Items[0].Title != "Film A" || catalog.Items[1].Title != "Film B" {
+	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Total != 4 || len(catalog.Items) != 2 || catalog.Items[0].Title != "Film A" || catalog.Items[1].Title != "Film B" {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 	if catalog.Items[0].PosterURL == nil || *catalog.Items[0].PosterURL != "https://static.ugc.fr/posters/200.jpg" || catalog.Items[1].PosterURL != nil {
@@ -491,7 +492,7 @@ func TestMoviesCatalogPaginationSearchAndCurrentScope(t *testing.T) {
 	}
 	current := false
 	empty, err := service.Movies(MovieCatalogQuery{CurrentlyScreened: &current})
-	if err != nil || empty.Total != 0 || len(empty.Items) != 0 || empty.Page != 1 || empty.PageSize != 24 {
+	if err != nil || !empty.GeneratedAt.Equal(wantGeneratedAt) || empty.Total != 0 || len(empty.Items) != 0 || empty.Page != 1 || empty.PageSize != 24 {
 		t.Fatalf("empty=%+v err=%v", empty, err)
 	}
 	if _, err := service.Movies(MovieCatalogQuery{Page: -1}); err == nil {

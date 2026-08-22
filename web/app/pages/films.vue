@@ -121,10 +121,13 @@ function changeSort(event: Event) {
   router.push({ query: filmQuery(appliedSearch.value, 1, nextSort) })
 }
 
-function changePage(nextPage: number) {
-  if (pending.value || nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
+function followPageLink(event: MouseEvent, nextPage: number) {
+  if (pending.value) {
+    event.preventDefault()
+    return
+  }
+  if (nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
   scrollAfterLoad = true
-  router.push({ query: filmQuery(appliedSearch.value, nextPage, sort.value) })
 }
 
 function posterAvailable(movie: CatalogMovie): boolean {
@@ -186,12 +189,36 @@ onMounted(() => {
 })
 
 const config = useRuntimeConfig()
-const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/films')
 const socialImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
-const pageTitle = 'Films à l’affiche - MesSeances'
 const pageDescription = 'Parcourez les films actuellement au cinéma, recherchez un titre et consultez toutes les séances disponibles.'
+const rawQueryKeys = computed(() => Object.keys(route.query))
+const isPageOnlyQuery = computed(() => rawQueryKeys.value.length === 1 && rawQueryKeys.value[0] === 'page')
+const rawPage = computed(() => singularQueryValue(route.query.page))
+const normalizedCanonicalPage = computed(() => {
+  if (!isPageOnlyQuery.value) return 1
+  const parsed = positiveSafeInteger(rawPage.value) ?? 1
+  return Math.min(parsed, totalPages.value)
+})
+const canonicalUrl = computed(() => absoluteSiteUrl(
+  config.public.siteUrl,
+  normalizedCanonicalPage.value >= 2 ? `/films?page=${normalizedCanonicalPage.value}` : '/films'
+))
+const isCanonicalPageQuery = computed(() => {
+  const value = rawPage.value
+  return isPageOnlyQuery.value
+    && value !== undefined
+    && /^(?:[2-9]|[1-9]\d+)$/.test(value)
+    && positiveSafeInteger(value) === normalizedCanonicalPage.value
+})
+const isIndexable = computed(() => Boolean(catalog.value) && !errorMessage.value && (
+  rawQueryKeys.value.length === 0 || isCanonicalPageQuery.value
+))
+const pageTitle = computed(() => normalizedCanonicalPage.value >= 2
+  ? `Films à l’affiche - Page ${normalizedCanonicalPage.value} - MesSeances`
+  : 'Films à l’affiche - MesSeances')
 
 useSeoMeta({
+  robots: computed(() => isIndexable.value ? 'index,follow' : 'noindex,follow'),
   title: pageTitle,
   description: pageDescription,
   ogTitle: pageTitle,
@@ -206,7 +233,7 @@ useSeoMeta({
   twitterDescription: pageDescription,
   twitterImage: socialImageUrl
 })
-useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
+useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
 </script>
 
 <template>
@@ -303,13 +330,19 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </ul>
 
           <nav v-if="totalPages > 1" class="pagination mt-14 flex flex-col items-stretch justify-between gap-4 border-2 border-ink bg-surface p-3 shadow-[6px_6px_0_#27272a] sm:flex-row sm:items-center" aria-label="Pagination des films">
-            <button type="button" class="page-button" :disabled="page <= 1 || pending" @click="changePage(page - 1)">
+            <span v-if="page <= 1" class="page-button page-button--disabled" aria-disabled="true">
               ← Précédent
-            </button>
+            </span>
+            <NuxtLink v-else :to="{ query: filmQuery(appliedSearch, page - 1, sort) }" class="page-button" :aria-disabled="pending || undefined" @click="followPageLink($event, page - 1)">
+              ← Précédent
+            </NuxtLink>
             <span class="order-first text-center font-mono text-[11px] font-bold uppercase tracking-[0.14em] sm:order-none" aria-live="polite">Page {{ page }} / {{ totalPages }}</span>
-            <button type="button" class="page-button" :disabled="page >= totalPages || pending" @click="changePage(page + 1)">
+            <span v-if="page >= totalPages" class="page-button page-button--disabled" aria-disabled="true">
               Suivant →
-            </button>
+            </span>
+            <NuxtLink v-else :to="{ query: filmQuery(appliedSearch, page + 1, sort) }" class="page-button" :aria-disabled="pending || undefined" @click="followPageLink($event, page + 1)">
+              Suivant →
+            </NuxtLink>
           </nav>
         </template>
       </div>
@@ -374,7 +407,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 .catalog-field:disabled,
 .search-button:disabled,
-.page-button:disabled {
+.page-button--disabled,
+.page-button[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -439,7 +473,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 }
 
 .page-button {
+  display: inline-flex;
   min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
   border: 2px solid #27272a;
   background: #ffcf3f;
   padding: 0.65rem 1rem;
@@ -451,7 +488,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   transition: background-color 150ms ease, color 150ms ease;
 }
 
-.page-button:hover:not(:disabled) {
+.page-button:hover:not(.page-button--disabled, [aria-disabled="true"]) {
   background: #27272a;
   color: #fff;
 }

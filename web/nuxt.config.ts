@@ -20,6 +20,7 @@ export default defineNuxtConfig({
           name: 'description',
           content: 'Explorez les séances de cinéma de Lille sur une frise horaire et trouvez celles qui tiennent dans votre créneau.'
         },
+        { name: 'robots', content: 'noindex,follow' },
         { name: 'theme-color', content: '#FCFAF8' }
       ],
       link: [

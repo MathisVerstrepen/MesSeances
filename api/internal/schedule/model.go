@@ -123,10 +123,11 @@ type MovieCatalogItem struct {
 }
 
 type MovieCatalog struct {
-	Items    []MovieCatalogItem `json:"items"`
-	Page     int                `json:"page"`
-	PageSize int                `json:"page_size"`
-	Total    int                `json:"total"`
+	GeneratedAt time.Time          `json:"generated_at"`
+	Items       []MovieCatalogItem `json:"items"`
+	Page        int                `json:"page"`
+	PageSize    int                `json:"page_size"`
+	Total       int                `json:"total"`
 }
 
 type MovieTheaterShowtimes struct {

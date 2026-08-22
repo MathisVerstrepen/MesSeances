@@ -5,6 +5,7 @@ import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const api = useMesSeancesApi()
+const route = useRoute()
 const movies = ref<CatalogMovie[]>([])
 const pending = ref(true)
 const errorMessage = ref('')
@@ -98,8 +99,10 @@ const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/')
 const socialImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
 const pageTitle = 'MesSeances - Vos séances, au bon moment'
 const pageDescription = 'Découvrez les films actuellement à l’affiche et trouvez rapidement la séance de cinéma qui correspond à votre emploi du temps.'
+const robots = computed(() => Object.keys(route.query).length === 0 && !errorMessage.value ? 'index,follow' : 'noindex,follow')
 
 useSeoMeta({
+  robots,
   title: pageTitle,
   description: pageDescription,
   ogTitle: pageTitle,
