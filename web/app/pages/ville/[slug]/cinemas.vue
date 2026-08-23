@@ -2,6 +2,7 @@
 import { AlertTriangle, Building2, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { CityDetailResponse } from '~/types/api'
 import { cityDescription } from '~/utils/entityDescriptions'
+import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
@@ -84,6 +85,43 @@ const pageDescription = computed(() => detail.value
   ? cityDescription(detail.value.city.name, detail.value.theaters.length, detail.value.movies.length)
   : 'Découvrez les cinémas et films actuellement programmés dans cette ville.')
 const robots = computed(() => detail.value && !pending.value && !errorMessage.value && !notFound.value && Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+const cityJsonLd = computed(() => {
+  const current = detail.value
+  if (!current || pending.value || errorMessage.value || notFound.value) return null
+  const cityUrl = canonicalUrl.value
+  const graph: JsonLdNode[] = [{
+    '@type': 'BreadcrumbList',
+    '@id': `${cityUrl}#breadcrumb`,
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Accueil', item: absoluteSiteUrl(config.public.siteUrl, '/') },
+      { '@type': 'ListItem', position: 2, name: 'Cinémas', item: absoluteSiteUrl(config.public.siteUrl, '/cinemas') },
+      { '@type': 'ListItem', position: 3, name: current.city.name, item: cityUrl }
+    ]
+  }]
+  if (Object.keys(route.query).length === 0 && current.theaters.length > 0) {
+    graph.push({
+      '@type': 'ItemList',
+      '@id': `${cityUrl}#cinema-list`,
+      itemListElement: current.theaters.map((theater, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        url: absoluteSiteUrl(config.public.siteUrl, `/cinema/${encodeURIComponent(theater.slug)}`)
+      }))
+    })
+  }
+  if (Object.keys(route.query).length === 0 && current.movies.length > 0) {
+    graph.push({
+      '@type': 'ItemList',
+      '@id': `${cityUrl}#film-list`,
+      itemListElement: current.movies.map((movie, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        url: absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(movie.slug)}`)
+      }))
+    })
+  }
+  return serializeJsonLd({ '@context': 'https://schema.org', '@graph': graph })
+})
 
 useSeoMeta({
   robots,
@@ -94,7 +132,10 @@ useSeoMeta({
   ogUrl: canonicalUrl,
   ogType: 'website'
 })
-useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
+useHead(() => ({
+  link: [{ rel: 'canonical', href: canonicalUrl.value }],
+  script: cityJsonLd.value ? [{ key: 'city-jsonld', type: 'application/ld+json', innerHTML: cityJsonLd.value }] : []
+}))
 </script>
 
 <template>
@@ -105,18 +146,35 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
 
     <template v-else-if="detail">
       <nav class="breadcrumb" aria-label="Fil d’Ariane"><ol class="flex flex-wrap items-center gap-2"><li><NuxtLink to="/">Accueil</NuxtLink></li><li aria-hidden="true">/</li><li><NuxtLink to="/cinemas">Cinémas</NuxtLink></li><li aria-hidden="true">/</li><li aria-current="page">{{ detail.city.name }}</li></ol></nav>
-      <header class="border-2 border-ink bg-surface p-5 shadow-[8px_8px_0_#27272a] sm:p-8">
-        <div class="flex items-start justify-between gap-4">
-          <p class="utility-label pt-1">Cinémas · ville</p>
-          <ShareButton class="shrink-0" />
+      <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
+        <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
+          <div class="min-w-0 p-5 sm:p-8 lg:p-10">
+            <p class="utility-label">Cinémas · ville</p>
+            <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
+          </div>
+
+          <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
+            <div class="min-w-0 p-5 sm:p-6">
+              <dt class="utility-label flex items-center gap-3 text-muted"><Building2 :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Cinémas</dt>
+              <dd class="mt-2 pl-8 text-2xl font-black leading-none">{{ detail.theaters.length }}</dd>
+            </div>
+            <div class="min-w-0 border-t-2 border-ink p-5 sm:border-l-2 sm:border-t-0 sm:p-6 lg:border-l-0 lg:border-t-2">
+              <dt class="utility-label flex items-center gap-3 text-muted"><Film :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Films</dt>
+              <dd class="mt-2 pl-8 text-2xl font-black leading-none">{{ detail.movies.length }}</dd>
+            </div>
+          </dl>
         </div>
-        <h1 class="mt-4 break-words text-[clamp(3rem,10vw,8rem)] font-black uppercase leading-[0.8] tracking-[-0.08em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
-        <p class="mt-6 max-w-3xl text-base font-semibold leading-7">{{ pageDescription }}</p>
-        <p class="utility-label mt-6">{{ detail.theaters.length }} cinéma{{ detail.theaters.length === 1 ? '' : 's' }} · {{ detail.movies.length }} film{{ detail.movies.length === 1 ? '' : 's' }}</p>
+
+        <div class="border-t-2 border-ink bg-[#f1efe8] px-5 py-4 sm:px-8 sm:py-5 lg:px-10">
+          <p class="max-w-4xl text-sm font-semibold leading-6 sm:text-base sm:leading-7">{{ pageDescription }}</p>
+        </div>
       </header>
 
       <section class="mt-12" aria-labelledby="city-cinemas-heading">
-        <div class="border-b-2 border-ink pb-4"><h2 id="city-cinemas-heading" class="text-4xl font-black tracking-[-0.05em] sm:text-5xl">Cinémas</h2></div>
+        <div class="flex items-end justify-between gap-4 border-b-2 border-ink pb-5">
+          <h2 id="city-cinemas-heading" class="text-4xl font-black tracking-[-0.05em] sm:text-5xl">Cinémas</h2>
+          <ShareButton class="shrink-0" />
+        </div>
         <div v-if="detail.theaters.length === 0" class="city-state mt-8"><Building2 :size="36" aria-hidden="true" /><h3>Aucun cinéma disponible</h3><p>La programmation actuelle ne contient aucun cinéma dans cette ville.</p></div>
         <ul v-else class="mt-8 grid gap-5 md:grid-cols-2">
           <li v-for="theater in detail.theaters" :key="theater.id" class="border-2 border-ink bg-surface p-5 shadow-[6px_6px_0_#27272a]">

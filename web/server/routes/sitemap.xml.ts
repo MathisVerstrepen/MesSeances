@@ -106,9 +106,9 @@ export default defineEventHandler(async (event) => {
       movies.push(...response.items)
     }
 
-    const filmEntries = movies.map((movie) => ({ slug: movie.slug.trim(), updatedAt: movie.updated_at }))
+    const filmEntries = movies.map((movie) => ({ slug: movie.slug.trim() }))
     if (
-      filmEntries.some(({ slug, updatedAt }) => !/^film-[1-9]\d*$/.test(slug) || !validTimestamp(updatedAt))
+      filmEntries.some(({ slug }) => !/^film-[1-9]\d*$/.test(slug))
       || new Set(filmEntries.map(({ slug }) => slug)).size !== filmEntries.length
       || filmEntries.length !== firstPage.total
     ) {
@@ -117,16 +117,15 @@ export default defineEventHandler(async (event) => {
     filmEntries.sort((left, right) => left.slug.localeCompare(right.slug))
 
     const entries = [
-      ...['/', '/films', '/cinemas'].map((path) => ({ path, lastmod: firstPage.generated_at })),
-      ...['/planning', '/recherche'].map((path) => ({ path, lastmod: null })),
-      ...citySlugs.map((slug) => ({ path: `/ville/${encodeURIComponent(slug)}/cinemas`, lastmod: firstPage.generated_at })),
-      ...theaterSlugs.map((slug) => ({ path: `/cinema/${encodeURIComponent(slug)}`, lastmod: firstPage.generated_at })),
-      ...filmEntries.map(({ slug, updatedAt }) => ({ path: `/film/${encodeURIComponent(slug)}`, lastmod: updatedAt }))
+      ...['/', '/films', '/cinemas', '/planning', '/recherche'].map((path) => ({ path })),
+      ...citySlugs.map((slug) => ({ path: `/ville/${encodeURIComponent(slug)}/cinemas` })),
+      ...theaterSlugs.map((slug) => ({ path: `/cinema/${encodeURIComponent(slug)}` })),
+      ...filmEntries.map(({ slug }) => ({ path: `/film/${encodeURIComponent(slug)}` }))
     ]
     if (new Set(entries.map((entry) => entry.path)).size !== entries.length) throw new Error('Duplicate sitemap URL')
-    const body = entries.map(({ path, lastmod }) => {
+    const body = entries.map(({ path }) => {
       const location = xmlEscape(absoluteSiteUrl(config.public.siteUrl, path))
-      return `  <url>\n    <loc>${location}</loc>${lastmod ? `\n    <lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}\n  </url>`
+      return `  <url>\n    <loc>${location}</loc>\n  </url>`
     }).join('\n')
 
     setResponseHeader(event, 'Content-Type', 'application/xml; charset=utf-8')

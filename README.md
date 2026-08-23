@@ -97,7 +97,7 @@ npm --prefix web run lint
 npm --prefix web run build
 ```
 
-With the API and Nuxt already running, verify SSR metadata, structured data, current-only `/films` discovery, all-canonical sitemap inventory, complete `/cinemas` links, historical redirects, and crawler error behavior:
+With the API and Nuxt already running from the current build, verify exact entity titles, breadcrumb and catalog `ItemList` structured data, current-only `/films` discovery, all-canonical sitemap inventory without `lastmod`, contextual entity links, historical redirects, and crawler error behavior:
 
 ```sh
 npm --prefix web run verify:crawlability

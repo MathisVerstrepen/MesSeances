@@ -177,6 +177,7 @@ type MovieTheaterShowtimes struct {
 	Slug      string     `json:"slug"`
 	Name      string     `json:"name"`
 	City      string     `json:"city"`
+	CitySlug  string     `json:"city_slug"`
 	Showtimes []Showtime `json:"showtimes"`
 }
 

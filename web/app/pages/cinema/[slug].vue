@@ -26,6 +26,25 @@ const slug = computed(() => {
 const requestedDate = computed(() => calendarDate(singularQueryValue(route.query.date)))
 const selectedDate = computed(() => requestedDate.value ?? todayInParis())
 
+function normalizeLocationPart(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR').replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+const displayLocation = computed(() => {
+  const theater = response.value?.theater
+  if (!theater) return { address: '', locality: '' }
+
+  const address = theater.address.trim()
+  const postalCode = theater.postal_code.trim()
+  const city = theater.city.trim()
+  const normalizedAddress = ` ${normalizeLocationPart(address)} `
+  const normalizedLocality = normalizeLocationPart([postalCode, city].filter(Boolean).join(' '))
+  const hasFullLocality = Boolean(postalCode && city && normalizedAddress.includes(` ${normalizedLocality} `))
+  const locality = hasFullLocality ? '' : [postalCode, city].filter(Boolean).join(' ')
+
+  return { address, locality }
+})
+
 function isNotFoundError(cause: unknown): boolean {
   return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
 }
@@ -118,7 +137,7 @@ onMounted(() => nextTick(detectFailedMedia))
 
 const config = useRuntimeConfig()
 const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/cinema/${encodeURIComponent(slug.value)}`))
-const pageTitle = computed(() => response.value ? `${response.value.theater.name} - Séances - MesSeances` : 'Cinéma - MesSeances')
+const pageTitle = computed(() => response.value ? `${response.value.theater.name}, ${response.value.theater.city} : séances et horaires` : 'Cinéma - MesSeances')
 const pageDescription = computed(() => response.value
   ? cinemaDescription({
       name: response.value.theater.name,
@@ -137,7 +156,19 @@ const cinemaJsonLd = computed(() => {
   const theaterId = `${theaterUrl}#cinema`
   const theaterNode: JsonLdNode = { '@type': 'MovieTheater', '@id': theaterId, name: current.theater.name, url: theaterUrl, description: pageDescription.value }
   if (current.theater.address.trim() && current.theater.city.trim() && current.theater.postal_code.trim()) theaterNode.address = current.theater.address.trim()
-  const graph: JsonLdNode[] = [theaterNode]
+  const cityUrl = absoluteSiteUrl(config.public.siteUrl, `/ville/${encodeURIComponent(current.theater.city_slug)}/cinemas`)
+  const graph: JsonLdNode[] = [
+    theaterNode,
+    {
+      '@type': 'BreadcrumbList',
+      '@id': `${theaterUrl}#breadcrumb`,
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Accueil', item: absoluteSiteUrl(config.public.siteUrl, '/') },
+        { '@type': 'ListItem', position: 2, name: current.theater.city, item: cityUrl },
+        { '@type': 'ListItem', position: 3, name: current.theater.name, item: theaterUrl }
+      ]
+    }
+  ]
   const movieIds = new Map<string, string>()
   for (const group of movieGroups.value) {
     const movieUrl = absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(group.movie.slug)}`)
@@ -208,13 +239,31 @@ useHead(() => ({
           <li aria-current="page">{{ response.theater.name }}</li>
         </ol>
       </nav>
-      <header class="border-2 border-ink bg-surface p-5 shadow-[8px_8px_0_#27272a] sm:p-8">
-        <p class="utility-label flex items-center gap-2"><MapPin :size="16" aria-hidden="true" /> {{ response.theater.city }}</p>
-        <h1 class="mt-4 break-words text-[clamp(2.75rem,8vw,7rem)] font-black uppercase leading-[0.85] tracking-[-0.07em]">{{ response.theater.name }}</h1>
-        <p v-if="response.theater.address || response.theater.postal_code" class="mt-6 max-w-2xl text-base font-bold leading-7">
-          <span v-if="response.theater.address">{{ response.theater.address }}<br /></span>{{ response.theater.postal_code }} {{ response.theater.city }}
-        </p>
-        <p class="mt-6 max-w-3xl text-base font-semibold leading-7">{{ pageDescription }}</p>
+      <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
+        <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
+          <div class="min-w-0 p-5 sm:p-8 lg:p-10">
+            <p class="utility-label flex items-center gap-2"><MapPin :size="16" aria-hidden="true" /> {{ response.theater.city }}</p>
+            <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ response.theater.name }}</h1>
+          </div>
+
+          <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
+            <div class="min-w-0 p-5 sm:p-6">
+              <dt class="utility-label flex items-center gap-3 text-muted"><MapPin :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Adresse</dt>
+              <dd class="mt-2 break-words pl-8 text-sm font-bold leading-6">
+                <span v-if="displayLocation.address" class="block">{{ displayLocation.address }}</span>
+                <span v-if="displayLocation.locality" class="block">{{ displayLocation.locality }}</span>
+              </dd>
+            </div>
+            <div class="min-w-0 border-t-2 border-ink p-5 sm:border-l-2 sm:border-t-0 sm:p-6 lg:border-l-0 lg:border-t-2">
+              <dt class="utility-label flex items-center gap-3 text-muted"><CalendarDays :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Programmation</dt>
+              <dd class="mt-2 pl-8 text-sm font-bold leading-6">{{ response.theater.available_dates.length }} date{{ response.theater.available_dates.length > 1 ? 's' : '' }} disponible{{ response.theater.available_dates.length > 1 ? 's' : '' }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="border-t-2 border-ink bg-[#f1efe8] px-5 py-4 sm:px-8 sm:py-5 lg:px-10">
+          <p class="max-w-4xl text-sm font-semibold leading-6 sm:text-base sm:leading-7">{{ pageDescription }}</p>
+        </div>
       </header>
 
       <section class="mt-12" aria-labelledby="cinema-showtimes-heading">

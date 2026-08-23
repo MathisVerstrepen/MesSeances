@@ -539,7 +539,7 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Movie.Slug != "tmdb-film-42" || result.Date != "2026-08-15" || len(result.Theaters) != 2 || result.Theaters[0].ID != "ugc-25" || result.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" || result.Theaters[0].Showtimes[0].StartTime.Location() != time.UTC {
+	if result.Movie.Slug != "tmdb-film-42" || result.Date != "2026-08-15" || len(result.Theaters) != 2 || result.Theaters[0].ID != "ugc-25" || result.Theaters[0].CitySlug != "lille" || result.Theaters[1].CitySlug != "villeneuve-d-ascq" || result.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" || result.Theaters[0].Showtimes[0].StartTime.Location() != time.UTC {
 		t.Fatalf("schedule=%+v", result)
 	}
 	if !reflect.DeepEqual(result.AvailableDates, []string{"2026-08-15"}) {

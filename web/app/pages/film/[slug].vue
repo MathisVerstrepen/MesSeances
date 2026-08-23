@@ -501,7 +501,7 @@ const config = useRuntimeConfig()
 const canonicalSlug = computed(() => schedule.value?.movie.slug ?? slug.value)
 const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(canonicalSlug.value)}`))
 const fallbackImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
-const seoTitle = computed(() => schedule.value?.movie.title ? `${schedule.value.movie.title} - MesSeances` : 'Séances du film - MesSeances')
+const seoTitle = computed(() => schedule.value?.movie.title ? `${schedule.value.movie.title} : horaires et séances au cinéma - MesSeances` : 'Séances du film - MesSeances')
 const seoDescription = computed(() => {
   const movie = schedule.value?.movie
   if (!movie) return 'Consultez les séances, horaires et cinémas disponibles pour ce film sur MesSeances.'
@@ -1007,7 +1007,7 @@ useHead(() => ({
                     <BrandedText :text="theater.name" />
                   </NuxtLink>
                 </h3>
-                <span class="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</span>
+                <NuxtLink :to="`/ville/${encodeURIComponent(theater.city_slug)}/cinemas`" class="flex min-h-11 items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink underline decoration-2 underline-offset-4 hover:text-primary"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</NuxtLink>
               </div>
 
               <ul class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-6">

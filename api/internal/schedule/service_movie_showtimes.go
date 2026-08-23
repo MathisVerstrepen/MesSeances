@@ -71,7 +71,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 			}
 			return showtimes[i].ID < showtimes[j].ID
 		})
-		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, Showtimes: showtimes})
+		result.Theaters = append(result.Theaters, MovieTheaterShowtimes{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, CitySlug: view.cityBuckets[view.theaterCity[theaterPosition]].slug, Showtimes: showtimes})
 	}
 	return result, nil
 }

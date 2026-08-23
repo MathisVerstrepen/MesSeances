@@ -2,11 +2,17 @@ export interface JsonLdReference {
   '@id': string
 }
 
-export interface JsonLdListItem {
+export interface JsonLdBreadcrumbListItem {
   '@type': 'ListItem'
   position: number
   name: string
   item: string
+}
+
+export interface JsonLdSummaryListItem {
+  '@type': 'ListItem'
+  position: number
+  url: string
 }
 
 export interface JsonLdNode {
@@ -22,7 +28,7 @@ export interface JsonLdNode {
   genre?: string[]
   image?: string | string[]
   sameAs?: string
-  itemListElement?: JsonLdListItem[]
+  itemListElement?: JsonLdBreadcrumbListItem[] | JsonLdSummaryListItem[]
   address?: string
   startDate?: string
   endDate?: string

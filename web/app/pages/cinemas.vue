@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, Check, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
 import type { Theater } from '~/types/api'
+import { serializeJsonLd } from '~/utils/jsonLd'
 import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
@@ -141,6 +142,23 @@ const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/cinemas')
 const pageTitle = 'Cinémas et villes - MesSeances'
 const pageDescription = 'Annuaire des cinémas et des villes disponibles sur MesSeances.'
 const robots = computed(() => directoryTheaters.value.length > 0 && !directoryError.value && Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+const cinemasJsonLd = computed(() => {
+  if (directoryError.value || Object.keys(route.query).length > 0) return null
+  const theaters = visibleGroups.value.flatMap((group) => group.theaters)
+  if (theaters.length === 0) return null
+  return serializeJsonLd({
+    '@context': 'https://schema.org',
+    '@graph': [{
+      '@type': 'ItemList',
+      '@id': `${canonicalUrl}#cinema-list`,
+      itemListElement: theaters.map((theater, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        url: absoluteSiteUrl(config.public.siteUrl, `/cinema/${encodeURIComponent(theater.slug)}`)
+      }))
+    }]
+  })
+})
 
 useSeoMeta({
   robots,
@@ -151,7 +169,10 @@ useSeoMeta({
   ogUrl: canonicalUrl,
   ogType: 'website'
 })
-useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
+useHead(() => ({
+  link: [{ rel: 'canonical', href: canonicalUrl }],
+  script: cinemasJsonLd.value ? [{ key: 'cinemas-jsonld', type: 'application/ld+json', innerHTML: cinemasJsonLd.value }] : []
+}))
 </script>
 
 <template>

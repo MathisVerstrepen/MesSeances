@@ -1061,6 +1061,40 @@ func TestCanonicalMovieInventoryAliasesEndedAndSourceTiming(t *testing.T) {
 	}
 }
 
+func TestMovieShowtimesUsesSnapshotCitySlugMapping(t *testing.T) {
+	data := testDataset()
+	data.Theaters[0].City = "Évry"
+	data.Theaters[1].City = "Evry"
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.CurrentlyScreened || !reflect.DeepEqual(result.AvailableDates, []string{"2026-08-15"}) || len(result.Theaters) != 2 {
+		t.Fatalf("result=%+v", result)
+	}
+	want := []struct {
+		id       string
+		slug     string
+		city     string
+		citySlug string
+		showtime string
+	}{
+		{id: "ugc-26", slug: "ugc-26", city: "Evry", citySlug: "evry--5a2839c1", showtime: "ugc-showing-104"},
+		{id: "ugc-25", slug: "ugc-25", city: "Évry", citySlug: "evry--b6b4bc41", showtime: "ugc-showing-100"},
+	}
+	for index, expected := range want {
+		theater := result.Theaters[index]
+		if theater.Provider != ProviderUGC || theater.ID != expected.id || theater.Slug != expected.slug || theater.City != expected.city || theater.CitySlug != expected.citySlug || len(theater.Showtimes) != 1 || theater.Showtimes[0].ID != expected.showtime {
+			t.Fatalf("theater[%d]=%+v want=%+v", index, theater, expected)
+		}
+	}
+}
+
 func TestCitySlugNormalizationAndCollisionAssignment(t *testing.T) {
 	for _, test := range []struct {
 		name string

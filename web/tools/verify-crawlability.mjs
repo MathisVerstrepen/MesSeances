@@ -77,6 +77,24 @@ function nodesOfType(nodes, type) {
   return nodes.filter((node) => node?.['@type'] === type)
 }
 
+function verifyItemList(html, id, expectedUrls, path) {
+  assert(expectedUrls.length > 0, `${path}: ItemList expectation must be nonempty`)
+  const lists = nodesOfType(graphNodes(html), 'ItemList')
+  const list = lists.find((node) => node['@id'] === id)
+  assert(list, `${path}: ItemList ${id} missing`)
+  const items = list.itemListElement
+  assert(Array.isArray(items) && items.length === expectedUrls.length, `${path}: ItemList ${id} length mismatch`)
+  for (const [index, item] of items.entries()) {
+    assert(JSON.stringify(Object.keys(item).sort()) === JSON.stringify(['@type', 'position', 'url'].sort()), `${path}: ItemList ${id} item ${index + 1} keys mismatch`)
+    assert(item['@type'] === 'ListItem' && item.position === index + 1 && item.url === expectedUrls[index], `${path}: ItemList ${id} item ${index + 1} mismatch`)
+  }
+  return lists
+}
+
+function assertNoItemList(html, path) {
+  assert(nodesOfType(graphNodes(html), 'ItemList').length === 0, `${path}: unexpected ItemList`)
+}
+
 function verifyGlobalGraph(html) {
   const nodes = graphNodes(html)
   const organization = one(nodesOfType(nodes, 'Organization'), 'global Organization')
@@ -289,13 +307,8 @@ async function verifyDiscovery(allCatalog, inventory) {
   assert(entries.length === expectedLocations.length, `/sitemap.xml: expected ${expectedLocations.length} URLs, received ${entries.length}`)
   assert(new Set(entries.map((entry) => entry.loc)).size === entries.length, '/sitemap.xml: duplicate URL')
   assert(entries.every((entry, index) => entry.loc === expectedLocations[index]), '/sitemap.xml: URL order or set mismatch')
-  for (const entry of entries) {
-    const movieSlug = entry.loc.startsWith(`${siteUrl}/film/`) ? decodeURIComponent(entry.loc.slice(`${siteUrl}/film/`.length)) : null
-    const movie = movieSlug ? allCatalog.items.find((item) => item.slug === movieSlug) : null
-    const staticTool = entry.loc === `${siteUrl}/planning` || entry.loc === `${siteUrl}/recherche`
-    const expectedLastmod = staticTool ? null : movie ? movie.updated_at : allCatalog.generatedAt
-    assert(entry.lastmod === expectedLastmod, `/sitemap.xml: incorrect lastmod for ${entry.loc}`)
-  }
+  assert(entries.every((entry) => entry.lastmod === null), '/sitemap.xml: lastmod must be omitted from every URL')
+  assert(!sitemap.body.includes('<lastmod>'), '/sitemap.xml: lastmod element present')
 
   const robots = await get(`${webUrl}/robots.txt`, 'text/plain')
   assert(robots.response.status === 200, `/robots.txt: expected 200, received ${robots.response.status}`)
@@ -347,8 +360,27 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
   ]
   if (defaultDate) noindexCanonicalCases.push([`/cinema/${encodeURIComponent(theater.slug)}?date=${defaultDate}`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`])
   for (const [path, expectedCanonical] of noindexCanonicalCases) {
-    verifyPolicy(await get(`${webUrl}${path}`), path, 'noindex,follow', expectedCanonical)
+    const result = await get(`${webUrl}${path}`)
+    verifyPolicy(result, path, 'noindex,follow', expectedCanonical)
+    assertNoItemList(result.body, path)
   }
+
+  const cityQueryPath = `/ville/${encodeURIComponent(city.slug)}/cinemas?foreign=1`
+  const cityQueryPage = await get(`${webUrl}${cityQueryPath}`)
+  verifyBreadcrumb(cityQueryPage.body, {
+    path: cityQueryPath,
+    id: `${siteUrl}/ville/${encodeURIComponent(city.slug)}/cinemas#breadcrumb`,
+    names: ['Accueil', 'Cinémas', city.name],
+    urls: [`${siteUrl}/`, `${siteUrl}/cinemas`, `${siteUrl}/ville/${encodeURIComponent(city.slug)}/cinemas`]
+  })
+  const cinemaQueryPath = `/cinema/${encodeURIComponent(theater.slug)}?foreign=1`
+  const cinemaQueryPage = await get(`${webUrl}${cinemaQueryPath}`)
+  verifyBreadcrumb(cinemaQueryPage.body, {
+    path: cinemaQueryPath,
+    id: `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}#breadcrumb`,
+    names: ['Accueil', theater.cityName, theater.name],
+    urls: [`${siteUrl}/`, `${siteUrl}/ville/${encodeURIComponent(theater.citySlug)}/cinemas`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`]
+  })
 
   const totalPages = Math.max(1, Math.ceil(catalog.total / CATALOG_PAGE_SIZE))
   if (totalPages >= 2) {
@@ -373,6 +405,13 @@ async function verifyCatalogLinks(catalog) {
     const result = await get(`${webUrl}${path}`)
     assert(result.response.status === 200, `${path}: expected 200, received ${result.response.status}`)
     const hrefs = tags(result.body, 'a').map((anchor) => anchor.href).filter(Boolean)
+    const filmUrls = hrefs
+      .map((href) => new URL(href, webUrl))
+      .filter((target) => target.pathname.startsWith('/film/'))
+      .map((target) => `${siteUrl}${target.pathname}`)
+    const canonicalUrl = page === 1 ? `${siteUrl}/films` : `${siteUrl}/films?page=${page}`
+    const lists = verifyItemList(result.body, `${canonicalUrl}#film-list`, filmUrls, path)
+    assert(lists.length === 1, `${path}: unexpected additional ItemList`)
     for (const href of hrefs) {
       const pathname = new URL(href, webUrl).pathname
       if (pathname.startsWith('/film/')) {
@@ -408,16 +447,29 @@ async function verifyCinemaDirectory(inventory) {
   for (const slug of inventory.theaterSlugs) {
     assert(hrefs.includes(`/cinema/${encodeURIComponent(slug)}`), `${path}: missing SSR cinema link ${slug}`)
   }
+  const cinemaUrls = tags(result.body, 'a')
+    .map((anchor) => new URL(anchor.href, webUrl))
+    .filter((target) => target.pathname.startsWith('/cinema/'))
+    .map((target) => `${siteUrl}${target.pathname}`)
+  const lists = verifyItemList(result.body, `${siteUrl}/cinemas#cinema-list`, cinemaUrls, path)
+  assert(lists.length === 1, `${path}: unexpected additional ItemList`)
   assertStableInternalLinks(result.body, path)
 }
 
-function verifyBreadcrumb(html, movie) {
+function verifyBreadcrumb(html, { path, id, names, urls }) {
   const nav = html.match(/<nav\b[^>]*aria-label=(["'])Fil d’Ariane\1[^>]*>(.*?)<\/nav>/is)
-  assert(nav, 'Film breadcrumb nav missing')
-  const hrefs = tags(nav[2], 'a').map((anchor) => new URL(anchor.href, webUrl).pathname)
-  assert(hrefs.length === 2 && hrefs[0] === '/' && hrefs[1] === '/films', 'Film breadcrumb links mismatch')
-  assert(/aria-current=(["'])page\1/i.test(nav[2]), 'Film breadcrumb current item missing aria-current')
-  assert(visibleText(`<body>${nav[2]}</body>`).includes(movie.title), 'Film breadcrumb current title missing')
+  assert(nav, `${path}: breadcrumb nav missing`)
+  const hrefs = tags(nav[2], 'a').map((anchor) => new URL(anchor.href, webUrl).href)
+  assert(JSON.stringify(hrefs) === JSON.stringify(urls.slice(0, -1)), `${path}: visible breadcrumb links mismatch`)
+  assert(/aria-current=(["'])page\1/i.test(nav[2]), `${path}: breadcrumb current item missing aria-current`)
+  const text = visibleText(`<body>${nav[2]}</body>`)
+  assert(names.every((name) => text.includes(name)), `${path}: visible breadcrumb labels mismatch`)
+  const breadcrumbs = nodesOfType(graphNodes(html), 'BreadcrumbList')
+  assert(breadcrumbs.length === 1, `${path}: expected exactly one BreadcrumbList`)
+  const breadcrumb = breadcrumbs[0]
+  assert(breadcrumb['@id'] === id, `${path}: BreadcrumbList ID mismatch`)
+  assert(JSON.stringify(breadcrumb.itemListElement?.map(({ name, item }) => ({ name, item }))) === JSON.stringify(names.map((name, index) => ({ name, item: urls[index] }))), `${path}: BreadcrumbList labels or URLs mismatch`)
+  assert(breadcrumb.itemListElement?.every((item, index) => item['@type'] === 'ListItem' && item.position === index + 1), `${path}: BreadcrumbList positions mismatch`)
 }
 
 function expectedEvents(showtimes, theaterUrl, theaterId, movieIdFor) {
@@ -465,6 +517,7 @@ function verifyFilmJsonLd(html, movie, schedule, path) {
   const breadcrumb = nodes.find((node) => node['@type'] === 'BreadcrumbList' && node['@id'] === `${canonicalUrl}#breadcrumb`)
   assert(breadcrumb && breadcrumb.itemListElement?.length === 3, `${path}: BreadcrumbList missing`)
   assert(JSON.stringify(breadcrumb.itemListElement.map((item) => item.item)) === JSON.stringify([`${siteUrl}/`, `${siteUrl}/films`, canonicalUrl]), `${path}: BreadcrumbList links mismatch`)
+  verifyBreadcrumb(html, { path, id: `${canonicalUrl}#breadcrumb`, names: ['Accueil', 'Films', movie.title], urls: [`${siteUrl}/`, `${siteUrl}/films`, canonicalUrl] })
 
   const showtimes = schedule.theaters.flatMap((theater) => theater.showtimes.map((showtime) => ({ ...showtime, theater })))
   const expected = expectedEvents(
@@ -476,6 +529,7 @@ function verifyFilmJsonLd(html, movie, schedule, path) {
   verifyEventNodes(nodesOfType(nodes, 'ScreeningEvent'), expected, path)
   const theaters = nodesOfType(nodes, 'MovieTheater')
   assert(theaters.length === schedule.theaters.filter((theater) => theater.showtimes.length).length, `${path}: MovieTheater count mismatch`)
+  assertNoItemList(html, path)
   assertStableInternalLinks(html, path)
 }
 
@@ -499,6 +553,13 @@ function verifyCinemaJsonLd(html, response, path) {
   )
   verifyEventNodes(nodesOfType(nodes, 'ScreeningEvent'), expected, path)
   assert(nodesOfType(nodes, 'Movie').length === movieIds.size, `${path}: Movie node count mismatch`)
+  verifyBreadcrumb(html, {
+    path,
+    id: `${canonicalUrl}#breadcrumb`,
+    names: ['Accueil', response.theater.city, response.theater.name],
+    urls: [`${siteUrl}/`, `${siteUrl}/ville/${encodeURIComponent(response.theater.city_slug)}/cinemas`, canonicalUrl]
+  })
+  assertNoItemList(html, path)
   assertStableInternalLinks(html, path)
 }
 
@@ -673,6 +734,8 @@ async function verifyFailureMode() {
     assert(text.includes('Impossible de joindre le service'), `${path}: recoverable French upstream error is missing`)
     assert(!text.includes('Film introuvable'), `${path}: upstream failure was rendered as film not found`)
     verifyGlobalGraph(result.body)
+    assert(nodesOfType(graphNodes(result.body), 'BreadcrumbList').length === 0, `${path}: upstream failure emitted BreadcrumbList`)
+    assertNoItemList(result.body, path)
   }
   const sitemap = await get(`${webUrl}/sitemap.xml`, 'application/xml')
   assert(sitemap.response.status === 503, `/sitemap.xml: expected 503, received ${sitemap.response.status}`)
@@ -727,7 +790,8 @@ async function verifyNormalMode() {
     const result = await get(`${webUrl}${page.path}`)
     assert(visibleText(result.body).includes(movie.title), `${page.path}: raw rendered body does not contain discovered film title`)
     metadata.push(verifyHead({ ...page, body: result.body }, page.canonical, page.ogType))
-    if (page.path.startsWith('/film/')) verifyBreadcrumb(result.body, movie)
+    if (page.path.startsWith('/film/')) assert(title(result.body) === `${movie.title} : horaires et séances au cinéma - MesSeances`, `${page.path}: exact film title mismatch`)
+    if (!['/films'].includes(page.path)) assertNoItemList(result.body, page.path)
     verifyGlobalGraph(result.body)
   }
   assert(new Set(metadata.map((item) => item.title)).size === pages.length, 'Route titles are not unique')
@@ -738,6 +802,15 @@ async function verifyNormalMode() {
   const filmSchedule = JSON.parse(filmApi.body)
   const filmPage = await get(`${webUrl}/film/${encodedSlug}`)
   verifyFilmJsonLd(filmPage.body, filmSchedule.movie, filmSchedule, `/film/${encodedSlug}`)
+  const filmHrefs = tags(filmPage.body, 'a').map((anchor) => new URL(anchor.href, webUrl))
+  const cityTargets = new Set()
+  for (const scheduleTheater of filmSchedule.theaters) {
+    assert(String(scheduleTheater.city_slug ?? '').trim(), `/film/${encodedSlug}: API theater city_slug missing`)
+    cityTargets.add(`/ville/${encodeURIComponent(scheduleTheater.city_slug)}/cinemas`)
+  }
+  for (const cityTarget of cityTargets) {
+    assert(filmHrefs.some((target) => target.pathname === cityTarget && !target.search && !target.hash), `/film/${encodedSlug}: city link ${cityTarget} missing`)
+  }
 
   const entityDescriptions = new Set()
   for (const cityDetail of cityDetails) {
@@ -746,10 +819,28 @@ async function verifyNormalMode() {
     verifyPolicy(cityPage, cityPath, 'index,follow', `${siteUrl}${cityPath}`)
     verifyGlobalGraph(cityPage.body)
     verifyEntityDescription(cityPage.body, cityPath, entityDescriptions)
+    verifyBreadcrumb(cityPage.body, {
+      path: cityPath,
+      id: `${siteUrl}${cityPath}#breadcrumb`,
+      names: ['Accueil', 'Cinémas', cityDetail.city.name],
+      urls: [`${siteUrl}/`, `${siteUrl}/cinemas`, `${siteUrl}${cityPath}`]
+    })
     assertStableInternalLinks(cityPage.body, cityPath)
     const cityHrefs = tags(cityPage.body, 'a').map((anchor) => new URL(anchor.href, webUrl).pathname)
     assert(cityDetail.theaters.every((item) => cityHrefs.includes(`/cinema/${encodeURIComponent(item.slug)}`)), `${cityPath}: cinema links incomplete`)
     assert(cityDetail.movies.every((item) => /^film-[1-9]\d*$/.test(item.slug) && cityHrefs.includes(`/film/${encodeURIComponent(item.slug)}`)), `${cityPath}: neutral film links incomplete`)
+    const expectedCinemaUrls = cityDetail.theaters.map((item) => `${siteUrl}/cinema/${encodeURIComponent(item.slug)}`)
+    const expectedFilmUrls = cityDetail.movies.map((item) => `${siteUrl}/film/${encodeURIComponent(item.slug)}`)
+    let expectedListCount = 0
+    if (expectedCinemaUrls.length) {
+      verifyItemList(cityPage.body, `${siteUrl}${cityPath}#cinema-list`, expectedCinemaUrls, cityPath)
+      expectedListCount++
+    }
+    if (expectedFilmUrls.length) {
+      verifyItemList(cityPage.body, `${siteUrl}${cityPath}#film-list`, expectedFilmUrls, cityPath)
+      expectedListCount++
+    }
+    assert(nodesOfType(graphNodes(cityPage.body), 'ItemList').length === expectedListCount, `${cityPath}: unexpected city ItemList count`)
   }
 
   for (const cinema of inventory.theaters) {
@@ -762,6 +853,7 @@ async function verifyNormalMode() {
     verifyPolicy(cinemaPage, cinemaPath, 'index,follow', `${siteUrl}${cinemaPath}`)
     verifyEntityDescription(cinemaPage.body, cinemaPath, entityDescriptions)
     verifyCinemaJsonLd(cinemaPage.body, cinemaResponse, cinemaPath)
+    assert(title(cinemaPage.body) === `${cinemaResponse.theater.name}, ${cinemaResponse.theater.city} : séances et horaires`, `${cinemaPath}: exact cinema title mismatch`)
     assert(visibleText(cinemaPage.body).includes(cinema.name), `${cinemaPath}: cinema name missing from SSR body`)
   }
 
@@ -809,6 +901,8 @@ async function verifyNormalMode() {
     verifyErrorPolicy(result, path, 404)
     assert(visibleText(result.body).includes(text), `${path}: not-found UI missing`)
     verifyGlobalGraph(result.body)
+    assert(nodesOfType(graphNodes(result.body), 'BreadcrumbList').length === 0, `${path}: error response emitted BreadcrumbList`)
+    assertNoItemList(result.body, path)
   }
   const unknownPath = '/__crawlability-missing-route__'
   verifyErrorPolicy(await get(`${webUrl}${unknownPath}`), unknownPath, 404)

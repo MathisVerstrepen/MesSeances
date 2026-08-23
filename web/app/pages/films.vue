@@ -2,6 +2,7 @@
 import { AlertTriangle, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
 import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
 import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { serializeJsonLd } from '~/utils/jsonLd'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
@@ -254,6 +255,21 @@ const isIndexable = computed(() => Boolean(catalog.value) && !errorMessage.value
 const pageTitle = computed(() => normalizedCanonicalPage.value >= 2
   ? `Films à l’affiche - Page ${normalizedCanonicalPage.value} - MesSeances`
   : 'Films à l’affiche - MesSeances')
+const filmsJsonLd = computed(() => {
+  if (pending.value || !isIndexable.value || !catalog.value?.items.length) return null
+  return serializeJsonLd({
+    '@context': 'https://schema.org',
+    '@graph': [{
+      '@type': 'ItemList',
+      '@id': `${canonicalUrl.value}#film-list`,
+      itemListElement: catalog.value.items.map((movie, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        url: absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(movie.slug)}`)
+      }))
+    }]
+  })
+})
 
 useSeoMeta({
   robots: computed(() => isIndexable.value ? 'index,follow' : 'noindex,follow'),
@@ -271,7 +287,10 @@ useSeoMeta({
   twitterDescription: pageDescription,
   twitterImage: socialImageUrl
 })
-useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
+useHead(() => ({
+  link: [{ rel: 'canonical', href: canonicalUrl.value }],
+  script: filmsJsonLd.value ? [{ key: 'films-jsonld', type: 'application/ld+json', innerHTML: filmsJsonLd.value }] : []
+}))
 </script>
 
 <template>
