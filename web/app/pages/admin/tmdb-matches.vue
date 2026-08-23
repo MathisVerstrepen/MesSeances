@@ -8,6 +8,7 @@ import type {
   AdminPendingMatch,
   AdminPendingMatchesResponse,
   AdminTMDBCandidate,
+  AdminTMDBRerunSummary,
   Provider
 } from '~/types/api'
 import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
@@ -29,6 +30,8 @@ const groupsPending = ref(true)
 const matchesError = ref('')
 const groupsError = ref('')
 const errorMessage = ref('')
+const rerunError = ref('')
+const rerunSummary = ref<AdminTMDBRerunSummary | null>(null)
 const selectedCandidates = ref<Record<string, number>>({})
 const manualTmdbIds = ref<Record<string, string | number>>({})
 const selectedSources = ref<Record<string, AdminPendingMatch>>({})
@@ -37,6 +40,7 @@ const activeMutation = ref('')
 const activeMutationKind = ref<'candidate' | 'manual' | 'reject' | ''>('')
 const mergePending = ref(false)
 const unmergePending = ref('')
+const rerunPending = ref(false)
 const rejectConfirmation = ref('')
 const unmergeConfirmation = ref('')
 const loggingOut = ref(false)
@@ -56,7 +60,7 @@ const canGoNext = computed(() => (result.value?.items.length ?? 0) === PAGE_SIZE
 const canGroupsGoNext = computed(() => (groupsResult.value?.items.length ?? 0) === PAGE_SIZE)
 const selectedSourceList = computed(() => Object.values(selectedSources.value))
 const canMerge = computed(() => selectedSourceList.value.length >= 2 && Boolean(primarySourceKey.value && selectedSources.value[primarySourceKey.value]))
-const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value))
+const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value || rerunPending.value))
 
 function sourceKey(source: AdminLocalMovieSource): string {
   return `${source.source_provider}:${source.source_movie_id}`
@@ -178,6 +182,33 @@ async function refreshAfterDecision() {
   await loadMatches(true)
   if (!matchesError.value && offset.value > 0 && result.value?.items.length === 0) {
     await router.replace({ query: adminQuery(page.value - 1) })
+  }
+}
+
+async function refreshMatchesAfterRerun() {
+  clearMergeSelection()
+  offset.value = 0
+  lastLoadPage = 1
+  const canonicalQuery = adminQuery(1)
+  if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
+  await loadMatches()
+}
+
+async function rerunTMDBMatches() {
+  if (anyMutation.value) return
+  rerunPending.value = true
+  rerunError.value = ''
+  rerunSummary.value = null
+  try {
+    rerunSummary.value = await api.adminRerunTMDBMatches()
+  } catch (error) {
+    rerunError.value = getFrenchAdminApiError(error)
+  } finally {
+    try {
+      await refreshMatchesAfterRerun()
+    } finally {
+      rerunPending.value = false
+    }
   }
 }
 
@@ -401,17 +432,35 @@ useHead({ title: 'Identités des films - MesSeances' })
     <section class="mt-7" aria-labelledby="pending-matches-title">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 id="pending-matches-title" class="text-xl font-semibold text-ink">Films sans identité TMDB résolue</h2>
-        <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches()">
-          <RefreshCw :size="16" :class="pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
-        </button>
+        <div class="flex flex-wrap items-center gap-3">
+          <button type="button" class="button-primary" :disabled="pending || anyMutation" @click="rerunTMDBMatches">
+            <LoaderCircle v-if="rerunPending" :size="17" class="animate-spin" aria-hidden="true" />
+            <RefreshCw v-else :size="17" aria-hidden="true" />
+            {{ rerunPending ? 'Relance en cours…' : 'Relancer les films non résolus' }}
+          </button>
+          <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches()">
+            <RefreshCw :size="16" :class="pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
+          </button>
+        </div>
+      </div>
+
+      <p class="sr-only" role="status" aria-live="polite">{{ rerunPending ? 'Relance TMDB en cours pour tous les films non résolus.' : '' }}</p>
+      <div v-if="rerunError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+        <p class="flex-1">{{ rerunError }}</p>
+        <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="rerunError = ''">Fermer</button>
+      </div>
+      <div v-if="rerunSummary" class="mt-4 rounded-md border p-4 text-sm" :class="rerunSummary.failed > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'" role="status" aria-live="polite">
+        <p class="font-semibold">{{ rerunSummary.failed > 0 ? 'Relance terminée avec des erreurs.' : 'Relance terminée.' }}</p>
+        <p class="mt-1">{{ rerunSummary.processed }} traité(s), {{ rerunSummary.matched }} associé(s), {{ rerunSummary.review_required }} à vérifier, {{ rerunSummary.unmatched }} sans correspondance, {{ rerunSummary.reused }} réutilisé(s), {{ rerunSummary.failed }} en erreur.</p>
       </div>
 
       <div v-if="selectedSourceList.length" class="mt-4 rounded-lg border border-accent-line bg-accent-soft p-4" aria-labelledby="merge-selection-title">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h3 id="merge-selection-title" class="font-semibold text-ink">Sélection pour regroupement ({{ selectedSourceList.length }})</h3>
-          <button type="button" class="text-sm font-semibold text-muted underline" :disabled="mergePending" @click="clearMergeSelection">Effacer</button>
+          <button type="button" class="text-sm font-semibold text-muted underline" :disabled="anyMutation" @click="clearMergeSelection">Effacer</button>
         </div>
-        <fieldset class="mt-3" :disabled="mergePending">
+        <fieldset class="mt-3" :disabled="anyMutation">
           <legend class="sr-only">Choisir la source principale</legend>
           <ul class="flex flex-wrap gap-2">
             <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-accent-line bg-surface px-3 py-2 text-sm">
@@ -446,7 +495,7 @@ useHead({ title: 'Identités des films - MesSeances' })
         <li v-for="match in result.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
-              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-accent" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="mergePending" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
+              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-accent" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="anyMutation" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
             </label>
             <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-amber-100 text-amber-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : 'bg-subtle text-muted'">{{ statusLabel(match) }}</span>
           </div>

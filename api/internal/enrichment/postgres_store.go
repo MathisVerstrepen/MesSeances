@@ -33,6 +33,10 @@ func lockEnrichmentVersion(ctx context.Context, tx pgx.Tx) (int64, error) {
 
 func writeMetadata(ctx context.Context, tx pgx.Tx, metadata Metadata) error {
 	var overview, releaseDate, poster, backdrop any
+	genres := metadata.Genres
+	if genres == nil {
+		genres = []string{}
+	}
 	if metadata.Overview != "" {
 		overview = metadata.Overview
 	}
@@ -47,7 +51,7 @@ func writeMetadata(ctx context.Context, tx pgx.Tx, metadata Metadata) error {
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO movie_metadata_cache (provider, provider_movie_id, locale, provider_title, localized_title, overview, release_date, poster_url, backdrop_url, runtime_minutes, genres, fetched_at, refresh_after)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-ON CONFLICT (provider, provider_movie_id, locale) DO UPDATE SET provider_title=EXCLUDED.provider_title, localized_title=EXCLUDED.localized_title, overview=EXCLUDED.overview, release_date=EXCLUDED.release_date, poster_url=EXCLUDED.poster_url, backdrop_url=EXCLUDED.backdrop_url, runtime_minutes=EXCLUDED.runtime_minutes, genres=EXCLUDED.genres, fetched_at=EXCLUDED.fetched_at, refresh_after=EXCLUDED.refresh_after`, metadata.Provider, metadata.ProviderMovieID, metadata.Locale, metadata.ProviderTitle, metadata.LocalizedTitle, overview, releaseDate, poster, backdrop, metadata.RuntimeMinutes, metadata.Genres, metadata.FetchedAt, metadata.RefreshAfter)
+ON CONFLICT (provider, provider_movie_id, locale) DO UPDATE SET provider_title=EXCLUDED.provider_title, localized_title=EXCLUDED.localized_title, overview=EXCLUDED.overview, release_date=EXCLUDED.release_date, poster_url=EXCLUDED.poster_url, backdrop_url=EXCLUDED.backdrop_url, runtime_minutes=EXCLUDED.runtime_minutes, genres=EXCLUDED.genres, fetched_at=EXCLUDED.fetched_at, refresh_after=EXCLUDED.refresh_after`, metadata.Provider, metadata.ProviderMovieID, metadata.Locale, metadata.ProviderTitle, metadata.LocalizedTitle, overview, releaseDate, poster, backdrop, metadata.RuntimeMinutes, genres, metadata.FetchedAt, metadata.RefreshAfter)
 	if err != nil {
 		return fmt.Errorf("write movie metadata failed")
 	}

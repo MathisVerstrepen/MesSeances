@@ -66,6 +66,15 @@ type Movie struct {
 	ProviderID     string
 	Title          string
 	RuntimeMinutes int
+	FirstShowingAt time.Time
+}
+
+type ReusableMetadataMatch struct {
+	SourceProvider        string
+	NormalizedSourceTitle string
+	SourceRuntimeMinutes  int
+	MetadataMovieID       int64
+	Score                 float64
 }
 
 type PendingMatch struct {

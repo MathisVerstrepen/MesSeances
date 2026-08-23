@@ -205,7 +205,14 @@ func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, e
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
-		unique[showing.Movie.ProviderID] = enrichment.Movie{SourceProvider: string(provider), ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}
+		movie, found := unique[showing.Movie.ProviderID]
+		if !found {
+			movie = enrichment.Movie{SourceProvider: string(provider), ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}
+		}
+		if !showing.StartTime.IsZero() && (movie.FirstShowingAt.IsZero() || showing.StartTime.Before(movie.FirstShowingAt)) {
+			movie.FirstShowingAt = showing.StartTime
+		}
+		unique[showing.Movie.ProviderID] = movie
 	}
 	movies := make([]enrichment.Movie, 0, len(unique))
 	for _, movie := range unique {

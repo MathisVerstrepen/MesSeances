@@ -9,14 +9,15 @@ import (
 )
 
 type adminAPI struct {
-	origin   string
-	password string
-	key      [32]byte
-	hasKey   bool
-	reviews  *enrichment.ReviewService
-	locals   *enrichment.LocalMovieService
-	syncs    SyncController
-	now      func() time.Time
+	origin     string
+	password   string
+	key        [32]byte
+	hasKey     bool
+	reviews    *enrichment.ReviewService
+	tmdbReruns TMDBRerunner
+	locals     *enrichment.LocalMovieService
+	syncs      SyncController
+	now        func() time.Time
 }
 
 type sessionResponse struct {
@@ -38,7 +39,7 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	}
 	return &adminAPI{
 		origin: origin, password: password, key: key, hasKey: hasKey,
-		reviews: options.Reviews, locals: options.LocalMovies, syncs: options.Syncs, now: options.Now,
+		reviews: options.Reviews, tmdbReruns: options.TMDBReruns, locals: options.LocalMovies, syncs: options.Syncs, now: options.Now,
 	}
 }
 

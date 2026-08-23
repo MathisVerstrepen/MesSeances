@@ -129,6 +129,15 @@ export interface AdminMatchDecisionResponse {
   status: 'matched' | 'rejected'
 }
 
+export interface AdminTMDBRerunSummary {
+  processed: number
+  reused: number
+  matched: number
+  review_required: number
+  unmatched: number
+  failed: number
+}
+
 export interface AdminLocalMovieSource {
   source_provider: Provider
   source_movie_id: string

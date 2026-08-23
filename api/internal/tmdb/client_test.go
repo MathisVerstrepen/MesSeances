@@ -56,6 +56,30 @@ func TestClientSearchAndDetails(t *testing.T) {
 	}
 }
 
+func TestClientSearchReturnsFirstTwentyPageOneResults(t *testing.T) {
+	requests := 0
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/3/search/movie" || r.URL.Query().Get("page") != "1" || r.URL.Query().Get("query") != "Film" || r.URL.Query().Get("language") != "fr-FR" || r.URL.Query().Get("region") != "FR" || r.URL.Query().Get("include_adult") != "false" {
+			t.Fatalf("request=%s", r.URL.RequestURI())
+		}
+		var body strings.Builder
+		body.WriteString(`{"results":[`)
+		for id := 1; id <= 25; id++ {
+			if id > 1 {
+				body.WriteByte(',')
+			}
+			body.WriteString(`{"id":` + strconv.Itoa(id) + `,"title":"Film ` + strconv.Itoa(id) + `","original_title":"Film ` + strconv.Itoa(id) + `"}`)
+		}
+		body.WriteString(`]}`)
+		_, _ = w.Write([]byte(body.String()))
+	}, "token")
+	candidates, err := client.Search(context.Background(), "Film")
+	if err != nil || requests != 1 || len(candidates) != 20 || candidates[0].ID != 1 || candidates[19].ID != 20 {
+		t.Fatalf("candidates=%+v requests=%d err=%v", candidates, requests, err)
+	}
+}
+
 func TestClientSearchRejectsMalformedPosterPath(t *testing.T) {
 	requests := 0
 	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {

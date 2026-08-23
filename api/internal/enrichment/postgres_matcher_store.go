@@ -31,6 +31,30 @@ FROM movie_matches WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_
 	return match, true, nil
 }
 
+func (s *PostgresStore) ConfirmedMatches(ctx context.Context, excludeSourceProvider, metadataProvider string, minRuntimeMinutes, maxRuntimeMinutes int) ([]ReusableMetadataMatch, error) {
+	rows, err := s.pool.Query(ctx, `SELECT source_provider, normalized_source_title, source_runtime_minutes, metadata_movie_id, score
+FROM movie_matches
+WHERE source_provider<>$1 AND metadata_provider=$2 AND status='matched'
+AND source_runtime_minutes BETWEEN $3 AND $4
+ORDER BY source_provider, source_movie_id`, excludeSourceProvider, metadataProvider, minRuntimeMinutes, maxRuntimeMinutes)
+	if err != nil {
+		return nil, fmt.Errorf("read confirmed movie matches failed")
+	}
+	defer rows.Close()
+	matches := []ReusableMetadataMatch{}
+	for rows.Next() {
+		var match ReusableMetadataMatch
+		if err := rows.Scan(&match.SourceProvider, &match.NormalizedSourceTitle, &match.SourceRuntimeMinutes, &match.MetadataMovieID, &match.Score); err != nil {
+			return nil, fmt.Errorf("read confirmed movie matches failed")
+		}
+		matches = append(matches, match)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("read confirmed movie matches failed")
+	}
+	return matches, nil
+}
+
 func (s *PostgresStore) Metadata(ctx context.Context, provider string, movieID int64, locale string) (Metadata, bool, error) {
 	var metadata Metadata
 	var overview, releaseDate, poster, backdrop *string

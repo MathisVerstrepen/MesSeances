@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"messeances/api/internal/database"
+	"messeances/api/internal/tmdb"
 )
 
 func TestPostgresStoreIntegration(t *testing.T) {
@@ -68,6 +70,87 @@ func TestPostgresStoreIntegration(t *testing.T) {
 VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23')`, now); err != nil {
 		t.Fatal("insert active schedule snapshot failed")
 	}
+	t.Run("current unresolved rerun selection", func(t *testing.T) {
+		defer func() {
+			_, _ = pool.Exec(context.Background(), "DELETE FROM local_movie_groups WHERE primary_source_provider='ugc' AND primary_source_movie_id='406'")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM movie_matches WHERE source_movie_id IN ('401','402','403','404','405','406','499')")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM showtimes WHERE theater_id='ugc-9901'")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM theater_dates WHERE theater_id='ugc-9901'")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM theaters WHERE id='ugc-9901'")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM movies WHERE provider_id IN ('401','402','403','404','405','406','499')")
+		}()
+		if _, err := pool.Exec(ctx, `INSERT INTO theaters (generation_id,id,provider_id,slug,name,address,city,postal_code) VALUES
+			(1,'ugc-9901','9901','ugc-9901','Test active','Test','Lille','59000'),
+			(2,'ugc-9901','9901','ugc-9901','Test inactive','Test','Lille','59000')`); err != nil {
+			t.Fatalf("insert rerun theaters failed: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO theater_dates (generation_id,theater_id,service_date) VALUES (1,'ugc-9901','2026-08-17'),(2,'ugc-9901','2026-08-17')`); err != nil {
+			t.Fatalf("insert rerun dates failed: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES
+			(1,'ugc','401','ugc-film-401','Missing',90),
+			(1,'kinepolis','401','kinepolis-film-401','Missing Kinepolis',91),
+			(1,'ugc','402','ugc-film-402','Unmatched',92),
+			(1,'ugc','403','ugc-film-403','Review',93),
+			(1,'ugc','404','ugc-film-404','Matched',94),
+			(1,'ugc','405','ugc-film-405','Rejected',95),
+			(1,'ugc','406','ugc-film-406','Local',96),
+			(2,'ugc','499','ugc-film-499','Inactive',97)`); err != nil {
+			t.Fatalf("insert rerun movies failed: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES
+			(1,'ugc-showing-4011','4011','2026-08-17','ugc-9901','401','2026-08-17T18:00:00Z','2026-08-17T19:30:00Z','VF','VF','2D','1','https://example.test/4011','ugc'),
+			(1,'ugc-showing-4010','4010','2026-08-17','ugc-9901','401','2026-08-17T10:00:00Z','2026-08-17T11:30:00Z','VF','VF','2D','1','https://example.test/4010','ugc'),
+			(1,'kinepolis-showing-4012','4012','2026-08-17','ugc-9901','401','2026-08-17T11:00:00Z','2026-08-17T12:31:00Z','VF','VF','2D','1','https://example.test/4012','kinepolis'),
+			(1,'ugc-showing-4020','4020','2026-08-17','ugc-9901','402','2026-08-17T12:00:00Z','2026-08-17T13:32:00Z','VF','VF','2D','1','https://example.test/4020','ugc'),
+			(1,'ugc-showing-4030','4030','2026-08-17','ugc-9901','403','2026-08-17T13:00:00Z','2026-08-17T14:33:00Z','VF','VF','2D','1','https://example.test/4030','ugc'),
+			(1,'ugc-showing-4040','4040','2026-08-17','ugc-9901','404','2026-08-17T14:00:00Z','2026-08-17T15:34:00Z','VF','VF','2D','1','https://example.test/4040','ugc'),
+			(1,'ugc-showing-4050','4050','2026-08-17','ugc-9901','405','2026-08-17T15:00:00Z','2026-08-17T16:35:00Z','VF','VF','2D','1','https://example.test/4050','ugc'),
+			(1,'ugc-showing-4060','4060','2026-08-17','ugc-9901','406','2026-08-17T16:00:00Z','2026-08-17T17:36:00Z','VF','VF','2D','1','https://example.test/4060','ugc'),
+			(2,'ugc-showing-4990','4990','2026-08-17','ugc-9901','499','2026-08-17T17:00:00Z','2026-08-17T18:37:00Z','VF','VF','2D','1','https://example.test/4990','ugc')`); err != nil {
+			t.Fatalf("insert rerun showtimes failed: %v", err)
+		}
+		for movieID, status := range map[string]string{"402": StatusUnmatched, "403": StatusReviewRequired, "404": StatusMatched, "405": StatusRejected} {
+			decision := Match{SourceProvider: SourceUGC, SourceMovieID: movieID, MetadataProvider: ProviderTMDB, Status: status, NormalizedSourceTitle: strings.ToLower(map[string]string{"402": "Unmatched", "403": "Review", "404": "Matched", "405": "Rejected"}[movieID]), SourceRuntimeMinutes: map[string]int{"402": 92, "403": 93, "404": 94, "405": 95}[movieID], Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(time.Hour)}
+			if status == StatusMatched {
+				decision.MetadataMovieID, decision.Score = 4040, 1
+				decision.Candidates = []Candidate{{ID: 4040, Title: "Matched", Runtime: 94, Score: 1}}
+			}
+			if err := store.SaveDecision(ctx, decision); err != nil {
+				t.Fatalf("save %s fixture failed: %v", status, err)
+			}
+		}
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var localID int64
+		if err := tx.QueryRow(ctx, "INSERT INTO local_movie_groups (primary_source_provider,primary_source_movie_id) VALUES ('ugc','406') RETURNING id").Scan(&localID); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec(ctx, "INSERT INTO local_movie_group_members (local_movie_id,source_provider,source_movie_id) VALUES ($1,'ugc','406')", localID); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		movies, err := store.UnresolvedMovies(ctx)
+		want := []struct{ provider, id string }{{SourceKinepolis, "401"}, {SourceUGC, "401"}, {SourceUGC, "402"}, {SourceUGC, "403"}}
+		if err != nil || len(movies) != len(want) {
+			t.Fatalf("movies=%+v err=%v", movies, err)
+		}
+		for index, expected := range want {
+			if movies[index].SourceProvider != expected.provider || movies[index].ProviderID != expected.id {
+				t.Fatalf("movie[%d]=%+v want=%s/%s", index, movies[index], expected.provider, expected.id)
+			}
+		}
+		if wantFirst := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC); !movies[1].FirstShowingAt.Equal(wantFirst) {
+			t.Fatalf("first showing=%s want=%s", movies[1].FirstShowingAt, wantFirst)
+		}
+	})
 	unmatched := Match{SourceProvider: SourceUGC, SourceMovieID: "200", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 721, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
 	if err := store.SaveDecision(ctx, unmatched); err != nil {
 		t.Fatal(err)
@@ -95,6 +178,21 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	}
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 1 {
 		t.Fatalf("published version=%d error=%v", version, err)
+	}
+	for index, runtime := range []int{719, 723, 718} {
+		donor := matched
+		donor.SourceProvider = SourceKinepolis
+		donor.SourceMovieID = fmt.Sprintf("DONOR-%d", index)
+		donor.SourceRuntimeMinutes = runtime
+		donor.MetadataMovieID = int64(100 + index)
+		donor.Candidates = []Candidate{{ID: donor.MetadataMovieID, Title: "Film", Runtime: runtime, Score: 1}}
+		if err := store.SaveDecision(ctx, donor); err != nil {
+			t.Fatal(err)
+		}
+	}
+	confirmed, err := store.ConfirmedMatches(ctx, SourceUGC, ProviderTMDB, 719, 723)
+	if err != nil || len(confirmed) != 2 || confirmed[0].SourceRuntimeMinutes != 719 || confirmed[1].SourceRuntimeMinutes != 723 {
+		t.Fatalf("confirmed=%+v error=%v", confirmed, err)
 	}
 
 	invalid := metadata
@@ -630,6 +728,34 @@ VALUES (1,'kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); 
 			}
 		case <-time.After(time.Second):
 			t.Fatal("serialized merge did not resume")
+		}
+	})
+
+	t.Run("publish metadata with zero genres", func(t *testing.T) {
+		match := Match{
+			SourceProvider:        SourceUGC,
+			SourceMovieID:         "13546",
+			MetadataProvider:      ProviderTMDB,
+			Status:                StatusMatched,
+			MetadataMovieID:       577599,
+			Score:                 1,
+			NormalizedSourceTitle: "film sans genre",
+			SourceRuntimeMinutes:  90,
+			Candidates:            []Candidate{{ID: 577599, Title: "Film sans genre", Runtime: 90, Score: 1}},
+			EvaluatedAt:           now,
+			RetryAfter:            now.Add(metadataTTL),
+		}
+		metadata := metadataFromDetails(tmdb.Details{ID: 577599, Title: "Film sans genre", OriginalTitle: "Film sans genre", Runtime: 90}, 90, now)
+		metadata.Genres = nil
+		if err := store.Publish(ctx, match, metadata); err != nil {
+			t.Fatalf("publish zero-genre metadata failed: %v", err)
+		}
+		var genres []string
+		if err := pool.QueryRow(ctx, `SELECT genres FROM movie_metadata_cache WHERE provider=$1 AND provider_movie_id=$2 AND locale=$3`, ProviderTMDB, int64(577599), LocaleFrench).Scan(&genres); err != nil {
+			t.Fatalf("read zero-genre metadata failed: %v", err)
+		}
+		if genres == nil || len(genres) != 0 {
+			t.Fatalf("stored genres=%#v", genres)
 		}
 	})
 }

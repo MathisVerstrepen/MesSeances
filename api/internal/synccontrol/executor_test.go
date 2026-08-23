@@ -63,6 +63,9 @@ func (fakeEnrichmentStore) IsLocallyMerged(context.Context, string, string) (boo
 func (fakeEnrichmentStore) Match(context.Context, string, string, string) (enrichment.Match, bool, error) {
 	return enrichment.Match{}, false, nil
 }
+func (fakeEnrichmentStore) ConfirmedMatches(context.Context, string, string, int, int) ([]enrichment.ReusableMetadataMatch, error) {
+	return nil, nil
+}
 func (fakeEnrichmentStore) Metadata(context.Context, string, int64, string) (enrichment.Metadata, bool, error) {
 	return enrichment.Metadata{}, false, nil
 }
@@ -422,6 +425,23 @@ func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
 				t.Fatalf("counts=%+v want=%+v", outcome.Enrichment.Counts, test.counts)
 			}
 		})
+	}
+}
+
+func TestEnrichmentMoviesKeepsEarliestShowing(t *testing.T) {
+	data := validDataset(t, schedule.ProviderUGC, Window{From: "2026-08-17"})
+	latest := data.Showtimes[0]
+	latest.ID = "ugc-showing-latest"
+	latest.ProviderShowingID = "latest"
+	latest.StartTime = latest.StartTime.Add(3 * time.Hour)
+	earliest := data.Showtimes[0]
+	earliest.ID = "ugc-showing-earliest"
+	earliest.ProviderShowingID = "earliest"
+	earliest.StartTime = earliest.StartTime.Add(-2 * time.Hour)
+	data.Showtimes = []schedule.ShowtimeRecord{latest, data.Showtimes[0], earliest}
+	movies := enrichmentMovies(TargetUGC, data)
+	if len(movies) != 1 || !movies[0].FirstShowingAt.Equal(earliest.StartTime) {
+		t.Fatalf("movies=%+v", movies)
 	}
 }
 

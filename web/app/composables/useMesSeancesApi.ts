@@ -7,6 +7,7 @@ import type {
   AdminSessionResponse,
   AdminSyncResponse,
   AdminSyncTarget,
+  AdminTMDBRerunSummary,
   AdminUnmergeLocalMovieResponse,
   ApiErrorResponse,
   CitiesResponse,
@@ -113,6 +114,12 @@ export function useMesSeancesApi() {
         credentials: 'include'
       }))
     },
+    adminRerunTMDBMatches() {
+      return withAdminRedirect($fetch<AdminTMDBRerunSummary>(`${apiBase}/api/v1/admin/tmdb-matches/rerun`, {
+        method: 'POST',
+        credentials: 'include'
+      }))
+    },
     adminLocalMovieGroups(limit: number, offset: number) {
       return withAdminRedirect($fetch<AdminLocalMovieGroupsResponse>(`${apiBase}/api/v1/admin/local-movie-groups`, {
         credentials: 'include',
@@ -181,6 +188,9 @@ export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
   if (code === 'review_unavailable') return 'Le service de validation TMDB est temporairement indisponible.'
+  if (code === 'tmdb_rerun_in_progress') return 'Une relance TMDB est déjà en cours.'
+  if (code === 'tmdb_rerun_unavailable') return 'Le service de relance TMDB est temporairement indisponible.'
+  if (code === 'tmdb_rerun_failed') return 'La relance TMDB a échoué. La liste a été actualisée, car certains films ont peut-être déjà été traités.'
   if (code === 'local_movie_conflict') return 'Ces films ont changé et ne peuvent plus être regroupés. La liste a été actualisée.'
   if (code === 'local_movie_failed') return 'Le regroupement des films est temporairement indisponible.'
   if (code === 'sync_unavailable') return 'Le service de synchronisation est temporairement indisponible.'

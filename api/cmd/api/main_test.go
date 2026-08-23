@@ -13,6 +13,7 @@ import (
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/shortlink"
+	"messeances/api/internal/tmdb"
 )
 
 type testReadCloser struct {
@@ -29,6 +30,13 @@ type testHTTPServer struct {
 }
 
 type testShortlinkService struct{}
+
+type testTMDBProvider struct{}
+
+func (testTMDBProvider) Search(context.Context, string) ([]tmdb.Candidate, error) { return nil, nil }
+func (testTMDBProvider) Details(context.Context, int64) (tmdb.Details, error) {
+	return tmdb.Details{}, nil
+}
 
 func (testShortlinkService) Create(_ context.Context, target string) (shortlink.Link, error) {
 	return shortlink.Link{Code: "AAAAAAAAAAAAAAAAAAAAAA", Target: target}, nil
@@ -143,8 +151,18 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
 	options := newAdminOptions("password", "session-secret", store, nil)
-	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil {
+	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.TMDBReruns != nil {
 		t.Fatalf("options=%+v", options)
+	}
+	withProvider := newAdminOptions("password", "session-secret", store, testTMDBProvider{})
+	if withProvider.TMDBReruns == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil {
+		t.Fatalf("provider options=%+v", withProvider)
+	}
+}
+
+func TestServerWriteTimeoutCoversSynchronousTMDBRerun(t *testing.T) {
+	if serverWriteTimeout != 3*time.Minute {
+		t.Fatalf("write timeout=%s", serverWriteTimeout)
 	}
 }
 

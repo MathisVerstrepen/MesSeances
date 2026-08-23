@@ -50,7 +50,7 @@ const (
 	shutdownTimeout         = 10 * time.Second
 	serverReadHeaderTimeout = 5 * time.Second
 	serverReadTimeout       = 15 * time.Second
-	serverWriteTimeout      = 30 * time.Second
+	serverWriteTimeout      = 3 * time.Minute
 	serverIdleTimeout       = 120 * time.Second
 	serverMaxHeaderBytes    = 1 << 20
 )
@@ -206,12 +206,16 @@ func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFun
 }
 
 func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {
-	return httpapi.AdminOptions{
+	options := httpapi.AdminOptions{
 		Password:      password,
 		SessionSecret: sessionSecret,
 		Reviews:       enrichment.NewReviewService(store, provider, nil),
 		LocalMovies:   enrichment.NewLocalMovieService(store),
 	}
+	if provider != nil {
+		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil))
+	}
+	return options
 }
 
 func loadSyncProxies(path string, open func(string) (io.ReadCloser, error)) ([]syncproxy.Proxy, error) {

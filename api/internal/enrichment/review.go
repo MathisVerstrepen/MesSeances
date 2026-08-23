@@ -161,7 +161,7 @@ func (s *ReviewService) Approve(ctx context.Context, sourceProvider, sourceMovie
 		return fmt.Errorf("reviewed movie metadata is invalid")
 	}
 	now := s.now().UTC()
-	metadata := metadataFromDetails(details, now)
+	metadata := metadataFromDetails(details, 0, now)
 	fallbackRuntime := 0
 	if metadata.RuntimeMinutes == 0 {
 		metadata.RuntimeMinutes = sourceRuntime

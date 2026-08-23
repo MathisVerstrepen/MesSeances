@@ -126,9 +126,9 @@ func (c *Client) Search(ctx context.Context, title string) ([]Candidate, error) 
 	if err := c.get(ctx, "/3/search/movie", query, &response); err != nil {
 		return nil, err
 	}
-	result := make([]Candidate, 0, min(5, len(response.Results)))
+	result := make([]Candidate, 0, min(20, len(response.Results)))
 	for _, item := range response.Results {
-		if len(result) == 5 {
+		if len(result) == 20 {
 			break
 		}
 		if item.ID <= 0 || !validText(item.Title, 1024) || !validText(item.OriginalTitle, 1024) {

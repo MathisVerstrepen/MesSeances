@@ -41,6 +41,9 @@ func (commandStore) IsLocallyMerged(context.Context, string, string) (bool, erro
 func (commandStore) Match(context.Context, string, string, string) (enrichment.Match, bool, error) {
 	return enrichment.Match{}, false, nil
 }
+func (commandStore) ConfirmedMatches(context.Context, string, string, int, int) ([]enrichment.ReusableMetadataMatch, error) {
+	return nil, nil
+}
 func (commandStore) Metadata(context.Context, string, int64, string) (enrichment.Metadata, bool, error) {
 	return enrichment.Metadata{}, false, nil
 }
