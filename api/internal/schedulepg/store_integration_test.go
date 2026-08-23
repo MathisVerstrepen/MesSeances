@@ -376,6 +376,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 
 	t.Run("local movie materialization survives replacement and unmerge", func(t *testing.T) {
+		serviceNow := func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }
+
 		if _, err := pool.Exec(ctx, "DELETE FROM movie_matches WHERE source_provider='ugc' AND source_movie_id='200'"); err != nil {
 			t.Fatal("clear prior TMDB match failed")
 		}
@@ -437,7 +439,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		publicService, err := NewService(source, ServiceOptions{})
+		publicService, err := NewService(source, ServiceOptions{Now: serviceNow})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -548,7 +550,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		publicService, err = NewService(source, ServiceOptions{})
+		publicService, err = NewService(source, ServiceOptions{Now: serviceNow})
 		if err != nil {
 			t.Fatal(err)
 		}
