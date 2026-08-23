@@ -184,6 +184,30 @@ function formatShowtimeCount(showtimeCount: number): string {
 }
 
 hydrateRoute()
+const initialCatalogKey = `films-catalog:${encodeURIComponent(appliedSearch.value)}:${sort.value}:${page.value}`
+const initialResult = await useAsyncData(initialCatalogKey, async () => {
+  try {
+    const response = await api.movies({
+      currently_screened: true,
+      search: appliedSearch.value || undefined,
+      sort: sort.value,
+      page: page.value,
+      page_size: PAGE_SIZE
+    })
+    return { kind: 'success' as const, catalog: response, errorMessage: '' }
+  } catch (error) {
+    return { kind: 'upstream-error' as const, catalog: null, errorMessage: getFrenchApiError(error) }
+  }
+})
+
+const initialState = initialResult.data.value
+catalog.value = initialState?.catalog ?? null
+errorMessage.value = initialState?.errorMessage ?? ''
+pending.value = false
+if (import.meta.server && initialState?.kind !== 'success') {
+  const event = useRequestEvent()
+  if (event) setResponseStatus(event, 502)
+}
 
 watch(() => route.query, () => {
   if (isMounted && !isInitializing) applyRoute()
