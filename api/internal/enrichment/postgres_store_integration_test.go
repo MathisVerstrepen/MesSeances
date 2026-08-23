@@ -731,6 +731,47 @@ VALUES (1,'kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); 
 		}
 	})
 
+	t.Run("generation promotion lock serializes matcher publish", func(t *testing.T) {
+		publicationTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rollback(publicationTx)
+		if _, err := publicationTx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, scheduleGenerationLockID); err != nil {
+			t.Fatal("acquire publication lock failed")
+		}
+		match := Match{SourceProvider: SourceUGC, SourceMovieID: "50", MetadataProvider: ProviderTMDB, Status: StatusMatched, MetadataMovieID: 9950, Score: 1, NormalizedSourceTitle: "000 alpha", SourceRuntimeMinutes: 90, Candidates: []Candidate{{ID: 9950, Title: "000 alpha", Runtime: 90, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(metadataTTL)}
+		publishedMetadata := metadata
+		publishedMetadata.ProviderMovieID, publishedMetadata.ProviderTitle, publishedMetadata.LocalizedTitle, publishedMetadata.RuntimeMinutes = 9950, "000 alpha", "000 alpha", 90
+		result := make(chan error, 1)
+		go func() { result <- store.Publish(context.Background(), match, publishedMetadata) }()
+		deadline := time.Now().Add(time.Second)
+		blocked := false
+		for time.Now().Before(deadline) {
+			if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE wait_event='advisory' AND query LIKE '%pg_advisory_xact_lock%')`).Scan(&blocked); err != nil {
+				t.Fatal("inspect advisory wait failed")
+			}
+			if blocked {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !blocked {
+			t.Fatal("matcher publish did not wait for generation promotion lock")
+		}
+		if err := publicationTx.Commit(ctx); err != nil {
+			t.Fatal("release publication lock failed")
+		}
+		select {
+		case err := <-result:
+			if err != nil {
+				t.Fatalf("serialized matcher publish failed: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("serialized matcher publish did not resume")
+		}
+	})
+
 	t.Run("publish metadata with zero genres", func(t *testing.T) {
 		match := Match{
 			SourceProvider:        SourceUGC,

@@ -169,6 +169,69 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 			return fmt.Errorf("invalid enrichment backdrop URL")
 		}
 	}
+	if data.PublicMovies != nil || data.MovieSources != nil || data.MovieAliases != nil {
+		if err := validatePublicMovieCatalog(data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePublicMovieCatalog(data Dataset) error {
+	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
+	activeTMDB := make(map[int64]bool)
+	for _, movie := range data.PublicMovies {
+		if movie.ID <= 0 || movie.Title == "" || movie.RuntimeMinutes <= 0 || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+			return fmt.Errorf("invalid public movie")
+		}
+		if movie.RedirectToID == movie.ID {
+			return fmt.Errorf("invalid public movie redirect")
+		}
+		if movie.RedirectToID == 0 && movie.TMDBID > 0 {
+			if activeTMDB[movie.TMDBID] {
+				return fmt.Errorf("duplicate active public movie TMDB identity")
+			}
+			activeTMDB[movie.TMDBID] = true
+		}
+		publicMovies[movie.ID] = movie
+	}
+	for _, movie := range data.PublicMovies {
+		if movie.RedirectToID == 0 {
+			continue
+		}
+		target, ok := publicMovies[movie.RedirectToID]
+		if !ok || target.RedirectToID != 0 {
+			return fmt.Errorf("invalid public movie redirect target")
+		}
+	}
+	sources := make(map[string]PublicMovieSourceRecord, len(data.MovieSources))
+	for _, source := range data.MovieSources {
+		key := string(source.Provider) + "\x00" + source.SourceMovieID
+		target, ok := publicMovies[source.PublicMovieID]
+		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || source.SourceSlug == "" || source.Title == "" || source.RuntimeMinutes <= 0 {
+			return fmt.Errorf("invalid public movie source")
+		}
+		sources[key] = source
+	}
+	canonicalSlugs := make(map[string]bool)
+	for _, movie := range data.PublicMovies {
+		canonicalSlugs[publicMovieIDSlug(movie.ID)] = true
+	}
+	aliases := make(map[string]bool, len(data.MovieAliases))
+	for _, alias := range data.MovieAliases {
+		target, ok := publicMovies[alias.PublicMovieID]
+		if alias.Slug == "" || canonicalSlugs[alias.Slug] || aliases[alias.Slug] || !ok || target.RedirectToID != 0 {
+			return fmt.Errorf("invalid movie slug alias")
+		}
+		aliases[alias.Slug] = true
+	}
+	for _, showing := range data.Showtimes {
+		key := string(recordProvider(showing.Movie.Provider, showing.Movie.Slug)) + "\x00" + showing.Movie.ProviderID
+		source, ok := sources[key]
+		if !ok || showing.Movie.PublicMovieID != source.PublicMovieID {
+			return fmt.Errorf("active movie source mapping missing")
+		}
+	}
 	return nil
 }
 

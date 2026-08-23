@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { CityDetailResponse } from '~/types/api'
+import { cityDescription } from '~/utils/entityDescriptions'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
@@ -80,7 +81,7 @@ const config = useRuntimeConfig()
 const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/ville/${encodeURIComponent(slug.value)}/cinemas`))
 const pageTitle = computed(() => detail.value ? `Cinémas à ${detail.value.city.name} - MesSeances` : 'Cinémas par ville - MesSeances')
 const pageDescription = computed(() => detail.value
-  ? `Découvrez les cinémas et films actuellement programmés à ${detail.value.city.name}.`
+  ? cityDescription(detail.value.city.name, detail.value.theaters.length, detail.value.movies.length)
   : 'Découvrez les cinémas et films actuellement programmés dans cette ville.')
 const robots = computed(() => detail.value && !pending.value && !errorMessage.value && !notFound.value && Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
 
@@ -110,6 +111,7 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
           <ShareButton class="shrink-0" />
         </div>
         <h1 class="mt-4 break-words text-[clamp(3rem,10vw,8rem)] font-black uppercase leading-[0.8] tracking-[-0.08em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
+        <p class="mt-6 max-w-3xl text-base font-semibold leading-7">{{ pageDescription }}</p>
         <p class="utility-label mt-6">{{ detail.theaters.length }} cinéma{{ detail.theaters.length === 1 ? '' : 's' }} · {{ detail.movies.length }} film{{ detail.movies.length === 1 ? '' : 's' }}</p>
       </header>
 

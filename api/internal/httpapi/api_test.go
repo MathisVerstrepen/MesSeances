@@ -294,7 +294,7 @@ func TestTheatersKinepolisChainAndCombinedProviderDTOs(t *testing.T) {
 	for _, theater := range movieSchedule.Theaters {
 		for _, showtime := range theater.Showtimes {
 			expected, exists := want[showtime.ID]
-			if !exists || showtime.Provider != expected.provider || showtime.Movie.Provider != expected.provider || showtime.Movie.Slug != "tmdb-film-42" || showtime.BookingURL == nil || *showtime.BookingURL != expected.booking {
+			if !exists || showtime.Provider != expected.provider || showtime.Movie.Slug != "tmdb-film-42" || showtime.BookingURL == nil || *showtime.BookingURL != expected.booking {
 				t.Fatalf("showtime=%+v", showtime)
 			}
 			delete(want, showtime.ID)
@@ -473,6 +473,62 @@ func TestMoviesTransport(t *testing.T) {
 	}
 }
 
+func TestCanonicalMoviesTransportEndedAliasesAndValidation(t *testing.T) {
+	location, _ := time.LoadLocation(schedule.Timezone)
+	start := time.Date(2026, 8, 15, 12, 0, 0, 0, location)
+	updated := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	data := schedule.Dataset{
+		SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderUGC, Scope: schedule.ScopeAll,
+		GeneratedAt: updated, Timezone: schedule.Timezone, Window: schedule.Window{From: "2026-08-15", Through: "2026-08-15"},
+		Theaters: []schedule.TheaterRecord{
+			{ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}},
+			{ID: "ugc-99", ProviderID: "99", Slug: "ugc-99", Name: "UGC Lyon", Address: "Lyon", City: "Lyon", PostalCode: "69000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}},
+		},
+		Showtimes:    []schedule.ShowtimeRecord{{ID: "ugc-showing-1", ProviderShowingID: "1", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: schedule.MovieRecord{ProviderID: "10", Slug: "ugc-film-10", Title: "Source", RuntimeMinutes: 90, PublicMovieID: 1}, StartTime: start, EndTime: start.Add(90 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: schedule.Format2D, BookingURL: "https://www.ugc.fr/reservationSeances.html?id=1"}},
+		PublicMovies: []schedule.PublicMovieRecord{{ID: 1, IdentityAnchorProvider: schedule.ProviderUGC, IdentityAnchorSourceID: "10", Title: "Canonique", RuntimeMinutes: 100, UpdatedAt: updated}, {ID: 2, RedirectToID: 1, IdentityAnchorProvider: schedule.ProviderUGC, IdentityAnchorSourceID: "11", Title: "Tombstone", RuntimeMinutes: 100, UpdatedAt: updated}, {ID: 3, IdentityAnchorProvider: schedule.ProviderUGC, IdentityAnchorSourceID: "30", Title: "Terminé", RuntimeMinutes: 80, UpdatedAt: updated.Add(time.Hour)}},
+		MovieSources: []schedule.PublicMovieSourceRecord{{Provider: schedule.ProviderUGC, SourceMovieID: "10", PublicMovieID: 1, SourceSlug: "ugc-film-10", Title: "Source", RuntimeMinutes: 90}, {Provider: schedule.ProviderUGC, SourceMovieID: "30", PublicMovieID: 3, SourceSlug: "ugc-film-30", Title: "Terminé", RuntimeMinutes: 80}},
+		MovieAliases: []schedule.MovieSlugAliasRecord{{Slug: "ugc-film-10", PublicMovieID: 1, Kind: "source", Provider: schedule.ProviderUGC, SourceMovieID: "10"}},
+	}
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{ScheduleVersion: 4, EnrichmentVersion: 2})}, schedule.ServiceOptions{Now: func() time.Time { return start.Add(-time.Hour) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(service, "http://localhost:3000")
+	response := performRequest(t, handler, "/api/v1/movies?include_ended=true&page_size=10")
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"catalog_revision":"schedule:4;enrichment:2"`) || strings.Contains(response.Body.String(), `"provider"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var catalog schedule.MovieCatalog
+	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil || catalog.Total != 2 || catalog.Items[1].Slug != "film-3" {
+		t.Fatalf("catalog=%+v err=%v", catalog, err)
+	}
+	for _, slug := range []string{"ugc-film-10", "film-2"} {
+		detail := performRequest(t, handler, "/api/v1/movies/"+slug+"/showtimes?date=2026-08-15&theaters=ugc-99")
+		if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `"slug":"film-1"`) || !strings.Contains(detail.Body.String(), `"currently_screened":true`) || !strings.Contains(detail.Body.String(), `"available_dates":[],"theaters":[]`) {
+			t.Fatalf("slug=%s status=%d body=%s", slug, detail.Code, detail.Body.String())
+		}
+	}
+	ended := performRequest(t, handler, "/api/v1/movies/film-3/showtimes?date=2026-08-15")
+	if ended.Code != http.StatusOK || !strings.Contains(ended.Body.String(), `"currently_screened":false`) || !strings.Contains(ended.Body.String(), `"available_dates":[],"theaters":[]`) {
+		t.Fatalf("ended status=%d body=%s", ended.Code, ended.Body.String())
+	}
+	pastService, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return start.Add(24 * time.Hour) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	past := performRequest(t, NewHandler(pastService, "http://localhost:3000"), "/api/v1/movies/film-1/showtimes?date=2026-08-15")
+	if past.Code != http.StatusOK || !strings.Contains(past.Body.String(), `"currently_screened":false`) {
+		t.Fatalf("past status=%d body=%s", past.Code, past.Body.String())
+	}
+	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=1"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended doit être true ou false.")
+	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=true&currently_screened=true"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended est incompatible avec currently_screened=true ou theaters.")
+	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=true&theaters=ugc-25"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended est incompatible avec currently_screened=true ou theaters.")
+	allWithFalse := performRequest(t, handler, "/api/v1/movies?include_ended=true&currently_screened=false&page_size=10")
+	if allWithFalse.Code != http.StatusOK || !strings.Contains(allWithFalse.Body.String(), `"total":2`) {
+		t.Fatalf("all with false status=%d body=%s", allWithFalse.Code, allWithFalse.Body.String())
+	}
+}
+
 func TestMovieShowtimesTransport(t *testing.T) {
 	handler := testHandler(t)
 	response := performRequest(t, handler, "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&theaters=ugc-26%20,%20ugc-25")
@@ -515,6 +571,9 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	dates, isArray := availableDates.([]any)
 	if !exists || !isArray || len(dates) != 0 {
 		t.Fatalf("available_dates must serialize as []: %+v", emptyPayload)
+	}
+	if emptyPayload["currently_screened"] != true {
+		t.Fatalf("global current-screening signal lost under theater filter: %+v", emptyPayload)
 	}
 	obsolete := performRequest(t, handler, "/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15")
 	assertAPIError(t, obsolete, http.StatusNotFound, "not_found", "Film introuvable.")

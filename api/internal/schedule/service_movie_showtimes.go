@@ -14,13 +14,25 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 		return MovieSchedule{}, invalid("Les paramètres city et theaters sont mutuellement exclusifs.")
 	}
 	view := s.source.Snapshot()
-	movieIndex, found := view.movieBySlug[query.Slug]
+	canonicalSlug, found := view.resolveMovieSlug(query.Slug)
 	if !found {
 		return MovieSchedule{}, &NotFoundError{Message: "Film introuvable."}
 	}
-	representative := view.data.Showtimes[movieIndex.firstShowtime].Movie
-	movie := materializeCatalogMovie(representative)
-	_, backdrop := materializeMovieMedia(representative)
+	movieIndex := view.movieBySlug[canonicalSlug]
+	var movie MovieCatalogItem
+	var backdrop *string
+	if len(view.data.PublicMovies) > 0 {
+		public := view.data.PublicMovies[movieIndex.publicMovie]
+		movie = materializePublicMovie(public)
+		if public.BackdropURL != "" {
+			value := public.BackdropURL
+			backdrop = &value
+		}
+	} else {
+		representative := view.data.Showtimes[movieIndex.firstShowtime].Movie
+		movie = materializeCatalogMovie(view, representative)
+		_, backdrop = materializeMovieMedia(view, representative)
+	}
 	selected, err := s.selectTheaters(view, query.TheaterIDs, city, false)
 	if err != nil {
 		return MovieSchedule{}, err
@@ -30,23 +42,23 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 	for _, position := range selected {
 		selectedIDs[view.data.Theaters[position].ID] = true
 	}
-	availableDates := make([]string, 0, len(view.movieDates[query.Slug]))
-	for _, date := range view.movieDates[query.Slug] {
-		for _, showingPosition := range view.movieDate[movieDateKey{slug: query.Slug, date: date}] {
+	availableDates := make([]string, 0, len(view.movieDates[canonicalSlug]))
+	for _, date := range view.movieDates[canonicalSlug] {
+		for _, showingPosition := range view.movieDate[movieDateKey{slug: canonicalSlug, date: date}] {
 			if selectedIDs[view.data.Showtimes[showingPosition].TheaterID] {
 				availableDates = append(availableDates, date)
 				break
 			}
 		}
 	}
-	for _, showingPosition := range view.movieDate[movieDateKey{slug: query.Slug, date: query.Date}] {
+	for _, showingPosition := range view.movieDate[movieDateKey{slug: canonicalSlug, date: query.Date}] {
 		record := view.data.Showtimes[showingPosition]
 		if !selectedIDs[record.TheaterID] {
 			continue
 		}
-		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(record))
+		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(view, record))
 	}
-	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, Date: query.Date, AvailableDates: availableDates, Theaters: []MovieTheaterShowtimes{}}
+	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, CurrentlyScreened: movieCurrentlyScreened(view, canonicalSlug, s.now()), Date: query.Date, AvailableDates: availableDates, Theaters: []MovieTheaterShowtimes{}}
 	for _, theaterPosition := range view.theaterCatalog {
 		theater := view.data.Theaters[theaterPosition]
 		showtimes := grouped[theater.ID]

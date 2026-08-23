@@ -198,6 +198,15 @@ func (api *API) city(w http.ResponseWriter, r *http.Request) {
 
 func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	includeEnded := false
+	if query.Has("include_ended") {
+		rawValue := query.Get("include_ended")
+		if !strings.EqualFold(rawValue, "true") && !strings.EqualFold(rawValue, "false") {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre include_ended doit être true ou false.")
+			return
+		}
+		includeEnded = strings.EqualFold(rawValue, "true")
+	}
 	var currentlyScreened *bool
 	if query.Has("currently_screened") {
 		rawValue := query.Get("currently_screened")
@@ -220,6 +229,7 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 
 	result, err := api.schedule.Movies(schedule.MovieCatalogQuery{
 		CurrentlyScreened: currentlyScreened,
+		IncludeEnded:      includeEnded,
 		Search:            query.Get("search"),
 		Sort:              schedule.MovieCatalogSort(query.Get("sort")),
 		TheaterIDs:        parseCSVQuery(query, "theaters"),

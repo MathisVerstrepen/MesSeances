@@ -52,7 +52,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 			if !matchesLanguage(record.Language, query.Language) || !matchesFormat(record.Format, query.Format) {
 				continue
 			}
-			showtime := materializeRecord(record)
+			showtime := materializeRecord(view, record)
 			effectiveStart := showtime.StartTime
 			if !query.IncludeAds {
 				effectiveStart = effectiveStart.Add(time.Duration(query.BufferAds) * time.Minute)
@@ -61,7 +61,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 			if effectiveStart.Before(start) || effectiveEnd.After(finish) {
 				continue
 			}
-			poster, backdrop := materializeMovieMedia(record.Movie)
+			poster, backdrop := materializeMovieMedia(view, record.Movie)
 			results = append(results, SlotResult{Showtime: showtime, Theater: TheaterSummary{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Name: theater.Name, City: theater.City}, EffectiveStartTime: effectiveStart, EffectiveEndTime: effectiveEnd, BufferAdsMinutes: query.BufferAds, SlackBeforeMinutes: int(effectiveStart.Sub(start) / time.Minute), SlackAfterMinutes: int(finish.Sub(effectiveEnd) / time.Minute), PosterURL: poster, BackdropURL: backdrop})
 		}
 	}

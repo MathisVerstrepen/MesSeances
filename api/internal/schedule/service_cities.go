@@ -52,7 +52,7 @@ func (s *Service) City(slug string) (CityDetail, error) {
 	})
 	for _, slug := range bucket.movieSlugs {
 		movie := view.movieBySlug[slug]
-		result.Movies = append(result.Movies, materializeCatalogMovie(view.data.Showtimes[movie.firstShowtime].Movie))
+		result.Movies = append(result.Movies, materializeCatalogMovie(view, view.data.Showtimes[movie.firstShowtime].Movie))
 	}
 	sort.Slice(result.Movies, func(i, j int) bool { return compareMovieCatalogTitle(result.Movies[i], result.Movies[j], false) })
 	return result, nil

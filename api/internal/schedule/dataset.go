@@ -12,14 +12,54 @@ type Window struct {
 }
 
 type Dataset struct {
-	SchemaVersion int              `json:"schema_version"`
-	Provider      Provider         `json:"provider"`
-	Scope         Scope            `json:"scope"`
-	GeneratedAt   time.Time        `json:"generated_at"`
-	Timezone      string           `json:"timezone"`
-	Window        Window           `json:"window"`
-	Theaters      []TheaterRecord  `json:"theaters"`
-	Showtimes     []ShowtimeRecord `json:"showtimes"`
+	SchemaVersion int                       `json:"schema_version"`
+	Provider      Provider                  `json:"provider"`
+	Scope         Scope                     `json:"scope"`
+	GeneratedAt   time.Time                 `json:"generated_at"`
+	Timezone      string                    `json:"timezone"`
+	Window        Window                    `json:"window"`
+	Theaters      []TheaterRecord           `json:"theaters"`
+	Showtimes     []ShowtimeRecord          `json:"showtimes"`
+	PublicMovies  []PublicMovieRecord       `json:"-"`
+	MovieSources  []PublicMovieSourceRecord `json:"-"`
+	MovieAliases  []MovieSlugAliasRecord    `json:"-"`
+}
+
+type PublicMovieRecord struct {
+	ID                     int64
+	RedirectToID           int64
+	IdentityAnchorProvider Provider
+	IdentityAnchorSourceID string
+	Title                  string
+	RuntimeMinutes         int
+	PosterURL              string
+	BackdropURL            string
+	Overview               string
+	ReleaseDate            string
+	Genres                 []string
+	TMDBID                 int64
+	UpdatedAt              time.Time
+}
+
+type PublicMovieSourceRecord struct {
+	Provider       Provider
+	SourceMovieID  string
+	PublicMovieID  int64
+	SourceSlug     string
+	Title          string
+	RuntimeMinutes int
+	PosterURL      string
+	Overview       string
+	ReleaseDate    string
+	Genres         []string
+}
+
+type MovieSlugAliasRecord struct {
+	Slug          string
+	PublicMovieID int64
+	Kind          string
+	Provider      Provider
+	SourceMovieID string
 }
 
 type TheaterRecord struct {
@@ -48,6 +88,7 @@ type MovieRecord struct {
 	Enrichment            *MovieEnrichment `json:"-"`
 	LocalMovieID          int64            `json:"-"`
 	LocalMetadataProvider Provider         `json:"-"`
+	PublicMovieID         int64            `json:"-"`
 }
 
 type MovieEnrichment struct {
@@ -91,5 +132,14 @@ func cloneDataset(in Dataset) Dataset {
 			out.Showtimes[i].Movie.Enrichment = &value
 		}
 	}
+	out.PublicMovies = append([]PublicMovieRecord(nil), in.PublicMovies...)
+	for i := range out.PublicMovies {
+		out.PublicMovies[i].Genres = append([]string(nil), in.PublicMovies[i].Genres...)
+	}
+	out.MovieSources = append([]PublicMovieSourceRecord(nil), in.MovieSources...)
+	for i := range out.MovieSources {
+		out.MovieSources[i].Genres = append([]string(nil), in.MovieSources[i].Genres...)
+	}
+	out.MovieAliases = append([]MovieSlugAliasRecord(nil), in.MovieAliases...)
 	return out
 }

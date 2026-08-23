@@ -27,10 +27,10 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 			if !matchesLanguage(record.Language, query.Language) {
 				continue
 			}
-			showtime := materializeRecord(record)
+			showtime := materializeRecord(view, record)
 			offset := int(showtime.StartTime.Sub(timeline.WindowStartTime) / time.Minute)
-			poster, backdrop := materializeMovieMedia(record.Movie)
-			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: record.Movie.RuntimeMinutes, PosterURL: poster, BackdropURL: backdrop})
+			poster, backdrop := materializeMovieMedia(view, record.Movie)
+			result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: offset, DurationMinutes: int(record.EndTime.Sub(record.StartTime) / time.Minute), PosterURL: poster, BackdropURL: backdrop})
 		}
 		sort.Slice(result.Showtimes, func(i, j int) bool { return result.Showtimes[i].StartTime.Before(result.Showtimes[j].StartTime) })
 		timeline.Theaters = append(timeline.Theaters, result)

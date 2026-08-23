@@ -47,10 +47,10 @@ func (e *NotFoundError) Error() string {
 }
 
 type Movie struct {
-	Provider       Provider `json:"provider"`
-	Slug           string   `json:"slug"`
-	Title          string   `json:"title"`
-	RuntimeMinutes int      `json:"runtime_minutes"`
+	Slug           string    `json:"slug"`
+	Title          string    `json:"title"`
+	RuntimeMinutes int       `json:"runtime_minutes"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type Showtime struct {
@@ -150,24 +150,25 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
-	Provider       Provider `json:"provider"`
-	Slug           string   `json:"slug"`
-	Title          string   `json:"title"`
-	RuntimeMinutes int      `json:"runtime_minutes"`
-	ShowtimeCount  int      `json:"showtime_count,omitempty"`
-	PosterURL      *string  `json:"poster_url"`
-	TMDBID         *int64   `json:"tmdb_id"`
-	Overview       *string  `json:"overview"`
-	ReleaseDate    *string  `json:"release_date"`
-	Genres         []string `json:"genres"`
+	Slug           string    `json:"slug"`
+	Title          string    `json:"title"`
+	RuntimeMinutes int       `json:"runtime_minutes"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	ShowtimeCount  int       `json:"showtime_count,omitempty"`
+	PosterURL      *string   `json:"poster_url"`
+	TMDBID         *int64    `json:"tmdb_id"`
+	Overview       *string   `json:"overview"`
+	ReleaseDate    *string   `json:"release_date"`
+	Genres         []string  `json:"genres"`
 }
 
 type MovieCatalog struct {
-	GeneratedAt time.Time          `json:"generated_at"`
-	Items       []MovieCatalogItem `json:"items"`
-	Page        int                `json:"page"`
-	PageSize    int                `json:"page_size"`
-	Total       int                `json:"total"`
+	GeneratedAt     time.Time          `json:"generated_at"`
+	CatalogRevision string             `json:"catalog_revision"`
+	Items           []MovieCatalogItem `json:"items"`
+	Page            int                `json:"page"`
+	PageSize        int                `json:"page_size"`
+	Total           int                `json:"total"`
 }
 
 type MovieTheaterShowtimes struct {
@@ -180,11 +181,12 @@ type MovieTheaterShowtimes struct {
 }
 
 type MovieSchedule struct {
-	Movie          MovieCatalogItem        `json:"movie"`
-	BackdropURL    *string                 `json:"backdrop_url"`
-	Date           string                  `json:"date"`
-	AvailableDates []string                `json:"available_dates"`
-	Theaters       []MovieTheaterShowtimes `json:"theaters"`
+	Movie             MovieCatalogItem        `json:"movie"`
+	BackdropURL       *string                 `json:"backdrop_url"`
+	CurrentlyScreened bool                    `json:"currently_screened"`
+	Date              string                  `json:"date"`
+	AvailableDates    []string                `json:"available_dates"`
+	Theaters          []MovieTheaterShowtimes `json:"theaters"`
 }
 
 type SlotResult struct {
@@ -212,6 +214,7 @@ type TheaterCatalogQuery struct {
 
 type MovieCatalogQuery struct {
 	CurrentlyScreened *bool
+	IncludeEnded      bool
 	Search            string
 	Sort              MovieCatalogSort
 	TheaterIDs        []string

@@ -7,6 +7,7 @@ interface CatalogPage {
   page_size: number
   total: number
   generated_at: string
+  catalog_revision: string
 }
 
 interface CityInventory {
@@ -33,12 +34,13 @@ function validTimestamp(value: string): boolean {
   return value.length > 0 && Number.isFinite(Date.parse(value))
 }
 
-function assertPage(page: CatalogPage, expectedPage: number, total: number, generatedAt: string): void {
+function assertPage(page: CatalogPage, expectedPage: number, total: number, generatedAt: string, catalogRevision: string): void {
   if (
     page.page !== expectedPage
     || page.page_size !== PAGE_SIZE
     || page.total !== total
     || page.generated_at !== generatedAt
+    || page.catalog_revision !== catalogRevision
     || !Array.isArray(page.items)
   ) {
     throw new Error('Inconsistent movie catalog snapshot')
@@ -74,7 +76,7 @@ export default defineEventHandler(async (event) => {
   try {
     const fetchPage = (page: number) => $fetch<CatalogPage>(`${apiBase}/api/v1/movies`, {
       query: {
-        currently_screened: true,
+        include_ended: true,
         sort: 'title_asc',
         page,
         page_size: PAGE_SIZE
@@ -85,38 +87,41 @@ export default defineEventHandler(async (event) => {
       fetchPage(1),
       $fetch<CityInventory>(`${apiBase}/api/v1/cities`)
     ])
-    if (!Number.isSafeInteger(firstPage.total) || firstPage.total < 0 || !validTimestamp(firstPage.generated_at)) {
+    if (
+      !Number.isSafeInteger(firstPage.total)
+      || firstPage.total < 0
+      || !validTimestamp(firstPage.generated_at)
+      || !nonempty(firstPage.catalog_revision)
+    ) {
       throw new Error('Invalid movie catalog metadata')
     }
-    assertPage(firstPage, 1, firstPage.total, firstPage.generated_at)
+    assertPage(firstPage, 1, firstPage.total, firstPage.generated_at, firstPage.catalog_revision)
     const { citySlugs, theaterSlugs } = validateCities(cityInventory, firstPage.generated_at)
 
     const movies = [...firstPage.items]
     const pageCount = Math.max(1, Math.ceil(firstPage.total / PAGE_SIZE))
     for (let page = 2; page <= pageCount; page++) {
       const response = await fetchPage(page)
-      assertPage(response, page, firstPage.total, firstPage.generated_at)
+      assertPage(response, page, firstPage.total, firstPage.generated_at, firstPage.catalog_revision)
       movies.push(...response.items)
     }
 
-    const slugs = movies.map((movie) => movie.slug.trim())
-    if (slugs.some((slug) => !slug) || new Set(slugs).size !== slugs.length || slugs.length !== firstPage.total) {
+    const filmEntries = movies.map((movie) => ({ slug: movie.slug.trim(), updatedAt: movie.updated_at }))
+    if (
+      filmEntries.some(({ slug, updatedAt }) => !/^film-[1-9]\d*$/.test(slug) || !validTimestamp(updatedAt))
+      || new Set(filmEntries.map(({ slug }) => slug)).size !== filmEntries.length
+      || filmEntries.length !== firstPage.total
+    ) {
       throw new Error('Invalid movie catalog items')
     }
-    slugs.sort()
+    filmEntries.sort((left, right) => left.slug.localeCompare(right.slug))
 
-    const dataPaths = [
-      '/',
-      '/films',
-      ...citySlugs.map((slug) => `/ville/${encodeURIComponent(slug)}/cinemas`),
-      ...theaterSlugs.map((slug) => `/cinema/${encodeURIComponent(slug)}`),
-      ...slugs.map((slug) => `/film/${encodeURIComponent(slug)}`)
-    ]
-    const staticPaths = ['/planning', '/recherche']
     const entries = [
-      ...dataPaths.slice(0, 2).map((path) => ({ path, lastmod: firstPage.generated_at })),
-      ...staticPaths.map((path) => ({ path, lastmod: null })),
-      ...dataPaths.slice(2).map((path) => ({ path, lastmod: firstPage.generated_at }))
+      ...['/', '/films', '/cinemas'].map((path) => ({ path, lastmod: firstPage.generated_at })),
+      ...['/planning', '/recherche'].map((path) => ({ path, lastmod: null })),
+      ...citySlugs.map((slug) => ({ path: `/ville/${encodeURIComponent(slug)}/cinemas`, lastmod: firstPage.generated_at })),
+      ...theaterSlugs.map((slug) => ({ path: `/cinema/${encodeURIComponent(slug)}`, lastmod: firstPage.generated_at })),
+      ...filmEntries.map(({ slug, updatedAt }) => ({ path: `/film/${encodeURIComponent(slug)}`, lastmod: updatedAt }))
     ]
     if (new Set(entries.map((entry) => entry.path)).size !== entries.length) throw new Error('Duplicate sitemap URL')
     const body = entries.map(({ path, lastmod }) => {

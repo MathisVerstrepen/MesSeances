@@ -83,7 +83,7 @@ export function useCinemaPreferences() {
     return setFavoriteTheaterIds([...selected])
   }
 
-  async function initialize(): Promise<void> {
+  async function initialize(initialTheaters?: readonly Theater[]): Promise<void> {
     if (!import.meta.client || isInitialized.value) return
     if (initializationPromise) return initializationPromise
 
@@ -94,7 +94,7 @@ export function useCinemaPreferences() {
       favoriteTheaterIds.value = stored.ids
 
       try {
-        const currentTheaters = await api.theaters()
+        const currentTheaters = initialTheaters ? [...initialTheaters] : await api.theaters()
         theaters.value = currentTheaters
 
         const currentIds = orderCurrentIds(stored.ids)

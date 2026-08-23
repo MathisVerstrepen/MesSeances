@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"messeances/api/internal/publicmoviepg"
 )
 
 func (s *PostgresStore) IsLocallyMerged(ctx context.Context, sourceProvider, sourceMovieID string) (bool, error) {
@@ -131,6 +133,9 @@ func (s *PostgresStore) MergeLocalMovies(ctx context.Context, members []LocalMov
 			return LocalMovieGroup{}, localMovieWriteError("write local movie member failed", err)
 		}
 	}
+	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+		return LocalMovieGroup{}, fmt.Errorf("reconcile public movies after local merge: %w", err)
+	}
 	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
 		return LocalMovieGroup{}, fmt.Errorf("publish enrichment version failed")
 	}
@@ -165,6 +170,9 @@ func (s *PostgresStore) UnmergeLocalMovie(ctx context.Context, id int64) error {
 	}
 	if _, err := tx.Exec(ctx, "DELETE FROM local_movie_groups WHERE id=$1", lockedID); err != nil {
 		return fmt.Errorf("delete local movie group failed")
+	}
+	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+		return fmt.Errorf("reconcile public movies after local unmerge: %w", err)
 	}
 	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
 		return fmt.Errorf("publish enrichment version failed")

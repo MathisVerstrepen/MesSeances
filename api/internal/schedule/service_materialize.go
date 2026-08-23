@@ -22,15 +22,19 @@ func recordProvider(explicit Provider, identity string) Provider {
 }
 func invalid(message string) error { return &ValidationError{Message: message} }
 
-func materializeRecord(record ShowtimeRecord) Showtime {
+func materializeRecord(view *SnapshotView, record ShowtimeRecord) Showtime {
 	booking := record.BookingURL
 	provider := recordProvider(record.Provider, record.ID)
-	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Provider: provider, Slug: publicMovieSlug(record.Movie), Title: record.Movie.Title, RuntimeMinutes: record.Movie.RuntimeMinutes}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	movie := materializeCatalogMovie(view, record.Movie)
+	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 }
 
-func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
-	poster, _ := materializeMovieMedia(record)
-	item := MovieCatalogItem{Provider: recordProvider(record.Provider, record.Slug), Slug: publicMovieSlug(record), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: append([]string{}, record.Genres...)}
+func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalogItem {
+	if position, ok := view.publicMovieByID[record.PublicMovieID]; ok {
+		return materializePublicMovie(view.data.PublicMovies[position])
+	}
+	poster, _ := materializeMovieMedia(view, record)
+	item := MovieCatalogItem{Slug: legacyPublicMovieSlug(record), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: append([]string{}, record.Genres...)}
 	if record.Overview != "" {
 		value := record.Overview
 		item.Overview = &value
@@ -57,7 +61,41 @@ func materializeCatalogMovie(record MovieRecord) MovieCatalogItem {
 	return item
 }
 
-func materializeMovieMedia(record MovieRecord) (*string, *string) {
+func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
+	item := MovieCatalogItem{Slug: publicMovieIDSlug(record.ID), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, UpdatedAt: record.UpdatedAt, Genres: append([]string{}, record.Genres...)}
+	if record.PosterURL != "" {
+		value := record.PosterURL
+		item.PosterURL = &value
+	}
+	if record.Overview != "" {
+		value := record.Overview
+		item.Overview = &value
+	}
+	if record.ReleaseDate != "" {
+		value := record.ReleaseDate
+		item.ReleaseDate = &value
+	}
+	if record.TMDBID > 0 {
+		value := record.TMDBID
+		item.TMDBID = &value
+	}
+	return item
+}
+
+func materializeMovieMedia(view *SnapshotView, record MovieRecord) (*string, *string) {
+	if position, ok := view.publicMovieByID[record.PublicMovieID]; ok {
+		movie := view.data.PublicMovies[position]
+		var poster, backdrop *string
+		if movie.PosterURL != "" {
+			value := movie.PosterURL
+			poster = &value
+		}
+		if movie.BackdropURL != "" {
+			value := movie.BackdropURL
+			backdrop = &value
+		}
+		return poster, backdrop
+	}
 	var poster *string
 	if record.PosterURL != "" {
 		value := record.PosterURL
@@ -77,7 +115,7 @@ func materializeMovieMedia(record MovieRecord) (*string, *string) {
 	return poster, backdrop
 }
 
-func publicMovieSlug(record MovieRecord) string {
+func legacyPublicMovieSlug(record MovieRecord) string {
 	if record.LocalMovieID > 0 {
 		return "local-film-" + strconv.FormatInt(record.LocalMovieID, 10)
 	}

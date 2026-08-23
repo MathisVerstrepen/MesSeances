@@ -197,35 +197,42 @@ function verifyErrorPolicy(result, path, expectedStatus) {
   assert(result.response.headers.get('x-robots-tag') === 'noindex,follow', `${path}: missing X-Robots-Tag`)
 }
 
-async function fetchCatalog() {
+async function fetchMovieInventory(includeEnded) {
   const items = []
   let page = 1
   let total
   let generatedAt
+  let catalogRevision
   do {
-    const result = await get(`${apiUrl}/api/v1/movies?currently_screened=true&sort=title_asc&page=${page}&page_size=${API_PAGE_SIZE}`)
-    assert(result.response.status === 200, `API catalog page ${page}: expected 200, received ${result.response.status}`)
+    const scope = includeEnded ? 'all-canonical' : 'current'
+    const inventoryQuery = includeEnded ? 'include_ended=true' : 'currently_screened=true'
+    const result = await get(`${apiUrl}/api/v1/movies?${inventoryQuery}&sort=title_asc&page=${page}&page_size=${API_PAGE_SIZE}`)
+    assert(result.response.status === 200, `API ${scope} catalog page ${page}: expected 200, received ${result.response.status}`)
     const payload = JSON.parse(result.body)
     if (page === 1) {
       total = payload.total
       generatedAt = payload.generated_at
-      assert(Number.isSafeInteger(total) && total >= 0, 'API catalog: invalid total')
-      assert(generatedAt?.constructor === String && Number.isFinite(Date.parse(generatedAt)), 'API catalog: invalid generated_at')
+      catalogRevision = payload.catalog_revision
+      assert(Number.isSafeInteger(total) && total >= 0, `API ${scope} catalog: invalid total`)
+      assert(generatedAt?.constructor === String && Number.isFinite(Date.parse(generatedAt)), `API ${scope} catalog: invalid generated_at`)
+      assert(catalogRevision?.constructor === String && catalogRevision.trim(), `API ${scope} catalog: invalid catalog_revision`)
     }
-    assert(payload.page === page, `API catalog page ${page}: page mismatch`)
-    assert(payload.page_size === API_PAGE_SIZE, `API catalog page ${page}: page_size mismatch`)
-    assert(payload.total === total, `API catalog page ${page}: snapshot total changed`)
-    assert(payload.generated_at === generatedAt, `API catalog page ${page}: generated_at changed`)
-    assert(Array.isArray(payload.items), `API catalog page ${page}: items missing`)
+    assert(payload.page === page, `API ${scope} catalog page ${page}: page mismatch`)
+    assert(payload.page_size === API_PAGE_SIZE, `API ${scope} catalog page ${page}: page_size mismatch`)
+    assert(payload.total === total, `API ${scope} catalog page ${page}: snapshot total changed`)
+    assert(payload.generated_at === generatedAt, `API ${scope} catalog page ${page}: generated_at changed`)
+    assert(payload.catalog_revision === catalogRevision, `API ${scope} catalog page ${page}: catalog_revision changed`)
+    assert(Array.isArray(payload.items), `API ${scope} catalog page ${page}: items missing`)
     items.push(...payload.items)
     page++
   } while (items.length < total)
 
-  assert(items.length === total, `API catalog: collected ${items.length}, expected ${total}`)
+  assert(items.length === total, `API ${includeEnded ? 'all-canonical' : 'current'} catalog: collected ${items.length}, expected ${total}`)
   const slugs = items.map((item) => String(item.slug ?? '').trim())
-  assert(slugs.every(Boolean), 'API catalog: empty film slug')
+  assert(slugs.every((slug) => /^film-[1-9]\d*$/.test(slug)), 'API catalog: non-neutral film slug')
   assert(new Set(slugs).size === slugs.length, 'API catalog: duplicate film slug')
-  return { items, slugs, total, generatedAt }
+  assert(items.every((item) => item.updated_at?.constructor === String && Number.isFinite(Date.parse(item.updated_at))), 'API catalog: invalid movie updated_at')
+  return { items, slugs, total, generatedAt, catalogRevision }
 }
 
 async function fetchCityInventory() {
@@ -262,7 +269,7 @@ function sitemapEntries(xml) {
     .map((match) => ({ loc: decodeHtml(match[1]), lastmod: match[2] ? decodeHtml(match[2]) : null }))
 }
 
-async function verifyDiscovery(catalog, inventory) {
+async function verifyDiscovery(allCatalog, inventory) {
   const sitemap = await get(`${webUrl}/sitemap.xml`, 'application/xml')
   assert(sitemap.response.status === 200, `/sitemap.xml: expected 200, received ${sitemap.response.status}`)
   assert(sitemap.response.headers.get('content-type')?.toLowerCase() === 'application/xml; charset=utf-8', '/sitemap.xml: unexpected content type')
@@ -272,18 +279,22 @@ async function verifyDiscovery(catalog, inventory) {
   const expectedLocations = [
     `${siteUrl}/`,
     `${siteUrl}/films`,
+    `${siteUrl}/cinemas`,
     `${siteUrl}/planning`,
     `${siteUrl}/recherche`,
     ...[...inventory.citySlugs].sort().map((slug) => `${siteUrl}/ville/${encodeURIComponent(slug)}/cinemas`),
     ...[...inventory.theaterSlugs].sort().map((slug) => `${siteUrl}/cinema/${encodeURIComponent(slug)}`),
-    ...[...catalog.slugs].sort().map((slug) => `${siteUrl}/film/${encodeURIComponent(slug)}`)
+    ...[...allCatalog.slugs].sort().map((slug) => `${siteUrl}/film/${encodeURIComponent(slug)}`)
   ]
   assert(entries.length === expectedLocations.length, `/sitemap.xml: expected ${expectedLocations.length} URLs, received ${entries.length}`)
   assert(new Set(entries.map((entry) => entry.loc)).size === entries.length, '/sitemap.xml: duplicate URL')
   assert(entries.every((entry, index) => entry.loc === expectedLocations[index]), '/sitemap.xml: URL order or set mismatch')
   for (const entry of entries) {
+    const movieSlug = entry.loc.startsWith(`${siteUrl}/film/`) ? decodeURIComponent(entry.loc.slice(`${siteUrl}/film/`.length)) : null
+    const movie = movieSlug ? allCatalog.items.find((item) => item.slug === movieSlug) : null
     const staticTool = entry.loc === `${siteUrl}/planning` || entry.loc === `${siteUrl}/recherche`
-    assert(entry.lastmod === (staticTool ? null : catalog.generatedAt), `/sitemap.xml: incorrect lastmod for ${entry.loc}`)
+    const expectedLastmod = staticTool ? null : movie ? movie.updated_at : allCatalog.generatedAt
+    assert(entry.lastmod === expectedLastmod, `/sitemap.xml: incorrect lastmod for ${entry.loc}`)
   }
 
   const robots = await get(`${webUrl}/robots.txt`, 'text/plain')
@@ -298,6 +309,7 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
   const queryless = [
     ['/', `${siteUrl}/`],
     ['/films', `${siteUrl}/films`],
+    ['/cinemas', `${siteUrl}/cinemas`],
     ['/planning', `${siteUrl}/planning`],
     ['/recherche', `${siteUrl}/recherche`],
     [`/film/${encodedSlug}`, `${siteUrl}/film/${encodedSlug}`],
@@ -317,6 +329,7 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
     ['/films?page=01', `${siteUrl}/films`],
     ['/films?page=bad', `${siteUrl}/films`],
     ['/films?page=2&page=3', `${siteUrl}/films`],
+    ['/cinemas?city=Lille', `${siteUrl}/cinemas`],
     ['/planning?date=2026-01-01', `${siteUrl}/planning`],
     ['/planning?foreign=1', `${siteUrl}/planning`],
     ['/recherche?grouping=chronological', `${siteUrl}/recherche`],
@@ -345,7 +358,7 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
   const clampedCanonical = totalPages >= 2 ? `${siteUrl}/films?page=${totalPages}` : `${siteUrl}/films`
   verifyPolicy(await get(`${webUrl}/films?page=${outOfRange}`), `/films?page=${outOfRange}`, 'noindex,follow', clampedCanonical)
 
-  for (const path of ['/cinemas', '/cinemas?city=Lille', '/credits', '/admin', '/admin/login', '/admin/sync', '/admin/tmdb-matches']) {
+  for (const path of ['/credits', '/admin', '/admin/login', '/admin/sync', '/admin/tmdb-matches']) {
     const result = await get(`${webUrl}${path}`)
     assert(result.response.status < 400, `${path}: unexpected status ${result.response.status}`)
     assert(meta(result.body, 'robots') === 'noindex,follow', `${path}: expected noindex,follow`)
@@ -353,7 +366,7 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
 }
 
 async function verifyCatalogLinks(catalog) {
-  const foundFilms = new Set()
+  const foundFilms = new Map()
   const totalPages = Math.max(1, Math.ceil(catalog.total / CATALOG_PAGE_SIZE))
   for (let page = 1; page <= totalPages; page++) {
     const path = page === 1 ? '/films' : `/films?page=${page}`
@@ -362,7 +375,11 @@ async function verifyCatalogLinks(catalog) {
     const hrefs = tags(result.body, 'a').map((anchor) => anchor.href).filter(Boolean)
     for (const href of hrefs) {
       const pathname = new URL(href, webUrl).pathname
-      if (pathname.startsWith('/film/')) foundFilms.add(decodeURIComponent(pathname.slice('/film/'.length)))
+      if (pathname.startsWith('/film/')) {
+        const slug = decodeURIComponent(pathname.slice('/film/'.length))
+        assert(/^film-[1-9]\d*$/.test(slug), `${path}: non-neutral film link ${slug}`)
+        foundFilms.set(slug, (foundFilms.get(slug) ?? 0) + 1)
+      }
     }
     if (page > 1) {
       assert(hrefs.some((href) => {
@@ -377,7 +394,21 @@ async function verifyCatalogLinks(catalog) {
       }), `${path}: next SSR anchor missing`)
     }
   }
-  assert(foundFilms.size === catalog.slugs.length && catalog.slugs.every((slug) => foundFilms.has(slug)), 'SSR catalog anchors do not reach every sitemap film')
+  assert(foundFilms.size === catalog.slugs.length && catalog.slugs.every((slug) => foundFilms.get(slug) === 1), 'SSR /films anchors do not reach each current canonical film exactly once')
+}
+
+async function verifyCinemaDirectory(inventory) {
+  const path = '/cinemas'
+  const result = await get(`${webUrl}${path}`)
+  verifyPolicy(result, path, 'index,follow', `${siteUrl}/cinemas`)
+  const hrefs = tags(result.body, 'a').map((anchor) => new URL(anchor.href, webUrl).pathname)
+  for (const slug of inventory.citySlugs) {
+    assert(hrefs.includes(`/ville/${encodeURIComponent(slug)}/cinemas`), `${path}: missing SSR city link ${slug}`)
+  }
+  for (const slug of inventory.theaterSlugs) {
+    assert(hrefs.includes(`/cinema/${encodeURIComponent(slug)}`), `${path}: missing SSR cinema link ${slug}`)
+  }
+  assertStableInternalLinks(result.body, path)
 }
 
 function verifyBreadcrumb(html, movie) {
@@ -454,6 +485,7 @@ function verifyCinemaJsonLd(html, response, path) {
   const theaterId = `${canonicalUrl}#cinema`
   const theater = nodes.find((node) => node['@type'] === 'MovieTheater' && node['@id'] === theaterId)
   assert(theater?.name === response.theater.name && theater.url === canonicalUrl, `${path}: MovieTheater identity mismatch`)
+  assert(theater.description === meta(html, 'description'), `${path}: MovieTheater description does not match metadata`)
   const completeAddress = response.theater.address.trim() && response.theater.city.trim() && response.theater.postal_code.trim()
   assert(completeAddress ? theater.address === response.theater.address.trim() : !('address' in theater), `${path}: structured address inclusion mismatch`)
   assert(!('geo' in theater) && !('latitude' in theater) && !('longitude' in theater), `${path}: fabricated geo facts present`)
@@ -468,6 +500,15 @@ function verifyCinemaJsonLd(html, response, path) {
   verifyEventNodes(nodesOfType(nodes, 'ScreeningEvent'), expected, path)
   assert(nodesOfType(nodes, 'Movie').length === movieIds.size, `${path}: Movie node count mismatch`)
   assertStableInternalLinks(html, path)
+}
+
+function verifyEntityDescription(html, path, descriptions) {
+  const description = meta(html, 'description')
+  assert(description.trim(), `${path}: description is empty`)
+  assert(meta(html, 'og:description') === description, `${path}: Open Graph description mismatch`)
+  assert(visibleText(html).includes(description), `${path}: metadata description is not visible in SSR body`)
+  assert(!descriptions.has(description), `${path}: description duplicates another city or cinema page`)
+  descriptions.add(description)
 }
 
 function groupedShowtimes(response) {
@@ -555,6 +596,69 @@ async function discoverTodayEmptyFixture(theaters, today) {
   return null
 }
 
+async function verifyEndedFilm(allCatalog, currentCatalog, today) {
+  const currentSlugs = new Set(currentCatalog.slugs)
+  let ended = null
+  for (const movie of allCatalog.items.filter((item) => !currentSlugs.has(item.slug))) {
+    const encodedSlug = encodeURIComponent(movie.slug)
+    const apiResult = await get(`${apiUrl}/api/v1/movies/${encodedSlug}/showtimes?date=${today}`)
+    assert(apiResult.response.status === 200, `Ended-film candidate API ${movie.slug}: expected 200, received ${apiResult.response.status}`)
+    const schedule = JSON.parse(apiResult.body)
+    assert(schedule.movie?.slug === movie.slug, `Ended-film candidate API ${movie.slug}: canonical metadata mismatch`)
+    assert(Array.isArray(schedule.available_dates) && Array.isArray(schedule.theaters), `Ended-film candidate API ${movie.slug}: malformed screening inventory`)
+    const showtimeCount = schedule.theaters.reduce((count, theater) => {
+      assert(Array.isArray(theater.showtimes), `Ended-film candidate API ${movie.slug}: malformed theater showtimes`)
+      return count + theater.showtimes.length
+    }, 0)
+    if (schedule.available_dates.length === 0 && schedule.theaters.length === 0 && showtimeCount === 0) {
+      ended = { movie, schedule }
+      break
+    }
+  }
+  if (!ended) {
+    console.log('Unconfirmed coverage: no ended canonical film fixture was available.')
+    return false
+  }
+
+  const encodedSlug = encodeURIComponent(ended.movie.slug)
+  const path = `/film/${encodedSlug}`
+  const page = await get(`${webUrl}${path}`)
+  verifyPolicy(page, path, 'index,follow', `${siteUrl}${path}`)
+  assert(visibleText(page.body).includes('Aucune séance programmée pour le moment.'), `${path}: ended-film state missing`)
+  verifyFilmJsonLd(page.body, ended.schedule.movie, ended.schedule, path)
+  assert(nodesOfType(graphNodes(page.body), 'ScreeningEvent').length === 0, `${path}: ended film emitted ScreeningEvent JSON-LD`)
+  console.log(`Ended-film fixture: ${ended.movie.slug}; indexable 200 with no-screenings state and no ScreeningEvent.`)
+  return true
+}
+
+async function verifyHistoricalAlias(allCatalog, today) {
+  for (const movie of allCatalog.items) {
+    if (!Number.isSafeInteger(movie.tmdb_id) || movie.tmdb_id <= 0) continue
+    const alias = `tmdb-film-${movie.tmdb_id}`
+    const apiResult = await get(`${apiUrl}/api/v1/movies/${encodeURIComponent(alias)}/showtimes?date=${today}`)
+    if (apiResult.response.status === 404) continue
+    assert(apiResult.response.status === 200, `Historical alias API ${alias}: expected 200 or 404, received ${apiResult.response.status}`)
+    const schedule = JSON.parse(apiResult.body)
+    const canonicalSlug = String(schedule.movie?.slug ?? '')
+    assert(/^film-[1-9]\d*$/.test(canonicalSlug) && canonicalSlug !== alias, `Historical alias API ${alias}: canonical neutral slug missing`)
+
+    const query = 'scalar=one&repeat=first&repeat=second&flag'
+    const result = await get(`${webUrl}/film/${encodeURIComponent(alias)}?${query}`)
+    assert(result.response.status === 308, `Historical alias ${alias}: expected 308, received ${result.response.status}`)
+    const locationValue = result.response.headers.get('location')
+    assert(locationValue, `Historical alias ${alias}: Location missing`)
+    const location = new URL(locationValue, webUrl)
+    assert(location.pathname === `/film/${encodeURIComponent(canonicalSlug)}`, `Historical alias ${alias}: incorrect redirect path`)
+    assert(location.searchParams.get('scalar') === 'one', `Historical alias ${alias}: scalar query lost`)
+    assert(JSON.stringify(location.searchParams.getAll('repeat')) === JSON.stringify(['first', 'second']), `Historical alias ${alias}: repeated query values lost`)
+    assert(location.searchParams.has('flag') && location.searchParams.get('flag') === '', `Historical alias ${alias}: flag query lost`)
+    console.log(`Historical alias fixture: ${alias} -> ${canonicalSlug}; 308 preserves scalar, repeated, and flag query values.`)
+    return true
+  }
+  console.log('Unconfirmed coverage: no confirmed-TMDB historical alias fixture was available.')
+  return false
+}
+
 function todayInParis() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
@@ -562,7 +666,7 @@ function todayInParis() {
 }
 
 async function verifyFailureMode() {
-  for (const path of ['/', '/films', '/film/upstream-check', '/cinema/upstream-check', '/ville/upstream-check/cinemas']) {
+  for (const path of ['/', '/films', '/cinemas', '/film/upstream-check', '/cinema/upstream-check', '/ville/upstream-check/cinemas']) {
     const result = await get(`${webUrl}${path}`)
     verifyErrorPolicy(result, path, 502)
     const text = visibleText(result.body)
@@ -574,15 +678,21 @@ async function verifyFailureMode() {
   assert(sitemap.response.status === 503, `/sitemap.xml: expected 503, received ${sitemap.response.status}`)
   assert(!sitemap.body.includes('<urlset'), '/sitemap.xml: partial or stale sitemap returned on upstream failure')
   assert(sitemap.response.headers.get('x-robots-tag') === 'noindex,follow', '/sitemap.xml: missing error X-Robots-Tag')
-  console.log('Crawlability upstream-failure checks passed (5 rendered 502 routes, global graph, and non-partial sitemap 503).')
+  console.log('Crawlability upstream-failure checks passed (6 rendered 502 routes, global graph, and non-partial sitemap 503).')
 }
 
 async function verifyNormalMode() {
-  const catalog = await fetchCatalog()
+  const [currentCatalog, allCatalog] = await Promise.all([
+    fetchMovieInventory(false),
+    fetchMovieInventory(true)
+  ])
   const inventory = await fetchCityInventory()
-  assert(inventory.generated_at === catalog.generatedAt, 'Movie and city inventory generations differ')
+  assert(currentCatalog.catalogRevision === allCatalog.catalogRevision, 'Current and all-canonical catalog revisions differ')
+  assert(currentCatalog.generatedAt === allCatalog.generatedAt, 'Current and all-canonical catalog generations differ')
+  assert(inventory.generated_at === currentCatalog.generatedAt, 'Movie and city inventory generations differ')
+  assert(currentCatalog.slugs.every((slug) => allCatalog.slugs.includes(slug)), 'Current catalog contains a film absent from all-canonical inventory')
   const cityDetails = await fetchCityDetails(inventory)
-  assert(catalog.items.length > 0, 'API discovery returned no current film')
+  assert(currentCatalog.items.length > 0, 'API discovery returned no current film')
   const discovery = await get(`${apiUrl}/api/v1/movies?currently_screened=true&sort=showtimes_desc&page=1&page_size=1`)
   assert(discovery.response.status === 200, `API discovery: expected 200, received ${discovery.response.status}`)
   const discoveryPayload = JSON.parse(discovery.body)
@@ -590,7 +700,7 @@ async function verifyNormalMode() {
     slug: String(discoveryPayload.items?.[0]?.slug ?? '').trim(),
     title: String(discoveryPayload.items?.[0]?.title ?? '').trim()
   }
-  assert(catalog.slugs.includes(movie.slug), 'API discovery film is absent from full catalog')
+  assert(currentCatalog.slugs.includes(movie.slug), 'API discovery film is absent from current catalog')
   assert(movie.title, 'API discovery returned an empty film title')
 
   const city = inventory.items[0]
@@ -599,11 +709,12 @@ async function verifyNormalMode() {
   const theaterApi = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(theater.slug)}/showtimes?date=${today}`)
   assert(theaterApi.response.status === 200, 'API representative theater showtimes unavailable')
   const theaterResponse = JSON.parse(theaterApi.body)
-  assert(theaterResponse.generated_at === catalog.generatedAt, 'Representative theater generation mismatch')
+  assert(theaterResponse.generated_at === currentCatalog.generatedAt, 'Representative theater generation mismatch')
 
-  await verifyDiscovery(catalog, inventory)
-  await verifyIndexMatrix(catalog, movie, city, theater, today)
-  await verifyCatalogLinks(catalog)
+  await verifyDiscovery(allCatalog, inventory)
+  await verifyIndexMatrix(currentCatalog, movie, city, theater, today)
+  await verifyCatalogLinks(currentCatalog)
+  await verifyCinemaDirectory(inventory)
 
   const encodedSlug = encodeURIComponent(movie.slug)
   const pages = [
@@ -628,20 +739,35 @@ async function verifyNormalMode() {
   const filmPage = await get(`${webUrl}/film/${encodedSlug}`)
   verifyFilmJsonLd(filmPage.body, filmSchedule.movie, filmSchedule, `/film/${encodedSlug}`)
 
-  const cityPath = `/ville/${encodeURIComponent(city.slug)}/cinemas`
-  const cityPage = await get(`${webUrl}${cityPath}`)
-  verifyGlobalGraph(cityPage.body)
-  assertStableInternalLinks(cityPage.body, cityPath)
-  const cityHrefs = tags(cityPage.body, 'a').map((anchor) => new URL(anchor.href, webUrl).pathname)
-  const cityDetail = cityDetails.find((detail) => detail.city.slug === city.slug)
-  assert(cityDetail.theaters.every((item) => cityHrefs.includes(`/cinema/${encodeURIComponent(item.slug)}`)), `${cityPath}: cinema links incomplete`)
-  assert(cityDetail.movies.every((item) => cityHrefs.includes(`/film/${encodeURIComponent(item.slug)}`)), `${cityPath}: film links incomplete`)
+  const entityDescriptions = new Set()
+  for (const cityDetail of cityDetails) {
+    const cityPath = `/ville/${encodeURIComponent(cityDetail.city.slug)}/cinemas`
+    const cityPage = await get(`${webUrl}${cityPath}`)
+    verifyPolicy(cityPage, cityPath, 'index,follow', `${siteUrl}${cityPath}`)
+    verifyGlobalGraph(cityPage.body)
+    verifyEntityDescription(cityPage.body, cityPath, entityDescriptions)
+    assertStableInternalLinks(cityPage.body, cityPath)
+    const cityHrefs = tags(cityPage.body, 'a').map((anchor) => new URL(anchor.href, webUrl).pathname)
+    assert(cityDetail.theaters.every((item) => cityHrefs.includes(`/cinema/${encodeURIComponent(item.slug)}`)), `${cityPath}: cinema links incomplete`)
+    assert(cityDetail.movies.every((item) => /^film-[1-9]\d*$/.test(item.slug) && cityHrefs.includes(`/film/${encodeURIComponent(item.slug)}`)), `${cityPath}: neutral film links incomplete`)
+  }
+
+  for (const cinema of inventory.theaters) {
+    const apiResult = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(cinema.slug)}/showtimes?date=${today}`)
+    assert(apiResult.response.status === 200, `API cinema ${cinema.slug}: expected 200, received ${apiResult.response.status}`)
+    const cinemaResponse = JSON.parse(apiResult.body)
+    assert(cinemaResponse.generated_at === currentCatalog.generatedAt, `API cinema ${cinema.slug}: generation mismatch`)
+    const cinemaPath = `/cinema/${encodeURIComponent(cinema.slug)}`
+    const cinemaPage = await get(`${webUrl}${cinemaPath}`)
+    verifyPolicy(cinemaPage, cinemaPath, 'index,follow', `${siteUrl}${cinemaPath}`)
+    verifyEntityDescription(cinemaPage.body, cinemaPath, entityDescriptions)
+    verifyCinemaJsonLd(cinemaPage.body, cinemaResponse, cinemaPath)
+    assert(visibleText(cinemaPage.body).includes(cinema.name), `${cinemaPath}: cinema name missing from SSR body`)
+  }
 
   const cinemaPath = `/cinema/${encodeURIComponent(theater.slug)}`
   const cinemaPage = await get(`${webUrl}${cinemaPath}`)
-  verifyCinemaJsonLd(cinemaPage.body, theaterResponse, cinemaPath)
   verifyCinemaRendering(cinemaPage.body, theaterResponse, cinemaPath)
-  assert(visibleText(cinemaPage.body).includes(theater.name), `${cinemaPath}: cinema name missing from SSR body`)
 
   const cinemaFixture = await discoverCinemaFixture(cityDetails.flatMap((detail) => detail.theaters))
   if (cinemaFixture) {
@@ -671,15 +797,8 @@ async function verifyNormalMode() {
     console.log('Unconfirmed coverage: no cinema without sessions today was available.')
   }
 
-  const complete = cityDetails.flatMap((detail) => detail.theaters).find((item) => item.address.trim() && item.city.trim() && item.postal_code.trim())
-  const incomplete = cityDetails.flatMap((detail) => detail.theaters).find((item) => !(item.address.trim() && item.city.trim() && item.postal_code.trim()))
-  for (const sample of [complete, incomplete].filter(Boolean)) {
-    const apiResult = await get(`${apiUrl}/api/v1/theaters/${encodeURIComponent(sample.slug)}/showtimes?date=${today}`)
-    const sampleResponse = JSON.parse(apiResult.body)
-    const samplePath = `/cinema/${encodeURIComponent(sample.slug)}`
-    const page = await get(`${webUrl}${samplePath}`)
-    verifyCinemaJsonLd(page.body, sampleResponse, samplePath)
-  }
+  await verifyEndedFilm(allCatalog, currentCatalog, today)
+  await verifyHistoricalAlias(allCatalog, today)
 
   const missingPath = '/film/__crawlability-missing-film__'
   const missing = await get(`${webUrl}${missingPath}`)
@@ -693,7 +812,7 @@ async function verifyNormalMode() {
   }
   const unknownPath = '/__crawlability-missing-route__'
   verifyErrorPolicy(await get(`${webUrl}${unknownPath}`), unknownPath, 404)
-  console.log(`Crawlability checks passed (${catalog.total} films, ${inventory.citySlugs.length} cities, ${inventory.theaterSlugs.length} cinemas, exact sitemap, JSON-LD, indexing, links, and errors).`)
+  console.log(`Crawlability checks passed (${currentCatalog.total} current films, ${allCatalog.total} canonical films, ${inventory.citySlugs.length} cities, ${inventory.theaterSlugs.length} cinemas, exact sitemap, descriptions, JSON-LD, indexing, links, redirects, and errors).`)
 }
 
 await (expectUpstreamFailure ? verifyFailureMode() : verifyNormalMode())

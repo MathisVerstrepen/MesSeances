@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"messeances/api/internal/publicmoviepg"
 )
 
 func (s *PostgresStore) PendingMatches(ctx context.Context, limit, offset int) ([]PendingMatch, error) {
@@ -128,6 +130,9 @@ VALUES ($1,$2,'tmdb','matched',$3,$4,$5,$6,$7,$8,$9,$8) ON CONFLICT DO NOTHING`,
 			return ErrReviewConflict
 		}
 	}
+	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+		return fmt.Errorf("reconcile public movies after review approval: %w", err)
+	}
 	return commitReview(ctx, tx, version)
 }
 
@@ -173,6 +178,9 @@ VALUES ($1,$2,'tmdb','rejected',NULL,NULL,$3,$4,$5,$6,$6,$6) ON CONFLICT DO NOTH
 		if command.RowsAffected() == 0 {
 			return ErrReviewConflict
 		}
+	}
+	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+		return fmt.Errorf("reconcile public movies after review rejection: %w", err)
 	}
 	return commitReview(ctx, tx, version)
 }

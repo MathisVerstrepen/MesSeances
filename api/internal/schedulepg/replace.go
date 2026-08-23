@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"messeances/api/internal/publicmoviepg"
 	"messeances/api/internal/schedule"
 )
 
@@ -205,6 +206,9 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 	VALUES (true, $1, $2, $3, $4, $5, $6, $7, $8)
 	ON CONFLICT (singleton) DO UPDATE SET version=EXCLUDED.version, schema_version=EXCLUDED.schema_version, provider=EXCLUDED.provider, scope=EXCLUDED.scope, generated_at=EXCLUDED.generated_at, timezone=EXCLUDED.timezone, window_from=EXCLUDED.window_from, window_through=EXCLUDED.window_through`, version, datasets[0].SchemaVersion, combinedProvider, string(datasets[0].Scope), combinedGenerated, datasets[0].Timezone, combinedFrom, combinedThrough); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("write schedule snapshot metadata failed")
+	}
+	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+		return schedule.PublicationResult{}, fmt.Errorf("reconcile public movies during schedule replacement: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("commit schedule replacement failed")

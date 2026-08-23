@@ -50,7 +50,7 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 		return nil, fmt.Errorf("invalid initial schedule snapshot: %w", err)
 	}
 	source := &PostgresSource{reader: reader, revision: revision, logger: options.Logger, observer: options.Observer}
-	source.view.Store(NewSnapshotView(data))
+	source.view.Store(NewSnapshotView(data, revision))
 	source.setRevisionMetrics(revision)
 	source.setFreshnessMetrics(data)
 	if source.observer != nil {
@@ -143,7 +143,7 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 		stage, reason = "dataset_validation", "invalid_dataset"
 		return
 	}
-	view := NewSnapshotView(data)
+	view := NewSnapshotView(data, loadedRevision)
 	s.view.Store(view)
 	s.revision = loadedRevision
 	s.setRevisionMetrics(loadedRevision)

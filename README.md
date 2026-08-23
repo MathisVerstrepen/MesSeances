@@ -91,11 +91,13 @@ docker compose --project-directory . --env-file deploy/.env -f deploy/compose.ya
 docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
 cd api && go test ./...
 cd ..
+npm --prefix web run test:unit
 npm --prefix web run typecheck
 npm --prefix web run lint
+npm --prefix web run build
 ```
 
-With the API and Nuxt already running, verify SSR metadata, structured data, public discovery routes, sitemap inventory, and crawler error behavior:
+With the API and Nuxt already running, verify SSR metadata, structured data, current-only `/films` discovery, all-canonical sitemap inventory, complete `/cinemas` links, historical redirects, and crawler error behavior:
 
 ```sh
 npm --prefix web run verify:crawlability

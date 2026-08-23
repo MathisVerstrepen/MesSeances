@@ -2,6 +2,7 @@
 import { AlertTriangle, Building2, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { TheaterShowtimesResponse, TimelineShowtime } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
+import { cinemaDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { calendarDate, mergeOwnedQuery, singularQueryValue } from '~/utils/routeQuery'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
@@ -119,7 +120,14 @@ const config = useRuntimeConfig()
 const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/cinema/${encodeURIComponent(slug.value)}`))
 const pageTitle = computed(() => response.value ? `${response.value.theater.name} - Séances - MesSeances` : 'Cinéma - MesSeances')
 const pageDescription = computed(() => response.value
-  ? `Consultez les séances et films programmés au ${response.value.theater.name} à ${response.value.theater.city}.`
+  ? cinemaDescription({
+      name: response.value.theater.name,
+      provider: response.value.theater.provider,
+      city: response.value.theater.city,
+      address: response.value.theater.address,
+      postalCode: response.value.theater.postal_code,
+      availableDateCount: response.value.theater.available_dates.length
+    })
   : 'Consultez les séances et films programmés dans ce cinéma.')
 const robots = computed(() => response.value && !pending.value && !errorMessage.value && !notFound.value && Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
 const cinemaJsonLd = computed(() => {
@@ -127,7 +135,7 @@ const cinemaJsonLd = computed(() => {
   if (!current || pending.value || errorMessage.value || notFound.value) return null
   const theaterUrl = canonicalUrl.value
   const theaterId = `${theaterUrl}#cinema`
-  const theaterNode: JsonLdNode = { '@type': 'MovieTheater', '@id': theaterId, name: current.theater.name, url: theaterUrl }
+  const theaterNode: JsonLdNode = { '@type': 'MovieTheater', '@id': theaterId, name: current.theater.name, url: theaterUrl, description: pageDescription.value }
   if (current.theater.address.trim() && current.theater.city.trim() && current.theater.postal_code.trim()) theaterNode.address = current.theater.address.trim()
   const graph: JsonLdNode[] = [theaterNode]
   const movieIds = new Map<string, string>()
@@ -206,6 +214,7 @@ useHead(() => ({
         <p v-if="response.theater.address || response.theater.postal_code" class="mt-6 max-w-2xl text-base font-bold leading-7">
           <span v-if="response.theater.address">{{ response.theater.address }}<br /></span>{{ response.theater.postal_code }} {{ response.theater.city }}
         </p>
+        <p class="mt-6 max-w-3xl text-base font-semibold leading-7">{{ pageDescription }}</p>
       </header>
 
       <section class="mt-12" aria-labelledby="cinema-showtimes-heading">

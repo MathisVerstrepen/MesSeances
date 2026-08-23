@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"messeances/api/internal/publicmoviepg"
 )
 
 func (s *PostgresStore) Match(ctx context.Context, sourceProvider, sourceMovieID, metadataProvider string) (Match, bool, error) {
@@ -101,7 +103,11 @@ func (s *PostgresStore) SaveDecision(ctx context.Context, match Match) error {
 		return fmt.Errorf("begin movie decision failed")
 	}
 	defer rollback(tx)
-	if _, err := lockEnrichmentVersion(ctx, tx); err != nil {
+	if err := lockScheduleGeneration(ctx, tx); err != nil {
+		return err
+	}
+	version, err := lockEnrichmentVersion(ctx, tx)
+	if err != nil {
 		return err
 	}
 	if merged, err := isLocallyMerged(ctx, tx, match.SourceProvider, match.SourceMovieID); err != nil {
@@ -109,12 +115,29 @@ func (s *PostgresStore) SaveDecision(ctx context.Context, match Match) error {
 	} else if merged {
 		return ErrLocalMovieConflict
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
+	var priorStatus string
+	priorErr := tx.QueryRow(ctx, `SELECT status FROM movie_matches
+WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider=$3 FOR UPDATE`, match.SourceProvider, match.SourceMovieID, match.MetadataProvider).Scan(&priorStatus)
+	if priorErr != nil && !errors.Is(priorErr, pgx.ErrNoRows) {
+		return fmt.Errorf("lock prior movie decision failed")
+	}
+	command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10)
 ON CONFLICT (source_provider, source_movie_id, metadata_provider) DO UPDATE SET status=EXCLUDED.status, metadata_movie_id=EXCLUDED.metadata_movie_id, score=EXCLUDED.score, normalized_source_title=EXCLUDED.normalized_source_title, source_runtime_minutes=EXCLUDED.source_runtime_minutes, candidates=EXCLUDED.candidates, evaluated_at=EXCLUDED.evaluated_at, retry_after=EXCLUDED.retry_after, updated_at=EXCLUDED.updated_at
 WHERE NOT (movie_matches.status='rejected' AND movie_matches.normalized_source_title=EXCLUDED.normalized_source_title AND movie_matches.source_runtime_minutes=EXCLUDED.source_runtime_minutes)`, match.SourceProvider, match.SourceMovieID, match.MetadataProvider, match.Status, metadataID, score, match.NormalizedSourceTitle, match.SourceRuntimeMinutes, candidates, match.EvaluatedAt, match.RetryAfter)
 	if err != nil {
 		return fmt.Errorf("write movie decision failed")
+	}
+	if command.RowsAffected() == 0 {
+		return nil
+	}
+	if priorStatus == StatusMatched {
+		if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+			return fmt.Errorf("reconcile public movies after matched decision change: %w", err)
+		}
+		if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
+			return fmt.Errorf("publish enrichment version failed")
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit movie decision failed")
@@ -137,6 +160,9 @@ func (s *PostgresStore) Publish(ctx context.Context, match Match, metadata Metad
 		return fmt.Errorf("begin enrichment publication failed")
 	}
 	defer rollback(tx)
+	if err := lockScheduleGeneration(ctx, tx); err != nil {
+		return err
+	}
 	version, err := lockEnrichmentVersion(ctx, tx)
 	if err != nil {
 		return err
@@ -159,6 +185,9 @@ WHERE NOT (movie_matches.status='rejected' AND movie_matches.normalized_source_t
 	}
 	if err := writeMetadata(ctx, tx, metadata); err != nil {
 		return err
+	}
+	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
+		return fmt.Errorf("reconcile public movies after enrichment publication: %w", err)
 	}
 	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
 		return fmt.Errorf("publish enrichment version failed")

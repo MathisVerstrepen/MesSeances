@@ -8,10 +8,10 @@ export type MovieSort = 'title_asc' | 'title_desc' | 'release_date_desc' | 'runt
 export type Language = QueryLanguage
 
 export interface Movie {
-  provider: Provider
   slug: string
   title: string
   runtime_minutes: number
+  updated_at: string
 }
 
 export interface CatalogMovie extends Movie {
@@ -306,6 +306,7 @@ export interface TheaterQuery {
 
 export interface MoviesQuery {
   currently_screened?: boolean
+  include_ended?: boolean
   theaters?: string
   search?: string
   sort?: MovieSort
@@ -314,11 +315,12 @@ export interface MoviesQuery {
 }
 
 export interface MoviesResponse {
-  items: (CatalogMovie & { showtime_count: number })[]
+  items: CatalogMovie[]
   page: number
   page_size: number
   total: number
   generated_at: string
+  catalog_revision: string
 }
 
 export interface MovieShowtimesQuery {
@@ -340,6 +342,7 @@ export interface MovieShowtimesResponse {
   movie: CatalogMovie
   backdrop_url: string | null
   date: string
+  currently_screened: boolean
   available_dates: string[]
   theaters: MovieShowtimesTheater[]
 }

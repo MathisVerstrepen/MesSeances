@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"unicode"
@@ -33,6 +34,7 @@ type movieTitleVariant struct {
 type movieIndex struct {
 	firstShowtime int
 	variants      []movieTitleVariant
+	publicMovie   int
 }
 
 // SnapshotView is a detached, immutable schedule snapshot. Callers can retain
@@ -48,17 +50,21 @@ type SnapshotView struct {
 	theaterDate      map[theaterDateKey][]int
 	theaterShowtimes [][]int
 	movieBySlug      map[string]movieIndex
+	movieAlias       map[string]string
+	publicMovieByID  map[int64]int
 	movieOrder       []string
+	allMovieOrder    []string
 	movieDate        map[movieDateKey][]int
 	movieDates       map[string][]string
 	theaterPositions []int
 	theaterCatalog   []int
 	theaterRank      []int
+	catalogRevision  string
 }
 
 // NewSnapshotView detaches data from its caller and builds request indexes.
 // Dataset policy validation remains the caller's responsibility.
-func NewSnapshotView(data Dataset) *SnapshotView {
+func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView {
 	view := &SnapshotView{
 		data:             cloneDataset(data),
 		theaterByID:      make(map[string]int, len(data.Theaters)),
@@ -68,12 +74,39 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		theaterDate:      make(map[theaterDateKey][]int),
 		theaterShowtimes: make([][]int, len(data.Theaters)),
 		movieBySlug:      make(map[string]movieIndex),
+		movieAlias:       make(map[string]string),
+		publicMovieByID:  make(map[int64]int),
 		movieDate:        make(map[movieDateKey][]int),
 		movieDates:       make(map[string][]string),
 		theaterPositions: make([]int, len(data.Theaters)),
 		theaterCatalog:   make([]int, len(data.Theaters)),
 		theaterRank:      make([]int, len(data.Theaters)),
 		theaterCity:      make([]int, len(data.Theaters)),
+	}
+	if len(revisions) > 0 {
+		view.catalogRevision = fmt.Sprintf("schedule:%d;enrichment:%d", revisions[0].ScheduleVersion, revisions[0].EnrichmentVersion)
+	}
+	for position, movie := range view.data.PublicMovies {
+		view.publicMovieByID[movie.ID] = position
+		if movie.RedirectToID != 0 {
+			continue
+		}
+		slug := publicMovieIDSlug(movie.ID)
+		view.movieBySlug[slug] = movieIndex{firstShowtime: -1, publicMovie: position}
+		view.allMovieOrder = append(view.allMovieOrder, slug)
+	}
+	for _, movie := range view.data.PublicMovies {
+		if movie.RedirectToID == 0 {
+			continue
+		}
+		if target, exists := view.publicMovieByID[movie.RedirectToID]; exists && view.data.PublicMovies[target].RedirectToID == 0 {
+			view.movieAlias[publicMovieIDSlug(movie.ID)] = publicMovieIDSlug(movie.RedirectToID)
+		}
+	}
+	for _, alias := range view.data.MovieAliases {
+		if target, exists := view.publicMovieByID[alias.PublicMovieID]; exists && view.data.PublicMovies[target].RedirectToID == 0 {
+			view.movieAlias[alias.Slug] = publicMovieIDSlug(alias.PublicMovieID)
+		}
 	}
 	labelsByFold := make(map[string][]string)
 	for position, theater := range view.data.Theaters {
@@ -122,7 +155,7 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 	}
 	for position, showing := range view.data.Showtimes {
 		view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}] = append(view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}], position)
-		slug := publicMovieSlug(showing.Movie)
+		slug := view.publicMovieSlug(showing.Movie)
 		if theaterPosition, exists := view.theaterByID[showing.TheaterID]; exists {
 			view.theaterShowtimes[theaterPosition] = append(view.theaterShowtimes[theaterPosition], position)
 			cityMovies[view.theaterCity[theaterPosition]][slug] = true
@@ -134,12 +167,12 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 			view.movieDates[slug] = append(view.movieDates[slug], showing.ServiceDate)
 		}
 		movie, exists := view.movieBySlug[slug]
-		if !exists {
+		if !exists || movie.firstShowtime < 0 {
 			movie.firstShowtime = position
 			view.movieOrder = append(view.movieOrder, slug)
 			variantPositions[slug] = make(map[string]int)
 		}
-		title := normalized(showing.Movie.Title)
+		title := normalized(view.movieTitle(showing.Movie))
 		variantPosition, exists := variantPositions[slug][title]
 		if !exists {
 			variantPosition = len(movie.variants)
@@ -159,6 +192,30 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		sort.Strings(view.movieDates[slug])
 	}
 	return view
+}
+
+func publicMovieIDSlug(id int64) string { return fmt.Sprintf("film-%d", id) }
+
+func (v *SnapshotView) publicMovieSlug(record MovieRecord) string {
+	if record.PublicMovieID > 0 {
+		return publicMovieIDSlug(record.PublicMovieID)
+	}
+	return legacyPublicMovieSlug(record)
+}
+
+func (v *SnapshotView) movieTitle(record MovieRecord) string {
+	if position, ok := v.publicMovieByID[record.PublicMovieID]; ok {
+		return v.data.PublicMovies[position].Title
+	}
+	return record.Title
+}
+
+func (v *SnapshotView) resolveMovieSlug(slug string) (string, bool) {
+	if _, ok := v.movieBySlug[slug]; ok {
+		return slug, true
+	}
+	canonical, ok := v.movieAlias[slug]
+	return canonical, ok
 }
 
 func (v *SnapshotView) positionsForCities(cities []string) []int {

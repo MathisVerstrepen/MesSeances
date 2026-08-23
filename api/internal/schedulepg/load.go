@@ -11,13 +11,6 @@ import (
 	"messeances/api/internal/schedule"
 )
 
-type localMovieGroupRow struct {
-	id              int64
-	primaryProvider schedule.Provider
-	primaryMovieID  string
-	members         []string
-}
-
 func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRevision, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -37,6 +30,10 @@ func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRe
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
 	data.Showtimes, err = loadShowtimeAggregate(ctx, tx, revision.ScheduleVersion, movies)
+	if err != nil {
+		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
+	}
+	data.PublicMovies, data.MovieSources, data.MovieAliases, err = loadPublicMovieCatalog(ctx, tx)
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
@@ -101,16 +98,7 @@ func loadShowtimeAggregate(ctx context.Context, tx pgx.Tx, version int64, movies
 		showing.ServiceDate = schedule.FormatServiceDate(date)
 		showing.Movie = movie
 		showing.StartTime = showing.StartTime.In(location)
-		if movie.LocalMovieID > 0 {
-			runtime, ok := schedule.RuntimeDuration(movie.RuntimeMinutes)
-			if !ok {
-				rows.Close()
-				return nil, fmt.Errorf("invalid local movie runtime")
-			}
-			showing.EndTime = showing.StartTime.Add(runtime)
-		} else {
-			showing.EndTime = showing.EndTime.In(location)
-		}
+		showing.EndTime = showing.EndTime.In(location)
 		referencedMovies[movieKey] = true
 		showtimes = append(showtimes, showing)
 	}
@@ -216,10 +204,9 @@ func loadTheaterAggregate(ctx context.Context, tx pgx.Tx, version int64) ([]sche
 
 func loadMovieAggregate(ctx context.Context, tx pgx.Tx, version int64) (map[string]schedule.MovieRecord, error) {
 	movies := map[string]schedule.MovieRecord{}
-	rows, err := tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, c.provider_movie_id, COALESCE(c.overview, ''), COALESCE(c.release_date::text, ''), COALESCE(c.genres, '{}'), COALESCE(c.poster_url, ''), COALESCE(c.backdrop_url, '')
+	rows, err := tx.Query(ctx, `SELECT m.provider, m.provider_id, m.slug, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(m.source_overview,''), COALESCE(m.source_release_date::text,''), m.source_genres, source.public_movie_id
 FROM movies m
-LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb' AND mm.status='matched'
-LEFT JOIN movie_metadata_cache c ON c.provider='tmdb' AND c.provider_movie_id=mm.metadata_movie_id AND c.locale='fr-FR'
+JOIN public_movie_sources source ON source.source_provider=m.provider AND source.source_movie_id=m.provider_id
 WHERE m.generation_id=$1
 ORDER BY m.provider, m.provider_id`, version)
 	if err != nil {
@@ -228,20 +215,14 @@ ORDER BY m.provider, m.provider_id`, version)
 	for rows.Next() {
 		var movie schedule.MovieRecord
 		var provider string
-		var tmdbID *int64
 		var sourceOverview, sourceReleaseDate string
 		var sourceGenres []string
-		var overview, releaseDate, poster, backdrop string
-		var genres []string
-		if err := rows.Scan(&provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &tmdbID, &overview, &releaseDate, &genres, &poster, &backdrop); err != nil {
+		if err := rows.Scan(&provider, &movie.ProviderID, &movie.Slug, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &sourceOverview, &sourceReleaseDate, &sourceGenres, &movie.PublicMovieID); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read movies failed")
 		}
 		movie.Provider = schedule.Provider(provider)
 		movie.Overview, movie.ReleaseDate, movie.Genres = sourceOverview, sourceReleaseDate, append([]string(nil), sourceGenres...)
-		if tmdbID != nil && *tmdbID > 0 {
-			movie.Enrichment = &schedule.MovieEnrichment{TMDBID: *tmdbID, Overview: overview, ReleaseDate: releaseDate, Genres: append([]string(nil), genres...), PosterURL: poster, BackdropURL: backdrop}
-		}
 		movieKey := string(movie.Provider) + "\x00" + movie.ProviderID
 		if _, exists := movies[movieKey]; exists {
 			rows.Close()
@@ -254,124 +235,77 @@ ORDER BY m.provider, m.provider_id`, version)
 		return nil, fmt.Errorf("read movies failed")
 	}
 	rows.Close()
-	if err := materializeLocalMovies(ctx, tx, movies); err != nil {
-		return nil, err
-	}
 	return movies, nil
 }
 
-func materializeLocalMovies(ctx context.Context, tx pgx.Tx, movies map[string]schedule.MovieRecord) error {
-	groups := make(map[int64]*localMovieGroupRow)
-	rows, err := tx.Query(ctx, `SELECT id, primary_source_provider, primary_source_movie_id FROM local_movie_groups ORDER BY id`)
+func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMovieRecord, []schedule.PublicMovieSourceRecord, []schedule.MovieSlugAliasRecord, error) {
+	movies := []schedule.PublicMovieRecord{}
+	rows, err := tx.Query(ctx, `SELECT id, COALESCE(redirect_to_id,0), identity_anchor_provider, identity_anchor_source_movie_id,
+       title, runtime_minutes, COALESCE(poster_url,''), COALESCE(backdrop_url,''), COALESCE(overview,''),
+       COALESCE(release_date::text,''), genres, COALESCE(confirmed_tmdb_id,0), updated_at
+FROM public_movies ORDER BY id`)
 	if err != nil {
-		return fmt.Errorf("read local movie groups failed")
+		return nil, nil, nil, fmt.Errorf("read public movies failed")
 	}
 	for rows.Next() {
-		group := localMovieGroupRow{}
+		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&group.id, &provider, &group.primaryMovieID); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.UpdatedAt); err != nil {
 			rows.Close()
-			return fmt.Errorf("read local movie groups failed")
+			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}
-		group.primaryProvider = schedule.Provider(provider)
-		if group.id <= 0 || (schedule.MovieIdentity{Provider: group.primaryProvider, ProviderID: group.primaryMovieID}).Validate() != nil {
-			rows.Close()
-			return fmt.Errorf("invalid local movie group")
-		}
-		if _, exists := groups[group.id]; exists {
-			rows.Close()
-			return fmt.Errorf("duplicate local movie group")
-		}
-		groups[group.id] = &group
+		movie.IdentityAnchorProvider = schedule.Provider(provider)
+		movie.UpdatedAt = movie.UpdatedAt.UTC()
+		movies = append(movies, movie)
 	}
-	if err := rows.Err(); err != nil {
+	if rows.Err() != nil {
 		rows.Close()
-		return fmt.Errorf("read local movie groups failed")
+		return nil, nil, nil, fmt.Errorf("read public movies failed")
 	}
 	rows.Close()
 
-	rows, err = tx.Query(ctx, `SELECT local_movie_id, source_provider, source_movie_id FROM local_movie_group_members ORDER BY local_movie_id, source_provider, source_movie_id`)
+	sources := []schedule.PublicMovieSourceRecord{}
+	rows, err = tx.Query(ctx, `SELECT source_provider, source_movie_id, public_movie_id, source_slug, title, runtime_minutes,
+       COALESCE(poster_url,''), COALESCE(overview,''), COALESCE(release_date::text,''), genres
+FROM public_movie_sources ORDER BY source_provider, source_movie_id`)
 	if err != nil {
-		return fmt.Errorf("read local movie members failed")
+		return nil, nil, nil, fmt.Errorf("read public movie sources failed")
 	}
-	memberGroups := make(map[string]int64)
 	for rows.Next() {
-		var localMovieID int64
-		var provider, movieID string
-		if err := rows.Scan(&localMovieID, &provider, &movieID); err != nil {
+		var source schedule.PublicMovieSourceRecord
+		var provider string
+		if err := rows.Scan(&provider, &source.SourceMovieID, &source.PublicMovieID, &source.SourceSlug, &source.Title, &source.RuntimeMinutes, &source.PosterURL, &source.Overview, &source.ReleaseDate, &source.Genres); err != nil {
 			rows.Close()
-			return fmt.Errorf("read local movie members failed")
+			return nil, nil, nil, fmt.Errorf("read public movie sources failed")
 		}
-		group := groups[localMovieID]
-		identity := schedule.MovieIdentity{Provider: schedule.Provider(provider), ProviderID: movieID}
-		key := provider + "\x00" + movieID
-		if group == nil || identity.Validate() != nil {
-			rows.Close()
-			return fmt.Errorf("invalid local movie member")
-		}
-		if _, exists := memberGroups[key]; exists {
-			rows.Close()
-			return fmt.Errorf("duplicate local movie membership")
-		}
-		memberGroups[key] = localMovieID
-		group.members = append(group.members, key)
+		source.Provider = schedule.Provider(provider)
+		sources = append(sources, source)
 	}
-	if err := rows.Err(); err != nil {
+	if rows.Err() != nil {
 		rows.Close()
-		return fmt.Errorf("read local movie members failed")
+		return nil, nil, nil, fmt.Errorf("read public movie sources failed")
 	}
 	rows.Close()
 
-	for _, group := range groups {
-		primaryKey := string(group.primaryProvider) + "\x00" + group.primaryMovieID
-		if len(group.members) < 2 || !containsString(group.members, primaryKey) {
-			return fmt.Errorf("invalid local movie group membership")
-		}
-		canonicalKey := ""
-		if _, available := movies[primaryKey]; available {
-			canonicalKey = primaryKey
-		} else {
-			for _, memberKey := range group.members {
-				if _, available := movies[memberKey]; available {
-					canonicalKey = memberKey
-					break
-				}
-			}
-		}
-		if canonicalKey == "" {
-			continue
-		}
-		canonical := movies[canonicalKey]
-		if canonical.Enrichment != nil {
-			return fmt.Errorf("local movie metadata source has TMDB enrichment")
-		}
-		for _, memberKey := range group.members {
-			member, available := movies[memberKey]
-			if !available {
-				continue
-			}
-			if member.Enrichment != nil {
-				return fmt.Errorf("local movie member has TMDB enrichment")
-			}
-			member.Title = canonical.Title
-			member.RuntimeMinutes = canonical.RuntimeMinutes
-			member.PosterURL = canonical.PosterURL
-			member.Overview = canonical.Overview
-			member.ReleaseDate = canonical.ReleaseDate
-			member.Genres = append([]string(nil), canonical.Genres...)
-			member.LocalMovieID = group.id
-			member.LocalMetadataProvider = canonical.Provider
-			movies[memberKey] = member
-		}
+	aliases := []schedule.MovieSlugAliasRecord{}
+	rows, err = tx.Query(ctx, `SELECT slug, public_movie_id, alias_kind, COALESCE(source_provider,''), COALESCE(source_movie_id,'') FROM movie_slug_aliases ORDER BY slug`)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("read movie aliases failed")
 	}
-	return nil
-}
-
-func containsString(values []string, value string) bool {
-	for _, candidate := range values {
-		if candidate == value {
-			return true
+	for rows.Next() {
+		var alias schedule.MovieSlugAliasRecord
+		var provider string
+		if err := rows.Scan(&alias.Slug, &alias.PublicMovieID, &alias.Kind, &provider, &alias.SourceMovieID); err != nil {
+			rows.Close()
+			return nil, nil, nil, fmt.Errorf("read movie aliases failed")
 		}
+		alias.Provider = schedule.Provider(provider)
+		aliases = append(aliases, alias)
 	}
-	return false
+	if rows.Err() != nil {
+		rows.Close()
+		return nil, nil, nil, fmt.Errorf("read movie aliases failed")
+	}
+	rows.Close()
+	return movies, sources, aliases, nil
 }

@@ -311,7 +311,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Total != 4 || len(catalog.Items) != 4 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].Provider != ProviderUGC {
+	if catalog.Total != 4 || len(catalog.Items) != 4 || catalog.Items[0].Slug != "tmdb-film-42" {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 	schedule, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "tmdb-film-42", Date: "2026-08-15"})
@@ -329,7 +329,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	for _, theater := range schedule.Theaters {
 		for _, showtime := range theater.Showtimes {
 			want, exists := wantShowtimes[showtime.ID]
-			if !exists || showtime.Provider != want.provider || showtime.Movie.Provider != want.provider || showtime.Movie.Slug != "tmdb-film-42" || showtime.BookingURL == nil || *showtime.BookingURL != want.booking {
+			if !exists || showtime.Provider != want.provider || showtime.Movie.Slug != "tmdb-film-42" || showtime.BookingURL == nil || *showtime.BookingURL != want.booking {
 				t.Fatalf("showtime=%+v theater=%+v", showtime, theater)
 			}
 			delete(wantShowtimes, showtime.ID)
@@ -346,7 +346,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 		}
 	}
 	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", TheaterIDs: []string{"kinepolis-LOM"}, Language: LanguageAll})
-	if err != nil || timeline.Theaters[0].Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Movie.Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" {
+	if err != nil || timeline.Theaters[0].Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Provider != ProviderKinepolis || timeline.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" {
 		t.Fatalf("timeline=%+v err=%v", timeline, err)
 	}
 	slots, err := service.SearchSlot(SlotQuery{TheaterIDs: []string{"kinepolis-LOM"}, Date: "2026-08-15", StartAfter: "19:00", FinishBefore: "23:00", Language: LanguageAll})
@@ -451,7 +451,7 @@ func TestLocalMovieAggregatesCanonicalMetadataAndSourceShowtimes(t *testing.T) {
 	for _, theater := range detail.Theaters {
 		for _, showtime := range theater.Showtimes {
 			expected, ok := want[showtime.ID]
-			if !ok || theater.Provider != expected.provider || showtime.Provider != expected.provider || showtime.Movie.Provider != expected.provider || showtime.Movie.Slug != "local-film-17" || showtime.BookingURL == nil || *showtime.BookingURL != expected.booking || !showtime.EndTime.Equal(showtime.StartTime.Add(120*time.Minute)) {
+			if !ok || theater.Provider != expected.provider || showtime.Provider != expected.provider || showtime.Movie.Slug != "local-film-17" || showtime.BookingURL == nil || *showtime.BookingURL != expected.booking || !showtime.EndTime.Equal(showtime.StartTime.Add(120*time.Minute)) {
 				t.Fatalf("theater=%+v showtime=%+v", theater, showtime)
 			}
 			delete(want, showtime.ID)
@@ -981,6 +981,83 @@ func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
 	variants := service.source.Snapshot().movieBySlug["tmdb-film-42"].variants
 	if len(variants) != 2 || variants[0].count != 1 || variants[1].count != 2 {
 		t.Fatalf("variants=%+v", variants)
+	}
+}
+
+func TestCanonicalMovieInventoryAliasesEndedAndSourceTiming(t *testing.T) {
+	data := combinedTestDataset()
+	filtered := make([]ShowtimeRecord, 0, 3)
+	for _, showing := range data.Showtimes {
+		if showing.Movie.ProviderID != "200" && showing.Movie.ProviderID != "HO200" {
+			continue
+		}
+		showing.Movie.PublicMovieID = 1
+		filtered = append(filtered, showing)
+	}
+	data.Showtimes = filtered
+	updated := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
+	data.PublicMovies = []PublicMovieRecord{
+		{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film canonique", RuntimeMinutes: 120, TMDBID: 42, UpdatedAt: updated},
+		{ID: 2, RedirectToID: 1, IdentityAnchorProvider: ProviderKinepolis, IdentityAnchorSourceID: "OLD", Title: "Ancien doublon", RuntimeMinutes: 100, UpdatedAt: updated},
+		{ID: 9, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "999", Title: "Film terminé", RuntimeMinutes: 88, UpdatedAt: updated.Add(time.Hour)},
+	}
+	data.MovieSources = []PublicMovieSourceRecord{
+		{Provider: ProviderUGC, SourceMovieID: "200", PublicMovieID: 1, SourceSlug: "ugc-film-200", Title: "Film A", RuntimeMinutes: 100},
+		{Provider: ProviderKinepolis, SourceMovieID: "HO200", PublicMovieID: 1, SourceSlug: "kinepolis-film-HO200", Title: "Film A", RuntimeMinutes: 100},
+		{Provider: ProviderUGC, SourceMovieID: "999", PublicMovieID: 9, SourceSlug: "ugc-film-999", Title: "Film terminé", RuntimeMinutes: 88},
+	}
+	data.MovieAliases = []MovieSlugAliasRecord{
+		{Slug: "ugc-film-200", PublicMovieID: 1, Kind: "source", Provider: ProviderUGC, SourceMovieID: "200"},
+		{Slug: "tmdb-film-42", PublicMovieID: 1, Kind: "tmdb"},
+	}
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatal(err)
+	}
+	view := NewSnapshotView(data, SnapshotRevision{ScheduleVersion: 7, EnrichmentVersion: 3})
+	service, err := NewService(testSource{view: view}, ServiceOptions{Now: testServiceNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := service.Movies(MovieCatalogQuery{PageSize: 10})
+	if err != nil || current.Total != 1 || current.Items[0].Slug != "film-1" || current.CatalogRevision != "schedule:7;enrichment:3" {
+		t.Fatalf("current=%+v err=%v", current, err)
+	}
+	all, err := service.Movies(MovieCatalogQuery{IncludeEnded: true, Sort: MovieCatalogSortTitleAsc, PageSize: 10})
+	if err != nil || all.Total != 2 || all.Items[0].Slug != "film-1" || all.Items[1].Slug != "film-9" {
+		t.Fatalf("all=%+v err=%v", all, err)
+	}
+	ended, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "film-9", Date: "2026-08-15"})
+	if err != nil || ended.Movie.Slug != "film-9" || ended.CurrentlyScreened || len(ended.AvailableDates) != 0 || len(ended.Theaters) != 0 {
+		t.Fatalf("ended=%+v err=%v", ended, err)
+	}
+	for _, slug := range []string{"ugc-film-200", "tmdb-film-42", "film-2"} {
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: slug, Date: "2026-08-15", TheaterIDs: []string{"ugc-99"}})
+		if err != nil || detail.Movie.Slug != "film-1" || !detail.CurrentlyScreened || len(detail.AvailableDates) != 0 || len(detail.Theaters) != 0 {
+			t.Fatalf("alias=%q detail=%+v err=%v", slug, detail, err)
+		}
+	}
+	national, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "film-1", Date: "2026-08-15"})
+	if err != nil || !national.CurrentlyScreened {
+		t.Fatalf("national=%+v err=%v", national, err)
+	}
+	for _, theater := range national.Theaters {
+		for _, showing := range theater.Showtimes {
+			if showing.Movie.RuntimeMinutes != 120 || showing.EndTime.Sub(showing.StartTime) != 100*time.Minute {
+				t.Fatalf("source timing changed: %+v", showing)
+			}
+		}
+	}
+	pastService, err := NewService(testSource{view: view}, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 16, 0, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	past, err := pastService.MovieShowtimes(MovieShowtimesQuery{Slug: "film-1", Date: "2026-08-15"})
+	if err != nil || past.CurrentlyScreened {
+		t.Fatalf("past=%+v err=%v", past, err)
+	}
+	truth := true
+	if _, err := service.Movies(MovieCatalogQuery{IncludeEnded: true, CurrentlyScreened: &truth}); err == nil {
+		t.Fatal("incompatible all-canonical query accepted")
 	}
 }
 

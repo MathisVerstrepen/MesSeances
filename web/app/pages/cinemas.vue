@@ -1,13 +1,31 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, Check, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
+import type { Theater } from '~/types/api'
 import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const route = useRoute()
 const router = useRouter()
+const api = useMesSeancesApi()
 const OWNED_QUERY_KEYS = ['q'] as const
 
+const initialDirectory = await useAsyncData('cinema-directory', async () => {
+  try {
+    return { kind: 'success' as const, theaters: await api.theaters(), errorMessage: '' }
+  } catch (cause) {
+    const theaters: Theater[] = []
+    return { kind: 'upstream-error' as const, theaters, errorMessage: getFrenchApiError(cause) }
+  }
+})
+const initialDirectoryState = initialDirectory.data.value
+const directoryTheaters = ref<Theater[]>(initialDirectoryState?.theaters ?? [])
+const directoryError = ref(initialDirectoryState?.errorMessage ?? '')
+if (import.meta.server && initialDirectoryState?.kind !== 'success') {
+  const event = useRequestEvent()
+  if (event) setResponseStatus(event, 502)
+}
+
 const {
-  theaters,
   favoriteTheaterIds,
   isLoading,
   error,
@@ -16,10 +34,9 @@ const {
   toggleFavoriteTheater
 } = useCinemaPreferences()
 
-type PreferenceTheater = (typeof theaters.value)[number]
+type PreferenceTheater = Theater
 
 const search = ref('')
-const isReady = ref(false)
 const statusMessage = ref('')
 const validationMessage = ref('')
 
@@ -46,7 +63,7 @@ const normalizedSearch = computed(() => search.value.trim().toLocaleLowerCase('f
 const visibleGroups = computed(() => {
   const groups = new Map<string, PreferenceTheater[]>()
 
-  for (const theater of theaters.value) {
+  for (const theater of directoryTheaters.value) {
     const searchable = `${theater.name} ${theater.city}`.toLocaleLowerCase('fr-FR')
     if (normalizedSearch.value && !searchable.includes(normalizedSearch.value)) continue
 
@@ -95,11 +112,16 @@ function updateGroup(groupTheaters: readonly PreferenceTheater[], select: boolea
 }
 
 async function loadPreferences() {
-  isReady.value = false
+  await initialize(directoryTheaters.value)
+}
+
+async function retryDirectory() {
+  directoryError.value = ''
   try {
-    await initialize()
-  } finally {
-    isReady.value = true
+    directoryTheaters.value = await api.theaters()
+    await loadPreferences()
+  } catch (cause) {
+    directoryError.value = getFrenchApiError(cause)
   }
 }
 
@@ -113,6 +135,23 @@ onMounted(async () => {
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   await loadPreferences()
 })
+
+const config = useRuntimeConfig()
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/cinemas')
+const pageTitle = 'Cinémas et villes - MesSeances'
+const pageDescription = 'Annuaire des cinémas et des villes disponibles sur MesSeances.'
+const robots = computed(() => directoryTheaters.value.length > 0 && !directoryError.value && Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+
+useSeoMeta({
+  robots,
+  title: pageTitle,
+  description: pageDescription,
+  ogTitle: pageTitle,
+  ogDescription: pageDescription,
+  ogUrl: canonicalUrl,
+  ogType: 'website'
+})
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
@@ -158,20 +197,20 @@ onMounted(async () => {
           {{ validationMessage }}
         </p>
 
-        <div v-if="!isReady || isLoading" class="cinema-state" role="status" aria-live="polite">
+        <div v-if="directoryTheaters.length === 0 && isLoading" class="cinema-state" role="status" aria-live="polite">
           <LoaderCircle :size="34" class="cinema-spinner animate-spin" aria-hidden="true" />
           <p>Chargement des cinémas…</p>
         </div>
 
-        <div v-else-if="error" class="cinema-state" role="alert">
+        <div v-else-if="directoryError" class="cinema-state" role="alert">
           <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
-          <p class="max-w-lg">{{ error }}</p>
-          <button type="button" class="state-button" @click="loadPreferences">
+          <p class="max-w-lg">{{ directoryError }}</p>
+          <button type="button" class="state-button" @click="retryDirectory">
             <RefreshCw :size="17" aria-hidden="true" /> Réessayer
           </button>
         </div>
 
-        <div v-else-if="theaters.length === 0" class="cinema-state">
+        <div v-else-if="directoryTheaters.length === 0" class="cinema-state">
           <Building2 :size="36" aria-hidden="true" />
           <p>Aucun cinéma disponible.</p>
         </div>
@@ -182,6 +221,10 @@ onMounted(async () => {
         </div>
 
         <div v-else class="mt-10">
+          <p v-if="error" class="validation-alert mb-7" role="alert">
+            <AlertTriangle :size="19" aria-hidden="true" />
+            {{ error }}
+          </p>
           <div class="mb-7 flex flex-col gap-2 border-y-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
             <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">Cinémas disponibles</h2>
             <p class="utility-label">{{ visibleTheaterCount }} cinéma{{ visibleTheaterCount > 1 ? 's' : '' }}</p>

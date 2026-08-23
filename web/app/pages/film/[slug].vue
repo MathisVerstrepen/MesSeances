@@ -41,6 +41,7 @@ const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
 const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
 const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
+const isEndedFilm = ref(false)
 const isMobileCalendarOpen = ref(false)
 const isDesktopCalendarOpen = ref(false)
 let requestId = 0
@@ -320,6 +321,10 @@ async function loadSchedule() {
       date: selectedDate.value,
       theaters: preferences.activeTheaterIds.value.join(',')
     })
+    if (response.movie.slug !== slug.value) {
+      await navigateTo({ path: `/film/${encodeURIComponent(response.movie.slug)}`, query: route.query }, { redirectCode: 308, replace: true })
+      return
+    }
     if (currentRequest === requestId) {
       schedule.value = response
       const responseDates = nonPastAvailableDates(response)
@@ -340,6 +345,7 @@ async function loadSchedule() {
       }
       if (currentRequest !== requestId) return
       schedule.value = response
+      isEndedFilm.value = !response.currently_screened
       isPersonalizedSchedule.value = true
       const canonicalQuery = filmQuery()
       if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
@@ -442,8 +448,13 @@ const initialResult = await useAsyncData(`film-schedule:${initialScheduleKey}`, 
 })
 
 const initialState = initialResult.data.value
+const responseSlug = initialState?.schedule?.movie.slug
+if (initialState?.kind === 'success' && responseSlug && responseSlug !== slug.value) {
+  await navigateTo({ path: `/film/${encodeURIComponent(responseSlug)}`, query: route.query }, { redirectCode: 308, replace: true })
+}
 schedule.value = initialState?.schedule ?? null
 selectedDate.value = initialState?.selectedDate ?? selectedDate.value
+isEndedFilm.value = initialState?.kind === 'success' && !initialState.schedule.currently_screened
 notFound.value = initialState?.kind === 'not-found'
 errorMessage.value = initialState?.errorMessage ?? ''
 pending.value = false
@@ -463,6 +474,7 @@ watch(() => route.query, () => {
 })
 watch(slug, () => {
   schedule.value = null
+  isEndedFilm.value = false
   isPersonalizedSchedule.value = false
   posterFailed.value = false
   backdropFailed.value = false
@@ -486,7 +498,8 @@ onBeforeUnmount(() => {
 })
 
 const config = useRuntimeConfig()
-const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(slug.value)}`))
+const canonicalSlug = computed(() => schedule.value?.movie.slug ?? slug.value)
+const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(canonicalSlug.value)}`))
 const fallbackImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
 const seoTitle = computed(() => schedule.value?.movie.title ? `${schedule.value.movie.title} - MesSeances` : 'Séances du film - MesSeances')
 const seoDescription = computed(() => {
@@ -495,7 +508,7 @@ const seoDescription = computed(() => {
   return movie.overview?.trim() || `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
 })
 const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url) ?? safePosterUrl(schedule.value?.movie.poster_url) ?? fallbackImageUrl)
-const robots = computed(() => schedule.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
+const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
   ? 'index,follow'
   : 'noindex,follow')
 const filmJsonLd = computed(() => {
@@ -963,6 +976,11 @@ useHead(() => ({
             <button type="button" class="brutal-action" @click="loadSchedule">
               <RefreshCw :size="17" aria-hidden="true" /> Réessayer
             </button>
+          </div>
+
+          <div v-else-if="isEndedFilm" class="film-state mt-10">
+            <CalendarDays :size="36" aria-hidden="true" />
+            <p>Aucune séance programmée pour le moment.</p>
           </div>
 
           <div v-else-if="!hasAvailableDates" class="film-state mt-10">
