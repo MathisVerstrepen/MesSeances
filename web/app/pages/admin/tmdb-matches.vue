@@ -70,9 +70,9 @@ function sameSource(left: AdminLocalMovieSource | null, right: AdminLocalMovieSo
   return left?.source_provider === right.source_provider && left.source_movie_id === right.source_movie_id
 }
 
-async function loadMatches() {
+async function loadMatches(background = false) {
   const currentRequest = ++matchesRequestId
-  pending.value = true
+  if (!background) pending.value = true
   matchesError.value = ''
   rejectConfirmation.value = ''
   try {
@@ -99,11 +99,11 @@ async function loadMatches() {
     }
   } catch (error) {
     if (currentRequest === matchesRequestId) {
-      result.value = null
+      if (!background) result.value = null
       matchesError.value = getFrenchAdminApiError(error)
     }
   } finally {
-    if (currentRequest === matchesRequestId) pending.value = false
+    if (!background && currentRequest === matchesRequestId) pending.value = false
   }
 }
 
@@ -175,7 +175,7 @@ async function refreshResources() {
 }
 
 async function refreshAfterDecision() {
-  await loadMatches()
+  await loadMatches(true)
   if (!matchesError.value && offset.value > 0 && result.value?.items.length === 0) {
     await router.replace({ query: adminQuery(page.value - 1) })
   }
@@ -401,7 +401,7 @@ useHead({ title: 'Identités des films - MesSeances' })
     <section class="mt-7" aria-labelledby="pending-matches-title">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 id="pending-matches-title" class="text-xl font-semibold text-ink">Films sans identité TMDB résolue</h2>
-        <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches">
+        <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches()">
           <RefreshCw :size="16" :class="pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
         </button>
       </div>
@@ -434,15 +434,15 @@ useHead({ title: 'Identités des films - MesSeances' })
 
       <div v-if="matchesError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
         <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-        <div><p>{{ matchesError }}</p><button type="button" class="mt-2 font-semibold underline" @click="loadMatches">Réessayer</button></div>
+        <div><p>{{ matchesError }}</p><button type="button" class="mt-2 font-semibold underline" @click="loadMatches()">Réessayer</button></div>
       </div>
-      <div v-else-if="pending" class="state-panel mt-4" role="status" aria-live="polite">
+      <div v-if="pending" class="state-panel mt-4" role="status" aria-live="polite">
         <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
       </div>
-      <div v-else-if="!result?.items.length" class="state-panel mt-4">
+      <div v-else-if="result && !result.items.length" class="state-panel mt-4">
         <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
       </div>
-      <ul v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" aria-label="Films sans identité TMDB résolue">
+      <ul v-else-if="result?.items.length" class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" aria-label="Films sans identité TMDB résolue">
         <li v-for="match in result.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">

@@ -107,6 +107,9 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	}
 
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes, poster_url) VALUES
+	(1,'050','ugc-film-050','000 alpha',90,NULL),
+	(1,'051','ugc-film-051','000 Alpha',90,NULL),
+	(1,'052','ugc-film-052','000 beta',90,NULL),
 	(1,'17950','ugc-film-17950','Film historique',100,NULL),
 	(1,'201','ugc-film-201','Film à revoir',100,'https://static.ugc.fr/posters/201.jpg'),
 	(1,'202','ugc-film-202','Titre modifié',90,NULL),
@@ -119,7 +122,9 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	(1,'210','ugc-film-210','Film historique refusé',103,NULL)`); err != nil {
 		t.Fatal("insert review movies failed")
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes) VALUES (1,'kinepolis','HO00016099','kinepolis-film-HO00016099','Film historique',100)`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes) VALUES
+	(1,'kinepolis','CASE-K','kinepolis-film-CASE-K','000 ALPHA',90),
+	(1,'kinepolis','HO00016099','kinepolis-film-HO00016099','Film historique',100)`); err != nil {
 		t.Fatal("insert missing Kinepolis review movie failed")
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes) VALUES (2,'201','ugc-film-201','Inactive poison',1)`); err != nil {
@@ -171,11 +176,38 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 		t.Fatal(err)
 	}
 	items, err := store.PendingMatches(ctx, 50, 0)
-	if err != nil || len(items) != 10 || items[0].SourceMovieID != "201" || items[0].Status != StatusReviewRequired || items[0].SourceTitle != "Film à revoir" || items[0].SourcePosterURL != "https://static.ugc.fr/posters/201.jpg" || items[0].Candidates[0].PosterURL != "https://image.tmdb.org/t/p/w500/52.jpg" || items[1].SourceMovieID != "205" || items[1].Status != StatusReviewRequired || items[1].SourcePosterURL != "" || items[1].Candidates[0].PosterURL != "" || items[2].SourceMovieID != "206" || items[2].Status != StatusUnmatched || items[3].SourceMovieID != "208" || items[3].Status != StatusRejected || items[4].SourceProvider != SourceKinepolis || items[4].SourceMovieID != "HO00016099" || items[4].Status != StatusReviewRequired || len(items[4].Candidates) != 0 || items[4].EvaluatedAt.IsZero() || items[5].SourceProvider != SourceUGC || items[5].SourceMovieID != "17950" || items[5].Status != StatusReviewRequired || len(items[5].Candidates) != 0 || items[5].EvaluatedAt.IsZero() {
+	if err != nil || len(items) != 14 {
 		t.Fatalf("pending=%+v err=%v", items, err)
 	}
+	expectedOrder := []struct {
+		provider string
+		movieID  string
+	}{
+		{SourceKinepolis, "CASE-K"},
+		{SourceUGC, "050"},
+		{SourceUGC, "051"},
+		{SourceUGC, "052"},
+	}
+	for index, expected := range expectedOrder {
+		if items[index].SourceProvider != expected.provider || items[index].SourceMovieID != expected.movieID {
+			t.Fatalf("pending order[%d]=%s/%s want=%s/%s", index, items[index].SourceProvider, items[index].SourceMovieID, expected.provider, expected.movieID)
+		}
+	}
+	pendingByID := make(map[string]PendingMatch, len(items))
+	for _, item := range items {
+		pendingByID[item.SourceProvider+"/"+item.SourceMovieID] = item
+	}
+	item201 := pendingByID[SourceUGC+"/201"]
+	item205 := pendingByID[SourceUGC+"/205"]
+	item206 := pendingByID[SourceUGC+"/206"]
+	item208 := pendingByID[SourceUGC+"/208"]
+	itemKinepolis := pendingByID[SourceKinepolis+"/HO00016099"]
+	itemUGC := pendingByID[SourceUGC+"/17950"]
+	if item201.Status != StatusReviewRequired || item201.SourceTitle != "Film à revoir" || item201.SourcePosterURL != "https://static.ugc.fr/posters/201.jpg" || item201.Candidates[0].PosterURL != "https://image.tmdb.org/t/p/w500/52.jpg" || item205.Status != StatusReviewRequired || item205.SourcePosterURL != "" || item205.Candidates[0].PosterURL != "" || item206.Status != StatusUnmatched || item208.Status != StatusRejected || itemKinepolis.Status != StatusReviewRequired || len(itemKinepolis.Candidates) != 0 || itemKinepolis.EvaluatedAt.IsZero() || itemUGC.Status != StatusReviewRequired || len(itemUGC.Candidates) != 0 || itemUGC.EvaluatedAt.IsZero() {
+		t.Fatalf("pending by ID=%+v", pendingByID)
+	}
 	paged, err := store.PendingMatches(ctx, 2, 1)
-	if err != nil || len(paged) != 2 || paged[0].SourceMovieID != "205" || paged[1].SourceMovieID != "206" {
+	if err != nil || len(paged) != 2 || paged[0].SourceProvider != SourceUGC || paged[0].SourceMovieID != "050" || paged[1].SourceProvider != SourceUGC || paged[1].SourceMovieID != "051" {
 		t.Fatalf("paged pending=%+v err=%v", paged, err)
 	}
 	for _, source := range []struct {

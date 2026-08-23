@@ -19,7 +19,7 @@ FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id
 LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb'
 WHERE (mm.status IS NULL OR mm.status IN ('review_required', 'unmatched', 'rejected'))
   AND NOT EXISTS (SELECT 1 FROM local_movie_group_members lmgm WHERE lmgm.source_provider=m.provider AND lmgm.source_movie_id=m.provider_id)
-ORDER BY (mm.evaluated_at IS NULL), mm.evaluated_at, m.provider, m.provider_id LIMIT $1 OFFSET $2`, limit, offset)
+ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $1 OFFSET $2`, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("read pending movie matches failed")
 	}
