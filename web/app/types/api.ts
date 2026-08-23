@@ -20,6 +20,7 @@ export interface CatalogMovie extends Movie {
   overview: string | null
   release_date: string | null
   genres: string[]
+  showtime_count?: number
 }
 
 export interface Showtime {
@@ -268,7 +269,7 @@ export interface MoviesQuery {
 }
 
 export interface MoviesResponse {
-  items: CatalogMovie[]
+  items: (CatalogMovie & { showtime_count: number })[]
   page: number
   page_size: number
   total: number
@@ -294,5 +295,6 @@ export interface MovieShowtimesResponse {
   movie: CatalogMovie
   backdrop_url: string | null
   date: string
+  available_dates: string[]
   theaters: MovieShowtimesTheater[]
 }

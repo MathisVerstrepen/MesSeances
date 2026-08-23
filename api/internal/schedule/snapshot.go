@@ -50,6 +50,7 @@ type SnapshotView struct {
 	movieBySlug      map[string]movieIndex
 	movieOrder       []string
 	movieDate        map[movieDateKey][]int
+	movieDates       map[string][]string
 	theaterPositions []int
 	theaterCatalog   []int
 	theaterRank      []int
@@ -68,6 +69,7 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		theaterShowtimes: make([][]int, len(data.Theaters)),
 		movieBySlug:      make(map[string]movieIndex),
 		movieDate:        make(map[movieDateKey][]int),
+		movieDates:       make(map[string][]string),
 		theaterPositions: make([]int, len(data.Theaters)),
 		theaterCatalog:   make([]int, len(data.Theaters)),
 		theaterRank:      make([]int, len(data.Theaters)),
@@ -113,6 +115,7 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		view.cityBuckets[bucket].catalogPositions = append(view.cityBuckets[bucket].catalogPositions, position)
 	}
 	variantPositions := make(map[string]map[string]int)
+	movieDateSeen := make(map[movieDateKey]bool)
 	cityMovies := make([]map[string]bool, len(view.cityBuckets))
 	for index := range cityMovies {
 		cityMovies[index] = make(map[string]bool)
@@ -125,6 +128,11 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 			cityMovies[view.theaterCity[theaterPosition]][slug] = true
 		}
 		view.movieDate[movieDateKey{slug: slug, date: showing.ServiceDate}] = append(view.movieDate[movieDateKey{slug: slug, date: showing.ServiceDate}], position)
+		dateKey := movieDateKey{slug: slug, date: showing.ServiceDate}
+		if !movieDateSeen[dateKey] {
+			movieDateSeen[dateKey] = true
+			view.movieDates[slug] = append(view.movieDates[slug], showing.ServiceDate)
+		}
 		movie, exists := view.movieBySlug[slug]
 		if !exists {
 			movie.firstShowtime = position
@@ -146,6 +154,9 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 			view.cityBuckets[bucket].movieSlugs = append(view.cityBuckets[bucket].movieSlugs, slug)
 		}
 		sort.Strings(view.cityBuckets[bucket].movieSlugs)
+	}
+	for slug := range view.movieDates {
+		sort.Strings(view.movieDates[slug])
 	}
 	return view
 }

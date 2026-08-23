@@ -48,6 +48,10 @@ func (s testSource) Snapshot() *SnapshotView { return s.view }
 
 func newTestSource(data Dataset) testSource { return testSource{view: NewSnapshotView(data)} }
 
+func testServiceNow() time.Time {
+	return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+}
+
 func testService(t *testing.T) *Service {
 	t.Helper()
 	data := testDataset()
@@ -55,7 +59,7 @@ func testService(t *testing.T) *Service {
 		t.Fatal(err)
 	}
 	source := newTestSource(data)
-	service, err := NewService(source, ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
+	service, err := NewService(source, ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}, Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +292,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +362,7 @@ func TestUnmatchedSameTitleMoviesRemainProviderSpecific(t *testing.T) {
 			data.Showtimes[index].Movie.Enrichment = nil
 		}
 	}
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +424,7 @@ func TestLocalMovieAggregatesCanonicalMetadataAndSourceShowtimes(t *testing.T) {
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatalf("valid local movie rejected: %v", err)
 	}
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,21 +522,21 @@ func TestMoviesCatalogTheaterScopeFiltersCountsAndPaginates(t *testing.T) {
 	appendShowing(0, "a-extra-2", "ugc-25")
 	appendShowing(2, "b-selected-1", "ugc-26")
 	appendShowing(2, "b-selected-2", "ugc-26")
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	national, err := service.Movies(MovieCatalogQuery{PageSize: 1})
-	if err != nil || len(national.Items) != 1 || national.Items[0].Slug != "ugc-film-200" {
+	if err != nil || len(national.Items) != 1 || national.Items[0].Slug != "ugc-film-200" || national.Items[0].ShowtimeCount != 4 {
 		t.Fatalf("national=%+v err=%v", national, err)
 	}
 	selected, err := service.Movies(MovieCatalogQuery{TheaterIDs: []string{"ugc-26"}, PageSize: 1})
-	if err != nil || selected.Total != 3 || len(selected.Items) != 1 || selected.Items[0].Slug != "ugc-film-201" {
+	if err != nil || selected.Total != 3 || len(selected.Items) != 1 || selected.Items[0].Slug != "ugc-film-201" || selected.Items[0].ShowtimeCount != 2 {
 		t.Fatalf("selected=%+v err=%v", selected, err)
 	}
 	secondPage, err := service.Movies(MovieCatalogQuery{TheaterIDs: []string{"ugc-26"}, Page: 2, PageSize: 1})
-	if err != nil || secondPage.Total != 3 || len(secondPage.Items) != 1 || secondPage.Items[0].Slug != "ugc-film-200" {
+	if err != nil || secondPage.Total != 3 || len(secondPage.Items) != 1 || secondPage.Items[0].Slug != "ugc-film-200" || secondPage.Items[0].ShowtimeCount != 1 {
 		t.Fatalf("secondPage=%+v err=%v", secondPage, err)
 	}
 	for _, ids := range [][]string{{""}, {"unknown"}} {
@@ -541,6 +545,77 @@ func TestMoviesCatalogTheaterScopeFiltersCountsAndPaginates(t *testing.T) {
 		if !errors.As(err, &validation) || validation.Message != "Le paramètre theaters contient un identifiant de cinéma inconnu." {
 			t.Fatalf("ids=%v err=%v", ids, err)
 		}
+	}
+}
+
+func TestMovieCatalogShowtimeCountIsOmittedOutsideMovies(t *testing.T) {
+	service := testService(t)
+	detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	city, err := service.City("lille")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, value := range map[string]any{"movie detail": detail, "city detail": city} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(encoded), "showtime_count") {
+			t.Fatalf("%s exposed an unscoped count: %s", name, encoded)
+		}
+	}
+}
+
+func TestMoviesCatalogExcludesOnlyShowtimesPastWarningWindow(t *testing.T) {
+	data := testDataset()
+	now := data.Showtimes[0].StartTime.Add(movieCatalogWarningWindow)
+	appendShowing := func(source int, id, theaterID string) {
+		record := data.Showtimes[source]
+		record.ID = id
+		record.ProviderShowingID = id
+		record.TheaterID = theaterID
+		data.Showtimes = append(data.Showtimes, record)
+	}
+	appendShowing(2, "b-selected-1", "ugc-26")
+	appendShowing(2, "b-selected-2", "ugc-26")
+	expired := data.Showtimes[0]
+	expired.ID = "expired-only"
+	expired.ProviderShowingID = "expired-only"
+	expired.TheaterID = "ugc-26"
+	expired.Movie = MovieRecord{ProviderID: "204", Slug: "ugc-film-204", Title: "Film E", RuntimeMinutes: 90}
+	expired.StartTime = now.Add(-movieCatalogWarningWindow - time.Nanosecond)
+	expired.EndTime = expired.StartTime.Add(90 * time.Minute)
+	data.Showtimes = append(data.Showtimes, expired)
+
+	clockCalls := 0
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: func() time.Time {
+		clockCalls++
+		return now
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCatalog := func(name string, query MovieCatalogQuery, wantSlugs []string, wantCounts []int) {
+		t.Helper()
+		catalog, err := service.Movies(query)
+		if err != nil || catalog.Total != len(wantSlugs) || len(catalog.Items) != len(wantSlugs) {
+			t.Fatalf("%s catalog=%+v err=%v", name, catalog, err)
+		}
+		for index := range wantSlugs {
+			if catalog.Items[index].Slug != wantSlugs[index] || catalog.Items[index].ShowtimeCount != wantCounts[index] {
+				t.Fatalf("%s item[%d]=%+v want slug=%q count=%d", name, index, catalog.Items[index], wantSlugs[index], wantCounts[index])
+			}
+		}
+	}
+
+	assertCatalog("national", MovieCatalogQuery{PageSize: 10}, []string{"ugc-film-201", "ugc-film-200", "ugc-film-202", "ugc-film-203"}, []int{3, 2, 1, 1})
+	assertCatalog("selected", MovieCatalogQuery{TheaterIDs: []string{"ugc-26"}, PageSize: 10}, []string{"ugc-film-201", "ugc-film-200", "ugc-film-202"}, []int{2, 1, 1})
+	assertCatalog("boundary", MovieCatalogQuery{TheaterIDs: []string{"ugc-25"}, PageSize: 10}, []string{"ugc-film-200", "ugc-film-201"}, []int{1, 1})
+	if clockCalls != 3 {
+		t.Fatalf("clock calls=%d want one per catalog request", clockCalls)
 	}
 }
 
@@ -564,7 +639,7 @@ func TestMoviesCatalogSortOrdersAndDefaults(t *testing.T) {
 		record("c-2", "slug-c", "Charlie", 90, "", 0),
 		record("d-1", "slug-d", "Alpha", 110, "2025-01-01", 0),
 	}
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -613,7 +688,7 @@ func TestMovieCatalogEnrichmentPrecedenceAndNullableDefaults(t *testing.T) {
 			data.Showtimes[index].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg"}
 		}
 	}
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,6 +774,63 @@ func TestMovieShowtimesScopesKnownEmptyAndUnknown(t *testing.T) {
 	if !errors.As(err, &notFound) || notFound.Message != "Film introuvable." {
 		t.Fatalf("unknown error=%v", err)
 	}
+}
+
+func TestMovieShowtimesAvailableDatesIntersectResolvedScopeAndRemainSortedUnique(t *testing.T) {
+	data := testDataset()
+	appendShowing := func(source int, id, theaterID, date string) {
+		record := data.Showtimes[source]
+		record.ID = id
+		record.ProviderShowingID = id
+		record.TheaterID = theaterID
+		record.ServiceDate = date
+		record.StartTime = record.StartTime.AddDate(0, 0, mustDateDayOffset(t, record.ServiceDate, "2026-08-15"))
+		record.EndTime = record.StartTime.Add(time.Duration(record.Movie.RuntimeMinutes) * time.Minute)
+		data.Showtimes = append(data.Showtimes, record)
+	}
+	appendShowing(0, "film-a-17", "ugc-26", "2026-08-17")
+	appendShowing(0, "film-a-16-a", "ugc-25", "2026-08-16")
+	appendShowing(0, "film-a-16-b", "ugc-25", "2026-08-16")
+	appendShowing(0, "film-a-14", "ugc-99", "2026-08-14")
+	service, err := NewService(newTestSource(data), ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name  string
+		query MovieShowtimesQuery
+		want  []string
+	}{
+		{name: "national", query: MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"}, want: []string{"2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17"}},
+		{name: "city alias scope", query: MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15", City: "Lille"}, want: []string{"2026-08-15", "2026-08-16", "2026-08-17"}},
+		{name: "exact theater scope", query: MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15", TheaterIDs: []string{"ugc-25"}}, want: []string{"2026-08-15", "2026-08-16"}},
+		{name: "known movie empty in scope", query: MovieShowtimesQuery{Slug: "ugc-film-201", Date: "2026-08-15", TheaterIDs: []string{"ugc-26"}}, want: []string{}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := service.MovieShowtimes(test.query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(result.AvailableDates, test.want) {
+				t.Fatalf("available dates=%v want %v", result.AvailableDates, test.want)
+			}
+		})
+	}
+}
+
+func mustDateDayOffset(t *testing.T, value, base string) int {
+	t.Helper()
+	date, err := time.Parse(dateLayout, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDate, err := time.Parse(dateLayout, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int(date.Sub(baseDate).Hours() / 24)
 }
 
 func TestSearchSlotRequiresOneScopeAndValidatesExactTheaters(t *testing.T) {
@@ -830,7 +962,7 @@ func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
 		record("ugc-showing-504", "Gamma", "ugc-film-20", 0),
 		record("ugc-showing-505", "Gamma", "ugc-film-20", 0),
 	}
-	service, err := NewService(newTestSource(data), ServiceOptions{})
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
 	if err != nil {
 		t.Fatal(err)
 	}

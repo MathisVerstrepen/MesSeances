@@ -16,12 +16,14 @@ const (
 type ServiceOptions struct {
 	DefaultCity string
 	CityAliases map[string][]string
+	Now         func() time.Time
 }
 
 type Service struct {
 	location *time.Location
 	source   Source
 	options  ServiceOptions
+	now      func() time.Time
 }
 
 func NewService(source Source, options ServiceOptions) (*Service, error) {
@@ -32,6 +34,9 @@ func NewService(source Source, options ServiceOptions) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load schedule timezone: %w", err)
 	}
+	if options.Now == nil {
+		options.Now = time.Now
+	}
 	options.DefaultCity = strings.TrimSpace(options.DefaultCity)
-	return &Service{location: location, source: source, options: options}, nil
+	return &Service{location: location, source: source, options: options, now: options.Now}, nil
 }

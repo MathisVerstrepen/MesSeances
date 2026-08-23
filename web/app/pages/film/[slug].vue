@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
+import { VueDatePicker } from '@vuepic/vue-datepicker'
+import { fr } from 'date-fns/locale/fr'
+import '@vuepic/vue-datepicker/dist/main.css'
 import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
@@ -22,6 +25,7 @@ const route = useRoute()
 const router = useRouter()
 const api = useMesSeancesApi()
 const preferences = usePageCinemaSelection()
+const today = ref(todayInParis())
 const schedule = ref<MovieShowtimesResponse | null>(null)
 const selectedDate = ref('')
 const pending = ref(true)
@@ -37,8 +41,11 @@ const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
 const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
 const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
+const isMobileCalendarOpen = ref(false)
+const isDesktopCalendarOpen = ref(false)
 let requestId = 0
 let currentTimeTimer: number | undefined
+let dayCheckTimer: ReturnType<typeof setTimeout> | undefined
 let isReady = false
 let lastScheduleKey = ''
 
@@ -47,7 +54,19 @@ const slug = computed(() => {
   return Array.isArray(value) ? value[0] ?? '' : value ?? ''
 })
 
-const availableDates = computed(() => [...new Set(preferences.activeTheaters.value.flatMap((theater) => theater.available_dates))].sort())
+function nonPastAvailableDates(response: MovieShowtimesResponse): string[] {
+  return [...new Set(response.available_dates)]
+    .filter((date) => calendarDate(date) === date && date >= today.value)
+    .sort()
+}
+
+function resolvedAvailableDate(dates: string[], requestedDate: string): string {
+  if (dates.includes(requestedDate)) return requestedDate
+  return dates.includes(today.value) ? today.value : dates[0] ?? today.value
+}
+
+const availableDates = computed(() => schedule.value ? nonPastAvailableDates(schedule.value) : [])
+const hasAvailableDates = computed(() => availableDates.value.length > 0)
 const posterUrl = computed(() => safePosterUrl(schedule.value?.movie.poster_url))
 const posterAvailable = computed(() => Boolean(posterUrl.value) && !posterFailed.value)
 const backdropUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url))
@@ -161,14 +180,47 @@ const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Arra
 const visibleShowtimeCount = computed(() => visibleTheaters.value.reduce((total, theater) => total + theater.showtimes.length, 0))
 
 function fallbackDate(): string {
-  const today = todayInParis()
-  return availableDates.value.includes(today) ? today : availableDates.value[0] ?? today
+  return availableDates.value.includes(today.value) ? today.value : availableDates.value[0] ?? today.value
 }
 
 function isAvailableDate(value: string | undefined): value is string {
-  if (!value) return false
-  if (!preferences.isInitialized.value) return true
-  return availableDates.value.length > 0 ? availableDates.value.includes(value) : value === todayInParis()
+  if (!value || value < today.value) return false
+  if (!schedule.value) return true
+  return availableDates.value.includes(value)
+}
+
+function dateFromCalendarDate(value: string): Date | null {
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day, 12)
+}
+
+function calendarDateFromDate(value: Date): string {
+  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
+}
+
+const allowedDateValues = computed(() => availableDates.value.map(dateFromCalendarDate).filter((value): value is Date => value !== null))
+const datePickerDate = computed<Date | null>({
+  get: () => hasAvailableDates.value ? dateFromCalendarDate(selectedDate.value) : null,
+  set: (value) => {
+    if (!value) return
+    const date = calendarDateFromDate(value)
+    if (availableDates.value.includes(date)) updateFilmQuery({ date: date === fallbackDate() ? undefined : date })
+  }
+})
+const calendarAriaLabels = {
+  menu: 'Calendrier des dates disponibles',
+  input: 'Choisir une autre date',
+  calendarIcon: 'Ouvrir le calendrier',
+  prevMonth: 'Mois précédent',
+  nextMonth: 'Mois suivant',
+  prevYear: 'Année précédente',
+  nextYear: 'Année suivante',
+  openMonthsOverlay: 'Choisir un mois',
+  openYearsOverlay: 'Choisir une année',
+  monthPicker: (overlay: boolean) => overlay ? 'Fermer le choix du mois' : 'Ouvrir le choix du mois',
+  yearPicker: (overlay: boolean) => overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
+  day: ({ value }: { value: Date }) => `Choisir ${formatLongDate(calendarDateFromDate(value))}`
 }
 
 function filmQuery() {
@@ -264,13 +316,33 @@ async function loadSchedule() {
   notFound.value = false
 
   try {
-    const response = await api.movieShowtimes(slug.value, {
+    let response = await api.movieShowtimes(slug.value, {
       date: selectedDate.value,
       theaters: preferences.activeTheaterIds.value.join(',')
     })
     if (currentRequest === requestId) {
       schedule.value = response
+      const responseDates = nonPastAvailableDates(response)
+      const resolvedDate = resolvedAvailableDate(responseDates, selectedDate.value)
+
+      if (resolvedDate !== selectedDate.value && responseDates.length > 0) {
+        selectedDate.value = resolvedDate
+        lastScheduleKey = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
+        const query = filmQuery()
+        if (!queriesEqual(route.query, query)) await router.replace({ query })
+        response = await api.movieShowtimes(slug.value, {
+          date: resolvedDate,
+          theaters: preferences.activeTheaterIds.value.join(',')
+        })
+      } else if (responseDates.length === 0) {
+        selectedDate.value = today.value
+        lastScheduleKey = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
+      }
+      if (currentRequest !== requestId) return
+      schedule.value = response
       isPersonalizedSchedule.value = true
+      const canonicalQuery = filmQuery()
+      if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
       await nextTick()
       await normalizeDynamicFilters()
     }
@@ -318,6 +390,29 @@ async function initializePreferencesAndLoad() {
   await applyRoute()
 }
 
+async function refreshFilmDay() {
+  const currentDay = todayInParis()
+  if (currentDay === today.value) return
+  today.value = currentDay
+  if (isReady) await applyRoute()
+}
+
+function scheduleDayCheck() {
+  if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
+  const delay = 60_000 - Date.now() % 60_000
+  dayCheckTimer = window.setTimeout(() => {
+    dayCheckTimer = undefined
+    void refreshFilmDay()
+    scheduleDayCheck()
+  }, delay)
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  void refreshFilmDay()
+  scheduleDayCheck()
+}
+
 async function retryLoad() {
   if (!preferences.isInitialized.value) await initializePreferencesAndLoad()
   else await loadSchedule()
@@ -327,18 +422,28 @@ hydrateRoute()
 const initialScheduleKey = `${slug.value}|${selectedDate.value}`
 const initialResult = await useAsyncData(`film-schedule:${initialScheduleKey}`, async () => {
   try {
-    const response = await api.movieShowtimes(slug.value, { date: selectedDate.value })
-    return { kind: 'success' as const, schedule: response, errorMessage: '' }
+    let resolvedDate = selectedDate.value
+    let response = await api.movieShowtimes(slug.value, { date: resolvedDate })
+    const responseDates = nonPastAvailableDates(response)
+    const fallback = resolvedAvailableDate(responseDates, resolvedDate)
+    if (!responseDates.includes(resolvedDate) && responseDates.length > 0) {
+      resolvedDate = fallback
+      response = await api.movieShowtimes(slug.value, { date: resolvedDate })
+    } else if (responseDates.length === 0) {
+      resolvedDate = today.value
+    }
+    return { kind: 'success' as const, schedule: response, selectedDate: resolvedDate, errorMessage: '' }
   } catch (error) {
     if (isNotFoundError(error)) {
-      return { kind: 'not-found' as const, schedule: null, errorMessage: '' }
+      return { kind: 'not-found' as const, schedule: null, selectedDate: selectedDate.value, errorMessage: '' }
     }
-    return { kind: 'upstream-error' as const, schedule: null, errorMessage: getFrenchApiError(error) }
+    return { kind: 'upstream-error' as const, schedule: null, selectedDate: selectedDate.value, errorMessage: getFrenchApiError(error) }
   }
 })
 
 const initialState = initialResult.data.value
 schedule.value = initialState?.schedule ?? null
+selectedDate.value = initialState?.selectedDate ?? selectedDate.value
 notFound.value = initialState?.kind === 'not-found'
 errorMessage.value = initialState?.errorMessage ?? ''
 pending.value = false
@@ -370,10 +475,14 @@ onMounted(() => {
   currentTimeTimer = window.setInterval(() => {
     currentTime.value = Date.now()
   }, 30_000)
+  scheduleDayCheck()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   initializePreferencesAndLoad()
 })
 onBeforeUnmount(() => {
   if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
+  if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 const config = useRuntimeConfig()
@@ -645,24 +754,56 @@ useHead(() => ({
             class="border-t-2 border-ink px-4 py-3 sm:px-6"
             @keydown.esc.stop="closeMobilePanel($event)"
           >
-            <div class="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
-              <button
-                v-for="(date, index) in availableDates"
-                :id="`mobile-date-tab-${date}`"
-                :key="date"
-                type="button"
-                role="tab"
-                :aria-selected="selectedDate === date"
-                aria-controls="showtime-panel"
-                :tabindex="selectedDate === date ? 0 : -1"
-                class="date-tab"
-                :class="selectedDate === date ? 'date-tab--active' : undefined"
-                @click="selectMobileDate(date)"
-                @keydown="selectAdjacentDate($event, index)"
+            <div class="flex items-start gap-2">
+              <VueDatePicker
+                v-model="datePickerDate"
+                class="editorial-datepicker shrink-0"
+                :allowed-dates="allowedDateValues"
+                :aria-labels="calendarAriaLabels"
+                :disabled="!hasAvailableDates"
+                :locale="fr"
+                :time-config="{ enableTimePicker: false }"
+                :transitions="false"
+                :floating="{ arrow: false, offset: 6 }"
+                :ui="{ menu: 'editorial-calendar-menu' }"
+                teleport="body"
+                auto-apply
+                arrow-navigation
+                prevent-min-max-navigation
+                @open="isMobileCalendarOpen = true"
+                @closed="isMobileCalendarOpen = false"
               >
-                {{ formatDateLabel(date) }}
-              </button>
-              <span v-if="availableDates.length === 0" class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">{{ formatDateLabel(selectedDate) }}</span>
+                <template #trigger>
+                  <button
+                    type="button"
+                    class="calendar-trigger grid size-11 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight disabled:cursor-not-allowed disabled:bg-[#e8e6de] disabled:text-muted"
+                    :disabled="!hasAvailableDates"
+                    :aria-label="hasAvailableDates ? `Choisir une autre date. Date actuelle : ${formatLongDate(selectedDate)}` : 'Choisir une autre date. Aucune date disponible.'"
+                    :aria-expanded="isMobileCalendarOpen"
+                  >
+                    <CalendarDays :size="18" aria-hidden="true" />
+                  </button>
+                </template>
+              </VueDatePicker>
+              <div class="flex min-w-0 gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
+                <button
+                  v-for="(date, index) in availableDates"
+                  :id="`mobile-date-tab-${date}`"
+                  :key="date"
+                  type="button"
+                  role="tab"
+                  :aria-selected="selectedDate === date"
+                  aria-controls="showtime-panel"
+                  :tabindex="selectedDate === date ? 0 : -1"
+                  class="date-tab"
+                  :class="selectedDate === date ? 'date-tab--active' : undefined"
+                  @click="selectMobileDate(date)"
+                  @keydown="selectAdjacentDate($event, index)"
+                >
+                  {{ formatDateLabel(date) }}
+                </button>
+                <span v-if="!hasAvailableDates" class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
+              </div>
             </div>
           </div>
 
@@ -709,28 +850,56 @@ useHead(() => ({
         </div>
 
         <div class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block">
-          <div
-            class="flex gap-2 overflow-x-auto pb-1"
-            role="tablist"
-            aria-label="Choisir une date"
-          >
-            <button
-              v-for="(date, index) in availableDates"
-              :id="`desktop-date-tab-${date}`"
-              :key="date"
-              type="button"
-              role="tab"
-              :aria-selected="selectedDate === date"
-              aria-controls="showtime-panel"
-              :tabindex="selectedDate === date ? 0 : -1"
-              class="date-tab"
-              :class="selectedDate === date ? 'date-tab--active' : undefined"
-              @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
-              @keydown="selectAdjacentDate($event, index)"
+          <div class="flex items-start gap-2">
+            <VueDatePicker
+              v-model="datePickerDate"
+              class="editorial-datepicker shrink-0"
+              :allowed-dates="allowedDateValues"
+              :aria-labels="calendarAriaLabels"
+              :disabled="!hasAvailableDates"
+              :locale="fr"
+              :time-config="{ enableTimePicker: false }"
+              :transitions="false"
+              :floating="{ arrow: false, offset: 6 }"
+              :ui="{ menu: 'editorial-calendar-menu' }"
+              teleport="body"
+              auto-apply
+              arrow-navigation
+              prevent-min-max-navigation
+              @open="isDesktopCalendarOpen = true"
+              @closed="isDesktopCalendarOpen = false"
             >
-              {{ formatDateLabel(date) }}
-            </button>
-            <span v-if="availableDates.length === 0" class="inline-flex h-10 items-center font-mono text-xs font-bold uppercase">{{ formatDateLabel(selectedDate) }}</span>
+              <template #trigger>
+                <button
+                  type="button"
+                  class="calendar-trigger grid size-11 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight disabled:cursor-not-allowed disabled:bg-[#e8e6de] disabled:text-muted"
+                  :disabled="!hasAvailableDates"
+                  :aria-label="hasAvailableDates ? `Choisir une autre date. Date actuelle : ${formatLongDate(selectedDate)}` : 'Choisir une autre date. Aucune date disponible.'"
+                  :aria-expanded="isDesktopCalendarOpen"
+                >
+                  <CalendarDays :size="18" aria-hidden="true" />
+                </button>
+              </template>
+            </VueDatePicker>
+            <div class="flex min-w-0 gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
+              <button
+                v-for="(date, index) in availableDates"
+                :id="`desktop-date-tab-${date}`"
+                :key="date"
+                type="button"
+                role="tab"
+                :aria-selected="selectedDate === date"
+                aria-controls="showtime-panel"
+                :tabindex="selectedDate === date ? 0 : -1"
+                class="date-tab"
+                :class="selectedDate === date ? 'date-tab--active' : undefined"
+                @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
+                @keydown="selectAdjacentDate($event, index)"
+              >
+                {{ formatDateLabel(date) }}
+              </button>
+              <span v-if="!hasAvailableDates" class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
+            </div>
           </div>
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
@@ -794,6 +963,11 @@ useHead(() => ({
             <button type="button" class="brutal-action" @click="loadSchedule">
               <RefreshCw :size="17" aria-hidden="true" /> Réessayer
             </button>
+          </div>
+
+          <div v-else-if="!hasAvailableDates" class="film-state mt-10">
+            <CalendarDays :size="36" aria-hidden="true" />
+            <p>Aucune date de séance disponible pour ce film dans ces cinémas.</p>
           </div>
 
           <div v-else-if="schedule.theaters.length === 0" class="film-state mt-10">
@@ -964,6 +1138,53 @@ useHead(() => ({
   background: #27272a;
   color: #fff;
   box-shadow: inset 0 -4px 0 var(--color-highlight);
+}
+
+.editorial-datepicker {
+  min-width: 0;
+}
+
+:global(.editorial-calendar-menu) {
+  --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --dp-border-radius: 0;
+  --dp-cell-border-radius: 0;
+  --dp-background-color: #f8f7f2;
+  --dp-text-color: #27272a;
+  --dp-hover-color: #e8e6de;
+  --dp-hover-text-color: #27272a;
+  --dp-hover-icon-color: #27272a;
+  --dp-primary-color: #27272a;
+  --dp-primary-text-color: #fff;
+  --dp-secondary-color: #71717a;
+  --dp-border-color: #27272a;
+  --dp-menu-border-color: #27272a;
+  --dp-border-color-hover: #27272a;
+  --dp-border-color-focus: #27272a;
+  --dp-disabled-color: #e8e6de;
+  --dp-disabled-color-text: #71717a;
+  --dp-icon-color: #27272a;
+  --dp-menu-min-width: 19rem;
+  --dp-font-size: 0.78rem;
+  --dp-common-transition: none;
+  --dp-animation-duration: 0s;
+  border-width: 2px;
+  box-shadow: 6px 6px 0 #27272a;
+}
+
+:global(.editorial-calendar-menu .dp__calendar_header_item),
+:global(.editorial-calendar-menu .dp__month_year_select) {
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:global(.editorial-calendar-menu .dp__active_date) {
+  box-shadow: inset 0 -3px 0 var(--color-highlight);
+}
+
+:global(.editorial-calendar-menu .dp__today) {
+  border: 2px solid #991b1b;
 }
 
 .filter-label {

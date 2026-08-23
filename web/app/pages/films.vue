@@ -179,6 +179,10 @@ function formatRuntime(runtimeMinutes: number): string {
   return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
 }
 
+function formatShowtimeCount(showtimeCount: number): string {
+  return `${showtimeCount} séance${showtimeCount === 1 ? '' : 's'}`
+}
+
 hydrateRoute()
 
 watch(() => route.query, () => {
@@ -341,7 +345,7 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
                 </div>
                 <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
                   <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
-                  <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">{{ formatRuntime(movie.runtime_minutes) }}</span>
+                  <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">{{ formatRuntime(movie.runtime_minutes) }} · {{ formatShowtimeCount(movie.showtime_count) }}</span>
                 </div>
               </NuxtLink>
             </li>

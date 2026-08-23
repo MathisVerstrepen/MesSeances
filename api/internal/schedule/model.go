@@ -154,6 +154,7 @@ type MovieCatalogItem struct {
 	Slug           string   `json:"slug"`
 	Title          string   `json:"title"`
 	RuntimeMinutes int      `json:"runtime_minutes"`
+	ShowtimeCount  int      `json:"showtime_count,omitempty"`
 	PosterURL      *string  `json:"poster_url"`
 	TMDBID         *int64   `json:"tmdb_id"`
 	Overview       *string  `json:"overview"`
@@ -179,10 +180,11 @@ type MovieTheaterShowtimes struct {
 }
 
 type MovieSchedule struct {
-	Movie       MovieCatalogItem        `json:"movie"`
-	BackdropURL *string                 `json:"backdrop_url"`
-	Date        string                  `json:"date"`
-	Theaters    []MovieTheaterShowtimes `json:"theaters"`
+	Movie          MovieCatalogItem        `json:"movie"`
+	BackdropURL    *string                 `json:"backdrop_url"`
+	Date           string                  `json:"date"`
+	AvailableDates []string                `json:"available_dates"`
+	Theaters       []MovieTheaterShowtimes `json:"theaters"`
 }
 
 type SlotResult struct {

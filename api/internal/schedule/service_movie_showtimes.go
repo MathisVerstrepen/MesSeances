@@ -30,6 +30,15 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 	for _, position := range selected {
 		selectedIDs[view.data.Theaters[position].ID] = true
 	}
+	availableDates := make([]string, 0, len(view.movieDates[query.Slug]))
+	for _, date := range view.movieDates[query.Slug] {
+		for _, showingPosition := range view.movieDate[movieDateKey{slug: query.Slug, date: date}] {
+			if selectedIDs[view.data.Showtimes[showingPosition].TheaterID] {
+				availableDates = append(availableDates, date)
+				break
+			}
+		}
+	}
 	for _, showingPosition := range view.movieDate[movieDateKey{slug: query.Slug, date: query.Date}] {
 		record := view.data.Showtimes[showingPosition]
 		if !selectedIDs[record.TheaterID] {
@@ -37,7 +46,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 		}
 		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(record))
 	}
-	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, Date: query.Date, Theaters: []MovieTheaterShowtimes{}}
+	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, Date: query.Date, AvailableDates: availableDates, Theaters: []MovieTheaterShowtimes{}}
 	for _, theaterPosition := range view.theaterCatalog {
 		theater := view.data.Theaters[theaterPosition]
 		showtimes := grouped[theater.ID]

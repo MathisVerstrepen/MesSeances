@@ -90,6 +90,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{
 		DefaultCity: "Lille",
 		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
+		Now:         func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +250,7 @@ func TestTheatersKinepolisChainAndCombinedProviderDTOs(t *testing.T) {
 	ugc := schedule.TheaterRecord{Provider: schedule.ProviderUGC, ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}
 	kine := schedule.TheaterRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-LOM", ProviderID: "LOM", Slug: "kinepolis-LOM", Name: "Kinepolis Lomme", City: "Lomme", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}
 	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderCombined, Scope: schedule.ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: schedule.Timezone, Window: schedule.Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []schedule.TheaterRecord{ugc, kine}, Showtimes: []schedule.ShowtimeRecord{{Provider: schedule.ProviderUGC, ID: "ugc-showing-1", ProviderShowingID: "1", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: schedule.MovieRecord{Provider: schedule.ProviderUGC, ProviderID: "1", Slug: "ugc-film-1", Title: "Film partagé", RuntimeMinutes: 90, Enrichment: &schedule.MovieEnrichment{TMDBID: 42}}, StartTime: start, EndTime: start.Add(90 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=1"}, {Provider: schedule.ProviderKinepolis, ID: "kinepolis-showing-VS1", ProviderShowingID: "VS1", ServiceDate: "2026-08-15", TheaterID: "kinepolis-LOM", Movie: schedule.MovieRecord{Provider: schedule.ProviderKinepolis, ProviderID: "HO1", Slug: "kinepolis-film-HO1", Title: "Film partagé", RuntimeMinutes: 100, Enrichment: &schedule.MovieEnrichment{TMDBID: 42}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "IMAX", BookingURL: "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}}
-	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{})
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +402,7 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
+	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 	if !strings.Contains(response.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
@@ -418,14 +419,14 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(selected.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if selected.Code != http.StatusOK || catalog.Total != 1 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" {
+	if selected.Code != http.StatusOK || catalog.Total != 1 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 1 {
 		t.Fatalf("selected catalog status=%d payload=%+v", selected.Code, catalog)
 	}
 	secondSelectedPage := performRequest(t, handler, "/api/v1/movies?theaters=ugc-25,ugc-99&page=2&page_size=1")
 	if err := json.Unmarshal(secondSelectedPage.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if secondSelectedPage.Code != http.StatusOK || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "ugc-film-201" {
+	if secondSelectedPage.Code != http.StatusOK || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "ugc-film-201" || catalog.Items[0].ShowtimeCount != 1 {
 		t.Fatalf("selected page status=%d payload=%+v", secondSelectedPage.Code, catalog)
 	}
 
@@ -444,13 +445,14 @@ func TestMoviesTransport(t *testing.T) {
 	}
 
 	for _, test := range []struct {
-		name   string
-		target string
-		want   string
+		name      string
+		target    string
+		want      string
+		wantCount int
 	}{
-		{name: "explicit sort", target: "/api/v1/movies?sort=title_desc&page_size=1", want: "ugc-film-201"},
-		{name: "missing sort defaults", target: "/api/v1/movies?page_size=1", want: "tmdb-film-42"},
-		{name: "invalid sort defaults", target: "/api/v1/movies?sort=invalid&page_size=1", want: "tmdb-film-42"},
+		{name: "explicit sort", target: "/api/v1/movies?sort=title_desc&page_size=1", want: "ugc-film-201", wantCount: 1},
+		{name: "missing sort defaults", target: "/api/v1/movies?page_size=1", want: "tmdb-film-42", wantCount: 2},
+		{name: "invalid sort defaults", target: "/api/v1/movies?sort=invalid&page_size=1", want: "tmdb-film-42", wantCount: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			response := performRequest(t, handler, test.target)
@@ -461,11 +463,11 @@ func TestMoviesTransport(t *testing.T) {
 			if err := json.Unmarshal(response.Body.Bytes(), &sorted); err != nil {
 				t.Fatal(err)
 			}
-			if len(sorted.Items) != 1 || sorted.Items[0].Slug != test.want {
+			if len(sorted.Items) != 1 || sorted.Items[0].Slug != test.want || sorted.Items[0].ShowtimeCount != test.wantCount {
 				t.Fatalf("catalog=%+v", sorted)
 			}
-			if strings.Contains(response.Body.String(), "showtime_count") || strings.Contains(response.Body.String(), "showtimes_count") {
-				t.Fatalf("internal count leaked: %s", response.Body.String())
+			if strings.Contains(response.Body.String(), "showtimes_count") {
+				t.Fatalf("incorrect count field leaked: %s", response.Body.String())
 			}
 		})
 	}
@@ -484,6 +486,9 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	if result.Movie.Slug != "tmdb-film-42" || result.Date != "2026-08-15" || len(result.Theaters) != 2 || result.Theaters[0].ID != "ugc-25" || result.Theaters[0].Showtimes[0].Movie.Slug != "tmdb-film-42" || result.Theaters[0].Showtimes[0].StartTime.Location() != time.UTC {
 		t.Fatalf("schedule=%+v", result)
 	}
+	if !reflect.DeepEqual(result.AvailableDates, []string{"2026-08-15"}) {
+		t.Fatalf("available dates=%v", result.AvailableDates)
+	}
 	if result.BackdropURL == nil || *result.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" {
 		t.Fatalf("backdrop=%v", result.BackdropURL)
 	}
@@ -497,6 +502,19 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	}
 	if backdrop, exists := missingPayload["backdrop_url"]; !exists || backdrop != nil {
 		t.Fatalf("missing backdrop must serialize as explicit null: %+v", missingPayload)
+	}
+	emptyAvailability := performRequest(t, handler, "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&theaters=ugc-99")
+	if emptyAvailability.Code != http.StatusOK {
+		t.Fatalf("empty availability status=%d body=%s", emptyAvailability.Code, emptyAvailability.Body.String())
+	}
+	var emptyPayload map[string]any
+	if err := json.Unmarshal(emptyAvailability.Body.Bytes(), &emptyPayload); err != nil {
+		t.Fatal(err)
+	}
+	availableDates, exists := emptyPayload["available_dates"]
+	dates, isArray := availableDates.([]any)
+	if !exists || !isArray || len(dates) != 0 {
+		t.Fatalf("available_dates must serialize as []: %+v", emptyPayload)
 	}
 	obsolete := performRequest(t, handler, "/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15")
 	assertAPIError(t, obsolete, http.StatusNotFound, "not_found", "Film introuvable.")
