@@ -360,39 +360,39 @@ func TestSyncExpectedCinemaURLKeepsParseFailureTerminal(t *testing.T) {
 }
 func TestSyncStopsOnFailure(t *testing.T) {
 	sitemap := readFixture(t, "sitemap.xml")
-	siblingStarted := make(chan struct{})
-	siblingExited := make(chan struct{})
-	var queuedStarted atomic.Bool
+	siblingStarted := make(chan struct{}, 2)
+	siblingExited := make(chan struct{}, 2)
 	getter := &fakeGetter{get: func(ctx context.Context, kind, rawURL string) (FetchResult, error) {
 		switch kind {
 		case "sitemap":
 			return FetchResult{Body: sitemap, FinalURL: rawURL}, nil
 		case "cinema 3":
-			<-siblingStarted
+			for range 2 {
+				<-siblingStarted
+			}
 			return FetchResult{}, fmt.Errorf("synthetic transport failure")
-		case "cinema 25":
-			close(siblingStarted)
+		case "cinema 25", "cinema 46":
+			siblingStarted <- struct{}{}
 			<-ctx.Done()
-			close(siblingExited)
+			siblingExited <- struct{}{}
 			return FetchResult{}, ctx.Err()
-		case "cinema 46":
-			queuedStarted.Store(true)
-			return FetchResult{}, fmt.Errorf("queued request started")
 		default:
 			return FetchResult{}, fmt.Errorf("unexpected request")
 		}
 	}}
 	data, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
-	if err == nil || err.Error() != "synthetic transport failure" || len(data.Theaters) != 0 || queuedStarted.Load() {
-		t.Fatalf("data=%+v error=%v queued_started=%v", data, err, queuedStarted.Load())
+	if err == nil || err.Error() != "synthetic transport failure" || len(data.Theaters) != 0 {
+		t.Fatalf("data=%+v error=%v", data, err)
 	}
-	if getter.RequestCount() != 3 {
+	if getter.RequestCount() != 4 {
 		t.Fatalf("calls=%d", getter.RequestCount())
 	}
-	select {
-	case <-siblingExited:
-	default:
-		t.Fatal("sync returned before sibling worker exited")
+	for range 2 {
+		select {
+		case <-siblingExited:
+		default:
+			t.Fatal("sync returned before sibling worker exited")
+		}
 	}
 }
 
@@ -409,10 +409,16 @@ func TestSyncValidatesLowerBoundBeforeRequests(t *testing.T) {
 	}
 }
 
-func TestRunIndexedPhaseUsesExactlyTwoWorkersAndPreservesOrder(t *testing.T) {
-	jobs := []int{0, 1, 2, 3}
+func TestRunIndexedPhaseUsesTenWorkersAndPreservesOrder(t *testing.T) {
+	jobs := make([]int, ugcWorkerCount+1)
+	for index := range jobs {
+		jobs[index] = index
+	}
 	started := make(chan int, len(jobs))
-	gates := []chan struct{}{make(chan struct{}), make(chan struct{}), make(chan struct{}), make(chan struct{})}
+	gates := make([]chan struct{}, len(jobs))
+	for index := range gates {
+		gates[index] = make(chan struct{})
+	}
 	var active atomic.Int32
 	var maximum atomic.Int32
 	done := make(chan struct {
@@ -438,29 +444,37 @@ func TestRunIndexedPhaseUsesExactlyTwoWorkersAndPreservesOrder(t *testing.T) {
 			err     error
 		}{results: results, err: err}
 	}()
-	first, second := <-started, <-started
-	if first == second || maximum.Load() != ugcWorkerCount {
-		t.Fatalf("started=%d,%d maximum=%d", first, second, maximum.Load())
+	firstWave := make([]int, 0, ugcWorkerCount)
+	seen := make(map[int]bool, ugcWorkerCount)
+	for range ugcWorkerCount {
+		job := <-started
+		if seen[job] {
+			t.Fatalf("job %d started twice", job)
+		}
+		seen[job] = true
+		firstWave = append(firstWave, job)
+	}
+	if maximum.Load() != ugcWorkerCount {
+		t.Fatalf("maximum=%d", maximum.Load())
 	}
 	select {
-	case third := <-started:
-		t.Fatalf("third job %d started while two active", third)
+	case extra := <-started:
+		t.Fatalf("job %d started while ten active", extra)
 	default:
 	}
-	close(gates[second])
-	third := <-started
-	close(gates[first])
-	fourth := <-started
-	close(gates[fourth])
-	close(gates[third])
+	close(gates[firstWave[0]])
+	last := <-started
+	for _, job := range firstWave[1:] {
+		close(gates[job])
+	}
+	close(gates[last])
 	outcome := <-done
 	if outcome.err != nil {
 		t.Fatal(outcome.err)
 	}
-	want := []int{0, 10, 20, 30}
-	for index := range want {
-		if outcome.results[index] != want[index] {
-			t.Fatalf("results=%v want=%v", outcome.results, want)
+	for index := range jobs {
+		if outcome.results[index] != index*10 {
+			t.Fatalf("results=%v", outcome.results)
 		}
 	}
 	if maximum.Load() != ugcWorkerCount {
@@ -470,30 +484,49 @@ func TestRunIndexedPhaseUsesExactlyTwoWorkersAndPreservesOrder(t *testing.T) {
 
 func TestRunIndexedPhaseFirstErrorCancelsSiblingAndQueuedJobs(t *testing.T) {
 	original := errors.New("original phase failure")
-	siblingStarted := make(chan struct{})
-	siblingExited := make(chan struct{})
+	started := make(chan int, ugcWorkerCount)
+	releaseFailure := make(chan struct{})
+	siblingExited := make(chan struct{}, ugcWorkerCount-1)
 	var queuedStarted atomic.Bool
-	results, err := runIndexedPhase(context.Background(), []int{0, 1, 2}, func(ctx context.Context, job int) (int, error) {
-		switch job {
-		case 0:
-			<-siblingStarted
-			return 0, original
-		case 1:
-			close(siblingStarted)
-			<-ctx.Done()
-			close(siblingExited)
-			return 0, ctx.Err()
-		default:
-			queuedStarted.Store(true)
-			return job, nil
-		}
-	})
-	if !errors.Is(err, original) || results != nil || queuedStarted.Load() {
-		t.Fatalf("results=%v error=%v queued_started=%v", results, err, queuedStarted.Load())
+	type phaseOutcome struct {
+		results []int
+		err     error
 	}
-	select {
-	case <-siblingExited:
-	default:
-		t.Fatal("phase returned before in-flight sibling exited")
+	done := make(chan phaseOutcome, 1)
+	go func() {
+		jobs := make([]int, ugcWorkerCount+1)
+		for index := range jobs {
+			jobs[index] = index
+		}
+		results, err := runIndexedPhase(context.Background(), jobs, func(ctx context.Context, job int) (int, error) {
+			if job == ugcWorkerCount {
+				queuedStarted.Store(true)
+				return job, nil
+			}
+			started <- job
+			if job == 0 {
+				<-releaseFailure
+				return 0, original
+			}
+			<-ctx.Done()
+			siblingExited <- struct{}{}
+			return 0, ctx.Err()
+		})
+		done <- phaseOutcome{results: results, err: err}
+	}()
+	for range ugcWorkerCount {
+		<-started
+	}
+	close(releaseFailure)
+	outcome := <-done
+	if !errors.Is(outcome.err, original) || outcome.results != nil || queuedStarted.Load() {
+		t.Fatalf("results=%v error=%v queued_started=%v", outcome.results, outcome.err, queuedStarted.Load())
+	}
+	for range ugcWorkerCount - 1 {
+		select {
+		case <-siblingExited:
+		default:
+			t.Fatal("phase returned before in-flight sibling exited")
+		}
 	}
 }

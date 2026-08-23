@@ -35,9 +35,9 @@ func benchmarkClientGet(b *testing.B, knownLength bool) {
 			}
 			return response, nil
 		})}},
-		unavailable:  make([]bool, 1),
-		leased:       make([]bool, 1),
-		leaseChanged: make(chan struct{}),
+		unavailable:     make([]bool, 1),
+		inFlight:        make([]int, 1),
+		capacityChanged: make(chan struct{}),
 	}
 	b.ReportAllocs()
 	b.SetBytes(int64(len(body)))

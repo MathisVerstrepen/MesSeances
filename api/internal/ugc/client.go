@@ -16,6 +16,7 @@ import (
 
 const maxResponseBytes = 8 << 20
 const maxRequestAttempts = 4
+const maxRequestsPerProxy = 2
 
 var (
 	errRedirectHost  = errors.New("redirect host rejected")
@@ -36,14 +37,14 @@ type FetchResult struct {
 }
 
 type Client struct {
-	mu           sync.Mutex
-	clients      []*http.Client
-	unavailable  []bool
-	leased       []bool
-	leaseChanged chan struct{}
-	next         int
-	requestCount int
-	sleep        func(context.Context, time.Duration) error
+	mu              sync.Mutex
+	clients         []*http.Client
+	unavailable     []bool
+	inFlight        []int
+	capacityChanged chan struct{}
+	next            int
+	requestCount    int
+	sleep           func(context.Context, time.Duration) error
 }
 
 func NewClient(config ClientConfig) (*Client, error) {
@@ -58,11 +59,11 @@ func NewClient(config ClientConfig) (*Client, error) {
 		return nil, err
 	}
 	client := &Client{
-		clients:      clients,
-		unavailable:  make([]bool, len(config.Proxies)),
-		leased:       make([]bool, len(config.Proxies)),
-		leaseChanged: make(chan struct{}),
-		sleep:        sleepContext,
+		clients:         clients,
+		unavailable:     make([]bool, len(config.Proxies)),
+		inFlight:        make([]int, len(config.Proxies)),
+		capacityChanged: make(chan struct{}),
+		sleep:           sleepContext,
 	}
 	return client, nil
 }
@@ -93,7 +94,7 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 		start = (ordinal + 1) % len(c.clients)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
-			c.release(ordinal, false, false)
+			c.release(ordinal, false)
 			return FetchResult{}, fmt.Errorf("%s request rejected", kind)
 		}
 		req.Header.Set("User-Agent", "MesSeances-schedule-sync/1.0")
@@ -108,14 +109,14 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 		response, requestErr := c.clients[ordinal].Do(req)
 		if requestErr != nil {
 			if ctx.Err() != nil {
-				c.release(ordinal, false, false)
+				c.release(ordinal, false)
 				return FetchResult{}, fmt.Errorf("%s request canceled", kind)
 			}
 			if errors.Is(requestErr, errRedirectHost) || errors.Is(requestErr, errRedirectLimit) {
-				c.release(ordinal, false, false)
+				c.release(ordinal, false)
 				return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: redirect rejected", kind, ordinal+1)
 			}
-			c.release(ordinal, true, false)
+			c.release(ordinal, true)
 			if retryErr := c.waitToRetry(ctx, attempted, attempt); retryErr == nil {
 				continue
 			}
@@ -126,21 +127,21 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 		}
 		if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
 			response.Body.Close()
-			c.release(ordinal, false, false)
+			c.release(ordinal, false)
 			return FetchResult{}, &TerminalError{category: fmt.Sprintf("HTTP %d for %s via proxy %d", response.StatusCode, kind, ordinal+1)}
 		}
 		body, readErr := readBounded(response.Body, response.ContentLength)
 		response.Body.Close()
 		if readErr != nil {
-			c.release(ordinal, false, false)
+			c.release(ordinal, false)
 			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: response too large or unreadable", kind, ordinal+1)
 		}
 		if isChallenge(body) {
-			c.release(ordinal, false, false)
+			c.release(ordinal, false)
 			return FetchResult{}, &TerminalError{category: fmt.Sprintf("challenge response for %s via proxy %d", kind, ordinal+1)}
 		}
 		if response.StatusCode >= 500 {
-			c.release(ordinal, true, false)
+			c.release(ordinal, true)
 			if retryErr := c.waitToRetry(ctx, attempted, attempt); retryErr == nil {
 				continue
 			}
@@ -150,15 +151,15 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: server error", kind, ordinal+1)
 		}
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			c.release(ordinal, false, false)
+			c.release(ordinal, false)
 			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: HTTP %d", kind, ordinal+1, response.StatusCode)
 		}
 		finalURL, finalURLErr := sanitizedFinalURL(response.Request)
 		if finalURLErr != nil {
-			c.release(ordinal, false, false)
+			c.release(ordinal, false)
 			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: invalid final response URL", kind, ordinal+1)
 		}
-		c.release(ordinal, false, true)
+		c.release(ordinal, false)
 		return FetchResult{Body: body, FinalURL: finalURL}, nil
 	}
 	return FetchResult{}, fmt.Errorf("%s request failed", kind)
@@ -190,21 +191,30 @@ func checkUGCRedirect(req *http.Request, via []*http.Request) error {
 }
 
 func (c *Client) acquire(ctx context.Context, start int, attempted []bool) (int, error) {
+	firstAttempt := start < 0
 	for {
 		c.mu.Lock()
-		c.ensureLeaseStateLocked()
-		if start < 0 {
-			start = c.next
+		c.ensureCapacityStateLocked()
+		if err := ctx.Err(); err != nil {
+			c.mu.Unlock()
+			return -1, err
+		}
+		scanStart := start
+		if firstAttempt {
+			scanStart = c.next
 		}
 		hasCandidate := false
 		for offset := 0; offset < len(c.clients); offset++ {
-			index := (start + offset) % len(c.clients)
+			index := (scanStart + offset) % len(c.clients)
 			if c.unavailable[index] || attempted[index] {
 				continue
 			}
 			hasCandidate = true
-			if !c.leased[index] {
-				c.leased[index] = true
+			if c.inFlight[index] < maxRequestsPerProxy {
+				c.inFlight[index]++
+				if firstAttempt {
+					c.next = (index + 1) % len(c.clients)
+				}
 				c.mu.Unlock()
 				return index, nil
 			}
@@ -213,7 +223,7 @@ func (c *Client) acquire(ctx context.Context, start int, attempted []bool) (int,
 			c.mu.Unlock()
 			return -1, errors.New("no distinct proxy available")
 		}
-		changed := c.leaseChanged
+		changed := c.capacityChanged
 		c.mu.Unlock()
 		select {
 		case <-ctx.Done():
@@ -223,27 +233,24 @@ func (c *Client) acquire(ctx context.Context, start int, attempted []bool) (int,
 	}
 }
 
-func (c *Client) ensureLeaseStateLocked() {
-	if len(c.leased) != len(c.clients) {
-		c.leased = make([]bool, len(c.clients))
+func (c *Client) ensureCapacityStateLocked() {
+	if len(c.inFlight) != len(c.clients) {
+		c.inFlight = make([]int, len(c.clients))
 	}
-	if c.leaseChanged == nil {
-		c.leaseChanged = make(chan struct{})
+	if c.capacityChanged == nil {
+		c.capacityChanged = make(chan struct{})
 	}
 }
 
-func (c *Client) release(ordinal int, unavailable, success bool) {
+func (c *Client) release(ordinal int, unavailable bool) {
 	c.mu.Lock()
-	c.ensureLeaseStateLocked()
+	c.ensureCapacityStateLocked()
 	if unavailable {
 		c.unavailable[ordinal] = true
 	}
-	if success {
-		c.next = (ordinal + 1) % len(c.clients)
-	}
-	c.leased[ordinal] = false
-	close(c.leaseChanged)
-	c.leaseChanged = make(chan struct{})
+	c.inFlight[ordinal]--
+	close(c.capacityChanged)
+	c.capacityChanged = make(chan struct{})
 	c.mu.Unlock()
 }
 

@@ -118,10 +118,10 @@ func TestClientRetriesOneServerFailure(t *testing.T) {
 	}
 }
 
-func TestClientConcurrentCallsLeaseDistinctProxies(t *testing.T) {
-	started := make(chan int, 2)
+func TestClientBalancesTenConcurrentFirstAttemptsAcrossFiveProxies(t *testing.T) {
+	started := make(chan int, 10)
 	release := make(chan struct{})
-	clients := make([]*http.Client, 2)
+	clients := make([]*http.Client, 5)
 	for index := range clients {
 		ordinal := index + 1
 		clients[index] = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -134,20 +134,60 @@ func TestClientConcurrentCallsLeaseDistinctProxies(t *testing.T) {
 			}
 		})}
 	}
-	client := &Client{clients: clients, unavailable: make([]bool, 2)}
-	errors := make(chan error, 2)
-	for range 2 {
+	client := &Client{clients: clients, unavailable: make([]bool, len(clients))}
+	errors := make(chan error, 10)
+	for range 10 {
 		go func() {
 			_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
 			errors <- err
 		}()
 	}
-	first, second := <-started, <-started
-	if first == second {
-		t.Fatalf("shared proxy ordinal=%d", first)
+	counts := make([]int, len(clients))
+	for range 10 {
+		counts[(<-started)-1]++
+	}
+	for index, count := range counts {
+		if count != maxRequestsPerProxy {
+			t.Fatalf("proxy %d starts=%d all=%v", index+1, count, counts)
+		}
 	}
 	close(release)
-	for range 2 {
+	for range 10 {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestClientLimitsEachProxyToTwoConcurrentRequests(t *testing.T) {
+	started := make(chan struct{}, 3)
+	release := make(chan struct{})
+	client := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+			return response(http.StatusOK, "ok"), nil
+		case <-request.Context().Done():
+			return nil, request.Context().Err()
+		}
+	})}}, unavailable: make([]bool, 1)}
+	errors := make(chan error, 3)
+	for range 3 {
+		go func() {
+			_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+			errors <- err
+		}()
+	}
+	for range maxRequestsPerProxy {
+		<-started
+	}
+	select {
+	case <-started:
+		t.Fatal("third request started while both proxy slots occupied")
+	default:
+	}
+	close(release)
+	for range 3 {
 		if err := <-errors; err != nil {
 			t.Fatal(err)
 		}
@@ -238,11 +278,11 @@ func TestClientCancellationDuringBackoffStopsRetry(t *testing.T) {
 	}
 }
 
-func TestClientCancellationDuringLeaseWaitStopsSafely(t *testing.T) {
-	requestStarted := make(chan struct{})
+func TestClientCancellationDuringCapacityWaitStopsSafely(t *testing.T) {
+	requestStarted := make(chan struct{}, maxRequestsPerProxy)
 	release := make(chan struct{})
 	client := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		close(requestStarted)
+		requestStarted <- struct{}{}
 		select {
 		case <-release:
 			return response(http.StatusOK, "ok"), nil
@@ -250,12 +290,16 @@ func TestClientCancellationDuringLeaseWaitStopsSafely(t *testing.T) {
 			return nil, request.Context().Err()
 		}
 	})}}, unavailable: make([]bool, 1)}
-	firstDone := make(chan error, 1)
-	go func() {
-		_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
-		firstDone <- err
-	}()
-	<-requestStarted
+	activeDone := make(chan error, maxRequestsPerProxy)
+	for range maxRequestsPerProxy {
+		go func() {
+			_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
+			activeDone <- err
+		}()
+	}
+	for range maxRequestsPerProxy {
+		<-requestStarted
+	}
 	waitCtx, cancel := context.WithCancel(context.Background())
 	waitDone := make(chan error, 1)
 	go func() {
@@ -267,10 +311,12 @@ func TestClientCancellationDuringLeaseWaitStopsSafely(t *testing.T) {
 		t.Fatalf("wait error=%v", err)
 	}
 	close(release)
-	if err := <-firstDone; err != nil {
-		t.Fatal(err)
+	for range maxRequestsPerProxy {
+		if err := <-activeDone; err != nil {
+			t.Fatal(err)
+		}
 	}
-	if client.RequestCount() != 1 {
+	if client.RequestCount() != maxRequestsPerProxy {
 		t.Fatalf("count=%d", client.RequestCount())
 	}
 }

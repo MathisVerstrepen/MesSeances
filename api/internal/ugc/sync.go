@@ -13,7 +13,7 @@ import (
 )
 
 const SitemapURL = "https://www.ugc.fr/dynamique/sitemaps/frontend/sitemap.xml"
-const ugcWorkerCount = 2
+const ugcWorkerCount = 10
 
 type Getter interface {
 	Get(context.Context, string, string) (FetchResult, error)
