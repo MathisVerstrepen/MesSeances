@@ -107,9 +107,9 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	}
 
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes, poster_url) VALUES
-	(1,'050','ugc-film-050','000 alpha',90,NULL),
-	(1,'051','ugc-film-051','000 Alpha',90,NULL),
-	(1,'052','ugc-film-052','000 beta',90,NULL),
+	(1,'50','ugc-film-50','000 alpha',90,NULL),
+	(1,'51','ugc-film-51','000 Alpha',90,NULL),
+	(1,'52','ugc-film-52','000 beta',90,NULL),
 	(1,'17950','ugc-film-17950','Film historique',100,NULL),
 	(1,'201','ugc-film-201','Film à revoir',100,'https://static.ugc.fr/posters/201.jpg'),
 	(1,'202','ugc-film-202','Titre modifié',90,NULL),
@@ -120,7 +120,7 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	(1,'208','ugc-film-208','Film déjà refusé',96,NULL),
 	(1,'209','ugc-film-209','Film qui change',102,NULL),
 	(1,'210','ugc-film-210','Film historique refusé',103,NULL)`); err != nil {
-		t.Fatal("insert review movies failed")
+		t.Fatalf("insert review movies failed: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes) VALUES
 	(1,'kinepolis','CASE-K','kinepolis-film-CASE-K','000 ALPHA',90),
@@ -184,9 +184,9 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 		movieID  string
 	}{
 		{SourceKinepolis, "CASE-K"},
-		{SourceUGC, "050"},
-		{SourceUGC, "051"},
-		{SourceUGC, "052"},
+		{SourceUGC, "50"},
+		{SourceUGC, "51"},
+		{SourceUGC, "52"},
 	}
 	for index, expected := range expectedOrder {
 		if items[index].SourceProvider != expected.provider || items[index].SourceMovieID != expected.movieID {
@@ -207,7 +207,7 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 		t.Fatalf("pending by ID=%+v", pendingByID)
 	}
 	paged, err := store.PendingMatches(ctx, 2, 1)
-	if err != nil || len(paged) != 2 || paged[0].SourceProvider != SourceUGC || paged[0].SourceMovieID != "050" || paged[1].SourceProvider != SourceUGC || paged[1].SourceMovieID != "051" {
+	if err != nil || len(paged) != 2 || paged[0].SourceProvider != SourceUGC || paged[0].SourceMovieID != "50" || paged[1].SourceProvider != SourceUGC || paged[1].SourceMovieID != "51" {
 		t.Fatalf("paged pending=%+v err=%v", paged, err)
 	}
 	for _, source := range []struct {
