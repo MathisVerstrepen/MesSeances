@@ -95,10 +95,9 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 	today := now().In(location)
 	flags := flag.NewFlagSet("sync-kinepolis", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	from, through, proxyFile := "", "", ""
+	from, proxyFile := "", ""
 	timeout, requestInterval := 20*time.Second, 2*time.Second
 	flags.StringVar(&from, "from", today.Format("2006-01-02"), "first service date")
-	flags.StringVar(&through, "through", today.AddDate(0, 0, 7).Format("2006-01-02"), "last service date (inclusive)")
 	flags.DurationVar(&timeout, "timeout", 20*time.Second, "request timeout")
 	flags.DurationVar(&requestInterval, "request-interval", 2*time.Second, "delay between request starts")
 	flags.StringVar(&proxyFile, "proxy-file", "", "required proxy file")
@@ -106,8 +105,7 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 		return 2
 	}
 	fromDate, e1 := time.ParseInLocation("2006-01-02", from, location)
-	throughDate, e2 := time.ParseInLocation("2006-01-02", through, location)
-	if e1 != nil || e2 != nil || fromDate.Format("2006-01-02") != from || throughDate.Format("2006-01-02") != through || !schedule.ValidInclusiveDateWindow(fromDate, throughDate) {
+	if e1 != nil || fromDate.Format("2006-01-02") != from {
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
@@ -178,7 +176,7 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 		logCLIError(logger, "sync_command_failed", "configuration_error")
 		return 1
 	}
-	outcomes, err := executor.Run(ctx, synccontrol.TargetKinepolis, synccontrol.Window{From: from, Through: through})
+	outcomes, err := executor.Run(ctx, synccontrol.TargetKinepolis, synccontrol.Window{From: from})
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", syncFailureCode(err))
 		return 1

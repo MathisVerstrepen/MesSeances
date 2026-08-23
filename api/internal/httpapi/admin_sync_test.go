@@ -57,7 +57,7 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 
 func TestAdminStartSyncContract(t *testing.T) {
 	started := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, StartedAt: started, From: "2026-08-17", Through: "2026-08-24", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}}}}
+	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}}}}
 	handler := syncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/all", "", "https://evil.example", cookie)
@@ -92,7 +92,7 @@ func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 		ID: "4", Target: synccontrol.TargetAll, State: synccontrol.StateFailed,
 		StartedAt: finished.Add(-time.Minute), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24",
 		Providers: map[string]synccontrol.ProviderStatus{
-			"ugc":       {State: synccontrol.ProviderSucceeded, Outcome: &synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 9, Cinemas: 3, Movies: 8, NewMovies: 2, Requests: 20, Showtimes: 12, NewShowtimes: 4}, Enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Matched: 2}}}},
+			"ugc":       {State: synccontrol.ProviderSucceeded, Outcome: &synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 9, Cinemas: 3, Movies: 8, NewMovies: 2, Requests: 20, Showtimes: 12, NewShowtimes: 4, Through: "2026-12-24"}, Enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Matched: 2}}}},
 			"kinepolis": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync},
 		},
 	}}
@@ -100,7 +100,7 @@ func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 	cookie := loginAdmin(t, handler, "password")
 	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs?cause="+secret, "", "", cookie)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
+	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"window_through":"2026-12-24"`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
 		t.Fatalf("status=%d body=%s", response.Code, body)
 	}
 }

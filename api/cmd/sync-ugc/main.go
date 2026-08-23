@@ -22,9 +22,9 @@ import (
 )
 
 type config struct {
-	proxyFile, from, through, cinemaID string
-	proxyLimit                         int
-	timeout                            time.Duration
+	proxyFile, from, cinemaID string
+	proxyLimit                int
+	timeout                   time.Duration
 }
 
 type dependencies struct {
@@ -96,7 +96,6 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	cfg := config{}
 	flags.StringVar(&cfg.proxyFile, "proxy-file", "../tmp/proxies.txt", "required proxy file")
 	flags.StringVar(&cfg.from, "from", today.Format("2006-01-02"), "first service date")
-	flags.StringVar(&cfg.through, "through", today.AddDate(0, 0, 7).Format("2006-01-02"), "last service date (inclusive)")
 	flags.StringVar(&cfg.cinemaID, "cinema-id", "", "diagnostic cinema ID")
 	flags.IntVar(&cfg.proxyLimit, "proxy-limit", 0, "maximum proxies to use")
 	flags.DurationVar(&cfg.timeout, "timeout", 20*time.Second, "per-request timeout")
@@ -109,11 +108,6 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	}
 	from, err := time.ParseInLocation("2006-01-02", cfg.from, location)
 	if err != nil || from.Format("2006-01-02") != cfg.from {
-		logCLIError(logger, "configuration_failed", "configuration_error")
-		return 2
-	}
-	through, err := time.ParseInLocation("2006-01-02", cfg.through, location)
-	if err != nil || through.Format("2006-01-02") != cfg.through || !schedule.ValidInclusiveDateWindow(from, through) {
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
@@ -160,7 +154,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		logCLIError(logger, "configuration_failed", "configuration_error")
 		return 2
 	}
-	options := ugc.SyncOptions{From: cfg.from, Through: cfg.through, CinemaID: cfg.cinemaID, Now: now()}
+	options := ugc.SyncOptions{From: cfg.from, CinemaID: cfg.cinemaID, Now: now()}
 	if cfg.cinemaID != "" {
 		data, summary, err := deps.sync(ctx, client, options)
 		if err != nil {
@@ -204,7 +198,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 		logCLIError(logger, "sync_command_failed", "configuration_error")
 		return 1
 	}
-	outcomes, err := executor.Run(ctx, synccontrol.TargetUGC, synccontrol.Window{From: cfg.from, Through: cfg.through})
+	outcomes, err := executor.Run(ctx, synccontrol.TargetUGC, synccontrol.Window{From: cfg.from})
 	if err != nil {
 		logCLIError(logger, "sync_command_failed", syncFailureCode(err))
 		return 1

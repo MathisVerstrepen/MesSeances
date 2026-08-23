@@ -37,8 +37,7 @@ var (
 )
 
 type Window struct {
-	From    string
-	Through string
+	From string
 }
 
 type Executor interface {
@@ -130,7 +129,7 @@ func (m *Manager) Start(target Target) (Status, error) {
 	status := Status{
 		Target: target, State: StateRunning,
 		StartedAt: now.UTC(), From: today.Format("2006-01-02"),
-		Through: today.AddDate(0, 0, 7).Format("2006-01-02"), Providers: providers,
+		Through: today.Format("2006-01-02"), Providers: providers,
 	}
 	created, err := m.store.Create(m.ctx, status)
 	if err != nil {
@@ -143,7 +142,7 @@ func (m *Manager) Start(target Target) (Status, error) {
 	go func(window Window) {
 		defer m.wg.Done()
 		m.run(target, window)
-	}(Window{From: m.status.From, Through: m.status.Through})
+	}(Window{From: m.status.From})
 	return accepted, nil
 }
 
@@ -199,15 +198,23 @@ func (m *Manager) run(target Target, window Window) {
 		m.finishOperationFailure(code, failedProvider)
 		return
 	}
+	latestThrough := window.From
 	for _, provider := range providers {
 		outcome, ok := outcomes[provider]
-		if !ok {
+		if !ok || !validDiscoveredThrough(window.From, outcome.Sync.Through) {
 			m.finishOperationFailure(FailureInternal, "")
 			return
 		}
-		m.setProviderSuccess(provider, outcome)
+		if outcome.Sync.Through > latestThrough {
+			latestThrough = outcome.Sync.Through
+		}
 	}
 	m.mu.Lock()
+	for _, provider := range providers {
+		outcome := outcomes[provider]
+		m.status.Providers[string(provider)] = ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
+	}
+	m.status.Through = latestThrough
 	m.status.State = StateSucceeded
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
@@ -243,18 +250,21 @@ func (m *Manager) setProvider(provider Target, state ProviderState) {
 	m.persist(m.Status())
 }
 
-func (m *Manager) setProviderSuccess(provider Target, outcome ProviderOutcome) {
-	m.mu.Lock()
-	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
-	m.mu.Unlock()
-	m.persist(m.Status())
-}
-
 func (m *Manager) setProviderFailure(provider Target, code FailureCode) {
 	m.mu.Lock()
 	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
 	m.mu.Unlock()
 	m.persist(m.Status())
+}
+
+func validDiscoveredThrough(from, through string) bool {
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		return false
+	}
+	fromDate, fromErr := time.ParseInLocation("2006-01-02", from, location)
+	throughDate, throughErr := time.ParseInLocation("2006-01-02", through, location)
+	return fromErr == nil && throughErr == nil && throughDate.Format("2006-01-02") == through && schedule.ValidInclusiveDateWindow(fromDate, throughDate)
 }
 
 func (m *Manager) finishFailure(code FailureCode) {

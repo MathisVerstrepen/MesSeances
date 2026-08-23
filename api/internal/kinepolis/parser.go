@@ -19,7 +19,7 @@ type film struct {
 	genres                                   []string
 }
 
-func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.Dataset, error) {
+func Parse(body []byte, from string, generatedAt time.Time) (schedule.Dataset, error) {
 	if len(body) == 0 || len(body) > MaxBodySize {
 		return schedule.Dataset{}, fmt.Errorf("invalid page size")
 	}
@@ -58,11 +58,10 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 	}
 	location, _ := time.LoadLocation(schedule.Timezone)
 	fromDate, err1 := time.ParseInLocation("2006-01-02", from, location)
-	throughDate, err2 := time.ParseInLocation("2006-01-02", through, location)
-	if err1 != nil || err2 != nil || !schedule.ValidInclusiveDateWindow(fromDate, throughDate) {
-		return schedule.Dataset{}, fmt.Errorf("invalid date window")
+	if err1 != nil || fromDate.Format("2006-01-02") != from {
+		return schedule.Dataset{}, fmt.Errorf("invalid from date")
 	}
-	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderKinepolis, Scope: schedule.ScopeAll, GeneratedAt: generatedAt.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: from, Through: through}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
+	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderKinepolis, Scope: schedule.ScopeAll, GeneratedAt: generatedAt.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: from}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
 	dates := map[string]map[string]bool{}
 	usedComplexes := map[string]bool{}
 	seenSessions := map[string]bool{}
@@ -99,7 +98,7 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 		}
 		serviceDate := service.Format("2006-01-02")
 		parsedService, _ := time.ParseInLocation("2006-01-02", serviceDate, location)
-		if parsedService.Before(fromDate) || parsedService.After(throughDate) {
+		if parsedService.Before(fromDate) {
 			continue
 		}
 		if seenSessions[showingID] {
@@ -116,7 +115,12 @@ func Parse(body []byte, from, through string, generatedAt time.Time) (schedule.D
 		_ = name
 	}
 	if len(data.Showtimes) == 0 {
-		return schedule.Dataset{}, fmt.Errorf("schedule contains no showtimes in window")
+		return schedule.Dataset{}, fmt.Errorf("schedule contains no showtimes on or after start date")
+	}
+	for _, showing := range data.Showtimes {
+		if showing.ServiceDate > data.Window.Through {
+			data.Window.Through = showing.ServiceDate
+		}
 	}
 	ids := make([]string, 0, len(usedComplexes))
 	for id := range usedComplexes {

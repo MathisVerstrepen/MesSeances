@@ -81,7 +81,7 @@ func (fakeEnrichmentProvider) Details(context.Context, int64) (tmdb.Details, err
 }
 
 func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	events := []string{}
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
@@ -92,7 +92,7 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
 		syncUGC: func(_ context.Context, _ ugc.Getter, options ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
-			if options.From != window.From || options.Through != window.Through {
+			if options.From != window.From {
 				t.Fatalf("UGC options=%+v", options)
 			}
 			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
@@ -122,13 +122,13 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 }
 
 func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	writes, enrichments := 0, 0
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
-			if len(datasets) != 2 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis {
+			if len(datasets) != 2 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" {
 				t.Fatalf("datasets=%+v", datasets)
 			}
 			return 11, nil
@@ -136,10 +136,14 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
-			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
+			data := validDataset(t, schedule.ProviderUGC, window)
+			data.Window.Through = "2027-01-10"
+			return data, ugc.SyncSummary{}, nil
 		},
 		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
-			return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
+			data := validDataset(t, schedule.ProviderKinepolis, window)
+			data.Window.Through = "2026-11-20"
+			return data, kinepolis.SyncSummary{}, nil
 		},
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 			enrichments++
@@ -150,13 +154,13 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		},
 	}
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
-	if err != nil || writes != 1 || enrichments != 2 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 {
+	if err != nil || writes != 1 || enrichments != 2 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
 	}
 }
 
 func TestProductionExecutorPopulatesKinepolisRequestCount(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		writer:       writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 4, nil }),
@@ -172,7 +176,7 @@ func TestProductionExecutorPopulatesKinepolisRequestCount(t *testing.T) {
 }
 
 func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAtomic(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	writes, enrichments := 0, 0
 	executor := &ProductionExecutor{
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
@@ -206,7 +210,7 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 
 func TestProductionExecutorTelemetryIsBoundedAndRedacted(t *testing.T) {
 	const secret = "synthetic-telemetry-secret"
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	tests := []struct {
 		name      string
 		configure func(*ProductionExecutor)
@@ -267,15 +271,15 @@ func TestProductionExecutorRejectsInvalidDataAndCommitFailure(t *testing.T) {
 		t.Fatalf("invalid data err=%v writes=%d", err, writes)
 	}
 	executor.syncUGC = func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
-		return validDataset(t, schedule.ProviderUGC, Window{From: "2026-08-17", Through: "2026-08-24"}), ugc.SyncSummary{}, nil
+		return validDataset(t, schedule.ProviderUGC, Window{From: "2026-08-17"}), ugc.SyncSummary{}, nil
 	}
-	if _, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-17", Through: "2026-08-24"}); err == nil || writes != 1 {
+	if _, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-17"}); err == nil || writes != 1 {
 		t.Fatalf("commit err=%v writes=%d", err, writes)
 	}
 }
 
 func TestProductionExecutorFailureCodes(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	base := func() *ProductionExecutor {
 		return &ProductionExecutor{
 			now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
@@ -356,7 +360,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 }
 
 func TestProductionExecutorClassifiesEmptyUGCOutputsAsDatasetRejections(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	for _, name := range []string{"zero cinemas", "zero showtimes"} {
 		t.Run(name, func(t *testing.T) {
 			executor := &ProductionExecutor{
@@ -380,7 +384,7 @@ func TestProductionExecutorClassifiesEmptyUGCOutputsAsDatasetRejections(t *testi
 }
 
 func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
-	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	window := Window{From: "2026-08-17"}
 	tests := []struct {
 		name   string
 		enrich EnrichFunc
@@ -450,7 +454,7 @@ func validDataset(t *testing.T, provider schedule.Provider, window Window) sched
 		address, postal, passes = "1 rue", "59000", []string{"UGC_ILLIMITE"}
 		booking = "https://www.ugc.fr/reservationSeances.html?id=100"
 	}
-	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: provider, Scope: schedule.ScopeAll, GeneratedAt: time.Now().UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: window.From, Through: window.Through},
+	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: provider, Scope: schedule.ScopeAll, GeneratedAt: time.Now().UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: window.From, Through: window.From},
 		Theaters:  []schedule.TheaterRecord{{ID: theaterID, ProviderID: theaterProviderID, Slug: theaterID, Name: "Cinéma", Address: address, City: "Lille", PostalCode: postal, AvailableDates: []string{window.From}, AcceptedPasses: passes}},
 		Showtimes: []schedule.ShowtimeRecord{{ID: string(provider) + "-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: window.From, TheaterID: theaterID, Movie: schedule.MovieRecord{ProviderID: movieID, Slug: string(provider) + "-film-" + movieID, Title: "Film", RuntimeMinutes: 100}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", BookingURL: booking}},
 	}

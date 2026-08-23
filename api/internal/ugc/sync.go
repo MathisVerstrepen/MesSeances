@@ -21,7 +21,6 @@ type Getter interface {
 }
 type SyncOptions struct {
 	From     string
-	Through  string
 	CinemaID string
 	Now      time.Time
 }
@@ -151,10 +150,6 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 	if err != nil || from.Format("2006-01-02") != options.From {
 		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("invalid from date")
 	}
-	through, err := time.ParseInLocation("2006-01-02", options.Through, location)
-	if err != nil || through.Format("2006-01-02") != options.Through || !schedule.ValidInclusiveDateWindow(from, through) {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("invalid date window")
-	}
 	sitemap, err := client.Get(ctx, "sitemap", SitemapURL)
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, err
@@ -182,7 +177,8 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		selected = []string{options.CinemaID}
 		scope = schedule.ScopeSingle
 	}
-	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderUGC, Scope: scope, GeneratedAt: options.Now.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: options.From, Through: options.Through}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
+	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderUGC, Scope: scope, GeneratedAt: options.Now.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: options.From}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
+	latestAdvertisedDate := ""
 	skipped := 0
 	seenCanonical := map[string]bool{}
 	cinemaJobs := make([]cinemaFetchJob, len(selected))
@@ -222,19 +218,22 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		if parseErr != nil {
 			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse cinema %s: %w", result.requestedID, parseErr)
 		}
-		intersected := []string{}
+		included := []string{}
 		for _, value := range cinema.AdvertisedDates {
 			date, parseDateErr := time.ParseInLocation("2006-01-02", value, location)
 			if parseDateErr != nil {
 				return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("invalid advertised date for cinema %s", result.requestedID)
 			}
-			if !date.Before(from) && !date.After(through) {
-				intersected = append(intersected, value)
+			if !date.Before(from) {
+				included = append(included, value)
+				if value > latestAdvertisedDate {
+					latestAdvertisedDate = value
+				}
 			}
 		}
-		theater := schedule.TheaterRecord{ID: "ugc-" + result.canonicalID, ProviderID: result.canonicalID, Slug: "ugc-" + result.canonicalID, Name: cinema.Name, Address: cinema.Address, City: cinema.City, PostalCode: cinema.PostalCode, AvailableDates: intersected, AcceptedPasses: []string{"UGC_ILLIMITE"}}
+		theater := schedule.TheaterRecord{ID: "ugc-" + result.canonicalID, ProviderID: result.canonicalID, Slug: "ugc-" + result.canonicalID, Name: cinema.Name, Address: cinema.Address, City: cinema.City, PostalCode: cinema.PostalCode, AvailableDates: included, AcceptedPasses: []string{"UGC_ILLIMITE"}}
 		data.Theaters = append(data.Theaters, theater)
-		for _, serviceDate := range intersected {
+		for _, serviceDate := range included {
 			parsed, _ := time.Parse("2006-01-02", serviceDate)
 			values := url.Values{"cinemaId": []string{result.canonicalID}, "date": []string{parsed.Format("02/01/2006")}, "page": []string{"30007"}}
 			showingURL := "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?" + values.Encode()
@@ -267,6 +266,7 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 	if len(data.Showtimes) == 0 {
 		return schedule.Dataset{}, SyncSummary{}, newDatasetValidationError("sync produced no showtimes", nil)
 	}
+	data.Window.Through = latestAdvertisedDate
 	if err := schedule.ValidateDataset(data, scope == schedule.ScopeAll); err != nil {
 		return schedule.Dataset{}, SyncSummary{}, newDatasetValidationError("validate synchronized dataset: "+err.Error(), err)
 	}

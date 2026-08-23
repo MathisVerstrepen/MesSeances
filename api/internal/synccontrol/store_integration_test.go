@@ -81,7 +81,8 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	finished := started.Add(time.Minute)
 	created.State = StateSucceeded
 	created.FinishedAt = &finished
-	created.Providers[string(TargetUGC)] = ProviderStatus{State: ProviderSucceeded, Outcome: &ProviderOutcome{Sync: SyncOutcome{Version: 3, Movies: 4, NewMovies: 2, Requests: 9, Showtimes: 8, NewShowtimes: 5}, Enrichment: EnrichmentOutcome{Status: EnrichmentSkipped}}}
+	created.Through = "2027-01-10"
+	created.Providers[string(TargetUGC)] = ProviderStatus{State: ProviderSucceeded, Outcome: &ProviderOutcome{Sync: SyncOutcome{Version: 3, Movies: 4, NewMovies: 2, Requests: 9, Showtimes: 8, NewShowtimes: 5, Through: "2027-01-10"}, Enrichment: EnrichmentOutcome{Status: EnrichmentSkipped}}}
 	created.Providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderSkipped}
 	if err := store.Update(ctx, created); err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 		t.Fatalf("reconciled=%+v", runs[0])
 	}
 	outcome := runs[1].Providers[string(TargetUGC)].Outcome
-	if outcome == nil || outcome.Sync.Movies != 4 || outcome.Sync.NewMovies != 2 || outcome.Sync.Requests != 9 || outcome.Sync.NewShowtimes != 5 {
+	if outcome == nil || outcome.Sync.Movies != 4 || outcome.Sync.NewMovies != 2 || outcome.Sync.Requests != 9 || outcome.Sync.NewShowtimes != 5 || outcome.Sync.Through != "2027-01-10" || runs[1].Through != "2027-01-10" {
 		t.Fatalf("persisted outcome=%+v", outcome)
 	}
 }

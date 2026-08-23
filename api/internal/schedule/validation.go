@@ -22,7 +22,7 @@ const (
 )
 
 func ValidInclusiveDateWindow(from, through time.Time) bool {
-	return !through.Before(from) && !through.After(from.AddDate(0, 0, 13))
+	return !through.Before(from)
 }
 
 func ValidateDataset(data Dataset, requireComplete bool) error {

@@ -68,6 +68,9 @@ func (f executorFunc) Run(ctx context.Context, target Target, window Window) (ma
 	if err != nil {
 		return nil, err
 	}
+	if outcome.Sync.Through == "" {
+		outcome.Sync.Through = window.From
+	}
 	if target == TargetAll {
 		return map[Target]ProviderOutcome{TargetUGC: outcome, TargetKinepolis: outcome}, nil
 	}
@@ -79,7 +82,7 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	started := make(chan Target, 1)
 	release := make(chan struct{})
 	manager, err := newTestManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) (ProviderOutcome, error) {
-		if window != (Window{From: "2026-08-18", Through: "2026-08-25"}) {
+		if window != (Window{From: "2026-08-18"}) {
 			t.Errorf("window=%+v", window)
 		}
 		started <- target
@@ -95,6 +98,9 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	}
 	if accepted.ID != "1" || accepted.State != StateRunning || accepted.Providers["ugc"].State != ProviderPending || accepted.Providers["kinepolis"].State != ProviderPending || accepted.StartedAt.Location() != time.UTC {
 		t.Fatalf("accepted=%+v", accepted)
+	}
+	if accepted.From != "2026-08-18" || accepted.Through != accepted.From {
+		t.Fatalf("provisional window=%s..%s", accepted.From, accepted.Through)
 	}
 	if _, err := manager.Start(TargetUGC); !errors.Is(err, ErrInProgress) {
 		t.Fatalf("overlap err=%v", err)
@@ -288,7 +294,7 @@ func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
 
 func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	counts := &EnrichmentCounts{Matched: 2}
-	outcome := ProviderOutcome{Sync: SyncOutcome{Version: 9, Cinemas: 3, Showtimes: 12}, Enrichment: EnrichmentOutcome{Status: "complete", Counts: counts}}
+	outcome := ProviderOutcome{Sync: SyncOutcome{Version: 9, Cinemas: 3, Showtimes: 12, Through: "2026-12-24"}, Enrichment: EnrichmentOutcome{Status: "complete", Counts: counts}}
 	manager, err := newTestManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return outcome, nil }))
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +304,7 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	}
 	status := waitForTerminal(t, manager)
 	provider := status.Providers[string(TargetUGC)]
-	if provider.State != ProviderSucceeded || provider.Outcome == nil || provider.Outcome.Sync.Version != 9 || provider.Outcome.Enrichment.Counts == nil || provider.Outcome.Enrichment.Counts.Matched != 2 || provider.ErrorCode != "" {
+	if provider.State != ProviderSucceeded || provider.Outcome == nil || provider.Outcome.Sync.Version != 9 || provider.Outcome.Enrichment.Counts == nil || provider.Outcome.Enrichment.Counts.Matched != 2 || provider.ErrorCode != "" || status.Through != "2026-12-24" {
 		t.Fatalf("provider=%+v", provider)
 	}
 	provider.Outcome.Enrichment.Counts.Matched = 99
@@ -316,6 +322,27 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	provider = waitForTerminal(t, manager).Providers[string(TargetKinepolis)]
 	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil {
 		t.Fatalf("provider=%+v", provider)
+	}
+}
+
+func TestManagerTargetAllUsesLatestProviderEnd(t *testing.T) {
+	manager, err := newTestManager(context.Background(), func() time.Time {
+		return time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	}, executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
+		return map[Target]ProviderOutcome{
+			TargetUGC:       {Sync: SyncOutcome{Through: "2027-01-10"}},
+			TargetKinepolis: {Sync: SyncOutcome{Through: "2026-11-20"}},
+		}, nil
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(TargetAll); err != nil {
+		t.Fatal(err)
+	}
+	status := waitForTerminal(t, manager)
+	if status.State != StateSucceeded || status.Through != "2027-01-10" {
+		t.Fatalf("status=%+v", status)
 	}
 }
 

@@ -116,7 +116,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
 		var summary ugc.SyncSummary
-		data, summary, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
+		data, summary, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Now: e.now()})
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: summary.Requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
 	case TargetKinepolis:
 		if e.newKinepolis == nil {
@@ -127,7 +127,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
 		var summary kinepolis.SyncSummary
-		data, summary, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Through: window.Through, Now: e.now()})
+		data, summary, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Now: e.now()})
 		requests := 0
 		if counter, ok := client.(interface{ RequestCount() int }); ok {
 			requests = counter.RequestCount()
@@ -145,6 +145,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 	if data.Scope != schedule.ScopeAll || data.Provider != schedule.Provider(provider) || schedule.ValidateDataset(data, true) != nil {
 		return data, outcome, newProviderRunError(provider, StageDatasetValidation, FailureDatasetRejected, nil)
 	}
+	outcome.Through = data.Window.Through
 	return data, outcome, nil
 }
 

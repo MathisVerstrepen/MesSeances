@@ -13,11 +13,11 @@ func TestValidInclusiveDateWindowAcrossParisDST(t *testing.T) {
 		t.Fatal(err)
 	}
 	from := time.Date(2026, 10, 18, 0, 0, 0, 0, location)
-	if !ValidInclusiveDateWindow(from, from.AddDate(0, 0, 13)) {
-		t.Fatal("14 inclusive calendar days rejected")
+	if !ValidInclusiveDateWindow(from, from.AddDate(0, 0, 90)) {
+		t.Fatal("long ordered window rejected")
 	}
-	if ValidInclusiveDateWindow(from, from.AddDate(0, 0, 14)) {
-		t.Fatal("15 inclusive calendar days accepted")
+	if ValidInclusiveDateWindow(from, from.AddDate(0, 0, -1)) {
+		t.Fatal("reversed window accepted")
 	}
 	data := testDataset()
 	data.Window = Window{From: "2026-10-18", Through: "2026-10-31"}
@@ -38,9 +38,9 @@ func TestValidInclusiveDateWindowAcrossParisDST(t *testing.T) {
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatalf("valid dataset rejected: %v", err)
 	}
-	data.Window.Through = "2026-11-01"
-	if err := ValidateDataset(data, true); err == nil || err.Error() != "invalid dataset window" {
-		t.Fatalf("error=%v", err)
+	data.Window.Through = "2027-02-01"
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("long valid dataset window rejected: %v", err)
 	}
 }
 

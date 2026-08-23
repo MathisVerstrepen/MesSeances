@@ -25,7 +25,7 @@ func namedFixture(t *testing.T, name string) []byte {
 }
 
 func TestParseJQueryExtendDrupalSettings(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-jquery-extend.html"), "2026-08-15", "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
+	data, err := Parse(namedFixture(t, "schedule-jquery-extend.html"), "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestParseJQueryExtendDrupalSettingsRejectsMalformedWrappers(t *testing.T) {
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := Parse(body, "2026-08-15", "2026-08-15", time.Now())
+			_, err := Parse(body, "2026-08-15", time.Now())
 			if err == nil || err.Error() != "Drupal settings JSON not found or malformed" {
 				t.Fatalf("error=%v", err)
 			}
@@ -68,7 +68,7 @@ func TestParseJQueryExtendDrupalSettingsRejectsMalformedWrappers(t *testing.T) {
 
 func TestParseEmbeddedSchedule(t *testing.T) {
 	generated := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
-	data, err := Parse(fixture(t), "2026-08-15", "2026-08-16", generated)
+	data, err := Parse(fixture(t), "2026-08-15", generated)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +93,17 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 	}
 }
 
+func TestParseIncludesPublicSessionBeyondFormerLimit(t *testing.T) {
+	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"F1","title":"Film","duration":90}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-14T18:00:00+02:00","vistaSessionId":"PAST","public":true,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00+02:00","vistaSessionId":"CURRENT","public":true,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2027-02-14T18:00:00+01:00","vistaSessionId":"FAR","public":true,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2027-03-01T18:00:00+01:00","vistaSessionId":"PRIVATE","public":false,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2027-03-02T18:00:00+01:00","vistaSessionId":"SOLD","public":true,"sold":true,"film":{"id":"F1"}}]}};`)
+	data, err := Parse(body, "2026-08-15", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Window.Through != "2027-02-14" || len(data.Showtimes) != 2 || len(data.Theaters) != 1 || len(data.Theaters[0].AvailableDates) != 2 {
+		t.Fatalf("dataset=%+v", data)
+	}
+}
+
 func TestParseAcceptsTheatersAboveFormerSharedLimit(t *testing.T) {
 	complexes := make([]map[string]any, 257)
 	sessions := make([]map[string]any, 257)
@@ -108,7 +119,7 @@ func TestParseAcceptsTheatersAboveFormerSharedLimit(t *testing.T) {
 	}
 	body := append([]byte("Drupal.settings.variables = "), encoded...)
 	body = append(body, ';')
-	data, err := Parse(body, "2026-08-15", "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
+	data, err := Parse(body, "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
 	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 {
 		t.Fatalf("theaters=%d showtimes=%d err=%v", len(data.Theaters), len(data.Showtimes), err)
 	}
@@ -116,7 +127,7 @@ func TestParseAcceptsTheatersAboveFormerSharedLimit(t *testing.T) {
 
 func TestParsePreservesMarathonRuntime(t *testing.T) {
 	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"MARATHON","title":"Marathon","duration":721}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"MARATHON-1","film":{"id":"MARATHON"}}]}};`)
-	data, err := Parse(body, "2026-08-15", "2026-08-15", time.Now())
+	data, err := Parse(body, "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +161,7 @@ func TestFormatCanonicalTechnologies(t *testing.T) {
 }
 
 func TestParseScreenXFromSessionMetadata(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-screenx.html"), "2026-08-15", "2026-08-15", time.Now())
+	data, err := Parse(namedFixture(t, "schedule-screenx.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +171,7 @@ func TestParseScreenXFromSessionMetadata(t *testing.T) {
 }
 
 func TestParseLaserUltraFromSessionMetadata(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-laser-ultra.html"), "2026-08-15", "2026-08-15", time.Now())
+	data, err := Parse(namedFixture(t, "schedule-laser-ultra.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +203,7 @@ func TestSessionFormatUsesSafeSessionSources(t *testing.T) {
 }
 
 func TestParseIgnoresFutureMovieSessions(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", "2026-08-15", time.Now())
+	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +218,7 @@ func TestParseIgnoresFutureMovieSessions(t *testing.T) {
 }
 
 func TestParseDeduplicatesVistaSessionID(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", "2026-08-15", time.Now())
+	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +243,7 @@ func TestParseFailsClosed(t *testing.T) {
 	}{{"missing settings", []byte("<html></html>")}, {"malformed settings", []byte("Drupal.settings.variables = {")}, {"oversized", make([]byte, MaxBodySize+1)}, {"unknown film", []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"HO1","title":"Film","duration":90}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"S1","film":{"id":"MISSING"}}]}};`)}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := Parse(test.body, "2026-08-15", "2026-08-16", time.Now()); err == nil {
+			if _, err := Parse(test.body, "2026-08-15", time.Now()); err == nil {
 				t.Fatal("invalid page accepted")
 			}
 		})
@@ -241,7 +252,7 @@ func TestParseFailsClosed(t *testing.T) {
 
 func TestParseSeparateDrupalAssignments(t *testing.T) {
 	body := []byte(`Drupal.settings.variables.complexes=[{"id":"LOM","name":"Kinepolis Lomme"}];Drupal.settings.variables.current_movies.films=[{"id":"HO1","title":"Film","duration":90}];Drupal.settings.variables.current_movies.sessions=[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"S1","film":{"id":"HO1","format":{"name":"2D"}}}];`)
-	data, err := Parse(body, "2026-08-15", "2026-08-15", time.Now())
+	data, err := Parse(body, "2026-08-15", time.Now())
 	if err != nil || len(data.Showtimes) != 1 {
 		t.Fatalf("data=%+v err=%v", data, err)
 	}
@@ -254,7 +265,7 @@ type staticFetcher struct {
 
 func (f staticFetcher) Fetch(context.Context) ([]byte, error) { return f.body, f.err }
 func TestSyncUsesFetcherWithoutNetwork(t *testing.T) {
-	data, summary, err := Sync(context.Background(), staticFetcher{body: fixture(t)}, SyncOptions{From: "2026-08-15", Through: "2026-08-16", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	data, summary, err := Sync(context.Background(), staticFetcher{body: fixture(t)}, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 	if err != nil || summary.Cinemas != 2 || summary.Showtimes != 2 || len(data.Showtimes) != 2 {
 		t.Fatalf("summary=%+v err=%v", summary, err)
 	}

@@ -296,7 +296,7 @@ func TestRunFullPathReportsReplacementFailureCode(t *testing.T) {
 }
 
 func TestRunRejectsOtherInvalidConfiguration(t *testing.T) {
-	for _, args := range [][]string{{"-from", "invalid"}, {"-from", "2026-08-15", "-through", "2026-09-15"}, {"unexpected"}} {
+	for _, args := range [][]string{{"-from", "invalid"}, {"-through", "2026-09-15"}, {"unexpected"}} {
 		if code, _ := runTest(t, args); code != 2 {
 			t.Fatalf("args=%v code=%d", args, code)
 		}

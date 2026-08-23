@@ -55,15 +55,44 @@ func readFixture(t *testing.T, name string) []byte {
 	return body
 }
 
+func singleDateCinemaFixture(t *testing.T) []byte {
+	return []byte(strings.Replace(string(readFixture(t, "cinema.html")), `<button id="nav_date_2026-08-16">16 août</button>`, "", 1))
+}
+
 func TestSyncCompleteDiscovery(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
-	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, "https://www.ugc.fr/cinema.html?id=25": readFixture(t, "cinema.html"), "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=15%2F08%2F2026&page=30007": readFixture(t, "showings.html")}}
-	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	secondDayShowingsText := strings.ReplaceAll(string(readFixture(t, "showings.html")), "15/08/2026", "16/08/2026")
+	secondDayShowingsText = strings.ReplaceAll(secondDayShowingsText, `data-showing="900"`, `data-showing="902"`)
+	secondDayShowingsText = strings.ReplaceAll(secondDayShowingsText, `data-showing="901"`, `data-showing="903"`)
+	secondDayShowings := []byte(secondDayShowingsText)
+	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, "https://www.ugc.fr/cinema.html?id=25": readFixture(t, "cinema.html"), "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=15%2F08%2F2026&page=30007": readFixture(t, "showings.html"), "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=16%2F08%2F2026&page=30007": secondDayShowings}}
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data.Scope != schedule.ScopeAll || summary.Cinemas != 1 || summary.Skipped != 0 || summary.Dates != 1 || summary.Showtimes != 2 || summary.Requests != 3 {
+	if data.Scope != schedule.ScopeAll || data.Window.Through != "2026-08-16" || summary.Cinemas != 1 || summary.Skipped != 0 || summary.Dates != 2 || summary.Showtimes != 4 || summary.Requests != 4 {
 		t.Fatalf("data=%+v summary=%+v", data, summary)
+	}
+}
+
+func TestSyncIncludesAdvertisedDateBeyondFormerLimit(t *testing.T) {
+	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
+	cinema := []byte(`<html><head><title>UGC Lille, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC Lille</h1><p class="address">1 rue Test 59000 Lille</p></section><input name="cinemaId" value="25"><button id="nav_date_2026-08-14"></button><button id="nav_date_2026-08-15"></button><button id="nav_date_2027-02-14"></button></body></html>`)
+	showings := func(id, date string) []byte {
+		return []byte(fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="25" data-version="VF" data-seancedate="%s" data-seancehour="12:00"></button></div>`, id, date))
+	}
+	getter := &fakeGetter{responses: map[string][]byte{
+		SitemapURL:                             sitemap,
+		"https://www.ugc.fr/cinema.html?id=25": cinema,
+		"https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=15%2F08%2F2026&page=30007": showings("100", "15/08/2026"),
+		"https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=14%2F02%2F2027&page=30007": showings("101", "14/02/2027"),
+	}}
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Window.Through != "2027-02-14" || len(data.Showtimes) != 2 || summary.Dates != 2 || summary.Requests != 4 {
+		t.Fatalf("window=%+v summary=%+v showtimes=%+v", data.Window, summary, data.Showtimes)
 	}
 }
 
@@ -95,7 +124,7 @@ func TestSyncAcceptsActiveCinemasAboveFormerLimit(t *testing.T) {
 		}
 		return FetchResult{}, fmt.Errorf("unexpected request kind")
 	}}
-	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 || summary.Cinemas != 257 || summary.Showtimes != 257 {
 		t.Fatalf("theaters=%d showtimes=%d summary=%+v err=%v", len(data.Theaters), len(data.Showtimes), summary, err)
 	}
@@ -104,7 +133,7 @@ func TestSyncAcceptsActiveCinemasAboveFormerLimit(t *testing.T) {
 func TestSyncPreservesCinemaDateAndShowtimeOrderAcrossReverseCompletion(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=44</loc></url><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
 	cinemaURLs := map[string][]byte{
-		"https://www.ugc.fr/cinema.html?id=25": readFixture(t, "cinema.html"),
+		"https://www.ugc.fr/cinema.html?id=25": singleDateCinemaFixture(t),
 		"https://www.ugc.fr/cinema.html?id=44": readFixture(t, "cinema-44.html"),
 	}
 	showingURLs := map[string][]byte{
@@ -149,7 +178,7 @@ func TestSyncPreservesCinemaDateAndShowtimeOrderAcrossReverseCompletion(t *testi
 	}
 	done := make(chan syncOutcome, 1)
 	go func() {
-		data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+		data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 		done <- syncOutcome{data: data, summary: summary, err: err}
 	}()
 	firstCinema, secondCinema := <-cinemaStarted, <-cinemaStarted
@@ -185,10 +214,10 @@ func TestSyncSkipsStaleSitemapCinemaAndKeepsCompleteScope(t *testing.T) {
 	validURL := "https://www.ugc.fr/cinema.html?id=25"
 	showingsURL := "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=15%2F08%2F2026&page=30007"
 	getter := &fakeGetter{
-		responses: map[string][]byte{SitemapURL: sitemap, staleURL: readFixture(t, "cinemas-directory.html"), validURL: readFixture(t, "cinema.html"), showingsURL: readFixture(t, "showings.html")},
+		responses: map[string][]byte{SitemapURL: sitemap, staleURL: readFixture(t, "cinemas-directory.html"), validURL: singleDateCinemaFixture(t), showingsURL: readFixture(t, "showings.html")},
 		finalURLs: map[string]string{staleURL: "https://www.ugc.fr/cinemas.html?id=1"},
 	}
-	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +247,7 @@ func TestSyncDeduplicatesCinemaAliasAndCanonicalRegardlessOfSitemapOrder(t *test
 				responses: map[string][]byte{SitemapURL: sitemap, aliasURL: readFixture(t, "cinema-44.html"), canonicalURL: readFixture(t, "cinema-44.html"), showingsURL: readFixture(t, "showings-44.html")},
 				finalURLs: map[string]string{aliasURL: canonicalURL},
 			}
-			data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+			data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -241,7 +270,7 @@ func TestSyncDiagnosticCinemaAliasUsesCanonicalIdentity(t *testing.T) {
 		responses: map[string][]byte{SitemapURL: sitemap, aliasURL: readFixture(t, "cinema-44.html"), showingsURL: readFixture(t, "showings-44.html")},
 		finalURLs: map[string]string{aliasURL: canonicalURL},
 	}
-	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", CinemaID: "50", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", CinemaID: "50", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +301,7 @@ func TestSyncRejectsMalformedCinemaAliasFinalURL(t *testing.T) {
 			sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=50</loc></url></urlset>`)
 			aliasURL := "https://www.ugc.fr/cinema.html?id=50"
 			getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, aliasURL: readFixture(t, "cinema-44.html")}, finalURLs: map[string]string{aliasURL: finalURL}}
-			_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
+			_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
 			if err == nil || err.Error() != "cinema 50 response has unexpected final URL" {
 				t.Fatalf("error=%v", err)
 			}
@@ -284,7 +313,7 @@ func TestSyncDiagnosticStaleCinemaFailsAsInactive(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=2</loc></url></urlset>`)
 	staleURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, staleURL: readFixture(t, "cinemas-directory.html")}, finalURLs: map[string]string{staleURL: "https://www.ugc.fr/cinemas.html?id=1"}}
-	data, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", CinemaID: "2", Now: time.Now()})
+	data, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", CinemaID: "2", Now: time.Now()})
 	if err == nil || err.Error() != "cinema 2 is inactive: redirected to UGC cinema directory" || len(data.Theaters) != 0 {
 		t.Fatalf("data=%+v error=%v", data, err)
 	}
@@ -294,7 +323,7 @@ func TestSyncFailsWhenAllSitemapCinemasAreStale(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=2</loc></url></urlset>`)
 	staleURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, staleURL: readFixture(t, "cinemas-directory.html")}, finalURLs: map[string]string{staleURL: "https://www.ugc.fr/cinemas.html?id=1"}}
-	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
 	if err == nil || err.Error() != "sync produced no active cinemas" || !errors.Is(err, schedule.ErrDatasetValidation) {
 		t.Fatalf("error=%v", err)
 	}
@@ -304,7 +333,7 @@ func TestSyncFailsWithoutShowtimes(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
 	cinemaURL := "https://www.ugc.fr/cinema.html?id=25"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, cinemaURL: readFixture(t, "cinema.html")}}
-	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-20", Through: "2026-08-20", Now: time.Now()})
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-20", Now: time.Now()})
 	if err == nil || err.Error() != "sync produced no showtimes" || !errors.Is(err, schedule.ErrDatasetValidation) {
 		t.Fatalf("error=%v", err)
 	}
@@ -314,7 +343,7 @@ func TestSyncRejectsUnexpectedCinemaFinalURL(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=2</loc></url></urlset>`)
 	cinemaURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, cinemaURL: readFixture(t, "cinemas-directory.html")}, finalURLs: map[string]string{cinemaURL: "https://www.ugc.fr/cinemas.html?id=1&unexpected=true"}}
-	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
 	if err == nil || err.Error() != "cinema 2 response has unexpected final URL" {
 		t.Fatalf("error=%v", err)
 	}
@@ -324,7 +353,7 @@ func TestSyncExpectedCinemaURLKeepsParseFailureTerminal(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=2</loc></url></urlset>`)
 	cinemaURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, cinemaURL: readFixture(t, "cinemas-directory.html")}}
-	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
 	if err == nil || err.Error() != "parse cinema 2: cinema identity missing or conflicting" {
 		t.Fatalf("error=%v", err)
 	}
@@ -353,7 +382,7 @@ func TestSyncStopsOnFailure(t *testing.T) {
 			return FetchResult{}, fmt.Errorf("unexpected request")
 		}
 	}}
-	data, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Through: "2026-08-15", Now: time.Now()})
+	data, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
 	if err == nil || err.Error() != "synthetic transport failure" || len(data.Theaters) != 0 || queuedStarted.Load() {
 		t.Fatalf("data=%+v error=%v queued_started=%v", data, err, queuedStarted.Load())
 	}
@@ -367,15 +396,15 @@ func TestSyncStopsOnFailure(t *testing.T) {
 	}
 }
 
-func TestSyncDateWindowUsesParisCalendarDays(t *testing.T) {
+func TestSyncValidatesLowerBoundBeforeRequests(t *testing.T) {
 	getter := &fakeGetter{responses: map[string][]byte{}, failKind: "sitemap"}
-	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-10-18", Through: "2026-10-31", Now: time.Now()})
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-10-18", Now: time.Now()})
 	if err == nil || err.Error() != "synthetic transport failure" || getter.calls != 1 {
 		t.Fatalf("error=%v calls=%d", err, getter.calls)
 	}
 	getter = &fakeGetter{responses: map[string][]byte{}}
-	_, _, err = Sync(context.Background(), getter, SyncOptions{From: "2026-10-18", Through: "2026-11-01", Now: time.Now()})
-	if err == nil || err.Error() != "invalid date window" || getter.calls != 0 {
+	_, _, err = Sync(context.Background(), getter, SyncOptions{From: "invalid", Now: time.Now()})
+	if err == nil || err.Error() != "invalid from date" || getter.calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, getter.calls)
 	}
 }

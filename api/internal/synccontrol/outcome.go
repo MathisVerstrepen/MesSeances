@@ -46,6 +46,7 @@ type SyncOutcome struct {
 	NewShowtimes int       `json:"new_showtimes"`
 	Skipped      int       `json:"skipped,omitempty"`
 	GeneratedAt  time.Time `json:"generated_at"`
+	Through      string    `json:"window_through"`
 }
 
 type EnrichmentCounts struct {

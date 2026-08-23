@@ -45,7 +45,7 @@ func (s *PostgresRunStore) Update(ctx context.Context, status Status) error {
 	if err != nil {
 		return err
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE sync_runs SET state=$2, finished_at=$3, providers=$4 WHERE id=$1`, id, status.State, status.FinishedAt, providers)
+	tag, err := s.pool.Exec(ctx, `UPDATE sync_runs SET state=$2, finished_at=$3, providers=$4, window_through=$5 WHERE id=$1`, id, status.State, status.FinishedAt, providers, status.Through)
 	if err != nil || tag.RowsAffected() != 1 {
 		return fmt.Errorf("update sync run failed")
 	}
