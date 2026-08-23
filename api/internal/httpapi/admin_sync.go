@@ -10,7 +10,8 @@ import (
 )
 
 type syncResponse struct {
-	Job *synccontrol.Status `json:"job"`
+	Job  *synccontrol.Status  `json:"job"`
+	Runs []synccontrol.Status `json:"runs"`
 }
 
 func (a *adminAPI) syncStatus(w http.ResponseWriter, _ *http.Request) {
@@ -19,11 +20,12 @@ func (a *adminAPI) syncStatus(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	status := a.syncs.Status()
+	runs := syncRuns(a.syncs)
 	if status.ID == "" {
-		writeJSON(w, http.StatusOK, syncResponse{})
+		writeJSON(w, http.StatusOK, syncResponse{Runs: runs})
 		return
 	}
-	writeJSON(w, http.StatusOK, syncResponse{Job: &status})
+	writeJSON(w, http.StatusOK, syncResponse{Job: &status, Runs: runs})
 }
 
 func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
@@ -44,6 +46,14 @@ func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
 	default:
-		writeJSON(w, http.StatusAccepted, syncResponse{Job: &status})
+		writeJSON(w, http.StatusAccepted, syncResponse{Job: &status, Runs: syncRuns(a.syncs)})
 	}
+}
+
+func syncRuns(controller SyncController) []synccontrol.Status {
+	runs := controller.Runs()
+	if runs == nil {
+		return []synccontrol.Status{}
+	}
+	return runs
 }

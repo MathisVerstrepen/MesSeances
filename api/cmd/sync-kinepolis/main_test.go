@@ -179,7 +179,9 @@ func (f fakeExecutor) Run(ctx context.Context, target synccontrol.Target, window
 
 type fakeWriter struct{}
 
-func (fakeWriter) Replace(context.Context, []schedule.Dataset) (int64, error) { return 1, nil }
+func (fakeWriter) Replace(context.Context, []schedule.Dataset) (schedule.PublicationResult, error) {
+	return schedule.PublicationResult{Version: 1, Providers: map[schedule.Provider]schedule.PublicationMetrics{schedule.ProviderKinepolis: {Movies: 1, NewMovies: 1, Showtimes: 1, NewShowtimes: 1}}}, nil
+}
 
 func TestRunFullPathUsesInjectedDependenciesAndRedactsFailure(t *testing.T) {
 	proxyFile := filepath.Join(t.TempDir(), "proxies.txt")

@@ -140,7 +140,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 11 || migrationName != "011_short_links.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 12 || migrationName != "012_sync_runs.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	var generationColumns, generationIndexes, generationFKs int
@@ -206,8 +206,12 @@ func TestPostgresStoreIntegration(t *testing.T) {
 
 	t.Run("initial insert and load", func(t *testing.T) {
 		version, err := store.Replace(ctx, []Dataset{testDataset()})
-		if err != nil || version != 1 {
-			t.Fatalf("replace version=%d error=%v", version, err)
+		if err != nil || version.Version != 1 {
+			t.Fatalf("replace version=%+v error=%v", version, err)
+		}
+		metrics := version.Providers[ProviderUGC]
+		if metrics.Movies != 4 || metrics.NewMovies != 4 || metrics.Showtimes != 5 || metrics.NewShowtimes != 5 {
+			t.Fatalf("initial publication metrics=%+v", metrics)
 		}
 		var durableGroups int
 		if err := pool.QueryRow(ctx, "SELECT count(*) FROM local_movie_groups WHERE id=$1", durableLocalID).Scan(&durableGroups); err != nil || durableGroups != 1 {
@@ -271,8 +275,12 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		replacement.Theaters[0].Name = "UGC Lille remplacé"
 		replacement.Showtimes = append([]ShowtimeRecord(nil), replacement.Showtimes[0])
 		version, err := store.Replace(ctx, []Dataset{replacement})
-		if err != nil || version != 2 {
-			t.Fatalf("replace version=%d error=%v", version, err)
+		if err != nil || version.Version != 2 {
+			t.Fatalf("replace version=%+v error=%v", version, err)
+		}
+		metrics := version.Providers[ProviderUGC]
+		if metrics.Movies != 1 || metrics.NewMovies != 0 || metrics.Showtimes != 1 || metrics.NewShowtimes != 0 {
+			t.Fatalf("replacement publication metrics=%+v", metrics)
 		}
 		loaded, loadedVersion, err := store.Load(ctx)
 		if err != nil || loadedVersion.ScheduleVersion != 2 || loadedVersion.EnrichmentVersion != 1 || len(loaded.Theaters) != 1 || len(loaded.Showtimes) != 1 || loaded.Showtimes[0].Movie.Enrichment == nil {
@@ -301,8 +309,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		kinepolis.Showtimes[0].Movie.RuntimeMinutes = 721
 		kinepolis.Showtimes[0].EndTime = kinepolis.Showtimes[0].StartTime.Add(721 * time.Minute)
 		version, err := store.Replace(ctx, []Dataset{kinepolis})
-		if err != nil || version != 3 {
-			t.Fatalf("Kinepolis replace version=%d error=%v", version, err)
+		if err != nil || version.Version != 3 {
+			t.Fatalf("Kinepolis replace version=%+v error=%v", version, err)
 		}
 		loaded, revision, err := store.Load(ctx)
 		if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 2 || len(loaded.Showtimes) != 2 {
@@ -332,8 +340,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		ugc.Theaters[0].Name = "UGC Lille encore"
 		ugc.Showtimes = append([]ShowtimeRecord(nil), ugc.Showtimes[0])
 		version, err = store.Replace(ctx, []Dataset{ugc})
-		if err != nil || version != 4 {
-			t.Fatalf("UGC scoped replace version=%d error=%v", version, err)
+		if err != nil || version.Version != 4 {
+			t.Fatalf("UGC scoped replace version=%+v error=%v", version, err)
 		}
 		loaded, _, err = store.Load(ctx)
 		if err != nil || len(loaded.Theaters) != 2 {
@@ -397,8 +405,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			movie.Genres = []string{"Comédie", "Famille"}
 			ugcCanonical.Showtimes[index].EndTime = ugcCanonical.Showtimes[index].StartTime.Add(120 * time.Minute)
 		}
-		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version != 5 {
-			t.Fatalf("canonical UGC replace version=%d err=%v", version, err)
+		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version.Version != 5 {
+			t.Fatalf("canonical UGC replace version=%+v err=%v", version, err)
 		}
 
 		kinepolisFallback := kinepolisTestDataset()
@@ -411,8 +419,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		fallbackMovie.ReleaseDate = "2025-05-06"
 		fallbackMovie.Genres = []string{"Drame"}
 		kinepolisFallback.Showtimes[0].EndTime = kinepolisFallback.Showtimes[0].StartTime.Add(80 * time.Minute)
-		if version, err := store.Replace(ctx, []Dataset{kinepolisFallback}); err != nil || version != 6 {
-			t.Fatalf("fallback Kinepolis replace version=%d err=%v", version, err)
+		if version, err := store.Replace(ctx, []Dataset{kinepolisFallback}); err != nil || version.Version != 6 {
+			t.Fatalf("fallback Kinepolis replace version=%+v err=%v", version, err)
 		}
 
 		localService := enrichment.NewLocalMovieService(enrichment.NewPostgresStore(pool))
@@ -465,8 +473,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		}
 
 		ugcCanonical.GeneratedAt = ugcCanonical.GeneratedAt.Add(time.Minute)
-		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version != 7 {
-			t.Fatalf("grouped UGC replace version=%d err=%v", version, err)
+		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version.Version != 7 {
+			t.Fatalf("grouped UGC replace version=%+v err=%v", version, err)
 		}
 		loaded, _, err = store.Load(ctx)
 		if err != nil {
@@ -476,8 +484,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("local ID after UGC replace=%q", got)
 		}
 		kinepolisFallback.GeneratedAt = kinepolisFallback.GeneratedAt.Add(time.Minute)
-		if version, err := store.Replace(ctx, []Dataset{kinepolisFallback}); err != nil || version != 8 {
-			t.Fatalf("grouped Kinepolis replace version=%d err=%v", version, err)
+		if version, err := store.Replace(ctx, []Dataset{kinepolisFallback}); err != nil || version.Version != 8 {
+			t.Fatalf("grouped Kinepolis replace version=%+v err=%v", version, err)
 		}
 		if _, err := publicService.MovieShowtimes(MovieShowtimesQuery{Slug: localSlug, Date: "2026-08-15"}); err != nil {
 			t.Fatalf("local ID after Kinepolis replace: %v", err)
@@ -487,8 +495,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		ugcWithoutPrimary.GeneratedAt = ugcWithoutPrimary.GeneratedAt.Add(4 * time.Minute)
 		ugcWithoutPrimary.Theaters = append([]TheaterRecord(nil), ugcWithoutPrimary.Theaters[0])
 		ugcWithoutPrimary.Showtimes = append([]ShowtimeRecord(nil), ugcWithoutPrimary.Showtimes[2])
-		if version, err := store.Replace(ctx, []Dataset{ugcWithoutPrimary}); err != nil || version != 9 {
-			t.Fatalf("remove primary version=%d err=%v", version, err)
+		if version, err := store.Replace(ctx, []Dataset{ugcWithoutPrimary}); err != nil || version.Version != 9 {
+			t.Fatalf("remove primary version=%+v err=%v", version, err)
 		}
 		fallbackSnapshot, _, err := store.Load(ctx)
 		if err != nil {
@@ -509,8 +517,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		}
 
 		ugcCanonical.GeneratedAt = ugcCanonical.GeneratedAt.Add(time.Minute)
-		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version != 10 {
-			t.Fatalf("restore primary version=%d err=%v", version, err)
+		if version, err := store.Replace(ctx, []Dataset{ugcCanonical}); err != nil || version.Version != 10 {
+			t.Fatalf("restore primary version=%+v err=%v", version, err)
 		}
 		restored, _, err := store.Load(ctx)
 		if err != nil {
@@ -590,8 +598,8 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		ugc := shiftedDataset(testDataset(), 15)
 		kinepolis := shiftedDataset(kinepolisTestDataset(), 15)
 		version, err := store.Replace(ctx, []Dataset{ugc, kinepolis})
-		if err != nil || version != 11 {
-			t.Fatalf("combined recovery version=%d err=%v", version, err)
+		if err != nil || version.Version != 11 {
+			t.Fatalf("combined recovery version=%+v err=%v", version, err)
 		}
 		loaded, revision, err := store.Load(ctx)
 		if err != nil || revision.ScheduleVersion != 11 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 4 {
@@ -636,7 +644,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			go func() {
 				<-start
 				version, err := store.Replace(ctx, []Dataset{shiftedDataset(testDataset(), days), shiftedDataset(kinepolisTestDataset(), days)})
-				versions <- version
+				versions <- version.Version
 				errors <- err
 			}()
 		}
@@ -790,7 +798,7 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	}
 	store := NewStore(pool)
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 11 || migrationName != "011_short_links.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 12 || migrationName != "012_sync_runs.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
 	}
 	var sourceColumns, sourceConstraints int
@@ -817,13 +825,13 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 		t.Fatal("empty UGC address accepted")
 	}
 
-	if version, err := store.Replace(ctx, []Dataset{kinepolisTestDataset()}); err != nil || version != 2 {
-		t.Fatalf("Kinepolis replacement after repair version=%d err=%v", version, err)
+	if version, err := store.Replace(ctx, []Dataset{kinepolisTestDataset()}); err != nil || version.Version != 2 {
+		t.Fatalf("Kinepolis replacement after repair version=%+v err=%v", version, err)
 	}
 	ugcReplacement := testDataset()
 	ugcReplacement.GeneratedAt = ugcReplacement.GeneratedAt.Add(time.Minute)
-	if version, err := store.Replace(ctx, []Dataset{ugcReplacement}); err != nil || version != 3 {
-		t.Fatalf("UGC replacement after repair version=%d err=%v", version, err)
+	if version, err := store.Replace(ctx, []Dataset{ugcReplacement}); err != nil || version.Version != 3 {
+		t.Fatalf("UGC replacement after repair version=%+v err=%v", version, err)
 	}
 	loaded, revision, err := store.Load(ctx)
 	if err != nil || revision.ScheduleVersion != 3 || revision.EnrichmentVersion != 1 || loaded.Provider != ProviderCombined {

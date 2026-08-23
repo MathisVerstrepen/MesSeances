@@ -13,6 +13,7 @@ import (
 
 type fakeSyncController struct {
 	status   synccontrol.Status
+	runs     []synccontrol.Status
 	startErr error
 	started  []synccontrol.Target
 }
@@ -26,6 +27,7 @@ func (c *fakeSyncController) Start(target synccontrol.Target) (synccontrol.Statu
 }
 
 func (c *fakeSyncController) Status() synccontrol.Status { return c.status }
+func (c *fakeSyncController) Runs() []synccontrol.Status { return c.runs }
 
 func syncAdminHandler(t *testing.T, controller SyncController) http.Handler {
 	t.Helper()
@@ -40,7 +42,7 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
 	cookie := loginAdmin(t, handler, "password")
 	initial := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs", "", "", cookie)
-	if initial.Code != http.StatusOK || strings.TrimSpace(initial.Body.String()) != `{"job":null}` || initial.Header().Get("Cache-Control") != "no-store" {
+	if initial.Code != http.StatusOK || strings.TrimSpace(initial.Body.String()) != `{"job":null,"runs":[]}` || initial.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("initial status=%d headers=%v body=%s", initial.Code, initial.Header(), initial.Body.String())
 	}
 	unavailableHandler := syncAdminHandler(t, nil)
@@ -86,11 +88,11 @@ func TestAdminStartSyncContract(t *testing.T) {
 func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 	secret := "synthetic-secret"
 	finished := time.Date(2026, 8, 17, 13, 0, 0, 0, time.UTC)
-	controller := &fakeSyncController{status: synccontrol.Status{
+	controller := &fakeSyncController{runs: []synccontrol.Status{{ID: "3", Target: synccontrol.TargetUGC, State: synccontrol.StateSucceeded, StartedAt: finished.Add(-2 * time.Hour), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24", Providers: map[string]synccontrol.ProviderStatus{}}}, status: synccontrol.Status{
 		ID: "4", Target: synccontrol.TargetAll, State: synccontrol.StateFailed,
 		StartedAt: finished.Add(-time.Minute), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24",
 		Providers: map[string]synccontrol.ProviderStatus{
-			"ugc":       {State: synccontrol.ProviderSucceeded, Outcome: &synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 9, Cinemas: 3, Showtimes: 12}, Enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Matched: 2}}}},
+			"ugc":       {State: synccontrol.ProviderSucceeded, Outcome: &synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 9, Cinemas: 3, Movies: 8, NewMovies: 2, Requests: 20, Showtimes: 12, NewShowtimes: 4}, Enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Matched: 2}}}},
 			"kinepolis": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync},
 		},
 	}}
@@ -98,7 +100,7 @@ func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 	cookie := loginAdmin(t, handler, "password")
 	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs?cause="+secret, "", "", cookie)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
+	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
 		t.Fatalf("status=%d body=%s", response.Code, body)
 	}
 }

@@ -36,13 +36,16 @@ const (
 )
 
 type SyncOutcome struct {
-	Version     int64     `json:"version"`
-	Cinemas     int       `json:"cinemas"`
-	Dates       int       `json:"dates,omitempty"`
-	Requests    int       `json:"requests,omitempty"`
-	Showtimes   int       `json:"showtimes"`
-	Skipped     int       `json:"skipped,omitempty"`
-	GeneratedAt time.Time `json:"generated_at"`
+	Version      int64     `json:"version"`
+	Cinemas      int       `json:"cinemas"`
+	Movies       int       `json:"movies"`
+	NewMovies    int       `json:"new_movies"`
+	Dates        int       `json:"dates,omitempty"`
+	Requests     int       `json:"requests,omitempty"`
+	Showtimes    int       `json:"showtimes"`
+	NewShowtimes int       `json:"new_showtimes"`
+	Skipped      int       `json:"skipped,omitempty"`
+	GeneratedAt  time.Time `json:"generated_at"`
 }
 
 type EnrichmentCounts struct {

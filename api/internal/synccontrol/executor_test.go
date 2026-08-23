@@ -30,8 +30,13 @@ func (o *captureSyncObserver) ObserveSync(provider, result, stage, code, enrichm
 
 type writerFunc func(context.Context, []schedule.Dataset) (int64, error)
 
-func (f writerFunc) Replace(ctx context.Context, data []schedule.Dataset) (int64, error) {
-	return f(ctx, data)
+func (f writerFunc) Replace(ctx context.Context, data []schedule.Dataset) (schedule.PublicationResult, error) {
+	version, err := f(ctx, data)
+	result := schedule.PublicationResult{Version: version, Providers: make(map[schedule.Provider]schedule.PublicationMetrics, len(data))}
+	for _, dataset := range data {
+		result.Providers[dataset.Provider] = schedule.PublicationMetrics{Movies: 1, NewMovies: 1, Showtimes: len(dataset.Showtimes), NewShowtimes: len(dataset.Showtimes)}
+	}
+	return result, err
 }
 
 type unusedGetter struct{}
@@ -44,6 +49,11 @@ func (unusedGetter) RequestCount() int { return 0 }
 type unusedFetcher struct{}
 
 func (unusedFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
+
+type countedFetcher struct{ requests int }
+
+func (countedFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
+func (f countedFetcher) RequestCount() int                   { return f.requests }
 
 type fakeEnrichmentStore struct{}
 
@@ -142,6 +152,22 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
 	if err != nil || writes != 1 || enrichments != 2 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
+	}
+}
+
+func TestProductionExecutorPopulatesKinepolisRequestCount(t *testing.T) {
+	window := Window{From: "2026-08-17", Through: "2026-08-24"}
+	executor := &ProductionExecutor{
+		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		writer:       writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 4, nil }),
+		newKinepolis: func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 6}, nil },
+		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{Cinemas: 1, Showtimes: 1}, nil
+		},
+	}
+	outcomes, err := executor.Run(context.Background(), TargetKinepolis, window)
+	if err != nil || outcomes[TargetKinepolis].Sync.Requests != 6 {
+		t.Fatalf("outcomes=%+v err=%v", outcomes, err)
 	}
 }
 

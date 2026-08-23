@@ -121,7 +121,7 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
-		manager, err := synccontrol.NewManager(workerCtx, time.Now, executor)
+		manager, err := synccontrol.NewManager(workerCtx, time.Now, executor, synccontrol.NewPostgresRunStore(pool))
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}

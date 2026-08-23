@@ -4,12 +4,60 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 type executorFunc func(context.Context, Target, Window) (ProviderOutcome, error)
 type executorMapFunc func(context.Context, Target, Window) (map[Target]ProviderOutcome, error)
+
+type memoryRunStore struct {
+	mu   sync.Mutex
+	next int
+	runs []Status
+}
+
+type rejectingRunStore struct{ memoryRunStore }
+
+func (*rejectingRunStore) Create(context.Context, Status) (Status, error) {
+	return Status{}, errors.New("database secret")
+}
+
+func (s *memoryRunStore) Create(_ context.Context, status Status) (Status, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.next++
+	status.ID = strconv.Itoa(s.next)
+	s.runs = append([]Status{cloneStatus(status)}, s.runs...)
+	return status, nil
+}
+
+func (s *memoryRunStore) Update(_ context.Context, status Status) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.runs {
+		if s.runs[i].ID == status.ID {
+			s.runs[i] = cloneStatus(status)
+			return nil
+		}
+	}
+	return errors.New("missing run")
+}
+
+func (s *memoryRunStore) List(context.Context, int) ([]Status, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return cloneStatuses(s.runs), nil
+}
+
+func (*memoryRunStore) ReconcileRunning(context.Context, time.Time) error { return nil }
+
+func newTestManager(ctx context.Context, now func() time.Time, executor Executor) (*Manager, error) {
+	return NewManager(ctx, now, executor, &memoryRunStore{})
+}
 
 func (f executorMapFunc) Run(ctx context.Context, target Target, window Window) (map[Target]ProviderOutcome, error) {
 	return f(ctx, target, window)
@@ -30,7 +78,7 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	now := time.Date(2026, 8, 17, 23, 30, 0, 0, time.FixedZone("test", -4*60*60))
 	started := make(chan Target, 1)
 	release := make(chan struct{})
-	manager, err := NewManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) (ProviderOutcome, error) {
+	manager, err := newTestManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) (ProviderOutcome, error) {
 		if window != (Window{From: "2026-08-18", Through: "2026-08-25"}) {
 			t.Errorf("window=%+v", window)
 		}
@@ -69,6 +117,28 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	}
 }
 
+func TestManagerRejectsRunBeforeExecutionWhenDurableInsertFails(t *testing.T) {
+	executed := make(chan struct{}, 1)
+	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) {
+		executed <- struct{}{}
+		return ProviderOutcome{}, nil
+	}), &rejectingRunStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(TargetUGC); err == nil || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("start err=%v", err)
+	}
+	select {
+	case <-executed:
+		t.Fatal("executor started before durable insert")
+	default:
+	}
+	if manager.Status().ID != "" || len(manager.Runs()) != 0 {
+		t.Fatalf("status=%+v runs=%+v", manager.Status(), manager.Runs())
+	}
+}
+
 func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -86,7 +156,7 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			manager, err := NewManager(context.Background(), time.Now, test.executor)
+			manager, err := newTestManager(context.Background(), time.Now, test.executor)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +172,7 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	entered := make(chan struct{})
-	manager, err := NewManager(ctx, time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
+	manager, err := newTestManager(ctx, time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
 		close(entered)
 		<-ctx.Done()
 		return ProviderOutcome{}, ctx.Err()
@@ -138,7 +208,7 @@ func waitForTerminal(t *testing.T, manager *Manager) Status {
 func TestManagerCloseCancelsWaitsAndIsIdempotent(t *testing.T) {
 	observedCancellation := make(chan struct{})
 	release := make(chan struct{})
-	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
+	manager, err := newTestManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
 		<-ctx.Done()
 		close(observedCancellation)
 		<-release
@@ -182,7 +252,7 @@ func TestManagerCloseCancelsWaitsAndIsIdempotent(t *testing.T) {
 }
 
 func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
-	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }))
+	manager, err := newTestManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +263,7 @@ func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
 	}
 
 	for range 100 {
-		manager, err := NewManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
+		manager, err := newTestManager(context.Background(), time.Now, executorFunc(func(ctx context.Context, _ Target, _ Window) (ProviderOutcome, error) {
 			<-ctx.Done()
 			return ProviderOutcome{}, ctx.Err()
 		}))
@@ -219,7 +289,7 @@ func TestManagerCloseBeforeStartAndConcurrentStarts(t *testing.T) {
 func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	counts := &EnrichmentCounts{Matched: 2}
 	outcome := ProviderOutcome{Sync: SyncOutcome{Version: 9, Cinemas: 3, Showtimes: 12}, Enrichment: EnrichmentOutcome{Status: "complete", Counts: counts}}
-	manager, err := NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return outcome, nil }))
+	manager, err := newTestManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return outcome, nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +306,7 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 		t.Fatal("returned outcome aliases manager state")
 	}
 
-	manager, err = NewManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) {
+	manager, err = newTestManager(context.Background(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) {
 		return ProviderOutcome{}, NewRunError(FailureDatasetRejected, errors.New("secret"))
 	}))
 	if err != nil {
@@ -250,7 +320,7 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 }
 
 func TestManagerMarksEveryProviderFailedOnSharedPublicationFailure(t *testing.T) {
-	manager, err := NewManager(context.Background(), time.Now, executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
+	manager, err := newTestManager(context.Background(), time.Now, executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
 		return nil, newProviderRunError("", StagePublication, FailureReplacement, errors.New("secret"))
 	}))
 	if err != nil {

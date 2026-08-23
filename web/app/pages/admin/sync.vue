@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowLeft, Check, Clock3, LoaderCircle, LogOut, RefreshCw, X } from '@lucide/vue'
-import type { AdminSyncProviderState, AdminSyncResponse, AdminSyncState, AdminSyncTarget, Provider } from '~/types/api'
+import { AlertTriangle, ArrowLeft, Check, ChevronDown, Clock3, LoaderCircle, LogOut, RefreshCw, X } from '@lucide/vue'
+import type { AdminSyncEnrichmentState, AdminSyncFailureCode, AdminSyncJob, AdminSyncProviderState, AdminSyncResponse, AdminSyncState, AdminSyncTarget, Provider } from '~/types/api'
 
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -13,10 +13,26 @@ const startingTarget = ref<AdminSyncTarget | null>(null)
 const loggingOut = ref(false)
 const errorMessage = ref('')
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let clockTimer: ReturnType<typeof setInterval> | undefined
 let active = false
 
 const job = computed(() => status.value?.job ?? null)
+const now = ref(Date.now())
 const controlsDisabled = computed(() => initialPending.value || startingTarget.value !== null || status.value === null || job.value?.state === 'running')
+const providers = ['ugc', 'kinepolis'] as const
+const targets = ['all', 'ugc', 'kinepolis'] as const
+const activeJob = computed(() => job.value?.state === 'running' ? job.value : null)
+const history = computed(() => {
+  const seen = new Set<string>()
+  const entries = job.value && job.value.state !== 'running'
+    ? [job.value, ...(status.value?.runs ?? [])]
+    : (status.value?.runs ?? [])
+  return entries.filter((entry) => {
+    if (seen.has(entry.id)) return false
+    seen.add(entry.id)
+    return true
+  })
+})
 
 const stateLabels = {
   running: 'En cours',
@@ -38,6 +54,59 @@ const targetLabels = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis'
 } satisfies Record<AdminSyncTarget, string>
+
+const providerLabels = {
+  ugc: 'UGC',
+  kinepolis: 'Kinepolis'
+} satisfies Record<Provider, string>
+
+const failureLabels = {
+  none: 'Échec de synchronisation',
+  client_creation_failed: 'Connexion au fournisseur impossible',
+  provider_sync_failed: 'Récupération des données impossible',
+  dataset_rejected: 'Données fournisseur invalides',
+  replacement_failed: 'Publication des données impossible',
+  canceled: 'Synchronisation interrompue',
+  internal_failure: 'Erreur interne'
+} satisfies Record<AdminSyncFailureCode, string>
+
+const enrichmentLabels = {
+  skipped: 'Non exécuté',
+  complete: 'Terminé',
+  degraded: 'Partiellement terminé'
+} satisfies Record<AdminSyncEnrichmentState, string>
+
+const dateTimeFormatter = new Intl.DateTimeFormat('fr-FR', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  timeZone: 'Europe/Paris'
+})
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : dateTimeFormatter.format(date)
+}
+
+function durationMilliseconds(run: AdminSyncJob): number {
+  const startedAt = new Date(run.started_at).getTime()
+  const finishedAt = run.finished_at ? new Date(run.finished_at).getTime() : now.value
+  if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt)) return 0
+  return Math.max(0, finishedAt - startedAt)
+}
+
+function formatDuration(run: AdminSyncJob): string {
+  const totalSeconds = Math.floor(durationMilliseconds(run) / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours} h ${minutes} min ${seconds} s`
+  if (minutes > 0) return `${minutes} min ${seconds} s`
+  return `${seconds} s`
+}
+
+function requestedProviders(run: AdminSyncJob): Provider[] {
+  return providers.filter((provider) => run.providers[provider].state !== 'not_requested')
+}
 
 function clearPolling() {
   if (pollTimer !== undefined) {
@@ -118,10 +187,6 @@ async function logout() {
   }
 }
 
-function providerState(provider: Provider): AdminSyncProviderState {
-  return job.value?.providers[provider].state ?? 'not_requested'
-}
-
 function providerIcon(state: AdminSyncProviderState) {
   if (state === 'succeeded') return Check
   if (state === 'failed') return X
@@ -138,12 +203,16 @@ function providerIconClass(state: AdminSyncProviderState): string {
 
 onMounted(() => {
   active = true
+  clockTimer = setInterval(() => {
+    if (activeJob.value) now.value = Date.now()
+  }, 1000)
   void loadStatus()
 })
 
 onBeforeUnmount(() => {
   active = false
   clearPolling()
+  if (clockTimer !== undefined) clearInterval(clockTimer)
 })
 
 useHead({ title: 'Synchronisation - MesSeances' })
@@ -184,7 +253,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
       <section class="mt-6 rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6" aria-labelledby="launch-title">
         <h2 id="launch-title" class="text-lg font-semibold text-ink">Lancer une synchronisation</h2>
         <div class="mt-4 grid gap-3 sm:grid-cols-3">
-          <button v-for="target in (['all', 'ugc', 'kinepolis'] as const)" :key="target" type="button" class="button-primary" :disabled="controlsDisabled" @click="startSync(target)">
+          <button v-for="target in targets" :key="target" type="button" class="button-primary" :disabled="controlsDisabled" @click="startSync(target)">
             <LoaderCircle v-if="startingTarget === target" :size="17" class="animate-spin" aria-hidden="true" />
             <RefreshCw v-else :size="17" aria-hidden="true" />
             {{ targetLabels[target] }}
@@ -192,35 +261,103 @@ useHead({ title: 'Synchronisation - MesSeances' })
         </div>
       </section>
 
-      <section class="mt-6 rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6" aria-labelledby="status-title" role="status" aria-live="polite">
-        <div v-if="job" class="space-y-5">
+      <section v-if="activeJob" class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6" aria-labelledby="active-title">
+        <div class="space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="status-title" class="text-lg font-semibold text-ink">{{ job.state === 'running' ? 'Synchronisation en cours' : 'Dernière synchronisation' }}</h2>
-            <span class="rounded-full px-3 py-1 text-sm font-semibold" :class="job.state === 'succeeded' ? 'bg-green-100 text-green-800' : job.state === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'">
-              {{ stateLabels[job.state] }}
+            <h2 id="active-title" class="text-lg font-semibold text-ink">Synchronisation en cours</h2>
+            <span class="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800" aria-live="polite">
+              {{ stateLabels[activeJob.state] }}
             </span>
           </div>
 
-          <dl class="grid gap-3 text-sm sm:grid-cols-2">
-            <div><dt class="font-semibold text-muted">Cible</dt><dd class="mt-1 text-ink">{{ targetLabels[job.target] }}</dd></div>
-            <div><dt class="font-semibold text-muted">Période</dt><dd class="mt-1 text-ink">Du {{ job.from }} au {{ job.through }}</dd></div>
+          <dl class="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+            <div><dt class="font-semibold text-muted">Cible</dt><dd class="mt-1 text-ink">{{ targetLabels[activeJob.target] }}</dd></div>
+            <div><dt class="font-semibold text-muted">Démarrée</dt><dd class="mt-1 text-ink">{{ formatDateTime(activeJob.started_at) }}</dd></div>
+            <div><dt class="font-semibold text-muted">Durée</dt><dd class="mt-1 tabular-nums text-ink">{{ formatDuration(activeJob) }}</dd></div>
+            <div><dt class="font-semibold text-muted">Période</dt><dd class="mt-1 text-ink">Du {{ activeJob.from }} au {{ activeJob.through }}</dd></div>
           </dl>
 
-          <ul class="divide-y divide-line rounded-md border border-line" aria-label="État par cinéma">
-            <li v-for="provider in (['ugc', 'kinepolis'] as const)" :key="provider" class="flex items-center justify-between gap-4 p-4">
-              <span class="font-semibold text-ink">{{ provider === 'ugc' ? 'UGC' : 'Kinepolis' }}</span>
+          <ul class="divide-y divide-amber-200 border-y border-amber-200" aria-label="État par fournisseur">
+            <li v-for="provider in requestedProviders(activeJob)" :key="provider" class="flex items-center justify-between gap-4 py-3">
+              <span class="font-semibold text-ink">{{ providerLabels[provider] }}</span>
               <span class="flex items-center gap-2 text-sm font-medium text-muted">
-                <component :is="providerIcon(providerState(provider))" :size="18" :class="providerIconClass(providerState(provider))" aria-hidden="true" />
-                {{ providerStateLabels[providerState(provider)] }}
+                <component :is="providerIcon(activeJob.providers[provider].state)" :size="18" :class="providerIconClass(activeJob.providers[provider].state)" aria-hidden="true" />
+                {{ providerStateLabels[activeJob.providers[provider].state] }}
               </span>
             </li>
           </ul>
         </div>
+      </section>
 
-        <div v-else>
-          <h2 id="status-title" class="text-lg font-semibold text-ink">État de synchronisation</h2>
-          <p class="mt-4 text-sm text-muted">Aucune synchronisation lancée depuis le démarrage du service.</p>
+      <section class="mt-6" aria-labelledby="history-title">
+        <div class="flex items-center justify-between gap-3 border-b border-line pb-3">
+          <h2 id="history-title" class="text-lg font-semibold text-ink">Historique des synchronisations</h2>
+          <span v-if="history.length" class="text-sm text-muted">{{ history.length }} exécution{{ history.length > 1 ? 's' : '' }}</span>
         </div>
+
+        <div v-if="history.length" class="divide-y divide-line">
+          <details v-for="(run, index) in history" :key="run.id" class="group">
+            <summary class="flex cursor-pointer list-none items-center gap-3 py-4 marker:content-none">
+              <component :is="run.state === 'succeeded' ? Check : X" :size="19" class="shrink-0" :class="run.state === 'succeeded' ? 'text-green-700' : 'text-red-700'" aria-hidden="true" />
+              <span class="min-w-0 flex-1">
+                <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span class="font-semibold text-ink">{{ targetLabels[run.target] }}</span>
+                  <span class="text-sm font-medium" :class="run.state === 'succeeded' ? 'text-green-700' : 'text-red-700'">{{ stateLabels[run.state] }}</span>
+                </span>
+                <span class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+                  <span>{{ formatDateTime(run.started_at) }}</span>
+                  <span class="tabular-nums">{{ formatDuration(run) }}</span>
+                  <span>Du {{ run.from }} au {{ run.through }}</span>
+                </span>
+              </span>
+              <span v-if="index === 0" class="hidden rounded-full bg-canvas px-2.5 py-1 text-xs font-semibold text-muted sm:inline">Dernière</span>
+              <ChevronDown :size="18" class="shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden="true" />
+            </summary>
+
+            <div class="pb-5 pl-8">
+              <div v-for="provider in requestedProviders(run)" :key="provider" class="border-t border-line py-4 first:border-t-0 first:pt-0">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <h3 class="font-semibold text-ink">{{ providerLabels[provider] }}</h3>
+                  <span class="flex items-center gap-2 text-sm font-medium text-muted">
+                    <component :is="providerIcon(run.providers[provider].state)" :size="17" :class="providerIconClass(run.providers[provider].state)" aria-hidden="true" />
+                    {{ providerStateLabels[run.providers[provider].state] }}
+                  </span>
+                </div>
+
+                <p v-if="run.providers[provider].error_code" class="mt-2 text-sm font-medium text-red-700">
+                  {{ failureLabels[run.providers[provider].error_code] }}
+                </p>
+
+                <template v-if="run.providers[provider].outcome">
+                  <dl class="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4">
+                    <div><dt class="text-muted">Cinémas</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.cinemas }}</dd></div>
+                    <div><dt class="text-muted">Films</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.movies }}</dd></div>
+                    <div><dt class="text-muted">Nouveaux films</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.new_movies }}</dd></div>
+                    <div><dt class="text-muted">Séances</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.showtimes }}</dd></div>
+                    <div><dt class="text-muted">Nouvelles séances</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.new_showtimes }}</dd></div>
+                    <div v-if="run.providers[provider].outcome.sync.requests !== undefined"><dt class="text-muted">Requêtes</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.requests }}</dd></div>
+                    <div v-if="run.providers[provider].outcome.sync.dates !== undefined"><dt class="text-muted">Dates</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.dates }}</dd></div>
+                    <div v-if="run.providers[provider].outcome.sync.skipped !== undefined"><dt class="text-muted">Éléments ignorés</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.skipped }}</dd></div>
+                    <div><dt class="text-muted">Version</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.sync.version }}</dd></div>
+                  </dl>
+
+                  <div class="mt-4 border-t border-line pt-3 text-sm">
+                    <p><span class="text-muted">Enrichissement TMDB</span> <span class="ml-1 font-semibold text-ink">{{ enrichmentLabels[run.providers[provider].outcome.enrichment.status] }}</span></p>
+                    <dl v-if="run.providers[provider].outcome.enrichment.counts" class="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-5">
+                      <div><dt class="text-muted">Réutilisés</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.enrichment.counts.reused }}</dd></div>
+                      <div><dt class="text-muted">Associés</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.enrichment.counts.matched }}</dd></div>
+                      <div><dt class="text-muted">À valider</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.enrichment.counts.review_required }}</dd></div>
+                      <div><dt class="text-muted">Sans résultat</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.enrichment.counts.unmatched }}</dd></div>
+                      <div><dt class="text-muted">Échecs</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ run.providers[provider].outcome.enrichment.counts.failed }}</dd></div>
+                    </dl>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <p v-else class="py-6 text-sm text-muted">Aucune synchronisation enregistrée.</p>
       </section>
     </template>
   </main>

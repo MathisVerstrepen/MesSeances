@@ -3,7 +3,6 @@ package synccontrol
 import (
 	"context"
 	"errors"
-	"strconv"
 	"sync"
 	"time"
 
@@ -71,24 +70,32 @@ type Manager struct {
 	closed   bool
 	now      func() time.Time
 	executor Executor
+	store    RunStore
 	location *time.Location
-	nextID   uint64
 	status   Status
+	runs     []Status
 }
 
-func NewManager(ctx context.Context, now func() time.Time, executor Executor) (*Manager, error) {
+func NewManager(ctx context.Context, now func() time.Time, executor Executor, store RunStore) (*Manager, error) {
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		return nil, err
 	}
-	if ctx == nil || executor == nil {
+	if ctx == nil || executor == nil || store == nil {
 		return nil, errors.New("sync manager dependencies are required")
 	}
 	if now == nil {
 		now = time.Now
 	}
+	if err := store.ReconcileRunning(ctx, now().UTC()); err != nil {
+		return nil, errors.New("sync run reconciliation failed")
+	}
+	runs, err := store.List(ctx, historyLimit)
+	if err != nil {
+		return nil, errors.New("sync run history load failed")
+	}
 	executorCtx, cancel := context.WithCancel(ctx)
-	return &Manager{ctx: executorCtx, cancel: cancel, now: now, executor: executor, location: location}, nil
+	return &Manager{ctx: executorCtx, cancel: cancel, now: now, executor: executor, store: store, location: location, runs: cloneStatuses(runs)}, nil
 }
 
 func ValidTarget(target Target) bool {
@@ -110,7 +117,6 @@ func (m *Manager) Start(target Target) (Status, error) {
 
 	now := m.now()
 	today := now.In(m.location)
-	m.nextID++
 	providers := map[string]ProviderStatus{
 		string(TargetUGC):       {State: ProviderNotRequested},
 		string(TargetKinepolis): {State: ProviderNotRequested},
@@ -121,11 +127,17 @@ func (m *Manager) Start(target Target) (Status, error) {
 	if target == TargetAll || target == TargetKinepolis {
 		providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderPending}
 	}
-	m.status = Status{
-		ID: strconv.FormatUint(m.nextID, 10), Target: target, State: StateRunning,
+	status := Status{
+		Target: target, State: StateRunning,
 		StartedAt: now.UTC(), From: today.Format("2006-01-02"),
 		Through: today.AddDate(0, 0, 7).Format("2006-01-02"), Providers: providers,
 	}
+	created, err := m.store.Create(m.ctx, status)
+	if err != nil {
+		return Status{}, errors.New("sync run creation failed")
+	}
+	m.status = created
+	m.prependRunLocked(created)
 	accepted := cloneStatus(m.status)
 	m.wg.Add(1)
 	go func(window Window) {
@@ -149,6 +161,19 @@ func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return cloneStatus(m.status)
+}
+
+func (m *Manager) Runs() []Status {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	runs := make([]Status, 0, len(m.runs))
+	for _, run := range m.runs {
+		if run.ID == m.status.ID {
+			continue
+		}
+		runs = append(runs, cloneStatus(run))
+	}
+	return runs
 }
 
 func (m *Manager) run(target Target, window Window) {
@@ -186,12 +211,13 @@ func (m *Manager) run(target Target, window Window) {
 	m.status.State = StateSucceeded
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
+	status := cloneStatus(m.status)
 	m.mu.Unlock()
+	m.persist(status)
 }
 
 func (m *Manager) finishOperationFailure(code FailureCode, failedProvider Target) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for provider, status := range m.status.Providers {
 		if status.State != ProviderRunning && status.State != ProviderPending {
 			continue
@@ -205,29 +231,34 @@ func (m *Manager) finishOperationFailure(code FailureCode, failedProvider Target
 	m.status.State = StateFailed
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
+	status := cloneStatus(m.status)
+	m.mu.Unlock()
+	m.persist(status)
 }
 
 func (m *Manager) setProvider(provider Target, state ProviderState) {
 	m.mu.Lock()
 	m.status.Providers[string(provider)] = ProviderStatus{State: state}
 	m.mu.Unlock()
+	m.persist(m.Status())
 }
 
 func (m *Manager) setProviderSuccess(provider Target, outcome ProviderOutcome) {
 	m.mu.Lock()
 	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
 	m.mu.Unlock()
+	m.persist(m.Status())
 }
 
 func (m *Manager) setProviderFailure(provider Target, code FailureCode) {
 	m.mu.Lock()
 	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
 	m.mu.Unlock()
+	m.persist(m.Status())
 }
 
 func (m *Manager) finishFailure(code FailureCode) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for provider, status := range m.status.Providers {
 		switch status.State {
 		case ProviderRunning:
@@ -239,6 +270,34 @@ func (m *Manager) finishFailure(code FailureCode) {
 	m.status.State = StateFailed
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
+	status := cloneStatus(m.status)
+	m.mu.Unlock()
+	m.persist(status)
+}
+
+func (m *Manager) persist(status Status) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(m.ctx), 5*time.Second)
+	defer cancel()
+	if m.store.Update(ctx, status) != nil {
+		return
+	}
+	m.mu.Lock()
+	for i := range m.runs {
+		if m.runs[i].ID == status.ID {
+			m.runs[i] = cloneStatus(status)
+			m.mu.Unlock()
+			return
+		}
+	}
+	m.prependRunLocked(status)
+	m.mu.Unlock()
+}
+
+func (m *Manager) prependRunLocked(status Status) {
+	m.runs = append([]Status{cloneStatus(status)}, m.runs...)
+	if len(m.runs) > historyLimit {
+		m.runs = m.runs[:historyLimit]
+	}
 }
 
 func cloneStatus(status Status) Status {
@@ -255,6 +314,14 @@ func cloneStatus(status Status) Status {
 		}
 	}
 	return copy
+}
+
+func cloneStatuses(statuses []Status) []Status {
+	clones := make([]Status, len(statuses))
+	for i := range statuses {
+		clones[i] = cloneStatus(statuses[i])
+	}
+	return clones
 }
 
 func cloneOutcome(outcome *ProviderOutcome) *ProviderOutcome {

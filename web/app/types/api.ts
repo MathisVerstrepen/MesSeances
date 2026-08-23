@@ -167,9 +167,44 @@ export interface AdminUnmergeLocalMovieResponse {
 export type AdminSyncTarget = 'all' | Provider
 export type AdminSyncState = 'running' | 'succeeded' | 'failed'
 export type AdminSyncProviderState = 'not_requested' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
+export type AdminSyncFailureCode = 'none' | 'client_creation_failed' | 'provider_sync_failed' | 'dataset_rejected' | 'replacement_failed' | 'canceled' | 'internal_failure'
+export type AdminSyncEnrichmentState = 'skipped' | 'complete' | 'degraded'
+
+export interface AdminSyncMetrics {
+  version: number
+  cinemas: number
+  movies: number
+  new_movies: number
+  dates?: number
+  requests?: number
+  showtimes: number
+  new_showtimes: number
+  skipped?: number
+  generated_at: string
+}
+
+export interface AdminSyncEnrichmentCounts {
+  reused: number
+  matched: number
+  review_required: number
+  unmatched: number
+  failed: number
+}
+
+export interface AdminSyncEnrichmentOutcome {
+  status: AdminSyncEnrichmentState
+  counts?: AdminSyncEnrichmentCounts
+}
+
+export interface AdminSyncProviderOutcome {
+  sync: AdminSyncMetrics
+  enrichment: AdminSyncEnrichmentOutcome
+}
 
 export interface AdminSyncProviderStatus {
   state: AdminSyncProviderState
+  error_code?: AdminSyncFailureCode
+  outcome?: AdminSyncProviderOutcome
 }
 
 export interface AdminSyncJob {
@@ -185,6 +220,7 @@ export interface AdminSyncJob {
 
 export interface AdminSyncResponse {
   job: AdminSyncJob | null
+  runs: AdminSyncJob[]
 }
 
 export interface TimelineQuery {

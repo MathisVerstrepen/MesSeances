@@ -25,12 +25,12 @@ type fakeWriter struct {
 	onReplace func()
 }
 
-func (w *fakeWriter) Replace(context.Context, []schedule.Dataset) (int64, error) {
+func (w *fakeWriter) Replace(context.Context, []schedule.Dataset) (schedule.PublicationResult, error) {
 	w.calls++
 	if w.onReplace != nil {
 		w.onReplace()
 	}
-	return w.version, w.err
+	return schedule.PublicationResult{Version: w.version, Providers: map[schedule.Provider]schedule.PublicationMetrics{schedule.ProviderUGC: {Movies: 1, NewMovies: 1, Showtimes: 1, NewShowtimes: 1}}}, w.err
 }
 
 type commandStore struct{}
@@ -111,11 +111,11 @@ func testExecutorFactory(t *testing.T) func(synccontrol.ProductionExecutorOption
 	return func(options synccontrol.ProductionExecutorOptions) (fullExecutor, error) {
 		return commandExecutorFunc(func(ctx context.Context, _ synccontrol.Target, _ synccontrol.Window) (synccontrol.ProviderOutcome, error) {
 			data := commandDataset(schedule.ScopeAll)
-			version, err := options.Writer.Replace(ctx, []schedule.Dataset{data})
+			publication, err := options.Writer.Replace(ctx, []schedule.Dataset{data})
 			if err != nil {
 				return synccontrol.ProviderOutcome{}, synccontrol.NewRunError(synccontrol.FailureReplacement, err)
 			}
-			outcome := synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: version, Cinemas: 1, Dates: 1, Showtimes: 1, GeneratedAt: data.GeneratedAt}, Enrichment: synccontrol.EnrichmentOutcome{Status: "skipped"}}
+			outcome := synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: publication.Version, Cinemas: 1, Movies: 1, NewMovies: 1, Dates: 1, Showtimes: 1, NewShowtimes: 1, GeneratedAt: data.GeneratedAt}, Enrichment: synccontrol.EnrichmentOutcome{Status: "skipped"}}
 			if options.Enrich != nil {
 				summary, enrichErr := options.Enrich(ctx, []enrichment.Movie{{SourceProvider: enrichment.SourceUGC, ProviderID: "10"}})
 				if summary != nil || enrichErr != nil {

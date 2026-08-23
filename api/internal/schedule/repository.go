@@ -17,6 +17,18 @@ type SnapshotRevision struct {
 	EnrichmentVersion int64
 }
 
+type PublicationMetrics struct {
+	Movies       int
+	NewMovies    int
+	Showtimes    int
+	NewShowtimes int
+}
+
+type PublicationResult struct {
+	Version   int64
+	Providers map[Provider]PublicationMetrics
+}
+
 type SnapshotWriter interface {
-	Replace(context.Context, []Dataset) (int64, error)
+	Replace(context.Context, []Dataset) (PublicationResult, error)
 }

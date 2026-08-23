@@ -52,6 +52,7 @@ type AdminOptions struct {
 type SyncController interface {
 	Start(synccontrol.Target) (synccontrol.Status, error)
 	Status() synccontrol.Status
+	Runs() []synccontrol.Status
 }
 
 type errorResponse struct {
