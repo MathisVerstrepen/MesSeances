@@ -212,6 +212,7 @@ type MovieCatalogQuery struct {
 	CurrentlyScreened *bool
 	Search            string
 	Sort              MovieCatalogSort
+	TheaterIDs        []string
 	Page              int
 	PageSize          int
 }

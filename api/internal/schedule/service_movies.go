@@ -5,6 +5,11 @@ import (
 	"strings"
 )
 
+type catalogGroupedMovie struct {
+	item          MovieCatalogItem
+	showtimeCount int
+}
+
 func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	page := query.Page
 	if page == 0 {
@@ -22,31 +27,19 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	}
 	view := s.source.Snapshot()
 	result := MovieCatalog{GeneratedAt: view.data.GeneratedAt, Items: []MovieCatalogItem{}, Page: page, PageSize: pageSize}
+	var selectedTheaters []int
+	if query.TheaterIDs != nil {
+		var err error
+		selectedTheaters, err = s.selectTheaters(view, query.TheaterIDs, "", false)
+		if err != nil {
+			return MovieCatalog{}, err
+		}
+	}
 	if query.CurrentlyScreened != nil && !*query.CurrentlyScreened {
 		return result, nil
 	}
 	search := normalized(strings.TrimSpace(query.Search))
-	type groupedMovie struct {
-		item          MovieCatalogItem
-		showtimeCount int
-	}
-	grouped := make([]groupedMovie, 0, len(view.movieOrder))
-	for _, slug := range view.movieOrder {
-		movie := view.movieBySlug[slug]
-		groupedMovie := groupedMovie{}
-		for _, variant := range movie.variants {
-			if search != "" && !strings.Contains(variant.title, search) {
-				continue
-			}
-			if groupedMovie.showtimeCount == 0 {
-				groupedMovie.item = materializeCatalogMovie(view.data.Showtimes[variant.firstShowtime].Movie)
-			}
-			groupedMovie.showtimeCount += variant.count
-		}
-		if groupedMovie.showtimeCount > 0 {
-			grouped = append(grouped, groupedMovie)
-		}
-	}
+	grouped := groupCatalogMovies(view, selectedTheaters, query.TheaterIDs != nil, search)
 	sortMode := normalizeMovieCatalogSort(query.Sort)
 	sort.Slice(grouped, func(i, j int) bool {
 		left, right := grouped[i], grouped[j]
@@ -87,6 +80,53 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		result.Items = append(result.Items, movie.item)
 	}
 	return result, nil
+}
+
+func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilterProvided bool, search string) []catalogGroupedMovie {
+	if !theaterFilterProvided {
+		grouped := make([]catalogGroupedMovie, 0, len(view.movieOrder))
+		for _, slug := range view.movieOrder {
+			movie := view.movieBySlug[slug]
+			current := catalogGroupedMovie{}
+			for _, variant := range movie.variants {
+				if search != "" && !strings.Contains(variant.title, search) {
+					continue
+				}
+				if current.showtimeCount == 0 {
+					current.item = materializeCatalogMovie(view.data.Showtimes[variant.firstShowtime].Movie)
+				}
+				current.showtimeCount += variant.count
+			}
+			if current.showtimeCount > 0 {
+				grouped = append(grouped, current)
+			}
+		}
+		return grouped
+	}
+
+	bySlug := make(map[string]*catalogGroupedMovie)
+	order := make([]string, 0)
+	for _, theaterPosition := range selectedTheaters {
+		for _, showtimePosition := range view.theaterShowtimes[theaterPosition] {
+			record := view.data.Showtimes[showtimePosition]
+			if search != "" && !strings.Contains(normalized(record.Movie.Title), search) {
+				continue
+			}
+			slug := publicMovieSlug(record.Movie)
+			current, exists := bySlug[slug]
+			if !exists {
+				current = &catalogGroupedMovie{item: materializeCatalogMovie(record.Movie)}
+				bySlug[slug] = current
+				order = append(order, slug)
+			}
+			current.showtimeCount++
+		}
+	}
+	grouped := make([]catalogGroupedMovie, 0, len(order))
+	for _, slug := range order {
+		grouped = append(grouped, *bySlug[slug])
+	}
+	return grouped
 }
 
 func normalizeMovieCatalogSort(value MovieCatalogSort) MovieCatalogSort {

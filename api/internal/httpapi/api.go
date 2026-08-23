@@ -215,6 +215,7 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 		CurrentlyScreened: currentlyScreened,
 		Search:            query.Get("search"),
 		Sort:              schedule.MovieCatalogSort(query.Get("sort")),
+		TheaterIDs:        parseCSVQuery(query, "theaters"),
 		Page:              page,
 		PageSize:          pageSize,
 	})

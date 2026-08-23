@@ -260,6 +260,7 @@ export interface TheaterQuery {
 
 export interface MoviesQuery {
   currently_screened?: boolean
+  theaters?: string
   search?: string
   sort?: MovieSort
   page?: number

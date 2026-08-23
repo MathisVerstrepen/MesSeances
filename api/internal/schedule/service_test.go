@@ -505,6 +505,45 @@ func TestMoviesCatalogPaginationSearchAndCurrentScope(t *testing.T) {
 	}
 }
 
+func TestMoviesCatalogTheaterScopeFiltersCountsAndPaginates(t *testing.T) {
+	data := testDataset()
+	appendShowing := func(source int, id, theaterID string) {
+		record := data.Showtimes[source]
+		record.ID = id
+		record.ProviderShowingID = id
+		record.TheaterID = theaterID
+		data.Showtimes = append(data.Showtimes, record)
+	}
+	appendShowing(0, "a-extra-1", "ugc-25")
+	appendShowing(0, "a-extra-2", "ugc-25")
+	appendShowing(2, "b-selected-1", "ugc-26")
+	appendShowing(2, "b-selected-2", "ugc-26")
+	service, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	national, err := service.Movies(MovieCatalogQuery{PageSize: 1})
+	if err != nil || len(national.Items) != 1 || national.Items[0].Slug != "ugc-film-200" {
+		t.Fatalf("national=%+v err=%v", national, err)
+	}
+	selected, err := service.Movies(MovieCatalogQuery{TheaterIDs: []string{"ugc-26"}, PageSize: 1})
+	if err != nil || selected.Total != 3 || len(selected.Items) != 1 || selected.Items[0].Slug != "ugc-film-201" {
+		t.Fatalf("selected=%+v err=%v", selected, err)
+	}
+	secondPage, err := service.Movies(MovieCatalogQuery{TheaterIDs: []string{"ugc-26"}, Page: 2, PageSize: 1})
+	if err != nil || secondPage.Total != 3 || len(secondPage.Items) != 1 || secondPage.Items[0].Slug != "ugc-film-200" {
+		t.Fatalf("secondPage=%+v err=%v", secondPage, err)
+	}
+	for _, ids := range [][]string{{""}, {"unknown"}} {
+		_, err := service.Movies(MovieCatalogQuery{TheaterIDs: ids})
+		var validation *ValidationError
+		if !errors.As(err, &validation) || validation.Message != "Le paramètre theaters contient un identifiant de cinéma inconnu." {
+			t.Fatalf("ids=%v err=%v", ids, err)
+		}
+	}
+}
+
 func TestMoviesCatalogSortOrdersAndDefaults(t *testing.T) {
 	data := testDataset()
 	record := func(id, slug, title string, runtime int, releaseDate string, tmdbID int64) ShowtimeRecord {

@@ -46,6 +46,7 @@ type SnapshotView struct {
 	cityBucketBySlug map[string]int
 	theaterCity      []int
 	theaterDate      map[theaterDateKey][]int
+	theaterShowtimes [][]int
 	movieBySlug      map[string]movieIndex
 	movieOrder       []string
 	movieDate        map[movieDateKey][]int
@@ -64,6 +65,7 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		cityBucketByFold: make(map[string]int),
 		cityBucketBySlug: make(map[string]int),
 		theaterDate:      make(map[theaterDateKey][]int),
+		theaterShowtimes: make([][]int, len(data.Theaters)),
 		movieBySlug:      make(map[string]movieIndex),
 		movieDate:        make(map[movieDateKey][]int),
 		theaterPositions: make([]int, len(data.Theaters)),
@@ -119,6 +121,7 @@ func NewSnapshotView(data Dataset) *SnapshotView {
 		view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}] = append(view.theaterDate[theaterDateKey{theaterID: showing.TheaterID, date: showing.ServiceDate}], position)
 		slug := publicMovieSlug(showing.Movie)
 		if theaterPosition, exists := view.theaterByID[showing.TheaterID]; exists {
+			view.theaterShowtimes[theaterPosition] = append(view.theaterShowtimes[theaterPosition], position)
 			cityMovies[view.theaterCity[theaterPosition]][slug] = true
 		}
 		view.movieDate[movieDateKey{slug: slug, date: showing.ServiceDate}] = append(view.movieDate[movieDateKey{slug: slug, date: showing.ServiceDate}], position)

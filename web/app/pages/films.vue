@@ -21,6 +21,7 @@ const OWNED_QUERY_KEYS = ['q', 'sort', 'page'] as const
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
+const preferences = useCinemaPreferences()
 const searchInput = ref('')
 const appliedSearch = ref('')
 const sort = ref<MovieSort>(DEFAULT_SORT)
@@ -31,6 +32,7 @@ const errorMessage = ref('')
 const failedPosters = ref<string[]>([])
 let requestId = 0
 let isMounted = false
+let isInitializing = false
 let scrollAfterLoad = false
 let lastLoadKey = ''
 
@@ -41,9 +43,25 @@ async function loadMovies() {
   pending.value = true
   errorMessage.value = ''
 
+  if (preferences.error.value) {
+    catalog.value = null
+    errorMessage.value = preferences.error.value
+    pending.value = false
+    return
+  }
+  if (!preferences.isInitialized.value) return
+  if (preferences.favoriteTheaterIds.value.length === 0) {
+    catalog.value = null
+    pending.value = false
+    return
+  }
+
+  const theaterIds = preferences.favoriteTheaterIds.value.join(',')
+
   try {
     const response = await api.movies({
       currently_screened: true,
+      theaters: theaterIds,
       search: appliedSearch.value || undefined,
       sort: sort.value,
       page: page.value,
@@ -72,6 +90,18 @@ async function loadMovies() {
   }
 }
 
+async function retryMovies() {
+  pending.value = true
+  errorMessage.value = ''
+  await preferences.initialize()
+  if (!preferences.isInitialized.value) {
+    await loadMovies()
+    return
+  }
+  lastLoadKey = ''
+  await applyRoute()
+}
+
 function filmQuery(search: string, nextPage: number, nextSort: MovieSort) {
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
     q: search || undefined,
@@ -98,7 +128,7 @@ async function applyRoute() {
     await router.replace({ query: canonicalQuery })
     return
   }
-  const key = `${appliedSearch.value}|${sort.value}|${page.value}`
+  const key = `${appliedSearch.value}|${sort.value}|${page.value}|${preferences.favoriteTheaterIds.value.join(',')}`
   if (key === lastLoadKey) return
   lastLoadKey = key
   await loadMovies()
@@ -150,42 +180,22 @@ function formatRuntime(runtimeMinutes: number): string {
 }
 
 hydrateRoute()
-const initialLoadKey = `${appliedSearch.value}|${sort.value}|${page.value}`
-const initialResult = await useAsyncData(`films-catalog:${initialLoadKey}`, async () => {
-  try {
-    const response = await api.movies({
-      currently_screened: true,
-      search: appliedSearch.value || undefined,
-      sort: sort.value,
-      page: page.value,
-      page_size: PAGE_SIZE
-    })
-    return { catalog: response, errorMessage: '' }
-  } catch (error) {
-    return { catalog: null, errorMessage: getFrenchApiError(error) }
-  }
-})
-
-catalog.value = initialResult.data.value?.catalog ?? null
-errorMessage.value = initialResult.data.value?.errorMessage ?? ''
-pending.value = false
-lastLoadKey = initialLoadKey
-if (import.meta.server && errorMessage.value) {
-  const event = useRequestEvent()
-  if (event) setResponseStatus(event, 502)
-}
 
 watch(() => route.query, () => {
-  if (isMounted) applyRoute()
+  if (isMounted && !isInitializing) applyRoute()
 })
-onMounted(() => {
+watch(preferences.favoriteTheaterIds, () => {
+  if (preferences.isInitialized.value && !isInitializing) applyRoute()
+})
+onMounted(async () => {
   isMounted = true
-  const lastPage = Math.max(1, Math.ceil((catalog.value?.total ?? 0) / PAGE_SIZE))
-  if (catalog.value && page.value > lastPage) {
-    router.replace({ query: filmQuery(appliedSearch.value, lastPage, sort.value) })
-  } else {
-    applyRoute()
-  }
+  isInitializing = true
+  const canonicalQuery = hydrateRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
+  await preferences.initialize()
+  isInitializing = false
+  if (preferences.isInitialized.value) await applyRoute()
+  else await loadMovies()
 })
 
 const config = useRuntimeConfig()
@@ -296,9 +306,14 @@ useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
         <div v-else-if="errorMessage" class="catalog-state" role="alert">
           <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
           <p class="max-w-lg">{{ errorMessage }}</p>
-          <button type="button" class="state-button" @click="loadMovies">
+          <button type="button" class="state-button" @click="retryMovies">
             <RefreshCw :size="17" aria-hidden="true" /> Réessayer
           </button>
+        </div>
+
+        <div v-else-if="preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0" class="catalog-state">
+          <Film :size="36" aria-hidden="true" />
+          <p>Sélectionnez au moins un cinéma pour voir les films disponibles.</p>
         </div>
 
         <div v-else-if="!catalog?.items.length" class="catalog-state">

@@ -414,6 +414,20 @@ func TestMoviesTransport(t *testing.T) {
 	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"overview":null,"release_date":null,"genres":[]`) {
 		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
+	selected := performRequest(t, handler, "/api/v1/movies?theaters=ugc-26&page_size=1")
+	if err := json.Unmarshal(selected.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if selected.Code != http.StatusOK || catalog.Total != 1 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" {
+		t.Fatalf("selected catalog status=%d payload=%+v", selected.Code, catalog)
+	}
+	secondSelectedPage := performRequest(t, handler, "/api/v1/movies?theaters=ugc-25,ugc-99&page=2&page_size=1")
+	if err := json.Unmarshal(secondSelectedPage.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if secondSelectedPage.Code != http.StatusOK || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "ugc-film-201" {
+		t.Fatalf("selected page status=%d payload=%+v", secondSelectedPage.Code, catalog)
+	}
 
 	empty := performRequest(t, handler, "/api/v1/movies?currently_screened=false")
 	if empty.Code != http.StatusOK {
@@ -569,6 +583,8 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"page size capped", "/api/v1/movies?page_size=101", "Le paramètre page_size doit être un entier compris entre 1 et 100."},
 		{"screened boolean", "/api/v1/movies?currently_screened=non", "Le paramètre currently_screened doit être true ou false."},
 		{"screened numeric boolean", "/api/v1/movies?currently_screened=1", "Le paramètre currently_screened doit être true ou false."},
+		{"movies empty theater", "/api/v1/movies?theaters=", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
+		{"movies unknown theater", "/api/v1/movies?theaters=inconnu", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"showtimes date required", "/api/v1/movies/tmdb-film-42/showtimes", "Le paramètre date est requis."},
 		{"showtimes scopes", "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&city=Lille&theaters=ugc-25", "Les paramètres city et theaters sont mutuellement exclusifs."},
 		{"showtimes unknown theater", "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&theaters=inconnu", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
