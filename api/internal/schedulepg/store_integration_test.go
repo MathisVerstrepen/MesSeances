@@ -140,7 +140,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 12 || migrationName != "012_sync_runs.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 13 || migrationName != "013_unbounded_schedule_windows.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	var generationColumns, generationIndexes, generationFKs int
@@ -667,6 +667,32 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("all-provider long window publication round trips", func(t *testing.T) {
+		ugc := testDataset()
+		kinepolis := kinepolisTestDataset()
+		for _, data := range []*Dataset{&ugc, &kinepolis} {
+			data.Window = Window{From: "2026-08-15", Through: "2026-09-15"}
+		}
+		publication, err := store.Replace(ctx, []Dataset{ugc, kinepolis})
+		if err != nil || publication.Version != 14 {
+			t.Fatalf("long-window publication=%+v error=%v", publication, err)
+		}
+
+		loaded, revision, err := store.Load(ctx)
+		if err != nil || revision.ScheduleVersion != 14 || loaded.Provider != ProviderCombined || loaded.Window != ugc.Window {
+			t.Fatalf("long-window load revision=%+v provider=%q window=%+v error=%v", revision, loaded.Provider, loaded.Window, err)
+		}
+
+		var providerSnapshots int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM provider_snapshots WHERE generation_id=$1 AND window_from=$2 AND window_through=$3`, publication.Version, ugc.Window.From, ugc.Window.Through).Scan(&providerSnapshots); err != nil || providerSnapshots != 2 {
+			t.Fatalf("long-window provider snapshots=%d error=%v", providerSnapshots, err)
+		}
+		var combinedProvider, combinedFrom, combinedThrough string
+		if err := pool.QueryRow(ctx, `SELECT provider, window_from::text, window_through::text FROM schedule_snapshot WHERE singleton=true AND version=$1`, publication.Version).Scan(&combinedProvider, &combinedFrom, &combinedThrough); err != nil || combinedProvider != string(ProviderCombined) || combinedFrom != ugc.Window.From || combinedThrough != ugc.Window.Through {
+			t.Fatalf("long-window combined snapshot provider=%q window=%s..%s error=%v", combinedProvider, combinedFrom, combinedThrough, err)
+		}
+	})
 }
 
 func shiftedDataset(data Dataset, days int) Dataset {
@@ -798,7 +824,7 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	}
 	store := NewStore(pool)
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 12 || migrationName != "012_sync_runs.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 13 || migrationName != "013_unbounded_schedule_windows.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
 	}
 	var sourceColumns, sourceConstraints int

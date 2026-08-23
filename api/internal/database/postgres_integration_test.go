@@ -62,7 +62,7 @@ func TestMigrationsIntegration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 12 {
+	if err != nil || len(migrations) != 13 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -104,6 +104,18 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 
 	if err := RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run pending migrations failed")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE schedule_snapshot SET window_through='2026-09-30' WHERE singleton=true"); err != nil {
+		t.Fatalf("long combined window rejected after migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE provider_snapshots SET window_through='2026-09-30' WHERE provider='ugc'"); err != nil {
+		t.Fatalf("long provider window rejected after migration: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE schedule_snapshot SET window_through=window_from-1 WHERE singleton=true"); err == nil {
+		t.Fatal("reverse combined window accepted after migration")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE provider_snapshots SET window_through=window_from-1 WHERE provider='ugc'"); err == nil {
+		t.Fatal("reverse provider window accepted after migration")
 	}
 	for table, column := range map[string]string{
 		"movies":               "runtime_minutes",
@@ -208,7 +220,7 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 12 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 13 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
@@ -253,7 +265,7 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 12 {
+	if err != nil || len(migrations) != 13 {
 		t.Fatalf("migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
