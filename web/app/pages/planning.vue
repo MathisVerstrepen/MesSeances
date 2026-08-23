@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { AlertTriangle, CalendarDays, LoaderCircle, RefreshCw, Settings2 } from '@lucide/vue'
+import { VueDatePicker } from '@vuepic/vue-datepicker'
+import { fr } from 'date-fns/locale/fr'
+import '@vuepic/vue-datepicker/dist/main.css'
 import type { Language, QueryFormat, TimelineResponse } from '~/types/api'
 import { formatDateLabel, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
@@ -18,7 +21,8 @@ const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const preferences = usePageCinemaSelection()
-const date = ref(todayInParis())
+const today = ref(todayInParis())
+const date = ref(today.value)
 const language = ref<Language>('ALL')
 const mode = ref<TimelineMode>('theater')
 const formatFilter = ref<QueryFormat>('ALL')
@@ -26,10 +30,12 @@ const zoom = ref<TimelineZoom>(30)
 const timeline = ref<TimelineResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
+const isCalendarOpen = ref(false)
 let requestId = 0
 let isMounted = false
 let isInitializing = false
 let lastTimelineKey = ''
+let dayCheckTimer: ReturnType<typeof setTimeout> | undefined
 
 function matchesFormat(format: string) {
   if (formatFilter.value === 'ALL') return true
@@ -79,9 +85,8 @@ async function retryTimeline() {
 }
 
 function timelineQuery() {
-  const today = todayInParis()
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
-    date: date.value === today ? undefined : date.value,
+    date: date.value === today.value ? undefined : date.value,
     language: language.value === 'ALL' ? undefined : language.value,
     format: formatFilter.value === 'ALL' ? undefined : formatFilter.value,
     mode: mode.value === 'theater' ? undefined : mode.value,
@@ -91,7 +96,7 @@ function timelineQuery() {
 
 function hydrateRoute() {
   const queryDate = calendarDate(singularQueryValue(route.query.date))
-  date.value = queryDate ?? todayInParis()
+  date.value = queryDate && queryDate >= today.value ? queryDate : today.value
   language.value = enumQueryValue(singularQueryValue(route.query.language), LANGUAGES) ?? 'ALL'
   formatFilter.value = enumQueryValue(singularQueryValue(route.query.format), formatOptions.map((option) => option.value)) ?? 'ALL'
   mode.value = enumQueryValue(singularQueryValue(route.query.mode), MODES) ?? 'theater'
@@ -124,7 +129,7 @@ function updateLanguage(event: Event) {
 }
 
 function createFallbackDates() {
-  const [year, month, day] = todayInParis().split('-').map(Number)
+  const [year, month, day] = today.value.split('-').map(Number)
   return Array.from({ length: 7 }, (_, offset) => {
     const value = new Date(Date.UTC(year!, month! - 1, day! + offset, 12))
     return [value.getUTCFullYear(), String(value.getUTCMonth() + 1).padStart(2, '0'), String(value.getUTCDate()).padStart(2, '0')].join('-')
@@ -133,13 +138,71 @@ function createFallbackDates() {
 
 const dateOptions = computed(() => {
   const available = new Set(preferences.activeTheaters.value.flatMap((theater) => theater.available_dates))
-  const options = available.size > 0 ? [...available].sort() : createFallbackDates()
-  if (!options.includes(date.value)) options.push(date.value)
+  const options = available.size > 0 ? [...available].filter((option) => option >= today.value).sort() : createFallbackDates()
+  if (date.value >= today.value && !options.includes(date.value)) options.push(date.value)
   return options.sort()
 })
+const tomorrowDate = computed(() => createFallbackDates()[1]!)
+
+function dateFromCalendarDate(value: string): Date | null {
+  const [year, month, day] = value.split('-').map(Number)
+  if (!year || !month || !day) return null
+  return new Date(year, month - 1, day, 12)
+}
+
+function calendarDateFromDate(value: Date): string {
+  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
+}
+
+const allowedDateValues = computed(() => dateOptions.value.map(dateFromCalendarDate).filter((value): value is Date => value !== null))
+const datePickerDate = computed<Date | null>({
+  get: () => dateFromCalendarDate(date.value),
+  set: (value) => {
+    if (!value) return
+    const selectedDate = calendarDateFromDate(value)
+    if (dateOptions.value.includes(selectedDate)) updateTimelineQuery({ date: selectedDate === today.value ? undefined : selectedDate })
+  }
+})
+const calendarAriaLabels = {
+  menu: 'Calendrier des dates disponibles',
+  input: 'Choisir une autre date',
+  calendarIcon: 'Ouvrir le calendrier',
+  prevMonth: 'Mois précédent',
+  nextMonth: 'Mois suivant',
+  prevYear: 'Année précédente',
+  nextYear: 'Année suivante',
+  openMonthsOverlay: 'Choisir un mois',
+  openYearsOverlay: 'Choisir une année',
+  monthPicker: (overlay: boolean) => overlay ? 'Fermer le choix du mois' : 'Ouvrir le choix du mois',
+  yearPicker: (overlay: boolean) => overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
+  day: ({ value }: { value: Date }) => `Choisir ${formatLongDate(calendarDateFromDate(value))}`
+}
 
 const showtimeCount = computed(() => timeline.value?.theaters.reduce((total, theater) => total + theater.showtimes.filter((showtime) => matchesFormat(showtime.format)).length, 0) ?? 0)
 const rawShowtimeCount = computed(() => timeline.value?.theaters.reduce((total, theater) => total + theater.showtimes.length, 0) ?? 0)
+
+async function refreshPlanningDay() {
+  const currentDay = todayInParis()
+  if (currentDay === today.value) return
+  today.value = currentDay
+  await applyRoute()
+}
+
+function scheduleDayCheck() {
+  if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
+  const delay = 60_000 - Date.now() % 60_000
+  dayCheckTimer = window.setTimeout(() => {
+    dayCheckTimer = undefined
+    void refreshPlanningDay()
+    scheduleDayCheck()
+  }, delay)
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  void refreshPlanningDay()
+  scheduleDayCheck()
+}
 
 watch(() => route.query, () => {
   if (isMounted) applyRoute()
@@ -150,6 +213,8 @@ watch(preferences.activeTheaterIds, () => {
 
 onMounted(async () => {
   isMounted = true
+  scheduleDayCheck()
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   const canonicalQuery = hydrateRoute()
   if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
   isInitializing = true
@@ -157,6 +222,11 @@ onMounted(async () => {
   isInitializing = false
   if (preferences.isInitialized.value) await applyRoute()
   else await loadTimeline()
+})
+
+onBeforeUnmount(() => {
+  if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 const config = useRuntimeConfig()
@@ -177,26 +247,58 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     <h1 class="sr-only">Planning des séances</h1>
 
     <section class="control-dock sticky top-[4.5rem] z-20 border-2 border-ink bg-[#f1efe8]/95 shadow-[6px_6px_0_#27272a] backdrop-blur" aria-label="Filtres du planning">
-      <div class="flex items-center gap-3 border-b-2 border-ink p-2 sm:p-3">
-        <span class="hidden size-9 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] sm:grid" aria-hidden="true">
-          <CalendarDays :size="18" stroke-width="2.5" />
-        </span>
-        <div class="min-w-0 flex-1 overflow-x-auto [scrollbar-width:thin]">
-          <div class="flex min-w-max" aria-label="Choisir une date">
-            <button
-              v-for="option in dateOptions"
-              :key="option"
-              type="button"
-              class="date-button h-9 border-2 border-r-0 border-ink bg-surface px-3 font-mono text-[10px] font-black uppercase capitalize tracking-[0.06em] last:border-r-2 sm:h-10 sm:px-4"
-              :class="date === option ? 'date-button--active' : 'hover:bg-[#e8e6de]'"
-              :aria-pressed="date === option"
-              @click="updateTimelineQuery({ date: option === todayInParis() ? undefined : option })"
-            >
-              {{ formatDateLabel(option) }}
-            </button>
+      <div class="flex flex-wrap items-center gap-2 border-b-2 border-ink p-2 sm:flex-nowrap sm:gap-3 sm:p-3">
+        <div class="flex w-full min-w-0 items-center gap-2 sm:flex-1 sm:gap-3">
+          <VueDatePicker
+            v-model="datePickerDate"
+            class="editorial-datepicker shrink-0"
+            :allowed-dates="allowedDateValues"
+            :aria-labels="calendarAriaLabels"
+            :locale="fr"
+            :time-config="{ enableTimePicker: false }"
+            :transitions="false"
+            :floating="{ arrow: false, offset: 6 }"
+            :ui="{ menu: 'editorial-calendar-menu' }"
+            teleport="body"
+            auto-apply
+            arrow-navigation
+            prevent-min-max-navigation
+            @open="isCalendarOpen = true"
+            @closed="isCalendarOpen = false"
+          >
+            <template #trigger>
+              <button
+                type="button"
+                class="calendar-trigger grid size-9 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight sm:size-10"
+                :class="date !== today && date !== tomorrowDate ? 'date-button--active' : ''"
+                :aria-label="`Choisir une autre date. Date actuelle : ${formatLongDate(date)}`"
+                :aria-expanded="isCalendarOpen"
+              >
+                <CalendarDays :size="18" aria-hidden="true" />
+              </button>
+            </template>
+          </VueDatePicker>
+          <div class="min-w-0 flex-1 overflow-hidden sm:overflow-x-auto [scrollbar-width:thin]">
+            <div class="grid min-w-0 grid-cols-2 sm:flex sm:min-w-max" aria-label="Choisir une date">
+              <button
+                v-for="option in dateOptions"
+                :key="option"
+                type="button"
+                class="date-button h-9 w-full border-2 border-r-0 border-ink bg-surface px-2 font-mono text-[10px] font-black uppercase capitalize tracking-[0.04em] last:border-r-2 sm:h-10 sm:w-auto sm:px-4 sm:tracking-[0.06em]"
+                :class="[
+                  date === option ? 'date-button--active' : 'hover:bg-[#e8e6de]',
+                  option !== today && option !== tomorrowDate ? 'hidden sm:block' : '',
+                  option === tomorrowDate ? 'max-sm:border-r-2' : ''
+                ]"
+                :aria-pressed="date === option"
+                @click="updateTimelineQuery({ date: option === today ? undefined : option })"
+              >
+                {{ formatDateLabel(option, today) }}
+              </button>
+            </div>
           </div>
         </div>
-        <NuxtLink to="/cinemas" class="personalize-button shrink-0">
+        <NuxtLink to="/cinemas" class="personalize-button ml-auto shrink-0 sm:ml-0">
           <Settings2 :size="17" aria-hidden="true" />
           <span class="hidden sm:inline">Cinémas</span>
           <strong>{{ preferences.activeTheaterIds.value.length }}</strong>
@@ -299,6 +401,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 }
 
 .date-button:focus-visible,
+.calendar-trigger:focus-visible,
 .control-button:focus-visible,
 .personalize-button:focus-visible,
 .editorial-select:focus-visible,
@@ -306,6 +409,53 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   z-index: 1;
   outline: 3px solid #1f6f78;
   outline-offset: 2px;
+}
+
+.editorial-datepicker {
+  min-width: 0;
+}
+
+:global(.editorial-calendar-menu) {
+  --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --dp-border-radius: 0;
+  --dp-cell-border-radius: 0;
+  --dp-background-color: #f8f7f2;
+  --dp-text-color: #27272a;
+  --dp-hover-color: #e8e6de;
+  --dp-hover-text-color: #27272a;
+  --dp-hover-icon-color: #27272a;
+  --dp-primary-color: #27272a;
+  --dp-primary-text-color: #fff;
+  --dp-secondary-color: #71717a;
+  --dp-border-color: #27272a;
+  --dp-menu-border-color: #27272a;
+  --dp-border-color-hover: #27272a;
+  --dp-border-color-focus: #27272a;
+  --dp-disabled-color: #e8e6de;
+  --dp-disabled-color-text: #71717a;
+  --dp-icon-color: #27272a;
+  --dp-menu-min-width: 19rem;
+  --dp-font-size: 0.78rem;
+  --dp-common-transition: none;
+  --dp-animation-duration: 0s;
+  border-width: 2px;
+  box-shadow: 6px 6px 0 #27272a;
+}
+
+:global(.editorial-calendar-menu .dp__calendar_header_item),
+:global(.editorial-calendar-menu .dp__month_year_select) {
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:global(.editorial-calendar-menu .dp__active_date) {
+  box-shadow: inset 0 -3px 0 var(--color-highlight);
+}
+
+:global(.editorial-calendar-menu .dp__today) {
+  border: 2px solid #991b1b;
 }
 
 .personalize-button,

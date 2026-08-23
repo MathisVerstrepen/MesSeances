@@ -21,10 +21,12 @@ const props = defineProps<{
 const selected = ref<PlacedShowtime | null>(null)
 const failedPosterUrl = ref<string | null>(null)
 const scroller = ref<HTMLElement | null>(null)
+const inspector = ref<HTMLElement | null>(null)
 const inspectorCloseButton = ref<HTMLButtonElement | null>(null)
 const now = ref(new Date())
 let selectionTrigger: HTMLElement | null = null
-let clockTimer: ReturnType<typeof setInterval> | undefined
+let clockTimer: ReturnType<typeof setTimeout> | undefined
+let isClockMounted = false
 let dragPointerId: number | null = null
 let dragStartX = 0
 let dragStartScroll = 0
@@ -119,6 +121,11 @@ function handleEscape(event: KeyboardEvent) {
   closeInspector()
 }
 
+function handleOutsidePointer(event: PointerEvent) {
+  if (!selected.value || (inspector.value && event.composedPath().includes(inspector.value))) return
+  closeInspector({ restoreFocus: false })
+}
+
 const selectedPosterUrl = computed(() => {
   const url = safePosterUrl(selected.value?.showtime.poster_url ?? null)
   return url && failedPosterUrl.value !== url ? url : null
@@ -128,8 +135,31 @@ function showtimeWidth(durationMinutes: number) {
   return Math.max(durationMinutes * pixelsPerMinute.value, 56)
 }
 
-function isPastShowtime(endTime: string) {
-  return new Date(endTime).getTime() <= now.value.getTime()
+function isShowtimeUnavailable(startTime: string) {
+  return new Date(startTime).getTime() + 20 * 60_000 <= now.value.getTime()
+}
+
+function scheduleClock() {
+  if (!isClockMounted) return
+  if (clockTimer) window.clearTimeout(clockTimer)
+
+  const timestamp = Date.now()
+  now.value = new Date(timestamp)
+  let nextTransition = Number.POSITIVE_INFINITY
+  for (const theater of props.timeline.theaters) {
+    for (const showtime of theater.showtimes) {
+      const cutoff = new Date(showtime.start_time).getTime() + 20 * 60_000
+      if (cutoff > timestamp && cutoff < nextTransition) nextTransition = cutoff
+    }
+  }
+
+  const nextMinuteDelay = 60_000 - timestamp % 60_000
+  const nextTransitionDelay = nextTransition - timestamp
+  clockTimer = window.setTimeout(scheduleClock, Math.min(nextMinuteDelay, nextTransitionDelay))
+}
+
+function handleClockVisibilityChange() {
+  if (document.visibilityState === 'visible') scheduleClock()
 }
 
 function planningImageUrl(backdropUrl: string | null, posterUrl: string | null) {
@@ -209,20 +239,28 @@ function alignInitialScroll() {
   scroller.value.scrollLeft = Math.min(Math.max(earliestOffset * pixelsPerMinute.value - INITIAL_SCROLL_GUTTER, 0), maximumScroll)
 }
 
+watch(() => props.timeline, scheduleClock)
+
 onMounted(() => {
-  clockTimer = window.setInterval(() => { now.value = new Date() }, 60_000)
+  isClockMounted = true
+  scheduleClock()
+  document.addEventListener('visibilitychange', handleClockVisibilityChange)
   window.addEventListener('keydown', handleEscape)
+  window.addEventListener('pointerdown', handleOutsidePointer)
   window.addEventListener('pointerup', pointerEnd)
   window.addEventListener('pointercancel', pointerEnd)
   initialScrollFrame = window.requestAnimationFrame(alignInitialScroll)
 })
 
 onBeforeUnmount(() => {
-  if (clockTimer) window.clearInterval(clockTimer)
+  isClockMounted = false
+  if (clockTimer) window.clearTimeout(clockTimer)
   if (initialScrollFrame !== undefined) window.cancelAnimationFrame(initialScrollFrame)
   window.removeEventListener('keydown', handleEscape)
+  window.removeEventListener('pointerdown', handleOutsidePointer)
   window.removeEventListener('pointerup', pointerEnd)
   window.removeEventListener('pointercancel', pointerEnd)
+  document.removeEventListener('visibilitychange', handleClockVisibilityChange)
 })
 </script>
 
@@ -249,7 +287,7 @@ onBeforeUnmount(() => {
     >
       <div class="relative" :style="{ width: `calc(var(--timeline-label-width) + ${railWidth}px)` }">
         <div class="relative h-11 border-b-2 border-ink bg-[#f1efe8]">
-          <div class="sticky left-0 z-30 flex h-full items-center border-r-2 border-ink bg-[#f1efe8] px-3 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:px-4" style="width: var(--timeline-label-width)">
+          <div class="left-0 z-30 flex h-full items-center border-r-2 border-ink bg-[#f1efe8] px-3 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:sticky sm:px-4" style="width: var(--timeline-label-width)">
             {{ mode === 'theater' ? 'Cinémas' : 'Films' }}
           </div>
           <span
@@ -272,7 +310,7 @@ onBeforeUnmount(() => {
             backgroundPosition: 'var(--timeline-label-width) 0, var(--timeline-label-width) 0'
           }"
         >
-          <div class="sticky left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:px-4" style="width: var(--timeline-label-width)">
+          <div class="left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:sticky sm:px-4" style="width: var(--timeline-label-width)">
             <strong class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"><BrandedText :text="row.label" /></strong>
             <span class="mt-1 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-ink">
               <MapPin v-if="mode === 'theater'" :size="12" aria-hidden="true" />
@@ -285,14 +323,14 @@ onBeforeUnmount(() => {
             v-for="item in row.showtimes"
             :key="`${item.theater.id}-${item.showtime.id}`"
             type="button"
-            class="showtime-block absolute h-[72px] overflow-hidden border-2 px-2.5 py-2 text-left focus:z-30"
+            class="showtime-block absolute h-[72px] overflow-hidden border-2 border-ink px-2.5 py-2 text-left focus:z-30"
             :class="[
-              item.showtime.language === 'VOSTFR' ? 'border-primary bg-primary-soft text-primary' : 'border-ink bg-[#e8e6de] text-ink',
-              selected?.showtime.id === item.showtime.id ? 'showtime-block--selected opacity-100 saturate-100' : '',
-              isPastShowtime(item.showtime.end_time) && selected?.showtime.id !== item.showtime.id ? 'opacity-70 saturate-50 hover:opacity-100 hover:saturate-100 focus:opacity-100 focus:saturate-100' : ''
+              item.showtime.language === 'VOSTFR' ? 'bg-primary-soft text-primary' : 'bg-[#e8e6de] text-ink',
+              selected?.showtime.id === item.showtime.id ? 'showtime-block--selected' : '',
+              isShowtimeUnavailable(item.showtime.start_time) ? 'showtime-block--unavailable' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
-            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${formatLabel(item.showtime.format)}`"
+            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
             @click="selectShowtime(item, $event)"
@@ -333,6 +371,7 @@ onBeforeUnmount(() => {
     >
       <aside
         v-if="selected"
+        ref="inspector"
         id="timeline-showtime-inspector"
         class="inspector fixed inset-y-0 right-0 z-50 flex w-full max-w-[29rem] flex-col overflow-y-auto border-l-2 border-ink bg-[#f8f7f2] shadow-[-8px_0_0_#27272a]"
         aria-labelledby="timeline-showtime-inspector-title"
@@ -399,7 +438,7 @@ onBeforeUnmount(() => {
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-            <BookingLink :url="selected.showtime.booking_url" :provider="selected.showtime.provider" />
+            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
               class="film-link inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de]"
@@ -439,6 +478,11 @@ onBeforeUnmount(() => {
 
 .showtime-block:hover {
   box-shadow: 3px 3px 0 var(--color-highlight);
+}
+
+.showtime-block--unavailable {
+  opacity: 0.72;
+  filter: grayscale(0.8) saturate(0.25);
 }
 
 .showtime-block:focus-visible,
