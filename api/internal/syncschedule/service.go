@@ -28,10 +28,20 @@ type serviceTicker interface {
 	Stop()
 }
 
+type serviceTimer interface {
+	C() <-chan time.Time
+	Stop() bool
+}
+
 type timerTicker struct{ ticker *time.Ticker }
 
 func (t timerTicker) C() <-chan time.Time { return t.ticker.C }
 func (t timerTicker) Stop()               { t.ticker.Stop() }
+
+type oneShotTimer struct{ timer *time.Timer }
+
+func (t oneShotTimer) C() <-chan time.Time { return t.timer.C }
+func (t oneShotTimer) Stop() bool          { return t.timer.Stop() }
 
 type registration struct {
 	schedule Schedule
@@ -43,8 +53,21 @@ type registration struct {
 type serviceDependencies struct {
 	now       func() time.Time
 	newTicker func(time.Duration) serviceTicker
-	wait      func(context.Context, time.Duration) bool
+	newTimer  func(time.Time) serviceTimer
 	scheduler scheduler
+}
+
+type occurrenceKey struct {
+	provider     synccontrol.Target
+	revision     int64
+	scheduledFor time.Time
+}
+
+type queueItem struct {
+	key      occurrenceKey
+	attempt  int
+	readyAt  time.Time
+	sequence uint64
 }
 
 type Service struct {
@@ -62,11 +85,17 @@ type Service struct {
 	cancelShutdown context.CancelFunc
 	closeDone      chan struct{}
 
-	started bool
-	closed  bool
-	ticker  serviceTicker
-	refresh sync.WaitGroup
-	entries map[synccontrol.Target]*registration
+	// mu protects service lifecycle, registrations, queue, active, and nextSeq.
+	started  bool
+	closed   bool
+	ticker   serviceTicker
+	refresh  sync.WaitGroup
+	dispatch sync.WaitGroup
+	entries  map[synccontrol.Target]*registration
+	queue    []queueItem
+	active   map[occurrenceKey]struct{}
+	wake     chan struct{}
+	nextSeq  uint64
 }
 
 func NewService(store Store, starter Starter) (*Service, error) {
@@ -79,7 +108,9 @@ func NewService(store Store, starter Starter) (*Service, error) {
 		newTicker: func(interval time.Duration) serviceTicker {
 			return timerTicker{ticker: time.NewTicker(interval)}
 		},
-		wait: waitForDelay,
+		newTimer: func(readyAt time.Time) serviceTimer {
+			return oneShotTimer{timer: time.NewTimer(time.Until(readyAt))}
+		},
 		scheduler: cron.New(
 			cron.WithLocation(location),
 		),
@@ -88,7 +119,7 @@ func NewService(store Store, starter Starter) (*Service, error) {
 }
 
 func newService(store Store, starter Starter, location *time.Location, deps serviceDependencies) (*Service, error) {
-	if store == nil || starter == nil || location == nil || deps.now == nil || deps.newTicker == nil || deps.wait == nil || deps.scheduler == nil {
+	if store == nil || starter == nil || location == nil || deps.now == nil || deps.newTicker == nil || deps.newTimer == nil || deps.scheduler == nil {
 		return nil, errors.New("sync schedule dependencies are required")
 	}
 	shutdown, cancelShutdown := context.WithCancel(context.Background())
@@ -96,6 +127,7 @@ func newService(store Store, starter Starter, location *time.Location, deps serv
 		store: store, starter: starter, location: location, deps: deps,
 		shutdown: shutdown, cancelShutdown: cancelShutdown, closeDone: make(chan struct{}),
 		entries: make(map[synccontrol.Target]*registration),
+		active:  make(map[occurrenceKey]struct{}), wake: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -144,13 +176,15 @@ func (s *Service) Start(ctx context.Context) error {
 	ticker := s.ticker
 	s.deps.scheduler.Start()
 	s.refresh.Add(1)
+	s.dispatch.Add(1)
 	s.mu.Unlock()
 
 	go s.refreshLoop(serviceCtx, ticker)
+	go s.dispatchLoop(serviceCtx)
 	return nil
 }
 
-// Close stops refreshes, cancels pending retry chains, then waits for cron jobs.
+// Close stops callbacks and queue dispatch without draining accepted backlog.
 func (s *Service) Close() {
 	s.mu.Lock()
 	if s.closed {
@@ -170,6 +204,9 @@ func (s *Service) Close() {
 				entry.cancel()
 			}
 		}
+		s.queue = nil
+		clear(s.active)
+		s.signalDispatcherLocked()
 	}
 	s.mu.Unlock()
 
@@ -181,6 +218,7 @@ func (s *Service) Close() {
 	if started {
 		s.refresh.Wait()
 		<-s.deps.scheduler.Stop().Done()
+		s.dispatch.Wait()
 	}
 	close(s.closeDone)
 }
@@ -339,7 +377,7 @@ func (s *Service) applyPreparedLocked(prepared []preparedSchedule, complete bool
 		}
 		entry.ctx, entry.cancel = context.WithCancel(s.ctx)
 		job := cron.FuncJob(func() { s.runRegistration(entry) })
-		entry.entryID = s.deps.scheduler.Schedule(item.parsed, cron.SkipIfStillRunning(cron.DiscardLogger)(job))
+		entry.entryID = s.deps.scheduler.Schedule(item.parsed, job)
 	}
 }
 
@@ -367,8 +405,9 @@ func (s *Service) refreshLoop(ctx context.Context, ticker serviceTicker) {
 func (s *Service) runRegistration(entry *registration) {
 	s.mu.Lock()
 	entryID := entry.entryID
+	ctx := entry.ctx
 	s.mu.Unlock()
-	if entry.ctx.Err() != nil {
+	if ctx == nil || ctx.Err() != nil {
 		return
 	}
 	previous := s.deps.scheduler.Entry(entryID).Prev
@@ -379,51 +418,178 @@ func (s *Service) runRegistration(entry *registration) {
 	if scheduledFor.IsZero() {
 		return
 	}
-	s.runChain(entry.ctx, entry.schedule.Provider, entry.schedule.Revision, scheduledFor)
-}
-
-func (s *Service) runChain(ctx context.Context, provider synccontrol.Target, revision int64, scheduledFor time.Time) {
-	fresh, err := s.fresh(ctx, provider, revision)
+	fresh, err := s.fresh(ctx, entry.schedule.Provider, entry.schedule.Revision)
 	if err != nil || !fresh {
 		return
 	}
-	completion, err := s.start(provider, revision, scheduledFor, 0)
-	if errors.Is(err, synccontrol.ErrInProgress) || errors.Is(err, synccontrol.ErrOccurrenceClaimed) || err != nil {
-		return
-	}
-	if completedSuccessfully(completion) {
-		return
-	}
 
-	for attempt := 1; attempt <= 2; attempt++ {
-		if !s.deps.wait(ctx, RetryDelay) {
-			return
-		}
-		fresh, err := s.fresh(ctx, provider, revision)
-		if err != nil {
+	key := occurrenceKey{
+		provider: entry.schedule.Provider, revision: entry.schedule.Revision, scheduledFor: scheduledFor,
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.entries[key.provider]
+	if !s.started || s.closed || ctx.Err() != nil || current != entry || current.schedule.Revision != key.revision {
+		return
+	}
+	if _, exists := s.active[key]; exists {
+		return
+	}
+	s.active[key] = struct{}{}
+	s.enqueueLocked(queueItem{key: key, readyAt: s.deps.now()})
+}
+
+func (s *Service) dispatchLoop(ctx context.Context) {
+	defer s.dispatch.Done()
+	for {
+		item, readyAt, ok := s.nextReady()
+		if ok {
+			if !s.dispatchItem(ctx, item) {
+				return
+			}
 			continue
 		}
-		if !fresh {
-			return
-		}
-		completion, err := s.start(provider, revision, scheduledFor, attempt)
-		if errors.Is(err, synccontrol.ErrOccurrenceClaimed) {
-			return
-		}
-		if err != nil {
+		if readyAt.IsZero() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.wake:
+			}
 			continue
 		}
-		if completedSuccessfully(completion) {
+		timer := s.deps.newTimer(readyAt)
+		if !readyAt.After(s.deps.now()) {
+			stopAndDrainTimer(timer)
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			stopAndDrainTimer(timer)
 			return
+		case <-s.wake:
+			stopAndDrainTimer(timer)
+		case <-timer.C():
 		}
 	}
 }
 
-func (s *Service) start(provider synccontrol.Target, revision int64, scheduledFor time.Time, attempt int) (<-chan synccontrol.Completion, error) {
+func (s *Service) nextReady() (queueItem, time.Time, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.ctx == nil || s.ctx.Err() != nil {
+		return queueItem{}, time.Time{}, false
+	}
+	now := s.deps.now()
+	readyIndex := -1
+	var readySequence uint64
+	var earliest time.Time
+	for i, item := range s.queue {
+		if item.readyAt.After(now) {
+			if earliest.IsZero() || item.readyAt.Before(earliest) {
+				earliest = item.readyAt
+			}
+			continue
+		}
+		if readyIndex == -1 || item.sequence < readySequence {
+			readyIndex = i
+			readySequence = item.sequence
+		}
+	}
+	if readyIndex >= 0 {
+		item := s.queue[readyIndex]
+		s.queue = append(s.queue[:readyIndex], s.queue[readyIndex+1:]...)
+		return item, time.Time{}, true
+	}
+	if earliest.IsZero() {
+		return queueItem{}, time.Time{}, false
+	}
+	return queueItem{}, earliest, false
+}
+
+func stopAndDrainTimer(timer serviceTimer) {
+	if timer.Stop() {
+		return
+	}
+	select {
+	case <-timer.C():
+	default:
+	}
+}
+
+func (s *Service) dispatchItem(ctx context.Context, item queueItem) bool {
 	_, completion, err := s.starter.StartScheduled(synccontrol.Occurrence{
-		Provider: provider, Revision: revision, ScheduledFor: scheduledFor, Attempt: attempt,
+		Provider: item.key.provider, Revision: item.key.revision,
+		ScheduledFor: item.key.scheduledFor, Attempt: item.attempt,
 	})
-	return completion, err
+	if errors.Is(err, synccontrol.ErrInProgress) {
+		s.requeue(item, item.attempt, s.deps.now().Add(time.Second))
+		return true
+	}
+	if errors.Is(err, synccontrol.ErrOccurrenceClaimed) {
+		s.finish(item.key)
+		return true
+	}
+	if err != nil {
+		s.retryOrFinish(item)
+		return true
+	}
+	if completion == nil {
+		s.retryOrFinish(item)
+		return true
+	}
+
+	var result synccontrol.Completion
+	var received bool
+	select {
+	case <-ctx.Done():
+		return false
+	case result, received = <-completion:
+	}
+	if received && result.Status.State == synccontrol.StateSucceeded && result.FinalizationError == nil {
+		s.finish(item.key)
+		return true
+	}
+	s.retryOrFinish(item)
+	return true
+}
+
+func (s *Service) retryOrFinish(item queueItem) {
+	if item.attempt >= 2 {
+		s.finish(item.key)
+		return
+	}
+	s.requeue(item, item.attempt+1, s.deps.now().Add(RetryDelay))
+}
+
+func (s *Service) requeue(item queueItem, attempt int, readyAt time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.ctx == nil || s.ctx.Err() != nil {
+		return
+	}
+	item.attempt = attempt
+	item.readyAt = readyAt
+	s.enqueueLocked(item)
+}
+
+func (s *Service) finish(key occurrenceKey) {
+	s.mu.Lock()
+	delete(s.active, key)
+	s.mu.Unlock()
+}
+
+func (s *Service) enqueueLocked(item queueItem) {
+	s.nextSeq++
+	item.sequence = s.nextSeq
+	s.queue = append(s.queue, item)
+	s.signalDispatcherLocked()
+}
+
+func (s *Service) signalDispatcherLocked() {
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 func (s *Service) fresh(ctx context.Context, provider synccontrol.Target, revision int64) (bool, error) {
@@ -438,25 +604,6 @@ func (s *Service) fresh(ctx context.Context, provider synccontrol.Target, revisi
 		return false, err
 	}
 	return schedule.Enabled && schedule.Revision == revision, nil
-}
-
-func completedSuccessfully(completion <-chan synccontrol.Completion) bool {
-	if completion == nil {
-		return false
-	}
-	result, ok := <-completion
-	return ok && result.Status.State == synccontrol.StateSucceeded && result.FinalizationError == nil
-}
-
-func waitForDelay(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }
 
 func contextWithShutdown(parent context.Context, shutdown context.Context) (context.Context, context.CancelFunc) {

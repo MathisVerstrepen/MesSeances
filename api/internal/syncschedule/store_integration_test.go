@@ -54,21 +54,18 @@ func TestScheduledOccurrenceClaimAcrossReplicasAfterSuccessIntegration(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	executorA := &integrationExecutor{}
-	executorB := &integrationExecutor{}
+	executorA := newIntegrationExecutor(false)
+	executorB := newIntegrationExecutor(false)
 	managerA := integrationManager(t, ctx, pool, executorA)
 	managerB := integrationManager(t, ctx, pool, executorB)
 	scheduledFor := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
-	serviceA, err := NewService(scheduleStore, managerA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	serviceB, err := NewService(scheduleStore, managerB)
-	if err != nil {
-		t.Fatal(err)
-	}
-	serviceA.runChain(ctx, synccontrol.TargetUGC, committed.Revision, scheduledFor)
-	serviceB.runChain(ctx, synccontrol.TargetUGC, committed.Revision, scheduledFor)
+	serviceA, schedulerA, _ := integrationService(t, scheduleStore, managerA)
+	serviceB, schedulerB, _ := integrationService(t, scheduleStore, managerB)
+	fire(t, schedulerA, entryID(t, serviceA, synccontrol.TargetUGC), scheduledFor)
+	waitIntegrationCall(t, executorA)
+	waitServiceChain(t, serviceA, occurrenceKey{provider: synccontrol.TargetUGC, revision: committed.Revision, scheduledFor: scheduledFor})
+	fire(t, schedulerB, entryID(t, serviceB, synccontrol.TargetUGC), scheduledFor)
+	waitServiceChain(t, serviceB, occurrenceKey{provider: synccontrol.TargetUGC, revision: committed.Revision, scheduledFor: scheduledFor})
 	if executorA.count() != 1 || executorB.count() != 0 {
 		t.Fatalf("executor calls A=%d B=%d", executorA.count(), executorB.count())
 	}
@@ -82,42 +79,77 @@ func TestScheduledOccurrenceClaimAcrossReplicasAfterFailureIntegration(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	executorA := &integrationExecutor{fail: true}
-	executorB := &integrationExecutor{fail: true}
+	executorA := newIntegrationExecutor(true)
+	executorB := newIntegrationExecutor(true)
 	managerA := integrationManager(t, ctx, pool, executorA)
 	managerB := integrationManager(t, ctx, pool, executorB)
-	waiter := &controlledWaiter{entered: make(chan int, 2), release: make(chan struct{}, 2)}
-	serviceA := integrationService(t, scheduleStore, managerA, waiter.wait)
-	serviceB := integrationService(t, scheduleStore, managerB, func(context.Context, time.Duration) bool {
-		t.Error("duplicate base occurrence created retry chain")
-		return false
-	})
+	serviceA, schedulerA, clockA := integrationService(t, scheduleStore, managerA)
+	serviceB, schedulerB, _ := integrationService(t, scheduleStore, managerB)
 	scheduledFor := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		serviceA.runChain(ctx, synccontrol.TargetUGC, committed.Revision, scheduledFor)
-	}()
-	if attempt := <-waiter.entered; attempt != 1 {
-		t.Fatalf("first wait=%d", attempt)
+	fire(t, schedulerA, entryID(t, serviceA, synccontrol.TargetUGC), scheduledFor)
+	for attempt := 0; attempt <= 2; attempt++ {
+		waitIntegrationCall(t, executorA)
+		if attempt < 2 {
+			waitForTimer(t, clockA, RetryDelay)
+			clockA.Advance(RetryDelay)
+		}
 	}
-	serviceB.runChain(ctx, synccontrol.TargetUGC, committed.Revision, scheduledFor)
-	waiter.release <- struct{}{}
-	if attempt := <-waiter.entered; attempt != 2 {
-		t.Fatalf("second wait=%d", attempt)
-	}
-	waiter.release <- struct{}{}
-	<-done
+	waitServiceChain(t, serviceA, occurrenceKey{provider: synccontrol.TargetUGC, revision: committed.Revision, scheduledFor: scheduledFor})
+	fire(t, schedulerB, entryID(t, serviceB, synccontrol.TargetUGC), scheduledFor)
+	waitServiceChain(t, serviceB, occurrenceKey{provider: synccontrol.TargetUGC, revision: committed.Revision, scheduledFor: scheduledFor})
 	if executorA.count() != 3 || executorB.count() != 0 {
 		t.Fatalf("executor calls A=%d B=%d", executorA.count(), executorB.count())
 	}
 	assertAttempts(t, ctx, pool, scheduledFor, []int{0, 1, 2})
 }
 
+func TestQueuedOccurrenceRetriesGlobalLeaseContentionIntegration(t *testing.T) {
+	ctx, pool := scheduleIntegrationPool(t)
+	scheduleStore := NewPostgresStore(pool)
+	committed, err := scheduleStore.Upsert(ctx, Schedule{Provider: synccontrol.TargetUGC, Enabled: true, Definition: Definition{Kind: KindDaily, Time: "08:00"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder := newBlockingIntegrationExecutor()
+	holderManager := integrationManager(t, ctx, pool, holder)
+	queuedExecutor := newIntegrationExecutor(false)
+	queuedManager := integrationManager(t, ctx, pool, queuedExecutor)
+	if _, err := holderManager.Start(synccontrol.TargetKinepolis); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-holder.started:
+	case <-time.After(time.Second):
+		t.Fatal("lease holder did not start")
+	}
+
+	service, scheduler, clock := integrationService(t, scheduleStore, queuedManager)
+	scheduledFor := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), scheduledFor)
+	waitForTimer(t, clock, time.Second)
+	assertAttempts(t, ctx, pool, scheduledFor, nil)
+	close(holder.release)
+	select {
+	case <-holder.finished:
+	case <-time.After(time.Second):
+		t.Fatal("lease holder did not finish")
+	}
+	holderManager.Close()
+	clock.Advance(time.Second)
+	waitIntegrationCall(t, queuedExecutor)
+	waitServiceChain(t, service, occurrenceKey{provider: synccontrol.TargetUGC, revision: committed.Revision, scheduledFor: scheduledFor})
+	assertAttempts(t, ctx, pool, scheduledFor, []int{0})
+}
+
 type integrationExecutor struct {
-	mu    sync.Mutex
-	calls int
-	fail  bool
+	mu     sync.Mutex
+	calls  int
+	fail   bool
+	called chan struct{}
+}
+
+func newIntegrationExecutor(fail bool) *integrationExecutor {
+	return &integrationExecutor{fail: fail, called: make(chan struct{}, 8)}
 }
 
 func (e *integrationExecutor) Run(_ context.Context, target synccontrol.Target, window synccontrol.Window) (map[synccontrol.Target]synccontrol.ProviderOutcome, error) {
@@ -125,6 +157,7 @@ func (e *integrationExecutor) Run(_ context.Context, target synccontrol.Target, 
 	e.calls++
 	fail := e.fail
 	e.mu.Unlock()
+	e.called <- struct{}{}
 	if fail {
 		return nil, errors.New("synthetic executor failure")
 	}
@@ -139,28 +172,27 @@ func (e *integrationExecutor) count() int {
 	return e.calls
 }
 
-type controlledWaiter struct {
-	mu      sync.Mutex
-	next    int
-	entered chan int
-	release chan struct{}
+type blockingIntegrationExecutor struct {
+	started  chan struct{}
+	release  chan struct{}
+	finished chan struct{}
 }
 
-func (w *controlledWaiter) wait(ctx context.Context, delay time.Duration) bool {
-	if delay != RetryDelay {
-		return false
-	}
-	w.mu.Lock()
-	w.next++
-	attempt := w.next
-	w.mu.Unlock()
-	w.entered <- attempt
+func newBlockingIntegrationExecutor() *blockingIntegrationExecutor {
+	return &blockingIntegrationExecutor{started: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{})}
+}
+
+func (e *blockingIntegrationExecutor) Run(ctx context.Context, target synccontrol.Target, window synccontrol.Window) (map[synccontrol.Target]synccontrol.ProviderOutcome, error) {
+	close(e.started)
 	select {
 	case <-ctx.Done():
-		return false
-	case <-w.release:
-		return true
+		return nil, ctx.Err()
+	case <-e.release:
 	}
+	close(e.finished)
+	return map[synccontrol.Target]synccontrol.ProviderOutcome{
+		target: {Sync: synccontrol.SyncOutcome{Through: window.From}},
+	}, nil
 }
 
 func integrationManager(t *testing.T, ctx context.Context, pool *pgxpool.Pool, executor synccontrol.Executor) *synccontrol.Manager {
@@ -174,26 +206,62 @@ func integrationManager(t *testing.T, ctx context.Context, pool *pgxpool.Pool, e
 	return manager
 }
 
-func integrationService(t *testing.T, store Store, starter Starter, wait func(context.Context, time.Duration) bool) *Service {
+func integrationService(t *testing.T, store Store, starter Starter) (*Service, *fakeScheduler, *manualClock) {
 	t.Helper()
 	location := mustParis(t)
+	scheduler := newFakeScheduler()
+	clock := newManualClock()
 	service, err := newService(store, starter, location, serviceDependencies{
-		now: func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) },
+		now: clock.Now,
 		newTicker: func(time.Duration) serviceTicker {
 			return newManualTicker()
 		},
-		wait:      wait,
-		scheduler: newFakeScheduler(),
+		newTimer:  clock.NewTimer,
+		scheduler: scheduler,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return service
+	if err := service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(service.Close)
+	return service, scheduler, clock
+}
+
+func waitIntegrationCall(t *testing.T, executor *integrationExecutor) {
+	t.Helper()
+	select {
+	case <-executor.called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("executor call not observed")
+	}
+}
+
+func waitServiceChain(t *testing.T, service *Service, key occurrenceKey) {
+	t.Helper()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		service.mu.Lock()
+		_, active := service.active[key]
+		service.mu.Unlock()
+		if !active {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("queued occurrence did not finish")
+		}
+	}
 }
 
 func assertAttempts(t *testing.T, ctx context.Context, pool *pgxpool.Pool, scheduledFor time.Time, expected []int) {
 	t.Helper()
-	rows, err := pool.Query(ctx, `SELECT schedule_attempt,schedule_revision,scheduled_for,target FROM sync_runs ORDER BY schedule_attempt`)
+	rows, err := pool.Query(ctx, `SELECT schedule_attempt,schedule_revision,scheduled_for,target FROM sync_runs WHERE trigger_source='scheduled' ORDER BY schedule_attempt`)
 	if err != nil {
 		t.Fatal(err)
 	}

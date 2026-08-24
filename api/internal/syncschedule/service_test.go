@@ -17,7 +17,7 @@ type memoryStore struct {
 	rows    map[synccontrol.Target]Schedule
 	listErr error
 	getErr  error
-	getErrs []error
+	listed  chan struct{}
 }
 
 type blockingUpsertStore struct {
@@ -26,13 +26,23 @@ type blockingUpsertStore struct {
 	canceled chan struct{}
 }
 
+type blockingGetStore struct {
+	*memoryStore
+	started chan struct{}
+	release chan struct{}
+}
+
 func newMemoryStore() *memoryStore {
-	return &memoryStore{rows: make(map[synccontrol.Target]Schedule)}
+	return &memoryStore{rows: make(map[synccontrol.Target]Schedule), listed: make(chan struct{}, 16)}
 }
 
 func (s *memoryStore) List(context.Context) ([]Schedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	select {
+	case s.listed <- struct{}{}:
+	default:
+	}
 	if s.listErr != nil {
 		return nil, s.listErr
 	}
@@ -51,13 +61,6 @@ func (s *memoryStore) Get(_ context.Context, provider synccontrol.Target) (Sched
 	if s.getErr != nil {
 		return Schedule{}, s.getErr
 	}
-	if len(s.getErrs) != 0 {
-		err := s.getErrs[0]
-		s.getErrs = s.getErrs[1:]
-		if err != nil {
-			return Schedule{}, err
-		}
-	}
 	row, ok := s.rows[provider]
 	if !ok {
 		return Schedule{}, ErrScheduleMissing
@@ -68,8 +71,7 @@ func (s *memoryStore) Get(_ context.Context, provider synccontrol.Target) (Sched
 func (s *memoryStore) Upsert(_ context.Context, row Schedule) (Schedule, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current, exists := s.rows[row.Provider]
-	if exists {
+	if current, exists := s.rows[row.Provider]; exists {
 		row.Revision = current.Revision + 1
 	} else {
 		row.Revision = 1
@@ -84,6 +86,16 @@ func (s *blockingUpsertStore) Upsert(ctx context.Context, _ Schedule) (Schedule,
 	<-ctx.Done()
 	close(s.canceled)
 	return Schedule{}, ctx.Err()
+}
+
+func (s *blockingGetStore) Get(ctx context.Context, provider synccontrol.Target) (Schedule, error) {
+	close(s.started)
+	select {
+	case <-ctx.Done():
+		return Schedule{}, ctx.Err()
+	case <-s.release:
+		return s.memoryStore.Get(ctx, provider)
+	}
 }
 
 func (s *memoryStore) set(row Schedule) {
@@ -110,17 +122,12 @@ func (s *memoryStore) failList(err error) {
 	s.listErr = err
 }
 
-func (s *memoryStore) queueGetErrors(errs ...error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.getErrs = append(s.getErrs, errs...)
-}
-
 type fakeScheduler struct {
 	mu      sync.Mutex
 	next    cron.EntryID
 	entries map[cron.EntryID]*fakeCronEntry
 	started bool
+	changed chan struct{}
 }
 
 type fakeCronEntry struct {
@@ -130,7 +137,7 @@ type fakeCronEntry struct {
 }
 
 func newFakeScheduler() *fakeScheduler {
-	return &fakeScheduler{entries: make(map[cron.EntryID]*fakeCronEntry)}
+	return &fakeScheduler{entries: make(map[cron.EntryID]*fakeCronEntry), changed: make(chan struct{}, 16)}
 }
 
 func (s *fakeScheduler) Schedule(schedule cron.Schedule, job cron.Job) cron.EntryID {
@@ -138,6 +145,7 @@ func (s *fakeScheduler) Schedule(schedule cron.Schedule, job cron.Job) cron.Entr
 	defer s.mu.Unlock()
 	s.next++
 	s.entries[s.next] = &fakeCronEntry{schedule: schedule, job: job}
+	s.changed <- struct{}{}
 	return s.next
 }
 
@@ -145,6 +153,7 @@ func (s *fakeScheduler) Remove(id cron.EntryID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.entries, id)
+	s.changed <- struct{}{}
 }
 
 func (s *fakeScheduler) Entry(id cron.EntryID) cron.Entry {
@@ -200,7 +209,73 @@ type manualTicker struct{ ch chan time.Time }
 func newManualTicker() *manualTicker        { return &manualTicker{ch: make(chan time.Time, 8)} }
 func (t *manualTicker) C() <-chan time.Time { return t.ch }
 func (*manualTicker) Stop()                 {}
-func (t *manualTicker) tick()               { t.ch <- time.Now() }
+func (t *manualTicker) tick()               { t.ch <- time.Time{} }
+
+type manualTimer struct {
+	clock   *manualClock
+	due     time.Time
+	ch      chan time.Time
+	stopped bool
+}
+
+func (t *manualTimer) C() <-chan time.Time { return t.ch }
+func (t *manualTimer) Stop() bool {
+	t.clock.mu.Lock()
+	active := !t.stopped
+	t.stopped = true
+	t.clock.mu.Unlock()
+	return active
+}
+
+type manualClock struct {
+	mu          sync.Mutex
+	now         time.Time
+	timers      []*manualTimer
+	created     chan time.Time
+	beforeTimer func(time.Time)
+}
+
+func newManualClock() *manualClock {
+	return &manualClock{
+		now:     time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC),
+		created: make(chan time.Time, 64),
+	}
+}
+
+func (c *manualClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *manualClock) NewTimer(readyAt time.Time) serviceTimer {
+	if c.beforeTimer != nil {
+		c.beforeTimer(readyAt)
+	}
+	c.mu.Lock()
+	timer := &manualTimer{clock: c, due: readyAt, ch: make(chan time.Time, 1)}
+	c.timers = append(c.timers, timer)
+	if !readyAt.After(c.now) {
+		timer.stopped = true
+		timer.ch <- c.now
+	}
+	c.mu.Unlock()
+	c.created <- readyAt
+	return timer
+}
+
+func (c *manualClock) Advance(delta time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(delta)
+	now := c.now
+	for _, timer := range c.timers {
+		if !timer.stopped && !timer.due.After(now) {
+			timer.stopped = true
+			timer.ch <- now
+		}
+	}
+	c.mu.Unlock()
+}
 
 type startResponse struct {
 	err        error
@@ -211,27 +286,23 @@ type fakeStarter struct {
 	mu        sync.Mutex
 	responses []startResponse
 	calls     []synccontrol.Occurrence
-	called    chan struct{}
+	called    chan synccontrol.Occurrence
+}
+
+func newFakeStarter(responses ...startResponse) *fakeStarter {
+	return &fakeStarter{responses: responses, called: make(chan synccontrol.Occurrence, 64)}
 }
 
 func (s *fakeStarter) StartScheduled(occurrence synccontrol.Occurrence) (synccontrol.Status, <-chan synccontrol.Completion, error) {
 	s.mu.Lock()
 	s.calls = append(s.calls, occurrence)
-	var response startResponse
+	response := startResponse{completion: completionChannel(synccontrol.StateSucceeded, nil)}
 	if len(s.responses) != 0 {
 		response = s.responses[0]
 		s.responses = s.responses[1:]
-	} else {
-		response.completion = completionChannel(synccontrol.StateSucceeded, nil)
 	}
-	called := s.called
 	s.mu.Unlock()
-	if called != nil {
-		select {
-		case called <- struct{}{}:
-		default:
-		}
-	}
+	s.called <- occurrence
 	return synccontrol.Status{State: synccontrol.StateRunning}, response.completion, response.err
 }
 
@@ -248,18 +319,21 @@ func completionChannel(state synccontrol.JobState, finalization error) <-chan sy
 	return result
 }
 
-func testService(t *testing.T, store Store, starter Starter, scheduler *fakeScheduler, ticker *manualTicker, wait func(context.Context, time.Duration) bool) *Service {
-	t.Helper()
-	if wait == nil {
-		wait = func(context.Context, time.Duration) bool { return true }
+func configured(provider synccontrol.Target, revision int64, enabled bool, definition Definition) Schedule {
+	return Schedule{
+		Provider: provider, Revision: revision, Enabled: enabled, Definition: definition,
+		UpdatedAt: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC),
 	}
-	now := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
+}
+
+func testService(t *testing.T, store Store, starter Starter, scheduler *fakeScheduler, ticker *manualTicker, clock *manualClock) *Service {
+	t.Helper()
 	service, err := newService(store, starter, mustParis(t), serviceDependencies{
-		now: func() time.Time { return now },
+		now: clock.Now,
 		newTicker: func(time.Duration) serviceTicker {
 			return ticker
 		},
-		wait:      wait,
+		newTimer:  clock.NewTimer,
 		scheduler: scheduler,
 	})
 	if err != nil {
@@ -268,272 +342,466 @@ func testService(t *testing.T, store Store, starter Starter, scheduler *fakeSche
 	return service
 }
 
-func configured(provider synccontrol.Target, revision int64, enabled bool, definition Definition) Schedule {
-	return Schedule{Provider: provider, Revision: revision, Enabled: enabled, Definition: definition, UpdatedAt: time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)}
-}
-
-func TestServiceRegistersCommittedEnabledRevisionAndUsesEntryPrev(t *testing.T) {
-	store := newMemoryStore()
-	store.set(configured(synccontrol.TargetUGC, 4, true, Definition{Kind: KindDaily, Time: "02:30"}))
-	starter := &fakeStarter{}
+func startTestService(t *testing.T, store Store, starter Starter) (*Service, *fakeScheduler, *manualTicker, *manualClock) {
+	t.Helper()
 	scheduler := newFakeScheduler()
-	service := testService(t, store, starter, scheduler, newManualTicker(), nil)
+	ticker := newManualTicker()
+	clock := newManualClock()
+	service := testService(t, store, starter, scheduler, ticker, clock)
 	if err := service.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(service.Close)
-	if scheduler.count() != 1 {
-		t.Fatalf("entries=%d", scheduler.count())
-	}
+	return service, scheduler, ticker, clock
+}
+
+func entryID(t *testing.T, service *Service, provider synccontrol.Target) cron.EntryID {
+	t.Helper()
 	service.mu.Lock()
-	id := service.entries[synccontrol.TargetUGC].entryID
-	service.mu.Unlock()
-	previous := time.Date(2026, 10, 25, 2, 30, 48, 0, time.FixedZone("CEST", 7200))
-	<-scheduler.trigger(id, previous)
-	calls := starter.occurrences()
-	if len(calls) != 1 || calls[0].Revision != 4 || calls[0].Attempt != 0 || !calls[0].ScheduledFor.Equal(time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC)) {
-		t.Fatalf("calls=%+v", calls)
+	defer service.mu.Unlock()
+	entry := service.entries[provider]
+	if entry == nil || entry.entryID == 0 {
+		t.Fatalf("provider %s has no registration", provider)
 	}
-	secondPrevious := time.Date(2026, 10, 25, 2, 30, 0, 0, time.FixedZone("CET", 3600))
-	<-scheduler.trigger(id, secondPrevious)
-	calls = starter.occurrences()
-	if len(calls) != 2 || calls[1].ScheduledFor.Equal(calls[0].ScheduledFor) || !calls[1].ScheduledFor.Equal(time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC)) {
-		t.Fatalf("fall runtime calls=%+v", calls)
+	return entry.entryID
+}
+
+func fire(t *testing.T, scheduler *fakeScheduler, id cron.EntryID, scheduledFor time.Time) {
+	t.Helper()
+	select {
+	case <-scheduler.trigger(id, scheduledFor):
+	case <-time.After(time.Second):
+		t.Fatal("cron callback did not return")
 	}
 }
 
-func TestServiceStartupRejectsMalformedPersistedRowsBeforeCronStarts(t *testing.T) {
+func nextCall(t *testing.T, starter *fakeStarter) synccontrol.Occurrence {
+	t.Helper()
+	select {
+	case occurrence := <-starter.called:
+		return occurrence
+	case <-time.After(time.Second):
+		t.Fatal("scheduled start not observed")
+		return synccontrol.Occurrence{}
+	}
+}
+
+func assertNoCall(t *testing.T, starter *fakeStarter) {
+	t.Helper()
+	select {
+	case occurrence := <-starter.called:
+		t.Fatalf("unexpected scheduled start: %+v", occurrence)
+	default:
+	}
+}
+
+func waitForTimer(t *testing.T, clock *manualClock, expected time.Duration) {
+	t.Helper()
+	readyAt := clock.Now().Add(expected)
+	for {
+		select {
+		case createdAt := <-clock.created:
+			if createdAt.Equal(readyAt) {
+				return
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timer %v not created", expected)
+		}
+	}
+}
+
+func TestDispatcherUsesAbsoluteReadyAtAcrossTimerCreationClockAdvance(t *testing.T) {
 	store := newMemoryStore()
-	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindCron, Expression: "@daily"}))
+	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	starter := newFakeStarter(startResponse{completion: completionChannel(synccontrol.StateFailed, nil)})
 	scheduler := newFakeScheduler()
-	service := testService(t, store, &fakeStarter{}, scheduler, newManualTicker(), nil)
-	if err := service.Start(context.Background()); err == nil {
-		t.Fatal("malformed persisted row started service")
+	ticker := newManualTicker()
+	clock := newManualClock()
+	timerStarted := make(chan time.Time, 1)
+	createTimer := make(chan struct{})
+	var releaseTimer sync.Once
+	clock.beforeTimer = func(readyAt time.Time) {
+		timerStarted <- readyAt
+		<-createTimer
 	}
-	if scheduler.started || scheduler.count() != 0 {
-		t.Fatal("cron started before full snapshot validation")
+	service := testService(t, store, starter, scheduler, ticker, clock)
+	if err := service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		releaseTimer.Do(func() { close(createTimer) })
+		service.Close()
+	})
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+	if call := nextCall(t, starter); call.Attempt != 0 {
+		t.Fatalf("base call=%+v", call)
+	}
+	select {
+	case readyAt := <-timerStarted:
+		if want := clock.Now().Add(RetryDelay); !readyAt.Equal(want) {
+			t.Fatalf("readyAt=%v want=%v", readyAt, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("dispatcher did not reach timer creation barrier")
+	}
+	clock.Advance(RetryDelay)
+	releaseTimer.Do(func() { close(createTimer) })
+	if call := nextCall(t, starter); call.Attempt != 1 {
+		t.Fatalf("retry call=%+v", call)
 	}
 }
 
-func TestServiceSaveAndRefreshConvergeWithoutSeedRows(t *testing.T) {
+func waitSchedulerCount(t *testing.T, scheduler *fakeScheduler, expected int) {
+	t.Helper()
+	for scheduler.count() != expected {
+		select {
+		case <-scheduler.changed:
+		case <-time.After(time.Second):
+			t.Fatalf("scheduler entries=%d want=%d", scheduler.count(), expected)
+		}
+	}
+}
+
+func waitStoreList(t *testing.T, store *memoryStore) {
+	t.Helper()
+	select {
+	case <-store.listed:
+	case <-time.After(time.Second):
+		t.Fatal("store list not observed")
+	}
+}
+
+func TestServiceRegistersCommittedRevisionAndUsesEntryPrev(t *testing.T) {
 	store := newMemoryStore()
-	tickerA, tickerB := newManualTicker(), newManualTicker()
-	serviceA := testService(t, store, &fakeStarter{}, newFakeScheduler(), tickerA, nil)
-	schedulerB := newFakeScheduler()
-	serviceB := testService(t, store, &fakeStarter{}, schedulerB, tickerB, nil)
-	if err := serviceA.Start(context.Background()); err != nil {
-		t.Fatal(err)
+	store.set(configured(synccontrol.TargetUGC, 4, true, Definition{Kind: KindDaily, Time: "02:30"}))
+	starter := newFakeStarter()
+	service, scheduler, _, _ := startTestService(t, store, starter)
+	id := entryID(t, service, synccontrol.TargetUGC)
+
+	first := time.Date(2026, 10, 25, 2, 30, 48, 0, time.FixedZone("CEST", 7200))
+	fire(t, scheduler, id, first)
+	call := nextCall(t, starter)
+	if call.Revision != 4 || call.Attempt != 0 || !call.ScheduledFor.Equal(time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC)) {
+		t.Fatalf("first call=%+v", call)
 	}
-	if err := serviceB.Start(context.Background()); err != nil {
-		t.Fatal(err)
+	second := time.Date(2026, 10, 25, 2, 30, 0, 0, time.FixedZone("CET", 3600))
+	fire(t, scheduler, id, second)
+	call = nextCall(t, starter)
+	if !call.ScheduledFor.Equal(time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC)) {
+		t.Fatalf("second call=%+v", call)
 	}
-	t.Cleanup(serviceA.Close)
-	t.Cleanup(serviceB.Close)
-	rows, err := serviceA.List(context.Background())
-	if err != nil || len(rows) != 0 {
-		t.Fatalf("initial rows=%v err=%v", rows, err)
+}
+
+func TestServiceStartupSaveRefreshAndFreshnessGates(t *testing.T) {
+	malformed := newMemoryStore()
+	malformed.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindCron, Expression: "@daily"}))
+	scheduler := newFakeScheduler()
+	service := testService(t, malformed, newFakeStarter(), scheduler, newManualTicker(), newManualClock())
+	if err := service.Start(context.Background()); err == nil || scheduler.started || scheduler.count() != 0 {
+		t.Fatal("malformed snapshot started cron")
+	}
+
+	store := newMemoryStore()
+	serviceA, _, _, _ := startTestService(t, store, newFakeStarter())
+	starterB := newFakeStarter()
+	serviceB, schedulerB, tickerB, _ := startTestService(t, store, starterB)
+	for len(store.listed) != 0 {
+		<-store.listed
 	}
 	first, err := serviceA.Save(context.Background(), synccontrol.TargetUGC, false, Definition{Kind: KindWeekly, Time: "09:15", Weekdays: []string{"fri", "mon", "fri"}})
 	if err != nil || first.Revision != 1 || !sameStrings(first.Definition.Weekdays, []string{"mon", "fri"}) {
 		t.Fatalf("first=%+v err=%v", first, err)
-	}
-	if schedulerB.count() != 0 {
-		t.Fatal("disabled schedule registered")
 	}
 	second, err := serviceA.Save(context.Background(), synccontrol.TargetUGC, true, first.Definition)
 	if err != nil || second.Revision != 2 {
 		t.Fatalf("second=%+v err=%v", second, err)
 	}
 	tickerB.tick()
-	waitUntil(t, func() bool { return schedulerB.count() == 1 })
-
-	store.remove(synccontrol.TargetUGC)
-	tickerB.tick()
-	waitUntil(t, func() bool { return schedulerB.count() == 0 })
-}
-
-func TestServiceFreshnessFailsClosedAndPollFailureRetainsRegistry(t *testing.T) {
-	store := newMemoryStore()
-	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
-	starter := &fakeStarter{}
-	scheduler := newFakeScheduler()
-	ticker := newManualTicker()
-	service := testService(t, store, starter, scheduler, ticker, nil)
-	if err := service.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(service.Close)
-	service.mu.Lock()
-	id := service.entries[synccontrol.TargetUGC].entryID
-	service.mu.Unlock()
-
+	waitStoreList(t, store)
+	waitSchedulerCount(t, schedulerB, 1)
+	id := entryID(t, serviceB, synccontrol.TargetUGC)
 	store.failGet(errors.New("database unavailable"))
-	<-scheduler.trigger(id, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
-	if len(starter.occurrences()) != 0 {
-		t.Fatal("base started after freshness read failure")
-	}
+	fire(t, schedulerB, id, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
+	assertNoCall(t, starterB)
 	store.failGet(nil)
 	row, _ := store.Get(context.Background(), synccontrol.TargetUGC)
-	row.Revision = 2
+	row.Revision++
 	store.set(row)
-	<-scheduler.trigger(id, time.Date(2026, 8, 26, 6, 0, 0, 0, time.UTC))
-	if len(starter.occurrences()) != 0 {
-		t.Fatal("stale revision started")
-	}
-
+	fire(t, schedulerB, id, time.Date(2026, 8, 26, 6, 0, 0, 0, time.UTC))
+	assertNoCall(t, starterB)
 	store.failList(errors.New("database unavailable"))
-	ticker.tick()
-	time.Sleep(10 * time.Millisecond)
-	if scheduler.count() != 1 {
-		t.Fatal("poll failure removed registry")
+	tickerB.tick()
+	waitStoreList(t, store)
+	if schedulerB.count() != 1 {
+		t.Fatal("failed refresh changed registry")
 	}
+	store.failList(nil)
+	store.remove(synccontrol.TargetUGC)
+	tickerB.tick()
+	waitSchedulerCount(t, schedulerB, 0)
 }
 
-func TestRetryChainUsesTwoSlotsAndStopsOnSuccessOrClaim(t *testing.T) {
-	store := newMemoryStore()
-	store.set(configured(synccontrol.TargetUGC, 3, true, Definition{Kind: KindCron, Expression: "0 8 * * *"}))
-	waits := []time.Duration{}
-	starter := &fakeStarter{responses: []startResponse{
-		{completion: completionChannel(synccontrol.StateFailed, nil)},
-		{err: synccontrol.ErrInProgress},
-		{completion: completionChannel(synccontrol.StateSucceeded, nil)},
-	}}
-	service := testService(t, store, starter, newFakeScheduler(), newManualTicker(), func(_ context.Context, delay time.Duration) bool {
-		waits = append(waits, delay)
-		return true
-	})
-	scheduledFor := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
-	service.runChain(context.Background(), synccontrol.TargetUGC, 3, scheduledFor)
-	calls := starter.occurrences()
-	if len(calls) != 3 || calls[0].Attempt != 0 || calls[1].Attempt != 1 || calls[2].Attempt != 2 {
-		t.Fatalf("calls=%+v", calls)
-	}
-	if len(waits) != 2 || waits[0] != RetryDelay || waits[1] != RetryDelay {
-		t.Fatalf("waits=%v", waits)
-	}
-
-	claimed := &fakeStarter{responses: []startResponse{{err: synccontrol.ErrOccurrenceClaimed}}}
-	service = testService(t, store, claimed, newFakeScheduler(), newManualTicker(), func(context.Context, time.Duration) bool {
-		t.Fatal("claim conflict scheduled retry")
-		return false
-	})
-	service.runChain(context.Background(), synccontrol.TargetUGC, 3, scheduledFor)
-	if len(claimed.occurrences()) != 1 {
-		t.Fatalf("claim calls=%+v", claimed.occurrences())
-	}
-}
-
-func TestRetryFreshnessFailureConsumesSlotAndRetryClaimStopsChain(t *testing.T) {
-	store := newMemoryStore()
-	store.set(configured(synccontrol.TargetUGC, 3, true, Definition{Kind: KindDaily, Time: "08:00"}))
-	store.queueGetErrors(nil, errors.New("database unavailable"), nil)
-	waits := 0
-	starter := &fakeStarter{responses: []startResponse{
-		{completion: completionChannel(synccontrol.StateFailed, nil)},
-		{completion: completionChannel(synccontrol.StateSucceeded, nil)},
-	}}
-	service := testService(t, store, starter, newFakeScheduler(), newManualTicker(), func(context.Context, time.Duration) bool {
-		waits++
-		return true
-	})
-	service.runChain(context.Background(), synccontrol.TargetUGC, 3, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
-	calls := starter.occurrences()
-	if waits != 2 || len(calls) != 2 || calls[0].Attempt != 0 || calls[1].Attempt != 2 {
-		t.Fatalf("waits=%d calls=%+v", waits, calls)
-	}
-
-	claimStarter := &fakeStarter{responses: []startResponse{
-		{completion: completionChannel(synccontrol.StateFailed, nil)},
-		{err: synccontrol.ErrOccurrenceClaimed},
-	}}
-	waits = 0
-	service = testService(t, store, claimStarter, newFakeScheduler(), newManualTicker(), func(context.Context, time.Duration) bool {
-		waits++
-		return true
-	})
-	service.runChain(context.Background(), synccontrol.TargetUGC, 3, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
-	if waits != 1 || len(claimStarter.occurrences()) != 2 {
-		t.Fatalf("claim waits=%d calls=%+v", waits, claimStarter.occurrences())
-	}
-}
-
-func TestFinalizationFailureRetriesAndDisableCancelsPendingRetry(t *testing.T) {
+func TestQueueRetainsSameAndCrossProviderOverlapsInFIFOOrder(t *testing.T) {
 	store := newMemoryStore()
 	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
-	waiting := make(chan struct{}, 1)
-	starter := &fakeStarter{responses: []startResponse{{completion: completionChannel(synccontrol.StateSucceeded, errors.New("finalization"))}}}
-	scheduler := newFakeScheduler()
-	service := testService(t, store, starter, scheduler, newManualTicker(), func(ctx context.Context, _ time.Duration) bool {
-		waiting <- struct{}{}
-		<-ctx.Done()
-		return false
-	})
-	if err := service.Start(context.Background()); err != nil {
-		t.Fatal(err)
+	store.set(configured(synccontrol.TargetKinepolis, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	blocked := make(chan synccontrol.Completion, 1)
+	starter := newFakeStarter(startResponse{completion: blocked})
+	service, scheduler, _, _ := startTestService(t, store, starter)
+	ugcID := entryID(t, service, synccontrol.TargetUGC)
+	kinepolisID := entryID(t, service, synccontrol.TargetKinepolis)
+
+	firstAt := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	secondAt := firstAt.Add(24 * time.Hour)
+	fire(t, scheduler, ugcID, firstAt)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetUGC || !call.ScheduledFor.Equal(firstAt) {
+		t.Fatalf("first call=%+v", call)
 	}
-	t.Cleanup(service.Close)
-	service.mu.Lock()
-	id := service.entries[synccontrol.TargetUGC].entryID
-	service.mu.Unlock()
-	done := scheduler.trigger(id, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
-	<-waiting
-	saved, err := service.Save(context.Background(), synccontrol.TargetUGC, false, Definition{Kind: KindDaily, Time: "08:00"})
-	if err != nil || saved.Revision != 2 || saved.Enabled {
-		t.Fatalf("disabled=%+v err=%v", saved, err)
+	fire(t, scheduler, ugcID, secondAt)
+	fire(t, scheduler, ugcID, secondAt.Add(30*time.Second))
+	fire(t, scheduler, kinepolisID, firstAt)
+	assertNoCall(t, starter)
+	blocked <- synccontrol.Completion{Status: synccontrol.Status{State: synccontrol.StateSucceeded}}
+	close(blocked)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetUGC || !call.ScheduledFor.Equal(secondAt) {
+		t.Fatalf("second call=%+v", call)
 	}
-	<-done
-	if len(starter.occurrences()) != 1 || scheduler.count() != 0 {
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetKinepolis || !call.ScheduledFor.Equal(firstAt) {
+		t.Fatalf("third call=%+v", call)
+	}
+}
+
+func TestQueueDeduplicatesExactKeyButAcceptsDistinctMinuteAndRevision(t *testing.T) {
+	store := newMemoryStore()
+	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	blocked := make(chan synccontrol.Completion, 1)
+	starter := newFakeStarter(startResponse{completion: blocked})
+	service, scheduler, _, _ := startTestService(t, store, starter)
+	id := entryID(t, service, synccontrol.TargetUGC)
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, id, base)
+	nextCall(t, starter)
+	fire(t, scheduler, id, base.Add(30*time.Second))
+	fire(t, scheduler, id, base.Add(time.Minute))
+
+	updated, err := service.Save(context.Background(), synccontrol.TargetUGC, true, Definition{Kind: KindDaily, Time: "08:00"})
+	if err != nil || updated.Revision != 2 {
+		t.Fatalf("updated=%+v err=%v", updated, err)
+	}
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+	blocked <- synccontrol.Completion{Status: synccontrol.Status{State: synccontrol.StateSucceeded}}
+	close(blocked)
+	second := nextCall(t, starter)
+	third := nextCall(t, starter)
+	if second.Revision != 1 || !second.ScheduledFor.Equal(base.Add(time.Minute)) || third.Revision != 2 || !third.ScheduledFor.Equal(base) {
 		t.Fatalf("calls=%+v", starter.occurrences())
 	}
 }
 
-func TestCronWrapperSkipsOverlappingProviderChain(t *testing.T) {
+func TestDelayedRetryDoesNotBlockReadyBaseAndWakePreemptsTimer(t *testing.T) {
 	store := newMemoryStore()
 	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
-	completion := make(chan synccontrol.Completion, 1)
-	starter := &fakeStarter{responses: []startResponse{{completion: completion}}, called: make(chan struct{}, 2)}
-	scheduler := newFakeScheduler()
-	service := testService(t, store, starter, scheduler, newManualTicker(), nil)
-	if err := service.Start(context.Background()); err != nil {
-		t.Fatal(err)
+	store.set(configured(synccontrol.TargetKinepolis, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	starter := newFakeStarter(startResponse{completion: completionChannel(synccontrol.StateFailed, nil)})
+	service, scheduler, _, clock := startTestService(t, store, starter)
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+	nextCall(t, starter)
+	waitForTimer(t, clock, RetryDelay)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetKinepolis), base)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetKinepolis || call.Attempt != 0 {
+		t.Fatalf("ready base call=%+v", call)
 	}
-	t.Cleanup(service.Close)
-	service.mu.Lock()
-	id := service.entries[synccontrol.TargetUGC].entryID
-	service.mu.Unlock()
-	first := scheduler.trigger(id, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
-	<-starter.called
-	second := scheduler.trigger(id, time.Date(2026, 8, 26, 6, 0, 0, 0, time.UTC))
-	<-second
-	if len(starter.occurrences()) != 1 {
-		t.Fatalf("overlap calls=%+v", starter.occurrences())
+	clock.Advance(RetryDelay)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetUGC || call.Attempt != 1 {
+		t.Fatalf("retry call=%+v", call)
 	}
-	completion <- synccontrol.Completion{Status: synccontrol.Status{State: synccontrol.StateSucceeded}}
-	close(completion)
-	<-first
 }
 
-func TestServiceCloseCancelsPendingRetry(t *testing.T) {
+func TestErrInProgressRequeuesSameAttemptBehindOtherReadyWork(t *testing.T) {
 	store := newMemoryStore()
 	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
-	waiting := make(chan struct{}, 1)
-	starter := &fakeStarter{responses: []startResponse{{completion: completionChannel(synccontrol.StateFailed, nil)}}}
-	scheduler := newFakeScheduler()
-	service := testService(t, store, starter, scheduler, newManualTicker(), func(ctx context.Context, _ time.Duration) bool {
-		waiting <- struct{}{}
-		<-ctx.Done()
-		return false
-	})
-	if err := service.Start(context.Background()); err != nil {
+	store.set(configured(synccontrol.TargetKinepolis, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	starter := newFakeStarter(startResponse{err: synccontrol.ErrInProgress})
+	service, scheduler, _, clock := startTestService(t, store, starter)
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+	if call := nextCall(t, starter); call.Attempt != 0 {
+		t.Fatalf("contended call=%+v", call)
+	}
+	waitForTimer(t, clock, time.Second)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetKinepolis), base)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetKinepolis {
+		t.Fatalf("ready call=%+v", call)
+	}
+	clock.Advance(time.Second)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetUGC || call.Attempt != 0 {
+		t.Fatalf("requeued call=%+v", call)
+	}
+}
+
+func TestAcceptedFailuresSpendExactlyTwoRetriesAndClaimStopsChain(t *testing.T) {
+	store := newMemoryStore()
+	store.set(configured(synccontrol.TargetUGC, 3, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	starter := newFakeStarter(
+		startResponse{completion: completionChannel(synccontrol.StateFailed, nil)},
+		startResponse{completion: nil},
+		startResponse{completion: completionChannel(synccontrol.StateSucceeded, errors.New("finalization"))},
+	)
+	service, scheduler, _, clock := startTestService(t, store, starter)
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+	for attempt := 0; attempt <= 2; attempt++ {
+		if call := nextCall(t, starter); call.Attempt != attempt {
+			t.Fatalf("attempt %d call=%+v", attempt, call)
+		}
+		if attempt < 2 {
+			waitForTimer(t, clock, RetryDelay)
+			clock.Advance(RetryDelay)
+		}
+	}
+	if len(starter.occurrences()) != 3 {
+		t.Fatalf("calls=%+v", starter.occurrences())
+	}
+
+	claimStore := newMemoryStore()
+	claimStore.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	claimed := newFakeStarter(startResponse{err: synccontrol.ErrOccurrenceClaimed})
+	claimService, claimScheduler, _, _ := startTestService(t, claimStore, claimed)
+	fire(t, claimScheduler, entryID(t, claimService, synccontrol.TargetUGC), base)
+	nextCall(t, claimed)
+	if len(claimed.occurrences()) != 1 {
+		t.Fatalf("claimed calls=%+v", claimed.occurrences())
+	}
+}
+
+func TestNonContentionStartErrorAndClosedCompletionSpendAttempts(t *testing.T) {
+	tests := []struct {
+		name     string
+		response startResponse
+	}{
+		{name: "start error", response: startResponse{err: errors.New("synthetic start failure")}},
+		{name: "closed completion", response: startResponse{completion: closedCompletionChannel()}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newMemoryStore()
+			store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+			starter := newFakeStarter(test.response)
+			service, scheduler, _, clock := startTestService(t, store, starter)
+			base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+			fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+			if call := nextCall(t, starter); call.Attempt != 0 {
+				t.Fatalf("base call=%+v", call)
+			}
+			waitForTimer(t, clock, RetryDelay)
+			clock.Advance(RetryDelay)
+			if call := nextCall(t, starter); call.Attempt != 1 {
+				t.Fatalf("retry call=%+v", call)
+			}
+		})
+	}
+}
+
+func closedCompletionChannel() <-chan synccontrol.Completion {
+	result := make(chan synccontrol.Completion)
+	close(result)
+	return result
+}
+
+func TestQueuedOldRevisionAndRetrySurviveDisableOrEdit(t *testing.T) {
+	store := newMemoryStore()
+	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	store.set(configured(synccontrol.TargetKinepolis, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	blocked := make(chan synccontrol.Completion, 1)
+	starter := newFakeStarter(
+		startResponse{completion: blocked},
+		startResponse{completion: completionChannel(synccontrol.StateFailed, nil)},
+	)
+	service, scheduler, _, clock := startTestService(t, store, starter)
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetKinepolis), base)
+	nextCall(t, starter)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), base)
+	disabled, err := service.Save(context.Background(), synccontrol.TargetUGC, false, Definition{Kind: KindDaily, Time: "08:00"})
+	if err != nil || disabled.Revision != 2 || disabled.Enabled {
+		t.Fatalf("disabled=%+v err=%v", disabled, err)
+	}
+	blocked <- synccontrol.Completion{Status: synccontrol.Status{State: synccontrol.StateSucceeded}}
+	close(blocked)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetUGC || call.Revision != 1 {
+		t.Fatalf("queued old revision=%+v", call)
+	}
+	waitForTimer(t, clock, RetryDelay)
+	_, err = service.Save(context.Background(), synccontrol.TargetUGC, true, Definition{Kind: KindDaily, Time: "09:00"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	service.mu.Lock()
-	id := service.entries[synccontrol.TargetUGC].entryID
-	service.mu.Unlock()
-	done := scheduler.trigger(id, time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
-	<-waiting
+	clock.Advance(RetryDelay)
+	if call := nextCall(t, starter); call.Provider != synccontrol.TargetUGC || call.Revision != 1 || call.Attempt != 1 {
+		t.Fatalf("old retry=%+v", call)
+	}
+}
+
+func TestEditWinningCallbackAcceptanceRejectsStaleRegistration(t *testing.T) {
+	baseStore := newMemoryStore()
+	baseStore.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	store := &blockingGetStore{memoryStore: baseStore, started: make(chan struct{}), release: make(chan struct{})}
+	starter := newFakeStarter()
+	service, scheduler, _, _ := startTestService(t, store, starter)
+	done := scheduler.trigger(entryID(t, service, synccontrol.TargetUGC), time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
+	<-store.started
+	if _, err := service.Save(context.Background(), synccontrol.TargetUGC, true, Definition{Kind: KindDaily, Time: "09:00"}); err != nil {
+		t.Fatal(err)
+	}
+	close(store.release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("stale callback did not return")
+	}
+	assertNoCall(t, starter)
+}
+
+func TestCloseDiscardsBacklogAndFutureWorkWithoutWaitingForCompletion(t *testing.T) {
+	store := newMemoryStore()
+	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	blocked := make(chan synccontrol.Completion)
+	starter := newFakeStarter(startResponse{completion: blocked})
+	service, scheduler, _, _ := startTestService(t, store, starter)
+	id := entryID(t, service, synccontrol.TargetUGC)
+	base := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, id, base)
+	nextCall(t, starter)
+	fire(t, scheduler, id, base.Add(time.Minute))
+
+	closed := make(chan struct{})
+	go func() {
+		service.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(time.Second):
+		t.Fatal("close waited for manager completion or backlog")
+	}
 	service.Close()
-	<-done
+	if len(starter.occurrences()) != 1 {
+		t.Fatalf("shutdown calls=%+v", starter.occurrences())
+	}
+}
+
+func TestCloseDiscardsDelayedRetry(t *testing.T) {
+	store := newMemoryStore()
+	store.set(configured(synccontrol.TargetUGC, 1, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	starter := newFakeStarter(startResponse{completion: completionChannel(synccontrol.StateFailed, nil)})
+	service, scheduler, _, clock := startTestService(t, store, starter)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetUGC), time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC))
+	nextCall(t, starter)
+	waitForTimer(t, clock, RetryDelay)
+	service.Close()
+	clock.Advance(RetryDelay)
 	if len(starter.occurrences()) != 1 {
 		t.Fatalf("shutdown calls=%+v", starter.occurrences())
 	}
@@ -541,21 +809,15 @@ func TestServiceCloseCancelsPendingRetry(t *testing.T) {
 
 func TestServiceCloseCancelsBlockedSaveBeforeWaitingForOperationLock(t *testing.T) {
 	store := &blockingUpsertStore{
-		memoryStore: newMemoryStore(),
-		started:     make(chan struct{}),
-		canceled:    make(chan struct{}),
+		memoryStore: newMemoryStore(), started: make(chan struct{}), canceled: make(chan struct{}),
 	}
-	service := testService(t, store, &fakeStarter{}, newFakeScheduler(), newManualTicker(), nil)
-	if err := service.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	service, _, _, _ := startTestService(t, store, newFakeStarter())
 	saveDone := make(chan error, 1)
 	go func() {
 		_, err := service.Save(context.Background(), synccontrol.TargetUGC, true, Definition{Kind: KindDaily, Time: "08:00"})
 		saveDone <- err
 	}()
 	<-store.started
-
 	closeDone := make(chan struct{})
 	go func() {
 		service.Close()
@@ -564,67 +826,37 @@ func TestServiceCloseCancelsBlockedSaveBeforeWaitingForOperationLock(t *testing.
 	select {
 	case <-store.canceled:
 	case <-time.After(time.Second):
-		t.Fatal("blocked upsert did not observe service shutdown cancellation")
+		t.Fatal("blocked upsert did not observe shutdown")
 	}
-	select {
-	case err := <-saveDone:
-		if err == nil {
-			t.Fatal("canceled save succeeded")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("save did not finish after shutdown cancellation")
+	if err := <-saveDone; err == nil {
+		t.Fatal("canceled save succeeded")
 	}
 	select {
 	case <-closeDone:
 	case <-time.After(time.Second):
-		t.Fatal("close remained blocked behind canceled save")
+		t.Fatal("close remained blocked behind save")
 	}
-
-	// Repeated close waits for and observes the same completed shutdown.
-	service.Close()
 }
 
 func TestServiceSavePreservesRequestCancellation(t *testing.T) {
 	store := &blockingUpsertStore{
-		memoryStore: newMemoryStore(),
-		started:     make(chan struct{}),
-		canceled:    make(chan struct{}),
+		memoryStore: newMemoryStore(), started: make(chan struct{}), canceled: make(chan struct{}),
 	}
-	service := testService(t, store, &fakeStarter{}, newFakeScheduler(), newManualTicker(), nil)
-	if err := service.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(service.Close)
-	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	service, _, _, _ := startTestService(t, store, newFakeStarter())
+	requestCtx, cancel := context.WithCancel(context.Background())
 	saveDone := make(chan error, 1)
 	go func() {
 		_, err := service.Save(requestCtx, synccontrol.TargetUGC, true, Definition{Kind: KindDaily, Time: "08:00"})
 		saveDone <- err
 	}()
 	<-store.started
-	cancelRequest()
+	cancel()
 	select {
 	case <-store.canceled:
 	case <-time.After(time.Second):
 		t.Fatal("blocked upsert did not observe request cancellation")
 	}
-	select {
-	case err := <-saveDone:
-		if err == nil {
-			t.Fatal("request-canceled save succeeded")
-		}
-	case <-time.After(time.Second):
-		t.Fatal("save did not finish after request cancellation")
-	}
-}
-
-func waitUntil(t *testing.T, condition func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for !condition() {
-		if time.Now().After(deadline) {
-			t.Fatal("condition not reached")
-		}
-		time.Sleep(time.Millisecond)
+	if err := <-saveDone; err == nil {
+		t.Fatal("request-canceled save succeeded")
 	}
 }
