@@ -59,6 +59,26 @@ const canGroupsGoNext = computed(() => (groupsResult.value?.items.length ?? 0) =
 const selectedSourceList = computed(() => Object.values(selectedSources.value))
 const canMerge = computed(() => selectedSourceList.value.length >= 2 && Boolean(primarySourceKey.value && selectedSources.value[primarySourceKey.value]))
 const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value || rerunPending.value))
+const matchSections = computed(() => {
+  const matches = result.value?.items ?? []
+  const unresolved = matches.filter(match => match.status !== 'rejected')
+  const rejected = matches.filter(match => match.status === 'rejected')
+
+  return [
+    {
+      id: 'pending-matches-title',
+      title: 'Films sans identité TMDB résolue',
+      items: unresolved
+    },
+    ...(rejected.length
+      ? [{
+          id: 'rejected-matches-title',
+          title: 'Films marqués Non-TMDB',
+          items: rejected
+        }]
+      : [])
+  ]
+})
 
 function sourceKey(source: AdminLocalMovieSource): string {
   return `${source.source_provider}:${source.source_movie_id}`
@@ -405,7 +425,7 @@ useHead({ title: 'Identités des films - MesSeances' })
       <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="errorMessage = ''">Fermer</button>
     </div>
 
-    <section class="mt-7" aria-labelledby="pending-matches-title">
+    <div class="mt-7">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2 id="pending-matches-title" class="text-xl font-semibold text-ink">Films sans identité TMDB résolue</h2>
         <div class="flex flex-wrap items-center gap-3">
@@ -464,11 +484,14 @@ useHead({ title: 'Identités des films - MesSeances' })
       <div v-if="pending" class="state-panel mt-4" role="status" aria-live="polite">
         <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
       </div>
-      <div v-else-if="result && !result.items.length" class="state-panel mt-4">
-        <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
-      </div>
-      <ul v-else-if="result?.items.length" class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" aria-label="Films sans identité TMDB résolue">
-        <li v-for="match in result.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
+      <template v-if="!pending && result">
+        <section v-for="matchSection in matchSections" :key="matchSection.id" :class="matchSection.id === 'rejected-matches-title' ? 'mt-8 border-t border-line pt-7' : ''" :aria-labelledby="matchSection.id">
+          <h2 v-if="matchSection.id === 'rejected-matches-title'" :id="matchSection.id" class="text-xl font-semibold text-ink">{{ matchSection.title }}</h2>
+          <div v-if="!matchSection.items.length" class="state-panel mt-4">
+            <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
+          </div>
+          <ul v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" :aria-label="matchSection.title">
+            <li v-for="match in matchSection.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
             <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
               <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-accent" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="anyMutation" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
@@ -518,15 +541,17 @@ useHead({ title: 'Identités des films - MesSeances' })
             <div v-if="rejectConfirmation === sourceKey(match)" class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"><span class="text-sm font-semibold text-red-800">Marquer ce film comme Non-TMDB ?</span><button type="button" class="h-9 rounded-md bg-red-700 px-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="anyMutation" @click="reject(match)">Confirmer</button><button type="button" class="h-9 rounded-md border border-line px-3 text-sm font-semibold text-ink" :disabled="anyMutation" @click="rejectConfirmation = ''">Annuler</button></div>
             <button v-else type="button" class="inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 lg:justify-self-end" :disabled="anyMutation" @click="rejectConfirmation = sourceKey(match)"><X :size="16" aria-hidden="true" /> Aucun résultat TMDB</button>
           </div>
-        </li>
-      </ul>
+            </li>
+          </ul>
+        </section>
+      </template>
 
       <nav v-if="!pending && !matchesError && (offset > 0 || canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" aria-label="Pagination des films sans identité TMDB résolue">
         <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="offset === 0 || anyMutation" @click="changePage(offset - PAGE_SIZE)">Précédent</button>
         <span class="text-sm text-muted" aria-live="polite">Page {{ page }}</span>
         <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGoNext || anyMutation" @click="changePage(offset + PAGE_SIZE)">Suivant</button>
       </nav>
-    </section>
+    </div>
 
     <section class="mt-8 border-t border-line pt-7" aria-labelledby="local-groups-title">
       <div class="flex flex-wrap items-center justify-between gap-3">
