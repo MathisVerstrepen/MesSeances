@@ -47,7 +47,7 @@ func (s *memoryStore) List(context.Context) ([]Schedule, error) {
 		return nil, s.listErr
 	}
 	result := make([]Schedule, 0, len(s.rows))
-	for _, provider := range []synccontrol.Target{synccontrol.TargetUGC, synccontrol.TargetKinepolis} {
+	for _, provider := range []synccontrol.Target{synccontrol.TargetUGC, synccontrol.TargetKinepolis, synccontrol.TargetPathe} {
 		if row, ok := s.rows[provider]; ok {
 			result = append(result, cloneSchedule(row))
 		}
@@ -490,6 +490,19 @@ func TestServiceRegistersCommittedRevisionAndUsesEntryPrev(t *testing.T) {
 	call = nextCall(t, starter)
 	if !call.ScheduledFor.Equal(time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC)) {
 		t.Fatalf("second call=%+v", call)
+	}
+}
+
+func TestServiceSchedulesPatheOccurrence(t *testing.T) {
+	store := newMemoryStore()
+	store.set(configured(synccontrol.TargetPathe, 3, true, Definition{Kind: KindDaily, Time: "08:00"}))
+	starter := newFakeStarter()
+	service, scheduler, _, _ := startTestService(t, store, starter)
+	scheduledFor := time.Date(2026, 8, 25, 6, 0, 0, 0, time.UTC)
+	fire(t, scheduler, entryID(t, service, synccontrol.TargetPathe), scheduledFor)
+	call := nextCall(t, starter)
+	if call.Provider != synccontrol.TargetPathe || call.Revision != 3 || call.Attempt != 0 || !call.ScheduledFor.Equal(scheduledFor) {
+		t.Fatalf("Pathé occurrence=%+v", call)
 	}
 }
 

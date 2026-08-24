@@ -65,7 +65,7 @@ func (a *adminAPI) saveSyncSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := synccontrol.Target(chi.URLParam(r, "provider"))
-	if provider != synccontrol.TargetUGC && provider != synccontrol.TargetKinepolis {
+	if provider != synccontrol.TargetUGC && provider != synccontrol.TargetKinepolis && provider != synccontrol.TargetPathe {
 		writeInvalidSyncSchedule(w)
 		return
 	}
@@ -178,7 +178,10 @@ func syncScheduleProviderOrder(provider synccontrol.Target) int {
 	if provider == synccontrol.TargetKinepolis {
 		return 1
 	}
-	return 2
+	if provider == synccontrol.TargetPathe {
+		return 2
+	}
+	return 3
 }
 
 func writeInvalidSyncSchedule(w http.ResponseWriter) {

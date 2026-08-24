@@ -18,6 +18,9 @@ func recordProvider(explicit Provider, identity string) Provider {
 	if strings.HasPrefix(identity, string(ProviderKinepolis)+"-") {
 		return ProviderKinepolis
 	}
+	if strings.HasPrefix(identity, string(ProviderPathe)+"-") {
+		return ProviderPathe
+	}
 	return ProviderUGC
 }
 func invalid(message string) error { return &ValidationError{Message: message} }

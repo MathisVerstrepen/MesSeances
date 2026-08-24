@@ -548,6 +548,24 @@ func TestRuntimeValidationAcceptsMarathonsAndRejectsInvalidValues(t *testing.T) 
 	}
 }
 
+func TestPatheSourceIdentityContracts(t *testing.T) {
+	valid := Match{SourceProvider: SourcePathe, SourceMovieID: "film-a_2", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 90, Candidates: []Candidate{}, EvaluatedAt: matcherNow, RetryAfter: matcherNow.Add(decisionTTL)}
+	if err := validateMatch(valid); err != nil {
+		t.Fatalf("valid Pathé source rejected: %v", err)
+	}
+	valid.SourceMovieID = strings.Repeat("a", 128-len("pathe-film-"))
+	if err := validateMatch(valid); err != nil {
+		t.Fatalf("maximum Pathé source identity rejected: %v", err)
+	}
+	for _, id := range []string{"", "-film", "bad id", strings.Repeat("a", 128-len("pathe-film-")+1)} {
+		invalid := valid
+		invalid.SourceMovieID = id
+		if err := validateMatch(invalid); err == nil {
+			t.Fatalf("invalid Pathé source accepted: %q", id)
+		}
+	}
+}
+
 func TestMatcherReusesRejectionUntilSourceFingerprintChanges(t *testing.T) {
 	store, provider := newMemoryStore(), &fakeProvider{details: map[int64]tmdb.Details{}}
 	store.matches["10"] = Match{SourceProvider: SourceUGC, SourceMovieID: "10", MetadataProvider: ProviderTMDB, Status: StatusRejected, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 90, Candidates: []Candidate{{ID: 1, Title: "Film"}}, EvaluatedAt: matcherNow, RetryAfter: matcherNow}

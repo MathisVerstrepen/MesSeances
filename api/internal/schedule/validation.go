@@ -60,7 +60,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if !validProvider(provider, false) || data.Provider != ProviderCombined && provider != data.Provider || theater.ID == "" || theater.ProviderID == "" || theater.Slug == "" || theater.Name == "" || theater.City == "" {
 			return fmt.Errorf("theater has missing required field")
 		}
-		if provider == ProviderUGC && (theater.Address == "" || theater.PostalCode == "") {
+		if provider != ProviderKinepolis && (theater.Address == "" || theater.PostalCode == "") {
 			return fmt.Errorf("theater has missing required field")
 		}
 		if !validProviderIdentity(provider, "theater", theater.ProviderID) || theater.ID != string(provider)+"-"+theater.ProviderID || theater.Slug != theater.ID {
@@ -83,7 +83,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 			}
 			seenDates[value] = true
 		}
-		if provider == ProviderUGC && (len(theater.AcceptedPasses) != 1 || theater.AcceptedPasses[0] != "UGC_ILLIMITE") || provider == ProviderKinepolis && len(theater.AcceptedPasses) != 0 {
+		if provider == ProviderUGC && (len(theater.AcceptedPasses) != 1 || theater.AcceptedPasses[0] != "UGC_ILLIMITE") || provider != ProviderUGC && len(theater.AcceptedPasses) != 0 {
 			return fmt.Errorf("invalid theater passes")
 		}
 	}
@@ -181,7 +181,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
-		if movie.ID <= 0 || movie.Title == "" || movie.RuntimeMinutes <= 0 || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes <= 0 || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
 			return fmt.Errorf("invalid public movie")
 		}
 		if movie.RedirectToID == movie.ID {
@@ -208,7 +208,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	for _, source := range data.MovieSources {
 		key := string(source.Provider) + "\x00" + source.SourceMovieID
 		target, ok := publicMovies[source.PublicMovieID]
-		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || source.SourceSlug == "" || source.Title == "" || source.RuntimeMinutes <= 0 {
+		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || !validProvider(source.Provider, false) || !validProviderIdentity(source.Provider, "movie", source.SourceMovieID) || source.SourceSlug != string(source.Provider)+"-film-"+source.SourceMovieID || source.Title == "" || source.RuntimeMinutes <= 0 || source.PosterURL != "" && !validProviderImageURL(source.Provider, source.PosterURL) {
 			return fmt.Errorf("invalid public movie source")
 		}
 		sources[key] = source
@@ -220,7 +220,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	aliases := make(map[string]bool, len(data.MovieAliases))
 	for _, alias := range data.MovieAliases {
 		target, ok := publicMovies[alias.PublicMovieID]
-		if alias.Slug == "" || canonicalSlugs[alias.Slug] || aliases[alias.Slug] || !ok || target.RedirectToID != 0 {
+		validIdentity := alias.Kind == "source" && validProvider(alias.Provider, false) && validProviderIdentity(alias.Provider, "movie", alias.SourceMovieID)
+		validEvidence := (alias.Kind == "local" || alias.Kind == "tmdb") && alias.Provider == "" && alias.SourceMovieID == ""
+		if alias.Slug == "" || canonicalSlugs[alias.Slug] || aliases[alias.Slug] || !ok || target.RedirectToID != 0 || !validIdentity && !validEvidence {
 			return fmt.Errorf("invalid movie slug alias")
 		}
 		aliases[alias.Slug] = true
@@ -248,7 +250,7 @@ func normalizeDataset(data *Dataset) {
 		if providerA != providerB {
 			return providerA < providerB
 		}
-		if providerA == ProviderKinepolis {
+		if providerA != ProviderUGC {
 			return data.Theaters[i].ProviderID < data.Theaters[j].ProviderID
 		}
 		a, _ := strconv.ParseUint(data.Theaters[i].ProviderID, 10, 64)
@@ -283,7 +285,7 @@ func validLanguage(v Language) bool {
 	return v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME
 }
 func validFormat(v Format) bool {
-	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX
+	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE
 }
 
 func validUGCURL(raw string, allowAssets bool) bool {
@@ -303,6 +305,10 @@ func validBookingURL(provider Provider, raw, showingID, theaterProviderID string
 	if provider == ProviderKinepolis {
 		return parsed.Host == "kinepolis.fr" && parsed.RawQuery == "" && parsed.Path == "/direct-vista-redirect/"+showingID+"/0/"+theaterProviderID+"/0"
 	}
+	if provider == ProviderPathe {
+		parts := strings.Split(parsed.Path, "/")
+		return parsed.Host == "s.pathe.fr" && parsed.RawQuery == "" && parsed.Opaque == "" && !parsed.ForceQuery && len(parts) == 4 && parts[0] == "" && parts[1] == "fr" && providerIdentity.MatchString(parts[2]) && parts[2] == showingID && parts[3] == "booking" && !strings.Contains(parsed.Path, `\`) && !hasPatheTraversalSegment(parsed.Path)
+	}
 	if parsed.Host != "www.ugc.fr" || parsed.Path != "/reservationSeances.html" {
 		return false
 	}
@@ -310,10 +316,13 @@ func validBookingURL(provider Provider, raw, showingID, theaterProviderID string
 	return len(query) == 1 && len(query["id"]) == 1 && query.Get("id") == showingID
 }
 
-var providerIdentity = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+var (
+	providerIdentity     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+	patheShowingIdentity = regexp.MustCompile(`^V[1-9][0-9]*S[1-9][0-9]*$`)
+)
 
 func validProvider(provider Provider, combined bool) bool {
-	return provider == ProviderUGC || provider == ProviderKinepolis || combined && provider == ProviderCombined
+	return provider == ProviderUGC || provider == ProviderKinepolis || provider == ProviderPathe || combined && provider == ProviderCombined
 }
 
 func validProviderIdentity(provider Provider, kind, value string) bool {
@@ -324,7 +333,39 @@ func validProviderIdentity(provider Provider, kind, value string) bool {
 		number, err := strconv.ParseUint(value, 10, 64)
 		return err == nil && number > 0
 	}
+	if provider == ProviderPathe {
+		maxLength := maxIdentityLength
+		switch kind {
+		case "theater":
+			maxLength -= len("pathe-")
+		case "movie":
+			maxLength -= len("pathe-film-")
+		case "showing":
+			maxLength -= len("pathe-showing-")
+		default:
+			return false
+		}
+		if len(value) > maxLength {
+			return false
+		}
+		if kind == "showing" {
+			return patheShowingIdentity.MatchString(value)
+		}
+		return true
+	}
 	return provider == ProviderKinepolis
+}
+
+func validPositiveDecimal(value string) bool {
+	if value == "" || value[0] == '0' {
+		return false
+	}
+	for _, digit := range value {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validProviderImageURL(provider Provider, raw string) bool {
@@ -332,7 +373,23 @@ func validProviderImageURL(provider Provider, raw string) bool {
 		return validUGCURL(raw, true)
 	}
 	parsed, err := url.Parse(raw)
-	return err == nil && len(raw) <= maxURLLength && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !hasPathTraversalSegment(parsed.Path) && !strings.Contains(parsed.Path, `\`)
+	if provider == ProviderKinepolis {
+		return err == nil && len(raw) <= maxURLLength && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !hasPathTraversalSegment(parsed.Path) && !strings.Contains(parsed.Path, `\`)
+	}
+	if err != nil || len(raw) > maxURLLength || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return provider == ProviderPathe && parsed.Host == host && (host == "pathe.fr" || strings.HasSuffix(host, ".pathe.fr"))
+}
+
+func hasPatheTraversalSegment(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func hasPathTraversalSegment(path string) bool {

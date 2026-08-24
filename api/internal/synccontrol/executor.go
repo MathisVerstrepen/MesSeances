@@ -9,6 +9,7 @@ import (
 
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/ugc"
 )
@@ -23,6 +24,7 @@ type ProductionExecutorOptions struct {
 	Writer           schedule.SnapshotWriter
 	NewUGC           func() (ugc.Getter, error)
 	NewKinepolis     func() (kinepolis.Fetcher, error)
+	NewPathe         func() (pathe.Getter, error)
 	Enrich           EnrichFunc
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -34,6 +36,7 @@ type ProductionExecutor struct {
 	writer           schedule.SnapshotWriter
 	newUGC           func() (ugc.Getter, error)
 	newKinepolis     func() (kinepolis.Fetcher, error)
+	newPathe         func() (pathe.Getter, error)
 	enrich           EnrichFunc
 	now              func() time.Time
 	logger           *slog.Logger
@@ -41,16 +44,17 @@ type ProductionExecutor struct {
 	operationTimeout time.Duration
 	syncUGC          func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
 	syncKinepolis    func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
+	syncPathe        func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
 	return &ProductionExecutor{
-		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis,
+		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
-		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync,
+		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync,
 	}, nil
 }
 
@@ -58,8 +62,8 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	started := time.Now()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis}
-	} else if target != TargetUGC && target != TargetKinepolis {
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe}
+	} else if target != TargetUGC && target != TargetKinepolis && target != TargetPathe {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
 	datasets := make([]schedule.Dataset, 0, len(providers))
@@ -133,6 +137,17 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 			requests = counter.RequestCount()
 		}
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+	case TargetPathe:
+		if e.newPathe == nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+		}
+		client, clientErr := e.newPathe()
+		if clientErr != nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
+		}
+		var summary pathe.SyncSummary
+		data, summary, err = e.syncPathe(ctx, client, pathe.SyncOptions{From: window.From, Now: e.now()})
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: summary.Requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	default:
 		return data, outcome, newProviderRunError(provider, StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
@@ -185,6 +200,7 @@ func stageError(ctx context.Context, provider Target, stage FailureStage, code F
 func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, err error, duration time.Duration) {
 	result, code, stage := "succeeded", FailureNone, StageNone
 	records := map[string]int{"cinemas": outcome.Sync.Cinemas, "movies": outcome.Sync.Movies, "new_movies": outcome.Sync.NewMovies, "dates": outcome.Sync.Dates, "requests": outcome.Sync.Requests, "showtimes": outcome.Sync.Showtimes, "new_showtimes": outcome.Sync.NewShowtimes, "skipped": outcome.Sync.Skipped}
+	logArgs := []any{"component", "sync", "provider", string(provider), "result", result, "stage", string(stage), "error_code", string(code), "duration", duration.Seconds(), "cinemas", records["cinemas"], "movies", records["movies"], "new_movies", records["new_movies"], "dates", records["dates"], "requests", records["requests"], "showtimes", records["showtimes"], "new_showtimes", records["new_showtimes"], "skipped", records["skipped"]}
 	if err != nil {
 		result = "failed"
 		code = FailureInternal
@@ -193,12 +209,82 @@ func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, e
 			code = runError.Code
 			stage = runError.Stage
 		}
-		e.logger.Error("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "stage", string(stage), "error_code", string(code), "duration", duration.Seconds(), "cinemas", records["cinemas"], "movies", records["movies"], "new_movies", records["new_movies"], "dates", records["dates"], "requests", records["requests"], "showtimes", records["showtimes"], "new_showtimes", records["new_showtimes"], "skipped", records["skipped"])
+		logArgs[5], logArgs[7], logArgs[9] = result, string(stage), string(code)
+		logArgs = append(logArgs, patheFetchLogArgs(provider, err)...)
+		e.logger.Error("sync_run_completed", logArgs...)
 	} else {
-		e.logger.Info("sync_run_completed", "component", "sync", "provider", string(provider), "result", result, "stage", string(stage), "error_code", string(code), "duration", duration.Seconds(), "cinemas", records["cinemas"], "movies", records["movies"], "new_movies", records["new_movies"], "dates", records["dates"], "requests", records["requests"], "showtimes", records["showtimes"], "new_showtimes", records["new_showtimes"], "skipped", records["skipped"])
+		e.logger.Info("sync_run_completed", logArgs...)
 	}
 	if e.observer != nil {
 		e.observer.ObserveSync(string(provider), result, string(stage), string(code), string(outcome.Enrichment.Status), duration, records)
+	}
+}
+
+func patheFetchLogArgs(provider Target, err error) []any {
+	if provider != TargetPathe {
+		return nil
+	}
+	var requestErr *pathe.RequestError
+	if !errors.As(err, &requestErr) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return []any{"fetch_category", "canceled", "request_operation", "unknown"}
+		}
+		return nil
+	}
+	category := safePatheFetchCategory(requestErr.Category)
+	operation := safePatheRequestOperation(requestErr.Operation)
+	args := []any{"fetch_category", category, "request_operation", operation}
+	if requestErr.StatusCode >= 100 && requestErr.StatusCode <= 599 {
+		args = append(args, "http_status", requestErr.StatusCode)
+	}
+	return args
+}
+
+func safePatheFetchCategory(category pathe.ErrorCategory) string {
+	switch category {
+	case pathe.CategoryCanceled:
+		return "canceled"
+	case pathe.CategoryInvalidURL:
+		return "invalid_url"
+	case pathe.CategoryNoProxy:
+		return "no_proxy"
+	case pathe.CategoryTransport:
+		return "transport"
+	case pathe.CategoryRedirect:
+		return "redirect"
+	case pathe.CategoryResponseRead:
+		return "response_read"
+	case pathe.CategoryResponseLarge:
+		return "response_too_large"
+	case pathe.CategoryChallenge:
+		return "challenge"
+	case pathe.CategoryServer, pathe.CategoryStatus:
+		return "status"
+	case pathe.CategoryContentType:
+		return "content_type"
+	case pathe.CategoryInvalidJSON:
+		return "invalid_json"
+	case pathe.CategoryEmptyResponse:
+		return "empty_response"
+	default:
+		return "unknown"
+	}
+}
+
+func safePatheRequestOperation(operation pathe.Operation) string {
+	switch operation {
+	case pathe.OperationCinemas:
+		return "cinemas"
+	case pathe.OperationShows:
+		return "shows"
+	case pathe.OperationCinemaProgram:
+		return "cinema_program"
+	case pathe.OperationMovieTimes:
+		return "movie_showtimes"
+	case pathe.OperationEventTimes:
+		return "event_showtimes"
+	default:
+		return "unknown"
 	}
 }
 

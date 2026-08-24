@@ -10,7 +10,8 @@ export const formatOptions: ReadonlyArray<{ value: QueryFormat; label: string; b
   { value: 'DOLBY', label: 'Dolby', brand: 'DOLBY' },
   { value: 'SCREENX', label: 'ScreenX', brand: 'SCREENX' },
   { value: 'LASER_ULTRA', label: 'Laser ULTRA by Kinepolis', brand: 'LASER_ULTRA' },
-  { value: '4DX', label: '4DX', brand: '4DX' }
+  { value: '4DX', label: '4DX', brand: '4DX' },
+  { value: 'ICE', label: 'ICE' }
 ]
 
 export function formatLabel(format: string): string {

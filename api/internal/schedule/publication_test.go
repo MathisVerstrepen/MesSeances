@@ -32,12 +32,12 @@ func TestPreparePublicationRejectsConflictingMovieMetadata(t *testing.T) {
 }
 
 func TestMovieIdentityAndServiceDateOperations(t *testing.T) {
-	for _, identity := range []MovieIdentity{{Provider: ProviderUGC, ProviderID: "25"}, {Provider: ProviderKinepolis, ProviderID: "HO200"}} {
+	for _, identity := range []MovieIdentity{{Provider: ProviderUGC, ProviderID: "25"}, {Provider: ProviderKinepolis, ProviderID: "HO200"}, {Provider: ProviderPathe, ProviderID: "film-a"}} {
 		if err := identity.Validate(); err != nil {
 			t.Fatalf("identity=%+v err=%v", identity, err)
 		}
 	}
-	for _, identity := range []MovieIdentity{{Provider: ProviderUGC, ProviderID: "zero"}, {Provider: ProviderCombined, ProviderID: "25"}, {Provider: ProviderKinepolis, ProviderID: ""}} {
+	for _, identity := range []MovieIdentity{{Provider: ProviderUGC, ProviderID: "zero"}, {Provider: ProviderCombined, ProviderID: "25"}, {Provider: ProviderKinepolis, ProviderID: ""}, {Provider: ProviderPathe, ProviderID: "bad id"}} {
 		if err := identity.Validate(); err == nil {
 			t.Fatalf("identity=%+v accepted", identity)
 		}

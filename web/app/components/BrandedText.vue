@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type Brand = 'UGC' | 'IMAX' | 'KINEPOLIS'
+type Brand = 'UGC' | 'IMAX' | 'KINEPOLIS' | 'PATHE'
 type Segment = { value: string; brand?: Brand }
 
 const props = withDefaults(defineProps<{
@@ -12,11 +12,11 @@ const props = withDefaults(defineProps<{
 })
 
 const segments = computed<Segment[]>(() => props.text
-  .split(/(?<![\p{L}\p{N}_])(UGC|IMAX|Kinepolis)(?![\p{L}\p{N}_])/giu)
+  .split(/(?<![\p{L}\p{N}_])(UGC|IMAX|Kinepolis|Pathé|Pathe)(?![\p{L}\p{N}_])/giu)
   .filter(Boolean)
   .map((value) => {
-    const brand = value.toUpperCase()
-    return brand === 'UGC' || brand === 'IMAX' || brand === 'KINEPOLIS' ? { value, brand } : { value }
+    const brand = value.toUpperCase().replace('É', 'E')
+    return brand === 'UGC' || brand === 'IMAX' || brand === 'KINEPOLIS' || brand === 'PATHE' ? { value, brand } : { value }
   }))
 </script>
 

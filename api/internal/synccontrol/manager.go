@@ -18,6 +18,7 @@ const (
 	TargetAll       Target = "all"
 	TargetUGC       Target = "ugc"
 	TargetKinepolis Target = "kinepolis"
+	TargetPathe     Target = "pathe"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"
@@ -149,7 +150,7 @@ func releaseRunLease(ctx context.Context, lease RunLease) error {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetAll || target == TargetUGC || target == TargetKinepolis
+	return target == TargetAll || target == TargetUGC || target == TargetKinepolis || target == TargetPathe
 }
 
 func (m *Manager) Start(target Target) (Status, error) {
@@ -158,7 +159,7 @@ func (m *Manager) Start(target Target) (Status, error) {
 }
 
 func (m *Manager) StartScheduled(occurrence Occurrence) (Status, <-chan Completion, error) {
-	if occurrence.Provider != TargetUGC && occurrence.Provider != TargetKinepolis {
+	if occurrence.Provider != TargetUGC && occurrence.Provider != TargetKinepolis && occurrence.Provider != TargetPathe {
 		return Status{}, nil, ErrInvalidOccurrence
 	}
 	if occurrence.Revision <= 0 || occurrence.ScheduledFor.IsZero() || occurrence.Attempt < 0 || occurrence.Attempt > 2 {
@@ -221,12 +222,16 @@ func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan C
 	providers := map[string]ProviderStatus{
 		string(TargetUGC):       {State: ProviderNotRequested},
 		string(TargetKinepolis): {State: ProviderNotRequested},
+		string(TargetPathe):     {State: ProviderNotRequested},
 	}
 	if target == TargetAll || target == TargetUGC {
 		providers[string(TargetUGC)] = ProviderStatus{State: ProviderPending}
 	}
 	if target == TargetAll || target == TargetKinepolis {
 		providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderPending}
+	}
+	if target == TargetAll || target == TargetPathe {
+		providers[string(TargetPathe)] = ProviderStatus{State: ProviderPending}
 	}
 	status := Status{
 		Target: target, State: StateRunning, Trigger: TriggerManual,
@@ -318,7 +323,7 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	}()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis}
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe}
 	}
 	for _, provider := range providers {
 		m.setProvider(provider, ProviderRunning)
@@ -460,10 +465,15 @@ func cloneStatus(status Status) Status {
 		copy.Occurrence = &occurrence
 	}
 	if status.Providers != nil {
-		copy.Providers = make(map[string]ProviderStatus, len(status.Providers))
+		copy.Providers = make(map[string]ProviderStatus, 3)
 		for provider, state := range status.Providers {
 			state.Outcome = cloneOutcome(state.Outcome)
 			copy.Providers[provider] = state
+		}
+		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe} {
+			if _, exists := copy.Providers[string(provider)]; !exists {
+				copy.Providers[string(provider)] = ProviderStatus{State: ProviderNotRequested}
+			}
 		}
 	}
 	return copy

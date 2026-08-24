@@ -33,6 +33,7 @@ const (
 	Timezone          = schedule.Timezone
 	ProviderUGC       = schedule.ProviderUGC
 	ProviderKinepolis = schedule.ProviderKinepolis
+	ProviderPathe     = schedule.ProviderPathe
 	ProviderCombined  = schedule.ProviderCombined
 	ScopeAll          = schedule.ScopeAll
 	ScopeSingle       = schedule.ScopeSingle
@@ -46,6 +47,7 @@ const (
 	FormatScreenX     = schedule.FormatScreenX
 	FormatLaserUltra  = schedule.FormatLaserUltra
 	Format4DX         = schedule.Format4DX
+	FormatICE         = schedule.FormatICE
 )
 
 type PostgresSource = schedule.PostgresSource
@@ -74,6 +76,12 @@ func kinepolisTestDataset() Dataset {
 	location, _ := time.LoadLocation(Timezone)
 	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 20:00", location)
 	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderKinepolis, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 13, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderKinepolis, ID: "kinepolis-LOM", ProviderID: "LOM", Slug: "kinepolis-LOM", Name: "Kinepolis Lomme", City: "Lomme", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderKinepolis, ID: "kinepolis-showing-VS1", ProviderShowingID: "VS1", ServiceDate: "2026-08-15", TheaterID: "kinepolis-LOM", Movie: MovieRecord{Provider: ProviderKinepolis, ProviderID: "HO200", Slug: "kinepolis-film-HO200", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://cdn.kinepolis.fr/images/posters/ho200.jpg", Overview: "Résumé Kinepolis", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: LanguageVF, ProviderVersion: "VF", Format: FormatIMAX, Room: "7", BookingURL: "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}}
+}
+
+func patheTestDataset() Dataset {
+	location, _ := time.LoadLocation(Timezone)
+	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 21:00", location)
+	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderPathe, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 14, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderPathe, ID: "pathe-lille", ProviderID: "lille", Slug: "pathe-lille", Name: "Pathé Lille", Address: "1 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderPathe, ID: "pathe-showing-V3308S135392", ProviderShowingID: "V3308S135392", ServiceDate: "2026-08-15", TheaterID: "pathe-lille", Movie: MovieRecord{Provider: ProviderPathe, ProviderID: "film-a", Slug: "pathe-film-film-a", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://www.pathe.fr/media/poster.jpg", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: LanguageVF, ProviderVersion: "vf", Format: FormatICE, Room: "ICE", BookingURL: "https://s.pathe.fr/fr/V3308S135392/booking"}}}
 }
 
 func testMovieSlug(movie MovieRecord) string {
@@ -140,7 +148,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 15 || migrationName != "015_sync_schedules.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 17 || migrationName != "017_pathe_showing_identity.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	var generationColumns, generationIndexes, generationFKs int
@@ -675,6 +683,111 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 }
 
+func TestPathePostgresStoreIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate schema nonce failed")
+	}
+	schema := "movieflow_pathe_store_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+	if err := database.RunMigrations(ctx, pool); err != nil {
+		t.Fatal("run migrations failed")
+	}
+	store := NewStore(pool)
+
+	pathe := patheTestDataset()
+	publication, err := store.Replace(ctx, []Dataset{pathe})
+	if err != nil || publication.Version != 1 || publication.Providers[ProviderPathe].Showtimes != 1 {
+		t.Fatalf("Pathé publication=%+v err=%v", publication, err)
+	}
+	loaded, revision, err := store.Load(ctx)
+	if err != nil || revision.ScheduleVersion != 1 || loaded.Provider != ProviderPathe || loaded.Showtimes[0].Format != FormatICE {
+		t.Fatalf("Pathé load revision=%+v dataset=%+v err=%v", revision, loaded, err)
+	}
+
+	ugc, kinepolis := testDataset(), kinepolisTestDataset()
+	publication, err = store.Replace(ctx, []Dataset{ugc})
+	if err != nil || publication.Version != 2 {
+		t.Fatalf("UGC copy-forward publication=%+v err=%v", publication, err)
+	}
+	now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
+	metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", RuntimeMinutes: 100, Genres: []string{}, FetchedAt: now, RefreshAfter: now.Add(24 * time.Hour)}
+	match := func(provider, id string) enrichment.Match {
+		return enrichment.Match{SourceProvider: provider, SourceMovieID: id, MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(24 * time.Hour)}
+	}
+	enrichmentStore := enrichment.NewPostgresStore(pool)
+	if err := enrichmentStore.Publish(ctx, match(enrichment.SourceUGC, "200"), metadata); err != nil {
+		t.Fatalf("publish UGC identity evidence: %v", err)
+	}
+	pathe.Showtimes[0].Movie.ProviderID = "film-b"
+	pathe.Showtimes[0].Movie.Slug = "pathe-film-film-b"
+	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe})
+	if err != nil || publication.Version != 3 || len(publication.Providers) != 3 {
+		t.Fatalf("three-provider publication=%+v err=%v", publication, err)
+	}
+	loaded, revision, err = store.Load(ctx)
+	if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 5 || len(loaded.Showtimes) != 7 {
+		t.Fatalf("three-provider load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
+	}
+	if err := enrichmentStore.Publish(ctx, match(enrichment.SourcePathe, "film-b"), metadata); err != nil {
+		t.Fatalf("publish Pathé identity evidence: %v", err)
+	}
+	var anchorProvider, anchorID string
+	if err := pool.QueryRow(ctx, `SELECT movie.identity_anchor_provider,movie.identity_anchor_source_movie_id
+FROM public_movies movie
+JOIN public_movie_sources source ON source.public_movie_id=movie.id
+WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(&anchorProvider, &anchorID); err != nil || anchorProvider != "ugc" || anchorID != "200" {
+		t.Fatalf("merged public anchor=%s/%s err=%v", anchorProvider, anchorID, err)
+	}
+
+	pathe.GeneratedAt = pathe.GeneratedAt.Add(time.Minute)
+	pathe.Theaters[0].Name = "Pathé Lille remplacé"
+	publication, err = store.Replace(ctx, []Dataset{pathe})
+	if err != nil || publication.Version != 4 {
+		t.Fatalf("Pathé copy-forward publication=%+v err=%v", publication, err)
+	}
+	loaded, revision, err = store.Load(ctx)
+	if err != nil || revision.ScheduleVersion != 4 || len(loaded.Theaters) != 5 || len(loaded.Showtimes) != 7 {
+		t.Fatalf("Pathé copy-forward load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
+	}
+	providers := map[schedule.Provider]bool{}
+	for _, theater := range loaded.Theaters {
+		providers[theater.Provider] = true
+	}
+	if !providers[ProviderUGC] || !providers[ProviderKinepolis] || !providers[ProviderPathe] {
+		t.Fatalf("copy-forward providers=%v", providers)
+	}
+}
+
 func shiftedDataset(data Dataset, days int) Dataset {
 	publication, _ := schedule.PreparePublication(data)
 	data = publication.Dataset
@@ -804,7 +917,7 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	}
 	store := NewStore(pool)
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 15 || migrationName != "015_sync_schedules.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 17 || migrationName != "017_pathe_showing_identity.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
 	}
 	var sourceColumns, sourceConstraints int

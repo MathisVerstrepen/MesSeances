@@ -25,4 +25,13 @@ test('builds cinema descriptions from provider, location, and available-date cou
     postalCode: '',
     availableDateCount: 1
   }), 'Kinepolis Lomme est un cinéma Kinepolis à Lomme. Sa programmation compte 1 date disponible.')
+
+  assert.equal(cinemaDescription({
+    name: 'Pathé Bellecour',
+    provider: 'pathe',
+    city: 'Lyon',
+    address: '79 rue de la République',
+    postalCode: '69002',
+    availableDateCount: 3
+  }), 'Pathé Bellecour est un cinéma Pathé à 79 rue de la République, 69002, Lyon. Sa programmation compte 3 dates disponibles.')
 })

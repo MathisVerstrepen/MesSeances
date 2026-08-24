@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type CreditBrand = 'UGC' | 'IMAX' | 'KINEPOLIS' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type CreditBrand = 'UGC' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
 interface Credit {
   brand: CreditBrand
@@ -13,7 +13,8 @@ const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; c
     title: 'Exploitants',
     credits: [
       { brand: 'UGC', name: 'UGC', url: 'https://www.ugc.fr/' },
-      { brand: 'KINEPOLIS', name: 'Kinepolis', url: 'https://kinepolis.fr/' }
+      { brand: 'KINEPOLIS', name: 'Kinepolis', url: 'https://kinepolis.fr/' },
+      { brand: 'PATHE', name: 'Pathé', url: 'https://www.pathe.fr/' }
     ]
   },
   {
@@ -70,7 +71,7 @@ useHead({ title: 'Crédits - MesSeances' })
 
           <div
             class="provider-grid grid border-l-2 border-t-2 border-ink sm:grid-cols-2"
-            :class="section.id === 'technologies' ? 'xl:grid-cols-5' : ''"
+            :class="section.id === 'technologies' ? 'xl:grid-cols-5' : 'xl:grid-cols-3'"
           >
             <section v-for="credit in section.credits" :key="credit.brand" class="provider-item flex min-w-0 flex-col border-b-2 border-r-2 border-ink bg-surface" :aria-labelledby="`credit-${credit.brand}`">
               <div class="flex items-center justify-between border-b-2 border-ink bg-[#f1efe8] px-4 py-3">

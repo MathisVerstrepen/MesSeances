@@ -31,6 +31,9 @@ export function safePosterUrl(url: string | null | undefined) {
     const isKinepolisPoster = hostname === 'cdn.kinepolis.fr'
       && parsed.pathname.startsWith('/images/')
       && parsed.pathname !== '/images/'
+    const isPathePoster = (hostname === 'pathe.fr' || hostname.endsWith('.pathe.fr'))
+      && parsed.pathname !== '/'
+      && !parsed.pathname.includes('%')
 
     if (
       parsed.protocol !== 'https:'
@@ -39,7 +42,7 @@ export function safePosterUrl(url: string | null | undefined) {
       || parsed.password
       || parsed.search
       || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster)
+      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster)
       || !hasSafePath(url, parsed.origin)
     ) return null
 

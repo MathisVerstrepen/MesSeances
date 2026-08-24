@@ -188,3 +188,28 @@ func TestReviewServiceDecoratesAndSanitizesPendingWithoutProviderCalls(t *testin
 		t.Fatalf("statuses changed: %+v", items)
 	}
 }
+
+func TestValidPatheSourcePosterURL(t *testing.T) {
+	for _, raw := range []string{
+		"https://www.pathe.fr/media/poster.jpg",
+		"https://media.pathe.fr/posters/a.webp",
+	} {
+		if !validSourcePosterURL(SourcePathe, raw) {
+			t.Fatalf("valid Pathé poster rejected: %q", raw)
+		}
+	}
+	for _, raw := range []string{
+		"http://www.pathe.fr/media/poster.jpg",
+		"https://evil.example/media/poster.jpg",
+		"https://www.pathe.fr:443/media/poster.jpg",
+		"https://www.pathe.fr/media/../poster.jpg",
+		"https://www.pathe.fr/media/poster.jpg?x=1",
+		"https://www.pathe.fr/media/poster.jpg?",
+		"https://www.pathe.fr/media/./poster.jpg",
+		"https://www.pathe.fr/",
+	} {
+		if validSourcePosterURL(SourcePathe, raw) {
+			t.Fatalf("unsafe Pathé poster accepted: %q", raw)
+		}
+	}
+}

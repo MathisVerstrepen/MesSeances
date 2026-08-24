@@ -41,8 +41,12 @@ func TestPostgresScheduleStoreIntegration(t *testing.T) {
 	if err != nil || third.Revision != 1 {
 		t.Fatalf("third=%+v err=%v", third, err)
 	}
+	fourth, err := storeA.Upsert(ctx, Schedule{Provider: synccontrol.TargetPathe, Enabled: true, Definition: Definition{Kind: KindDaily, Time: "06:30"}})
+	if err != nil || fourth.Revision != 1 {
+		t.Fatalf("fourth=%+v err=%v", fourth, err)
+	}
 	rows, err = storeB.List(ctx)
-	if err != nil || len(rows) != 2 || rows[0].Provider != synccontrol.TargetUGC || rows[1].Provider != synccontrol.TargetKinepolis || rows[0].Revision != 2 {
+	if err != nil || len(rows) != 3 || rows[0].Provider != synccontrol.TargetUGC || rows[1].Provider != synccontrol.TargetKinepolis || rows[2].Provider != synccontrol.TargetPathe || rows[0].Revision != 2 {
 		t.Fatalf("rows=%+v err=%v", rows, err)
 	}
 }

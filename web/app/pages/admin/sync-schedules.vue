@@ -33,7 +33,7 @@ interface ProviderFormState {
   success: string
 }
 
-const providers = ['ugc', 'kinepolis'] as const
+const providers = ['ugc', 'kinepolis', 'pathe'] as const
 const api = useMesSeancesApi()
 const schedulesPending = ref(true)
 const schedulesLoaded = ref(false)
@@ -48,7 +48,8 @@ let active = false
 
 const providerLabels = {
   ugc: 'UGC',
-  kinepolis: 'Kinepolis'
+  kinepolis: 'Kinepolis',
+  pathe: 'Pathé'
 } satisfies Record<Provider, string>
 
 const modeLabels = {
@@ -104,7 +105,8 @@ const forms = reactive<ProviderFormState[]>(providers.map((provider) => {
 
 const latestRuns = computed<Record<Provider, AdminSyncJob | null>>(() => ({
   ugc: selectLatestProviderRun('ugc', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
-  kinepolis: selectLatestProviderRun('kinepolis', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? [])
+  kinepolis: selectLatestProviderRun('kinepolis', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  pathe: selectLatestProviderRun('pathe', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? [])
 }))
 
 function blankDraft(): AdminSyncScheduleDraft {

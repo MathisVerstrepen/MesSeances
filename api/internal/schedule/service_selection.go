@@ -109,7 +109,7 @@ func matchesLanguage(session, requested Language) bool {
 
 func validateSlotFormat(format Format) error {
 	if format != "" && format != FormatAll && !validFormat(format) {
-		return invalid("Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX.")
+		return invalid("Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE.")
 	}
 	return nil
 }

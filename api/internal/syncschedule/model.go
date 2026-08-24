@@ -46,5 +46,5 @@ func cloneSchedule(schedule Schedule) Schedule {
 }
 
 func validProvider(provider synccontrol.Target) bool {
-	return provider == synccontrol.TargetUGC || provider == synccontrol.TargetKinepolis
+	return provider == synccontrol.TargetUGC || provider == synccontrol.TargetKinepolis || provider == synccontrol.TargetPathe
 }

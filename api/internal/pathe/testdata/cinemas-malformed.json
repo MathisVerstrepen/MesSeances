@@ -1,0 +1,12 @@
+[
+  {
+    "slug": "missing-address",
+    "name": "Pathé Incomplet",
+    "theaters": [
+      {
+        "addressZip": "59000",
+        "addressCity": "Lille"
+      }
+    ]
+  }
+]

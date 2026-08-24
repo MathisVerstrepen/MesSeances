@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +19,7 @@ import (
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/observability"
+	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/schedulepg"
 	"messeances/api/internal/shortlink"
@@ -111,15 +113,7 @@ func run(ctx context.Context) error {
 				return &summary, err
 			}
 		}
-		executor, err := synccontrol.NewProductionExecutor(synccontrol.ProductionExecutorOptions{
-			Writer: store, Now: time.Now, Logger: logger, Observer: metrics, Enrich: enrich, OperationTimeout: syncConfig.Sync.OperationTimeout,
-			NewUGC: func() (ugc.Getter, error) {
-				return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: syncConfig.Sync.RequestTimeout})
-			},
-			NewKinepolis: func() (kinepolis.Fetcher, error) {
-				return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: syncConfig.Sync.KinepolisRequestInterval, Timeout: syncConfig.Sync.RequestTimeout})
-			},
-		})
+		executor, err := synccontrol.NewProductionExecutor(newSyncExecutorOptions(store, proxies, syncConfig, enrich, time.Now, logger, metrics))
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
@@ -169,6 +163,21 @@ func run(ctx context.Context) error {
 	}
 	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
+}
+
+func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
+	return synccontrol.ProductionExecutorOptions{
+		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout,
+		NewUGC: func() (ugc.Getter, error) {
+			return ugc.NewClient(ugc.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewKinepolis: func() (kinepolis.Fetcher, error) {
+			return kinepolis.NewClient(kinepolis.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.KinepolisRequestInterval, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewPathe: func() (pathe.Getter, error) {
+			return pathe.NewClient(pathe.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+	}
 }
 
 type closeableWorker interface {

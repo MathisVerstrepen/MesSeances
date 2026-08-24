@@ -13,6 +13,7 @@ import (
 
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
@@ -55,6 +56,13 @@ type countedFetcher struct{ requests int }
 func (countedFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
 func (f countedFetcher) RequestCount() int                   { return f.requests }
 
+type unusedPatheGetter struct{}
+
+func (unusedPatheGetter) Get(context.Context, pathe.Operation, string) ([]byte, error) {
+	return nil, nil
+}
+func (unusedPatheGetter) RequestCount() int { return 0 }
+
 type fakeEnrichmentStore struct{}
 
 func (fakeEnrichmentStore) IsLocallyMerged(context.Context, string, string) (bool, error) {
@@ -94,6 +102,7 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 		}),
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
+		newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
 		syncUGC: func(_ context.Context, _ ugc.Getter, options ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			if options.From != window.From {
 				t.Fatalf("UGC options=%+v", options)
@@ -103,17 +112,20 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 		syncKinepolis: func(_ context.Context, _ kinepolis.Fetcher, options kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
 		},
+		syncPathe: func(_ context.Context, _ pathe.Getter, options pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
+		},
 		enrich: func(_ context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
 			events = append(events, "enrich:"+movies[0].SourceProvider)
 			return nil, errors.New("degraded")
 		},
 	}
-	for _, provider := range []Target{TargetUGC, TargetKinepolis} {
+	for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe} {
 		if _, err := executor.Run(context.Background(), provider, window); err != nil {
 			t.Fatalf("provider=%s err=%v", provider, err)
 		}
 	}
-	want := []string{"commit:ugc", "enrich:ugc", "commit:kinepolis", "enrich:kinepolis"}
+	want := []string{"commit:ugc", "enrich:ugc", "commit:kinepolis", "enrich:kinepolis", "commit:pathe", "enrich:pathe"}
 	if len(events) != len(want) {
 		t.Fatalf("events=%v", events)
 	}
@@ -131,13 +143,14 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
-			if len(datasets) != 2 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" {
+			if len(datasets) != 3 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" {
 				t.Fatalf("datasets=%+v", datasets)
 			}
 			return 11, nil
 		}),
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
+		newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			data := validDataset(t, schedule.ProviderUGC, window)
 			data.Window.Through = "2027-01-10"
@@ -148,6 +161,11 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 			data.Window.Through = "2026-11-20"
 			return data, kinepolis.SyncSummary{}, nil
 		},
+		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+			data := validDataset(t, schedule.ProviderPathe, window)
+			data.Window.Through = "2026-12-15"
+			return data, pathe.SyncSummary{Requests: 17}, nil
+		},
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 			enrichments++
 			if writes != 1 {
@@ -157,7 +175,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		},
 	}
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
-	if err != nil || writes != 1 || enrichments != 2 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" {
+	if err != nil || writes != 1 || enrichments != 3 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetPathe].Sync.Requests != 17 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
 	}
 }
@@ -185,11 +203,15 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, nil }),
 		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil }, newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
+		newPathe: func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
 		},
 		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 			return schedule.Dataset{}, kinepolis.SyncSummary{}, errors.New("second-provider-secret")
+		},
+		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
 		},
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
 	}
@@ -200,6 +222,16 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 	}
 	executor.syncKinepolis = func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
 		return validDataset(t, schedule.ProviderKinepolis, window), kinepolis.SyncSummary{}, nil
+	}
+	executor.syncPathe = func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+		return schedule.Dataset{}, pathe.SyncSummary{}, errors.New("third-provider-secret")
+	}
+	_, err = executor.Run(context.Background(), TargetAll, window)
+	if !errors.As(err, &runErr) || runErr.Provider != TargetPathe || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {
+		t.Fatalf("err=%v writes=%d enrichments=%d", err, writes, enrichments)
+	}
+	executor.syncPathe = func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+		return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
 	}
 	executor.writer = writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
 		writes++
@@ -257,6 +289,80 @@ func TestProductionExecutorTelemetryIsBoundedAndRedacted(t *testing.T) {
 				t.Fatalf("logs=%q observations=%+v want=%+v", logs.String(), observer.observations, test.want)
 			}
 		})
+	}
+}
+
+func TestProductionExecutorLogsSanitizedPatheFetchDiagnostics(t *testing.T) {
+	const sensitive = "https://user:proxy-password@proxy.example/path?token=token-secret cookie=session-secret body=provider-body-secret transport=underlying-sensitive-error"
+	tests := []struct {
+		name          string
+		category      pathe.ErrorCategory
+		status        int
+		operation     pathe.Operation
+		wantCategory  string
+		wantOperation string
+		wantStatus    string
+	}{
+		{name: "transport", category: pathe.CategoryTransport, operation: pathe.OperationCinemas, wantCategory: "transport", wantOperation: "cinemas"},
+		{name: "forbidden", category: pathe.CategoryStatus, status: 403, operation: pathe.OperationShows, wantCategory: "status", wantOperation: "shows", wantStatus: "403"},
+		{name: "rate limited", category: pathe.CategoryStatus, status: 429, operation: pathe.OperationCinemaProgram, wantCategory: "status", wantOperation: "cinema_program", wantStatus: "429"},
+		{name: "server status", category: pathe.CategoryServer, status: 503, operation: pathe.OperationMovieTimes, wantCategory: "status", wantOperation: "movie_showtimes", wantStatus: "503"},
+		{name: "challenge", category: pathe.CategoryChallenge, operation: pathe.OperationEventTimes, wantCategory: "challenge", wantOperation: "event_showtimes"},
+		{name: "content type", category: pathe.CategoryContentType, operation: pathe.OperationCinemas, wantCategory: "content_type", wantOperation: "cinemas"},
+		{name: "redirect", category: pathe.CategoryRedirect, operation: pathe.OperationShows, wantCategory: "redirect", wantOperation: "shows"},
+		{name: "response too large", category: pathe.CategoryResponseLarge, operation: pathe.OperationCinemaProgram, wantCategory: "response_too_large", wantOperation: "cinema_program"},
+		{name: "invalid JSON", category: pathe.CategoryInvalidJSON, operation: pathe.OperationMovieTimes, wantCategory: "invalid_json", wantOperation: "movie_showtimes"},
+		{name: "canceled", category: pathe.CategoryCanceled, operation: pathe.OperationEventTimes, wantCategory: "canceled", wantOperation: "event_showtimes"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			executor := failedPatheExecutor(&logs, fmt.Errorf("%s: %w", sensitive, &pathe.RequestError{Operation: test.operation, Category: test.category, StatusCode: test.status}))
+			_, err := executor.Run(context.Background(), TargetPathe, Window{From: "2026-08-17"})
+			var runErr *RunError
+			if !errors.As(err, &runErr) || runErr.Code != FailureProviderSync {
+				t.Fatalf("err=%v", err)
+			}
+			logLine := logs.String()
+			for _, want := range []string{`"provider":"pathe"`, `"result":"failed"`, `"stage":"provider_fetch"`, `"error_code":"provider_sync_failed"`, `"fetch_category":"` + test.wantCategory + `"`, `"request_operation":"` + test.wantOperation + `"`} {
+				if !strings.Contains(logLine, want) {
+					t.Fatalf("log missing %q: %s", want, logLine)
+				}
+			}
+			if test.wantStatus != "" && !strings.Contains(logLine, `"http_status":`+test.wantStatus) {
+				t.Fatalf("log missing status %s: %s", test.wantStatus, logLine)
+			}
+			if test.wantStatus == "" && strings.Contains(logLine, `"http_status"`) {
+				t.Fatalf("log contains unexpected status: %s", logLine)
+			}
+			for _, forbidden := range []string{sensitive, "user:proxy-password", "proxy.example", "token-secret", "session-secret", "provider-body-secret", "underlying-sensitive-error"} {
+				if strings.Contains(logLine, forbidden) {
+					t.Fatalf("log leaked %q: %s", forbidden, logLine)
+				}
+			}
+		})
+	}
+}
+
+func TestProductionExecutorBoundsPatheFetchDiagnostics(t *testing.T) {
+	const malicious = "https://user:password@proxy.example/?token=secret"
+	var logs bytes.Buffer
+	executor := failedPatheExecutor(&logs, &pathe.RequestError{Operation: pathe.Operation(malicious), Category: pathe.ErrorCategory(malicious), StatusCode: 999})
+	_, _ = executor.Run(context.Background(), TargetPathe, Window{From: "2026-08-17"})
+	logLine := logs.String()
+	if !strings.Contains(logLine, `"fetch_category":"unknown"`) || !strings.Contains(logLine, `"request_operation":"unknown"`) || strings.Contains(logLine, `"http_status"`) || strings.Contains(logLine, malicious) {
+		t.Fatalf("unbounded diagnostic log: %s", logLine)
+	}
+}
+
+func failedPatheExecutor(logs *bytes.Buffer, fetchErr error) *ProductionExecutor {
+	return &ProductionExecutor{
+		now:      time.Now,
+		logger:   slog.New(slog.NewJSONHandler(logs, nil)),
+		newPathe: func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
+		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
+			return schedule.Dataset{}, pathe.SyncSummary{}, fetchErr
+		},
 	}
 }
 
@@ -473,6 +579,10 @@ func validDataset(t *testing.T, provider schedule.Provider, window Window) sched
 		theaterID, theaterProviderID, movieID, showingID = "ugc-25", "25", "200", "100"
 		address, postal, passes = "1 rue", "59000", []string{"UGC_ILLIMITE"}
 		booking = "https://www.ugc.fr/reservationSeances.html?id=100"
+	} else if provider == schedule.ProviderPathe {
+		theaterID, theaterProviderID, movieID, showingID = "pathe-cinema", "cinema", "movie", "V3308S1"
+		address, postal = "1 rue", "59000"
+		booking = "https://s.pathe.fr/fr/V3308S1/booking"
 	}
 	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: provider, Scope: schedule.ScopeAll, GeneratedAt: time.Now().UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: window.From, Through: window.From},
 		Theaters:  []schedule.TheaterRecord{{ID: theaterID, ProviderID: theaterProviderID, Slug: theaterID, Name: "Cinéma", Address: address, City: "Lille", PostalCode: postal, AvailableDates: []string{window.From}, AcceptedPasses: passes}},

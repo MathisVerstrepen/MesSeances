@@ -384,7 +384,12 @@ function candidateScore(candidate: AdminTMDBCandidate): string {
 }
 
 function providerLabel(provider: Provider): string {
-  return provider === 'ugc' ? 'UGC' : 'Kinepolis'
+  const labels = {
+    ugc: 'UGC',
+    kinepolis: 'Kinepolis',
+    pathe: 'Pathé'
+  } satisfies Record<Provider, string>
+  return labels[provider]
 }
 
 function statusLabel(match: AdminPendingMatch): string {

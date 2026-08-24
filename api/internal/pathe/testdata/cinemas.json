@@ -1,0 +1,28 @@
+[
+  {
+    "slug": "zeta",
+    "name": "Pathé Zeta",
+    "theaters": [
+      {
+        "addressLine1": "2 avenue Exemple",
+        "addressZip": "75000",
+        "addressCity": "Paris"
+      }
+    ],
+    "hallCount": 4,
+    "tags": ["imax"]
+  },
+  {
+    "slug": "lille",
+    "name": "Pathé Lille",
+    "theaters": [
+      {
+        "addressLine1": "1 rue du Cinéma",
+        "addressZip": "59000",
+        "addressCity": "Lille"
+      }
+    ],
+    "hallCount": 8,
+    "tags": ["4dx", "ice"]
+  }
+]

@@ -64,7 +64,7 @@ func TestMigrationsIntegration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 15 {
+	if err != nil || len(migrations) != 17 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -232,7 +232,7 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 15 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 17 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
@@ -277,7 +277,7 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 15 {
+	if err != nil || len(migrations) != 17 {
 		t.Fatalf("migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -343,7 +343,7 @@ func TestPublicMovieCatalogBackfillIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 15 {
+	if err != nil || len(migrations) != 17 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -520,7 +520,7 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 15 {
+	if err != nil || len(migrations) != 17 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -629,5 +629,285 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
 	var oldRunCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_runs WHERE id=$1 AND trigger_source='manual' AND schedule_revision IS NULL AND scheduled_for IS NULL AND schedule_attempt IS NULL`, oldRunID).Scan(&oldRunCount); err != nil || oldRunCount != 1 {
 		t.Fatalf("repeat migration changed old run count=%d err=%v", oldRunCount, err)
+	}
+}
+
+func TestPatheProviderMigrationIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate schema nonce failed")
+	}
+	schema := "movieflow_pathe_migration_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+	migrations, err := embeddedMigrations()
+	if err != nil || len(migrations) != 17 {
+		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal("create migration history failed")
+	}
+	for _, migration := range migrations[:15] {
+		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
+			t.Fatal("record fixture migration failed")
+		}
+	}
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO schedule_snapshot (version,schema_version,provider,scope,generated_at,timezone,window_from,window_through) VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-24','2026-08-24');
+INSERT INTO provider_snapshots (generation_id,provider,schema_version,scope,generated_at,timezone,window_from,window_through) VALUES
+    (1,'ugc',1,'all_cinemas',$1,'Europe/Paris','2026-08-24','2026-08-24'),
+    (1,'kinepolis',1,'all_cinemas',$1,'Europe/Paris','2026-08-24','2026-08-24');
+INSERT INTO passes (code) VALUES ('UGC_ILLIMITE');
+INSERT INTO theaters (generation_id,id,provider_id,slug,name,address,city,postal_code,provider) VALUES
+    (1,'ugc-1','1','ugc-1','UGC historique','1 rue','Lille','59000','ugc'),
+    (1,'kinepolis-K','K','kinepolis-K','Kinepolis historique','','Lomme','','kinepolis');
+INSERT INTO theater_dates (generation_id,theater_id,service_date) VALUES (1,'ugc-1','2026-08-24'),(1,'kinepolis-K','2026-08-24');
+INSERT INTO theater_passes (generation_id,theater_id,pass_code) VALUES (1,'ugc-1','UGC_ILLIMITE');
+INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES
+    (1,'ugc','10','ugc-film-10','Film UGC',90),
+    (1,'kinepolis','K10','kinepolis-film-K10','Film Kinepolis',95);
+INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES
+    (1,'ugc-showing-100','100','2026-08-24','ugc-1','10','2026-08-24T18:00:00+02','2026-08-24T19:30:00+02','VF','VF','2D','1','https://www.ugc.fr/reservationSeances.html?id=100','ugc'),
+    (1,'kinepolis-showing-K100','K100','2026-08-24','kinepolis-K','K10','2026-08-24T20:00:00+02','2026-08-24T21:35:00+02','VF','VF','IMAX','2','https://kinepolis.fr/direct-vista-redirect/K100/0/K/0','kinepolis');
+INSERT INTO sync_schedules (provider,enabled,schedule_kind,local_time) VALUES ('ugc',false,'daily','08:00'),('kinepolis',false,'daily','09:00');
+INSERT INTO sync_runs (target,state,started_at,finished_at,window_from,window_through,providers) VALUES ('all','succeeded',$1,$1,'2026-08-24','2026-08-24','{}');
+`, pgx.QueryExecModeSimpleProtocol, now); err != nil {
+		t.Fatalf("seed pre-016 rows failed: %v", err)
+	}
+	localTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal("begin pre-016 local group failed")
+	}
+	var oldLocalID int64
+	if err := localTx.QueryRow(ctx, `INSERT INTO local_movie_groups (primary_source_provider,primary_source_movie_id) VALUES ('ugc','10') RETURNING id`).Scan(&oldLocalID); err != nil {
+		t.Fatal("insert pre-016 local group failed")
+	}
+	if _, err := localTx.Exec(ctx, `INSERT INTO local_movie_group_members (local_movie_id,source_provider,source_movie_id) VALUES ($1,'ugc','10'),($1,'kinepolis','K10')`, oldLocalID); err != nil {
+		t.Fatal("insert pre-016 local members failed")
+	}
+	if err := localTx.Commit(ctx); err != nil {
+		t.Fatal("commit pre-016 local group failed")
+	}
+	var oldPublicID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO public_movies (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes) VALUES ('ugc','10','Film UGC',90) RETURNING id`).Scan(&oldPublicID); err != nil {
+		t.Fatal("insert pre-016 public movie failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_sources (source_provider,source_movie_id,public_movie_id,source_slug,title,runtime_minutes) VALUES ('ugc','10',$1,'ugc-film-10','Film UGC',90); INSERT INTO movie_slug_aliases (slug,public_movie_id,alias_kind,source_provider,source_movie_id) VALUES ('ugc-film-10',$1,'source','ugc','10')`, pgx.QueryExecModeSimpleProtocol, oldPublicID); err != nil {
+		t.Fatal("insert pre-016 public source failed")
+	}
+
+	patheProviderMigration := migrations[15]
+	if _, err := pool.Exec(ctx, patheProviderMigration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatalf("run migration 016 failed: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, patheProviderMigration.version, patheProviderMigration.name); err != nil {
+		t.Fatal("record migration 016 failed")
+	}
+	var oldRows int
+	if err := pool.QueryRow(ctx, `SELECT
+    (SELECT count(*) FROM theaters WHERE provider IN ('ugc','kinepolis')) +
+    (SELECT count(*) FROM movies WHERE provider IN ('ugc','kinepolis')) +
+    (SELECT count(*) FROM showtimes WHERE provider IN ('ugc','kinepolis')) +
+    (SELECT count(*) FROM local_movie_groups WHERE id=$1) +
+    (SELECT count(*) FROM public_movies WHERE id=$2)`, oldLocalID, oldPublicID).Scan(&oldRows); err != nil || oldRows != 8 {
+		t.Fatalf("preserved pre-016 rows=%d err=%v", oldRows, err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO provider_snapshots (generation_id,provider,schema_version,scope,generated_at,timezone,window_from,window_through) VALUES (1,'pathe',1,'all_cinemas',$1,'Europe/Paris','2026-08-24','2026-08-24');
+INSERT INTO theaters (generation_id,id,provider_id,slug,name,address,city,postal_code,provider) VALUES (1,'pathe-lille','lille','pathe-lille','Pathé Lille','1 rue','Lille','59000','pathe');
+INSERT INTO theater_dates (generation_id,theater_id,service_date) VALUES (1,'pathe-lille','2026-08-24');
+INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES (1,'pathe','film-a','pathe-film-film-a','Film Pathé',100);
+INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES (1,'pathe-showing-S135392','S135392','2026-08-24','pathe-lille','film-a','2026-08-24T21:00:00+02','2026-08-24T22:40:00+02','VF','vf','ICE','ICE','https://s.pathe.fr/fr/V3308S135392/booking','pathe');
+`, pgx.QueryExecModeSimpleProtocol, now); err != nil {
+		t.Fatalf("insert legacy Pathé showing row failed: %v", err)
+	}
+	var inboundShowtimeForeignKeys int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_constraint WHERE contype='f' AND confrelid='showtimes'::regclass`).Scan(&inboundShowtimeForeignKeys); err != nil || inboundShowtimeForeignKeys != 0 {
+		t.Fatalf("inbound showtime foreign keys=%d err=%v", inboundShowtimeForeignKeys, err)
+	}
+	var constraintsBefore, indexesBefore []string
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname <> 'showtimes_provider_identity_check'), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsBefore); err != nil {
+		t.Fatal("read pre-017 showtime constraints failed")
+	}
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(indexname || '=' || indexdef ORDER BY indexname), ARRAY[]::text[]) FROM pg_indexes WHERE schemaname=current_schema() AND tablename='showtimes'`).Scan(&indexesBefore); err != nil {
+		t.Fatal("read pre-017 showtime indexes failed")
+	}
+	assertMigrationRejected := func(label string) {
+		t.Helper()
+		if err := RunMigrations(ctx, pool); err == nil || err.Error() != "database migration 017 failed" {
+			t.Fatalf("%s migration error=%v", label, err)
+		}
+		var migration17Count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=17`).Scan(&migration17Count); err != nil || migration17Count != 0 {
+			t.Fatalf("%s failed migration recorded: count=%d err=%v", label, migration17Count, err)
+		}
+	}
+	insertLegacyShowing := func(providerShowingID, bookingURL string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES (1,'pathe-showing-' || $1,$1,'2026-08-24','pathe-lille','film-a','2026-08-24T18:00:00+02','2026-08-24T19:40:00+02','VF','vf','ICE','1',$2,'pathe')`, providerShowingID, bookingURL); err != nil {
+			t.Fatalf("insert %s legacy fixture failed", providerShowingID)
+		}
+	}
+	assertLegacyShowing := func(providerShowingID, bookingURL string) {
+		t.Helper()
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM showtimes WHERE generation_id=1 AND provider='pathe' AND id='pathe-showing-' || $1 AND provider_showing_id=$1 AND booking_url=$2`, providerShowingID, bookingURL).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("legacy fixture %s changed: count=%d err=%v", providerShowingID, count, err)
+		}
+	}
+	removeShowing := func(providerShowingID string) {
+		t.Helper()
+		if _, err := pool.Exec(ctx, `DELETE FROM showtimes WHERE generation_id=1 AND provider='pathe' AND provider_showing_id=$1`, providerShowingID); err != nil {
+			t.Fatalf("remove %s invalid fixture failed", providerShowingID)
+		}
+	}
+
+	malformedURL := "https://s.pathe.fr/fr/V1S200/booking?unexpected=1"
+	insertLegacyShowing("S200", malformedURL)
+	assertMigrationRejected("malformed URL")
+	assertLegacyShowing("S135392", "https://s.pathe.fr/fr/V3308S135392/booking")
+	assertLegacyShowing("S200", malformedURL)
+	removeShowing("S200")
+
+	mismatchedTokenURL := "https://s.pathe.fr/fr/V1S202/booking"
+	insertLegacyShowing("S201", mismatchedTokenURL)
+	assertMigrationRejected("mismatched token")
+	assertLegacyShowing("S201", mismatchedTokenURL)
+	removeShowing("S201")
+
+	oversizedTokenURL := "https://s.pathe.fr/fr/V" + strings.Repeat("9", 112) + "S203/booking"
+	insertLegacyShowing("S203", oversizedTokenURL)
+	assertMigrationRejected("oversized derived identity")
+	assertLegacyShowing("S203", oversizedTokenURL)
+	removeShowing("S203")
+
+	if _, err := pool.Exec(ctx, `
+ALTER TABLE showtimes DROP CONSTRAINT showtimes_provider_identity_check;
+ALTER TABLE showtimes ADD CONSTRAINT showtimes_provider_identity_check CHECK (
+    (provider = 'ugc' AND provider_showing_id ~ '^[1-9][0-9]*$') OR
+    (provider = 'kinepolis' AND provider_showing_id ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$') OR
+    (provider = 'pathe' AND (provider_showing_id ~ '^S[1-9][0-9]*$' OR provider_showing_id ~ '^V[1-9][0-9]*S[1-9][0-9]*$'))
+);
+INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES (1,'pathe-showing-V3308S135392','V3308S135392','2026-08-24','pathe-lille','film-a','2026-08-24T19:00:00+02','2026-08-24T20:40:00+02','VF','vf','ICE','2','https://s.pathe.fr/fr/V3308S135392/booking','pathe');
+`, pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatal("insert collision fixture failed")
+	}
+	assertMigrationRejected("derived identity collision")
+	assertLegacyShowing("S135392", "https://s.pathe.fr/fr/V3308S135392/booking")
+	var collisionRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM showtimes WHERE generation_id=1 AND provider='pathe' AND provider_showing_id='V3308S135392' AND id='pathe-showing-V3308S135392'`).Scan(&collisionRows); err != nil || collisionRows != 1 {
+		t.Fatalf("collision fixture changed: count=%d err=%v", collisionRows, err)
+	}
+	removeShowing("V3308S135392")
+
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatalf("upgrade legacy Pathé showing identity failed: %v", err)
+	}
+	var upgradedRows int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM showtimes WHERE generation_id=1 AND provider='pathe' AND id='pathe-showing-V3308S135392' AND provider_showing_id='V3308S135392' AND service_date='2026-08-24' AND theater_id='pathe-lille' AND movie_provider_id='film-a' AND start_time='2026-08-24T21:00:00+02' AND end_time='2026-08-24T22:40:00+02' AND language='VF' AND provider_version='vf' AND format='ICE' AND room='ICE' AND booking_url='https://s.pathe.fr/fr/V3308S135392/booking'`).Scan(&upgradedRows); err != nil || upgradedRows != 1 {
+		t.Fatalf("upgraded Pathé row count=%d err=%v", upgradedRows, err)
+	}
+	if _, err := pool.Exec(ctx, migrations[16].sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+		t.Fatalf("idempotent migration 017 rerun failed: %v", err)
+	}
+	var constraintsAfter, indexesAfter []string
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname <> 'showtimes_provider_identity_check'), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsAfter); err != nil {
+		t.Fatal("read post-017 showtime constraints failed")
+	}
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(indexname || '=' || indexdef ORDER BY indexname), ARRAY[]::text[]) FROM pg_indexes WHERE schemaname=current_schema() AND tablename='showtimes'`).Scan(&indexesAfter); err != nil {
+		t.Fatal("read post-017 showtime indexes failed")
+	}
+	if strings.Join(constraintsBefore, "\n") != strings.Join(constraintsAfter, "\n") || strings.Join(indexesBefore, "\n") != strings.Join(indexesAfter, "\n") {
+		t.Fatal("migration 017 changed unrelated showtime constraints or indexes")
+	}
+	if err := pool.QueryRow(ctx, `SELECT
+    (SELECT count(*) FROM theaters WHERE provider IN ('ugc','kinepolis')) +
+    (SELECT count(*) FROM movies WHERE provider IN ('ugc','kinepolis')) +
+    (SELECT count(*) FROM showtimes WHERE provider IN ('ugc','kinepolis')) +
+    (SELECT count(*) FROM local_movie_groups WHERE id=$1) +
+    (SELECT count(*) FROM public_movies WHERE id=$2)`, oldLocalID, oldPublicID).Scan(&oldRows); err != nil || oldRows != 8 {
+		t.Fatalf("migration 017 preserved pre-Pathé rows=%d err=%v", oldRows, err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+INSERT INTO movie_matches (source_provider,source_movie_id,metadata_provider,status,normalized_source_title,source_runtime_minutes,candidates,evaluated_at,retry_after,updated_at) VALUES ('pathe','film-a','tmdb','unmatched','film pathe',100,'[]',$1,$1,$1);
+INSERT INTO sync_schedules (provider,enabled,schedule_kind,local_time) VALUES ('pathe',false,'daily','10:00');
+INSERT INTO sync_runs (target,state,started_at,finished_at,window_from,window_through,providers) VALUES ('pathe','succeeded',$1,$1,'2026-08-24','2026-08-24','{}');
+INSERT INTO sync_runs (target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_revision,scheduled_for,schedule_attempt) VALUES ('pathe','failed',$1,$1,'2026-08-24','2026-08-24','{}','scheduled',1,$1,0);
+`, pgx.QueryExecModeSimpleProtocol, now); err != nil {
+		t.Fatalf("insert Pathé provider rows failed: %v", err)
+	}
+	patheLocalTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal("begin Pathé local group failed")
+	}
+	var patheLocalID int64
+	if err := patheLocalTx.QueryRow(ctx, `INSERT INTO local_movie_groups (primary_source_provider,primary_source_movie_id) VALUES ('pathe','film-a') RETURNING id`).Scan(&patheLocalID); err != nil {
+		t.Fatal("insert Pathé local group failed")
+	}
+	if _, err := patheLocalTx.Exec(ctx, `INSERT INTO local_movie_group_members (local_movie_id,source_provider,source_movie_id) VALUES ($1,'pathe','film-a')`, patheLocalID); err != nil {
+		t.Fatal("insert Pathé local member failed")
+	}
+	if err := patheLocalTx.Commit(ctx); err != nil {
+		t.Fatal("commit Pathé local group failed")
+	}
+	var pathePublicID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO public_movies (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes) VALUES ('pathe','film-a','Film Pathé',100) RETURNING id`).Scan(&pathePublicID); err != nil {
+		t.Fatal("insert Pathé public movie failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_sources (source_provider,source_movie_id,public_movie_id,source_slug,title,runtime_minutes) VALUES ('pathe','film-a',$1,'pathe-film-film-a','Film Pathé',100); INSERT INTO movie_slug_aliases (slug,public_movie_id,alias_kind,source_provider,source_movie_id) VALUES ('pathe-film-film-a',$1,'source','pathe','film-a')`, pgx.QueryExecModeSimpleProtocol, pathePublicID); err != nil {
+		t.Fatal("insert Pathé public source failed")
+	}
+
+	rejects := []string{
+		`INSERT INTO provider_snapshots (generation_id,provider,schema_version,scope,generated_at,timezone,window_from,window_through) VALUES (2,'other',1,'all_cinemas',now(),'Europe/Paris','2026-08-24','2026-08-24')`,
+		`INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES (1,'pathe','bad id','pathe-film-bad id','Bad',90)`,
+		`INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES (1,'pathe-showing-S135393','S135393','2026-08-24','pathe-lille','film-a','2026-08-24T18:00:00+02','2026-08-24T19:40:00+02','VF','vf','ICE','1','https://s.pathe.fr/fr/V3308S135393/booking','pathe')`,
+		`INSERT INTO movie_matches (source_provider,source_movie_id,metadata_provider,status,normalized_source_title,source_runtime_minutes,candidates,evaluated_at,retry_after,updated_at) VALUES ('pathe','bad id','tmdb','unmatched','bad',90,'[]',now(),now(),now())`,
+	}
+	for _, query := range rejects {
+		if _, err := pool.Exec(ctx, query); err == nil {
+			t.Fatalf("invalid Pathé row accepted: %s", query)
+		}
+	}
+	var migrationCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=16 AND name='016_pathe_provider.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
+		t.Fatalf("migration 016 bookkeeping count=%d err=%v", migrationCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=17 AND name='017_pathe_showing_identity.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
+		t.Fatalf("migration 017 bookkeeping count=%d err=%v", migrationCount, err)
 	}
 }

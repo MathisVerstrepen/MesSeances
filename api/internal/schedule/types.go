@@ -8,6 +8,7 @@ type Format string
 const (
 	ProviderUGC       Provider = "ugc"
 	ProviderKinepolis Provider = "kinepolis"
+	ProviderPathe     Provider = "pathe"
 	ProviderCombined  Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"
@@ -27,4 +28,5 @@ const (
 	FormatScreenX    Format = "SCREENX"
 	FormatLaserUltra Format = "LASER_ULTRA"
 	Format4DX        Format = "4DX"
+	FormatICE        Format = "ICE"
 )

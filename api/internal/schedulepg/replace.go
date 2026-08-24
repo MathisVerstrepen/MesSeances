@@ -42,7 +42,7 @@ func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, ro
 }
 
 func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (schedule.PublicationResult, error) {
-	if len(datasets) == 0 || len(datasets) > 2 {
+	if len(datasets) == 0 || len(datasets) > 3 {
 		return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement batch")
 	}
 	datasets = append([]schedule.Dataset(nil), datasets...)
@@ -54,7 +54,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 			return schedule.PublicationResult{}, err
 		}
 		datasets[i] = publication.Dataset
-		if datasets[i].Provider != schedule.ProviderUGC && datasets[i].Provider != schedule.ProviderKinepolis || providers[datasets[i].Provider] {
+		if datasets[i].Provider != schedule.ProviderUGC && datasets[i].Provider != schedule.ProviderKinepolis && datasets[i].Provider != schedule.ProviderPathe || providers[datasets[i].Provider] {
 			return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement providers")
 		}
 		if i > 0 && (datasets[i].Scope != datasets[0].Scope || datasets[i].Timezone != datasets[0].Timezone || datasets[i].SchemaVersion != datasets[0].SchemaVersion) {

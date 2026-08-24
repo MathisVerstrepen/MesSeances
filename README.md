@@ -11,9 +11,9 @@ The application interface is in French.
 - **Browse the current movie catalog.** See current films from the landing page, search the full schedule catalog, and open detailed pages with available screenings, artwork, synopsis, release information, and genres when metadata is available.
 - **Choose favorite cinemas.** Search cinemas by name or city and keep a local selection that drives the timeline, movie pages, and time-window search. Favorites stay in the current browser; no account is required.
 - **Discover cinemas by city.** Open public cinema pages for current and selected-date screenings, or browse exact-city pages for cinemas and films in the current schedule window.
-- **Compare supported providers.** Movie pages combine UGC and Kinepolis showtimes when their listings have been matched as the same film.
+- **Compare supported providers.** Movie pages combine UGC, Kinepolis, and Pathé showtimes when their listings have been matched as the same film.
 - **Book with the cinema.** Available booking actions open the provider's official booking page in a new tab.
-- **Run schedule updates from the admin area.** Authenticated administrators can start UGC and Kinepolis synchronizations together or separately and follow current status.
+- **Run schedule updates from the admin area.** Authenticated administrators can start UGC, Kinepolis, and Pathé synchronizations together or separately and follow current status.
 
 ## Typical flow
 
@@ -47,6 +47,17 @@ MesSeances does not start with an empty database. Populate PostgreSQL with a com
 make sync PROXY_FILE=/path/to/proxies.txt
 ```
 
+`make sync` runs UGC, Kinepolis, then Pathé with the same required proxy file. Provider-specific full synchronizations are also available:
+
+```sh
+cd api
+go run ./cmd/sync-ugc -proxy-file /path/to/proxies.txt
+go run ./cmd/sync-kinepolis -proxy-file /path/to/proxies.txt
+go run ./cmd/sync-pathe -proxy-file /path/to/proxies.txt
+```
+
+Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like other provider ingestion, it requires configured proxies and the built-in Chrome-compatible TLS fingerprint transport. `sync-pathe` supports optional `-from` and `-timeout` flags and always publishes a complete national Pathé snapshot.
+
 Then start PostgreSQL, the Go API, and Nuxt:
 
 ```sh
@@ -57,7 +68,7 @@ Open [http://localhost:3000](http://localhost:3000). The API runs at `http://loc
 
 When admin access is enabled, configure both `ADMIN_PASSWORD` and an independently generated `ADMIN_SESSION_SECRET`. Password rotation changes login credentials without invalidating active sessions; session-secret rotation invalidates all active sessions. Leaving both blank disables admin access locally.
 
-Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout must be between 5s and 60s, Kinepolis interval must be at least 1s, and operation timeout must be positive. Explicit `-timeout` and `-request-interval` command flags override corresponding environment values.
+Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, and Pathé and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive. Explicit `-timeout` flags override request timeout; Kinepolis also supports `-request-interval`.
 
 `PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
 
@@ -84,7 +95,7 @@ docker compose --project-directory . --env-file deploy/.env -f deploy/compose.ya
 
 ## Contributor checks
 
-These checks do not run a provider synchronization or make real TMDB calls:
+These offline checks do not run UGC, Kinepolis, or Pathé synchronization and do not make real TMDB calls:
 
 ```sh
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config

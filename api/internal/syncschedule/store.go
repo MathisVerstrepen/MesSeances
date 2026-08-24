@@ -27,7 +27,7 @@ func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
 
 func (s *PostgresStore) List(ctx context.Context) ([]Schedule, error) {
 	rows, err := s.pool.Query(ctx, `SELECT provider,revision,enabled,schedule_kind,local_time,weekdays,cron_expression,updated_at
-		FROM sync_schedules ORDER BY CASE provider WHEN 'ugc' THEN 1 ELSE 2 END`)
+		FROM sync_schedules ORDER BY CASE provider WHEN 'ugc' THEN 1 WHEN 'kinepolis' THEN 2 WHEN 'pathe' THEN 3 ELSE 4 END`)
 	if err != nil {
 		return nil, fmt.Errorf("list sync schedules failed")
 	}

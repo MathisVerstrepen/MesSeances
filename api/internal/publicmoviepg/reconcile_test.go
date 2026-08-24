@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +41,19 @@ func TestChooseMetadataPrecedenceAndFieldFallback(t *testing.T) {
 	chosen := chooseMetadata(component, tmdbMetadata{title: "Titre TMDB", runtime: 110, overview: &tmdbOverview})
 	if chosen.title != "Titre TMDB" || chosen.runtime != 110 || chosen.overview == nil || *chosen.overview != tmdbOverview || chosen.poster == nil || *chosen.poster != fallbackPoster || chosen.tmdbID != 42 {
 		t.Fatalf("chosen metadata=%+v", chosen)
+	}
+}
+
+func TestSourceOrderingKeepsUGCFirstThenLexicalProviders(t *testing.T) {
+	keys := []sourceKey{{provider: "pathe", id: "B"}, {provider: "ugc", id: "9"}, {provider: "kinepolis", id: "A"}, {provider: "pathe", id: "A"}}
+	sort.Slice(keys, func(i, j int) bool { return lessSourceKey(keys[i], keys[j]) })
+	want := []sourceKey{{provider: "ugc", id: "9"}, {provider: "kinepolis", id: "A"}, {provider: "pathe", id: "A"}, {provider: "pathe", id: "B"}}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("ordered sources=%+v want=%+v", keys, want)
+	}
+	component := &component{members: []*source{{key: sourceKey{provider: "pathe", id: "A"}}, {key: sourceKey{provider: "ugc", id: "9"}}}}
+	if anchor := chooseAnchor(component); anchor != want[0] {
+		t.Fatalf("anchor=%+v want=%+v", anchor, want[0])
 	}
 }
 

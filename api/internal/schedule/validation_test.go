@@ -201,8 +201,143 @@ func TestValidateKinepolisDatasetIdentityPassesAndURLs(t *testing.T) {
 	}
 }
 
+func TestValidatePatheDatasetIdentityPassesAndURLs(t *testing.T) {
+	data := patheTestDataset()
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid Pathé dataset rejected: %v", err)
+	}
+	data = patheTestDataset()
+	longID := "V1S" + strings.Repeat("9", maxIdentityLength-len("pathe-showing-")-len("V1S"))
+	data.Showtimes[0].ProviderShowingID = longID
+	data.Showtimes[0].ID = "pathe-showing-" + longID
+	data.Showtimes[0].BookingURL = "https://s.pathe.fr/fr/" + longID + "/booking"
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("maximum Pathé showing identity rejected: %v", err)
+	}
+	data.Showtimes[0].ProviderShowingID += "9"
+	data.Showtimes[0].ID = "pathe-showing-" + data.Showtimes[0].ProviderShowingID
+	data.Showtimes[0].BookingURL = "https://s.pathe.fr/fr/" + data.Showtimes[0].ProviderShowingID + "/booking"
+	if err := ValidateDataset(data, true); err == nil {
+		t.Fatal("oversized Pathé showing identity accepted")
+	}
+	for _, showingID := range []string{"S135392", "V0S1", "V01S1", "V1S0", "V1S01", "V1S-1", "V1S1_2"} {
+		data := patheTestDataset()
+		data.Showtimes[0].ProviderShowingID = showingID
+		data.Showtimes[0].ID = "pathe-showing-" + showingID
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("invalid Pathé showing identity accepted: %q", showingID)
+		}
+	}
+	for _, bookingURL := range []string{
+		"http://s.pathe.fr/fr/V3308S135392/booking",
+		"https://www.pathe.fr/fr/V3308S135392/booking",
+		"https://s.pathe.fr/fr/V3308S135393/booking",
+		"https://s.pathe.fr/fr/V9999S135392/booking",
+		"https://s.pathe.fr/fr/V3308S135392/booking?source=test",
+		"https://s.pathe.fr/fr/V3308S135392/booking?",
+		"https://s.pathe.fr/fr/./booking",
+		"https://s.pathe.fr/fr/a/V3308S135392/booking",
+	} {
+		data := patheTestDataset()
+		data.Showtimes[0].BookingURL = bookingURL
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("unsafe Pathé booking URL accepted: %q", bookingURL)
+		}
+	}
+	for _, posterURL := range []string{
+		"http://www.pathe.fr/media/poster.jpg",
+		"https://evil.example/media/poster.jpg",
+		"https://www.pathe.fr:443/media/poster.jpg",
+		"https://www.pathe.fr/media/../poster.jpg",
+		"https://www.pathe.fr/media/poster.jpg?source=test",
+		"https://www.pathe.fr/media/poster.jpg?",
+		"https://www.pathe.fr/media/./poster.jpg",
+		"https://www.pathe.fr/",
+	} {
+		data := patheTestDataset()
+		data.Showtimes[0].Movie.PosterURL = posterURL
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("unsafe Pathé poster URL accepted: %q", posterURL)
+		}
+	}
+	data = patheTestDataset()
+	data.Showtimes[0].Movie.PosterURL = "https://media.pathe.fr/posters/a.jpg"
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid Pathé subdomain poster rejected: %v", err)
+	}
+	for _, mutate := range []func(*Dataset){
+		func(data *Dataset) { data.Theaters[0].Address = "" },
+		func(data *Dataset) { data.Theaters[0].PostalCode = "" },
+		func(data *Dataset) { data.Theaters[0].AcceptedPasses = []string{"UGC_ILLIMITE"} },
+	} {
+		data := patheTestDataset()
+		mutate(&data)
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatal("invalid Pathé theater accepted")
+		}
+	}
+}
+
+func TestValidatePatheDerivedIdentityLengthBoundaries(t *testing.T) {
+	t.Run("cinema", func(t *testing.T) {
+		data := patheTestDataset()
+		providerID := strings.Repeat("c", maxIdentityLength-len("pathe-"))
+		data.Theaters[0].ProviderID = providerID
+		data.Theaters[0].ID = "pathe-" + providerID
+		data.Theaters[0].Slug = data.Theaters[0].ID
+		data.Showtimes[0].TheaterID = data.Theaters[0].ID
+		if err := ValidateDataset(data, true); err != nil {
+			t.Fatalf("maximum cinema identity rejected: %v", err)
+		}
+		data.Theaters[0].ProviderID += "c"
+		data.Theaters[0].ID = "pathe-" + data.Theaters[0].ProviderID
+		data.Theaters[0].Slug = data.Theaters[0].ID
+		data.Showtimes[0].TheaterID = data.Theaters[0].ID
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatal("oversized cinema source identity accepted")
+		}
+	})
+	t.Run("movie", func(t *testing.T) {
+		data := patheTestDataset()
+		providerID := strings.Repeat("m", maxIdentityLength-len("pathe-film-"))
+		data.Showtimes[0].Movie.ProviderID = providerID
+		data.Showtimes[0].Movie.Slug = "pathe-film-" + providerID
+		if err := ValidateDataset(data, true); err != nil {
+			t.Fatalf("maximum movie identity rejected: %v", err)
+		}
+		data.Showtimes[0].Movie.ProviderID += "m"
+		data.Showtimes[0].Movie.Slug = "pathe-film-" + data.Showtimes[0].Movie.ProviderID
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatal("oversized movie source identity accepted")
+		}
+	})
+}
+
+func TestValidatePathePublicMovieIdentityContracts(t *testing.T) {
+	data := patheTestDataset()
+	data.Showtimes[0].Movie.PublicMovieID = 1
+	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderPathe, IdentityAnchorSourceID: "film-a", Title: "Film Pathé", RuntimeMinutes: 110, UpdatedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)}}
+	data.MovieSources = []PublicMovieSourceRecord{{Provider: ProviderPathe, SourceMovieID: "film-a", PublicMovieID: 1, SourceSlug: "pathe-film-film-a", Title: "Film Pathé", RuntimeMinutes: 110, PosterURL: "https://www.pathe.fr/media/poster.jpg"}}
+	data.MovieAliases = []MovieSlugAliasRecord{{Slug: "pathe-film-film-a", PublicMovieID: 1, Kind: "source", Provider: ProviderPathe, SourceMovieID: "film-a"}}
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid Pathé public identity rejected: %v", err)
+	}
+	for _, mutate := range []func(*Dataset){
+		func(data *Dataset) { data.PublicMovies[0].IdentityAnchorSourceID = "bad id" },
+		func(data *Dataset) { data.MovieSources[0].Provider = "other" },
+		func(data *Dataset) { data.MovieSources[0].SourceSlug = "ugc-film-film-a" },
+		func(data *Dataset) { data.MovieAliases[0].SourceMovieID = "bad id" },
+	} {
+		invalid := cloneDataset(data)
+		mutate(&invalid)
+		if err := ValidateDataset(invalid, true); err == nil {
+			t.Fatal("invalid Pathé public identity accepted")
+		}
+	}
+}
+
 func TestValidateDatasetCanonicalFormats(t *testing.T) {
-	for _, format := range []Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
+	for _, format := range []Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX, FormatICE} {
 		data := testDataset()
 		data.Showtimes[0].Format = format
 		if err := ValidateDataset(data, true); err != nil {

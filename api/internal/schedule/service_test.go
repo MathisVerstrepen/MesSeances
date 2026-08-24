@@ -27,6 +27,12 @@ func kinepolisTestDataset() Dataset {
 	return Dataset{SchemaVersion: SchemaVersion, Provider: ProviderKinepolis, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 13, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderKinepolis, ID: "kinepolis-LOM", ProviderID: "LOM", Slug: "kinepolis-LOM", Name: "Kinepolis Lomme", City: "Lomme", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderKinepolis, ID: "kinepolis-showing-VS1", ProviderShowingID: "VS1", ServiceDate: "2026-08-15", TheaterID: "kinepolis-LOM", Movie: MovieRecord{Provider: ProviderKinepolis, ProviderID: "HO200", Slug: "kinepolis-film-HO200", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://cdn.kinepolis.fr/images/posters/ho200.jpg", Overview: "Résumé Kinepolis", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: LanguageVF, ProviderVersion: "VF", Format: "IMAX", Room: "7", BookingURL: "https://kinepolis.fr/direct-vista-redirect/VS1/0/LOM/0"}}}
 }
 
+func patheTestDataset() Dataset {
+	location, _ := time.LoadLocation(Timezone)
+	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 21:00", location)
+	return Dataset{SchemaVersion: SchemaVersion, Provider: ProviderPathe, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 14, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderPathe, ID: "pathe-lille", ProviderID: "lille", Slug: "pathe-lille", Name: "Pathé Lille", Address: "1 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderPathe, ID: "pathe-showing-V3308S135392", ProviderShowingID: "V3308S135392", ServiceDate: "2026-08-15", TheaterID: "pathe-lille", Movie: MovieRecord{Provider: ProviderPathe, ProviderID: "film-a", Slug: "pathe-film-film-a", Title: "Film Pathé", RuntimeMinutes: 110, PosterURL: "https://www.pathe.fr/media/poster.jpg", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(110 * time.Minute), Language: LanguageVOSTFR, ProviderVersion: "vost", Format: FormatICE, Room: "ICE", BookingURL: "https://s.pathe.fr/fr/V3308S135392/booking"}}}
+}
+
 func combinedTestDataset() Dataset {
 	ugc, kinepolis := testDataset(), kinepolisTestDataset()
 	for index := range ugc.Showtimes {
@@ -358,7 +364,7 @@ func TestSearchSlotFormatFilteringAndValidation(t *testing.T) {
 		})
 	}
 	base.Format = "screenx"
-	if _, err := service.SearchSlot(base); err == nil || err.Error() != "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX." {
+	if _, err := service.SearchSlot(base); err == nil || err.Error() != "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE." {
 		t.Fatalf("invalid format error=%v", err)
 	}
 }
@@ -383,13 +389,16 @@ func TestTheatersCatalogAliasOrderingAndCopies(t *testing.T) {
 	if len(alias) != 2 || alias[0].ID != "ugc-25" || alias[1].ID != "ugc-26" {
 		t.Fatalf("alias=%+v", alias)
 	}
-	if other := service.Theaters(TheaterCatalogQuery{Chain: "Pathé"}); len(other) != 0 {
+	if other := service.Theaters(TheaterCatalogQuery{Chain: "other"}); len(other) != 0 {
 		t.Fatalf("non-UGC theaters=%+v", other)
 	}
 }
 
 func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	data := combinedTestDataset()
+	pathe := patheTestDataset()
+	data.Theaters = append(data.Theaters, pathe.Theaters...)
+	data.Showtimes = append(data.Showtimes, pathe.Showtimes...)
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +406,7 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if all := service.Theaters(TheaterCatalogQuery{}); len(all) != 4 {
+	if all := service.Theaters(TheaterCatalogQuery{}); len(all) != 5 {
 		t.Fatalf("all=%+v", all)
 	}
 	kinepolis := service.Theaters(TheaterCatalogQuery{Chain: "KINEPOLIS"})
@@ -408,11 +417,15 @@ func TestCombinedProviderIdentityAndTheaterFiltering(t *testing.T) {
 	if len(ugc) != 3 || ugc[0].Provider != ProviderUGC {
 		t.Fatalf("ugc=%+v", ugc)
 	}
+	patheTheaters := service.Theaters(TheaterCatalogQuery{Chain: "PATHE"})
+	if len(patheTheaters) != 1 || patheTheaters[0].Provider != ProviderPathe {
+		t.Fatalf("pathe=%+v", patheTheaters)
+	}
 	catalog, err := service.Movies(MovieCatalogQuery{PageSize: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if catalog.Total != 4 || len(catalog.Items) != 4 || catalog.Items[0].Slug != "tmdb-film-42" {
+	if catalog.Total != 5 || len(catalog.Items) != 5 || catalog.Items[0].Slug != "tmdb-film-42" {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 	schedule, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "tmdb-film-42", Date: "2026-08-15"})

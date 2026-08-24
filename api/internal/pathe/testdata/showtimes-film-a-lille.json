@@ -1,0 +1,36 @@
+{
+  "2026-08-14": [
+    {
+      "time": "not consumed",
+      "version": "unknown",
+      "tags": [],
+      "status": "ignored",
+      "refCmd": "not consumed",
+      "auditoriumName": null,
+      "auditoriumCapacity": 0,
+      "endTime": "not consumed"
+    }
+  ],
+  "2026-08-15": [
+    {
+      "time": "2026-08-15 20:00:00",
+      "version": "VF",
+      "tags": ["4dx", "imax"],
+      "status": "available",
+      "refCmd": "https://s.pathe.fr/fr/V3308S135392/booking",
+      "auditoriumName": "IMAX",
+      "auditoriumCapacity": 300,
+      "endTime": "2026-08-15 21:50:00"
+    },
+    {
+      "time": "2026-08-16 01:30:00",
+      "version": "vOsT",
+      "tags": ["screenx", "4DX"],
+      "status": "available",
+      "refCmd": "https://s.pathe.fr/fr/V3308S135393/booking",
+      "auditoriumName": 4,
+      "auditoriumCapacity": 120,
+      "endTime": "2026-08-16 03:20:00"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "contentratings": [],
+  "labels": [],
+  "shows": [
+    {
+      "slug": "film-b",
+      "title": "Film B",
+      "duration": 95,
+      "posterPath": null,
+      "genres": ["Comédie"],
+      "directors": ["Nom Synthétique"],
+      "isMovie": true,
+      "type": null
+    },
+    {
+      "slug": "event-a",
+      "title": "Opéra A",
+      "duration": 180,
+      "posterPath": {"lg": "https://media.pathe.fr/posters/event-a.jpg"},
+      "genres": ["Opéra"],
+      "directors": [],
+      "isMovie": false,
+      "type": "opera"
+    },
+    {
+      "slug": "film-a",
+      "title": "Film A",
+      "duration": 110,
+      "posterPath": {"lg": "/posters/film-a.jpg"},
+      "genres": ["Drame", "Aventure"],
+      "directors": ["Nom Synthétique"],
+      "isMovie": true,
+      "type": "movie"
+    }
+  ]
+}

@@ -98,6 +98,7 @@ func TestAdminSyncSchedulesStableOrderAndPreviews(t *testing.T) {
 	updated := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
 	controller := &fakeSyncScheduleController{now: now, list: []syncschedule.Schedule{
 		{Provider: synccontrol.TargetKinepolis, Revision: 4, Enabled: false, Definition: syncschedule.Definition{Kind: syncschedule.KindCron, Expression: "15 8 * * 1"}, UpdatedAt: updated},
+		{Provider: synccontrol.TargetPathe, Revision: 6, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindDaily, Time: "06:30"}, UpdatedAt: updated},
 		{Provider: synccontrol.TargetUGC, Revision: 2, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindDaily, Time: "12:30"}, UpdatedAt: updated},
 	}}
 	handler := syncScheduleAdminHandler(t, controller)
@@ -106,7 +107,8 @@ func TestAdminSyncSchedulesStableOrderAndPreviews(t *testing.T) {
 	body := response.Body.String()
 	ugc := strings.Index(body, `"provider":"ugc"`)
 	kinepolis := strings.Index(body, `"provider":"kinepolis"`)
-	if response.Code != http.StatusOK || ugc < 0 || kinepolis < 0 || ugc >= kinepolis || !strings.Contains(body, `"revision":2`) || !strings.Contains(body, `"revision":4`) || strings.Count(body, `"next_runs":[`) != 2 || strings.Count(body, "T") < 10 {
+	pathe := strings.Index(body, `"provider":"pathe"`)
+	if response.Code != http.StatusOK || ugc < 0 || kinepolis < 0 || pathe < 0 || ugc >= kinepolis || kinepolis >= pathe || !strings.Contains(body, `"revision":2`) || !strings.Contains(body, `"revision":4`) || !strings.Contains(body, `"revision":6`) || strings.Count(body, `"next_runs":[`) != 3 || strings.Count(body, "T") < 15 {
 		t.Fatalf("status=%d body=%s", response.Code, body)
 	}
 }
@@ -154,13 +156,13 @@ func TestAdminSaveSyncScheduleSecurityStrictJSONAndValidation(t *testing.T) {
 func TestAdminSaveSyncScheduleReturnsCommittedCanonicalItem(t *testing.T) {
 	now := time.Date(2026, 8, 24, 10, 0, 0, 0, time.UTC)
 	updated := now.Add(time.Minute)
-	saved := syncschedule.Schedule{Provider: synccontrol.TargetKinepolis, Revision: 8, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindWeekly, Time: "07:45", Weekdays: []string{"mon", "fri"}}, UpdatedAt: updated}
+	saved := syncschedule.Schedule{Provider: synccontrol.TargetPathe, Revision: 8, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindWeekly, Time: "07:45", Weekdays: []string{"mon", "fri"}}, UpdatedAt: updated}
 	controller := &fakeSyncScheduleController{now: now, saved: &saved}
 	handler := syncScheduleAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
-	response := adminRequest(handler, http.MethodPost, "/api/v1/admin/sync-schedules/kinepolis", `{"enabled":true,"schedule":{"kind":"weekly","time":"07:45","weekdays":["fri","mon","fri"]}}`, "http://localhost:3000", cookie)
+	response := adminRequest(handler, http.MethodPost, "/api/v1/admin/sync-schedules/pathe", `{"enabled":true,"schedule":{"kind":"weekly","time":"07:45","weekdays":["fri","mon","fri"]}}`, "http://localhost:3000", cookie)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || controller.saveCalls != 1 || controller.provider != synccontrol.TargetKinepolis || !controller.enabled || !strings.Contains(body, `"provider":"kinepolis"`) || !strings.Contains(body, `"revision":8`) || !strings.Contains(body, `"weekdays":["mon","fri"]`) || !strings.Contains(body, `"next_runs":[`) {
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || controller.saveCalls != 1 || controller.provider != synccontrol.TargetPathe || !controller.enabled || !strings.Contains(body, `"provider":"pathe"`) || !strings.Contains(body, `"revision":8`) || !strings.Contains(body, `"weekdays":["mon","fri"]`) || !strings.Contains(body, `"next_runs":[`) {
 		t.Fatalf("status=%d calls=%d provider=%s enabled=%t definition=%+v body=%s", response.Code, controller.saveCalls, controller.provider, controller.enabled, controller.definition, body)
 	}
 }

@@ -1,0 +1,14 @@
+{
+  "2026-08-16": [
+    {
+      "time": "2026-08-16 18:00:00",
+      "version": "unknown",
+      "tags": [],
+      "status": "available",
+      "refCmd": "https://s.pathe.fr/fr/V1S999/booking",
+      "auditoriumName": "1",
+      "auditoriumCapacity": 100,
+      "endTime": "2026-08-16 19:35:00"
+    }
+  ]
+}

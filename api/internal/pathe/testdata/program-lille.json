@@ -1,0 +1,25 @@
+{
+  "days": {
+    "2026-08-14": {"upsell": false, "highlightedShowtime": null},
+    "2026-08-15": {"upsell": false, "highlightedShowtime": null},
+    "2026-08-16": {"upsell": false, "highlightedShowtime": null}
+  },
+  "shows": {
+    "film-b": {
+      "days": {
+        "2026-08-16": {"tags": ["3d"], "versions": ["vfst"]}
+      }
+    },
+    "event-a": {
+      "days": {
+        "2026-08-16": {"tags": ["ice"], "versions": ["vo"]}
+      }
+    },
+    "film-a": {
+      "days": {
+        "2026-08-14": {"tags": ["2d"], "versions": ["vf"]},
+        "2026-08-15": {"tags": ["imax", "4dx"], "versions": ["vf", "vost"]}
+      }
+    }
+  }
+}

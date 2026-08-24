@@ -12,6 +12,7 @@ import (
 const (
 	SourceUGC       = "ugc"
 	SourceKinepolis = "kinepolis"
+	SourcePathe     = "pathe"
 	ProviderTMDB    = "tmdb"
 	LocaleFrench    = "fr-FR"
 
@@ -126,7 +127,7 @@ func validSourceIdentity(provider, id string) bool {
 		movieID, err := strconv.ParseInt(id, 10, 64)
 		return err == nil && movieID > 0 && strconv.FormatInt(movieID, 10) == id
 	}
-	if provider != SourceKinepolis || id == "" || len(id) > 128 {
+	if provider != SourceKinepolis && provider != SourcePathe || id == "" || len(id) > 128 || provider == SourcePathe && len(id) > 128-len("pathe-film-") {
 		return false
 	}
 	for index, r := range id {

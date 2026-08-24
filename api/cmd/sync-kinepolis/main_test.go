@@ -303,7 +303,7 @@ func TestRunRejectsOtherInvalidConfiguration(t *testing.T) {
 	}
 }
 
-func TestMakeSyncOrchestratesBothProvidersWithSameProxyFile(t *testing.T) {
+func TestMakeSyncOrchestratesAllProvidersWithSameProxyFile(t *testing.T) {
 	body, err := os.ReadFile("../../../Makefile")
 	if err != nil {
 		t.Fatal(err)
@@ -314,9 +314,15 @@ func TestMakeSyncOrchestratesBothProvidersWithSameProxyFile(t *testing.T) {
 	}
 	ugc := "go run ./cmd/sync-ugc -proxy-file \"$$PROXY_FILE\""
 	kinepolis := "go run ./cmd/sync-kinepolis -proxy-file \"$$PROXY_FILE\""
-	ugcIndex, kinepolisIndex := strings.Index(text, ugc), strings.Index(text, kinepolis)
-	if ugcIndex < 0 || kinepolisIndex < 0 || ugcIndex >= kinepolisIndex {
-		t.Fatalf("sync orchestration incorrect: ugc=%d kinepolis=%d", ugcIndex, kinepolisIndex)
+	pathe := "go run ./cmd/sync-pathe -proxy-file \"$$PROXY_FILE\""
+	ugcIndex, kinepolisIndex, patheIndex := strings.Index(text, ugc), strings.Index(text, kinepolis), strings.Index(text, pathe)
+	if ugcIndex < 0 || kinepolisIndex < 0 || patheIndex < 0 || ugcIndex >= kinepolisIndex || kinepolisIndex >= patheIndex {
+		t.Fatalf("sync orchestration incorrect: ugc=%d kinepolis=%d pathe=%d", ugcIndex, kinepolisIndex, patheIndex)
+	}
+	for command, count := range map[string]int{ugc: 1, kinepolis: 1, pathe: 1} {
+		if strings.Count(text, command) != count {
+			t.Fatalf("proxy propagation count for %q = %d", command, strings.Count(text, command))
+		}
 	}
 	if strings.Count(text, "Usage: make sync PROXY_FILE=/path/to/proxies.txt") != 1 {
 		t.Fatal("PROXY_FILE validation missing or duplicated")

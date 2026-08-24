@@ -5,7 +5,12 @@ function countLabel(count: number, singular: string, plural: string): string {
 }
 
 function providerLabel(provider: Provider): string {
-  return provider === 'ugc' ? 'UGC' : 'Kinepolis'
+  const labels = {
+    ugc: 'UGC',
+    kinepolis: 'Kinepolis',
+    pathe: 'Pathé'
+  } satisfies Record<Provider, string>
+  return labels[provider]
 }
 
 export function cityDescription(name: string, theaterCount: number, movieCount: number): string {

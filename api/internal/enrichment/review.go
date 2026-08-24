@@ -125,7 +125,23 @@ func validSourcePosterURL(provider, raw string) bool {
 		return validUGCPosterURL(raw)
 	}
 	parsed, err := url.Parse(raw)
-	return provider == SourceKinepolis && err == nil && len(raw) <= 4096 && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !strings.Contains(parsed.Path, "..")
+	if provider == SourceKinepolis {
+		return err == nil && len(raw) <= 4096 && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !strings.Contains(parsed.Path, "..")
+	}
+	if err != nil || len(raw) > 4096 || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return provider == SourcePathe && parsed.Host == host && (host == "pathe.fr" || strings.HasSuffix(host, ".pathe.fr"))
+}
+
+func hasPatheTraversalSegment(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func validTMDBPosterURL(raw string) bool {

@@ -77,4 +77,7 @@ sync:
 	@printf '%s\n' '[sync] starting Kinepolis'; \
 	cd api && go run ./cmd/sync-kinepolis -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
 	@printf '%s\n' '[sync] Kinepolis finished'
+	@printf '%s\n' '[sync] starting Pathé'; \
+	cd api && go run ./cmd/sync-pathe -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	@printf '%s\n' '[sync] Pathé finished'
 	@printf '%s\n' '[sync] complete'

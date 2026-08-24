@@ -28,6 +28,7 @@ func (s *localMovieMemoryStore) UnmergeLocalMovie(_ context.Context, id int64) e
 func TestLocalMovieServiceValidatesMerge(t *testing.T) {
 	ugc := LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: "10"}
 	kinepolis := LocalMovieSource{SourceProvider: SourceKinepolis, SourceMovieID: "HO0001"}
+	pathe := LocalMovieSource{SourceProvider: SourcePathe, SourceMovieID: "film-a"}
 	tests := []struct {
 		name    string
 		members []LocalMovieSource
@@ -51,6 +52,9 @@ func TestLocalMovieServiceValidatesMerge(t *testing.T) {
 	group, err := NewLocalMovieService(store).Merge(context.Background(), []LocalMovieSource{ugc, kinepolis}, kinepolis)
 	if err != nil || group.LocalMovieID != "local-film-7" || group.MetadataSource == nil || *group.MetadataSource != kinepolis {
 		t.Fatalf("group=%+v error=%v", group, err)
+	}
+	if err := validateLocalMovieMerge([]LocalMovieSource{ugc, pathe}, pathe); err != nil {
+		t.Fatalf("valid Pathé local movie member rejected: %v", err)
 	}
 }
 

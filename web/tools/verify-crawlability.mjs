@@ -150,6 +150,7 @@ function safePosterUrl(value) {
     const allowed = (hostname === 'image.tmdb.org' && parsed.pathname.startsWith('/t/p/w500/') && parsed.pathname !== '/t/p/w500/')
       || ((hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) && parsed.pathname !== '/')
       || (hostname === 'cdn.kinepolis.fr' && parsed.pathname.startsWith('/images/') && parsed.pathname !== '/images/')
+      || ((hostname === 'pathe.fr' || hostname.endsWith('.pathe.fr')) && parsed.pathname !== '/' && !parsed.pathname.includes('%'))
     return parsed.protocol === 'https:' && !parsed.port && !parsed.username && !parsed.password && !parsed.search && !parsed.hash && allowed && hasSafeImagePath(String(value), parsed.origin) ? parsed.href : null
   } catch {
     return null
@@ -173,8 +174,10 @@ function reservationUrl(showtime) {
   if (!value) return null
   try {
     const parsed = new URL(value)
-    const hostProvider = parsed.hostname.toLowerCase() === 'www.ugc.fr' ? 'ugc' : parsed.hostname.toLowerCase() === 'kinepolis.fr' ? 'kinepolis' : null
-    if (parsed.protocol !== 'https:' || !hostProvider || (showtime.provider && showtime.provider !== hostProvider) || parsed.username || parsed.password || parsed.port) return null
+    const hostname = parsed.hostname.toLowerCase()
+    const hostProvider = hostname === 'www.ugc.fr' ? 'ugc' : hostname === 'kinepolis.fr' ? 'kinepolis' : hostname === 's.pathe.fr' ? 'pathe' : null
+    const isSafePatheBooking = hostProvider !== 'pathe' || (!parsed.search && !parsed.hash && parsed.href === value && /^\/fr\/[A-Za-z0-9_-]*S[1-9][0-9]*\/booking$/.test(parsed.pathname))
+    if (parsed.protocol !== 'https:' || !hostProvider || (showtime.provider && showtime.provider !== hostProvider) || parsed.username || parsed.password || parsed.port || !isSafePatheBooking) return null
     return parsed.href
   } catch {
     return null

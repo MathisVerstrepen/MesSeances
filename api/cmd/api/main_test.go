@@ -11,9 +11,13 @@ import (
 	"testing"
 	"time"
 
+	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/httpapi"
+	"messeances/api/internal/observability"
+	"messeances/api/internal/schedule"
 	"messeances/api/internal/shortlink"
+	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/tmdb"
 )
 
@@ -36,6 +40,12 @@ type testTMDBProvider struct{}
 
 type testCloseableWorker struct {
 	close func()
+}
+
+type testSnapshotWriter struct{}
+
+func (testSnapshotWriter) Replace(context.Context, []schedule.Dataset) (schedule.PublicationResult, error) {
+	return schedule.PublicationResult{}, nil
 }
 
 func (w testCloseableWorker) Close() { w.close() }
@@ -113,6 +123,24 @@ func TestLoadAPIConfigurationIgnoresSyncTimingWhenCapabilityDisabled(t *testing.
 	values["PROXY_FILE"] = "/configured/proxies.txt"
 	if _, _, err := loadAPIConfiguration(getenv); err == nil || strings.Contains(err.Error(), "malformed-secret") {
 		t.Fatalf("enabled capability err=%v", err)
+	}
+}
+
+func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
+	proxies, err := syncproxy.Parse(strings.NewReader("127.0.0.1:8080\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg runtimeconfig.Config
+	cfg.Sync.RequestTimeout = 7 * time.Second
+	cfg.Sync.KinepolisRequestInterval = 3 * time.Second
+	cfg.Sync.OperationTimeout = 37 * time.Second
+	options := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
+	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.OperationTimeout != cfg.Sync.OperationTimeout {
+		t.Fatalf("options=%+v", options)
+	}
+	if client, err := options.NewPathe(); err != nil || client == nil {
+		t.Fatalf("Pathé client=%v err=%v", client, err)
 	}
 }
 

@@ -1,0 +1,12 @@
+{
+  "days": {
+    "2026-08-15": {"upsell": false, "highlightedShowtime": null}
+  },
+  "shows": {
+    "missing-show": {
+      "days": {
+        "2026-08-15": {"tags": [], "versions": ["vf"]}
+      }
+    }
+  }
+}

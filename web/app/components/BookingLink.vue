@@ -26,7 +26,15 @@ const reservation = computed(() => {
     const hostname = parsed.hostname.toLowerCase()
     const hostProvider: Provider | null = hostname === 'www.ugc.fr'
       ? 'ugc'
-      : hostname === 'kinepolis.fr' ? 'kinepolis' : null
+      : hostname === 'kinepolis.fr'
+        ? 'kinepolis'
+        : hostname === 's.pathe.fr' ? 'pathe' : null
+    const isSafePatheBooking = hostProvider !== 'pathe' || (
+      !parsed.search
+      && !parsed.hash
+      && parsed.href === value
+      && /^\/fr\/[A-Za-z0-9_-]*S[1-9][0-9]*\/booking$/.test(parsed.pathname)
+    )
     if (
       parsed.protocol !== 'https:'
       || !hostProvider
@@ -34,11 +42,17 @@ const reservation = computed(() => {
       || parsed.username
       || parsed.password
       || parsed.port
+      || !isSafePatheBooking
     ) return null
 
+    const labels = {
+      ugc: 'Réserver sur UGC.fr',
+      kinepolis: 'Réserver sur Kinepolis.fr',
+      pathe: 'Réserver sur Pathé.fr'
+    } satisfies Record<Provider, string>
     return {
       url: parsed.href,
-      label: hostProvider === 'ugc' ? 'Réserver sur UGC.fr' : 'Réserver sur Kinepolis.fr'
+      label: labels[hostProvider]
     }
   } catch {
     return null

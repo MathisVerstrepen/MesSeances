@@ -699,8 +699,8 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"slot duplicate scopes", "/api/v1/search/slot?city=Lille&theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=15:00", "Les paramètres city et theaters sont mutuellement exclusifs."},
 		{"slot empty theater", "/api/v1/search/slot?theaters=&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"slot unknown theater", "/api/v1/search/slot?theaters=inconnu&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
-		{"slot empty format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX."},
-		{"slot invalid format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=screenx", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA ou 4DX."},
+		{"slot empty format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE."},
+		{"slot invalid format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=screenx", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE."},
 		{"slot invalid include ads", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&include_ads=0", "Le paramètre include_ads doit être true ou false."},
 	}
 	for _, test := range tests {
