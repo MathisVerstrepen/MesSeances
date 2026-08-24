@@ -18,6 +18,9 @@ const notFound = ref(false)
 const failedMediaUrls = ref(new Set<string>())
 const movieGroupList = ref<HTMLElement | null>(null)
 let requestId = 0
+const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
+type ResultGrouping = 'movie' | 'chronological'
+type ResultLayout = 'lines' | 'boxes'
 
 const slug = computed(() => {
   const value = route.params.slug
@@ -25,6 +28,16 @@ const slug = computed(() => {
 })
 const requestedDate = computed(() => calendarDate(singularQueryValue(route.query.date)))
 const selectedDate = computed(() => requestedDate.value ?? todayInParis())
+const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
+const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
+const groupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
+  { value: 'movie', label: 'Par film' },
+  { value: 'chronological', label: 'Chronologique' }
+]
+const layoutOptions: [{ value: ResultLayout; label: string }, { value: ResultLayout; label: string }] = [
+  { value: 'lines', label: 'Lignes' },
+  { value: 'boxes', label: 'Boîtes' }
+]
 
 function normalizeLocationPart(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR').replace(/[^a-z0-9]+/g, ' ').trim()
@@ -85,14 +98,47 @@ async function loadCinema() {
 }
 
 function selectDate(date: string) {
-  router.push({ query: mergeOwnedQuery(route.query, ['date'], { date: date === todayInParis() ? undefined : date }) })
+  router.push({
+    query: mergeOwnedQuery(route.query, ['date', ...DISPLAY_QUERY_KEYS], {
+      date: date === todayInParis() ? undefined : date,
+      grouping: resultGrouping.value === 'chronological' ? 'chronological' : undefined,
+      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined
+    })
+  })
 }
 
-watch([slug, () => route.query], () => void loadCinema())
+async function setResultGrouping(grouping: string) {
+  if (grouping !== 'movie' && grouping !== 'chronological') return
+  if (grouping === resultGrouping.value) return
+  await router.push({
+    query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
+      grouping: grouping === 'chronological' ? grouping : undefined,
+      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined
+    })
+  })
+}
+
+async function setResultLayout(layout: string) {
+  if (layout !== 'lines' && layout !== 'boxes') return
+  if (layout === resultLayout.value) return
+  await router.push({
+    query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
+      grouping: resultGrouping.value === 'chronological' ? 'chronological' : undefined,
+      layout: layout === 'boxes' ? layout : undefined
+    })
+  })
+}
+
+watch([slug, selectedDate], () => void loadCinema())
+
+const chronologicalShowtimes = computed(() => [...(response.value?.showtimes ?? [])].sort((first, second) => {
+  const timeDifference = Date.parse(first.start_time) - Date.parse(second.start_time)
+  return timeDifference || first.id.localeCompare(second.id)
+}))
 
 const movieGroups = computed(() => {
   const groups = new Map<string, { movie: TimelineShowtime['movie']; showtimes: TimelineShowtime[]; posterUrl: string | null; backdropUrl: string | null }>()
-  for (const showtime of response.value?.showtimes ?? []) {
+  for (const showtime of chronologicalShowtimes.value) {
     const current = groups.get(showtime.movie.slug)
     if (current) {
       current.showtimes.push(showtime)
@@ -116,6 +162,14 @@ function mediaAvailable(url: string | null): url is string {
 
 function markMediaFailed(url: string) {
   failedMediaUrls.value = new Set([...failedMediaUrls.value, url])
+}
+
+function showtimePosterUrl(showtime: TimelineShowtime): string | null {
+  return safePosterUrl(showtime.poster_url)
+}
+
+function showtimeBackdropUrl(showtime: TimelineShowtime): string | null {
+  return safeBackdropUrl(showtime.backdrop_url)
 }
 
 function detectFailedMedia() {
@@ -275,14 +329,24 @@ useHead(() => ({
           </div>
           <ShareButton class="shrink-0" />
         </div>
-        <div v-if="response.theater.available_dates.length" class="mt-5 flex gap-2 overflow-x-auto pb-2" aria-label="Choisir une date">
-          <button v-for="date in response.theater.available_dates" :key="date" type="button" class="date-button" :class="response.date === date ? 'date-button--active' : undefined" :aria-pressed="response.date === date" @click="selectDate(date)">{{ formatDateLabel(date) }}</button>
+        <div v-if="response.theater.available_dates.length || (!pending && !errorMessage && chronologicalShowtimes.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div v-if="response.theater.available_dates.length" class="flex min-w-0 gap-2 overflow-x-auto pb-2" aria-label="Choisir une date">
+            <button v-for="date in response.theater.available_dates" :key="date" type="button" class="date-button" :class="response.date === date ? 'date-button--active' : undefined" :aria-pressed="response.date === date" @click="selectDate(date)">{{ formatDateLabel(date) }}</button>
+          </div>
+          <div v-if="!pending && !errorMessage && chronologicalShowtimes.length" class="grid grid-cols-2 border-2 border-ink bg-surface divide-x-2 divide-ink lg:hidden" role="group" aria-label="Réglages d’affichage des séances">
+            <ResultSettingMenu id="cinema-mobile-result-grouping" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
+            <ResultSettingMenu id="cinema-mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+          </div>
+          <div v-if="!pending && !errorMessage && chronologicalShowtimes.length" class="hidden shrink-0 items-stretch border-2 border-ink bg-surface divide-x-2 divide-ink lg:flex" role="group" aria-label="Réglages d’affichage des séances">
+            <ResultSettingMenu id="cinema-desktop-result-grouping" class="w-40" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
+            <ResultSettingMenu id="cinema-desktop-result-layout" class="w-32" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+          </div>
         </div>
 
         <div v-if="pending" class="discovery-state mt-8" role="status" aria-live="polite"><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /><p>Chargement des séances…</p></div>
         <div v-else-if="errorMessage" class="discovery-state mt-8" role="alert"><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /><h3>Impossible de charger ces séances</h3><p>{{ errorMessage }}</p><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></div>
         <div v-else-if="movieGroups.length === 0" class="discovery-state mt-8"><CalendarDays :size="36" aria-hidden="true" /><h3>Aucune séance à cette date</h3><p>Choisissez une autre date pour consulter la programmation.</p></div>
-        <div v-else ref="movieGroupList" class="mt-8 space-y-8">
+        <div v-else-if="resultGrouping === 'movie'" ref="movieGroupList" class="mt-8 space-y-8">
           <article v-for="group in movieGroups" :key="group.movie.slug" :data-movie-slug="group.movie.slug" class="border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
             <header class="relative isolate grid min-h-48 grid-cols-[96px_minmax(0,1fr)] items-end gap-5 overflow-hidden border-b-2 border-ink p-4 sm:min-h-56 sm:grid-cols-[120px_minmax(0,1fr)] sm:p-5" :class="mediaAvailable(group.backdropUrl) ? 'text-white' : 'bg-[#f1efe8] text-ink'">
               <img v-if="mediaAvailable(group.backdropUrl)" :src="group.backdropUrl" alt="" aria-hidden="true" :data-media-url="group.backdropUrl" :data-movie-slug="group.movie.slug" data-media-kind="backdrop" class="absolute inset-0 -z-20 size-full object-cover" @error="markMediaFailed(group.backdropUrl)" />
@@ -299,7 +363,18 @@ useHead(() => ({
                 <p class="utility-label mt-1" :class="mediaAvailable(group.backdropUrl) ? 'text-white' : undefined">{{ group.movie.runtime_minutes }} min</p>
               </div>
             </header>
-            <ul class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-5">
+            <ul v-if="resultLayout === 'lines'" class="divide-y-2 divide-ink" :aria-label="`Séances de ${group.movie.title}`">
+              <li v-for="showtime in group.showtimes" :key="showtime.id" class="grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+                <div class="min-w-0">
+                  <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(showtime.start_time) }} → {{ formatParisTime(showtime.end_time) }}</p>
+                  <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"><span>{{ showtime.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="showtime.format" /><template v-if="showtime.room"><span aria-hidden="true">·</span><span>{{ formatRoom(showtime.room) }}</span></template></div>
+                </div>
+                <BookingLink :url="showtime.booking_url" :provider="showtime.provider" :aria-label="bookingLabel(showtime)" :data-showtime-id="showtime.id" unstyled class="inline-flex min-h-11 items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em]" available-class="text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" unavailable-class="text-muted">
+                  <template #default="{ available }">{{ available ? 'Réserver' : 'Réservation indisponible' }}</template>
+                </BookingLink>
+              </li>
+            </ul>
+            <ul v-else class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-5" :aria-label="`Séances de ${group.movie.title}`">
               <li v-for="showtime in group.showtimes" :key="showtime.id" class="min-w-0">
                 <BookingLink v-slot="{ available }" :url="showtime.booking_url" :provider="showtime.provider" :aria-label="bookingLabel(showtime)" :data-showtime-id="showtime.id" unstyled class="group flex h-full min-h-32 w-full flex-col items-start justify-between overflow-hidden border-2 p-3 text-left" available-class="border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]" unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none">
                   <div class="flex w-full items-baseline justify-between gap-2"><span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(showtime.start_time) }}</span><span class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(showtime.end_time) }}</span></div>
@@ -310,6 +385,43 @@ useHead(() => ({
             </ul>
           </article>
         </div>
+        <div v-else-if="resultLayout === 'lines'" ref="movieGroupList" class="mt-8 divide-y-2 divide-ink border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]" aria-label="Séances par ordre chronologique">
+          <article v-for="showtime in chronologicalShowtimes" :key="showtime.id" class="relative overflow-hidden p-4 hover:bg-[#f1efe8] sm:p-5">
+            <img v-if="mediaAvailable(showtimeBackdropUrl(showtime))" :src="showtimeBackdropUrl(showtime)!" alt="" aria-hidden="true" :data-media-url="showtimeBackdropUrl(showtime)!" :data-movie-slug="showtime.movie.slug" data-media-kind="backdrop" class="pointer-events-none absolute inset-y-0 right-0 h-full w-1/2 object-cover opacity-[0.06]" @error="markMediaFailed(showtimeBackdropUrl(showtime)!)" />
+            <div class="pointer-events-none absolute inset-0 bg-surface/80" aria-hidden="true" />
+            <div class="relative grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+              <div class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]">
+                <img v-if="mediaAvailable(showtimePosterUrl(showtime))" :src="showtimePosterUrl(showtime)!" :alt="`Affiche de ${showtime.movie.title}`" :data-media-url="showtimePosterUrl(showtime)!" :data-movie-slug="showtime.movie.slug" data-media-kind="poster" class="size-full object-cover" @error="markMediaFailed(showtimePosterUrl(showtime)!)" />
+                <Film v-else :size="18" class="text-muted" aria-hidden="true" />
+              </div>
+              <p class="col-start-2 border-l-2 border-ink pl-3 text-xl font-black tabular-nums tracking-[-0.035em] text-ink sm:col-start-auto">{{ formatParisTime(showtime.start_time) }} → {{ formatParisTime(showtime.end_time) }}</p>
+              <div class="col-start-2 min-w-0 sm:col-start-auto">
+                <h3 class="truncate text-base font-black tracking-[-0.02em] text-ink"><NuxtLink :to="`/film/${encodeURIComponent(showtime.movie.slug)}`" class="underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ showtime.movie.title }}</NuxtLink></h3>
+                <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"><span>{{ showtime.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="showtime.format" /><template v-if="showtime.room"><span aria-hidden="true">·</span><span>{{ formatRoom(showtime.room) }}</span></template></div>
+              </div>
+              <BookingLink :url="showtime.booking_url" :provider="showtime.provider" :aria-label="bookingLabel(showtime)" :data-showtime-id="showtime.id" unstyled class="col-span-2 mt-1 inline-flex min-h-11 items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em] sm:col-span-1 sm:mt-0" available-class="text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" unavailable-class="text-muted">
+                <template #default="{ available }">{{ available ? 'Réserver' : 'Réservation indisponible' }}</template>
+              </BookingLink>
+            </div>
+          </article>
+        </div>
+        <ul v-else ref="movieGroupList" class="mt-8 grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4" aria-label="Séances par ordre chronologique">
+          <li v-for="showtime in chronologicalShowtimes" :key="showtime.id" class="min-w-0">
+            <article class="flex h-full min-h-48 min-w-0 flex-col border-2 border-ink bg-surface p-3 text-left shadow-[4px_4px_0_#27272a]">
+              <div class="relative -mx-3 -mt-3 mb-3 flex h-24 items-center justify-center overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
+                <img v-if="mediaAvailable(showtimeBackdropUrl(showtime))" :src="showtimeBackdropUrl(showtime)!" alt="" aria-hidden="true" :data-media-url="showtimeBackdropUrl(showtime)!" :data-movie-slug="showtime.movie.slug" data-media-kind="backdrop" class="size-full object-cover" @error="markMediaFailed(showtimeBackdropUrl(showtime)!)" />
+                <img v-else-if="mediaAvailable(showtimePosterUrl(showtime))" :src="showtimePosterUrl(showtime)!" alt="" aria-hidden="true" :data-media-url="showtimePosterUrl(showtime)!" :data-movie-slug="showtime.movie.slug" data-media-kind="poster" class="size-full object-contain" @error="markMediaFailed(showtimePosterUrl(showtime)!)" />
+                <Film v-else :size="24" class="text-muted" aria-hidden="true" />
+              </div>
+              <h3 class="mb-3 line-clamp-2 text-sm font-black leading-tight tracking-[-0.02em] text-ink"><NuxtLink :to="`/film/${encodeURIComponent(showtime.movie.slug)}`" class="hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ showtime.movie.title }}</NuxtLink></h3>
+              <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">{{ formatParisTime(showtime.start_time) }} → {{ formatParisTime(showtime.end_time) }}</p>
+              <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"><span>{{ showtime.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="showtime.format" /><template v-if="showtime.room"><span aria-hidden="true">·</span><span>{{ formatRoom(showtime.room) }}</span></template></div>
+              <BookingLink :url="showtime.booking_url" :provider="showtime.provider" :aria-label="bookingLabel(showtime)" :data-showtime-id="showtime.id" unstyled class="mt-auto inline-flex min-h-11 items-end pt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em]" available-class="text-ink underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" unavailable-class="text-muted">
+                <template #default="{ available }">{{ available ? 'Réserver' : 'Réservation indisponible' }}</template>
+              </BookingLink>
+            </article>
+          </li>
+        </ul>
       </section>
     </template>
   </main>
