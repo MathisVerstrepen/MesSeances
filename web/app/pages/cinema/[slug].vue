@@ -223,13 +223,13 @@ useHead(() => ({
     </EditorialStatePanel>
 
     <template v-else-if="response">
-      <nav class="breadcrumb" aria-label="Fil d’Ariane">
-        <ol class="flex flex-wrap items-center gap-2">
-          <li><NuxtLink to="/">Accueil</NuxtLink></li><li aria-hidden="true">/</li>
-          <li><NuxtLink :to="`/ville/${encodeURIComponent(response.theater.city_slug)}/cinemas`">{{ response.theater.city }}</NuxtLink></li><li aria-hidden="true">/</li>
-          <li aria-current="page">{{ response.theater.name }}</li>
-        </ol>
-      </nav>
+      <Breadcrumbs
+        :items="[
+          { label: 'Accueil', to: '/' },
+          { label: response.theater.city, to: `/ville/${encodeURIComponent(response.theater.city_slug)}/cinemas` },
+          { label: response.theater.name }
+        ]"
+      />
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
           <div class="min-w-0 p-5 sm:p-8 lg:p-10">
@@ -290,7 +290,5 @@ useHead(() => ({
 <style scoped>
 .discovery-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
 .discovery-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
-.breadcrumb,.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.breadcrumb { margin-bottom: 1.5rem; color: var(--color-muted); }
-.breadcrumb a:hover { color: var(--color-primary); }
+.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
 </style>

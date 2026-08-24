@@ -1,8 +1,5 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
-import { VueDatePicker } from '@vuepic/vue-datepicker'
-import { fr } from 'date-fns/locale/fr'
-import '@vuepic/vue-datepicker/dist/main.css'
 import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
@@ -41,8 +38,6 @@ const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
 const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
 const isEndedFilm = ref(false)
-const isMobileCalendarOpen = ref(false)
-const isDesktopCalendarOpen = ref(false)
 let requestId = 0
 let currentTimeTimer: number | undefined
 let dayCheckTimer: ReturnType<typeof setTimeout> | undefined
@@ -185,40 +180,6 @@ function isAvailableDate(value: string | undefined): value is string {
   if (!value || value < today.value) return false
   if (!schedule.value) return true
   return availableDates.value.includes(value)
-}
-
-function dateFromCalendarDate(value: string): Date | null {
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  return new Date(year, month - 1, day, 12)
-}
-
-function calendarDateFromDate(value: Date): string {
-  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
-}
-
-const allowedDateValues = computed(() => availableDates.value.map(dateFromCalendarDate).filter((value): value is Date => value !== null))
-const datePickerDate = computed<Date | null>({
-  get: () => hasAvailableDates.value ? dateFromCalendarDate(selectedDate.value) : null,
-  set: (value) => {
-    if (!value) return
-    const date = calendarDateFromDate(value)
-    if (availableDates.value.includes(date)) updateFilmQuery({ date: date === fallbackDate() ? undefined : date })
-  }
-})
-const calendarAriaLabels = {
-  menu: 'Calendrier des dates disponibles',
-  input: 'Choisir une autre date',
-  calendarIcon: 'Ouvrir le calendrier',
-  prevMonth: 'Mois précédent',
-  nextMonth: 'Mois suivant',
-  prevYear: 'Année précédente',
-  nextYear: 'Année suivante',
-  openMonthsOverlay: 'Choisir un mois',
-  openYearsOverlay: 'Choisir une année',
-  monthPicker: (overlay: boolean) => overlay ? 'Fermer le choix du mois' : 'Ouvrir le choix du mois',
-  yearPicker: (overlay: boolean) => overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
-  day: ({ value }: { value: Date }) => `Choisir ${formatLongDate(calendarDateFromDate(value))}`
 }
 
 function filmQuery() {
@@ -618,15 +579,14 @@ useHead(() => ({
     </EditorialStatePanel>
 
     <template v-else-if="schedule">
-      <nav class="mb-6 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted" aria-label="Fil d’Ariane">
-        <ol class="flex flex-wrap items-center gap-2">
-          <li><NuxtLink to="/" class="hover:text-primary">Accueil</NuxtLink></li>
-          <li aria-hidden="true">/</li>
-          <li><NuxtLink to="/films" class="hover:text-primary">Films</NuxtLink></li>
-          <li aria-hidden="true">/</li>
-          <li class="text-ink" aria-current="page">{{ schedule.movie.title }}</li>
-        </ol>
-      </nav>
+      <Breadcrumbs
+        variant="film"
+        :items="[
+          { label: 'Accueil', to: '/' },
+          { label: 'Films', to: '/films' },
+          { label: schedule.movie.title }
+        ]"
+      />
       <header
         class="movie-hero relative grid gap-7 overflow-hidden border-2 border-ink p-5 shadow-[8px_8px_0_#27272a] sm:grid-cols-[180px_minmax(0,1fr)] sm:items-end sm:p-7 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-10 lg:p-10"
         :class="backdropAvailable ? 'isolate text-white' : 'bg-surface'"
@@ -759,36 +719,24 @@ useHead(() => ({
             @keydown.esc.stop="closeMobilePanel($event)"
           >
             <div class="flex items-start gap-2">
-              <VueDatePicker
-                v-model="datePickerDate"
-                class="editorial-datepicker shrink-0"
-                :allowed-dates="allowedDateValues"
-                :aria-labels="calendarAriaLabels"
+              <ShowtimeDatePicker
+                :selected-date="selectedDate"
+                :allowed-dates="availableDates"
                 :disabled="!hasAvailableDates"
-                :locale="fr"
-                :time-config="{ enableTimePicker: false }"
-                :transitions="false"
-                :floating="{ arrow: false, offset: 6 }"
-                :ui="{ menu: 'editorial-calendar-menu' }"
-                teleport="body"
-                auto-apply
-                arrow-navigation
-                prevent-min-max-navigation
-                @open="isMobileCalendarOpen = true"
-                @closed="isMobileCalendarOpen = false"
+                @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
               >
-                <template #trigger>
+                <template #trigger="{ isOpen, triggerLabel, disabled }">
                   <button
                     type="button"
                     class="calendar-trigger grid size-11 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight disabled:cursor-not-allowed disabled:bg-[#e8e6de] disabled:text-muted"
-                    :disabled="!hasAvailableDates"
-                    :aria-label="hasAvailableDates ? `Choisir une autre date. Date actuelle : ${formatLongDate(selectedDate)}` : 'Choisir une autre date. Aucune date disponible.'"
-                    :aria-expanded="isMobileCalendarOpen"
+                    :disabled="disabled"
+                    :aria-label="triggerLabel"
+                    :aria-expanded="isOpen"
                   >
                     <CalendarDays :size="18" aria-hidden="true" />
                   </button>
                 </template>
-              </VueDatePicker>
+              </ShowtimeDatePicker>
               <div class="flex min-w-0 gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
                 <button
                   v-for="(date, index) in availableDates"
@@ -855,36 +803,24 @@ useHead(() => ({
 
         <div class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block">
           <div class="flex items-start gap-2">
-            <VueDatePicker
-              v-model="datePickerDate"
-              class="editorial-datepicker shrink-0"
-              :allowed-dates="allowedDateValues"
-              :aria-labels="calendarAriaLabels"
+            <ShowtimeDatePicker
+              :selected-date="selectedDate"
+              :allowed-dates="availableDates"
               :disabled="!hasAvailableDates"
-              :locale="fr"
-              :time-config="{ enableTimePicker: false }"
-              :transitions="false"
-              :floating="{ arrow: false, offset: 6 }"
-              :ui="{ menu: 'editorial-calendar-menu' }"
-              teleport="body"
-              auto-apply
-              arrow-navigation
-              prevent-min-max-navigation
-              @open="isDesktopCalendarOpen = true"
-              @closed="isDesktopCalendarOpen = false"
+              @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
             >
-              <template #trigger>
+              <template #trigger="{ isOpen, triggerLabel, disabled }">
                 <button
                   type="button"
                   class="calendar-trigger grid size-11 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight disabled:cursor-not-allowed disabled:bg-[#e8e6de] disabled:text-muted"
-                  :disabled="!hasAvailableDates"
-                  :aria-label="hasAvailableDates ? `Choisir une autre date. Date actuelle : ${formatLongDate(selectedDate)}` : 'Choisir une autre date. Aucune date disponible.'"
-                  :aria-expanded="isDesktopCalendarOpen"
+                  :disabled="disabled"
+                  :aria-label="triggerLabel"
+                  :aria-expanded="isOpen"
                 >
                   <CalendarDays :size="18" aria-hidden="true" />
                 </button>
               </template>
-            </VueDatePicker>
+            </ShowtimeDatePicker>
             <div class="flex min-w-0 gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
               <button
                 v-for="(date, index) in availableDates"
@@ -1145,53 +1081,6 @@ useHead(() => ({
   background: #27272a;
   color: #fff;
   box-shadow: inset 0 -4px 0 var(--color-highlight);
-}
-
-.editorial-datepicker {
-  min-width: 0;
-}
-
-:global(.editorial-calendar-menu) {
-  --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --dp-border-radius: 0;
-  --dp-cell-border-radius: 0;
-  --dp-background-color: #f8f7f2;
-  --dp-text-color: #27272a;
-  --dp-hover-color: #e8e6de;
-  --dp-hover-text-color: #27272a;
-  --dp-hover-icon-color: #27272a;
-  --dp-primary-color: #27272a;
-  --dp-primary-text-color: #fff;
-  --dp-secondary-color: #71717a;
-  --dp-border-color: #27272a;
-  --dp-menu-border-color: #27272a;
-  --dp-border-color-hover: #27272a;
-  --dp-border-color-focus: #27272a;
-  --dp-disabled-color: #e8e6de;
-  --dp-disabled-color-text: #71717a;
-  --dp-icon-color: #27272a;
-  --dp-menu-min-width: 19rem;
-  --dp-font-size: 0.78rem;
-  --dp-common-transition: none;
-  --dp-animation-duration: 0s;
-  border-width: 2px;
-  box-shadow: 6px 6px 0 #27272a;
-}
-
-:global(.editorial-calendar-menu .dp__calendar_header_item),
-:global(.editorial-calendar-menu .dp__month_year_select) {
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-:global(.editorial-calendar-menu .dp__active_date) {
-  box-shadow: inset 0 -3px 0 var(--color-highlight);
-}
-
-:global(.editorial-calendar-menu .dp__today) {
-  border: 2px solid #991b1b;
 }
 
 .filter-label {

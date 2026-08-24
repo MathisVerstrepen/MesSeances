@@ -33,7 +33,7 @@ export function formatLongDate(date: string): string {
   }).format(new Date(Date.UTC(year, month - 1, day, 12)))
 }
 
-function addCalendarDays(date: string, days: number): string {
+export function addCalendarDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number)
   if (!year || !month || !day) return ''
 

@@ -126,7 +126,13 @@ useHead(() => ({
     <EditorialStatePanel v-else-if="errorMessage && !detail" semantic="alert" size="standard" shadow="large" class="city-state mx-auto max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h1 class="text-2xl font-black">Impossible de charger cette ville</h1></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="city-action" @click="loadCity"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
 
     <template v-else-if="detail">
-      <nav class="breadcrumb" aria-label="Fil d’Ariane"><ol class="flex flex-wrap items-center gap-2"><li><NuxtLink to="/">Accueil</NuxtLink></li><li aria-hidden="true">/</li><li><NuxtLink to="/cinemas">Cinémas</NuxtLink></li><li aria-hidden="true">/</li><li aria-current="page">{{ detail.city.name }}</li></ol></nav>
+      <Breadcrumbs
+        :items="[
+          { label: 'Accueil', to: '/' },
+          { label: 'Cinémas', to: '/cinemas' },
+          { label: detail.city.name }
+        ]"
+      />
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
           <div class="min-w-0 p-5 sm:p-8 lg:p-10">
@@ -186,7 +192,5 @@ useHead(() => ({
 <style scoped>
 .city-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
 .city-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
-.breadcrumb,.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.breadcrumb { margin-bottom: 1.5rem; color: var(--color-muted); }
-.breadcrumb a:hover { color: var(--color-primary); }
+.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
 </style>
