@@ -2,7 +2,7 @@
 import { AlertTriangle, Building2, CalendarDays, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { TheaterShowtimesResponse } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
-import { formatDateLabel, formatLongDate, todayInParis } from '~/utils/date'
+import { formatLongDate, todayInParis } from '~/utils/date'
 import { cinemaDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { calendarDate, mergeOwnedQuery, singularQueryValue } from '~/utils/routeQuery'
@@ -29,6 +29,7 @@ const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.q
 const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
 const groupingOptions = resultGroupingOptions
 const layoutOptions = resultLayoutOptions
+const availableDates = computed(() => response.value?.theater.available_dates.filter((date) => date >= todayInParis()) ?? [])
 
 function normalizeLocationPart(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('fr-FR').replace(/[^a-z0-9]+/g, ' ').trim()
@@ -265,10 +266,8 @@ useHead(() => ({
           </div>
           <ShareButton class="shrink-0" />
         </div>
-        <div v-if="response.theater.available_dates.length || (!pending && !errorMessage && normalizedResults.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div v-if="response.theater.available_dates.length" class="flex min-w-0 gap-2 overflow-x-auto pb-2" aria-label="Choisir une date">
-            <button v-for="date in response.theater.available_dates" :key="date" type="button" class="date-button" :class="response.date === date ? 'date-button--active' : undefined" :aria-pressed="response.date === date" @click="selectDate(date)">{{ formatDateLabel(date) }}</button>
-          </div>
+        <div v-if="availableDates.length || (!pending && !errorMessage && normalizedResults.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <ShowtimeDateBar v-if="availableDates.length" :selected-date="response.date ?? selectedDate" :available-dates="availableDates" :today="todayInParis()" @select="selectDate" />
           <div v-if="!pending && !errorMessage && normalizedResults.length" class="grid grid-cols-2 border-2 border-ink bg-surface divide-x-2 divide-ink lg:hidden" role="group" aria-label="Réglages d’affichage des séances">
             <ResultSettingMenu id="cinema-mobile-result-grouping" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
             <ResultSettingMenu id="cinema-mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
@@ -292,10 +291,7 @@ useHead(() => ({
 .discovery-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
 .discovery-state { margin-inline: auto; display: flex; min-height: 20rem; max-width: 48rem; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 2px solid #27272a; background: #fff; padding: 2rem; text-align: center; font-weight: 700; box-shadow: 8px 8px 0 #27272a; }
 .discovery-state h1,.discovery-state h3 { font-size: 1.5rem; font-weight: 900; }
-.discovery-action,.date-button { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; padding: .65rem .9rem; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
-.discovery-action,.date-button--active { background: #27272a; color: #fff; }
-.date-button { flex-shrink: 0; background: #fff; }
-.date-button--active { background: #27272a; }
+.discovery-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
 .breadcrumb,.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
 .breadcrumb { margin-bottom: 1.5rem; color: var(--color-muted); }
 .breadcrumb a:hover { color: var(--color-primary); }
