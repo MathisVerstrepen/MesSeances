@@ -18,6 +18,7 @@ const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before']
 const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
+const ADS_BUFFER_MINUTES = 15
 type ResultGrouping = 'movie' | 'chronological'
 type ResultLayout = 'lines' | 'boxes'
 
@@ -101,7 +102,7 @@ const activeFilterSummary = computed(() => {
     formatLongDate(search.date),
     `${search.startAfter.replace(':', 'h')}–${search.finishBefore.replace(':', 'h')}`,
     `${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`,
-    search.includeAds ? 'Publicités incluses' : 'Publicités exclues · arrivée +20 min'
+    search.includeAds ? 'Publicités incluses' : `Publicités exclues · arrivée +${search.bufferAds} min`
   ]
   if (search.language !== 'ALL') items.push(search.language)
   if (search.format !== 'ALL') items.push(search.format.replace('_', ' '))
@@ -169,6 +170,7 @@ interface AppliedSearch {
   language: Language
   format: QueryFormat
   includeAds: boolean
+  bufferAds: number
 }
 
 function dateFromCalendarDate(value: string): Date | null {
@@ -238,6 +240,12 @@ function formatCompactTime(time: string) {
   return minute === '00' ? `${Number(hour)}h` : `${Number(hour)}h${minute}`
 }
 
+function adsBufferFromQuery(value: string | null | undefined): number {
+  if (!value || !/^\d+$/.test(value)) return ADS_BUFFER_MINUTES
+  const buffer = Number(value)
+  return Number.isSafeInteger(buffer) && buffer <= 120 ? buffer : ADS_BUFFER_MINUTES
+}
+
 function canonicalDisplayValues(query: LocationQuery) {
   return {
     grouping: singularQueryValue(query.grouping) === 'chronological' ? 'chronological' : undefined,
@@ -262,7 +270,8 @@ function submittedQuery(search: AppliedSearch) {
     finish_before: search.finishBefore,
     language: search.language === 'ALL' ? undefined : search.language,
     format: search.format === 'ALL' ? undefined : search.format,
-    include_ads: search.includeAds ? undefined : '0'
+    include_ads: search.includeAds ? undefined : '0',
+    buffer_ads: search.bufferAds === ADS_BUFFER_MINUTES ? undefined : String(search.bufferAds)
   })
   return withCanonicalDisplayQuery(query)
 }
@@ -443,6 +452,7 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   const languageValue = singularQueryValue(route.query.language)
   const formatValue = singularQueryValue(route.query.format)
   const includeAdsValue = singularQueryValue(route.query.include_ads)
+  const bufferAds = adsBufferFromQuery(singularQueryValue(route.query.buffer_ads))
   return {
     theaterIds,
     date,
@@ -450,7 +460,8 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
     finishBefore,
     language: enumQueryValue(languageValue, LANGUAGES) ?? 'ALL',
     format: enumQueryValue(formatValue, formatOptions.map((option) => option.value)) ?? 'ALL',
-    includeAds: includeAdsValue !== '0'
+    includeAds: includeAdsValue !== '0',
+    bufferAds
   }
 }
 
@@ -475,7 +486,7 @@ async function runSearch(search: AppliedSearch) {
       date: search.date,
       start_after: search.startAfter,
       finish_before: search.finishBefore,
-      buffer_ads: 20,
+      buffer_ads: search.bufferAds,
       include_ads: search.includeAds,
       language: search.language,
       format: search.format
@@ -508,7 +519,7 @@ async function applyRoute() {
     return
   }
 
-  const key = [parsed.theaterIds.join(','), parsed.date, parsed.startAfter, parsed.finishBefore, parsed.language, parsed.format, parsed.includeAds ? '1' : '0'].join('|')
+  const key = [parsed.theaterIds.join(','), parsed.date, parsed.startAfter, parsed.finishBefore, parsed.language, parsed.format, parsed.includeAds ? '1' : '0', parsed.bufferAds].join('|')
   if (key === lastSearchKey) return
   lastSearchKey = key
   await runSearch(parsed)
@@ -577,7 +588,8 @@ async function submitSearch() {
     finishBefore: form.finishBefore,
     language: form.language,
     format: form.format,
-    includeAds: form.includeAds
+    includeAds: form.includeAds,
+    bufferAds: ADS_BUFFER_MINUTES
   }
   if (isMobileViewport()) {
     resultScrollIntent = true
@@ -743,7 +755,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
           <label class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]">
             <input v-model="form.includeAds" type="checkbox" class="mt-0.5 size-4 accent-primary" />
-            <span>Inclure les publicités (+20 min)</span>
+            <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
           </label>
 
           <button type="submit" class="search-submit w-full" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasAvailableDates">

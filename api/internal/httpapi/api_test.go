@@ -592,7 +592,7 @@ func TestSearchSlotExactTheatersTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &results); err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Theater.ID != "ugc-99" || results[0].BufferAdsMinutes != 20 || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime) {
+	if len(results) != 1 || results[0].Theater.ID != "ugc-99" || results[0].BufferAdsMinutes != 15 || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime) {
 		t.Fatalf("results=%+v", results)
 	}
 }
@@ -600,7 +600,7 @@ func TestSearchSlotExactTheatersTransport(t *testing.T) {
 func TestSearchSlotIncludeAdsTransport(t *testing.T) {
 	handler := testHandler(t)
 	includedResponse := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:30&finish_before=14:30")
-	excludedResponse := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:50&finish_before=14:30&include_ads=false")
+	excludedResponse := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:45&finish_before=14:30&include_ads=false")
 	if includedResponse.Code != http.StatusOK || excludedResponse.Code != http.StatusOK {
 		t.Fatalf("included status=%d body=%s excluded status=%d body=%s", includedResponse.Code, includedResponse.Body.String(), excludedResponse.Code, excludedResponse.Body.String())
 	}
@@ -614,16 +614,46 @@ func TestSearchSlotIncludeAdsTransport(t *testing.T) {
 	if len(included) != 1 || len(excluded) != 1 {
 		t.Fatalf("included=%+v excluded=%+v", included, excluded)
 	}
-	if !included[0].EffectiveStartTime.Equal(included[0].Showtime.StartTime) || !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(20*time.Minute)) || !included[0].EffectiveEndTime.Equal(included[0].Showtime.EndTime) || !excluded[0].EffectiveEndTime.Equal(excluded[0].Showtime.EndTime) {
+	if !included[0].EffectiveStartTime.Equal(included[0].Showtime.StartTime) || !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(15*time.Minute)) || !included[0].EffectiveEndTime.Equal(included[0].Showtime.EndTime) || !excluded[0].EffectiveEndTime.Equal(excluded[0].Showtime.EndTime) {
 		t.Fatalf("included=%+v excluded=%+v", included[0], excluded[0])
 	}
-	if included[0].BufferAdsMinutes != 20 || excluded[0].BufferAdsMinutes != 20 || included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 0 || included[0].SlackAfterMinutes != 20 || excluded[0].SlackAfterMinutes != 20 {
+	if included[0].BufferAdsMinutes != 15 || excluded[0].BufferAdsMinutes != 15 || included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 0 || included[0].SlackAfterMinutes != 20 || excluded[0].SlackAfterMinutes != 20 {
 		t.Fatalf("included=%+v excluded=%+v", included[0], excluded[0])
 	}
 
 	tooLateIncluded := performRequest(t, handler, "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:50&finish_before=14:30&include_ads=true")
 	if tooLateIncluded.Code != http.StatusOK || tooLateIncluded.Body.String() != "[]\n" {
 		t.Fatalf("too-late included status=%d body=%s", tooLateIncluded.Code, tooLateIncluded.Body.String())
+	}
+}
+
+func TestSearchSlotExplicitAdsBufferTransport(t *testing.T) {
+	handler := testHandler(t)
+	tests := []struct {
+		name       string
+		target     string
+		wantBuffer int
+		wantShift  time.Duration
+	}{
+		{"omitted defaults to 15", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:45&finish_before=15:00&include_ads=false", 15, 15 * time.Minute},
+		{"explicit zero", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:30&finish_before=15:00&include_ads=false&buffer_ads=0", 0, 0},
+		{"explicit 20", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:50&finish_before=15:00&include_ads=false&buffer_ads=20", 20, 20 * time.Minute},
+		{"explicit 120", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=14:30&finish_before=15:00&include_ads=false&buffer_ads=120", 120, 120 * time.Minute},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := performRequest(t, handler, test.target)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			var results []schedule.SlotResult
+			if err := json.Unmarshal(response.Body.Bytes(), &results); err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != 1 || results[0].BufferAdsMinutes != test.wantBuffer || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime.Add(test.wantShift)) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime) {
+				t.Fatalf("results=%+v", results)
+			}
+		})
 	}
 }
 
