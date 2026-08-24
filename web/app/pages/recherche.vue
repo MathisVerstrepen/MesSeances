@@ -3,13 +3,14 @@ import { AlertTriangle, CalendarDays, CalendarSearch, LoaderCircle, Search, Slid
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
 import '@vuepic/vue-datepicker/dist/main.css'
-import MovieSlotResultGroup from '~/components/MovieSlotResultGroup.vue'
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
+import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { resultGroupingOptions, resultLayoutOptions, toSlotShowtimeResults } from '~/utils/showtimeResults'
 import type { LocationQuery } from 'vue-router'
 
 const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads'] as const
@@ -19,8 +20,6 @@ const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
 const ADS_BUFFER_MINUTES = 15
-type ResultGrouping = 'movie' | 'chronological'
-type ResultLayout = 'lines' | 'boxes'
 
 const api = useMesSeancesApi()
 const route = useRoute()
@@ -73,28 +72,9 @@ const isCenteredCalendar = computed(() => isFilterSheetOpen.value && isCompactCa
 const todayDate = ref(todayInParis())
 const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
 const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
-const groupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
-  { value: 'movie', label: 'Par film' },
-  { value: 'chronological', label: 'Chronologique' }
-]
-const layoutOptions: [{ value: ResultLayout; label: string }, { value: ResultLayout; label: string }] = [
-  { value: 'lines', label: 'Lignes' },
-  { value: 'boxes', label: 'Boîtes' }
-]
-const chronologicalResults = computed(() => [...(results.value ?? [])].sort((first, second) => {
-  const timeDifference = Date.parse(first.showtime.start_time) - Date.parse(second.showtime.start_time)
-  return timeDifference || first.showtime.id.localeCompare(second.showtime.id)
-}))
-const movieGroups = computed(() => {
-  const groups = new Map<string, SlotResult[]>()
-  for (const result of chronologicalResults.value) {
-    const key = `${result.showtime.provider}:${result.showtime.movie.slug}`
-    const group = groups.get(key)
-    if (group) group.push(result)
-    else groups.set(key, [result])
-  }
-  return [...groups.entries()].map(([key, slots]) => ({ key, slots }))
-})
+const groupingOptions = resultGroupingOptions
+const layoutOptions = resultLayoutOptions
+const normalizedResults = computed(() => toSlotShowtimeResults(results.value ?? []))
 const activeFilterSummary = computed(() => {
   const search = appliedSearch.value
   if (!search) return []
@@ -829,17 +809,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <CalendarSearch :size="30" class="text-muted" aria-hidden="true" />
           <p>Aucune séance ne tient entièrement dans ce créneau.</p>
         </div>
-        <div v-else-if="results && resultGrouping === 'movie'" class="space-y-4">
-          <MovieSlotResultGroup v-for="group in movieGroups" :key="group.key" :results="group.slots" :layout="resultLayout" />
-        </div>
-        <div v-else-if="results && resultLayout === 'lines'" class="divide-y-2 divide-ink border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
-          <SlotResultCard v-for="result in chronologicalResults" :key="result.showtime.id" :result="result" />
-        </div>
-        <ul v-else-if="results" class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4" aria-label="Séances compatibles par ordre chronologique">
-          <li v-for="result in chronologicalResults" :key="result.showtime.id" class="min-w-0">
-            <SlotResultBox :result="result" show-movie />
-          </li>
-        </ul>
+        <ShowtimeResults v-else-if="results" :results="normalizedResults" :grouping="resultGrouping" :layout="resultLayout" scope="multi-theater" />
         <div v-else class="search-state">
           <CalendarSearch :size="32" aria-hidden="true" />
           <p>Définissez votre créneau pour voir les séances compatibles.</p>
