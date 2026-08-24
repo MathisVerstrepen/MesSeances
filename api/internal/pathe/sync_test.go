@@ -87,18 +87,20 @@ func TestSyncEndpointGraphAndExactDatasetMapping(t *testing.T) {
 		byID[showing.ProviderShowingID] = showing
 	}
 	first := byID["V3308S135392"]
-	if first.ID != "pathe-showing-V3308S135392" || first.TheaterID != "pathe-lille" || first.Movie.ProviderID != "film-a" || first.Movie.Slug != "pathe-film-film-a" || first.Movie.Title != "Film A" || first.Movie.RuntimeMinutes != 110 || first.Movie.PosterURL != "https://www.pathe.fr/posters/film-a.jpg" || !reflect.DeepEqual(first.Movie.Genres, []string{"Drame", "Aventure"}) || first.Language != schedule.LanguageVF || first.ProviderVersion != "vf" || first.Format != schedule.FormatIMAX || first.Room != "IMAX" || first.BookingURL != "https://s.pathe.fr/fr/V3308S135392/booking" || first.EndTime.Sub(first.StartTime) != 110*time.Minute {
+	if first.ID != "pathe-showing-V3308S135392" || first.TheaterID != "pathe-lille" || first.Movie.ProviderID != "film-a" || first.Movie.Slug != "pathe-film-film-a" || first.Movie.Title != "Film A" || first.Movie.RuntimeMinutes != 110 || first.Movie.PosterURL != "https://www.pathe.fr/posters/film-a.jpg" || !reflect.DeepEqual(first.Movie.Genres, []string{"Drame", "Aventure"}) || first.Language != schedule.LanguageVF || first.ProviderVersion != "vf" || first.Format != schedule.FormatIMAX || first.Room != "IMAX" || first.BookingURL != "https://s.pathe.fr/fr/V3308S135392/booking" || first.EndTime.Sub(first.StartTime) != 130*time.Minute {
 		t.Fatalf("first=%+v", first)
 	}
 	postMidnight := byID["V3308S135393"]
-	if postMidnight.ServiceDate != "2026-08-15" || postMidnight.StartTime.Format("2006-01-02 15:04") != "2026-08-16 01:30" || postMidnight.Language != schedule.LanguageVOSTFR || postMidnight.ProviderVersion != "vost" || postMidnight.Format != schedule.Format4DX || postMidnight.Room != "4" {
+	if postMidnight.ServiceDate != "2026-08-15" || postMidnight.StartTime.Format("2006-01-02 15:04") != "2026-08-16 01:30" || postMidnight.EndTime.Sub(postMidnight.StartTime) != 110*time.Minute || postMidnight.Language != schedule.LanguageVOSTFR || postMidnight.ProviderVersion != "vost" || postMidnight.Format != schedule.Format4DX || postMidnight.Room != "4" {
 		t.Fatalf("postMidnight=%+v", postMidnight)
 	}
-	if byID["V3308S135394"].Language != schedule.LanguageVFSME || byID["V3308S135394"].Format != schedule.Format3D || byID["V3308S135394"].Movie.PosterURL != "" {
-		t.Fatalf("filmB=%+v", byID["V3308S135394"])
+	filmB := byID["V3308S135394"]
+	if filmB.Language != schedule.LanguageVFSME || filmB.Format != schedule.Format3D || filmB.Movie.PosterURL != "" || filmB.StartTime.Format(providerTimeLayout) != "2026-08-16 23:30:00" || filmB.EndTime.Format(providerTimeLayout) != "2026-08-17 01:05:00" {
+		t.Fatalf("filmB=%+v", filmB)
 	}
-	if byID["V3308S135395"].Language != schedule.LanguageVO || byID["V3308S135395"].Format != schedule.FormatICE || byID["V3308S135395"].Movie.PosterURL != "https://media.pathe.fr/posters/event-a.jpg" {
-		t.Fatalf("event=%+v", byID["V3308S135395"])
+	event := byID["V3308S135395"]
+	if event.Language != schedule.LanguageVO || event.Format != schedule.FormatICE || event.Movie.PosterURL != "https://media.pathe.fr/posters/event-a.jpg" || event.Movie.RuntimeMinutes != 180 || event.EndTime.Sub(event.StartTime) != 200*time.Minute {
+		t.Fatalf("event=%+v", event)
 	}
 
 	calls := getter.callList()

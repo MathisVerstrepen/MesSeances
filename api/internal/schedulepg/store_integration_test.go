@@ -81,7 +81,7 @@ func kinepolisTestDataset() Dataset {
 func patheTestDataset() Dataset {
 	location, _ := time.LoadLocation(Timezone)
 	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 21:00", location)
-	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderPathe, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 14, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderPathe, ID: "pathe-lille", ProviderID: "lille", Slug: "pathe-lille", Name: "Pathé Lille", Address: "1 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderPathe, ID: "pathe-showing-V3308S135392", ProviderShowingID: "V3308S135392", ServiceDate: "2026-08-15", TheaterID: "pathe-lille", Movie: MovieRecord{Provider: ProviderPathe, ProviderID: "film-a", Slug: "pathe-film-film-a", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://www.pathe.fr/media/poster.jpg", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: LanguageVF, ProviderVersion: "vf", Format: FormatICE, Room: "ICE", BookingURL: "https://s.pathe.fr/fr/V3308S135392/booking"}}}
+	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderPathe, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 14, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderPathe, ID: "pathe-lille", ProviderID: "lille", Slug: "pathe-lille", Name: "Pathé Lille", Address: "1 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderPathe, ID: "pathe-showing-V3308S135392", ProviderShowingID: "V3308S135392", ServiceDate: "2026-08-15", TheaterID: "pathe-lille", Movie: MovieRecord{Provider: ProviderPathe, ProviderID: "film-a", Slug: "pathe-film-film-a", Title: "Film A", RuntimeMinutes: 100, PosterURL: "https://www.pathe.fr/media/poster.jpg", Genres: []string{"Drame"}}, StartTime: start, EndTime: start.Add(120 * time.Minute), Language: LanguageVF, ProviderVersion: "vf", Format: FormatICE, Room: "ICE", BookingURL: "https://s.pathe.fr/fr/V3308S135392/booking"}}}
 }
 
 func testMovieSlug(movie MovieRecord) string {
@@ -730,7 +730,7 @@ func TestPathePostgresStoreIntegration(t *testing.T) {
 		t.Fatalf("Pathé publication=%+v err=%v", publication, err)
 	}
 	loaded, revision, err := store.Load(ctx)
-	if err != nil || revision.ScheduleVersion != 1 || loaded.Provider != ProviderPathe || loaded.Showtimes[0].Format != FormatICE {
+	if err != nil || revision.ScheduleVersion != 1 || loaded.Provider != ProviderPathe || loaded.Showtimes[0].Format != FormatICE || loaded.Showtimes[0].Movie.RuntimeMinutes != 100 || loaded.Showtimes[0].EndTime.Sub(loaded.Showtimes[0].StartTime) != 120*time.Minute {
 		t.Fatalf("Pathé load revision=%+v dataset=%+v err=%v", revision, loaded, err)
 	}
 

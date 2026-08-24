@@ -74,6 +74,11 @@ func TestValidateDatasetProviderTimingRules(t *testing.T) {
 	if err := ValidateDataset(ugc, true); err != nil {
 		t.Fatalf("canonical UGC end rejected: %v", err)
 	}
+	pathe := patheTestDataset()
+	pathe.Showtimes[0].EndTime = pathe.Showtimes[0].StartTime.Add(time.Duration(pathe.Showtimes[0].Movie.RuntimeMinutes+20) * time.Minute)
+	if err := ValidateDataset(pathe, true); err != nil {
+		t.Fatalf("provider Pathé end rejected: %v", err)
+	}
 	for _, test := range []struct {
 		name string
 		end  func(time.Time) time.Time

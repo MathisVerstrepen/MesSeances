@@ -21,6 +21,7 @@ var (
 )
 
 const (
+	providerTimeLayout       = "2006-01-02 15:04:05"
 	maxDerivedIdentityLength = 128
 	maxCinemaSlugLength      = maxDerivedIdentityLength - len("pathe-")
 	maxMovieSlugLength       = maxDerivedIdentityLength - len("pathe-film-")
@@ -150,8 +151,8 @@ func parseProgram(body []byte, knownShows map[string]show, from time.Time, locat
 }
 
 func parseSession(item sessionResponse, movie show, theater cinema, advertisedDate string, location *time.Location) (schedule.ShowtimeRecord, error) {
-	start, err := time.ParseInLocation("2006-01-02 15:04:05", strings.TrimSpace(item.Time), location)
-	if err != nil || start.Format("2006-01-02 15:04:05") != strings.TrimSpace(item.Time) {
+	start, validStart := parseProviderTime(item.Time, location)
+	if !validStart {
 		return schedule.ShowtimeRecord{}, fmt.Errorf("showtime has invalid start time")
 	}
 	serviceDate := start.Format("2006-01-02")
@@ -175,7 +176,14 @@ func parseSession(item sessionResponse, movie show, theater cinema, advertisedDa
 	if err != nil {
 		return schedule.ShowtimeRecord{}, err
 	}
-	runtime, _ := schedule.RuntimeDuration(movie.runtime)
+	runtime, validRuntime := schedule.RuntimeDuration(movie.runtime)
+	if !validRuntime {
+		return schedule.ShowtimeRecord{}, fmt.Errorf("showtime has invalid movie runtime")
+	}
+	end, validEnd := parseProviderTime(item.EndTime, location)
+	if !validEnd || !end.After(start) {
+		end = start.Add(runtime)
+	}
 	return schedule.ShowtimeRecord{
 		Provider:          schedule.ProviderPathe,
 		ID:                "pathe-showing-" + showingID,
@@ -192,13 +200,19 @@ func parseSession(item sessionResponse, movie show, theater cinema, advertisedDa
 			Genres:         append([]string(nil), movie.genres...),
 		},
 		StartTime:       start,
-		EndTime:         start.Add(runtime),
+		EndTime:         end,
 		Language:        language,
 		ProviderVersion: providerVersion,
 		Format:          normalizeFormat(item.Tags),
 		Room:            room,
 		BookingURL:      bookingURL,
 	}, nil
+}
+
+func parseProviderTime(raw string, location *time.Location) (time.Time, bool) {
+	value := strings.TrimSpace(raw)
+	parsed, err := time.ParseInLocation(providerTimeLayout, value, location)
+	return parsed, err == nil && parsed.Format(providerTimeLayout) == value
 }
 
 func normalizeVersion(raw string) (schedule.Language, string, error) {

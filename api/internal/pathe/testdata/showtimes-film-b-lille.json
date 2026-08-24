@@ -1,14 +1,14 @@
 {
   "2026-08-16": [
     {
-      "time": "2026-08-16 18:00:00",
+      "time": "2026-08-16 23:30:00",
       "version": "vfst",
       "tags": ["3D"],
       "status": "available",
       "refCmd": "https://s.pathe.fr/fr/V3308S135394/booking",
       "auditoriumName": "7",
       "auditoriumCapacity": 100,
-      "endTime": "2026-08-16 19:35:00"
+      "endTime": "2026-08-17 01:05:00"
     }
   ]
 }

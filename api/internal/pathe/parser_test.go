@@ -242,3 +242,60 @@ func TestSessionServiceDateAndStrictFields(t *testing.T) {
 		t.Fatal("empty room accepted")
 	}
 }
+
+func TestSessionProviderEndTimeAndFallback(t *testing.T) {
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	movie := show{slug: "film", title: "Film", runtime: 90, genres: []string{"Drame"}, isMovie: true}
+	theater := cinema{slug: "lille", name: "Pathé Lille", address: "1 rue", city: "Lille", postalCode: "59000"}
+	base := sessionResponse{
+		Time:           "2026-08-15 20:00:00",
+		Version:        "vf",
+		RefCmd:         "https://s.pathe.fr/fr/V1S42/booking",
+		AuditoriumName: json.RawMessage(`"1"`),
+	}
+
+	withProviderEnd := base
+	withProviderEnd.EndTime = "2026-08-15 21:50:00"
+	record, err := parseSession(withProviderEnd, movie, theater, "2026-08-15", location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.EndTime.Sub(record.StartTime) != 110*time.Minute || record.Movie.RuntimeMinutes != 90 || record.EndTime.Location() != location {
+		t.Fatalf("provider end not preserved: record=%+v", record)
+	}
+
+	withRollover := base
+	withRollover.Time = "2026-08-15 23:30:00"
+	withRollover.EndTime = "2026-08-16 01:20:00"
+	record, err = parseSession(withRollover, movie, theater, "2026-08-15", location)
+	if err != nil || record.EndTime.Format(providerTimeLayout) != withRollover.EndTime || record.EndTime.Sub(record.StartTime) != 110*time.Minute {
+		t.Fatalf("date rollover end=%s err=%v", record.EndTime, err)
+	}
+
+	for _, test := range []struct {
+		name    string
+		endTime string
+	}{
+		{name: "missing"},
+		{name: "empty", endTime: "   "},
+		{name: "malformed", endTime: "2026-08-15T21:50:00"},
+		{name: "non-canonical", endTime: "2026-8-15 21:50:00"},
+		{name: "equal to start", endTime: base.Time},
+		{name: "before start", endTime: "2026-08-15 19:59:00"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := base
+			session.EndTime = test.endTime
+			record, err := parseSession(session, movie, theater, "2026-08-15", location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !record.EndTime.Equal(record.StartTime.Add(90*time.Minute)) || record.Movie.RuntimeMinutes != 90 {
+				t.Fatalf("fallback record=%+v", record)
+			}
+		})
+	}
+}
