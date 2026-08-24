@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowRight, Film, LoaderCircle, LogOut, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, ArrowRight, CalendarClock, Film, LoaderCircle, LogOut, RefreshCw } from '@lucide/vue'
 
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -55,6 +55,13 @@ useHead({ title: 'Administration - MesSeances' })
             <RefreshCw :size="22" aria-hidden="true" />
           </span>
           <span class="min-w-0 flex-1 text-base font-semibold text-ink">Synchronisation des séances</span>
+          <ArrowRight :size="20" class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" aria-hidden="true" />
+        </NuxtLink>
+        <NuxtLink to="/admin/sync-schedules" class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover">
+          <span class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent">
+            <CalendarClock :size="22" aria-hidden="true" />
+          </span>
+          <span class="min-w-0 flex-1 text-base font-semibold text-ink">Planification des synchronisations</span>
           <ArrowRight :size="20" class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" aria-hidden="true" />
         </NuxtLink>
       </div>

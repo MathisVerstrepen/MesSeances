@@ -175,9 +175,55 @@ export interface AdminUnmergeLocalMovieResponse {
 
 export type AdminSyncTarget = 'all' | Provider
 export type AdminSyncState = 'running' | 'succeeded' | 'failed'
+export type AdminSyncTrigger = 'manual' | 'scheduled'
 export type AdminSyncProviderState = 'not_requested' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
 export type AdminSyncFailureCode = 'none' | 'client_creation_failed' | 'provider_sync_failed' | 'dataset_rejected' | 'replacement_failed' | 'canceled' | 'internal_failure'
 export type AdminSyncEnrichmentState = 'skipped' | 'complete' | 'degraded'
+export type AdminSyncScheduleKind = 'daily' | 'weekly' | 'cron'
+export type AdminSyncWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+
+export interface AdminSyncOccurrence {
+  schedule_revision: number
+  scheduled_for: string
+  attempt: number
+}
+
+export interface AdminDailySyncSchedule {
+  kind: 'daily'
+  time: string
+}
+
+export interface AdminWeeklySyncSchedule {
+  kind: 'weekly'
+  time: string
+  weekdays: AdminSyncWeekday[]
+}
+
+export interface AdminCronSyncSchedule {
+  kind: 'cron'
+  expression: string
+}
+
+export type AdminSyncSchedule = AdminDailySyncSchedule | AdminWeeklySyncSchedule | AdminCronSyncSchedule
+
+export interface AdminSyncScheduleItem {
+  provider: Provider
+  revision: number
+  enabled: boolean
+  schedule: AdminSyncSchedule
+  next_runs: string[]
+  updated_at: string
+}
+
+export interface AdminSyncSchedulesResponse {
+  timezone: 'Europe/Paris'
+  schedules: AdminSyncScheduleItem[]
+}
+
+export interface AdminSaveSyncScheduleRequest {
+  enabled: boolean
+  schedule: AdminSyncSchedule
+}
 
 export interface AdminSyncMetrics {
   version: number
@@ -220,6 +266,8 @@ export interface AdminSyncJob {
   id: string
   target: AdminSyncTarget
   state: AdminSyncState
+  trigger: AdminSyncTrigger
+  occurrence?: AdminSyncOccurrence
   started_at: string
   finished_at: string | null
   from: string

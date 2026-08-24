@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,12 @@ type testHTTPServer struct {
 type testShortlinkService struct{}
 
 type testTMDBProvider struct{}
+
+type testCloseableWorker struct {
+	close func()
+}
+
+func (w testCloseableWorker) Close() { w.close() }
 
 func (testTMDBProvider) Search(context.Context, string) ([]tmdb.Candidate, error) { return nil, nil }
 func (testTMDBProvider) Details(context.Context, int64) (tmdb.Details, error) {
@@ -239,5 +246,36 @@ func TestServeSanitizesUnexpectedListenerError(t *testing.T) {
 	err := serve(context.Background(), server, func() {})
 	if err == nil || err.Error() != "API server failed" {
 		t.Fatalf("serve err=%v", err)
+	}
+}
+
+func TestShutdownWorkersStopsSchedulerAndManagerBeforeSourcePollingWait(t *testing.T) {
+	var mu sync.Mutex
+	events := []string{}
+	record := func(event string) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	}
+	managerClosed := make(chan struct{})
+	var polling sync.WaitGroup
+	polling.Add(1)
+	go func() {
+		defer polling.Done()
+		<-managerClosed
+		record("source")
+	}()
+
+	shutdownWorkers(
+		func() { record("cancel") },
+		testCloseableWorker{close: func() { record("schedules") }},
+		testCloseableWorker{close: func() { record("manager"); close(managerClosed) }},
+		&polling,
+	)
+	mu.Lock()
+	got := strings.Join(events, ",")
+	mu.Unlock()
+	if got != "cancel,schedules,manager,source" {
+		t.Fatalf("cleanup order=%s", got)
 	}
 }

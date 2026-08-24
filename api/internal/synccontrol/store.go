@@ -3,6 +3,7 @@ package synccontrol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -13,10 +14,15 @@ import (
 
 const historyLimit = 50
 
+type Snapshot struct {
+	Job  *Status  `json:"job"`
+	Runs []Status `json:"runs"`
+}
+
 type RunStore interface {
 	Create(context.Context, Status) (Status, error)
 	Update(context.Context, Status) error
-	List(context.Context, int) ([]Status, error)
+	Snapshot(context.Context) (Snapshot, error)
 	ReconcileRunning(context.Context, time.Time) error
 }
 
@@ -31,8 +37,28 @@ func (s *PostgresRunStore) Create(ctx context.Context, status Status) (Status, e
 	if err != nil {
 		return Status{}, fmt.Errorf("encode sync run failed")
 	}
+	trigger := status.Trigger
+	if trigger == "" {
+		trigger = TriggerManual
+		status.Trigger = trigger
+	}
+	var revision any
+	var scheduledFor any
+	var attempt any
+	if status.Occurrence != nil {
+		revision = status.Occurrence.Revision
+		scheduledFor = status.Occurrence.ScheduledFor
+		attempt = status.Occurrence.Attempt
+	}
 	var id int64
-	err = s.pool.QueryRow(ctx, `INSERT INTO sync_runs (target,state,started_at,finished_at,window_from,window_through,providers) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`, status.Target, status.State, status.StartedAt, status.FinishedAt, status.From, status.Through, providers).Scan(&id)
+	err = s.pool.QueryRow(ctx, `INSERT INTO sync_runs
+        (target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_revision,scheduled_for,schedule_attempt)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ON CONFLICT DO NOTHING
+        RETURNING id`, status.Target, status.State, status.StartedAt, status.FinishedAt, status.From, status.Through, providers, trigger, revision, scheduledFor, attempt).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) && trigger == TriggerScheduled {
+		return Status{}, ErrOccurrenceClaimed
+	}
 	if err != nil {
 		return Status{}, fmt.Errorf("create sync run failed")
 	}
@@ -52,11 +78,46 @@ func (s *PostgresRunStore) Update(ctx context.Context, status Status) error {
 	return nil
 }
 
+func (s *PostgresRunStore) Snapshot(ctx context.Context) (Snapshot, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("read sync run snapshot failed")
+	}
+	defer rollbackRunTx(tx)
+	result := Snapshot{Runs: []Status{}}
+	row := tx.QueryRow(ctx, `SELECT `+runColumns+` FROM sync_runs WHERE state='running' ORDER BY started_at DESC,id DESC LIMIT 1`)
+	job, err := scanStatus(row)
+	if err == nil {
+		result.Job = &job
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return Snapshot{}, fmt.Errorf("read sync run snapshot failed")
+	}
+
+	runs, err := listTerminal(ctx, tx, historyLimit)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	result.Runs = runs
+	if err := tx.Commit(ctx); err != nil {
+		return Snapshot{}, fmt.Errorf("read sync run snapshot failed")
+	}
+	return result, nil
+}
+
+// List remains available for persistence-focused callers. It returns terminal history only.
 func (s *PostgresRunStore) List(ctx context.Context, limit int) ([]Status, error) {
+	return listTerminal(ctx, s.pool, limit)
+}
+
+type runQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func listTerminal(ctx context.Context, querier runQuerier, limit int) ([]Status, error) {
 	if limit <= 0 || limit > historyLimit {
 		limit = historyLimit
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id,target,state,started_at,finished_at,window_from,window_through,providers FROM sync_runs ORDER BY started_at DESC,id DESC LIMIT $1`, limit)
+	rows, err := querier.Query(ctx, `SELECT `+runColumns+` FROM sync_runs WHERE state<>'running' ORDER BY started_at DESC,id DESC LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list sync runs failed")
 	}
@@ -81,7 +142,7 @@ func (s *PostgresRunStore) ReconcileRunning(ctx context.Context, finishedAt time
 		return fmt.Errorf("reconcile sync runs failed")
 	}
 	defer rollbackRunTx(tx)
-	rows, err := tx.Query(ctx, `SELECT id,target,state,started_at,finished_at,window_from,window_through,providers FROM sync_runs WHERE state='running' FOR UPDATE`)
+	rows, err := tx.Query(ctx, `SELECT `+runColumns+` FROM sync_runs WHERE state='running' FOR UPDATE`)
 	if err != nil {
 		return fmt.Errorf("reconcile sync runs failed")
 	}
@@ -115,7 +176,8 @@ func (s *PostgresRunStore) ReconcileRunning(ctx context.Context, finishedAt time
 		if valueErr != nil {
 			return valueErr
 		}
-		if _, err := tx.Exec(ctx, `UPDATE sync_runs SET state=$2,finished_at=$3,providers=$4 WHERE id=$1`, id, status.State, status.FinishedAt, providers); err != nil {
+		tag, err := tx.Exec(ctx, `UPDATE sync_runs SET state=$2,finished_at=$3,providers=$4 WHERE id=$1`, id, status.State, status.FinishedAt, providers)
+		if err != nil || tag.RowsAffected() != 1 {
 			return fmt.Errorf("reconcile sync runs failed")
 		}
 	}
@@ -125,6 +187,8 @@ func (s *PostgresRunStore) ReconcileRunning(ctx context.Context, finishedAt time
 	return nil
 }
 
+const runColumns = `id,target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_revision,scheduled_for,schedule_attempt`
+
 type rowScanner interface{ Scan(...any) error }
 
 func scanStatus(row rowScanner) (Status, error) {
@@ -132,7 +196,13 @@ func scanStatus(row rowScanner) (Status, error) {
 	var id int64
 	var providers []byte
 	var from, through time.Time
-	if err := row.Scan(&id, &status.Target, &status.State, &status.StartedAt, &status.FinishedAt, &from, &through, &providers); err != nil {
+	var revision *int64
+	var scheduledFor *time.Time
+	var attempt *int16
+	if err := row.Scan(&id, &status.Target, &status.State, &status.StartedAt, &status.FinishedAt, &from, &through, &providers, &status.Trigger, &revision, &scheduledFor, &attempt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Status{}, pgx.ErrNoRows
+		}
 		return Status{}, fmt.Errorf("read sync run failed")
 	}
 	if err := json.Unmarshal(providers, &status.Providers); err != nil {
@@ -141,6 +211,9 @@ func scanStatus(row rowScanner) (Status, error) {
 	status.ID = strconv.FormatInt(id, 10)
 	status.From = from.Format("2006-01-02")
 	status.Through = through.Format("2006-01-02")
+	if revision != nil && scheduledFor != nil && attempt != nil {
+		status.Occurrence = &Occurrence{Provider: status.Target, Revision: *revision, ScheduledFor: scheduledFor.UTC(), Attempt: int(*attempt)}
+	}
 	return status, nil
 }
 

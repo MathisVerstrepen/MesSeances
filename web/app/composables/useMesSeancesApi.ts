@@ -4,7 +4,10 @@ import type {
   AdminLocalMovieGroupsResponse,
   AdminMatchDecisionResponse,
   AdminPendingMatchesResponse,
+  AdminSaveSyncScheduleRequest,
   AdminSessionResponse,
+  AdminSyncScheduleItem,
+  AdminSyncSchedulesResponse,
   AdminSyncResponse,
   AdminSyncTarget,
   AdminTMDBRerunSummary,
@@ -144,6 +147,18 @@ export function useMesSeancesApi() {
         credentials: 'include'
       }))
     },
+    adminSyncSchedules() {
+      return withAdminRedirect($fetch<AdminSyncSchedulesResponse>(`${apiBase}/api/v1/admin/sync-schedules`, {
+        credentials: 'include'
+      }))
+    },
+    adminSaveSyncSchedule(provider: Provider, input: AdminSaveSyncScheduleRequest) {
+      return withAdminRedirect($fetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(provider)}`, {
+        method: 'POST',
+        credentials: 'include',
+        body: input
+      }))
+    },
     adminStartSync(target: AdminSyncTarget) {
       return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs/${encodeURIComponent(target)}`, {
         method: 'POST',
@@ -196,6 +211,9 @@ export function getFrenchAdminApiError(cause: unknown): string {
   if (code === 'sync_unavailable') return 'Le service de synchronisation est temporairement indisponible.'
   if (code === 'sync_in_progress') return 'Une synchronisation est déjà en cours.'
   if (code === 'sync_failed') return 'La synchronisation n’a pas pu démarrer. Réessayez plus tard.'
+  if (code === 'invalid_sync_schedule') return 'La configuration est invalide. Vérifiez les champs requis et leur format, puis réessayez.'
+  if (code === 'sync_schedule_unavailable') return 'La planification des synchronisations est temporairement indisponible.'
+  if (code === 'sync_schedule_failed') return 'La planification n’a pas pu être enregistrée. Vos modifications sont conservées, réessayez plus tard.'
   if (code === 'review_failed' || code === 'internal_error' || getApiErrorStatus(cause) === 502) {
     return 'Le service de validation a rencontré une erreur. Réessayez plus tard.'
   }

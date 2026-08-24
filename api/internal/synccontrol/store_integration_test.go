@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -57,18 +58,31 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	t.Cleanup(pool.Close)
 	if _, err := pool.Exec(ctx, `CREATE TABLE sync_runs (
 		id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-		target text NOT NULL,
+		target text NOT NULL CHECK (target IN ('all','ugc','kinepolis')),
 		state text NOT NULL,
 		started_at timestamptz NOT NULL,
 		finished_at timestamptz,
 		window_from date NOT NULL,
 		window_through date NOT NULL,
-		providers jsonb NOT NULL
-	)`); err != nil {
+		providers jsonb NOT NULL,
+		trigger_source text NOT NULL DEFAULT 'manual',
+		schedule_revision bigint,
+		scheduled_for timestamptz,
+		schedule_attempt smallint,
+		CHECK ((trigger_source='manual' AND schedule_revision IS NULL AND scheduled_for IS NULL AND schedule_attempt IS NULL)
+			OR (trigger_source='scheduled' AND target IN ('ugc','kinepolis') AND schedule_revision > 0 AND scheduled_for IS NOT NULL AND schedule_attempt BETWEEN 0 AND 2))
+	);
+	CREATE UNIQUE INDEX sync_runs_scheduled_occurrence_attempt_idx
+		ON sync_runs (target,schedule_revision,scheduled_for,schedule_attempt)
+		WHERE trigger_source='scheduled'`); err != nil {
 		t.Fatal("create sync run fixture failed")
 	}
 
 	store := NewPostgresRunStore(pool)
+	empty, err := store.Snapshot(ctx)
+	if err != nil || empty.Job != nil || empty.Runs == nil || len(empty.Runs) != 0 {
+		t.Fatalf("empty snapshot=%+v err=%v", empty, err)
+	}
 	started := time.Date(2026, 8, 23, 10, 0, 0, 0, time.UTC)
 	running := Status{Target: TargetAll, State: StateRunning, StartedAt: started, From: "2026-08-23", Through: "2026-08-30", Providers: map[string]ProviderStatus{
 		string(TargetUGC):       {State: ProviderRunning},
@@ -78,6 +92,10 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	if err != nil || created.ID == "" {
 		t.Fatalf("created=%+v err=%v", created, err)
 	}
+	active, err := store.Snapshot(ctx)
+	if err != nil || active.Job == nil || active.Job.ID != created.ID || len(active.Runs) != 0 || active.Job.Trigger != TriggerManual || active.Job.Occurrence != nil {
+		t.Fatalf("active snapshot=%+v err=%v", active, err)
+	}
 	finished := started.Add(time.Minute)
 	created.State = StateSucceeded
 	created.FinishedAt = &finished
@@ -86,6 +104,10 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	created.Providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderSkipped}
 	if err := store.Update(ctx, created); err != nil {
 		t.Fatal(err)
+	}
+	running.Providers = map[string]ProviderStatus{
+		string(TargetUGC):       {State: ProviderRunning},
+		string(TargetKinepolis): {State: ProviderPending},
 	}
 	stale, err := store.Create(ctx, running)
 	if err != nil {
@@ -105,5 +127,110 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	outcome := runs[1].Providers[string(TargetUGC)].Outcome
 	if outcome == nil || outcome.Sync.Movies != 4 || outcome.Sync.NewMovies != 2 || outcome.Sync.Requests != 9 || outcome.Sync.NewShowtimes != 5 || outcome.Sync.Through != "2027-01-10" || runs[1].Through != "2027-01-10" {
 		t.Fatalf("persisted outcome=%+v", outcome)
+	}
+
+	occurrence := Occurrence{Provider: TargetUGC, Revision: 7, ScheduledFor: time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), Attempt: 0}
+	scheduled := running
+	scheduled.Target = TargetUGC
+	scheduled.Trigger = TriggerScheduled
+	scheduled.Occurrence = &occurrence
+	scheduled.StartedAt = started.Add(3 * time.Minute)
+	scheduled.Providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderNotRequested}
+	claimed, err := store.Create(ctx, scheduled)
+	if err != nil {
+		t.Fatalf("create scheduled claim failed: %v", err)
+	}
+	if _, err := store.Create(ctx, scheduled); !errors.Is(err, ErrOccurrenceClaimed) {
+		t.Fatalf("duplicate scheduled claim err=%v", err)
+	}
+	claimed.State = StateFailed
+	claimed.FinishedAt = &reconciledAt
+	claimed.Providers[string(TargetUGC)] = ProviderStatus{State: ProviderFailed, ErrorCode: FailureProviderSync}
+	if err := store.Update(ctx, claimed); err != nil {
+		t.Fatal("complete scheduled claim failed")
+	}
+	for _, attempt := range []int{1, 2} {
+		retry := scheduled
+		retry.Occurrence = &Occurrence{Provider: TargetUGC, Revision: 7, ScheduledFor: occurrence.ScheduledFor, Attempt: attempt}
+		retry.StartedAt = scheduled.StartedAt.Add(time.Duration(attempt) * time.Minute)
+		createdRetry, err := store.Create(ctx, retry)
+		if err != nil {
+			t.Fatalf("create attempt %d failed: %v", attempt, err)
+		}
+		createdRetry.State = StateFailed
+		createdRetry.FinishedAt = &reconciledAt
+		createdRetry.Providers[string(TargetUGC)] = ProviderStatus{State: ProviderFailed, ErrorCode: FailureProviderSync}
+		if err := store.Update(ctx, createdRetry); err != nil {
+			t.Fatalf("complete attempt %d failed: %v", attempt, err)
+		}
+	}
+	snapshot, err := store.Snapshot(ctx)
+	if err != nil || snapshot.Job != nil || len(snapshot.Runs) != 5 {
+		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
+	}
+	latest := snapshot.Runs[0]
+	if latest.Trigger != TriggerScheduled || latest.Occurrence == nil || latest.Occurrence.Provider != TargetUGC || latest.Occurrence.Revision != 7 || latest.Occurrence.Attempt != 2 || !latest.Occurrence.ScheduledFor.Equal(occurrence.ScheduledFor) {
+		t.Fatalf("scheduled round trip=%+v", latest)
+	}
+
+	lockerA := NewPostgresRunLocker(pool)
+	lockerB := NewPostgresRunLocker(pool)
+	startupStale := running
+	startupStale.StartedAt = started.Add(10 * time.Minute)
+	startupStale.Providers = map[string]ProviderStatus{
+		string(TargetUGC):       {State: ProviderRunning},
+		string(TargetKinepolis): {State: ProviderPending},
+	}
+	startupStale, err = store.Create(ctx, startupStale)
+	if err != nil {
+		t.Fatalf("create startup stale run failed: %v", err)
+	}
+	leaseA, err := lockerA.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire first global lease failed: %v", err)
+	}
+	if _, err := lockerB.Acquire(ctx); !errors.Is(err, ErrInProgress) {
+		t.Fatalf("contended global lease err=%v", err)
+	}
+	startupExecutor := executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
+		t.Fatal("executor called during startup reconciliation")
+		return nil, nil
+	})
+	busyManager, err := NewManager(ctx, time.Now, startupExecutor, store)
+	if err != nil {
+		t.Fatalf("manager startup under busy lease failed: %v", err)
+	}
+	busyManager.Close()
+	snapshot, err = store.Snapshot(ctx)
+	if err != nil || snapshot.Job == nil || snapshot.Job.ID != startupStale.ID || snapshot.Job.State != StateRunning || snapshot.Job.FinishedAt != nil {
+		t.Fatalf("busy startup snapshot=%+v err=%v", snapshot, err)
+	}
+	if err := leaseA.Release(ctx); err != nil {
+		t.Fatalf("release first global lease failed: %v", err)
+	}
+	startupFinished := started.Add(11 * time.Minute)
+	reconciledManager, err := NewManager(ctx, func() time.Time { return startupFinished }, startupExecutor, store)
+	if err != nil {
+		t.Fatalf("manager startup reconciliation failed: %v", err)
+	}
+	reconciledManager.Close()
+	snapshot, err = store.Snapshot(ctx)
+	if err != nil || snapshot.Job != nil || len(snapshot.Runs) != 6 || snapshot.Runs[0].ID != startupStale.ID || snapshot.Runs[0].State != StateFailed || snapshot.Runs[0].FinishedAt == nil || !snapshot.Runs[0].FinishedAt.Equal(startupFinished) || snapshot.Runs[0].Providers[string(TargetUGC)].ErrorCode != FailureCanceled || snapshot.Runs[0].Providers[string(TargetKinepolis)].State != ProviderSkipped {
+		t.Fatalf("reconciled startup snapshot=%+v err=%v", snapshot, err)
+	}
+	leaseB, err := lockerB.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire released global lease failed: %v", err)
+	}
+	brokenLease := leaseB.(*postgresRunLease)
+	if err := brokenLease.session.Discard(ctx); err != nil {
+		t.Fatalf("discard lease session failed: %v", err)
+	}
+	leaseAfterLoss, err := lockerA.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire after lease session loss failed: %v", err)
+	}
+	if err := leaseAfterLoss.Release(ctx); err != nil {
+		t.Fatalf("release lease after session loss failed: %v", err)
 	}
 }

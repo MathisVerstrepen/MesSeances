@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -12,13 +13,17 @@ import (
 )
 
 type fakeSyncController struct {
-	status   synccontrol.Status
-	runs     []synccontrol.Status
-	startErr error
-	started  []synccontrol.Target
+	status       synccontrol.Status
+	snapshot     synccontrol.Snapshot
+	snapshotErr  error
+	snapshotFunc func() synccontrol.Snapshot
+	startErr     error
+	started      []synccontrol.Target
+	events       []string
 }
 
 func (c *fakeSyncController) Start(target synccontrol.Target) (synccontrol.Status, error) {
+	c.events = append(c.events, "start")
 	c.started = append(c.started, target)
 	if c.startErr != nil {
 		return synccontrol.Status{}, c.startErr
@@ -26,8 +31,16 @@ func (c *fakeSyncController) Start(target synccontrol.Target) (synccontrol.Statu
 	return c.status, nil
 }
 
-func (c *fakeSyncController) Status() synccontrol.Status { return c.status }
-func (c *fakeSyncController) Runs() []synccontrol.Status { return c.runs }
+func (c *fakeSyncController) Snapshot(context.Context) (synccontrol.Snapshot, error) {
+	c.events = append(c.events, "snapshot")
+	if c.snapshotErr != nil {
+		return synccontrol.Snapshot{}, c.snapshotErr
+	}
+	if c.snapshotFunc != nil {
+		return c.snapshotFunc(), nil
+	}
+	return c.snapshot, nil
+}
 
 func syncAdminHandler(t *testing.T, controller SyncController) http.Handler {
 	t.Helper()
@@ -57,7 +70,7 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 
 func TestAdminStartSyncContract(t *testing.T) {
 	started := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}}}}
+	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}}}}
 	handler := syncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/all", "", "https://evil.example", cookie)
@@ -68,6 +81,9 @@ func TestAdminStartSyncContract(t *testing.T) {
 	}
 	if len(controller.started) != 1 || controller.started[0] != synccontrol.TargetAll {
 		t.Fatalf("started=%v", controller.started)
+	}
+	if strings.Join(controller.events, ",") != "snapshot,start" {
+		t.Fatalf("events=%v", controller.events)
 	}
 	body := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/ugc", `{}`, "http://localhost:3000", cookie)
 	assertAPIError(t, body, http.StatusBadRequest, "invalid_request", "Requête invalide.")
@@ -83,24 +99,86 @@ func TestAdminStartSyncContract(t *testing.T) {
 	if strings.Contains(failed.Body.String(), "secret") {
 		t.Fatalf("leaked body=%s", failed.Body.String())
 	}
+	controller.startErr = synccontrol.ErrOccurrenceClaimed
+	claim := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/ugc", "", "http://localhost:3000", cookie)
+	assertAPIError(t, claim, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
+	if strings.Contains(claim.Body.String(), "occurrence") || strings.Contains(claim.Body.String(), "claim") {
+		t.Fatalf("public claim conflict body=%s", claim.Body.String())
+	}
 }
 
 func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 	secret := "synthetic-secret"
 	finished := time.Date(2026, 8, 17, 13, 0, 0, 0, time.UTC)
-	controller := &fakeSyncController{runs: []synccontrol.Status{{ID: "3", Target: synccontrol.TargetUGC, State: synccontrol.StateSucceeded, StartedAt: finished.Add(-2 * time.Hour), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24", Providers: map[string]synccontrol.ProviderStatus{}}}, status: synccontrol.Status{
-		ID: "4", Target: synccontrol.TargetAll, State: synccontrol.StateFailed,
-		StartedAt: finished.Add(-time.Minute), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24",
+	scheduledFor := time.Date(2026, 8, 17, 11, 30, 0, 0, time.UTC)
+	job := synccontrol.Status{
+		ID: "4", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual,
+		StartedAt: finished.Add(-time.Minute), From: "2026-08-17", Through: "2026-08-24",
 		Providers: map[string]synccontrol.ProviderStatus{
 			"ugc":       {State: synccontrol.ProviderSucceeded, Outcome: &synccontrol.ProviderOutcome{Sync: synccontrol.SyncOutcome{Version: 9, Cinemas: 3, Movies: 8, NewMovies: 2, Requests: 20, Showtimes: 12, NewShowtimes: 4, Through: "2026-12-24"}, Enrichment: synccontrol.EnrichmentOutcome{Status: "complete", Counts: &synccontrol.EnrichmentCounts{Matched: 2}}}},
-			"kinepolis": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync},
+			"kinepolis": {State: synccontrol.ProviderRunning},
 		},
-	}}
+	}
+	controller := &fakeSyncController{snapshot: synccontrol.Snapshot{Job: &job, Runs: []synccontrol.Status{{ID: "3", Target: synccontrol.TargetUGC, State: synccontrol.StateFailed, Trigger: synccontrol.TriggerScheduled, Occurrence: &synccontrol.Occurrence{Provider: synccontrol.TargetUGC, Revision: 7, ScheduledFor: scheduledFor, Attempt: 1}, StartedAt: finished.Add(-2 * time.Hour), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync}}}}}}
 	handler := syncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs?cause="+secret, "", "", cookie)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"window_through":"2026-12-24"`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
+	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"window_through":"2026-12-24"`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"trigger":"manual"`) || !strings.Contains(body, `"trigger":"scheduled"`) || !strings.Contains(body, `"occurrence":{"schedule_revision":7,"scheduled_for":"2026-08-17T11:30:00Z","attempt":1}`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, `"provider"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
 		t.Fatalf("status=%d body=%s", response.Code, body)
+	}
+}
+
+func TestAdminSyncSnapshotFailureIsRedactedAndPreventsManualStart(t *testing.T) {
+	controller := &fakeSyncController{snapshotErr: errors.New("database synthetic-secret")}
+	handler := syncAdminHandler(t, controller)
+	cookie := loginAdmin(t, handler, "password")
+
+	get := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs", "", "", cookie)
+	assertAPIError(t, get, http.StatusBadGateway, "sync_failed", "L'état des synchronisations n'a pas pu être chargé.")
+	post := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/ugc", "", "http://localhost:3000", cookie)
+	assertAPIError(t, post, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
+	if len(controller.started) != 0 || strings.Contains(get.Body.String()+post.Body.String(), "synthetic") {
+		t.Fatalf("started=%v get=%s post=%s", controller.started, get.Body.String(), post.Body.String())
+	}
+}
+
+func TestAdminStartSyncRejectsInvalidTargetBeforeSnapshotFailure(t *testing.T) {
+	controller := &fakeSyncController{snapshotErr: errors.New("database synthetic-secret")}
+	handler := syncAdminHandler(t, controller)
+	cookie := loginAdmin(t, handler, "password")
+
+	response := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/bad", "", "http://localhost:3000", cookie)
+	assertAPIError(t, response, http.StatusBadRequest, "invalid_sync_target", "Cible de synchronisation invalide.")
+	if len(controller.events) != 0 || len(controller.started) != 0 || strings.Contains(response.Body.String(), "synthetic") {
+		t.Fatalf("events=%v started=%v body=%s", controller.events, controller.started, response.Body.String())
+	}
+}
+
+func TestAdminSyncStatusReadsSharedAuthoritativeSnapshotOnEveryRequest(t *testing.T) {
+	started := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	active := synccontrol.Status{ID: "8", Target: synccontrol.TargetUGC, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{}}
+	shared := synccontrol.Snapshot{Job: &active, Runs: []synccontrol.Status{}}
+	controllerA := &fakeSyncController{snapshotFunc: func() synccontrol.Snapshot { return shared }}
+	controllerB := &fakeSyncController{snapshotFunc: func() synccontrol.Snapshot { return shared }}
+	handlerA := syncAdminHandler(t, controllerA)
+	handlerB := syncAdminHandler(t, controllerB)
+	cookieA := loginAdmin(t, handlerA, "password")
+	cookieB := loginAdmin(t, handlerB, "password")
+
+	first := adminRequest(handlerB, http.MethodGet, "/api/v1/admin/syncs", "", "", cookieB)
+	if first.Code != http.StatusOK || !strings.Contains(first.Body.String(), `"id":"8"`) {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
+	}
+	finished := started.Add(time.Minute)
+	active.State = synccontrol.StateSucceeded
+	active.FinishedAt = &finished
+	shared = synccontrol.Snapshot{Runs: []synccontrol.Status{active}}
+	second := adminRequest(handlerA, http.MethodGet, "/api/v1/admin/syncs", "", "", cookieA)
+	if second.Code != http.StatusOK || !strings.Contains(second.Body.String(), `"job":null`) || !strings.Contains(second.Body.String(), `"runs":[{"id":"8"`) {
+		t.Fatalf("second status=%d body=%s", second.Code, second.Body.String())
+	}
+	if len(controllerA.events) != 1 || len(controllerB.events) != 1 {
+		t.Fatalf("controllerA=%v controllerB=%v", controllerA.events, controllerB.events)
 	}
 }

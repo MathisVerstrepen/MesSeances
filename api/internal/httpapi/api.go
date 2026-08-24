@@ -19,6 +19,7 @@ import (
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/shortlink"
 	"messeances/api/internal/synccontrol"
+	"messeances/api/internal/syncschedule"
 )
 
 type API struct {
@@ -45,6 +46,7 @@ type AdminOptions struct {
 	TMDBReruns    TMDBRerunner
 	LocalMovies   *enrichment.LocalMovieService
 	Syncs         SyncController
+	SyncSchedules SyncScheduleController
 	Now           func() time.Time
 	Logger        *slog.Logger
 	Metrics       *observability.Metrics
@@ -56,8 +58,13 @@ type TMDBRerunner interface {
 
 type SyncController interface {
 	Start(synccontrol.Target) (synccontrol.Status, error)
-	Status() synccontrol.Status
-	Runs() []synccontrol.Status
+	Snapshot(context.Context) (synccontrol.Snapshot, error)
+}
+
+type SyncScheduleController interface {
+	List(context.Context) ([]syncschedule.Schedule, error)
+	Save(context.Context, synccontrol.Target, bool, syncschedule.Definition) (syncschedule.Schedule, error)
+	NextRuns(syncschedule.Definition) ([]time.Time, error)
 }
 
 type errorResponse struct {
@@ -132,6 +139,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
 			router.Get("/syncs", api.admin.syncStatus)
 			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
+			router.Get("/sync-schedules", api.admin.syncSchedules)
+			router.With(api.admin.requireOrigin).Post("/sync-schedules/{provider}", api.admin.saveSyncSchedule)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/approve", api.admin.approveMatch)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/reject", api.admin.rejectMatch)
 		})

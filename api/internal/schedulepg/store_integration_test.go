@@ -140,7 +140,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var migrationCount int
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 14 || migrationName != "014_public_movie_catalog.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 15 || migrationName != "015_sync_schedules.sql" {
 		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	var generationColumns, generationIndexes, generationFKs int
@@ -804,7 +804,7 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 	}
 	store := NewStore(pool)
 	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 14 || migrationName != "014_public_movie_catalog.sql" {
+	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 15 || migrationName != "015_sync_schedules.sql" {
 		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
 	}
 	var sourceColumns, sourceConstraints int

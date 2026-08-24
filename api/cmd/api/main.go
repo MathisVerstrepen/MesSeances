@@ -23,6 +23,7 @@ import (
 	"messeances/api/internal/shortlink"
 	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
 )
@@ -101,6 +102,7 @@ func run(ctx context.Context) error {
 	defer stopWorkers()
 	var syncManager httpapi.SyncController
 	var concreteSyncManager *synccontrol.Manager
+	var syncScheduler *syncschedule.Service
 	if len(proxies) != 0 {
 		var enrich synccontrol.EnrichFunc
 		if enrichmentProvider != nil {
@@ -121,12 +123,24 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
-		manager, err := synccontrol.NewManager(workerCtx, time.Now, executor, synccontrol.NewPostgresRunStore(pool))
+		runStore := synccontrol.NewPostgresRunStore(pool)
+		manager, err := synccontrol.NewManager(workerCtx, time.Now, executor, runStore, synccontrol.NewPostgresRunLocker(pool))
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
+		scheduler, err := syncschedule.NewService(syncschedule.NewPostgresStore(pool), manager)
+		if err != nil {
+			manager.Close()
+			return fmt.Errorf("sync schedule configuration is invalid")
+		}
+		if err := scheduler.Start(workerCtx); err != nil {
+			scheduler.Close()
+			manager.Close()
+			return fmt.Errorf("sync schedule configuration is invalid")
+		}
 		concreteSyncManager = manager
 		syncManager = manager
+		syncScheduler = scheduler
 	}
 	var polling sync.WaitGroup
 	polling.Add(1)
@@ -137,15 +151,12 @@ func run(ctx context.Context) error {
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
-			stopWorkers()
-			if concreteSyncManager != nil {
-				concreteSyncManager.Close()
-			}
-			polling.Wait()
+			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, &polling)
 		})
 	}
 	defer cleanup()
 	adminOptions.Syncs = syncManager
+	adminOptions.SyncSchedules = syncScheduler
 	shortlinkService := shortlink.NewService(shortlink.NewPostgresStore(pool), shortlink.ServiceOptions{})
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
@@ -158,6 +169,21 @@ func run(ctx context.Context) error {
 	}
 	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
+}
+
+type closeableWorker interface {
+	Close()
+}
+
+func shutdownWorkers(stopWorkers context.CancelFunc, schedules, manager closeableWorker, polling *sync.WaitGroup) {
+	stopWorkers()
+	if schedules != nil {
+		schedules.Close()
+	}
+	if manager != nil {
+		manager.Close()
+	}
+	polling.Wait()
 }
 
 func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService) http.Handler {

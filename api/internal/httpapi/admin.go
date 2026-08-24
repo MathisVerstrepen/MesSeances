@@ -17,6 +17,7 @@ type adminAPI struct {
 	tmdbReruns TMDBRerunner
 	locals     *enrichment.LocalMovieService
 	syncs      SyncController
+	schedules  SyncScheduleController
 	now        func() time.Time
 }
 
@@ -39,7 +40,7 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	}
 	return &adminAPI{
 		origin: origin, password: password, key: key, hasKey: hasKey,
-		reviews: options.Reviews, tmdbReruns: options.TMDBReruns, locals: options.LocalMovies, syncs: options.Syncs, now: options.Now,
+		reviews: options.Reviews, tmdbReruns: options.TMDBReruns, locals: options.LocalMovies, syncs: options.Syncs, schedules: options.SyncSchedules, now: options.Now,
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 type Target string
 type JobState string
 type ProviderState string
+type TriggerSource string
 
 const (
 	TargetAll       Target = "all"
@@ -28,12 +29,17 @@ const (
 	ProviderSucceeded    ProviderState = "succeeded"
 	ProviderFailed       ProviderState = "failed"
 	ProviderSkipped      ProviderState = "skipped"
+
+	TriggerManual    TriggerSource = "manual"
+	TriggerScheduled TriggerSource = "scheduled"
 )
 
 var (
-	ErrInvalidTarget = errors.New("invalid sync target")
-	ErrInProgress    = errors.New("sync already in progress")
-	ErrClosed        = errors.New("sync manager closed")
+	ErrInvalidTarget     = errors.New("invalid sync target")
+	ErrInvalidOccurrence = errors.New("invalid scheduled occurrence")
+	ErrInProgress        = errors.New("sync already in progress")
+	ErrOccurrenceClaimed = errors.New("scheduled occurrence already claimed")
+	ErrClosed            = errors.New("sync manager closed")
 )
 
 type Window struct {
@@ -50,10 +56,24 @@ type ProviderStatus struct {
 	ErrorCode FailureCode      `json:"error_code,omitempty"`
 }
 
+type Occurrence struct {
+	Provider     Target    `json:"-"`
+	Revision     int64     `json:"schedule_revision"`
+	ScheduledFor time.Time `json:"scheduled_for"`
+	Attempt      int       `json:"attempt"`
+}
+
+type Completion struct {
+	Status            Status
+	FinalizationError error
+}
+
 type Status struct {
 	ID         string                    `json:"id"`
 	Target     Target                    `json:"target"`
 	State      JobState                  `json:"state"`
+	Trigger    TriggerSource             `json:"trigger"`
+	Occurrence *Occurrence               `json:"occurrence,omitempty"`
 	StartedAt  time.Time                 `json:"started_at"`
 	FinishedAt *time.Time                `json:"finished_at"`
 	From       string                    `json:"from"`
@@ -67,34 +87,65 @@ type Manager struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	closed   bool
+	busy     bool
 	now      func() time.Time
 	executor Executor
 	store    RunStore
+	locker   RunLocker
 	location *time.Location
 	status   Status
-	runs     []Status
 }
 
-func NewManager(ctx context.Context, now func() time.Time, executor Executor, store RunStore) (*Manager, error) {
+// NewManager accepts one optional locker to keep construction compatible while
+// callers move to the PostgreSQL-backed global lease.
+func NewManager(ctx context.Context, now func() time.Time, executor Executor, store RunStore, lockers ...RunLocker) (*Manager, error) {
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
 		return nil, err
 	}
-	if ctx == nil || executor == nil || store == nil {
+	if ctx == nil || executor == nil || store == nil || len(lockers) > 1 {
 		return nil, errors.New("sync manager dependencies are required")
 	}
 	if now == nil {
 		now = time.Now
 	}
-	if err := store.ReconcileRunning(ctx, now().UTC()); err != nil {
-		return nil, errors.New("sync run reconciliation failed")
+	locker := RunLocker(localRunLocker{})
+	if postgresStore, ok := store.(*PostgresRunStore); ok {
+		locker = NewPostgresRunLocker(postgresStore.pool)
 	}
-	runs, err := store.List(ctx, historyLimit)
-	if err != nil {
-		return nil, errors.New("sync run history load failed")
+	if len(lockers) == 1 {
+		if lockers[0] == nil {
+			return nil, errors.New("sync manager dependencies are required")
+		}
+		locker = lockers[0]
+	}
+	if err := reconcileManagerStartup(ctx, now().UTC(), store, locker); err != nil {
+		return nil, err
 	}
 	executorCtx, cancel := context.WithCancel(ctx)
-	return &Manager{ctx: executorCtx, cancel: cancel, now: now, executor: executor, store: store, location: location, runs: cloneStatuses(runs)}, nil
+	return &Manager{ctx: executorCtx, cancel: cancel, now: now, executor: executor, store: store, locker: locker, location: location}, nil
+}
+
+func reconcileManagerStartup(ctx context.Context, finishedAt time.Time, store RunStore, locker RunLocker) error {
+	lease, err := locker.Acquire(ctx)
+	if errors.Is(err, ErrInProgress) {
+		return nil
+	}
+	if err != nil {
+		return errors.New("sync run reconciliation failed")
+	}
+	reconcileErr := store.ReconcileRunning(ctx, finishedAt)
+	releaseErr := releaseRunLease(ctx, lease)
+	if reconcileErr != nil || releaseErr != nil {
+		return errors.New("sync run reconciliation failed")
+	}
+	return nil
+}
+
+func releaseRunLease(ctx context.Context, lease RunLease) error {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return lease.Release(releaseCtx)
 }
 
 func ValidTarget(target Target) bool {
@@ -102,16 +153,67 @@ func ValidTarget(target Target) bool {
 }
 
 func (m *Manager) Start(target Target) (Status, error) {
+	status, _, err := m.start(target, nil)
+	return status, err
+}
+
+func (m *Manager) StartScheduled(occurrence Occurrence) (Status, <-chan Completion, error) {
+	if occurrence.Provider != TargetUGC && occurrence.Provider != TargetKinepolis {
+		return Status{}, nil, ErrInvalidOccurrence
+	}
+	if occurrence.Revision <= 0 || occurrence.ScheduledFor.IsZero() || occurrence.Attempt < 0 || occurrence.Attempt > 2 {
+		return Status{}, nil, ErrInvalidOccurrence
+	}
+	occurrence.ScheduledFor = occurrence.ScheduledFor.UTC().Truncate(time.Minute)
+	if occurrence.ScheduledFor.IsZero() {
+		return Status{}, nil, ErrInvalidOccurrence
+	}
+	return m.start(occurrence.Provider, &occurrence)
+}
+
+func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan Completion, error) {
 	if !ValidTarget(target) {
-		return Status{}, ErrInvalidTarget
+		return Status{}, nil, ErrInvalidTarget
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed || m.ctx.Err() != nil {
-		return Status{}, ErrClosed
+		m.mu.Unlock()
+		return Status{}, nil, ErrClosed
 	}
-	if m.status.State == StateRunning {
-		return Status{}, ErrInProgress
+	if m.busy {
+		m.mu.Unlock()
+		return Status{}, nil, ErrInProgress
+	}
+	m.busy = true
+	m.wg.Add(1)
+	m.mu.Unlock()
+	startTracked := true
+	defer func() {
+		if startTracked {
+			m.wg.Done()
+		}
+	}()
+
+	lease, err := m.locker.Acquire(m.ctx)
+	if err != nil {
+		m.clearBusy()
+		if errors.Is(err, ErrInProgress) {
+			return Status{}, nil, ErrInProgress
+		}
+		return Status{}, nil, errors.New("sync run lease acquisition failed")
+	}
+	failed := true
+	defer func() {
+		if failed {
+			m.releaseAfterRejectedStart(lease)
+		}
+	}()
+
+	if err := m.store.ReconcileRunning(m.ctx, m.now().UTC()); err != nil {
+		return Status{}, nil, errors.New("sync run reconciliation failed")
+	}
+	if m.ctx.Err() != nil {
+		return Status{}, nil, ErrClosed
 	}
 
 	now := m.now()
@@ -127,23 +229,38 @@ func (m *Manager) Start(target Target) (Status, error) {
 		providers[string(TargetKinepolis)] = ProviderStatus{State: ProviderPending}
 	}
 	status := Status{
-		Target: target, State: StateRunning,
+		Target: target, State: StateRunning, Trigger: TriggerManual,
 		StartedAt: now.UTC(), From: today.Format("2006-01-02"),
 		Through: today.Format("2006-01-02"), Providers: providers,
 	}
+	if occurrence != nil {
+		copy := *occurrence
+		status.Trigger = TriggerScheduled
+		status.Occurrence = &copy
+	}
 	created, err := m.store.Create(m.ctx, status)
 	if err != nil {
-		return Status{}, errors.New("sync run creation failed")
+		if errors.Is(err, ErrOccurrenceClaimed) {
+			return Status{}, nil, ErrOccurrenceClaimed
+		}
+		return Status{}, nil, errors.New("sync run creation failed")
 	}
+
+	var completion chan Completion
+	if occurrence != nil {
+		completion = make(chan Completion, 1)
+	}
+	m.mu.Lock()
 	m.status = created
-	m.prependRunLocked(created)
-	accepted := cloneStatus(m.status)
-	m.wg.Add(1)
+	accepted := cloneStatus(created)
+	m.mu.Unlock()
+	failed = false
+	startTracked = false
 	go func(window Window) {
 		defer m.wg.Done()
-		m.run(target, window)
-	}(Window{From: m.status.From})
-	return accepted, nil
+		m.run(target, window, lease, completion)
+	}(Window{From: created.From})
+	return accepted, completion, nil
 }
 
 func (m *Manager) Close() {
@@ -162,23 +279,41 @@ func (m *Manager) Status() Status {
 	return cloneStatus(m.status)
 }
 
-func (m *Manager) Runs() []Status {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	runs := make([]Status, 0, len(m.runs))
-	for _, run := range m.runs {
-		if run.ID == m.status.ID {
-			continue
-		}
-		runs = append(runs, cloneStatus(run))
+func (m *Manager) Snapshot(ctx context.Context) (Snapshot, error) {
+	snapshot, err := m.store.Snapshot(ctx)
+	if err != nil {
+		return Snapshot{}, errors.New("sync run snapshot failed")
 	}
-	return runs
+	if snapshot.Runs == nil {
+		snapshot.Runs = []Status{}
+	}
+	if snapshot.Job != nil {
+		job := cloneStatus(*snapshot.Job)
+		snapshot.Job = &job
+	}
+	snapshot.Runs = cloneStatuses(snapshot.Runs)
+	return snapshot, nil
 }
 
-func (m *Manager) run(target Target, window Window) {
+// Runs is retained for the existing controller seam until it switches to Snapshot.
+// Read failures return no history, never replica-local cached data.
+func (m *Manager) Runs() []Status {
+	snapshot, err := m.Snapshot(m.ctx)
+	if err != nil {
+		return []Status{}
+	}
+	return snapshot.Runs
+}
+
+func (m *Manager) run(target Target, window Window, lease RunLease, completion chan Completion) {
+	terminal := m.execute(target, window)
+	m.finalize(terminal, lease, completion)
+}
+
+func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	defer func() {
 		if recover() != nil {
-			m.finishFailure(FailureInternal)
+			terminal = m.markFailure(FailureInternal)
 		}
 	}()
 	providers := []Target{target}
@@ -195,15 +330,13 @@ func (m *Manager) run(target Target, window Window) {
 		if errors.As(err, &runError) {
 			code, failedProvider = runError.Code, runError.Provider
 		}
-		m.finishOperationFailure(code, failedProvider)
-		return
+		return m.markOperationFailure(code, failedProvider)
 	}
 	latestThrough := window.From
 	for _, provider := range providers {
 		outcome, ok := outcomes[provider]
 		if !ok || !validDiscoveredThrough(window.From, outcome.Sync.Through) {
-			m.finishOperationFailure(FailureInternal, "")
-			return
+			return m.markOperationFailure(FailureInternal, "")
 		}
 		if outcome.Sync.Through > latestThrough {
 			latestThrough = outcome.Sync.Through
@@ -218,13 +351,14 @@ func (m *Manager) run(target Target, window Window) {
 	m.status.State = StateSucceeded
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
-	status := cloneStatus(m.status)
+	terminal = cloneStatus(m.status)
 	m.mu.Unlock()
-	m.persist(status)
+	return terminal
 }
 
-func (m *Manager) finishOperationFailure(code FailureCode, failedProvider Target) {
+func (m *Manager) markOperationFailure(code FailureCode, failedProvider Target) Status {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for provider, status := range m.status.Providers {
 		if status.State != ProviderRunning && status.State != ProviderPending {
 			continue
@@ -238,23 +372,15 @@ func (m *Manager) finishOperationFailure(code FailureCode, failedProvider Target
 	m.status.State = StateFailed
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
-	status := cloneStatus(m.status)
-	m.mu.Unlock()
-	m.persist(status)
+	return cloneStatus(m.status)
 }
 
 func (m *Manager) setProvider(provider Target, state ProviderState) {
 	m.mu.Lock()
 	m.status.Providers[string(provider)] = ProviderStatus{State: state}
+	status := cloneStatus(m.status)
 	m.mu.Unlock()
-	m.persist(m.Status())
-}
-
-func (m *Manager) setProviderFailure(provider Target, code FailureCode) {
-	m.mu.Lock()
-	m.status.Providers[string(provider)] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
-	m.mu.Unlock()
-	m.persist(m.Status())
+	m.persistIntermediate(status)
 }
 
 func validDiscoveredThrough(from, through string) bool {
@@ -267,8 +393,9 @@ func validDiscoveredThrough(from, through string) bool {
 	return fromErr == nil && throughErr == nil && throughDate.Format("2006-01-02") == through && schedule.ValidInclusiveDateWindow(fromDate, throughDate)
 }
 
-func (m *Manager) finishFailure(code FailureCode) {
+func (m *Manager) markFailure(code FailureCode) Status {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for provider, status := range m.status.Providers {
 		switch status.State {
 		case ProviderRunning:
@@ -280,34 +407,46 @@ func (m *Manager) finishFailure(code FailureCode) {
 	m.status.State = StateFailed
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
-	status := cloneStatus(m.status)
-	m.mu.Unlock()
-	m.persist(status)
+	return cloneStatus(m.status)
 }
 
-func (m *Manager) persist(status Status) {
+func (m *Manager) persistIntermediate(status Status) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(m.ctx), 5*time.Second)
 	defer cancel()
-	if m.store.Update(ctx, status) != nil {
-		return
-	}
-	m.mu.Lock()
-	for i := range m.runs {
-		if m.runs[i].ID == status.ID {
-			m.runs[i] = cloneStatus(status)
-			m.mu.Unlock()
-			return
-		}
-	}
-	m.prependRunLocked(status)
-	m.mu.Unlock()
+	_ = m.store.Update(ctx, status)
 }
 
-func (m *Manager) prependRunLocked(status Status) {
-	m.runs = append([]Status{cloneStatus(status)}, m.runs...)
-	if len(m.runs) > historyLimit {
-		m.runs = m.runs[:historyLimit]
+func (m *Manager) finalize(status Status, lease RunLease, completion chan Completion) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(m.ctx), 5*time.Second)
+	updateErr := m.store.Update(ctx, status)
+	cancel()
+
+	releaseCtx, releaseCancel := context.WithTimeout(context.WithoutCancel(m.ctx), 5*time.Second)
+	_ = lease.Release(releaseCtx)
+	releaseCancel()
+
+	m.clearBusy()
+	if completion != nil {
+		result := Completion{Status: cloneStatus(status)}
+		if updateErr != nil {
+			result.FinalizationError = errors.New("sync run finalization failed")
+		}
+		completion <- result
+		close(completion)
 	}
+}
+
+func (m *Manager) releaseAfterRejectedStart(lease RunLease) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(m.ctx), 5*time.Second)
+	defer cancel()
+	_ = lease.Release(ctx)
+	m.clearBusy()
+}
+
+func (m *Manager) clearBusy() {
+	m.mu.Lock()
+	m.busy = false
+	m.mu.Unlock()
 }
 
 func cloneStatus(status Status) Status {
@@ -315,6 +454,10 @@ func cloneStatus(status Status) Status {
 	if status.FinishedAt != nil {
 		finished := *status.FinishedAt
 		copy.FinishedAt = &finished
+	}
+	if status.Occurrence != nil {
+		occurrence := *status.Occurrence
+		copy.Occurrence = &occurrence
 	}
 	if status.Providers != nil {
 		copy.Providers = make(map[string]ProviderStatus, len(status.Providers))

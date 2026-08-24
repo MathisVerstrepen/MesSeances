@@ -64,7 +64,7 @@ func TestMigrationsIntegration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 14 {
+	if err != nil || len(migrations) != 15 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -232,7 +232,7 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 14 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 15 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
@@ -277,7 +277,7 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 14 {
+	if err != nil || len(migrations) != 15 {
 		t.Fatalf("migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -343,7 +343,7 @@ func TestPublicMovieCatalogBackfillIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 14 {
+	if err != nil || len(migrations) != 15 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -480,5 +480,154 @@ VALUES (1,'kinepolis','D','kinepolis-film-D','Principal revenu',97)`); err != ni
 	var reappearedPublicID int64
 	if err := pool.QueryRow(ctx, "SELECT public_movie_id FROM public_movie_sources WHERE source_provider='kinepolis' AND source_movie_id='D'").Scan(&reappearedPublicID); err != nil || reappearedPublicID != inactiveAnchorPublicID {
 		t.Fatalf("reappeared primary ID=%d want=%d err=%v", reappearedPublicID, inactiveAnchorPublicID, err)
+	}
+}
+
+func TestSyncSchedulesMigrationIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate schema nonce failed")
+	}
+	schema := "movieflow_sync_schedule_migration_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+	migrations, err := embeddedMigrations()
+	if err != nil || len(migrations) != 15 {
+		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal("create migration history failed")
+	}
+	for _, migration := range migrations[:14] {
+		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
+			t.Fatal("record fixture migration failed")
+		}
+	}
+	var oldRunID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO sync_runs
+        (target,state,started_at,finished_at,window_from,window_through,providers)
+        VALUES ('ugc','failed','2026-08-24T08:00:00Z','2026-08-24T08:01:00Z','2026-08-24','2026-08-24','{}') RETURNING id`).Scan(&oldRunID); err != nil {
+		t.Fatal("insert pre-015 sync run failed")
+	}
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatal("run migration 015 failed")
+	}
+	var trigger string
+	var revision *int64
+	var scheduledFor *time.Time
+	var attempt *int16
+	if err := pool.QueryRow(ctx, `SELECT trigger_source,schedule_revision,scheduled_for,schedule_attempt FROM sync_runs WHERE id=$1`, oldRunID).Scan(&trigger, &revision, &scheduledFor, &attempt); err != nil || trigger != "manual" || revision != nil || scheduledFor != nil || attempt != nil {
+		t.Fatalf("old run backfill trigger=%q revision=%v scheduled=%v attempt=%v err=%v", trigger, revision, scheduledFor, attempt, err)
+	}
+	var scheduleCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_schedules`).Scan(&scheduleCount); err != nil || scheduleCount != 0 {
+		t.Fatalf("initial schedules=%d err=%v", scheduleCount, err)
+	}
+	var defaultRevision int64
+	if err := pool.QueryRow(ctx, `INSERT INTO sync_schedules (provider,enabled,schedule_kind,local_time) VALUES ('ugc',false,'daily','08:05') RETURNING revision`).Scan(&defaultRevision); err != nil || defaultRevision != 1 {
+		t.Fatalf("daily default revision=%d err=%v", defaultRevision, err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO sync_schedules (provider,revision,enabled,schedule_kind,local_time,weekdays) VALUES ('kinepolis',2,true,'weekly','23:59',ARRAY['mon','sun'])`); err != nil {
+		t.Fatalf("valid weekly schedule rejected: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE sync_schedules SET schedule_kind='cron',local_time=NULL,weekdays=NULL,cron_expression='5 4 * * *' WHERE provider='kinepolis'`); err != nil {
+		t.Fatalf("valid cron schedule rejected: %v", err)
+	}
+	invalidSchedules := []string{
+		`INSERT INTO sync_schedules (provider,enabled,schedule_kind,local_time) VALUES ('all',true,'daily','08:00')`,
+		`INSERT INTO sync_schedules (provider,revision,enabled,schedule_kind,local_time) VALUES ('ugc',0,true,'daily','08:00') ON CONFLICT (provider) DO UPDATE SET revision=excluded.revision`,
+		`UPDATE sync_schedules SET local_time='24:00' WHERE provider='ugc'`,
+		`UPDATE sync_schedules SET weekdays=ARRAY['mon'] WHERE provider='ugc'`,
+		`UPDATE sync_schedules SET schedule_kind='weekly',weekdays=ARRAY[]::text[] WHERE provider='ugc'`,
+		`UPDATE sync_schedules SET schedule_kind='weekly',weekdays=ARRAY['noday'] WHERE provider='ugc'`,
+		`UPDATE sync_schedules SET schedule_kind='cron',local_time=NULL,cron_expression='' WHERE provider='ugc'`,
+		`UPDATE sync_schedules SET schedule_kind='cron',local_time=NULL,cron_expression=repeat('x',256) WHERE provider='ugc'`,
+	}
+	for _, query := range invalidSchedules {
+		if _, err := pool.Exec(ctx, query); err == nil {
+			t.Fatalf("invalid schedule accepted: %s", query)
+		}
+	}
+
+	baseRun := `INSERT INTO sync_runs
+        (target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_revision,scheduled_for,schedule_attempt)
+        VALUES ($1,'failed','2026-08-24T09:00:00Z','2026-08-24T09:01:00Z','2026-08-24','2026-08-24','{}',$2,$3,$4,$5)`
+	if _, err := pool.Exec(ctx, baseRun, "ugc", "scheduled", 1, time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), 0); err != nil {
+		t.Fatalf("valid scheduled base run rejected: %v", err)
+	}
+	for _, retry := range []int{1, 2} {
+		if _, err := pool.Exec(ctx, baseRun, "ugc", "scheduled", 1, time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), retry); err != nil {
+			t.Fatalf("valid scheduled retry %d rejected: %v", retry, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, baseRun, "ugc", "scheduled", 1, time.Date(2026, 10, 25, 1, 30, 0, 0, time.UTC), 0); err != nil {
+		t.Fatalf("distinct fall-back UTC occurrence rejected: %v", err)
+	}
+	if _, err := pool.Exec(ctx, baseRun, "ugc", "scheduled", 2, time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), 0); err != nil {
+		t.Fatalf("distinct revision occurrence rejected: %v", err)
+	}
+	invalidRuns := []struct {
+		target   string
+		trigger  string
+		revision any
+		at       any
+		attempt  any
+	}{
+		{target: "ugc", trigger: "manual", revision: 1, at: time.Now(), attempt: 0},
+		{target: "all", trigger: "scheduled", revision: 1, at: time.Now(), attempt: 0},
+		{target: "ugc", trigger: "scheduled", revision: 0, at: time.Now(), attempt: 0},
+		{target: "ugc", trigger: "scheduled", revision: 1, at: nil, attempt: 0},
+		{target: "ugc", trigger: "scheduled", revision: 1, at: time.Now(), attempt: 3},
+		{target: "ugc", trigger: "other", revision: nil, at: nil, attempt: nil},
+	}
+	for _, invalid := range invalidRuns {
+		if _, err := pool.Exec(ctx, baseRun, invalid.target, invalid.trigger, invalid.revision, invalid.at, invalid.attempt); err == nil {
+			t.Fatalf("invalid run accepted: %+v", invalid)
+		}
+	}
+	if _, err := pool.Exec(ctx, baseRun, "ugc", "scheduled", 1, time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), 0); err == nil {
+		t.Fatal("duplicate scheduled attempt accepted")
+	}
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatal("repeat migration run failed")
+	}
+	var migrationCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=15 AND name='015_sync_schedules.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
+		t.Fatalf("migration 015 bookkeeping count=%d err=%v", migrationCount, err)
+	}
+	var oldRunCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_runs WHERE id=$1 AND trigger_source='manual' AND schedule_revision IS NULL AND scheduled_for IS NULL AND schedule_attempt IS NULL`, oldRunID).Scan(&oldRunCount); err != nil || oldRunCount != 1 {
+		t.Fatalf("repeat migration changed old run count=%d err=%v", oldRunCount, err)
 	}
 }

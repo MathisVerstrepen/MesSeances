@@ -9,6 +9,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/prometheus/client_golang v1.24.1
 	github.com/refraction-networking/utls v1.8.2
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/net v0.58.0
 	golang.org/x/text v0.41.0
 )

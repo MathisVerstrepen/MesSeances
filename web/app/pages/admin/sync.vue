@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowLeft, Check, ChevronDown, Clock3, LoaderCircle, LogOut, RefreshCw, X } from '@lucide/vue'
-import type { AdminSyncEnrichmentState, AdminSyncFailureCode, AdminSyncJob, AdminSyncProviderState, AdminSyncResponse, AdminSyncState, AdminSyncTarget, Provider } from '~/types/api'
+import { AlertTriangle, ArrowLeft, CalendarClock, Check, ChevronDown, Clock3, LoaderCircle, LogOut, RefreshCw, X } from '@lucide/vue'
+import type { AdminSyncEnrichmentState, AdminSyncFailureCode, AdminSyncJob, AdminSyncProviderState, AdminSyncResponse, AdminSyncState, AdminSyncTarget, AdminSyncTrigger, Provider } from '~/types/api'
 
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -59,6 +59,11 @@ const providerLabels = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis'
 } satisfies Record<Provider, string>
+
+const triggerLabels = {
+  manual: 'Manuelle',
+  scheduled: 'Planifiée'
+} satisfies Record<AdminSyncTrigger, string>
 
 const failureLabels = {
   none: 'Échec de synchronisation',
@@ -251,7 +256,12 @@ useHead({ title: 'Synchronisation - MesSeances' })
 
     <template v-else>
       <section class="mt-6 rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6" aria-labelledby="launch-title">
-        <h2 id="launch-title" class="text-lg font-semibold text-ink">Lancer une synchronisation</h2>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="launch-title" class="text-lg font-semibold text-ink">Lancer une synchronisation</h2>
+          <NuxtLink to="/admin/sync-schedules" class="inline-flex min-h-11 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm font-semibold text-ink transition hover:border-line-hover hover:text-accent">
+            <CalendarClock :size="17" aria-hidden="true" /> Planifier
+          </NuxtLink>
+        </div>
         <div class="mt-4 grid gap-3 sm:grid-cols-3">
           <button v-for="target in targets" :key="target" type="button" class="button-primary" :disabled="controlsDisabled" @click="startSync(target)">
             <LoaderCircle v-if="startingTarget === target" :size="17" class="animate-spin" aria-hidden="true" />
@@ -270,8 +280,9 @@ useHead({ title: 'Synchronisation - MesSeances' })
             </span>
           </div>
 
-          <dl class="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          <dl class="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
             <div><dt class="font-semibold text-muted">Cible</dt><dd class="mt-1 text-ink">{{ targetLabels[activeJob.target] }}</dd></div>
+            <div><dt class="font-semibold text-muted">Déclenchement</dt><dd class="mt-1 text-ink">{{ triggerLabels[activeJob.trigger] }}</dd></div>
             <div><dt class="font-semibold text-muted">Démarrée</dt><dd class="mt-1 text-ink">{{ formatDateTime(activeJob.started_at) }}</dd></div>
             <div><dt class="font-semibold text-muted">Durée</dt><dd class="mt-1 tabular-nums text-ink">{{ formatDuration(activeJob) }}</dd></div>
             <div><dt class="font-semibold text-muted">Période</dt><dd class="mt-1 text-ink">Du {{ activeJob.from }} au {{ activeJob.through }}</dd></div>
@@ -307,6 +318,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
                 <span class="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
                   <span>{{ formatDateTime(run.started_at) }}</span>
                   <span class="tabular-nums">{{ formatDuration(run) }}</span>
+                  <span>{{ triggerLabels[run.trigger] }}</span>
                   <span>Du {{ run.from }} au {{ run.through }}</span>
                 </span>
               </span>

@@ -14,18 +14,17 @@ type syncResponse struct {
 	Runs []synccontrol.Status `json:"runs"`
 }
 
-func (a *adminAPI) syncStatus(w http.ResponseWriter, _ *http.Request) {
+func (a *adminAPI) syncStatus(w http.ResponseWriter, r *http.Request) {
 	if a.syncs == nil {
 		writeError(w, http.StatusServiceUnavailable, "sync_unavailable", "Service de synchronisation indisponible.")
 		return
 	}
-	status := a.syncs.Status()
-	runs := syncRuns(a.syncs)
-	if status.ID == "" {
-		writeJSON(w, http.StatusOK, syncResponse{Runs: runs})
+	snapshot, err := a.syncs.Snapshot(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "sync_failed", "L'état des synchronisations n'a pas pu être chargé.")
 		return
 	}
-	writeJSON(w, http.StatusOK, syncResponse{Job: &status, Runs: runs})
+	writeJSON(w, http.StatusOK, syncResponse{Job: snapshot.Job, Runs: nonNilSyncRuns(snapshot.Runs)})
 }
 
 func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +36,17 @@ func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
 		return
 	}
-	status, err := a.syncs.Start(synccontrol.Target(chi.URLParam(r, "target")))
+	target := synccontrol.Target(chi.URLParam(r, "target"))
+	if !synccontrol.ValidTarget(target) {
+		writeError(w, http.StatusBadRequest, "invalid_sync_target", "Cible de synchronisation invalide.")
+		return
+	}
+	snapshot, err := a.syncs.Snapshot(r.Context())
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
+		return
+	}
+	status, err := a.syncs.Start(target)
 	switch {
 	case errors.Is(err, synccontrol.ErrInvalidTarget):
 		writeError(w, http.StatusBadRequest, "invalid_sync_target", "Cible de synchronisation invalide.")
@@ -46,12 +55,11 @@ func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
 	default:
-		writeJSON(w, http.StatusAccepted, syncResponse{Job: &status, Runs: syncRuns(a.syncs)})
+		writeJSON(w, http.StatusAccepted, syncResponse{Job: &status, Runs: nonNilSyncRuns(snapshot.Runs)})
 	}
 }
 
-func syncRuns(controller SyncController) []synccontrol.Status {
-	runs := controller.Runs()
+func nonNilSyncRuns(runs []synccontrol.Status) []synccontrol.Status {
 	if runs == nil {
 		return []synccontrol.Status{}
 	}
