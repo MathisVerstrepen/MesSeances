@@ -269,23 +269,21 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <p v-if="timeline && !pending" class="utility-label text-right">{{ showtimeCount }} séance{{ showtimeCount > 1 ? 's' : '' }}</p>
       </div>
 
-      <div v-if="pending" class="planning-state" role="status" aria-live="polite">
-        <LoaderCircle :size="30" class="planning-spinner animate-spin" aria-hidden="true" />
+      <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="viewport" shadow="small" class="planning-state font-extrabold">
+        <template #icon><LoaderCircle :size="30" class="planning-spinner animate-spin" aria-hidden="true" /></template>
         <p>Chargement des séances…</p>
-      </div>
+      </EditorialStatePanel>
 
-      <div v-else-if="errorMessage" class="planning-state" role="alert">
-        <AlertTriangle :size="32" class="text-primary" aria-hidden="true" />
+      <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="viewport" shadow="small" class="planning-state font-extrabold">
+        <template #icon><AlertTriangle :size="32" class="text-primary" aria-hidden="true" /></template>
         <p class="max-w-lg">{{ errorMessage }}</p>
-        <button type="button" class="state-button" @click="retryTimeline">
-          <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-        </button>
-      </div>
+        <template #actions><button type="button" class="state-button" @click="retryTimeline"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+      </EditorialStatePanel>
 
-      <div v-else-if="!timeline || rawShowtimeCount === 0" class="planning-state">
-        <CalendarDays :size="32" aria-hidden="true" />
+      <EditorialStatePanel v-else-if="!timeline || rawShowtimeCount === 0" size="viewport" shadow="small" class="planning-state font-extrabold">
+        <template #icon><CalendarDays :size="32" aria-hidden="true" /></template>
         <p>Aucune séance pour cette date et cette langue.</p>
-      </div>
+      </EditorialStatePanel>
 
       <TimelineMatrix v-else :timeline="timeline" :mode="mode" :format-filter="formatFilter" :zoom="zoom" />
     </section>
@@ -393,21 +391,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   font-weight: 800;
 }
 
-.planning-state {
-  display: flex;
-  min-height: max(22rem, calc(100vh - 23rem));
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 800;
-  box-shadow: 6px 6px 0 #27272a;
-}
-
 @media (max-width: 1279px) {
   .control-dock {
     position: relative;
@@ -424,9 +407,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .planning-state {
-    min-height: 20rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

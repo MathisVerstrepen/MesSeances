@@ -19,7 +19,6 @@ const props = defineProps<{
 }>()
 
 const selected = ref<PlacedShowtime | null>(null)
-const failedPosterUrl = ref<string | null>(null)
 const scroller = ref<HTMLElement | null>(null)
 const inspector = ref<HTMLElement | null>(null)
 const inspectorCloseButton = ref<HTMLButtonElement | null>(null)
@@ -103,7 +102,6 @@ const currentTimeOffset = computed(() => {
 function selectShowtime(item: PlacedShowtime, event: MouseEvent) {
   const wasOpen = Boolean(selected.value)
   selected.value = item
-  failedPosterUrl.value = null
   selectionTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
   if (!wasOpen && event.detail === 0) nextTick(() => inspectorCloseButton.value?.focus())
 }
@@ -111,7 +109,6 @@ function selectShowtime(item: PlacedShowtime, event: MouseEvent) {
 function closeInspector({ restoreFocus = true } = {}) {
   if (!selected.value) return
   selected.value = null
-  failedPosterUrl.value = null
   if (restoreFocus && selectionTrigger?.isConnected) nextTick(() => selectionTrigger?.focus())
 }
 
@@ -125,11 +122,6 @@ function handleOutsidePointer(event: PointerEvent) {
   if (!selected.value || (inspector.value && event.composedPath().includes(inspector.value))) return
   closeInspector({ restoreFocus: false })
 }
-
-const selectedPosterUrl = computed(() => {
-  const url = safePosterUrl(selected.value?.showtime.poster_url ?? null)
-  return url && failedPosterUrl.value !== url ? url : null
-})
 
 function showtimeWidth(durationMinutes: number) {
   return Math.max(durationMinutes * pixelsPerMinute.value, 56)
@@ -269,10 +261,10 @@ onBeforeUnmount(() => {
     <p class="sr-only" aria-live="polite">
       {{ selected ? `Détails de la séance ${selected.showtime.movie.title}` : '' }}
     </p>
-    <div v-if="rows.length === 0" class="timeline-state">
-      <Film :size="30" aria-hidden="true" />
+    <EditorialStatePanel v-if="rows.length === 0" size="viewport-compact" shadow="small" class="timeline-state font-extrabold">
+      <template #icon><Film :size="30" aria-hidden="true" /></template>
       <p>Aucune séance pour ce format.</p>
-    </div>
+    </EditorialStatePanel>
 
     <div
       v-else
@@ -400,17 +392,15 @@ onBeforeUnmount(() => {
 
         <div class="relative flex-1 px-5 pb-6 sm:px-6">
           <div class="-mt-16 mb-5 h-40 w-[108px] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
-            <img
-              v-if="selectedPosterUrl"
-              :src="selectedPosterUrl"
+            <PosterImage
+              :src="selected.showtime.poster_url"
               :alt="`Affiche de ${selected.showtime.movie.title}`"
-              class="h-full w-full object-cover"
-              @error="failedPosterUrl = selectedPosterUrl"
-            >
-            <div v-else class="flex h-full flex-col items-center justify-center gap-2 px-2 text-center text-xs font-medium text-muted">
-              <Film :size="28" aria-hidden="true" />
-              Affiche indisponible
-            </div>
+              :reset-key="`${selected.theater.id}:${selected.showtime.id}`"
+              class="h-full w-full"
+              image-class="h-full w-full object-cover"
+              fallback-class="gap-2 px-2 text-center text-xs font-medium text-muted"
+              :fallback-icon-size="28"
+            />
           </div>
 
           <p class="font-mono text-[10px] font-black uppercase tracking-[0.14em] text-primary">Séance sélectionnée</p>
@@ -453,21 +443,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.timeline-state {
-  display: flex;
-  min-height: max(20rem, calc(100vh - 23rem));
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 800;
-  box-shadow: 6px 6px 0 #27272a;
-}
-
 .timeline-scroller {
   min-height: max(24rem, calc(100vh - 20rem));
 }

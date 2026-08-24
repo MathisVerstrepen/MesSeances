@@ -218,28 +218,26 @@ useHead(() => ({
           {{ validationMessage }}
         </p>
 
-        <div v-if="directoryTheaters.length === 0 && isLoading" class="cinema-state" role="status" aria-live="polite">
-          <LoaderCircle :size="34" class="cinema-spinner animate-spin" aria-hidden="true" />
+        <EditorialStatePanel v-if="directoryTheaters.length === 0 && isLoading" semantic="status" live="polite" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><LoaderCircle :size="34" class="cinema-spinner animate-spin" aria-hidden="true" /></template>
           <p>Chargement des cinémas…</p>
-        </div>
+        </EditorialStatePanel>
 
-        <div v-else-if="directoryError" class="cinema-state" role="alert">
-          <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="directoryError" semantic="alert" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
           <p class="max-w-lg">{{ directoryError }}</p>
-          <button type="button" class="state-button" @click="retryDirectory">
-            <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-          </button>
-        </div>
+          <template #actions><button type="button" class="state-button" @click="retryDirectory"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+        </EditorialStatePanel>
 
-        <div v-else-if="directoryTheaters.length === 0" class="cinema-state">
-          <Building2 :size="36" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="directoryTheaters.length === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><Building2 :size="36" aria-hidden="true" /></template>
           <p>Aucun cinéma disponible.</p>
-        </div>
+        </EditorialStatePanel>
 
-        <div v-else-if="visibleTheaterCount === 0" class="cinema-state">
-          <Search :size="34" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="visibleTheaterCount === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><Search :size="34" aria-hidden="true" /></template>
           <p>Aucun cinéma ne correspond à votre recherche.</p>
-        </div>
+        </EditorialStatePanel>
 
         <div v-else class="mt-10">
           <p v-if="error" class="validation-alert mb-7" role="alert">
@@ -405,23 +403,6 @@ useHead(() => ({
   box-shadow: 4px 4px 0 #991b1b;
 }
 
-.cinema-state {
-  margin: 4rem auto 1rem;
-  display: flex;
-  min-height: 24rem;
-  max-width: 48rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 800;
-  box-shadow: 8px 8px 0 #27272a;
-}
-
 .state-button,
 .group-action {
   display: inline-flex;
@@ -500,11 +481,6 @@ useHead(() => ({
     bottom: auto;
     margin-top: 2rem;
     max-width: 13rem;
-  }
-
-  .cinema-state {
-    min-height: 19rem;
-    margin-top: 2.5rem;
   }
 
   .theater-option:nth-child(odd) {

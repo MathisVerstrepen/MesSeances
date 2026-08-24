@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Film, MapPin } from '@lucide/vue'
+import { MapPin } from '@lucide/vue'
 import type { ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
@@ -11,9 +11,7 @@ const props = defineProps<{
 }>()
 
 const advertisedStartTooltipId = useId()
-const posterFailed = ref(false)
 const backdropFailed = ref(false)
-const posterImage = ref<HTMLImageElement | null>(null)
 const backdropImage = ref<HTMLImageElement | null>(null)
 const posterUrl = computed(() => safePosterUrl(props.result.posterUrl))
 const backdropUrl = computed(() => safeBackdropUrl(props.result.backdropUrl))
@@ -22,12 +20,10 @@ const displayedStartTime = computed(() => hasDelayedStart.value ? props.result.e
 const isChronological = computed(() => props.showMovie)
 
 watch([() => props.result.posterUrl, () => props.result.backdropUrl], () => {
-  posterFailed.value = false
   backdropFailed.value = false
 })
 
 onMounted(() => nextTick(() => {
-  if (posterImage.value?.complete && posterImage.value.naturalWidth === 0) posterFailed.value = true
   if (backdropImage.value?.complete && backdropImage.value.naturalWidth === 0) backdropFailed.value = true
 }))
 
@@ -64,22 +60,23 @@ function formatRoom(room: string) {
 
     <div class="relative grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
       <div class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]">
-        <img
-          v-if="posterUrl && !posterFailed"
-          ref="posterImage"
+        <PosterImage
           :src="posterUrl"
           :alt="`Affiche de ${result.movieTitle}`"
           width="52"
           height="78"
           loading="lazy"
           decoding="async"
-          class="h-full w-full object-cover"
+          class="h-full w-full"
+          image-class="h-full w-full object-cover"
+          fallback-variant="icon-only"
+          fallback-class="text-muted/60"
+          :fallback-icon-size="18"
+          :fallback-text="null"
           :data-media-url="scope === 'single-theater' ? posterUrl : undefined"
           :data-movie-slug="scope === 'single-theater' ? result.movieSlug : undefined"
           :data-media-kind="scope === 'single-theater' ? 'poster' : undefined"
-          @error="posterFailed = true"
-        >
-        <Film v-else :size="18" class="text-muted/60" aria-hidden="true" />
+        />
       </div>
       <div class="col-start-2 border-l-2 border-ink pl-3 sm:col-start-auto">
         <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">

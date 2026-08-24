@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowRight, Building2, CalendarRange, Film, RefreshCw, Search } from '@lucide/vue'
 import type { CatalogMovie } from '~/types/api'
-import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const api = useMesSeancesApi()
@@ -9,7 +8,6 @@ const route = useRoute()
 const movies = ref<CatalogMovie[]>([])
 const pending = ref(true)
 const errorMessage = ref('')
-const failedPosters = ref<string[]>([])
 let requestId = 0
 
 const shortcuts = [
@@ -57,18 +55,6 @@ async function loadMovies() {
   } finally {
     if (currentRequest === requestId) pending.value = false
   }
-}
-
-function posterUrl(movie: CatalogMovie): string | null {
-  return safePosterUrl(movie.poster_url)
-}
-
-function posterAvailable(movie: CatalogMovie): boolean {
-  return Boolean(posterUrl(movie)) && !failedPosters.value.includes(movie.slug)
-}
-
-function markPosterUnavailable(slug: string) {
-  if (!failedPosters.value.includes(slug)) failedPosters.value = [...failedPosters.value, slug]
 }
 
 const initialResult = await useAsyncData('home-current-movies', async () => {
@@ -164,35 +150,29 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </li>
         </ul>
 
-        <div v-else-if="errorMessage" class="canvas-state" role="alert">
-          <AlertTriangle :size="32" class="text-primary" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="compact" shadow="large" class="canvas-state relative z-[1] my-24 mx-auto max-w-xl rounded-[0.4rem] font-bold">
+          <template #icon><AlertTriangle :size="32" class="text-primary" aria-hidden="true" /></template>
           <p class="max-w-lg">{{ errorMessage }}</p>
-          <button type="button" class="brutal-button bg-ink text-white hover:bg-primary" @click="loadMovies">
-            <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-          </button>
-        </div>
+          <template #actions><button type="button" class="brutal-button bg-ink text-white hover:bg-primary" @click="loadMovies"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+        </EditorialStatePanel>
 
-        <div v-else-if="movies.length === 0" class="canvas-state">
-          <Film :size="34" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="movies.length === 0" size="compact" shadow="large" class="canvas-state relative z-[1] my-24 mx-auto max-w-xl rounded-[0.4rem] font-bold">
+          <template #icon><Film :size="34" aria-hidden="true" /></template>
           <p>Aucun film à l’affiche actuellement.</p>
-        </div>
+        </EditorialStatePanel>
 
         <ul v-else class="poster-collage" aria-label="Films à l’affiche">
           <li v-for="(movie, index) in movies" :key="movie.slug" :class="`poster-card poster-card--${index + 1}`">
             <NuxtLink :to="`/film/${movie.slug}`" class="poster-link group" :aria-label="`${movie.title}, ${movie.runtime_minutes} minutes`">
               <div class="poster-frame">
-                <img
-                  v-if="posterAvailable(movie)"
-                  :src="posterUrl(movie)!"
+                <PosterImage
+                  :src="movie.poster_url"
                   :alt="`Affiche de ${movie.title}`"
-                  class="h-full w-full object-cover grayscale-[15%] transition duration-300 group-hover:grayscale-0"
+                  class="h-full w-full"
+                  image-class="h-full w-full object-cover grayscale-[15%] transition duration-300 group-hover:grayscale-0"
+                  fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
                   :loading="index < 3 ? 'eager' : 'lazy'"
-                  @error="markPosterUnavailable(movie.slug)"
                 />
-                <div v-else class="flex h-full flex-col items-center justify-center gap-2 bg-[#e8e6de] px-3 text-center text-muted">
-                  <Film :size="30" aria-hidden="true" />
-                  <span class="text-xs font-bold">Affiche indisponible</span>
-                </div>
               </div>
               <span class="poster-label">
                 <span class="line-clamp-1">{{ movie.title }}</span>
@@ -267,26 +247,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   gap: 0.4rem;
   border-bottom: 2px solid currentColor;
   padding-bottom: 0.2rem;
-}
-
-.canvas-state {
-  position: relative;
-  z-index: 1;
-  margin: 6rem auto;
-  display: flex;
-  min-height: 17rem;
-  max-width: 36rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  border-radius: 0.4rem;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 700;
-  box-shadow: 8px 8px 0 #27272a;
 }
 
 .poster-collage {

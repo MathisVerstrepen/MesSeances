@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Film } from '@lucide/vue'
 import type { ResultLayout, ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
@@ -24,18 +23,14 @@ const backdropUrl = computed(() => {
   }
   return null
 })
-const posterFailed = ref(false)
 const backdropFailed = ref(false)
-const posterImage = ref<HTMLImageElement | null>(null)
 const backdropImage = ref<HTMLImageElement | null>(null)
 
 watch([posterUrl, backdropUrl], () => {
-  posterFailed.value = false
   backdropFailed.value = false
 })
 
 onMounted(() => nextTick(() => {
-  if (posterImage.value?.complete && posterImage.value.naturalWidth === 0) posterFailed.value = true
   if (backdropImage.value?.complete && backdropImage.value.naturalWidth === 0) backdropFailed.value = true
 }))
 </script>
@@ -61,21 +56,18 @@ onMounted(() => nextTick(() => {
       >
       <div v-if="backdropUrl && !backdropFailed" class="absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
       <div class="aspect-[2/3] w-24 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a] sm:w-[120px]">
-        <img
-          v-if="posterUrl && !posterFailed"
-          ref="posterImage"
+        <PosterImage
           :src="posterUrl"
           :alt="`Affiche de ${movie.movieTitle}`"
           :data-media-url="posterUrl"
           :data-movie-slug="movie.movieSlug"
           data-media-kind="poster"
-          class="size-full object-cover"
-          @error="posterFailed = true"
-        >
-        <div v-else :data-poster-fallback="movie.movieSlug" class="flex size-full flex-col items-center justify-center gap-2 px-2 text-center text-muted">
-          <Film :size="28" aria-hidden="true" />
-          <span class="text-[10px] font-bold">Affiche indisponible</span>
-        </div>
+          class="size-full"
+          image-class="size-full object-cover"
+          fallback-class="gap-2 px-2 text-center text-[10px] font-bold text-muted"
+          :fallback-icon-size="28"
+          :fallback-marker="movie.movieSlug"
+        />
       </div>
       <div class="min-w-0 pb-1">
         <h3 class="break-words text-2xl font-black tracking-[-0.04em] sm:text-3xl"><NuxtLink :to="`/film/${encodeURIComponent(movie.movieSlug)}`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ movie.movieTitle }}</NuxtLink></h3>
@@ -88,8 +80,7 @@ onMounted(() => nextTick(() => {
       <div class="absolute inset-0 bg-black/80" aria-hidden="true" />
       <div class="relative flex items-center gap-4">
         <div class="flex aspect-[2/3] w-16 shrink-0 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[4px_4px_0_#27272a] sm:w-[4.5rem]">
-          <img v-if="posterUrl && !posterFailed" ref="posterImage" :src="posterUrl" :alt="`Affiche de ${movie.movieTitle}`" width="96" height="144" loading="lazy" decoding="async" class="h-full w-full object-cover" @error="posterFailed = true">
-          <Film v-else :size="24" class="text-muted/60" aria-hidden="true" />
+          <PosterImage :src="posterUrl" :alt="`Affiche de ${movie.movieTitle}`" width="96" height="144" loading="lazy" decoding="async" class="h-full w-full" image-class="h-full w-full object-cover" fallback-variant="icon-only" fallback-class="text-muted/60" :fallback-icon-size="24" :fallback-text="null" />
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div class="min-w-0">

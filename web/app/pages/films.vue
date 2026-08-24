@@ -3,7 +3,6 @@ import { AlertTriangle, Film, LoaderCircle, RefreshCw, Search } from '@lucide/vu
 import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
 import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { serializeJsonLd } from '~/utils/jsonLd'
-import { safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const PAGE_SIZE = 24
@@ -30,7 +29,6 @@ const page = ref(1)
 const catalog = ref<MoviesResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
-const failedPosters = ref<string[]>([])
 let requestId = 0
 let isMounted = false
 let isInitializing = false
@@ -159,18 +157,6 @@ function followPageLink(event: MouseEvent, nextPage: number) {
   }
   if (nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
   scrollAfterLoad = true
-}
-
-function posterAvailable(movie: CatalogMovie): boolean {
-  return Boolean(posterUrl(movie)) && !failedPosters.value.includes(movie.slug)
-}
-
-function posterUrl(movie: CatalogMovie): string | null {
-  return safePosterUrl(movie.poster_url)
-}
-
-function markPosterUnavailable(slug: string) {
-  if (!failedPosters.value.includes(slug)) failedPosters.value = [...failedPosters.value, slug]
 }
 
 function formatRuntime(runtimeMinutes: number): string {
@@ -345,46 +331,41 @@ useHead(() => ({
           </div>
         </div>
 
-        <div v-if="pending" class="catalog-state" role="status" aria-live="polite">
-          <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
+        <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
           <p>Chargement des films…</p>
-        </div>
+        </EditorialStatePanel>
 
-        <div v-else-if="errorMessage" class="catalog-state" role="alert">
-          <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
           <p class="max-w-lg">{{ errorMessage }}</p>
-          <button type="button" class="state-button" @click="retryMovies">
-            <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-          </button>
-        </div>
+          <template #actions><button type="button" class="state-button" @click="retryMovies"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+        </EditorialStatePanel>
 
-        <div v-else-if="preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0" class="catalog-state">
-          <Film :size="36" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><Film :size="36" aria-hidden="true" /></template>
           <p>Sélectionnez au moins un cinéma pour voir les films disponibles.</p>
-        </div>
+        </EditorialStatePanel>
 
-        <div v-else-if="!catalog?.items.length" class="catalog-state">
-          <Film :size="36" aria-hidden="true" />
+        <EditorialStatePanel v-else-if="!catalog?.items.length" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><Film :size="36" aria-hidden="true" /></template>
           <p>{{ appliedSearch ? 'Aucun film ne correspond à cette recherche.' : 'Aucun film à l’affiche actuellement.' }}</p>
-        </div>
+        </EditorialStatePanel>
 
         <template v-else>
           <ul class="catalog-grid mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" aria-label="Films à l’affiche">
             <li v-for="movie in catalog.items" :key="movie.slug" class="min-w-0">
               <NuxtLink :to="`/film/${movie.slug}`" class="catalog-card group block focus-visible:ring-offset-4">
                 <div class="poster-frame">
-                  <img
-                    v-if="posterAvailable(movie)"
-                    :src="posterUrl(movie)!"
+                  <PosterImage
+                    :src="movie.poster_url"
                     :alt="`Affiche de ${movie.title}`"
-                    class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025]"
+                    class="h-full w-full"
+                    image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025]"
+                    fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
+                    :fallback-icon-size="32"
                     loading="lazy"
-                    @error="markPosterUnavailable(movie.slug)"
                   />
-                  <div v-else class="flex h-full flex-col items-center justify-center gap-2 bg-[#e8e6de] px-3 text-center text-muted">
-                    <Film :size="32" aria-hidden="true" />
-                    <span class="text-xs font-bold">Affiche indisponible</span>
-                  </div>
                 </div>
                 <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
                   <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
@@ -502,23 +483,6 @@ useHead(() => ({
   background: #991b1b;
 }
 
-.catalog-state {
-  margin: 4rem auto 1rem;
-  display: flex;
-  min-height: 24rem;
-  max-width: 48rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 800;
-  box-shadow: 8px 8px 0 #27272a;
-}
-
 .catalog-card {
   color: #27272a;
   transition: transform 170ms ease;
@@ -564,15 +528,11 @@ useHead(() => ({
     bottom: 1.5rem;
   }
 
-  .catalog-state {
-    min-height: 19rem;
-    margin-top: 2.5rem;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .catalog-card,
-  .catalog-card img,
+  .catalog-card :deep(img),
   .search-button,
   .state-button,
   .page-button {

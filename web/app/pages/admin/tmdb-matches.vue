@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowLeft, Check, ExternalLink, Film, Layers3, LoaderCircle, LogOut, RefreshCw, Trash2, X } from '@lucide/vue'
+import { AlertTriangle, ArrowLeft, Check, ExternalLink, Layers3, LoaderCircle, LogOut, RefreshCw, Trash2, X } from '@lucide/vue'
 import type {
   AdminLocalMovieGroup,
   AdminLocalMovieGroupsResponse,
-  AdminLocalMovieMember,
   AdminLocalMovieSource,
   AdminPendingMatch,
   AdminPendingMatchesResponse,
@@ -44,7 +43,6 @@ const rerunPending = ref(false)
 const rejectConfirmation = ref('')
 const unmergeConfirmation = ref('')
 const loggingOut = ref(false)
-const failedPosters = ref<string[]>([])
 const matchesPosterVersion = ref(0)
 const groupsPosterVersion = ref(0)
 let matchesRequestId = 0
@@ -83,7 +81,6 @@ async function loadMatches(background = false) {
     const response = await api.adminPendingMatches(PAGE_SIZE, offset.value)
     if (currentRequest !== matchesRequestId) return
     matchesPosterVersion.value += 1
-    failedPosters.value = failedPosters.value.filter(key => !key.startsWith('matches:'))
     result.value = response
     const nextSelectedCandidates: Record<string, number> = {}
     for (const match of response.items) {
@@ -120,7 +117,6 @@ async function loadGroups() {
     const response = await api.adminLocalMovieGroups(PAGE_SIZE, groupsOffset.value)
     if (currentRequest !== groupsRequestId) return
     groupsPosterVersion.value += 1
-    failedPosters.value = failedPosters.value.filter(key => !key.startsWith('groups:'))
     groupsResult.value = response
   } catch (error) {
     if (currentRequest === groupsRequestId) {
@@ -377,26 +373,6 @@ function statusLabel(match: AdminPendingMatch): string {
   return 'Sans correspondance'
 }
 
-function sourcePosterKey(source: AdminPendingMatch): string {
-  return `matches:${matchesPosterVersion.value}:source:${sourceKey(source)}:${source.source_poster_url ?? ''}`
-}
-
-function memberPosterKey(group: AdminLocalMovieGroup, member: AdminLocalMovieMember): string {
-  return `groups:${groupsPosterVersion.value}:${group.local_movie_id}:${sourceKey(member)}:${member.source_poster_url ?? ''}`
-}
-
-function candidatePosterKey(match: AdminPendingMatch, candidate: AdminTMDBCandidate): string {
-  return `matches:${matchesPosterVersion.value}:tmdb:${sourceKey(match)}:${candidate.id}:${candidate.poster_url ?? ''}`
-}
-
-function posterAvailable(url: string | null | undefined, key: string): boolean {
-  return Boolean(url?.trim()) && !failedPosters.value.includes(key)
-}
-
-function markPosterUnavailable(key: string) {
-  if (!failedPosters.value.includes(key)) failedPosters.value = [...failedPosters.value, key]
-}
-
 watch(() => route.query, () => {
   if (isMounted) applyRoute()
 })
@@ -505,8 +481,7 @@ useHead({ title: 'Identités des films - MesSeances' })
               <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
               <div class="flex min-w-0 gap-3">
                 <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24 lg:w-20">
-                  <img v-if="posterAvailable(match.source_poster_url, sourcePosterKey(match))" :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(sourcePosterKey(match))" />
-                  <div v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></div>
+                  <PosterImage :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
                 </div>
                 <div class="min-w-0 flex-1">
                   <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
@@ -523,8 +498,7 @@ useHead({ title: 'Identités des films - MesSeances' })
                   <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
                     <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-accent" />
                     <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
-                      <img v-if="posterAvailable(candidate.poster_url, candidatePosterKey(match, candidate))" :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(candidatePosterKey(match, candidate))" />
-                      <span v-else class="flex h-full flex-col items-center justify-center gap-1 px-2 text-center text-muted"><Film :size="24" aria-hidden="true" /><span class="text-[11px] font-medium leading-tight">Affiche indisponible</span></span>
+                      <PosterImage :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
                     </span>
                     <span class="min-w-0 flex-1"><span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ candidate.title }}</span><span class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ candidate.original_title || 'non renseigné' }}</span><span class="mt-2 block space-y-1 text-xs text-muted"><span class="block">ID TMDB : {{ candidate.id }}</span><span class="block">{{ candidateRuntime(candidate) }}</span><span class="block">Score : {{ candidateScore(candidate) }}</span></span></span>
                   </label>
@@ -598,8 +572,7 @@ useHead({ title: 'Identités des films - MesSeances' })
           <ul class="divide-y divide-line border-t border-line" :aria-label="`Membres de ${group.local_movie_id}`">
             <li v-for="member in group.members" :key="sourceKey(member)" class="flex min-w-0 items-center gap-2 px-3 py-2" :class="member.available ? '' : 'bg-subtle text-muted'">
               <div class="aspect-[2/3] w-8 shrink-0 overflow-hidden rounded-sm bg-subtle">
-                <img v-if="posterAvailable(member.source_poster_url, memberPosterKey(group, member))" :src="member.source_poster_url!" :alt="`Affiche de ${member.source_title ?? member.source_movie_id}`" class="h-full w-full object-cover" loading="lazy" decoding="async" @error="markPosterUnavailable(memberPosterKey(group, member))" />
-                <div v-else class="flex h-full items-center justify-center text-muted"><Film :size="15" aria-hidden="true" /></div>
+                <PosterImage :src="member.source_poster_url" :alt="`Affiche de ${member.source_title ?? member.source_movie_id}`" :reset-key="groupsPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="15" :fallback-text="null" loading="lazy" decoding="async" />
               </div>
               <div class="min-w-0 flex-1 text-xs leading-tight">
                 <p class="truncate font-semibold text-ink">{{ member.source_title ?? 'Source indisponible' }}</p>

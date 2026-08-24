@@ -797,23 +797,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </div>
         </div>
 
-        <div v-if="pending" class="search-state" role="status">
-          <LoaderCircle :size="32" class="animate-spin" aria-hidden="true" />
+        <EditorialStatePanel v-if="pending" semantic="status" size="tall" shadow="medium" class="search-state font-extrabold">
+          <template #icon><LoaderCircle :size="32" class="animate-spin" aria-hidden="true" /></template>
           <p>Recherche des séances compatibles…</p>
-        </div>
-        <div v-else-if="errorMessage" class="search-state" role="alert">
-          <AlertTriangle :size="32" class="text-primary" aria-hidden="true" />
+        </EditorialStatePanel>
+        <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="tall" shadow="medium" class="search-state font-extrabold">
+          <template #icon><AlertTriangle :size="32" class="text-primary" aria-hidden="true" /></template>
           <p class="max-w-lg">{{ errorMessage }}</p>
-        </div>
-        <div v-else-if="results?.length === 0" class="search-state">
-          <CalendarSearch :size="30" class="text-muted" aria-hidden="true" />
+        </EditorialStatePanel>
+        <EditorialStatePanel v-else-if="results?.length === 0" size="tall" shadow="medium" class="search-state font-extrabold">
+          <template #icon><CalendarSearch :size="30" class="text-muted" aria-hidden="true" /></template>
           <p>Aucune séance ne tient entièrement dans ce créneau.</p>
-        </div>
+        </EditorialStatePanel>
         <ShowtimeResults v-else-if="results" :results="normalizedResults" :grouping="resultGrouping" :layout="resultLayout" scope="multi-theater" />
-        <div v-else class="search-state">
-          <CalendarSearch :size="32" aria-hidden="true" />
+        <EditorialStatePanel v-else size="tall" shadow="medium" class="search-state font-extrabold">
+          <template #icon><CalendarSearch :size="32" aria-hidden="true" /></template>
           <p>Définissez votre créneau pour voir les séances compatibles.</p>
-        </div>
+        </EditorialStatePanel>
       </section>
     </div>
 
@@ -939,24 +939,4 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   opacity: 0.55;
 }
 
-.search-state {
-  display: flex;
-  min-height: 24rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 800;
-  box-shadow: 7px 7px 0 #27272a;
-}
-
-@media (max-width: 639px) {
-  .search-state {
-    min-height: 19rem;
-  }
-}
 </style>

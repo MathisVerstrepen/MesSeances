@@ -31,7 +31,6 @@ const selectedDate = ref('')
 const pending = ref(true)
 const errorMessage = ref('')
 const notFound = ref(false)
-const posterFailed = ref(false)
 const backdropFailed = ref(false)
 const activeLanguage = ref<LanguageFilter>('ALL')
 const activeTechnology = ref<TechnologyFilter>('ALL')
@@ -68,8 +67,6 @@ function resolvedAvailableDate(dates: string[], requestedDate: string): string {
 
 const availableDates = computed(() => schedule.value ? nonPastAvailableDates(schedule.value) : [])
 const hasAvailableDates = computed(() => availableDates.value.length > 0)
-const posterUrl = computed(() => safePosterUrl(schedule.value?.movie.poster_url))
-const posterAvailable = computed(() => Boolean(posterUrl.value) && !posterFailed.value)
 const backdropUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url))
 const backdropAvailable = computed(() => Boolean(backdropUrl.value) && !backdropFailed.value)
 const releaseDateLabel = computed(() => {
@@ -476,7 +473,6 @@ watch(slug, () => {
   schedule.value = null
   isEndedFilm.value = false
   isPersonalizedSchedule.value = false
-  posterFailed.value = false
   backdropFailed.value = false
   lastScheduleKey = ''
   if (isReady) applyRoute()
@@ -594,32 +590,32 @@ useHead(() => ({
 
 <template>
   <main class="film-page mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
-    <div v-if="pending && !schedule" class="film-state" role="status" aria-live="polite">
-      <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
+    <EditorialStatePanel v-if="pending && !schedule" semantic="status" live="polite" size="detail" shadow="large" class="film-state font-extrabold">
+      <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
       <p>Chargement des séances…</p>
-    </div>
+    </EditorialStatePanel>
 
-    <div v-else-if="notFound" class="film-state" role="alert">
-      <Film :size="36" aria-hidden="true" />
-      <div>
+    <EditorialStatePanel v-else-if="notFound" semantic="alert" size="detail" shadow="large" class="film-state font-extrabold">
+      <template #icon><Film :size="36" aria-hidden="true" /></template>
+      <template #heading><div>
         <p class="text-2xl font-black tracking-[-0.04em] text-ink">Film introuvable</p>
         <p class="mt-1 text-sm">Ce film n’est pas disponible dans le catalogue actuel.</p>
-      </div>
-      <NuxtLink to="/films" class="brutal-action">Voir les films</NuxtLink>
-    </div>
+      </div></template>
+      <template #actions><NuxtLink to="/films" class="brutal-action">Voir les films</NuxtLink></template>
+    </EditorialStatePanel>
 
-    <div v-else-if="errorMessage && !schedule" class="film-state" role="alert">
-      <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
+    <EditorialStatePanel v-else-if="errorMessage && !schedule" semantic="alert" size="detail" shadow="large" class="film-state font-extrabold">
+      <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
       <p class="max-w-lg">{{ errorMessage }}</p>
-      <div class="flex flex-wrap justify-center gap-3">
+      <template #actions><div class="flex flex-wrap justify-center gap-3">
         <button v-if="!preferences.isInitialized.value || preferences.activeTheaterIds.value.length" type="button" class="brutal-action" @click="retryLoad">
           <RefreshCw :size="17" aria-hidden="true" /> Réessayer
         </button>
         <NuxtLink to="/cinemas" class="brutal-action brutal-action--light">
           Mes cinémas
         </NuxtLink>
-      </div>
-    </div>
+      </div></template>
+    </EditorialStatePanel>
 
     <template v-else-if="schedule">
       <nav class="mb-6 font-mono text-xs font-bold uppercase tracking-[0.08em] text-muted" aria-label="Fil d’Ariane">
@@ -657,20 +653,15 @@ useHead(() => ({
         <div
           class="relative z-10 mx-auto aspect-[2/3] w-40 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] lg:w-[220px]"
         >
-          <img
-            v-if="posterAvailable"
-            :src="posterUrl!"
+          <PosterImage
+            :src="schedule.movie.poster_url"
             :alt="`Affiche de ${schedule.movie.title}`"
-            class="h-full w-full object-cover"
-            @error="posterFailed = true"
+            :reset-key="slug"
+            class="h-full w-full"
+            image-class="h-full w-full object-cover"
+            fallback-class="gap-2 px-3 text-center text-xs font-bold text-muted"
+            :fallback-icon-size="32"
           />
-          <div
-            v-else
-            class="flex h-full flex-col items-center justify-center gap-2 px-3 text-center text-muted"
-          >
-            <Film :size="32" aria-hidden="true" />
-            <span class="text-xs font-bold">Affiche indisponible</span>
-          </div>
         </div>
         <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, tmdbUrl ? 'sm:pr-28' : undefined]">
           <h1 class="movie-title text-[clamp(3rem,7vw,7rem)] font-black uppercase leading-[0.82] tracking-[-0.075em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
@@ -965,39 +956,37 @@ useHead(() => ({
         </div>
 
         <div id="showtime-panel" role="tabpanel" :aria-label="`Séances du ${formatLongDate(selectedDate)}`" :aria-busy="pending">
-          <div v-if="pending" class="film-state mt-10" role="status" aria-live="polite">
-            <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
+          <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
+            <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
             <p>Chargement des séances…</p>
-          </div>
+          </EditorialStatePanel>
 
-          <div v-else-if="errorMessage" class="film-state mt-10" role="alert">
-            <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
+          <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
+            <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
             <p class="max-w-lg">{{ errorMessage }}</p>
-            <button type="button" class="brutal-action" @click="loadSchedule">
-              <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-            </button>
-          </div>
+            <template #actions><button type="button" class="brutal-action" @click="loadSchedule"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+          </EditorialStatePanel>
 
-          <div v-else-if="isEndedFilm" class="film-state mt-10">
-            <CalendarDays :size="36" aria-hidden="true" />
+          <EditorialStatePanel v-else-if="isEndedFilm" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
+            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
             <p>Aucune séance programmée pour le moment.</p>
-          </div>
+          </EditorialStatePanel>
 
-          <div v-else-if="!hasAvailableDates" class="film-state mt-10">
-            <CalendarDays :size="36" aria-hidden="true" />
+          <EditorialStatePanel v-else-if="!hasAvailableDates" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
+            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
             <p>Aucune date de séance disponible pour ce film dans ces cinémas.</p>
-          </div>
+          </EditorialStatePanel>
 
-          <div v-else-if="schedule.theaters.length === 0" class="film-state mt-10">
-            <CalendarDays :size="36" aria-hidden="true" />
+          <EditorialStatePanel v-else-if="schedule.theaters.length === 0" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
+            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
             <p>{{ isPersonalizedSchedule ? 'Aucune séance dans ces cinémas à cette date.' : 'Aucune séance à cette date.' }}</p>
-          </div>
+          </EditorialStatePanel>
 
-          <div v-else-if="visibleTheaters.length === 0" class="film-state mt-10">
-            <CalendarDays :size="36" aria-hidden="true" />
+          <EditorialStatePanel v-else-if="visibleTheaters.length === 0" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
+            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
             <p>Aucune séance ne correspond à ces filtres.</p>
-            <button type="button" class="brutal-action" @click="resetFilters">Voir toutes les séances</button>
-          </div>
+            <template #actions><button type="button" class="brutal-action" @click="resetFilters">Voir toutes les séances</button></template>
+          </EditorialStatePanel>
 
           <div v-else class="mt-10 space-y-10">
             <section v-for="theater in visibleTheaters" :key="theater.id" class="theater-section border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a]" :aria-labelledby="`theater-${theater.id}`">
@@ -1243,21 +1232,6 @@ useHead(() => ({
   outline-offset: 2px;
 }
 
-.film-state {
-  display: flex;
-  min-height: 22rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-  font-weight: 800;
-  box-shadow: 8px 8px 0 #27272a;
-}
-
 .brutal-action {
   display: inline-flex;
   min-height: 2.75rem;
@@ -1293,9 +1267,6 @@ useHead(() => ({
     overflow-wrap: anywhere;
   }
 
-  .film-state {
-    min-height: 19rem;
-  }
 }
 
 </style>

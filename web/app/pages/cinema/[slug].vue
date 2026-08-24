@@ -205,22 +205,22 @@ useHead(() => ({
 
 <template>
   <main class="discovery-page mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
-    <div v-if="pending && !response" class="discovery-state" role="status" aria-live="polite">
-      <LoaderCircle :size="34" class="animate-spin" aria-hidden="true" />
+    <EditorialStatePanel v-if="pending && !response" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto max-w-3xl font-bold">
+      <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
       <p>Chargement du cinéma…</p>
-    </div>
-    <div v-else-if="notFound" class="discovery-state" role="alert">
-      <Building2 :size="36" aria-hidden="true" />
-      <h1>Cinéma introuvable</h1>
+    </EditorialStatePanel>
+    <EditorialStatePanel v-else-if="notFound" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto max-w-3xl font-bold">
+      <template #icon><Building2 :size="36" aria-hidden="true" /></template>
+      <template #heading><h1 class="text-2xl font-black">Cinéma introuvable</h1></template>
       <p>Ce cinéma n’est pas disponible dans la programmation actuelle.</p>
-      <NuxtLink to="/cinemas" class="discovery-action">Voir les cinémas</NuxtLink>
-    </div>
-    <div v-else-if="errorMessage && !response" class="discovery-state" role="alert">
-      <AlertTriangle :size="34" class="text-primary" aria-hidden="true" />
-      <h1>Impossible de charger ce cinéma</h1>
+      <template #actions><NuxtLink to="/cinemas" class="discovery-action">Voir les cinémas</NuxtLink></template>
+    </EditorialStatePanel>
+    <EditorialStatePanel v-else-if="errorMessage && !response" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto max-w-3xl font-bold">
+      <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
+      <template #heading><h1 class="text-2xl font-black">Impossible de charger ce cinéma</h1></template>
       <p>{{ errorMessage }}</p>
-      <button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button>
-    </div>
+      <template #actions><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+    </EditorialStatePanel>
 
     <template v-else-if="response">
       <nav class="breadcrumb" aria-label="Fil d’Ariane">
@@ -278,9 +278,9 @@ useHead(() => ({
           </div>
         </div>
 
-        <div v-if="pending" class="discovery-state mt-8" role="status" aria-live="polite"><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /><p>Chargement des séances…</p></div>
-        <div v-else-if="errorMessage" class="discovery-state mt-8" role="alert"><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /><h3>Impossible de charger ces séances</h3><p>{{ errorMessage }}</p><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></div>
-        <div v-else-if="normalizedResults.length === 0" class="discovery-state mt-8"><CalendarDays :size="36" aria-hidden="true" /><h3>Aucune séance à cette date</h3><p>Choisissez une autre date pour consulter la programmation.</p></div>
+        <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des séances…</p></EditorialStatePanel>
+        <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces séances</h3></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+        <EditorialStatePanel v-else-if="normalizedResults.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><CalendarDays :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucune séance à cette date</h3></template><p>Choisissez une autre date pour consulter la programmation.</p></EditorialStatePanel>
         <ShowtimeResults v-else :results="normalizedResults" :grouping="resultGrouping" :layout="resultLayout" scope="single-theater" />
       </section>
     </template>
@@ -289,8 +289,6 @@ useHead(() => ({
 
 <style scoped>
 .discovery-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
-.discovery-state { margin-inline: auto; display: flex; min-height: 20rem; max-width: 48rem; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; border: 2px solid #27272a; background: #fff; padding: 2rem; text-align: center; font-weight: 700; box-shadow: 8px 8px 0 #27272a; }
-.discovery-state h1,.discovery-state h3 { font-size: 1.5rem; font-weight: 900; }
 .discovery-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
 .breadcrumb,.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
 .breadcrumb { margin-bottom: 1.5rem; color: var(--color-muted); }
