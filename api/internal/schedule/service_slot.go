@@ -57,7 +57,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 			if !query.IncludeAds {
 				effectiveStart = effectiveStart.Add(time.Duration(query.BufferAds) * time.Minute)
 			}
-			effectiveEnd := showtime.EndTime.Add(time.Duration(query.BufferAds) * time.Minute)
+			effectiveEnd := showtime.EndTime
 			if effectiveStart.Before(start) || effectiveEnd.After(finish) {
 				continue
 			}

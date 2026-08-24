@@ -136,7 +136,7 @@ func TestSearchSlotStrictBoundariesAndFilters(t *testing.T) {
 		name  string
 		query SlotQuery
 		want  []string
-	}{{"inclusive", SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "13:40", Language: LanguageAll}, []string{"ugc-showing-100"}}, {"ads exclusion", SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "13:40", BufferAds: 20, Language: LanguageAll}, nil}, {"VF includes SME", SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "17:00", Language: LanguageVF}, []string{"ugc-showing-101"}}, {"post midnight alias", SlotQuery{City: "LILLE", Date: "2026-08-15", StartAfter: "00:15", FinishBefore: "01:30", Language: LanguageAll}, []string{"ugc-showing-102"}}, {"exact theater", SlotQuery{TheaterIDs: []string{"ugc-99"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "14:00", Language: LanguageAll}, []string{"ugc-showing-103"}}}
+	}{{"inclusive", SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "13:40", Language: LanguageAll}, []string{"ugc-showing-100"}}, {"ads shift start only", SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "13:40", BufferAds: 20, Language: LanguageAll}, []string{"ugc-showing-100"}}, {"VF includes SME", SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "17:00", Language: LanguageVF}, []string{"ugc-showing-101"}}, {"post midnight alias", SlotQuery{City: "LILLE", Date: "2026-08-15", StartAfter: "00:15", FinishBefore: "01:30", Language: LanguageAll}, []string{"ugc-showing-102"}}, {"exact theater", SlotQuery{TheaterIDs: []string{"ugc-99"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "14:00", Language: LanguageAll}, []string{"ugc-showing-103"}}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			results, err := service.SearchSlot(test.query)
@@ -184,12 +184,19 @@ func TestCanonicalUGCEndTimesAcrossMovieAndSlotSearch(t *testing.T) {
 	if err != nil || len(results) != 1 || !results[0].Showtime.EndTime.Equal(record.EndTime) || !results[0].EffectiveEndTime.Equal(record.EndTime) {
 		t.Fatalf("finish 20:03 results=%+v error=%v", results, err)
 	}
-	query.FinishBefore = "20:23"
+	query.BufferAds = 20
+	query.FinishBefore = "20:03"
+	results, err = service.SearchSlot(query)
+	if err != nil || len(results) != 1 || !results[0].EffectiveStartTime.Equal(record.StartTime) || !results[0].EffectiveEndTime.Equal(record.EndTime) {
+		t.Fatalf("checked buffered results=%+v error=%v", results, err)
+	}
+	query.IncludeAds = false
+	query.StartAfter = "16:50"
 	query.BufferAds = 20
 	results, err = service.SearchSlot(query)
-	wantEffectiveEnd := time.Date(2026, 8, 15, 20, 23, 0, 0, location)
-	if err != nil || len(results) != 1 || !results[0].EffectiveEndTime.Equal(wantEffectiveEnd) || !results[0].Showtime.EndTime.Equal(record.EndTime) {
-		t.Fatalf("buffered results=%+v error=%v", results, err)
+	wantEffectiveStart := time.Date(2026, 8, 15, 16, 50, 0, 0, location)
+	if err != nil || len(results) != 1 || !results[0].EffectiveStartTime.Equal(wantEffectiveStart) || !results[0].EffectiveEndTime.Equal(record.EndTime) || !results[0].Showtime.EndTime.Equal(record.EndTime) {
+		t.Fatalf("unchecked buffered results=%+v error=%v", results, err)
 	}
 	query.FinishBefore = "20:00"
 	results, err = service.SearchSlot(query)
@@ -200,7 +207,7 @@ func TestCanonicalUGCEndTimesAcrossMovieAndSlotSearch(t *testing.T) {
 
 func TestSearchSlotAdsChangeEffectiveStartButNotEnd(t *testing.T) {
 	service := testService(t)
-	base := SlotQuery{TheaterIDs: []string{"ugc-25"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "14:00", BufferAds: 20, Language: LanguageAll}
+	base := SlotQuery{TheaterIDs: []string{"ugc-25"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "13:40", BufferAds: 20, Language: LanguageAll}
 
 	includedQuery := base
 	includedQuery.IncludeAds = true
@@ -218,7 +225,7 @@ func TestSearchSlotAdsChangeEffectiveStartButNotEnd(t *testing.T) {
 	if !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(20 * time.Minute)) {
 		t.Fatalf("excluded effective start=%s showtime start=%s", excluded[0].EffectiveStartTime, excluded[0].Showtime.StartTime)
 	}
-	if !included[0].EffectiveEndTime.Equal(excluded[0].EffectiveEndTime) || !included[0].EffectiveEndTime.Equal(included[0].Showtime.EndTime.Add(20*time.Minute)) {
+	if !included[0].EffectiveEndTime.Equal(excluded[0].EffectiveEndTime) || !included[0].EffectiveEndTime.Equal(included[0].Showtime.EndTime) {
 		t.Fatalf("included end=%s excluded end=%s showtime end=%s", included[0].EffectiveEndTime, excluded[0].EffectiveEndTime, included[0].Showtime.EndTime)
 	}
 	if included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 20 || included[0].SlackAfterMinutes != 0 || excluded[0].SlackAfterMinutes != 0 {
@@ -241,7 +248,7 @@ func TestSearchSlotAdsChangeEffectiveStartButNotEnd(t *testing.T) {
 
 func TestSearchSlotExcludedAdsUsesEffectiveBoundariesAfterMidnight(t *testing.T) {
 	service := testService(t)
-	query := SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "00:35", FinishBefore: "01:50", BufferAds: 20, Language: LanguageAll}
+	query := SlotQuery{City: "Lille", Date: "2026-08-15", StartAfter: "00:35", FinishBefore: "01:30", BufferAds: 20, Language: LanguageAll}
 	results, err := service.SearchSlot(query)
 	if err != nil || len(results) != 1 {
 		t.Fatalf("excluded midnight=%+v err=%v", results, err)
@@ -252,13 +259,64 @@ func TestSearchSlotExcludedAdsUsesEffectiveBoundariesAfterMidnight(t *testing.T)
 	}
 	effectiveStart := results[0].EffectiveStartTime.In(location)
 	effectiveEnd := results[0].EffectiveEndTime.In(location)
-	if results[0].Showtime.ID != "ugc-showing-102" || effectiveStart.Day() != 16 || effectiveStart.Hour() != 0 || effectiveStart.Minute() != 35 || effectiveEnd.Day() != 16 || effectiveEnd.Hour() != 1 || effectiveEnd.Minute() != 50 {
+	if results[0].Showtime.ID != "ugc-showing-102" || effectiveStart.Day() != 16 || effectiveStart.Hour() != 0 || effectiveStart.Minute() != 35 || effectiveEnd.Day() != 16 || effectiveEnd.Hour() != 1 || effectiveEnd.Minute() != 30 {
 		t.Fatalf("excluded midnight result=%+v", results[0])
 	}
 	query.IncludeAds = true
 	results, err = service.SearchSlot(query)
 	if err != nil || len(results) != 0 {
 		t.Fatalf("included midnight after advertised start=%+v err=%v", results, err)
+	}
+}
+
+func TestSearchSlotAdsSemanticsAcrossProviders(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		data Dataset
+	}{
+		{name: "UGC", data: testDataset()},
+		{name: "Kinepolis", data: kinepolisTestDataset()},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := test.data
+			data.Showtimes = data.Showtimes[:1]
+			service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := data.Showtimes[0]
+			location, _ := time.LoadLocation(Timezone)
+			start := record.StartTime.In(location)
+			end := record.EndTime.In(location)
+			query := SlotQuery{TheaterIDs: []string{record.TheaterID}, Date: record.ServiceDate, StartAfter: start.Format("15:04"), FinishBefore: end.Format("15:04"), BufferAds: 20, IncludeAds: true, Language: LanguageAll}
+			checked, err := service.SearchSlot(query)
+			if err != nil || len(checked) != 1 || !checked[0].EffectiveStartTime.Equal(record.StartTime) || !checked[0].EffectiveEndTime.Equal(record.EndTime) {
+				t.Fatalf("checked=%+v error=%v", checked, err)
+			}
+			query.IncludeAds = false
+			query.StartAfter = start.Add(20 * time.Minute).Format("15:04")
+			unchecked, err := service.SearchSlot(query)
+			if err != nil || len(unchecked) != 1 || !unchecked[0].EffectiveStartTime.Equal(record.StartTime.Add(20*time.Minute)) || !unchecked[0].EffectiveEndTime.Equal(record.EndTime) {
+				t.Fatalf("unchecked=%+v error=%v", unchecked, err)
+			}
+		})
+	}
+}
+
+func TestSearchSlotZeroAdsBuffer(t *testing.T) {
+	service := testService(t)
+	base := SlotQuery{TheaterIDs: []string{"ugc-25"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "13:40", Language: LanguageAll}
+	unchecked, err := service.SearchSlot(base)
+	if err != nil || len(unchecked) != 1 {
+		t.Fatalf("unchecked=%+v error=%v", unchecked, err)
+	}
+	base.IncludeAds = true
+	checked, err := service.SearchSlot(base)
+	if err != nil || len(checked) != 1 || !checked[0].EffectiveStartTime.Equal(unchecked[0].EffectiveStartTime) || !checked[0].EffectiveEndTime.Equal(unchecked[0].EffectiveEndTime) || checked[0].SlackBeforeMinutes != unchecked[0].SlackBeforeMinutes || checked[0].SlackAfterMinutes != unchecked[0].SlackAfterMinutes {
+		t.Fatalf("checked=%+v unchecked=%+v error=%v", checked, unchecked, err)
+	}
+	if !checked[0].EffectiveStartTime.Equal(checked[0].Showtime.StartTime) || !checked[0].EffectiveEndTime.Equal(checked[0].Showtime.EndTime) {
+		t.Fatalf("zero-buffer result=%+v", checked[0])
 	}
 }
 

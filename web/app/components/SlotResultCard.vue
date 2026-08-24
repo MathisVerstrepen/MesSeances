@@ -6,10 +6,10 @@ import { formatParisTime } from '~/utils/date'
 defineProps<{ result: SlotResult }>()
 const posterFailed = ref(false)
 const backdropFailed = ref(false)
+const advertisedStartTooltipId = useId()
 
-function hasAdjustedFilterWindow(result: SlotResult): boolean {
+function hasDelayedStart(result: SlotResult): boolean {
   return Date.parse(result.effective_start_time) !== Date.parse(result.showtime.start_time)
-    || Date.parse(result.effective_end_time) !== Date.parse(result.showtime.end_time)
 }
 
 function bookingLabel(result: SlotResult): string {
@@ -49,8 +49,22 @@ function bookingLabel(result: SlotResult): string {
         <Film v-else :size="18" class="text-muted/60" aria-hidden="true" />
       </div>
       <div class="col-start-2 border-l-2 border-ink pl-3 sm:col-start-auto">
-        <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}</p>
-        <p v-if="hasAdjustedFilterWindow(result)" class="mt-1 font-mono text-[9px] font-bold tabular-nums tracking-[0.08em] text-muted">Filtre appliqué : {{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+        <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
+          {{ formatParisTime(hasDelayedStart(result) ? result.effective_start_time : result.showtime.start_time) }}
+          <span v-if="hasDelayedStart(result)" class="group relative inline-block text-sm font-normal tracking-normal">
+            <span
+              :aria-describedby="advertisedStartTooltipId"
+              class="inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1"
+              tabindex="0"
+            >({{ formatParisTime(result.showtime.start_time) }})</span>
+            <span
+              :id="advertisedStartTooltipId"
+              class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+              role="tooltip"
+            >Heure de début annoncée, publicités incluses</span>
+          </span>
+          → {{ formatParisTime(result.showtime.end_time) }}
+        </p>
       </div>
       <div class="col-start-2 min-w-0 sm:col-start-auto">
         <h3 class="truncate text-base font-black tracking-[-0.02em] text-ink">

@@ -592,7 +592,7 @@ func TestSearchSlotExactTheatersTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &results); err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 || results[0].Theater.ID != "ugc-99" || results[0].BufferAdsMinutes != 20 || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime.Add(20*time.Minute)) {
+	if len(results) != 1 || results[0].Theater.ID != "ugc-99" || results[0].BufferAdsMinutes != 20 || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime) {
 		t.Fatalf("results=%+v", results)
 	}
 }
@@ -614,10 +614,10 @@ func TestSearchSlotIncludeAdsTransport(t *testing.T) {
 	if len(included) != 1 || len(excluded) != 1 {
 		t.Fatalf("included=%+v excluded=%+v", included, excluded)
 	}
-	if !included[0].EffectiveStartTime.Equal(included[0].Showtime.StartTime) || !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(20*time.Minute)) || !included[0].EffectiveEndTime.Equal(excluded[0].EffectiveEndTime) {
+	if !included[0].EffectiveStartTime.Equal(included[0].Showtime.StartTime) || !excluded[0].EffectiveStartTime.Equal(excluded[0].Showtime.StartTime.Add(20*time.Minute)) || !included[0].EffectiveEndTime.Equal(included[0].Showtime.EndTime) || !excluded[0].EffectiveEndTime.Equal(excluded[0].Showtime.EndTime) {
 		t.Fatalf("included=%+v excluded=%+v", included[0], excluded[0])
 	}
-	if included[0].BufferAdsMinutes != 20 || excluded[0].BufferAdsMinutes != 20 || included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 0 || included[0].SlackAfterMinutes != 0 || excluded[0].SlackAfterMinutes != 0 {
+	if included[0].BufferAdsMinutes != 20 || excluded[0].BufferAdsMinutes != 20 || included[0].SlackBeforeMinutes != 0 || excluded[0].SlackBeforeMinutes != 0 || included[0].SlackAfterMinutes != 20 || excluded[0].SlackAfterMinutes != 20 {
 		t.Fatalf("included=%+v excluded=%+v", included[0], excluded[0])
 	}
 

@@ -11,8 +11,8 @@ const props = withDefaults(defineProps<{
   showMovie: false
 })
 
-const hasAdjustedFilterWindow = computed(() => Date.parse(props.result.effective_start_time) !== Date.parse(props.result.showtime.start_time)
-  || Date.parse(props.result.effective_end_time) !== Date.parse(props.result.showtime.end_time))
+const hasDelayedStart = computed(() => Date.parse(props.result.effective_start_time) !== Date.parse(props.result.showtime.start_time))
+const advertisedStartTooltipId = useId()
 const backdropFailed = ref(false)
 const posterFailed = ref(false)
 const backdropUrl = computed(() => safeBackdropUrl(props.result.backdrop_url))
@@ -93,8 +93,22 @@ function formatRoom(room: string): string {
       </NuxtLink>
     </h3>
 
-    <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">{{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}</p>
-    <p v-if="hasAdjustedFilterWindow" class="mt-1 font-mono text-[9px] font-bold tabular-nums tracking-[0.06em] text-muted">Filtre appliqué : {{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+    <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">
+      {{ formatParisTime(hasDelayedStart ? result.effective_start_time : result.showtime.start_time) }}
+      <span v-if="hasDelayedStart" class="group relative inline-block text-sm font-normal tracking-normal">
+        <span
+          :aria-describedby="advertisedStartTooltipId"
+          class="inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1"
+          tabindex="0"
+        >({{ formatParisTime(result.showtime.start_time) }})</span>
+        <span
+          :id="advertisedStartTooltipId"
+          class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+          role="tooltip"
+        >Heure de début annoncée, publicités incluses</span>
+      </span>
+      → {{ formatParisTime(result.showtime.end_time) }}
+    </p>
 
     <div class="mt-4 flex min-w-0 items-start gap-1.5 text-xs font-bold text-ink">
       <MapPin :size="13" class="mt-0.5 shrink-0" aria-hidden="true" />

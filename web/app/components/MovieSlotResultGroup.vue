@@ -14,10 +14,10 @@ const posterUrl = computed(() => props.results[0]?.poster_url ?? null)
 const backdropUrl = computed(() => props.results[0]?.backdrop_url ?? null)
 const posterFailed = ref(false)
 const backdropFailed = ref(false)
+const advertisedStartTooltipIdPrefix = useId()
 
-function hasAdjustedFilterWindow(result: SlotResult): boolean {
+function hasDelayedStart(result: SlotResult): boolean {
   return Date.parse(result.effective_start_time) !== Date.parse(result.showtime.start_time)
-    || Date.parse(result.effective_end_time) !== Date.parse(result.showtime.end_time)
 }
 
 function bookingLabel(result: SlotResult): string {
@@ -75,10 +75,24 @@ function bookingLabel(result: SlotResult): string {
     </header>
 
     <ul v-if="layout === 'lines'" class="divide-y-2 divide-ink" aria-label="Séances compatibles">
-      <li v-for="result in results" :key="result.showtime.id" class="grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
+      <li v-for="(result, index) in results" :key="result.showtime.id" class="grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
         <div class="min-w-0">
-          <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}</p>
-          <p v-if="hasAdjustedFilterWindow(result)" class="mt-1 font-mono text-[9px] font-bold tabular-nums tracking-[0.08em] text-muted">Filtre appliqué : {{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+          <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
+            {{ formatParisTime(hasDelayedStart(result) ? result.effective_start_time : result.showtime.start_time) }}
+            <span v-if="hasDelayedStart(result)" class="group relative inline-block text-sm font-normal tracking-normal">
+              <span
+                :aria-describedby="`${advertisedStartTooltipIdPrefix}-${index}`"
+                class="inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1"
+                tabindex="0"
+              >({{ formatParisTime(result.showtime.start_time) }})</span>
+              <span
+                :id="`${advertisedStartTooltipIdPrefix}-${index}`"
+                class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                role="tooltip"
+              >Heure de début annoncée, publicités incluses</span>
+            </span>
+            → {{ formatParisTime(result.showtime.end_time) }}
+          </p>
           <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <BrandedText :text="result.theater.name" /></span>
             <span>{{ result.showtime.room }}</span>
