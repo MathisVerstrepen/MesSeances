@@ -155,6 +155,49 @@ func TestSearchSlotStrictBoundariesAndFilters(t *testing.T) {
 	}
 }
 
+func TestCanonicalUGCEndTimesAcrossMovieAndSlotSearch(t *testing.T) {
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := testDataset()
+	record := &data.Showtimes[0]
+	record.StartTime = time.Date(2026, 8, 15, 16, 30, 0, 0, location)
+	record.EndTime = time.Date(2026, 8, 15, 20, 3, 0, 0, location)
+	record.Movie.RuntimeMinutes = 197
+	data.Showtimes = data.Showtimes[:1]
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: record.Movie.Slug, Date: "2026-08-15", TheaterIDs: []string{record.TheaterID}})
+	if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 || !detail.Theaters[0].Showtimes[0].EndTime.Equal(record.EndTime) || detail.Theaters[0].Showtimes[0].Movie.RuntimeMinutes != 197 {
+		t.Fatalf("detail=%+v error=%v", detail, err)
+	}
+	query := SlotQuery{TheaterIDs: []string{record.TheaterID}, Date: "2026-08-15", StartAfter: "16:30", FinishBefore: "20:00", IncludeAds: true, Language: LanguageAll}
+	results, err := service.SearchSlot(query)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("finish 20:00 results=%+v error=%v", results, err)
+	}
+	query.FinishBefore = "20:03"
+	results, err = service.SearchSlot(query)
+	if err != nil || len(results) != 1 || !results[0].Showtime.EndTime.Equal(record.EndTime) || !results[0].EffectiveEndTime.Equal(record.EndTime) {
+		t.Fatalf("finish 20:03 results=%+v error=%v", results, err)
+	}
+	query.FinishBefore = "20:23"
+	query.BufferAds = 20
+	results, err = service.SearchSlot(query)
+	wantEffectiveEnd := time.Date(2026, 8, 15, 20, 23, 0, 0, location)
+	if err != nil || len(results) != 1 || !results[0].EffectiveEndTime.Equal(wantEffectiveEnd) || !results[0].Showtime.EndTime.Equal(record.EndTime) {
+		t.Fatalf("buffered results=%+v error=%v", results, err)
+	}
+	query.FinishBefore = "20:00"
+	results, err = service.SearchSlot(query)
+	if err != nil || len(results) != 0 {
+		t.Fatalf("buffered finish 20:00 results=%+v error=%v", results, err)
+	}
+}
+
 func TestSearchSlotAdsChangeEffectiveStartButNotEnd(t *testing.T) {
 	service := testService(t)
 	base := SlotQuery{TheaterIDs: []string{"ugc-25"}, Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "14:00", BufferAds: 20, Language: LanguageAll}

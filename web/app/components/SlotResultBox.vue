@@ -11,7 +11,8 @@ const props = withDefaults(defineProps<{
   showMovie: false
 })
 
-const hasDelayedArrival = computed(() => Date.parse(props.result.effective_start_time) !== Date.parse(props.result.showtime.start_time))
+const hasAdjustedFilterWindow = computed(() => Date.parse(props.result.effective_start_time) !== Date.parse(props.result.showtime.start_time)
+  || Date.parse(props.result.effective_end_time) !== Date.parse(props.result.showtime.end_time))
 const backdropFailed = ref(false)
 const posterFailed = ref(false)
 const backdropUrl = computed(() => safeBackdropUrl(props.result.backdrop_url))
@@ -92,14 +93,8 @@ function formatRoom(room: string): string {
       </NuxtLink>
     </h3>
 
-    <div class="flex w-full items-baseline justify-between gap-2">
-      <div>
-        <span class="text-2xl font-black tracking-[-0.045em] text-ink">{{ formatParisTime(result.effective_start_time) }}</span>
-        <p v-if="hasDelayedArrival" class="font-mono text-[8px] font-black uppercase tracking-[0.06em] text-primary">Arrivée conseillée</p>
-      </div>
-      <span class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(result.effective_end_time) }}</span>
-    </div>
-    <p v-if="hasDelayedArrival" class="mt-1 font-mono text-[9px] font-bold uppercase tabular-nums tracking-[0.06em] text-muted">Séance {{ formatParisTime(result.showtime.start_time) }}</p>
+    <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">{{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}</p>
+    <p v-if="hasAdjustedFilterWindow" class="mt-1 font-mono text-[9px] font-bold tabular-nums tracking-[0.06em] text-muted">Filtre appliqué : {{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
 
     <div class="mt-4 flex min-w-0 items-start gap-1.5 text-xs font-bold text-ink">
       <MapPin :size="13" class="mt-0.5 shrink-0" aria-hidden="true" />

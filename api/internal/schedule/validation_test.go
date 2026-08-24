@@ -57,9 +57,43 @@ func TestValidateDatasetResourceAndRuntimeBounds(t *testing.T) {
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatalf("long runtime rejected: %v", err)
 	}
-	showing.EndTime = showing.StartTime.Add(11*time.Hour + 59*time.Minute)
+	showing.EndTime = showing.StartTime
 	if err := ValidateDataset(data, true); err == nil || err.Error() != "invalid showing times" {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestValidateDatasetProviderTimingRules(t *testing.T) {
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalEnd := time.Date(2026, 8, 15, 15, 23, 0, 0, location)
+	ugc := testDataset()
+	ugc.Showtimes[0].EndTime = canonicalEnd
+	if err := ValidateDataset(ugc, true); err != nil {
+		t.Fatalf("canonical UGC end rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name string
+		end  func(time.Time) time.Time
+	}{
+		{name: "zero", end: func(time.Time) time.Time { return time.Time{} }},
+		{name: "equal", end: func(start time.Time) time.Time { return start }},
+		{name: "reversed", end: func(start time.Time) time.Time { return start.Add(-time.Minute) }},
+	} {
+		t.Run("UGC "+test.name, func(t *testing.T) {
+			data := testDataset()
+			data.Showtimes[0].EndTime = test.end(data.Showtimes[0].StartTime)
+			if err := ValidateDataset(data, true); err == nil || err.Error() != "invalid showing times" {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+	kinepolis := kinepolisTestDataset()
+	kinepolis.Showtimes[0].EndTime = kinepolis.Showtimes[0].EndTime.Add(time.Minute)
+	if err := ValidateDataset(kinepolis, true); err == nil || err.Error() != "invalid showing times" {
+		t.Fatalf("Kinepolis mismatch error=%v", err)
 	}
 }
 

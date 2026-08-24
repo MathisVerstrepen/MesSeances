@@ -170,11 +170,81 @@ func TestParseShowings(t *testing.T) {
 	firstStart := time.Date(2026, 8, 15, 12, 0, 0, 0, location)
 	secondStart := time.Date(2026, 8, 16, 0, 15, 0, 0, location)
 	want := []schedule.ShowtimeRecord{
-		{ID: "ugc-showing-900", ProviderShowingID: "900", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: movie, StartTime: firstStart, EndTime: firstStart.Add(83 * time.Minute), Language: schedule.LanguageVOSTFR, ProviderVersion: "VOSTF", Format: "3D", Room: "Salle 4", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=900"},
-		{ID: "ugc-showing-901", ProviderShowingID: "901", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: movie, StartTime: secondStart, EndTime: secondStart.Add(83 * time.Minute), Language: schedule.LanguageVFSME, ProviderVersion: "VFSTF", Format: "2D", Room: "Salle 4", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=901"},
+		{ID: "ugc-showing-900", ProviderShowingID: "900", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: movie, StartTime: firstStart, EndTime: time.Date(2026, 8, 15, 13, 23, 0, 0, location), Language: schedule.LanguageVOSTFR, ProviderVersion: "VOSTF", Format: "3D", Room: "Salle 4", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=900"},
+		{ID: "ugc-showing-901", ProviderShowingID: "901", ServiceDate: "2026-08-15", TheaterID: "ugc-25", Movie: movie, StartTime: secondStart, EndTime: time.Date(2026, 8, 16, 1, 38, 0, 0, location), Language: schedule.LanguageVFSME, ProviderVersion: "VFSTF", Format: "2D", Room: "Salle 4", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=901"},
 	}
 	if !reflect.DeepEqual(records, want) {
 		t.Fatalf("records=%+v\nwant=%+v", records, want)
+	}
+}
+
+func TestParseShowingsCanonicalEndIndependentOfRuntime(t *testing.T) {
+	records, err := ParseShowings(fixture(t, "showings-canonical-end.html"), Cinema{ProviderID: "45"}, "2026-08-25")
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records=%+v error=%v", records, err)
+	}
+	location, _ := time.LoadLocation(schedule.Timezone)
+	wantEnd := time.Date(2026, 8, 25, 20, 3, 0, 0, location)
+	if records[0].ProviderShowingID != "330660140434" || records[0].Movie.RuntimeMinutes != 197 || !records[0].EndTime.Equal(wantEnd) || records[0].EndTime.Sub(records[0].StartTime) == 197*time.Minute {
+		t.Fatalf("record=%+v", records[0])
+	}
+	markup := `<article id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><em class="screening-time-end extra">(fin 14:30)</em></button></article>`
+	records, err = ParseShowings(strings.NewReader(markup), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil || len(records) != 1 || records[0].EndTime.Hour() != 14 || records[0].EndTime.Minute() != 30 {
+		t.Fatalf("tag-independent records=%+v error=%v", records, err)
+	}
+}
+
+func TestParseShowingsRejectsInvalidCanonicalEnd(t *testing.T) {
+	document := func(owned, trailing string) string {
+		return `<article id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00">` + owned + `</button>` + trailing + `</article>`
+	}
+	for _, test := range []struct {
+		name     string
+		owned    string
+		trailing string
+	}{
+		{name: "missing"},
+		{name: "sibling only", trailing: `<span class="screening-time-end">(fin 14:00)</span>`},
+		{name: "duplicate", owned: `<span class="screening-time-end">(fin 14:00)</span><span class="screening-time-end">(fin 14:00)</span>`},
+		{name: "wrong class", owned: `<span class="screening-time-ending">(fin 14:00)</span>`},
+		{name: "malformed", owned: `<span class="screening-time-end">fin 14:00</span>`},
+		{name: "impossible", owned: `<span class="screening-time-end">(fin 24:00)</span>`},
+		{name: "equal", owned: `<span class="screening-time-end">(fin 12:00)</span>`},
+		{name: "nested unrelated button", owned: `<button><span class="screening-time-end">(fin 14:00)</span></button>`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if records, err := ParseShowings(strings.NewReader(document(test.owned, test.trailing)), Cinema{ProviderID: "25"}, "2026-08-15"); err == nil {
+				t.Fatalf("accepted records=%+v", records)
+			}
+		})
+	}
+}
+
+func TestParseShowingsCanonicalEndRollover(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		serviceDate string
+		rawDate     string
+		start       string
+		end         string
+		want        time.Time
+	}{
+		{name: "year rollover", serviceDate: "2026-12-31", rawDate: "31/12/2026", start: "23:30", end: "01:00", want: time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC)},
+		{name: "post midnight actual date", serviceDate: "2026-12-31", rawDate: "31/12/2026", start: "00:15", end: "01:30", want: time.Date(2027, 1, 1, 1, 30, 0, 0, time.UTC)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `<article id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="` + test.rawDate + `" data-seancehour="` + test.start + `"><span class="screening-time-end">(fin ` + test.end + `)</span></button></article>`
+			records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, test.serviceDate)
+			if err != nil || len(records) != 1 {
+				t.Fatalf("records=%+v error=%v", records, err)
+			}
+			location, _ := time.LoadLocation(schedule.Timezone)
+			want := time.Date(test.want.Year(), test.want.Month(), test.want.Day(), test.want.Hour(), test.want.Minute(), 0, 0, location)
+			if !records[0].EndTime.Equal(want) {
+				t.Fatalf("end=%s want=%s", records[0].EndTime, want)
+			}
+		})
 	}
 }
 
@@ -260,7 +330,7 @@ func TestParseShowingsRejectsMalformedIdentitylessPackageIdentity(t *testing.T) 
 }
 
 func TestParseShowingsDoesNotSwallowNestedCanonicalBlock(t *testing.T) {
-	body := `<div id="bloc-showing-film-"><button data-showing="package-1" data-filmid="" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="11:00"></button><div id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_test_1.html?cinemaId=25">Film</a></div><span>(2h)</span><button data-showing="10" data-filmid="1" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div></div>`
+	body := `<div id="bloc-showing-film-"><button data-showing="package-1" data-filmid="" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="11:00"></button><div id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_test_1.html?cinemaId=25">Film</a></div><span>(2h)</span><button data-showing="10" data-filmid="1" data-cinemaid="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></div></div>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
 	if err != nil || len(records) != 1 || records[0].Movie.ProviderID != "1" {
 		t.Fatalf("records=%+v error=%v", records, err)
@@ -268,7 +338,7 @@ func TestParseShowingsDoesNotSwallowNestedCanonicalBlock(t *testing.T) {
 }
 
 func TestParseShowingsPreservesNearestRoomAndFormatWithSharedNestedStructure(t *testing.T) {
-	body := `<article id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_public_1.html?cinemaId=25">Film</a></div><span>(2h)</span><div class="session"><span class="screening-room">Salle extérieure</span><span class="screening-2D3D">IMAX</span><div class="session"><span class="screening-room">Salle intérieure</span><span class="screening-2D3D">4DX</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div><button data-showing="11" data-film="1" data-cinema="25" data-version="VO" data-seancedate="15/08/2026" data-seancehour="13:00"></button></div></article>`
+	body := `<article id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_public_1.html?cinemaId=25">Film</a></div><span>(2h)</span><div class="session"><span class="screening-room">Salle extérieure</span><span class="screening-2D3D">IMAX</span><div class="session"><span class="screening-room">Salle intérieure</span><span class="screening-2D3D">4DX</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></div><button data-showing="11" data-film="1" data-cinema="25" data-version="VO" data-seancedate="15/08/2026" data-seancehour="13:00"><span class="screening-time-end">(fin 15:00)</span></button></div></article>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +389,7 @@ func TestParseShowingsRejectsMissingOrInvalidCanonicalHeading(t *testing.T) {
 }
 
 func TestParseShowingsPreservesUnambiguousLegacyTitle(t *testing.T) {
-	body := `<div id="bloc-showing-film-1"><a data-film="1" title="Legacy film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div>`
+	body := `<div id="bloc-showing-film-1"><a data-film="1" title="Legacy film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></div>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
 	if err != nil {
 		t.Fatal(err)
@@ -330,7 +400,7 @@ func TestParseShowingsPreservesUnambiguousLegacyTitle(t *testing.T) {
 }
 
 func TestParseShowingsPrefersNumericButtonIDs(t *testing.T) {
-	body := `<div id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_example_1.html?cinemaId=25">Film</a></div><span>(2h)</span><button data-showing="10" data-film="Human film title" data-filmId="1" data-cinema="Human cinema name" data-cinemaId="25" data-version="VF" data-seanceDate="15/08/2026" data-seanceHour="12:00"></button></div>`
+	body := `<div id="bloc-showing-film-1"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_example_1.html?cinemaId=25">Film</a></div><span>(2h)</span><button data-showing="10" data-film="Human film title" data-filmId="1" data-cinema="Human cinema name" data-cinemaId="25" data-version="VF" data-seanceDate="15/08/2026" data-seanceHour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></div>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
 	if err != nil {
 		t.Fatal(err)
@@ -557,7 +627,7 @@ func TestParseShowingsRejectsMixedValidAndPartialCandidates(t *testing.T) {
 }
 
 func TestParseShowingsRejectsScreeningStructureWithoutAttributes(t *testing.T) {
-	body := `<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button><div><span class="screening-room">Salle 2</span><button>Réserver</button></div></div>`
+	body := `<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button><div><span class="screening-room">Salle 2</span><button>Réserver</button></div></div>`
 	_, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
 	if err == nil || err.Error() != "showing required attribute missing or conflicting" {
 		t.Fatalf("error=%v", err)
@@ -572,7 +642,7 @@ func TestParseShowingsRejectsCandidateOutsideCanonicalBlock(t *testing.T) {
 }
 
 func TestParseShowingsIgnoresOrdinaryUnrelatedButton(t *testing.T) {
-	body := `<main><button class="navigation">Menu</button><div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div></main>`
+	body := `<main><button class="navigation">Menu</button><div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></div></main>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
 	if err != nil || len(records) != 1 {
 		t.Fatalf("records=%+v error=%v", records, err)
@@ -590,7 +660,7 @@ func TestParseShowingsAllowsNonShowingFilmBlock(t *testing.T) {
 }
 
 func TestParseShowingsRuntimeBounds(t *testing.T) {
-	validButton := `<button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button>`
+	validButton := `<button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 13:00)</span></button>`
 	maxDurationMinutes := int(int64(^uint64(0)>>1) / int64(time.Minute))
 	runtimeText := func(minutes int) string {
 		return fmt.Sprintf("(%dh%02d)", minutes/60, minutes%60)
@@ -617,7 +687,7 @@ func TestParseShowingsRuntimeBounds(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || len(records) != 1 || records[0].Movie.RuntimeMinutes != test.want || records[0].EndTime.Sub(records[0].StartTime) != time.Duration(test.want)*time.Minute {
+			if err != nil || len(records) != 1 || records[0].Movie.RuntimeMinutes != test.want || records[0].EndTime.Sub(records[0].StartTime) != time.Hour {
 				t.Fatalf("records=%+v error=%v", records, err)
 			}
 		})
@@ -661,7 +731,7 @@ func TestParserAcceptsCountsAboveFormerLimits(t *testing.T) {
 		var page strings.Builder
 		page.WriteString(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span>`)
 		for id := 1; id <= 4097; id++ {
-			fmt.Fprintf(&page, `<button data-showing="%d" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button>`, id)
+			fmt.Fprintf(&page, `<button data-showing="%d" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 13:30)</span></button>`, id)
 		}
 		page.WriteString(`</div>`)
 		records, err := ParseShowings(strings.NewReader(page.String()), Cinema{ProviderID: "25"}, "2026-08-15")

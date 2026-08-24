@@ -7,8 +7,9 @@ defineProps<{ result: SlotResult }>()
 const posterFailed = ref(false)
 const backdropFailed = ref(false)
 
-function hasDelayedArrival(result: SlotResult): boolean {
+function hasAdjustedFilterWindow(result: SlotResult): boolean {
   return Date.parse(result.effective_start_time) !== Date.parse(result.showtime.start_time)
+    || Date.parse(result.effective_end_time) !== Date.parse(result.showtime.end_time)
 }
 
 function bookingLabel(result: SlotResult): string {
@@ -48,11 +49,8 @@ function bookingLabel(result: SlotResult): string {
         <Film v-else :size="18" class="text-muted/60" aria-hidden="true" />
       </div>
       <div class="col-start-2 border-l-2 border-ink pl-3 sm:col-start-auto">
-        <template v-if="hasDelayedArrival(result)">
-          <p class="text-sm font-black tabular-nums text-ink">Arrivée conseillée {{ formatParisTime(result.effective_start_time) }} → fin {{ formatParisTime(result.effective_end_time) }}</p>
-          <p class="mt-1 font-mono text-[9px] font-bold uppercase tabular-nums tracking-[0.08em] text-muted">Séance annoncée à {{ formatParisTime(result.showtime.start_time) }}</p>
-        </template>
-        <p v-else class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+        <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}</p>
+        <p v-if="hasAdjustedFilterWindow(result)" class="mt-1 font-mono text-[9px] font-bold tabular-nums tracking-[0.08em] text-muted">Filtre appliqué : {{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
       </div>
       <div class="col-start-2 min-w-0 sm:col-start-auto">
         <h3 class="truncate text-base font-black tracking-[-0.02em] text-ink">

@@ -79,7 +79,7 @@ func TestSyncIncludesAdvertisedDateBeyondFormerLimit(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
 	cinema := []byte(`<html><head><title>UGC Lille, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC Lille</h1><p class="address">1 rue Test 59000 Lille</p></section><input name="cinemaId" value="25"><button id="nav_date_2026-08-14"></button><button id="nav_date_2026-08-15"></button><button id="nav_date_2027-02-14"></button></body></html>`)
 	showings := func(id, date string) []byte {
-		return []byte(fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="25" data-version="VF" data-seancedate="%s" data-seancehour="12:00"></button></div>`, id, date))
+		return []byte(fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="25" data-version="VF" data-seancedate="%s" data-seancehour="12:00"><span class="screening-time-end">(fin 13:30)</span></button></div>`, id, date))
 	}
 	getter := &fakeGetter{responses: map[string][]byte{
 		SitemapURL:                             sitemap,
@@ -119,13 +119,13 @@ func TestSyncAcceptsActiveCinemasAboveFormerLimit(t *testing.T) {
 		if fields[0] == "showings" {
 			id = fields[2]
 			showingID := "9" + id
-			body := fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="%s" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"></button></div>`, showingID, id)
+			body := fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="%s" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 13:30)</span></button></div>`, showingID, id)
 			return FetchResult{Body: []byte(body), FinalURL: rawURL}, nil
 		}
 		return FetchResult{}, fmt.Errorf("unexpected request kind")
 	}}
 	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
-	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 || summary.Cinemas != 257 || summary.Showtimes != 257 {
+	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 || summary.Cinemas != 257 || summary.Showtimes != 257 || summary.Requests != 515 {
 		t.Fatalf("theaters=%d showtimes=%d summary=%+v err=%v", len(data.Theaters), len(data.Showtimes), summary, err)
 	}
 }
@@ -528,5 +528,18 @@ func TestRunIndexedPhaseFirstErrorCancelsSiblingAndQueuedJobs(t *testing.T) {
 		default:
 			t.Fatal("phase returned before in-flight sibling exited")
 		}
+	}
+}
+
+func TestSyncUsesCanonicalShowingEndWithoutExtraRequest(t *testing.T) {
+	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=45</loc></url></urlset>`)
+	cinema := []byte(`<html><head><title>UGC Lille, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC Lille</h1><p class="address">1 rue Test 59000 Lille</p></section><input name="cinemaId" value="45"><button id="nav_date_2026-08-25"></button></body></html>`)
+	showingsURL := "https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=45&date=25%2F08%2F2026&page=30007"
+	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, "https://www.ugc.fr/cinema.html?id=45": cinema, showingsURL: readFixture(t, "showings-canonical-end.html")}}
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-25", Now: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)})
+	location, _ := scheduleLocation()
+	wantEnd := time.Date(2026, 8, 25, 20, 3, 0, 0, location)
+	if err != nil || len(data.Showtimes) != 1 || data.Showtimes[0].Movie.RuntimeMinutes != 197 || !data.Showtimes[0].EndTime.Equal(wantEnd) || data.Showtimes[0].BookingURL != "https://www.ugc.fr/reservationSeances.html?id=330660140434" || summary.Requests != 3 || getter.RequestCount() != 3 {
+		t.Fatalf("data=%+v summary=%+v calls=%d error=%v", data, summary, getter.RequestCount(), err)
 	}
 }

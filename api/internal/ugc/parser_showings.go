@@ -22,6 +22,7 @@ const emptyFilmBlockID = "bloc-showing-film-"
 var blockPattern = regexp.MustCompile(`^bloc-showing-film-([1-9][0-9]*)$`)
 var runtimePattern = regexp.MustCompile(`\(([0-9]+)h([0-9]{1,2})?\)`)
 var sluggedFilmPathPattern = regexp.MustCompile(`^film_(.+)_([1-9][0-9]*)\.html$`)
+var showingEndPattern = regexp.MustCompile(`^\(fin (([01][0-9]|2[0-3]):[0-5][0-9])\)$`)
 
 var (
 	parisLocationOnce sync.Once
@@ -821,11 +822,49 @@ func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string,
 			break
 		}
 	}
-	duration, ok := schedule.RuntimeDuration(runtime)
-	if !ok {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("invalid film runtime")
+	end, err := parseShowingEndTime(button, start, cache)
+	if err != nil {
+		return schedule.ShowtimeRecord{}, err
 	}
-	return schedule.ShowtimeRecord{ID: "ugc-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: serviceDate, TheaterID: "ugc-" + cinemaID, Movie: schedule.MovieRecord{ProviderID: filmID, Slug: "ugc-film-" + filmID, Title: title, RuntimeMinutes: runtime, PosterURL: poster}, StartTime: start, EndTime: start.Add(duration), Language: language, ProviderVersion: version, Format: format, Room: room, BookingURL: "https://www.ugc.fr/reservationSeances.html?id=" + url.QueryEscape(showingID)}, nil
+	return schedule.ShowtimeRecord{ID: "ugc-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: serviceDate, TheaterID: "ugc-" + cinemaID, Movie: schedule.MovieRecord{ProviderID: filmID, Slug: "ugc-film-" + filmID, Title: title, RuntimeMinutes: runtime, PosterURL: poster}, StartTime: start, EndTime: end, Language: language, ProviderVersion: version, Format: format, Room: room, BookingURL: "https://www.ugc.fr/reservationSeances.html?id=" + url.QueryEscape(showingID)}, nil
+}
+
+func parseShowingEndTime(button *html.Node, start time.Time, cache *showingsParseCache) (time.Time, error) {
+	var nodes []*html.Node
+	for _, node := range cache.descendantElements(button) {
+		if !hasClass(node, "screening-time-end") {
+			continue
+		}
+		owner := node.Parent
+		for owner != nil && (owner.Type != html.ElementNode || owner.Data != "button") {
+			owner = owner.Parent
+		}
+		if owner == button {
+			nodes = append(nodes, node)
+		}
+	}
+	if len(nodes) != 1 {
+		return time.Time{}, fmt.Errorf("showing end missing or conflicting")
+	}
+	match := showingEndPattern.FindStringSubmatch(collapse(cache.text(nodes[0])))
+	if match == nil {
+		return time.Time{}, fmt.Errorf("invalid showing end")
+	}
+	clock, err := time.Parse("15:04", match[1])
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid showing end")
+	}
+	localStart := start.In(start.Location())
+	date := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, start.Location())
+	end := time.Date(date.Year(), date.Month(), date.Day(), clock.Hour(), clock.Minute(), 0, 0, start.Location())
+	if end.Before(localStart) {
+		next := date.AddDate(0, 0, 1)
+		end = time.Date(next.Year(), next.Month(), next.Day(), clock.Hour(), clock.Minute(), 0, 0, start.Location())
+	}
+	if !end.After(localStart) {
+		return time.Time{}, fmt.Errorf("invalid showing end")
+	}
+	return end, nil
 }
 
 func isShowingFilmBlock(node *html.Node) bool {

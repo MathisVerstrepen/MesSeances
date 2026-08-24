@@ -61,7 +61,7 @@ func generatedShowingsBenchmarkBody(films, showingsPerFilm int) []byte {
 	for film := 1; film <= films; film++ {
 		fmt.Fprintf(&body, `<article id="bloc-showing-film-%[1]d"><div class="block--title text-uppercase"><a class="color--dark-blue" href="film_public_%[1]d.html?cinemaId=25">Film public %[1]d</a></div><img src="https://example.test/poster.jpg"><span>(1h45)</span><div class="session"><span class="screening-room">Salle %[1]d</span><span class="screening-2D3D">3D</span>`, film)
 		for showing := 0; showing < showingsPerFilm; showing++ {
-			fmt.Fprintf(&body, `<button data-showing="%d" data-film="%d" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="%02d:%02d">Réserver</button>`, showingID, film, 8+(showing%12), (showing*5)%60)
+			fmt.Fprintf(&body, `<button data-showing="%d" data-film="%d" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="%02d:%02d">Réserver <span class="screening-time-end">(fin 23:59)</span></button>`, showingID, film, 8+(showing%12), (showing*5)%60)
 			showingID++
 		}
 		body.WriteString(`</div></article>`)

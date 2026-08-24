@@ -15,8 +15,9 @@ const backdropUrl = computed(() => props.results[0]?.backdrop_url ?? null)
 const posterFailed = ref(false)
 const backdropFailed = ref(false)
 
-function hasDelayedArrival(result: SlotResult): boolean {
+function hasAdjustedFilterWindow(result: SlotResult): boolean {
   return Date.parse(result.effective_start_time) !== Date.parse(result.showtime.start_time)
+    || Date.parse(result.effective_end_time) !== Date.parse(result.showtime.end_time)
 }
 
 function bookingLabel(result: SlotResult): string {
@@ -76,11 +77,8 @@ function bookingLabel(result: SlotResult): string {
     <ul v-if="layout === 'lines'" class="divide-y-2 divide-ink" aria-label="Séances compatibles">
       <li v-for="result in results" :key="result.showtime.id" class="grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5">
         <div class="min-w-0">
-          <template v-if="hasDelayedArrival(result)">
-            <p class="text-sm font-black tabular-nums text-ink">Arrivée conseillée {{ formatParisTime(result.effective_start_time) }} → fin {{ formatParisTime(result.effective_end_time) }}</p>
-            <p class="mt-1 font-mono text-[9px] font-bold uppercase tabular-nums tracking-[0.08em] text-muted">Séance annoncée à {{ formatParisTime(result.showtime.start_time) }}</p>
-          </template>
-          <p v-else class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
+          <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">{{ formatParisTime(result.showtime.start_time) }} → {{ formatParisTime(result.showtime.end_time) }}</p>
+          <p v-if="hasAdjustedFilterWindow(result)" class="mt-1 font-mono text-[9px] font-bold tabular-nums tracking-[0.08em] text-muted">Filtre appliqué : {{ formatParisTime(result.effective_start_time) }} → {{ formatParisTime(result.effective_end_time) }}</p>
           <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <BrandedText :text="result.theater.name" /></span>
             <span>{{ result.showtime.room }}</span>
