@@ -10,10 +10,11 @@ import (
 )
 
 type RunOptions struct {
-	Filters        Filters
-	Limit          int
-	RetryAmbiguous bool
-	DryRun         bool
+	Filters         Filters
+	Limit           int
+	RetryAmbiguous  bool
+	PreserveMatched bool
+	DryRun          bool
 }
 
 type Summary struct {
@@ -54,7 +55,7 @@ func (r *Runner) Run(ctx context.Context, options RunOptions) (Summary, error) {
 	}
 	for _, theater := range theaters {
 		hash := AddressHash(theater.Address, theater.PostalCode, theater.City)
-		if !processable(theater.Location, hash, options.RetryAmbiguous) {
+		if !processable(theater.Location, hash, options.RetryAmbiguous, options.PreserveMatched) {
 			summary.Skipped++
 			continue
 		}
@@ -98,11 +99,14 @@ func (r *Runner) Run(ctx context.Context, options RunOptions) (Summary, error) {
 	return summary, nil
 }
 
-func processable(location *Location, hash string, retryAmbiguous bool) bool {
+func processable(location *Location, hash string, retryAmbiguous, preserveMatched bool) bool {
 	if location == nil {
 		return true
 	}
 	if location.Status == StatusManual {
+		return false
+	}
+	if preserveMatched && location.Status == StatusMatched {
 		return false
 	}
 	if location.AddressHash != hash {

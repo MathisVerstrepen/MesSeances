@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowLeft, Check, LoaderCircle, LogOut, MapPin, RefreshCw } from '@lucide/vue'
-import type { AdminTheaterLocation, AdminTheaterLocationsResponse, Provider } from '~/types/api'
+import type {
+  AdminTheaterGeocodingFailureCode,
+  AdminTheaterGeocodingJob,
+  AdminTheaterGeocodingResponse,
+  AdminTheaterLocation,
+  AdminTheaterLocationsResponse,
+  Provider
+} from '~/types/api'
 import {
   parseAdminTheaterLocationCoordinates,
   type AdminTheaterLocationCoordinateDraft,
@@ -13,6 +20,7 @@ definePageMeta({ middleware: 'admin-auth' })
 type LocationAction = 'suggestion' | 'manual'
 
 const PAGE_SIZE = 20
+const POLL_DELAY = 2000
 const OWNED_QUERY_KEYS = ['page'] as const
 const api = useMesSeancesApi()
 const route = useRoute()
@@ -27,15 +35,25 @@ const draftErrors = ref<Record<string, AdminTheaterLocationCoordinateErrors>>({}
 const itemErrors = ref<Record<string, string>>({})
 const pendingActions = ref<Record<string, LocationAction>>({})
 const successMessage = ref('')
+const geocodingStatus = ref<AdminTheaterGeocodingResponse | null>(null)
+const geocodingInitialPending = ref(true)
+const geocodingRequestPending = ref(false)
+const geocodingStarting = ref(false)
+const geocodingError = ref('')
 const loggingOut = ref(false)
 const logoutError = ref('')
 let requestId = 0
 let isMounted = false
 let lastLoadPage = 0
 let scrollAfterLoad = false
+let pollTimer: ReturnType<typeof setTimeout> | undefined
+let observedRunningJobId: string | null = null
+const refreshedGeocodingJobs = new Set<string>()
 
 const page = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
 const canGoNext = computed(() => (result.value?.items.length ?? 0) === PAGE_SIZE)
+const geocodingJob = computed(() => geocodingStatus.value?.job ?? null)
+const geocodingControlsDisabled = computed(() => geocodingInitialPending.value || geocodingStarting.value || geocodingStatus.value === null || geocodingJob.value?.state === 'running')
 
 const providerLabels = {
   ugc: 'UGC',
@@ -43,6 +61,29 @@ const providerLabels = {
   pathe: 'Pathé',
   cgr: 'CGR'
 } satisfies Record<Provider, string>
+
+const geocodingFailureLabels = {
+  run_failed: 'Traitement IGN échoué',
+  canceled: 'Exécution interrompue',
+  internal_failure: 'Erreur interne'
+} satisfies Record<AdminTheaterGeocodingFailureCode, string>
+
+const dateTimeFormatter = new Intl.DateTimeFormat('fr-FR', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+  timeZone: 'Europe/Paris'
+})
+
+function formatDateTime(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'Date indisponible' : dateTimeFormatter.format(date)
+}
+
+function geocodingStateLabel(job: AdminTheaterGeocodingJob): string {
+  if (job.state === 'succeeded') return 'Terminé avec succès'
+  if (job.error_code === 'canceled') return 'Interrompu'
+  return 'Échec'
+}
 
 function locationKey(item: AdminTheaterLocation): string {
   return `${item.provider}:${item.provider_theater_id}`
@@ -147,6 +188,90 @@ async function refreshAfterSuccess(key: string) {
   }
 }
 
+async function refreshLocationsAfterGeocoding() {
+  const loaded = await loadLocations(true)
+  if (loaded && offset.value > 0 && result.value?.items.length === 0) {
+    await router.replace({ query: pageQuery(page.value - 1) })
+  }
+}
+
+function clearGeocodingPolling() {
+  if (pollTimer !== undefined) {
+    clearTimeout(pollTimer)
+    pollTimer = undefined
+  }
+}
+
+function scheduleGeocodingPolling() {
+  clearGeocodingPolling()
+  if (!isMounted || geocodingJob.value?.state !== 'running') return
+  pollTimer = setTimeout(() => {
+    pollTimer = undefined
+    void loadGeocodingStatus(true)
+  }, POLL_DELAY)
+}
+
+async function applyGeocodingStatus(response: AdminTheaterGeocodingResponse) {
+  const nextJob = response.job
+  const shouldRefresh = nextJob?.state === 'succeeded'
+    && nextJob.id === observedRunningJobId
+    && !refreshedGeocodingJobs.has(nextJob.id)
+
+  geocodingStatus.value = response
+  if (nextJob?.state === 'running') observedRunningJobId = nextJob.id
+  if (!shouldRefresh || !nextJob) return
+
+  refreshedGeocodingJobs.add(nextJob.id)
+  observedRunningJobId = null
+  await refreshLocationsAfterGeocoding()
+}
+
+async function loadGeocodingStatus(fromPolling = false) {
+  if (geocodingRequestPending.value) return
+  if (!fromPolling) clearGeocodingPolling()
+  if (!fromPolling && geocodingStatus.value === null) geocodingInitialPending.value = true
+  if (!fromPolling) geocodingError.value = ''
+  geocodingRequestPending.value = true
+  try {
+    const response = await api.adminTheaterGeocodingStatus()
+    if (!isMounted) return
+    await applyGeocodingStatus(response)
+    geocodingError.value = ''
+  } catch (error) {
+    if (isMounted) geocodingError.value = getFrenchAdminApiError(error)
+  } finally {
+    if (isMounted) {
+      geocodingRequestPending.value = false
+      geocodingInitialPending.value = false
+      scheduleGeocodingPolling()
+    }
+  }
+}
+
+async function startGeocoding() {
+  if (geocodingControlsDisabled.value) return
+  clearGeocodingPolling()
+  geocodingStarting.value = true
+  geocodingError.value = ''
+  try {
+    const response = await api.adminStartTheaterGeocoding()
+    if (!isMounted) return
+    await applyGeocodingStatus(response)
+  } catch (error) {
+    if (!isMounted) return
+    if (getApiErrorStatus(error) === 409) {
+      await loadGeocodingStatus()
+      return
+    }
+    geocodingError.value = getFrenchAdminApiError(error)
+  } finally {
+    if (isMounted) {
+      geocodingStarting.value = false
+      scheduleGeocodingPolling()
+    }
+  }
+}
+
 async function handleMutationError(cause: unknown, key: string) {
   if (getApiErrorStatus(cause) === 409) {
     setItemError(key, 'Cette localisation a changé ou la suggestion n’est plus disponible. La liste a été actualisée. Vérifiez les données, puis réessayez.')
@@ -223,9 +348,11 @@ watch(() => route.query, () => {
 onMounted(() => {
   isMounted = true
   void applyRoute()
+  void loadGeocodingStatus()
 })
 onBeforeUnmount(() => {
   isMounted = false
+  clearGeocodingPolling()
   requestId += 1
 })
 
@@ -254,6 +381,58 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
       <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
       <p>{{ logoutError }}</p>
     </div>
+
+    <section class="mt-6 rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6" aria-labelledby="geocoding-title" :aria-busy="geocodingJob?.state === 'running' || geocodingStarting ? 'true' : undefined">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="geocoding-title" class="text-lg font-semibold text-ink">Géocodage IGN</h2>
+        <button type="button" class="button-primary h-auto min-h-11" :disabled="geocodingControlsDisabled" @click="startGeocoding">
+          <LoaderCircle v-if="geocodingStarting || geocodingJob?.state === 'running'" :size="17" class="animate-spin" aria-hidden="true" />
+          <RefreshCw v-else :size="17" aria-hidden="true" />
+          Lancer le géocodage
+        </button>
+      </div>
+
+      <div v-if="geocodingError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+        <AlertTriangle :size="19" class="shrink-0" aria-hidden="true" />
+        <div class="flex-1">
+          <p>{{ geocodingError }}</p>
+          <button type="button" class="mt-2 inline-flex min-h-11 items-center gap-2 font-semibold underline underline-offset-2 disabled:opacity-50" :disabled="geocodingRequestPending || geocodingStarting" @click="loadGeocodingStatus()">
+            <RefreshCw :size="16" aria-hidden="true" /> Actualiser l’état
+          </button>
+        </div>
+      </div>
+
+      <div v-if="geocodingInitialPending" class="mt-4 flex min-h-11 items-center gap-2 text-sm text-muted" role="status" aria-live="polite">
+        <LoaderCircle :size="18" class="animate-spin text-accent" aria-hidden="true" />
+        Chargement de l’état du géocodage…
+      </div>
+
+      <div v-else-if="geocodingJob?.state === 'running'" class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" role="status" aria-live="polite">
+        <span class="inline-flex items-center gap-2 font-semibold text-amber-800">
+          <LoaderCircle :size="18" class="animate-spin" aria-hidden="true" /> Géocodage en cours
+        </span>
+        <span class="text-muted">Démarré le {{ formatDateTime(geocodingJob.started_at) }}</span>
+      </div>
+
+      <div v-else-if="geocodingJob" class="mt-4">
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" role="status" aria-live="polite">
+          <span class="font-semibold" :class="geocodingJob.state === 'succeeded' ? 'text-green-700' : 'text-red-700'">{{ geocodingStateLabel(geocodingJob) }}</span>
+          <span v-if="geocodingJob.finished_at" class="text-muted">Terminé le {{ formatDateTime(geocodingJob.finished_at) }}</span>
+          <span v-if="geocodingJob.state === 'failed' && geocodingJob.error_code" class="font-medium text-red-700">{{ geocodingFailureLabels[geocodingJob.error_code] }}</span>
+        </div>
+        <dl v-if="geocodingJob.summary" class="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4 lg:grid-cols-7">
+          <div><dt class="text-muted">Sélectionnés</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.selected }}</dd></div>
+          <div><dt class="text-muted">Ignorés</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.skipped }}</dd></div>
+          <div><dt class="text-muted">Correspondances</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.matched }}</dd></div>
+          <div><dt class="text-muted">Ambigus</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.ambiguous }}</dd></div>
+          <div><dt class="text-muted">Introuvables</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.not_found }}</dd></div>
+          <div><dt class="text-muted">Échecs</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.failed }}</dd></div>
+          <div><dt class="text-muted">Enregistrés</dt><dd class="mt-0.5 font-semibold tabular-nums text-ink">{{ geocodingJob.summary.written }}</dd></div>
+        </dl>
+      </div>
+
+      <p v-else-if="!geocodingError" class="mt-4 text-sm text-muted">Aucun géocodage enregistré.</p>
+    </section>
 
     <div v-if="loadError" class="mt-6 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
       <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />

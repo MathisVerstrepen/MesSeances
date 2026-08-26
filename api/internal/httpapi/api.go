@@ -49,6 +49,7 @@ type AdminOptions struct {
 	Syncs            SyncController
 	SyncSchedules    SyncScheduleController
 	TheaterLocations TheaterLocationController
+	TheaterGeocoding TheaterGeocodingController
 	Now              func() time.Time
 	Logger           *slog.Logger
 	Metrics          *observability.Metrics
@@ -73,6 +74,11 @@ type TheaterLocationController interface {
 	Pending(context.Context, int, int) ([]geocoding.PendingLocation, error)
 	AcceptSuggestion(context.Context, string, string, time.Time) error
 	SetManual(context.Context, string, string, time.Time, float64, float64) error
+}
+
+type TheaterGeocodingController interface {
+	Start() (geocoding.RunStatus, error)
+	Snapshot(context.Context) (*geocoding.RunStatus, error)
 }
 
 type errorResponse struct {
@@ -150,6 +156,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/sync-schedules", api.admin.syncSchedules)
 			router.With(api.admin.requireOrigin).Post("/sync-schedules/{provider}", api.admin.saveSyncSchedule)
 			router.Get("/theater-locations", api.admin.pendingTheaterLocations)
+			router.Get("/theater-locations/geocoding-runs", api.admin.theaterGeocodingStatus)
+			router.With(api.admin.requireOrigin).Post("/theater-locations/geocoding-runs", api.admin.startTheaterGeocoding)
 			router.With(api.admin.requireOrigin).Post("/theater-locations/{provider}/{providerTheaterID}/accept-suggestion", api.admin.acceptTheaterLocationSuggestion)
 			router.With(api.admin.requireOrigin).Post("/theater-locations/{provider}/{providerTheaterID}/manual", api.admin.setManualTheaterLocation)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/approve", api.admin.approveMatch)

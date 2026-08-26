@@ -60,6 +60,37 @@ func TestRunnerMatchDryRunSkipsAndAddressChanges(t *testing.T) {
 	}
 }
 
+func TestRunnerPreserveMatchedSelectionMatrix(t *testing.T) {
+	address, postalCode, city := "40 rue de Béthune", "59000", "Lille"
+	currentHash := AddressHash(address, postalCode, city)
+	oldHash := AddressHash("old address", postalCode, city)
+	tests := []struct {
+		name     string
+		location *Location
+		want     bool
+	}{
+		{name: "new row", want: true},
+		{name: "unchanged matched", location: &Location{Status: StatusMatched, AddressHash: currentHash}, want: false},
+		{name: "changed matched", location: &Location{Status: StatusMatched, AddressHash: oldHash}, want: false},
+		{name: "unchanged manual", location: &Location{Status: StatusManual}, want: false},
+		{name: "changed manual", location: &Location{Status: StatusManual, AddressHash: oldHash}, want: false},
+		{name: "unchanged ambiguous", location: &Location{Status: StatusAmbiguous, AddressHash: currentHash}, want: true},
+		{name: "changed ambiguous", location: &Location{Status: StatusAmbiguous, AddressHash: oldHash}, want: true},
+		{name: "unchanged not found", location: &Location{Status: StatusNotFound, AddressHash: currentHash}, want: false},
+		{name: "changed not found", location: &Location{Status: StatusNotFound, AddressHash: oldHash}, want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := processable(test.location, currentHash, true, true); got != test.want {
+				t.Fatalf("processable=%t want=%t", got, test.want)
+			}
+		})
+	}
+	if !processable(&Location{Status: StatusMatched, AddressHash: oldHash}, currentHash, true, false) {
+		t.Fatal("default CLI selection no longer retries a changed matched row")
+	}
+}
+
 func TestRunnerAmbiguousNotFoundLimitAndPartialFailure(t *testing.T) {
 	theaters := []Theater{{Provider: "ugc", ProviderID: "1", Address: "", PostalCode: "59000", City: "Lille"}, {Provider: "ugc", ProviderID: "2", Address: "2 rue", PostalCode: "59000", City: "Lille"}}
 	store := &memoryStore{theaters: theaters}

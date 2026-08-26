@@ -53,10 +53,39 @@ test('accepts inclusive coordinate boundaries and rejects values outside them', 
   assert.equal(parseAdminTheaterLocationCoordinates({ latitude: '0', longitude: '-180.0001' }).errors.longitude, 'La longitude doit être comprise entre -180 et 180.')
 })
 
-test('keeps theater location page authenticated and renders provider text literally', async () => {
+test('keeps theater location page authenticated and renders API text literally', async () => {
   const page = await readFile(new URL('../app/pages/admin/theater-locations.vue', import.meta.url), 'utf8')
 
   assert.match(page, /definePageMeta\(\{ middleware: 'admin-auth' \}\)/)
   assert.match(page, /\{\{ item\.suggestion\.label \}\}/)
+  assert.match(page, />Géocodage IGN</)
+  assert.match(page, />\s*Lancer le géocodage\s*</)
+  assert.match(page, /\{\{ geocodingJob\.summary\.selected \}\}/)
+  assert.match(page, /\{\{ geocodingJob\.summary\.skipped \}\}/)
+  assert.match(page, /\{\{ geocodingJob\.summary\.matched \}\}/)
+  assert.match(page, /\{\{ geocodingJob\.summary\.ambiguous \}\}/)
+  assert.match(page, /\{\{ geocodingJob\.summary\.not_found \}\}/)
+  assert.match(page, /\{\{ geocodingJob\.summary\.failed \}\}/)
+  assert.match(page, /\{\{ geocodingJob\.summary\.written \}\}/)
   assert.doesNotMatch(page, /\bv-html\b/)
+})
+
+test('uses authenticated geocoding endpoints and cleans up two-second polling', async () => {
+  const [page, api] = await Promise.all([
+    readFile(new URL('../app/pages/admin/theater-locations.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../app/composables/useMesSeancesApi.ts', import.meta.url), 'utf8')
+  ])
+
+  assert.match(api, /adminTheaterGeocodingStatus\(\)/)
+  assert.match(api, /adminStartTheaterGeocoding\(\)/)
+  assert.match(api, /\/api\/v1\/admin\/theater-locations\/geocoding-runs/)
+  assert.match(api, /credentials: 'include'/)
+  assert.match(api, /code === 'theater_geocoding_in_progress'/)
+  assert.match(api, /code === 'theater_geocoding_unavailable'/)
+  assert.match(api, /code === 'theater_geocoding_failed'/)
+  assert.match(page, /const POLL_DELAY = 2000/)
+  assert.match(page, /setTimeout\(\(\) =>/)
+  assert.match(page, /onBeforeUnmount\(\(\) => \{[\s\S]*clearGeocodingPolling\(\)/)
+  assert.match(page, /nextJob\?\.state === 'succeeded'[\s\S]*refreshLocationsAfterGeocoding\(\)/)
+  assert.match(page, /getApiErrorStatus\(error\) === 409[\s\S]*loadGeocodingStatus\(\)/)
 })

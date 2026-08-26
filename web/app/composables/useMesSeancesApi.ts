@@ -12,6 +12,7 @@ import type {
   AdminSyncResponse,
   AdminSyncTarget,
   AdminSetManualTheaterLocationRequest,
+  AdminTheaterGeocodingResponse,
   AdminTheaterLocationResolutionResponse,
   AdminTheaterLocationsResponse,
   AdminTMDBRerunSummary,
@@ -166,6 +167,17 @@ export function useMesSeancesApi() {
         body: input
       }))
     },
+    adminTheaterGeocodingStatus() {
+      return withAdminRedirect($fetch<AdminTheaterGeocodingResponse>(`${apiBase}/api/v1/admin/theater-locations/geocoding-runs`, {
+        credentials: 'include'
+      }))
+    },
+    adminStartTheaterGeocoding() {
+      return withAdminRedirect($fetch<AdminTheaterGeocodingResponse>(`${apiBase}/api/v1/admin/theater-locations/geocoding-runs`, {
+        method: 'POST',
+        credentials: 'include'
+      }))
+    },
     adminSyncStatus() {
       return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs`, {
         credentials: 'include'
@@ -241,6 +253,9 @@ export function getFrenchAdminApiError(cause: unknown): string {
   if (code === 'theater_location_not_found') return 'Cette localisation n’est plus à traiter. Actualisez la liste.'
   if (code === 'theater_location_conflict') return 'Cette localisation a changé ou la suggestion n’est plus disponible. Actualisez la liste, puis réessayez.'
   if (code === 'theater_location_unavailable') return 'Le service de localisation des cinémas est temporairement indisponible. Réessayez plus tard.'
+  if (code === 'theater_geocoding_in_progress') return 'Un géocodage IGN est déjà en cours.'
+  if (code === 'theater_geocoding_unavailable') return 'Le service de géocodage IGN est temporairement indisponible.'
+  if (code === 'theater_geocoding_failed') return 'Le service de géocodage IGN a rencontré une erreur. Réessayez plus tard.'
   if (code === 'review_failed' || code === 'internal_error' || getApiErrorStatus(cause) === 502) {
     return 'Le service de validation a rencontré une erreur. Réessayez plus tard.'
   }

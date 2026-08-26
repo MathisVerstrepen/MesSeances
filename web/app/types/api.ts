@@ -141,6 +141,32 @@ export interface AdminTheaterLocationResolutionResponse {
   status: 'manual'
 }
 
+export type AdminTheaterGeocodingState = 'running' | 'succeeded' | 'failed'
+export type AdminTheaterGeocodingFailureCode = 'run_failed' | 'canceled' | 'internal_failure'
+
+export interface AdminTheaterGeocodingSummary {
+  selected: number
+  skipped: number
+  matched: number
+  ambiguous: number
+  not_found: number
+  failed: number
+  written: number
+}
+
+export interface AdminTheaterGeocodingJob {
+  id: string
+  state: AdminTheaterGeocodingState
+  started_at: string
+  finished_at: string | null
+  summary: AdminTheaterGeocodingSummary | null
+  error_code: AdminTheaterGeocodingFailureCode | null
+}
+
+export interface AdminTheaterGeocodingResponse {
+  job: AdminTheaterGeocodingJob | null
+}
+
 export interface AdminTMDBCandidate {
   id: number
   title: string
