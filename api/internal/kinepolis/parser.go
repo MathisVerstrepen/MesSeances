@@ -384,7 +384,7 @@ func trueValue(v map[string]any, keys ...string) bool {
 }
 func sessionAttributes(v map[string]any) string {
 	parts := []string{}
-	for _, key := range []string{"language", "version", "attributes"} {
+	for _, key := range []string{"language", "version", "attributes", "sessionAttributes"} {
 		collectStrings(value(v, key), &parts)
 		walk(value(v, key), func(item map[string]any) {
 			for _, field := range []string{"name", "value", "label"} {
@@ -417,7 +417,7 @@ func collectStrings(value any, destination *[]string) {
 	}
 }
 func language(v string) schedule.Language {
-	lower := strings.ToLower(v)
+	lower := strings.ReplaceAll(strings.ToLower(v), "î", "i")
 	if strings.Contains(lower, "sme") {
 		return schedule.LanguageVFSME
 	}

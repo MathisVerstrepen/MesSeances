@@ -93,6 +93,25 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 	}
 }
 
+func TestParseLiveStructuredSessionAttributesAsVOSTFR(t *testing.T) {
+	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"KLOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"HO00016287","title":"Kultissime Dunkerque","duration":107}],"sessions":[{"complexOperator":"KLOM","showtime":"2026-09-07T18:30:00+00:00","vistaSessionId":"430602","film":{"id":"HO00016287","corporateId":4142,"event":{"code":"0000000035"},"format":{"name":"2D"}},"language":"FR","rawSessionAttributes":"2D,AE,Ciné K,English,fr","sessionAttributes":[{"name":"Sous-tîtres : Français","shortName":"fr"},{"name":"Version Anglaise","shortName":"English"}],"sessionSubtitles":[{"id":"28"}],"isPublicScreening":true,"isSoldOut":false,"hall":22}]}};`)
+	body = withCatalogComplexes(t, body)
+
+	data, _, err := parseSchedule(body, "2026-09-07", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, showing := range data.Showtimes {
+		if showing.ProviderShowingID == "430602" {
+			if showing.Language != schedule.LanguageVOSTFR {
+				t.Fatalf("language=%q provider_version=%q", showing.Language, showing.ProviderVersion)
+			}
+			return
+		}
+	}
+	t.Fatal("target showing not found")
+}
+
 func TestParseRequiresExactRawCinemaInventory(t *testing.T) {
 	valid := catalogComplexObjects()
 	tests := []struct {
