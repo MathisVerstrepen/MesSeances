@@ -94,7 +94,7 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 }
 
 func TestParseLiveStructuredSessionAttributesAsVOSTFR(t *testing.T) {
-	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"KLOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"HO00016287","title":"Kultissime Dunkerque","duration":107}],"sessions":[{"complexOperator":"KLOM","showtime":"2026-09-07T18:30:00+00:00","vistaSessionId":"430602","film":{"id":"HO00016287","corporateId":4142,"event":{"code":"0000000035"},"format":{"name":"2D"}},"language":"FR","rawSessionAttributes":"2D,AE,Ciné K,English,fr","sessionAttributes":[{"name":"Sous-tîtres : Français","shortName":"fr"},{"name":"Version Anglaise","shortName":"English"}],"sessionSubtitles":[{"id":"28"}],"isPublicScreening":true,"isSoldOut":false,"hall":22}]}};`)
+	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"KLOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"HO00016287","title":"Kultissime Dunkerque","duration":107}],"sessions":[{"complexOperator":"KLOM","showtime":"2026-09-07T18:30:00+00:00","vistaSessionId":"430602","film":{"id":"HO00016287","corporateId":4142,"event":{"code":"0000000035"},"format":{"name":"2D"}},"language":"FR","rawSessionAttributes":"2D,AE,Ciné K,English,fr","sessionAttributes":[{"code":"SUBTITLE_FRENCH","id":"00000000-0000-0000-0000-000000000001","imageUrl":"https://cdn.kinepolis.fr/session-attributes/subtitle-french.svg","isActive":true,"name":"Sous-tîtres : Français","promoted":false,"shortName":"fr"},{"code":"VERSION_ENGLISH","id":"00000000-0000-0000-0000-000000000002","imageUrl":"https://cdn.kinepolis.fr/session-attributes/version-english.svg","isActive":true,"name":"Version Anglaise","promoted":false,"shortName":"English"},{"code":"LASER_ULTRA","id":"00000000-0000-0000-0000-000000000003","imageUrl":"https://cdn.kinepolis.fr/session-attributes/laser-ultra.svg","isActive":true,"name":"Laser Ultra","promoted":true,"shortName":"LU"},{"code":"ACCESSIBLE","id":"00000000-0000-0000-0000-000000000004","imageUrl":"https://cdn.kinepolis.fr/session-attributes/accessible.svg","isActive":true,"name":"Accessible","promoted":false,"shortName":"AE"}],"sessionSubtitles":[{"id":"28"}],"isPublicScreening":true,"isSoldOut":false,"hall":22}]}};`)
 	body = withCatalogComplexes(t, body)
 
 	data, _, err := parseSchedule(body, "2026-09-07", time.Now())
@@ -103,8 +103,9 @@ func TestParseLiveStructuredSessionAttributesAsVOSTFR(t *testing.T) {
 	}
 	for _, showing := range data.Showtimes {
 		if showing.ProviderShowingID == "430602" {
-			if showing.Language != schedule.LanguageVOSTFR {
-				t.Fatalf("language=%q provider_version=%q", showing.Language, showing.ProviderVersion)
+			wantVersion := "FR Sous-tîtres : Français Version Anglaise Laser Ultra Accessible"
+			if showing.Language != schedule.LanguageVOSTFR || showing.Format != schedule.FormatLaserUltra || showing.ProviderVersion != wantVersion {
+				t.Fatalf("language=%q format=%q provider_version=%q", showing.Language, showing.Format, showing.ProviderVersion)
 			}
 			return
 		}
