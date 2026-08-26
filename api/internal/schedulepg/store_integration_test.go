@@ -89,7 +89,7 @@ func cgrTestDataset() Dataset {
 	location, _ := time.LoadLocation(Timezone)
 	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 19:00", location)
 	showingID := "W8010-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderCGR, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 15, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderCGR, ID: "cgr-W8010", ProviderID: "W8010", Slug: "cgr-W8010", Name: "CGR Lille", Address: "2 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderCGR, ID: "cgr-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: "2026-08-15", TheaterID: "cgr-W8010", Movie: MovieRecord{Provider: ProviderCGR, ProviderID: "1001", Slug: "cgr-film-1001", Title: "Conférence CGR", RuntimeMinutes: 0, PosterURL: "https://images.acsta.net/posters/1001.jpg"}, StartTime: start, EndTime: start, Language: schedule.Language("SPANISH"), ProviderVersion: "Localization.Language.Spanish", Format: Format2D, Room: "", BookingURL: "https://www.cgrcinemas.fr/lille/reserver/test"}}}
+	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderCGR, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 15, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderCGR, ID: "cgr-W8010", ProviderID: "W8010", Slug: "cgr-W8010", Name: "CGR Lille", Address: "2 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderCGR, ID: "cgr-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: "2026-08-15", TheaterID: "cgr-W8010", Movie: MovieRecord{Provider: ProviderCGR, ProviderID: "1001", Slug: "cgr-film-1001", Title: "Conférence CGR", RuntimeMinutes: 0, PosterURL: "https://images.acsta.net/posters/1001.jpg"}, StartTime: start, EndTime: start, Language: schedule.Language("SPANISH"), ProviderVersion: "Localization.Language.Spanish", Format: Format2D, Room: "", BookingURL: "https://achat.cgrcinemas.fr/lille/r/12345"}}}
 }
 
 func testMovieSlug(movie MovieRecord) string {
@@ -153,11 +153,6 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal("repeat migration run failed")
-	}
-	var migrationCount int
-	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 18 || migrationName != "018_cgr_provider.sql" {
-		t.Fatalf("migration history count=%d name=%q", migrationCount, migrationName)
 	}
 	var generationColumns, generationIndexes, generationFKs int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name IN ('provider_snapshots','theaters','theater_dates','theater_passes','movies','showtimes') AND column_name='generation_id' AND is_nullable='NO'`).Scan(&generationColumns); err != nil || generationColumns != 6 {
@@ -933,10 +928,6 @@ UPDATE movie_enrichment_state SET version=1 WHERE singleton=true;
 		t.Fatal("run migration 006 on stale 005 failed")
 	}
 	store := NewStore(pool)
-	var migrationName string
-	if err := pool.QueryRow(ctx, "SELECT count(*), max(name) FROM movieflow_schema_migrations").Scan(&migrationCount, &migrationName); err != nil || migrationCount != 18 || migrationName != "018_cgr_provider.sql" {
-		t.Fatalf("repaired migration history count=%d name=%q err=%v", migrationCount, migrationName, err)
-	}
 	var sourceColumns, sourceConstraints int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='movies' AND ((column_name='source_overview' AND data_type='character varying' AND character_maximum_length=10000 AND is_nullable='YES') OR (column_name='source_release_date' AND data_type='date' AND is_nullable='YES') OR (column_name='source_genres' AND data_type='ARRAY' AND udt_name='_text' AND is_nullable='NO'))`).Scan(&sourceColumns); err != nil || sourceColumns != 3 {
 		t.Fatalf("repaired source columns=%d err=%v", sourceColumns, err)

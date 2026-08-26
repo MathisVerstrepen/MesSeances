@@ -20,11 +20,42 @@ func TestOpenPoolRejectsBlankAndRedactsInvalidURL(t *testing.T) {
 }
 
 func TestEmbeddedMigrations(t *testing.T) {
+	// Append new migrations to this manifest. Existing entries are compatibility history.
+	want := []struct {
+		version int64
+		name    string
+	}{
+		{1, "001_initial.sql"},
+		{2, "002_movie_enrichment.sql"},
+		{3, "003_admin_match_review.sql"},
+		{4, "004_movie_backdrop.sql"},
+		{5, "005_multi_provider.sql"},
+		{6, "006_repair_multi_provider_schema.sql"},
+		{7, "007_screening_formats.sql"},
+		{8, "008_local_movie_groups.sql"},
+		{9, "009_widen_runtime_minutes.sql"},
+		{10, "010_schedule_generations.sql"},
+		{11, "011_short_links.sql"},
+		{12, "012_sync_runs.sql"},
+		{13, "013_unbounded_schedule_windows.sql"},
+		{14, "014_public_movie_catalog.sql"},
+		{15, "015_sync_schedules.sql"},
+		{16, "016_pathe_provider.sql"},
+		{17, "017_pathe_showing_identity.sql"},
+		{18, "018_cgr_provider.sql"},
+		{19, "019_repair_cgr_unknown_runtime.sql"},
+	}
+
 	items, err := embeddedMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 19 || items[0].version != 1 || items[0].name != "001_initial.sql" || items[1].version != 2 || items[1].name != "002_movie_enrichment.sql" || items[2].version != 3 || items[2].name != "003_admin_match_review.sql" || items[3].version != 4 || items[3].name != "004_movie_backdrop.sql" || items[4].version != 5 || items[4].name != "005_multi_provider.sql" || items[5].version != 6 || items[5].name != "006_repair_multi_provider_schema.sql" || items[6].version != 7 || items[6].name != "007_screening_formats.sql" || items[7].version != 8 || items[7].name != "008_local_movie_groups.sql" || items[8].version != 9 || items[8].name != "009_widen_runtime_minutes.sql" || items[9].version != 10 || items[9].name != "010_schedule_generations.sql" || items[10].version != 11 || items[10].name != "011_short_links.sql" || items[11].version != 12 || items[11].name != "012_sync_runs.sql" || items[12].version != 13 || items[12].name != "013_unbounded_schedule_windows.sql" || items[13].version != 14 || items[13].name != "014_public_movie_catalog.sql" || items[14].version != 15 || items[14].name != "015_sync_schedules.sql" || items[15].version != 16 || items[15].name != "016_pathe_provider.sql" || items[16].version != 17 || items[16].name != "017_pathe_showing_identity.sql" || items[17].version != 18 || items[17].name != "018_cgr_provider.sql" || items[18].version != 19 || items[18].name != "019_repair_cgr_unknown_runtime.sql" {
-		t.Fatalf("migrations=%+v", items)
+	if len(items) != len(want) {
+		t.Fatalf("migration count=%d want=%d", len(items), len(want))
+	}
+	for i, item := range items {
+		if item.version != want[i].version || item.name != want[i].name {
+			t.Fatalf("migration[%d]=(%d,%q) want=(%d,%q)", i, item.version, item.name, want[i].version, want[i].name)
+		}
 	}
 }

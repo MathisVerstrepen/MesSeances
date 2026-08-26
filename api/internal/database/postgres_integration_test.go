@@ -16,6 +16,63 @@ import (
 	"messeances/api/internal/publicmoviepg"
 )
 
+func mustEmbeddedMigrations(t *testing.T) []migration {
+	t.Helper()
+	migrations, err := embeddedMigrations()
+	if err != nil {
+		t.Fatalf("discover embedded migrations: %v", err)
+	}
+	return migrations
+}
+
+func requireMigrationPrefix(t *testing.T, migrations []migration, throughVersion int64, throughName string) []migration {
+	t.Helper()
+	if len(migrations) < int(throughVersion) {
+		t.Fatalf("embedded migrations=%d, need prefix through %03d", len(migrations), throughVersion)
+	}
+	prefix := migrations[:int(throughVersion)]
+	last := prefix[len(prefix)-1]
+	if last.version != throughVersion || last.name != throughName {
+		t.Fatalf("migration prefix ends at (%d,%q), want=(%d,%q)", last.version, last.name, throughVersion, throughName)
+	}
+	return prefix
+}
+
+func assertCompleteMigrationHistory(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want []migration) {
+	t.Helper()
+	rows, err := pool.Query(ctx, "SELECT version, name FROM movieflow_schema_migrations ORDER BY version")
+	if err != nil {
+		t.Fatalf("read migration history: %v", err)
+	}
+	defer rows.Close()
+
+	type appliedMigration struct {
+		version int64
+		name    string
+	}
+	got := make([]appliedMigration, 0, len(want))
+	for rows.Next() {
+		var item appliedMigration
+		if err := rows.Scan(&item.version, &item.name); err != nil {
+			t.Fatalf("scan migration history: %v", err)
+		}
+		got = append(got, item)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate migration history: %v", err)
+	}
+	rows.Close()
+
+	if len(got) != len(want) {
+		t.Fatalf("migration history count=%d want=%d", len(got), len(want))
+	}
+	for i, item := range got {
+		if item.version != want[i].version || item.name != want[i].name {
+			t.Fatalf("migration history[%d]=(%d,%q) want=(%d,%q)", i, item.version, item.name, want[i].version, want[i].name)
+		}
+	}
+}
+
 func TestMigrationsIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
@@ -63,14 +120,11 @@ func TestMigrationsIntegration(t *testing.T) {
 		t.Fatalf("isolated schema assertion failed: schema=%q err=%v", currentSchema, err)
 	}
 
-	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 19 {
-		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
-	}
+	migrations := mustEmbeddedMigrations(t)
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		t.Fatal("create migration history failed")
 	}
-	for _, migration := range migrations[:3] {
+	for _, migration := range requireMigrationPrefix(t, migrations, 3, "003_admin_match_review.sql") {
 		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
 		}
@@ -230,11 +284,8 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	if err := RunMigrations(ctx, pool); err != nil {
 		t.Fatal("repeat migration run failed")
 	}
-	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 18 {
-		t.Fatalf("migration count=%d err=%v", migrationCount, err)
-	}
+	assertCompleteMigrationHistory(t, ctx, pool, migrations)
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
 		t.Fatalf("repeat run changed stale refresh=%s err=%v", repeatedRefresh, err)
 	}
@@ -276,14 +327,11 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
-	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 19 {
-		t.Fatalf("migrations=%d err=%v", len(migrations), err)
-	}
+	migrations := mustEmbeddedMigrations(t)
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		t.Fatal("create migration history failed")
 	}
-	for _, migration := range migrations[:9] {
+	for _, migration := range requireMigrationPrefix(t, migrations, 9, "009_widen_runtime_minutes.sql") {
 		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 			t.Fatalf("apply migration %d failed: %v", migration.version, err)
 		}
@@ -342,14 +390,11 @@ func TestPublicMovieCatalogBackfillIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
-	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 19 {
-		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
-	}
+	migrations := mustEmbeddedMigrations(t)
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		t.Fatal("create migration history failed")
 	}
-	for _, migration := range migrations[:13] {
+	for _, migration := range requireMigrationPrefix(t, migrations, 13, "013_unbounded_schedule_windows.sql") {
 		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
 		}
@@ -519,14 +564,11 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
-	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 19 {
-		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
-	}
+	migrations := mustEmbeddedMigrations(t)
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		t.Fatal("create migration history failed")
 	}
-	for _, migration := range migrations[:14] {
+	for _, migration := range requireMigrationPrefix(t, migrations, 14, "014_public_movie_catalog.sql") {
 		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
 		}
@@ -668,14 +710,11 @@ func TestPatheProviderMigrationIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
-	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 19 {
-		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
-	}
+	migrations := mustEmbeddedMigrations(t)
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
 		t.Fatal("create migration history failed")
 	}
-	for _, migration := range migrations[:15] {
+	for _, migration := range requireMigrationPrefix(t, migrations, 15, "015_sync_schedules.sql") {
 		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
 		}
