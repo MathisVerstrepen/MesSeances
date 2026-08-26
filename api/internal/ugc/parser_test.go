@@ -461,6 +461,99 @@ func TestParseShowingsRejectsMissingOrInvalidCanonicalHeading(t *testing.T) {
 	}
 }
 
+func TestValidateCanonicalFilmHrefRoutes(t *testing.T) {
+	tests := []struct {
+		name   string
+		href   string
+		want   string
+		reason ParseReason
+	}{
+		{name: "query relative", href: "film.html?id=17950"},
+		{name: "query root relative", href: "/film.html?id=17950"},
+		{name: "query absolute", href: "https://www.ugc.fr/film.html?id=17950"},
+		{name: "query absolute case folded host", href: "https://WWW.UGC.FR/film.html?id=17950"},
+		{name: "query with cinema", href: "/film.html?id=17950&cinemaId=25"},
+		{name: "query reordered", href: "/film.html?cinemaId=25&id=17950"},
+		{name: "query unrelated key", href: "/film.html?id=17950&source=showings"},
+		{name: "query unrelated alternate keys", href: "/film.html?ID=other&filmId=other&cinemaID=other&id=17950"},
+		{name: "query exact and alternate keys", href: "/film.html?ID=other&filmId=other&id=17950&cinemaId=25&cinemaID=other"},
+		{name: "slug relative", href: "film_public_17950.html?cinemaId=25"},
+		{name: "slug absolute", href: "https://www.ugc.fr/film_public_17950.html?cinemaId=25"},
+		{name: "slug unrelated key", href: "film_public_17950.html?cinemaId=25&source=showings&id=other"},
+		{name: "slug prefixed path remains accepted", href: "/fr/film_public_17950.html?cinemaId=25"},
+
+		{name: "query id missing", href: "/film.html", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query id empty", href: "/film.html?id=", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query id nonnumeric", href: "/film.html?id=film", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query id negative", href: "/film.html?id=-17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query id zero", href: "/film.html?id=0", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query id wrong", href: "/film.html?id=17951", want: "film identity conflict", reason: ParseReasonFilmIdentityConflict},
+		{name: "query id duplicate equal", href: "/film.html?id=17950&id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query id duplicate conflicting", href: "/film.html?id=17950&id=17951", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query uppercase id alone", href: "/film.html?ID=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query film id alias alone", href: "/film.html?filmId=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query cinema empty", href: "/film.html?id=17950&cinemaId=", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query cinema nonnumeric", href: "/film.html?id=17950&cinemaId=cinema", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query cinema negative", href: "/film.html?id=17950&cinemaId=-25", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query cinema zero", href: "/film.html?id=17950&cinemaId=0", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query cinema wrong", href: "/film.html?id=17950&cinemaId=26", want: "film identity conflict", reason: ParseReasonFilmIdentityConflict},
+		{name: "query cinema duplicate equal", href: "/film.html?id=17950&cinemaId=25&cinemaId=25", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query cinema duplicate conflicting", href: "/film.html?id=17950&cinemaId=25&cinemaId=26", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query wrong path plural", href: "/films.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query prefixed path", href: "/foo/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query unrelated path", href: "/cinema.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query http", href: "http://www.ugc.fr/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query wrong host", href: "https://ugc.fr/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query explicit port", href: "https://www.ugc.fr:443/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query protocol relative", href: "//www.ugc.fr/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query userinfo", href: "https://user@www.ugc.fr/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query fragment", href: "/film.html?id=17950#showings", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "query malformed url", href: "https://[::1/film.html?id=17950", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+
+		{name: "slug wrong film", href: "film_public_17951.html?cinemaId=25", want: "film identity conflict", reason: ParseReasonFilmIdentityConflict},
+		{name: "slug wrong cinema", href: "film_public_17950.html?cinemaId=26", want: "film identity conflict", reason: ParseReasonFilmIdentityConflict},
+		{name: "slug malformed", href: "film_public.html?cinemaId=25", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "slug cinema missing", href: "film_public_17950.html", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "slug cinema duplicate", href: "film_public_17950.html?cinemaId=25&cinemaId=25", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+		{name: "slug wrong case cinema", href: "film_public_17950.html?cinemaID=25", want: "invalid film detail link", reason: ParseReasonInvalidFilmDetailLink},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateCanonicalFilmHref(test.href, "17950", "25")
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("error=%v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != test.want || parseReasonFromError(err) != test.reason {
+				t.Fatalf("reason=%q error=%v want=%q", parseReasonFromError(err), err, test.want)
+			}
+		})
+	}
+}
+
+func TestParseShowingsAcceptsCanonicalFilmQueryRoute(t *testing.T) {
+	body := `<article id="bloc-showing-film-17950"><div class="block--title text-uppercase"><a class="color--dark-blue" href="/film.html?id=17950&amp;cinemaId=25&amp;source=showings">Film query</a></div><img data-src="https://www.ugc.fr/posters/17950.jpg"><span>(1h30)</span><div class="session"><span class="screening-room">Salle 2</span><span class="screening-2D3D">2D</span><button data-showing="900" data-film="17950" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 13:30)</span></button></div></article>`
+	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []schedule.ShowtimeRecord{{
+		ID: "ugc-showing-900", ProviderShowingID: "900", ServiceDate: "2026-08-15", TheaterID: "ugc-25",
+		Movie:     schedule.MovieRecord{ProviderID: "17950", Slug: "ugc-film-17950", Title: "Film query", RuntimeMinutes: 90, PosterURL: "https://www.ugc.fr/posters/17950.jpg"},
+		StartTime: time.Date(2026, 8, 15, 12, 0, 0, 0, location), EndTime: time.Date(2026, 8, 15, 13, 30, 0, 0, location),
+		Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", Room: "Salle 2", BookingURL: "https://www.ugc.fr/reservationSeances.html?id=900",
+	}}
+	if !reflect.DeepEqual(records, want) {
+		t.Fatalf("records=%+v\nwant=%+v", records, want)
+	}
+}
+
 func TestParseShowingsPreservesUnambiguousLegacyTitle(t *testing.T) {
 	body := `<div id="bloc-showing-film-1"><a data-film="1" title="Legacy film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></div>`
 	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")

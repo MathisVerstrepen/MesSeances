@@ -603,23 +603,36 @@ func validateCanonicalFilmHref(raw, expectedFilmID, expectedCinemaID string) err
 	} else if parsed.Scheme != "" {
 		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
-	match := sluggedFilmPathPattern.FindStringSubmatch(path.Base(parsed.Path))
-	if len(match) != 3 {
-		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
-	}
-	if match[2] != expectedFilmID {
-		return showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
-	}
 	values := parsed.Query()
-	cinemaIDs := values["cinemaId"]
-	if len(cinemaIDs) != 1 {
+	match := sluggedFilmPathPattern.FindStringSubmatch(path.Base(parsed.Path))
+	if len(match) == 3 {
+		if match[2] != expectedFilmID {
+			return showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
+		}
+		return validateCanonicalFilmQueryID(values, "cinemaId", expectedCinemaID, true)
+	}
+	if parsed.Path != "film.html" && parsed.Path != "/film.html" {
 		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
-	number, err := strconv.ParseUint(cinemaIDs[0], 10, 64)
+	if err := validateCanonicalFilmQueryID(values, "id", expectedFilmID, true); err != nil {
+		return err
+	}
+	return validateCanonicalFilmQueryID(values, "cinemaId", expectedCinemaID, false)
+}
+
+func validateCanonicalFilmQueryID(values url.Values, key, expected string, required bool) error {
+	identities := values[key]
+	if len(identities) == 0 && !required {
+		return nil
+	}
+	if len(identities) != 1 {
+		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
+	}
+	number, err := strconv.ParseUint(identities[0], 10, 64)
 	if err != nil || number == 0 {
 		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
-	if cinemaIDs[0] != expectedCinemaID {
+	if identities[0] != expected {
 		return showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
 	}
 	return nil
