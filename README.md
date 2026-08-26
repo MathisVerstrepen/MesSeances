@@ -61,6 +61,21 @@ Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like oth
 
 CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. `sync-cgr` supports optional `-from`, `-timeout`, and `-proxy-file` flags, works with a direct bounded HTTP client when no proxy file is supplied, and always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
 
+### Theater geocoding
+
+Theater coordinates live in stable rows outside schedule generations. After a complete snapshot exists, forward-geocode its addresses with IGN Géoplateforme:
+
+```sh
+cd api
+go run ./cmd/geocode-theaters
+```
+
+Available controls are `-dry-run`, `-provider ugc|kinepolis|pathe|cgr`, `-theater-id <canonical-id>`, `-limit <count>`, `-retry-ambiguous`, and `-timeout <duration>`. `-limit 0` is unlimited. Dry-run suppresses database writes but still sends IGN requests. Requests run sequentially at no more than five starts per second, use bounded retries, and never run during normal schedule synchronization or API requests.
+
+Results are stored as `matched`, `ambiguous`, or `not_found`. Unchanged terminal results are skipped, changed address inputs are eligible again, and unchanged ambiguous rows require `-retry-ambiguous`. Manually curated `manual` rows are always protected. Failed requests leave prior rows untouched. Schedule loading accepts manual coordinates and only matched IGN coordinates whose stored address hash still matches current address inputs.
+
+`GET /api/v1/theaters` returns `latitude` and `longitude` as numbers when accepted and explicit JSON `null` otherwise. Other theater-bearing API responses remain unchanged.
+
 Then start PostgreSQL, the Go API, and Nuxt:
 
 ```sh
@@ -98,7 +113,7 @@ docker compose --project-directory . --env-file deploy/.env -f deploy/compose.ya
 
 ## Contributor checks
 
-These offline checks do not run UGC, Kinepolis, Pathé, or CGR synchronization and do not make real TMDB calls:
+These offline checks do not run UGC, Kinepolis, Pathé, or CGR synchronization and do not make real TMDB or IGN calls:
 
 ```sh
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config

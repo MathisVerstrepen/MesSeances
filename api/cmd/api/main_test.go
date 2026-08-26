@@ -198,6 +198,13 @@ func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	}
 }
 
+func TestAPIStartupBuildsTheaterLocationControllerWithoutProviderClient(t *testing.T) {
+	controller := newTheaterLocationController(nil, func() time.Time { return time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC) })
+	if controller == nil {
+		t.Fatal("theater location controller was not wired")
+	}
+}
+
 func TestServerWriteTimeoutCoversSynchronousTMDBRerun(t *testing.T) {
 	if serverWriteTimeout != 3*time.Minute {
 		t.Fatalf("write timeout=%s", serverWriteTimeout)

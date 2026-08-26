@@ -13,10 +13,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"messeances/api/internal/cgr"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/observability"
@@ -99,6 +102,7 @@ func run(ctx context.Context) error {
 		enrichmentProvider = tmdbClient
 	}
 	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
+	adminOptions.TheaterLocations = newTheaterLocationController(pool, time.Now)
 	adminOptions.Logger = logger
 	adminOptions.Metrics = metrics
 	workerCtx, stopWorkers := context.WithCancel(ctx)
@@ -255,6 +259,10 @@ func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresS
 		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil))
 	}
 	return options
+}
+
+func newTheaterLocationController(pool *pgxpool.Pool, now func() time.Time) httpapi.TheaterLocationController {
+	return geocoding.NewResolutionService(geocoding.NewPostgresResolutionStore(pool), now)
 }
 
 func loadSyncProxies(path string, open func(string) (io.ReadCloser, error)) ([]syncproxy.Proxy, error) {

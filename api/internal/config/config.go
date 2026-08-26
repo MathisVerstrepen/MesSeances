@@ -19,6 +19,7 @@ const (
 	PatheTiming
 	CGRTiming
 	SyncFull
+	Geocoding
 )
 
 const (
@@ -115,6 +116,13 @@ func Load(profile Profile, getenv func(string) string, overrides *Overrides) (Co
 		}
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		if err := loadOperationTimeout(&result, getenv); err != nil {
+			return Config{}, err
+		}
+	case Geocoding:
+		if err := loadDatabase(&result, getenv); err != nil {
+			return Config{}, err
+		}
+		if err := loadRequestTimeout(&result, getenv, overrides); err != nil {
 			return Config{}, err
 		}
 	default:

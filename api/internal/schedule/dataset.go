@@ -73,6 +73,8 @@ type TheaterRecord struct {
 	PostalCode     string   `json:"postal_code"`
 	AvailableDates []string `json:"available_dates"`
 	AcceptedPasses []string `json:"accepted_passes"`
+	Latitude       *float64 `json:"-"`
+	Longitude      *float64 `json:"-"`
 }
 
 type MovieRecord struct {
@@ -122,6 +124,8 @@ func cloneDataset(in Dataset) Dataset {
 	for i := range out.Theaters {
 		out.Theaters[i].AvailableDates = append([]string(nil), in.Theaters[i].AvailableDates...)
 		out.Theaters[i].AcceptedPasses = append([]string(nil), in.Theaters[i].AcceptedPasses...)
+		out.Theaters[i].Latitude = cloneFloat(in.Theaters[i].Latitude)
+		out.Theaters[i].Longitude = cloneFloat(in.Theaters[i].Longitude)
 	}
 	out.Showtimes = append([]ShowtimeRecord(nil), in.Showtimes...)
 	for i := range out.Showtimes {
@@ -142,4 +146,12 @@ func cloneDataset(in Dataset) Dataset {
 	}
 	out.MovieAliases = append([]MovieSlugAliasRecord(nil), in.MovieAliases...)
 	return out
+}
+
+func cloneFloat(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }

@@ -1004,7 +1004,7 @@ func TestTheatersUsesPublicationCatalogOrderForFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertIDs := func(label string, theaters []Theater, want ...string) {
+	assertIDs := func(label string, theaters []TheaterCatalogItem, want ...string) {
 		t.Helper()
 		if len(theaters) != len(want) {
 			t.Fatalf("%s count=%d theaters=%+v", label, len(theaters), theaters)

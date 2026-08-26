@@ -44,6 +44,8 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{17, "017_pathe_showing_identity.sql"},
 		{18, "018_cgr_provider.sql"},
 		{19, "019_repair_cgr_unknown_runtime.sql"},
+		{20, "020_theater_locations.sql"},
+		{21, "021_theater_location_suggestions.sql"},
 	}
 
 	items, err := embeddedMigrations()

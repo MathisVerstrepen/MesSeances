@@ -113,4 +113,9 @@ func TestLoadProfilesReadOnlyOwnedVariables(t *testing.T) {
 	if err != nil || strings.Join(reads, ",") != "DATABASE_URL,TMDB_API_READ_ACCESS_TOKEN,SYNC_OPERATION_TIMEOUT" {
 		t.Fatalf("reads=%v err=%v", reads, err)
 	}
+	reads = nil
+	loaded, err := Load(Geocoding, environment(map[string]string{"DATABASE_URL": "postgres://configured"}, &reads), nil)
+	if err != nil || strings.Join(reads, ",") != "DATABASE_URL,SYNC_REQUEST_TIMEOUT" || loaded.Sync.RequestTimeout != DefaultRequestTimeout {
+		t.Fatalf("geocoding reads=%v config=%+v err=%v", reads, loaded, err)
+	}
 }
