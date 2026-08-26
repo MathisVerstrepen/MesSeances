@@ -106,6 +106,7 @@ export interface AdminTMDBCandidate {
 }
 
 export type AdminPendingMatchStatus = 'review_required' | 'unmatched' | 'rejected'
+export type AdminPendingMatchesFilter = 'unresolved' | 'rejected'
 
 export interface AdminPendingMatch {
   source_provider: Provider

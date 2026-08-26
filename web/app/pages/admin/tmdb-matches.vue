@@ -10,23 +10,28 @@ import type {
   AdminTMDBRerunSummary,
   Provider
 } from '~/types/api'
+import { adminPendingMatchesForFilter } from '~/utils/adminTmdbMatches'
 import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 
 definePageMeta({ middleware: 'admin-auth' })
 
 const PAGE_SIZE = 20
-const OWNED_QUERY_KEYS = ['page', 'groups_page'] as const
+const OWNED_QUERY_KEYS = ['page', 'rejected_page', 'groups_page'] as const
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 
 const result = ref<AdminPendingMatchesResponse | null>(null)
+const rejectedResult = ref<AdminPendingMatchesResponse | null>(null)
 const groupsResult = ref<AdminLocalMovieGroupsResponse | null>(null)
 const offset = ref(0)
+const rejectedOffset = ref(0)
 const groupsOffset = ref(0)
 const pending = ref(true)
+const rejectedPending = ref(true)
 const groupsPending = ref(true)
 const matchesError = ref('')
+const rejectedError = ref('')
 const groupsError = ref('')
 const errorMessage = ref('')
 const rerunError = ref('')
@@ -46,39 +51,52 @@ const loggingOut = ref(false)
 const matchesPosterVersion = ref(0)
 const groupsPosterVersion = ref(0)
 let matchesRequestId = 0
+let rejectedRequestId = 0
 let groupsRequestId = 0
 let isMounted = false
 let scrollAfterLoad = false
+let scrollRejectedAfterLoad = false
 let lastLoadPage = 0
+let lastLoadRejectedPage = 0
 let lastLoadGroupsPage = 0
 
 const page = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
+const rejectedPage = computed(() => Math.floor(rejectedOffset.value / PAGE_SIZE) + 1)
 const groupsPage = computed(() => Math.floor(groupsOffset.value / PAGE_SIZE) + 1)
 const canGoNext = computed(() => (result.value?.items.length ?? 0) === PAGE_SIZE)
+const canRejectedGoNext = computed(() => (rejectedResult.value?.items.length ?? 0) === PAGE_SIZE)
 const canGroupsGoNext = computed(() => (groupsResult.value?.items.length ?? 0) === PAGE_SIZE)
 const selectedSourceList = computed(() => Object.values(selectedSources.value))
 const canMerge = computed(() => selectedSourceList.value.length >= 2 && Boolean(primarySourceKey.value && selectedSources.value[primarySourceKey.value]))
 const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value || rerunPending.value))
-const matchSections = computed(() => {
-  const matches = result.value?.items ?? []
-  const unresolved = matches.filter(match => match.status !== 'rejected')
-  const rejected = matches.filter(match => match.status === 'rejected')
-
-  return [
-    {
-      id: 'pending-matches-title',
-      title: 'Films sans identité TMDB résolue',
-      items: unresolved
-    },
-    ...(rejected.length
-      ? [{
-          id: 'rejected-matches-title',
-          title: 'Films marqués Non-TMDB',
-          items: rejected
-        }]
-      : [])
-  ]
-})
+const matchSections = computed(() => [
+  {
+    id: 'pending-matches-title',
+    title: 'Films sans identité TMDB résolue',
+    items: adminPendingMatchesForFilter(result.value?.items ?? [], 'unresolved'),
+    result: result.value,
+    pending: pending.value,
+    error: matchesError.value,
+    offset: offset.value,
+    page: page.value,
+    canGoNext: canGoNext.value,
+    load: loadMatches,
+    changePage
+  },
+  {
+    id: 'rejected-matches-title',
+    title: 'Films marqués Non-TMDB',
+    items: adminPendingMatchesForFilter(rejectedResult.value?.items ?? [], 'rejected'),
+    result: rejectedResult.value,
+    pending: rejectedPending.value,
+    error: rejectedError.value,
+    offset: rejectedOffset.value,
+    page: rejectedPage.value,
+    canGoNext: canRejectedGoNext.value,
+    load: loadRejectedMatches,
+    changePage: changeRejectedPage
+  }
+])
 
 function sourceKey(source: AdminLocalMovieSource): string {
   return `${source.source_provider}:${source.source_movie_id}`
@@ -98,7 +116,7 @@ async function loadMatches(background = false) {
   matchesError.value = ''
   rejectConfirmation.value = ''
   try {
-    const response = await api.adminPendingMatches(PAGE_SIZE, offset.value)
+    const response = await api.adminPendingMatches('unresolved', PAGE_SIZE, offset.value)
     if (currentRequest !== matchesRequestId) return
     matchesPosterVersion.value += 1
     result.value = response
@@ -128,6 +146,29 @@ async function loadMatches(background = false) {
   }
 }
 
+async function loadRejectedMatches(background = false) {
+  const currentRequest = ++rejectedRequestId
+  if (!background) rejectedPending.value = true
+  rejectedError.value = ''
+  try {
+    const response = await api.adminPendingMatches('rejected', PAGE_SIZE, rejectedOffset.value)
+    if (currentRequest !== rejectedRequestId) return
+    matchesPosterVersion.value += 1
+    rejectedResult.value = response
+    if (scrollRejectedAfterLoad) {
+      scrollRejectedAfterLoad = false
+      document.getElementById('rejected-matches-title')?.scrollIntoView({ behavior: 'smooth' })
+    }
+  } catch (error) {
+    if (currentRequest === rejectedRequestId) {
+      if (!background) rejectedResult.value = null
+      rejectedError.value = getFrenchAdminApiError(error)
+    }
+  } finally {
+    if (!background && currentRequest === rejectedRequestId) rejectedPending.value = false
+  }
+}
+
 async function loadGroups() {
   const currentRequest = ++groupsRequestId
   groupsPending.value = true
@@ -148,23 +189,28 @@ async function loadGroups() {
   }
 }
 
-function adminQuery(nextPage = page.value, nextGroupsPage = groupsPage.value) {
+function adminQuery(nextPage = page.value, nextRejectedPage = rejectedPage.value, nextGroupsPage = groupsPage.value) {
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
     page: nextPage === 1 ? undefined : String(nextPage),
+    rejected_page: nextRejectedPage === 1 ? undefined : String(nextRejectedPage),
     groups_page: nextGroupsPage === 1 ? undefined : String(nextGroupsPage)
   })
 }
 
 function hydrateRoute() {
   const requestedPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
+  const requestedRejectedPage = positiveSafeInteger(singularQueryValue(route.query.rejected_page)) ?? 1
   const requestedGroupsPage = positiveSafeInteger(singularQueryValue(route.query.groups_page)) ?? 1
   const nextOffset = (requestedPage - 1) * PAGE_SIZE
+  const nextRejectedOffset = (requestedRejectedPage - 1) * PAGE_SIZE
   const nextGroupsOffset = (requestedGroupsPage - 1) * PAGE_SIZE
   const safePage = Number.isSafeInteger(nextOffset) ? requestedPage : 1
+  const safeRejectedPage = Number.isSafeInteger(nextRejectedOffset) ? requestedRejectedPage : 1
   const safeGroupsPage = Number.isSafeInteger(nextGroupsOffset) ? requestedGroupsPage : 1
   offset.value = (safePage - 1) * PAGE_SIZE
+  rejectedOffset.value = (safeRejectedPage - 1) * PAGE_SIZE
   groupsOffset.value = (safeGroupsPage - 1) * PAGE_SIZE
-  return adminQuery(safePage, safeGroupsPage)
+  return adminQuery(safePage, safeRejectedPage, safeGroupsPage)
 }
 
 async function applyRoute() {
@@ -178,6 +224,10 @@ async function applyRoute() {
     lastLoadPage = page.value
     loads.push(loadMatches())
   }
+  if (rejectedPage.value !== lastLoadRejectedPage) {
+    lastLoadRejectedPage = rejectedPage.value
+    loads.push(loadRejectedMatches())
+  }
   if (groupsPage.value !== lastLoadGroupsPage) {
     lastLoadGroupsPage = groupsPage.value
     loads.push(loadGroups())
@@ -186,18 +236,21 @@ async function applyRoute() {
 }
 
 async function refreshResources() {
-  await Promise.all([loadMatches(), loadGroups()])
+  await Promise.all([loadMatches(), loadRejectedMatches(), loadGroups()])
   const nextPage = !matchesError.value && offset.value > 0 && result.value?.items.length === 0 ? page.value - 1 : page.value
+  const nextRejectedPage = !rejectedError.value && rejectedOffset.value > 0 && rejectedResult.value?.items.length === 0 ? rejectedPage.value - 1 : rejectedPage.value
   const nextGroupsPage = !groupsError.value && groupsOffset.value > 0 && groupsResult.value?.items.length === 0 ? groupsPage.value - 1 : groupsPage.value
-  if (nextPage !== page.value || nextGroupsPage !== groupsPage.value) {
-    await router.replace({ query: adminQuery(nextPage, nextGroupsPage) })
+  if (nextPage !== page.value || nextRejectedPage !== rejectedPage.value || nextGroupsPage !== groupsPage.value) {
+    await router.replace({ query: adminQuery(nextPage, nextRejectedPage, nextGroupsPage) })
   }
 }
 
 async function refreshAfterDecision() {
-  await loadMatches(true)
-  if (!matchesError.value && offset.value > 0 && result.value?.items.length === 0) {
-    await router.replace({ query: adminQuery(page.value - 1) })
+  await Promise.all([loadMatches(true), loadRejectedMatches(true)])
+  const nextPage = !matchesError.value && offset.value > 0 && result.value?.items.length === 0 ? page.value - 1 : page.value
+  const nextRejectedPage = !rejectedError.value && rejectedOffset.value > 0 && rejectedResult.value?.items.length === 0 ? rejectedPage.value - 1 : rejectedPage.value
+  if (nextPage !== page.value || nextRejectedPage !== rejectedPage.value) {
+    await router.replace({ query: adminQuery(nextPage, nextRejectedPage) })
   }
 }
 
@@ -205,9 +258,9 @@ async function refreshMatchesAfterRerun() {
   clearMergeSelection()
   offset.value = 0
   lastLoadPage = 1
-  const canonicalQuery = adminQuery(1)
+  const canonicalQuery = adminQuery(1, rejectedPage.value)
   if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
-  await loadMatches()
+  await Promise.all([loadMatches(), loadRejectedMatches(true)])
 }
 
 async function rerunTMDBMatches() {
@@ -353,12 +406,18 @@ async function unmerge(group: AdminLocalMovieGroup) {
 function changePage(nextOffset: number) {
   if (pending.value || anyMutation.value || nextOffset < 0 || nextOffset === offset.value) return
   scrollAfterLoad = true
-  router.push({ query: adminQuery(Math.floor(nextOffset / PAGE_SIZE) + 1) })
+  router.push({ query: adminQuery(Math.floor(nextOffset / PAGE_SIZE) + 1, rejectedPage.value) })
+}
+
+function changeRejectedPage(nextOffset: number) {
+  if (rejectedPending.value || anyMutation.value || nextOffset < 0 || nextOffset === rejectedOffset.value) return
+  scrollRejectedAfterLoad = true
+  router.push({ query: adminQuery(page.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
 }
 
 function changeGroupsPage(nextOffset: number) {
   if (groupsPending.value || anyMutation.value || nextOffset < 0 || nextOffset === groupsOffset.value) return
-  router.push({ query: adminQuery(page.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
+  router.push({ query: adminQuery(page.value, rejectedPage.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
 }
 
 async function logout() {
@@ -483,19 +542,24 @@ useHead({ title: 'Identités des films - MesSeances' })
         </div>
       </div>
 
-      <div v-if="matchesError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-        <div><p>{{ matchesError }}</p><button type="button" class="mt-2 font-semibold underline" @click="loadMatches()">Réessayer</button></div>
-      </div>
-      <div v-if="pending" class="state-panel mt-4" role="status" aria-live="polite">
-        <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
-      </div>
-      <template v-if="!pending && result">
-        <section v-for="matchSection in matchSections" :key="matchSection.id" :class="matchSection.id === 'rejected-matches-title' ? 'mt-8 border-t border-line pt-7' : ''" :aria-labelledby="matchSection.id">
-          <h2 v-if="matchSection.id === 'rejected-matches-title'" :id="matchSection.id" class="text-xl font-semibold text-ink">{{ matchSection.title }}</h2>
+      <section v-for="matchSection in matchSections" :key="matchSection.id" :class="matchSection.id === 'rejected-matches-title' ? 'mt-8 border-t border-line pt-7' : ''" :aria-labelledby="matchSection.id">
+        <div v-if="matchSection.id === 'rejected-matches-title'" class="flex flex-wrap items-center justify-between gap-3">
+          <h2 :id="matchSection.id" class="text-xl font-semibold text-ink">{{ matchSection.title }}</h2>
+          <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="matchSection.pending || anyMutation" @click="matchSection.load()">
+            <RefreshCw :size="16" :class="matchSection.pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
+          </button>
+        </div>
+        <div v-if="matchSection.error" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+          <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+          <div><p>{{ matchSection.error }}</p><button type="button" class="mt-2 font-semibold underline" @click="matchSection.load()">Réessayer</button></div>
+        </div>
+        <div v-else-if="matchSection.pending" class="state-panel mt-4" role="status" aria-live="polite">
+          <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
+        </div>
+        <template v-else-if="matchSection.result">
           <div v-if="!matchSection.items.length" class="state-panel mt-4">
-            <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
-          </div>
+             <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
+           </div>
           <ul v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" :aria-label="matchSection.title">
             <li v-for="match in matchSection.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
           <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
@@ -549,14 +613,14 @@ useHead({ title: 'Identités des films - MesSeances' })
           </div>
             </li>
           </ul>
-        </section>
-      </template>
+        </template>
 
-      <nav v-if="!pending && !matchesError && (offset > 0 || canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" aria-label="Pagination des films sans identité TMDB résolue">
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="offset === 0 || anyMutation" @click="changePage(offset - PAGE_SIZE)">Précédent</button>
-        <span class="text-sm text-muted" aria-live="polite">Page {{ page }}</span>
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGoNext || anyMutation" @click="changePage(offset + PAGE_SIZE)">Suivant</button>
-      </nav>
+        <nav v-if="!matchSection.pending && !matchSection.error && (matchSection.offset > 0 || matchSection.canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" :aria-label="`Pagination de ${matchSection.title.toLocaleLowerCase('fr')}`">
+          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="matchSection.offset === 0 || anyMutation" @click="matchSection.changePage(matchSection.offset - PAGE_SIZE)">Précédent</button>
+          <span class="text-sm text-muted" aria-live="polite">Page {{ matchSection.page }}</span>
+          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!matchSection.canGoNext || anyMutation" @click="matchSection.changePage(matchSection.offset + PAGE_SIZE)">Suivant</button>
+        </nav>
+      </section>
     </div>
 
     <section class="mt-8 border-t border-line pt-7" aria-labelledby="local-groups-title">

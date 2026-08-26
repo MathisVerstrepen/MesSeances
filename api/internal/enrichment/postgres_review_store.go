@@ -12,16 +12,17 @@ import (
 	"messeances/api/internal/publicmoviepg"
 )
 
-func (s *PostgresStore) PendingMatches(ctx context.Context, limit, offset int) ([]PendingMatch, error) {
-	if limit < 1 || limit > 100 || offset < 0 {
+func (s *PostgresStore) PendingMatches(ctx context.Context, filter PendingMatchFilter, limit, offset int) ([]PendingMatch, error) {
+	if (filter != PendingMatchFilterUnresolved && filter != PendingMatchFilterRejected) || limit < 1 || limit > 100 || offset < 0 {
 		return nil, fmt.Errorf("invalid review pagination")
 	}
 	rows, err := s.pool.Query(ctx, `SELECT m.provider, m.provider_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(mm.status, 'review_required'), COALESCE(mm.candidates, '[]'::jsonb), COALESCE(mm.evaluated_at, CURRENT_TIMESTAMP)
 FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
 LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb'
-WHERE (mm.status IS NULL OR mm.status IN ('review_required', 'unmatched', 'rejected'))
+WHERE (($1='unresolved' AND (mm.status IS NULL OR mm.status IN ('review_required', 'unmatched')))
+    OR ($1='rejected' AND mm.status='rejected'))
   AND NOT EXISTS (SELECT 1 FROM local_movie_group_members lmgm WHERE lmgm.source_provider=m.provider AND lmgm.source_movie_id=m.provider_id)
-ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $1 OFFSET $2`, limit, offset)
+ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $2 OFFSET $3`, string(filter), limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("read pending movie matches failed")
 	}
