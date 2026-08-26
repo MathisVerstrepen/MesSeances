@@ -49,6 +49,51 @@ func TestParseScheduleKeepsCollidingSourceIDsForDistinctBookings(t *testing.T) {
 	}
 }
 
+func TestParseShowtimeAddsCGRSlotPadding(t *testing.T) {
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name         string
+		title        string
+		runtime      int
+		start        string
+		wantEnd      string
+		wantDuration time.Duration
+	}{
+		{name: "reported W8010 session", title: "La Bataille de Gaulle: L'âge de fer", runtime: 160, start: "2026-08-27T10:15:00", wantEnd: "2026-08-27T13:10:00", wantDuration: 175 * time.Minute},
+		{name: "another known runtime", title: "Synthetic", runtime: 102, start: "2026-08-27T20:00:00", wantEnd: "2026-08-27T21:57:00", wantDuration: 117 * time.Minute},
+		{name: "unknown runtime", title: "Unknown", runtime: 0, start: "2026-08-27T18:30:00", wantEnd: "2026-08-27T18:30:00", wantDuration: 0},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record, err := parseShowtime(
+				showtimeResponse{
+					ID:       "synthetic",
+					StartsAt: test.start,
+					Tags:     []string{"Localization.Language.French"},
+					Data:     showtimeData{Ticketing: []byte(`[{"provider":"default","type":"DESKTOP","urls":["https://achat.cgrcinemas.fr/synthetic/r/1"]}]`)},
+				},
+				cinema{id: "W8010", timeZone: schedule.Timezone},
+				movie{id: "1001", title: test.title, runtime: test.runtime},
+				"2026-08-27",
+				location,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantEnd, err := time.ParseInLocation("2006-01-02T15:04:05", test.wantEnd, location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !record.EndTime.Equal(wantEnd) || record.EndTime.Sub(record.StartTime) != test.wantDuration || record.Movie.RuntimeMinutes != test.runtime {
+				t.Fatalf("start=%s end=%s duration=%s runtime=%d", record.StartTime.Format("15:04"), record.EndTime.Format("15:04"), record.EndTime.Sub(record.StartTime), record.Movie.RuntimeMinutes)
+			}
+		})
+	}
+}
+
 func TestParseSyntheticCGRFixtures(t *testing.T) {
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
@@ -76,7 +121,7 @@ func TestParseSyntheticCGRFixtures(t *testing.T) {
 		byMovie[record.Movie.ProviderID] = record
 	}
 	first, unknownRuntime := byMovie["1001"], byMovie["1002"]
-	if first.Provider != schedule.ProviderCGR || first.Language != schedule.LanguageVF || first.Format != schedule.FormatICE || first.Room != "Salle 08" || first.Movie.PosterURL != "https://images.acsta.net/posters/1001.jpg" || first.EndTime.Sub(first.StartTime) != 110*time.Minute {
+	if first.Provider != schedule.ProviderCGR || first.Language != schedule.LanguageVF || first.Format != schedule.FormatICE || first.Room != "Salle 08" || first.Movie.PosterURL != "https://images.acsta.net/posters/1001.jpg" || first.EndTime.Sub(first.StartTime) != 125*time.Minute {
 		t.Fatalf("first=%+v", first)
 	}
 	if unknownRuntime.Language != schedule.LanguageVOSTFR || unknownRuntime.Format != schedule.Format3D || unknownRuntime.Room != "" || unknownRuntime.Movie.RuntimeMinutes != 0 || !unknownRuntime.EndTime.Equal(unknownRuntime.StartTime) {

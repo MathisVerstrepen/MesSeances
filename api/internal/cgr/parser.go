@@ -17,6 +17,8 @@ import (
 	"messeances/api/internal/schedule"
 )
 
+const cgrSlotPadding = 15 * time.Minute
+
 var (
 	theaterIDPattern   = regexp.MustCompile(`^[A-Z][0-9]{4}$`)
 	movieIDPattern     = regexp.MustCompile(`^[1-9][0-9]{0,127}$`)
@@ -266,7 +268,7 @@ func parseShowtime(item showtimeResponse, theater cinema, movie movie, advertise
 	providerShowingID := showingIdentity(theater.id, rawID, start.Format("2006-01-02T15:04:05"), room, bookingURL)
 	end := start
 	if movie.runtime > 0 {
-		end = start.Add(time.Duration(movie.runtime) * time.Minute)
+		end = start.Add(time.Duration(movie.runtime)*time.Minute + cgrSlotPadding)
 	}
 	return schedule.ShowtimeRecord{
 		Provider: schedule.ProviderCGR, ID: "cgr-showing-" + providerShowingID, ProviderShowingID: providerShowingID,
