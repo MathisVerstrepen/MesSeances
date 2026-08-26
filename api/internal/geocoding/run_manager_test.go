@@ -178,6 +178,7 @@ func TestManagerPersistsSafeFailurePanicAndCancellation(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 			store := &memoryRunStore{finished: make(chan struct{})}
 			locker := &fakeRunLocker{}
 			manager := newGeocodingManagerForTest(t, ctx, test.executor, store, locker)
