@@ -61,6 +61,14 @@ Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like oth
 
 CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. `sync-cgr` supports optional `-from`, `-timeout`, and `-proxy-file` flags, works with a direct bounded HTTP client when no proxy file is supplied, and always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
 
+### Theater geocoding
+
+Theater coordinates live in stable rows outside schedule generations. After a complete snapshot exists, authenticated administrators can launch geocoding from the theater-locations page. This in-process job uses IGN Géoplateforme with a fixed 20-second timeout and processes new theaters, every ambiguous row, and changed not-found rows. It preserves every matched or manual row and unchanged not-found row. Requests run sequentially at no more than five starts per second and use bounded retries. Launch returns immediately, status and terminal counters are durable, and only one admin-launched geocoding job can run across API replicas.
+
+Results are stored as `matched`, `ambiguous`, or `not_found`. Failed requests leave prior rows untouched. Schedule loading accepts manual coordinates and only matched IGN coordinates whose stored address hash still matches current address inputs.
+
+`GET /api/v1/theaters` returns `latitude` and `longitude` as numbers when accepted and explicit JSON `null` otherwise. Other theater-bearing API responses remain unchanged.
+
 Then start PostgreSQL, the Go API, and Nuxt:
 
 ```sh
@@ -98,7 +106,7 @@ docker compose --project-directory . --env-file deploy/.env -f deploy/compose.ya
 
 ## Contributor checks
 
-These offline checks do not run UGC, Kinepolis, Pathé, or CGR synchronization and do not make real TMDB calls:
+These offline checks do not run UGC, Kinepolis, Pathé, or CGR synchronization and do not make real TMDB or IGN calls:
 
 ```sh
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config

@@ -18,6 +18,7 @@ import (
 
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/schedule"
 )
 
@@ -260,6 +261,43 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		}
 	})
 
+	t.Run("stable hash-aware theater locations", func(t *testing.T) {
+		now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+		matchedHash := geocoding.AddressHash("Lille", "59000", "Lille")
+		if _, err := pool.Exec(ctx, `INSERT INTO theater_locations (provider,provider_theater_id,latitude,longitude,source,matched_label,match_score,address_hash,status,updated_at) VALUES
+('ugc','25',50.6321,3.0612,'ign','Lille',0.91,$1,'matched',$2),
+('ugc','26',50.6200,3.1400,'manual',NULL,NULL,NULL,'manual',$2),
+('ugc','99',NULL,NULL,'ign','Lyon',0.60,$3,'ambiguous',$2)`, matchedHash, now, geocoding.AddressHash("Lyon", "69000", "Lyon")); err != nil {
+			t.Fatal("insert theater location fixtures failed")
+		}
+		if _, err := pool.Exec(ctx, "UPDATE theater_location_state SET version=version+1 WHERE singleton=true"); err != nil {
+			t.Fatal("advance location fixture version failed")
+		}
+		loaded, revision, err := store.Load(ctx)
+		if err != nil || revision.TheaterLocationVersion != 1 || loaded.Theaters[0].Latitude == nil || *loaded.Theaters[0].Latitude != 50.6321 || loaded.Theaters[1].Latitude == nil || *loaded.Theaters[1].Latitude != 50.62 || loaded.Theaters[2].Latitude != nil {
+			t.Fatalf("revision=%+v theaters=%+v err=%v", revision, loaded.Theaters, err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE theater_locations SET address_hash=$1 WHERE provider='ugc' AND provider_theater_id='25'`, geocoding.AddressHash("old", "59000", "Lille")); err != nil {
+			t.Fatal("make location fixtures stale failed")
+		}
+		if _, err := pool.Exec(ctx, `UPDATE theater_locations SET matched_label=NULL,match_score=NULL,status='not_found' WHERE provider='ugc' AND provider_theater_id='99'`); err != nil {
+			t.Fatal("make not-found fixture failed")
+		}
+		if _, err := pool.Exec(ctx, "UPDATE theater_location_state SET version=version+1 WHERE singleton=true"); err != nil {
+			t.Fatal("advance stale location version failed")
+		}
+		loaded, revision, err = store.Load(ctx)
+		if err != nil || revision.TheaterLocationVersion != 2 || loaded.Theaters[0].Latitude != nil || loaded.Theaters[1].Latitude == nil || loaded.Theaters[2].Latitude != nil {
+			t.Fatalf("stale revision=%+v theaters=%+v err=%v", revision, loaded.Theaters, err)
+		}
+		if _, err := pool.Exec(ctx, `UPDATE theater_locations SET address_hash=$1 WHERE provider='ugc' AND provider_theater_id='25'`, matchedHash); err != nil {
+			t.Fatal("restore matching location failed")
+		}
+		if _, err := pool.Exec(ctx, "UPDATE theater_location_state SET version=version+1 WHERE singleton=true"); err != nil {
+			t.Fatal("advance restored location version failed")
+		}
+	})
+
 	t.Run("enrichment publication is durable and visible", func(t *testing.T) {
 		now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 		match := enrichment.Match{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(30 * 24 * time.Hour)}
@@ -294,7 +332,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("replacement publication metrics=%+v", metrics)
 		}
 		loaded, loadedVersion, err := store.Load(ctx)
-		if err != nil || loadedVersion.ScheduleVersion != 2 || loadedVersion.EnrichmentVersion != 1 || len(loaded.Theaters) != 1 || len(loaded.Showtimes) != 1 || loaded.PublicMovies[0].TMDBID != 42 {
+		if err != nil || loadedVersion.ScheduleVersion != 2 || loadedVersion.EnrichmentVersion != 1 || loadedVersion.TheaterLocationVersion != 3 || len(loaded.Theaters) != 1 || len(loaded.Showtimes) != 1 || loaded.PublicMovies[0].TMDBID != 42 || loaded.Theaters[0].Latitude == nil || *loaded.Theaters[0].Latitude != 50.6321 {
 			t.Fatalf("replacement load revision=%+v theaters=%d showtimes=%d error=%v", loadedVersion, len(loaded.Theaters), len(loaded.Showtimes), err)
 		}
 		var oldRows int

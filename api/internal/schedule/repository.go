@@ -13,8 +13,9 @@ type SnapshotReader interface {
 }
 
 type SnapshotRevision struct {
-	ScheduleVersion   int64
-	EnrichmentVersion int64
+	ScheduleVersion        int64
+	EnrichmentVersion      int64
+	TheaterLocationVersion int64
 }
 
 type PublicationMetrics struct {

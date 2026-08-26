@@ -1,11 +1,48 @@
 package schedule
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestValidateDatasetCoordinatesAndClonePointers(t *testing.T) {
+	validLatitude, validLongitude := 50.6321, 3.0612
+	data := testDataset()
+	data.Theaters[0].Latitude, data.Theaters[0].Longitude = &validLatitude, &validLongitude
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid coordinates rejected: %v", err)
+	}
+	clone := cloneDataset(data)
+	*clone.Theaters[0].Latitude = 1
+	if *data.Theaters[0].Latitude != validLatitude {
+		t.Fatal("dataset clone shared coordinate pointer")
+	}
+	for _, test := range []struct {
+		name      string
+		latitude  *float64
+		longitude *float64
+	}{
+		{name: "latitude only", latitude: &validLatitude},
+		{name: "longitude only", longitude: &validLongitude},
+		{name: "latitude range", latitude: floatPointer(91), longitude: &validLongitude},
+		{name: "longitude range", latitude: &validLatitude, longitude: floatPointer(-181)},
+		{name: "nan", latitude: floatPointer(math.NaN()), longitude: &validLongitude},
+		{name: "infinity", latitude: &validLatitude, longitude: floatPointer(math.Inf(1))},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := testDataset()
+			candidate.Theaters[0].Latitude, candidate.Theaters[0].Longitude = test.latitude, test.longitude
+			if err := ValidateDataset(candidate, true); err == nil || err.Error() != "invalid theater coordinates" {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func floatPointer(value float64) *float64 { return &value }
 
 func TestValidInclusiveDateWindowAcrossParisDST(t *testing.T) {
 	location, err := time.LoadLocation(Timezone)

@@ -3,6 +3,7 @@ package schedule
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
 	"sort"
@@ -62,6 +63,9 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		}
 		if provider != ProviderKinepolis && (theater.Address == "" || theater.PostalCode == "") {
 			return fmt.Errorf("theater has missing required field")
+		}
+		if (theater.Latitude == nil) != (theater.Longitude == nil) || theater.Latitude != nil && (math.IsNaN(*theater.Latitude) || math.IsInf(*theater.Latitude, 0) || *theater.Latitude < -90 || *theater.Latitude > 90 || math.IsNaN(*theater.Longitude) || math.IsInf(*theater.Longitude, 0) || *theater.Longitude < -180 || *theater.Longitude > 180) {
+			return fmt.Errorf("invalid theater coordinates")
 		}
 		if !validProviderIdentity(provider, "theater", theater.ProviderID) || theater.ID != string(provider)+"-"+theater.ProviderID || theater.Slug != theater.ID {
 			return fmt.Errorf("invalid theater identity")

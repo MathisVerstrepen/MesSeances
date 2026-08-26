@@ -23,7 +23,7 @@ func (o *captureRefreshObserver) ObserveScheduleRefresh(result, stage, reason st
 	o.refreshes = append(o.refreshes, refreshObservation{result, stage, reason})
 }
 func (o *captureRefreshObserver) SetScheduleRevision(schedule, enrichment int64) {
-	o.revisions = append(o.revisions, SnapshotRevision{schedule, enrichment})
+	o.revisions = append(o.revisions, SnapshotRevision{ScheduleVersion: schedule, EnrichmentVersion: enrichment})
 }
 func (o *captureRefreshObserver) SetScheduleFreshness(generatedAt, windowStart, windowEnd time.Time) {
 	o.freshness = append(o.freshness, [3]time.Time{generatedAt, windowStart, windowEnd})
@@ -36,6 +36,7 @@ type fakeSnapshotReader struct {
 	mu                sync.Mutex
 	version           int64
 	enrichmentVersion int64
+	locationVersion   int64
 	data              Dataset
 	versionErr        error
 	loadErr           error
@@ -53,7 +54,7 @@ func (f *fakeSnapshotReader) CurrentRevision(ctx context.Context) (SnapshotRevis
 	f.mu.Lock()
 	f.checks++
 	started, release := f.versionStarted, f.versionRelease
-	revision, err := SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion}, f.versionErr
+	revision, err := SnapshotRevision{ScheduleVersion: f.version, EnrichmentVersion: f.enrichmentVersion, TheaterLocationVersion: f.locationVersion}, f.versionErr
 	f.mu.Unlock()
 	if started != nil {
 		select {
@@ -75,7 +76,7 @@ func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, SnapshotRevisio
 	f.mu.Lock()
 	f.loads++
 	started, release := f.loadStarted, f.loadRelease
-	data, version, enrichmentVersion, err := cloneDataset(f.data), f.version, f.enrichmentVersion, f.loadErr
+	data, version, enrichmentVersion, locationVersion, err := cloneDataset(f.data), f.version, f.enrichmentVersion, f.locationVersion, f.loadErr
 	if f.useLoadVersion {
 		version = f.loadVersion
 	}
@@ -93,7 +94,7 @@ func (f *fakeSnapshotReader) Load(ctx context.Context) (Dataset, SnapshotRevisio
 			return Dataset{}, SnapshotRevision{}, ctx.Err()
 		}
 	}
-	return data, SnapshotRevision{ScheduleVersion: version, EnrichmentVersion: enrichmentVersion}, err
+	return data, SnapshotRevision{ScheduleVersion: version, EnrichmentVersion: enrichmentVersion, TheaterLocationVersion: locationVersion}, err
 }
 
 func TestPostgresSourceSnapshotIsDetachedZeroAllocationAndNoIO(t *testing.T) {
@@ -152,6 +153,18 @@ func TestPostgresSourcePollPublishesScheduleAndEnrichmentRevisions(t *testing.T)
 	source.refresh(context.Background())
 	if got := source.Snapshot(); got == current || got.data.Showtimes[0].Movie.Enrichment == nil || got.data.Showtimes[0].Movie.Enrichment.TMDBID != 42 {
 		t.Fatal("enrichment revision not published")
+	}
+	withLocation := testDataset()
+	latitude, longitude := 50.63, 3.06
+	withLocation.Theaters[0].Latitude, withLocation.Theaters[0].Longitude = &latitude, &longitude
+	previous := source.Snapshot()
+	reader.mu.Lock()
+	reader.locationVersion = 1
+	reader.data = withLocation
+	reader.mu.Unlock()
+	source.refresh(context.Background())
+	if got := source.Snapshot(); got == previous || got.data.Theaters[0].Latitude == nil || *got.data.Theaters[0].Latitude != latitude {
+		t.Fatal("theater location revision not published")
 	}
 }
 

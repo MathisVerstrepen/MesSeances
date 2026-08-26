@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/shortlink"
@@ -40,16 +41,18 @@ type HandlerOptions struct {
 }
 
 type AdminOptions struct {
-	Password      string
-	SessionSecret string
-	Reviews       *enrichment.ReviewService
-	TMDBReruns    TMDBRerunner
-	LocalMovies   *enrichment.LocalMovieService
-	Syncs         SyncController
-	SyncSchedules SyncScheduleController
-	Now           func() time.Time
-	Logger        *slog.Logger
-	Metrics       *observability.Metrics
+	Password         string
+	SessionSecret    string
+	Reviews          *enrichment.ReviewService
+	TMDBReruns       TMDBRerunner
+	LocalMovies      *enrichment.LocalMovieService
+	Syncs            SyncController
+	SyncSchedules    SyncScheduleController
+	TheaterLocations TheaterLocationController
+	TheaterGeocoding TheaterGeocodingController
+	Now              func() time.Time
+	Logger           *slog.Logger
+	Metrics          *observability.Metrics
 }
 
 type TMDBRerunner interface {
@@ -65,6 +68,17 @@ type SyncScheduleController interface {
 	List(context.Context) ([]syncschedule.Schedule, error)
 	Save(context.Context, synccontrol.Target, bool, syncschedule.Definition) (syncschedule.Schedule, error)
 	NextRuns(syncschedule.Definition) ([]time.Time, error)
+}
+
+type TheaterLocationController interface {
+	Pending(context.Context, int, int) ([]geocoding.PendingLocation, error)
+	AcceptSuggestion(context.Context, string, string, time.Time) error
+	SetManual(context.Context, string, string, time.Time, float64, float64) error
+}
+
+type TheaterGeocodingController interface {
+	Start() (geocoding.RunStatus, error)
+	Snapshot(context.Context) (*geocoding.RunStatus, error)
 }
 
 type errorResponse struct {
@@ -141,6 +155,11 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
 			router.Get("/sync-schedules", api.admin.syncSchedules)
 			router.With(api.admin.requireOrigin).Post("/sync-schedules/{provider}", api.admin.saveSyncSchedule)
+			router.Get("/theater-locations", api.admin.pendingTheaterLocations)
+			router.Get("/theater-locations/geocoding-runs", api.admin.theaterGeocodingStatus)
+			router.With(api.admin.requireOrigin).Post("/theater-locations/geocoding-runs", api.admin.startTheaterGeocoding)
+			router.With(api.admin.requireOrigin).Post("/theater-locations/{provider}/{providerTheaterID}/accept-suggestion", api.admin.acceptTheaterLocationSuggestion)
+			router.With(api.admin.requireOrigin).Post("/theater-locations/{provider}/{providerTheaterID}/manual", api.admin.setManualTheaterLocation)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/approve", api.admin.approveMatch)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/reject", api.admin.rejectMatch)
 		})

@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/schedule"
 )
 
@@ -37,7 +38,7 @@ func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRe
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
-	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 {
+	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("invalid schedule snapshot revision")
 	}
 	if err := schedule.ValidateDataset(data, true); err != nil {
@@ -54,7 +55,7 @@ func loadMetadata(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.Sn
 	var revision schedule.SnapshotRevision
 	var from, through time.Time
 	var provider, scope string
-	err := tx.QueryRow(ctx, `SELECT s.version, e.version, s.schema_version, s.provider, s.scope, s.generated_at, s.timezone, s.window_from, s.window_through FROM schedule_snapshot s CROSS JOIN movie_enrichment_state e WHERE s.singleton=true AND e.singleton=true`).Scan(&revision.ScheduleVersion, &revision.EnrichmentVersion, &data.SchemaVersion, &provider, &scope, &data.GeneratedAt, &data.Timezone, &from, &through)
+	err := tx.QueryRow(ctx, `SELECT s.version, e.version, l.version, s.schema_version, s.provider, s.scope, s.generated_at, s.timezone, s.window_from, s.window_through FROM schedule_snapshot s CROSS JOIN movie_enrichment_state e CROSS JOIN theater_location_state l WHERE s.singleton=true AND e.singleton=true AND l.singleton=true`).Scan(&revision.ScheduleVersion, &revision.EnrichmentVersion, &revision.TheaterLocationVersion, &data.SchemaVersion, &provider, &scope, &data.GeneratedAt, &data.Timezone, &from, &through)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, schedule.ErrNoCompleteSnapshot
 	}
@@ -116,18 +117,28 @@ func loadShowtimeAggregate(ctx context.Context, tx pgx.Tx, version int64, movies
 func loadTheaterAggregate(ctx context.Context, tx pgx.Tx, version int64) ([]schedule.TheaterRecord, error) {
 	theaters := []schedule.TheaterRecord{}
 	indexByID := map[string]int{}
-	rows, err := tx.Query(ctx, `SELECT provider, id, provider_id, slug, name, address, city, postal_code FROM theaters WHERE generation_id=$1 ORDER BY provider, provider_id, id`, version)
+	rows, err := tx.Query(ctx, `SELECT t.provider, t.id, t.provider_id, t.slug, t.name, t.address, t.city, t.postal_code,
+       l.latitude, l.longitude, l.status, l.address_hash
+FROM theaters t
+LEFT JOIN theater_locations l ON l.provider=t.provider AND l.provider_theater_id=t.provider_id
+WHERE t.generation_id=$1
+ORDER BY t.provider, t.provider_id, t.id`, version)
 	if err != nil {
 		return nil, fmt.Errorf("read theaters failed")
 	}
 	for rows.Next() {
 		var theater schedule.TheaterRecord
 		var provider string
-		if err := rows.Scan(&provider, &theater.ID, &theater.ProviderID, &theater.Slug, &theater.Name, &theater.Address, &theater.City, &theater.PostalCode); err != nil {
+		var latitude, longitude *float64
+		var status, addressHash *string
+		if err := rows.Scan(&provider, &theater.ID, &theater.ProviderID, &theater.Slug, &theater.Name, &theater.Address, &theater.City, &theater.PostalCode, &latitude, &longitude, &status, &addressHash); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read theaters failed")
 		}
 		theater.Provider = schedule.Provider(provider)
+		if status != nil && (*status == string(geocoding.StatusManual) || *status == string(geocoding.StatusMatched) && addressHash != nil && *addressHash == geocoding.AddressHash(theater.Address, theater.PostalCode, theater.City)) {
+			theater.Latitude, theater.Longitude = latitude, longitude
+		}
 		if _, exists := indexByID[theater.ID]; exists {
 			rows.Close()
 			return nil, fmt.Errorf("duplicate theater row")

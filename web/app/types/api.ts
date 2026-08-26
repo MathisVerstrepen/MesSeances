@@ -95,6 +95,78 @@ export interface AdminSessionResponse {
   authenticated: boolean
 }
 
+export type AdminTheaterLocationStatus = 'ambiguous' | 'not_found'
+
+export interface AdminTheaterLocationSuggestion {
+  label: string
+  score: number
+  latitude: number | null
+  longitude: number | null
+  postal_code: string | null
+  city: string | null
+  type: string | null
+}
+
+export interface AdminTheaterLocation {
+  provider: Provider
+  provider_theater_id: string
+  theater_id: string
+  name: string
+  address: string
+  postal_code: string
+  city: string
+  status: AdminTheaterLocationStatus
+  updated_at: string
+  suggestion: AdminTheaterLocationSuggestion | null
+  can_accept_suggestion: boolean
+}
+
+export interface AdminTheaterLocationsResponse {
+  items: AdminTheaterLocation[]
+  limit: number
+  offset: number
+}
+
+export interface AdminAcceptTheaterLocationSuggestionRequest {
+  expected_updated_at: string
+}
+
+export interface AdminSetManualTheaterLocationRequest {
+  expected_updated_at: string
+  latitude: number
+  longitude: number
+}
+
+export interface AdminTheaterLocationResolutionResponse {
+  status: 'manual'
+}
+
+export type AdminTheaterGeocodingState = 'running' | 'succeeded' | 'failed'
+export type AdminTheaterGeocodingFailureCode = 'run_failed' | 'canceled' | 'internal_failure'
+
+export interface AdminTheaterGeocodingSummary {
+  selected: number
+  skipped: number
+  matched: number
+  ambiguous: number
+  not_found: number
+  failed: number
+  written: number
+}
+
+export interface AdminTheaterGeocodingJob {
+  id: string
+  state: AdminTheaterGeocodingState
+  started_at: string
+  finished_at: string | null
+  summary: AdminTheaterGeocodingSummary | null
+  error_code: AdminTheaterGeocodingFailureCode | null
+}
+
+export interface AdminTheaterGeocodingResponse {
+  job: AdminTheaterGeocodingJob | null
+}
+
 export interface AdminTMDBCandidate {
   id: number
   title: string
