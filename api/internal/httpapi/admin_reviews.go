@@ -11,6 +11,22 @@ import (
 )
 
 func (a *adminAPI) pendingMatches(w http.ResponseWriter, r *http.Request) {
+	filter := enrichment.PendingMatchFilterUnresolved
+	if values, exists := r.URL.Query()["status"]; exists {
+		if len(values) != 1 {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Filtre de statut invalide.")
+			return
+		}
+		switch values[0] {
+		case string(enrichment.PendingMatchFilterUnresolved):
+			filter = enrichment.PendingMatchFilterUnresolved
+		case string(enrichment.PendingMatchFilterRejected):
+			filter = enrichment.PendingMatchFilterRejected
+		default:
+			writeError(w, http.StatusBadRequest, "invalid_query", "Filtre de statut invalide.")
+			return
+		}
+	}
 	limit, offset := 50, 0
 	var err error
 	if raw := r.URL.Query().Get("limit"); raw != "" {
@@ -25,7 +41,7 @@ func (a *adminAPI) pendingMatches(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_query", "Pagination invalide.")
 		return
 	}
-	items, err := a.reviews.Pending(r.Context(), limit, offset)
+	items, err := a.reviews.Pending(r.Context(), filter, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Une erreur interne est survenue.")
 		return

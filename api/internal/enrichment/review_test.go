@@ -11,6 +11,9 @@ import (
 
 type reviewStoreStub struct {
 	items           []PendingMatch
+	filter          PendingMatchFilter
+	limit           int
+	offset          int
 	candidate       Candidate
 	candidateErr    error
 	sourceRuntime   int
@@ -22,7 +25,8 @@ type reviewStoreStub struct {
 	rejectedAt      time.Time
 }
 
-func (s *reviewStoreStub) PendingMatches(context.Context, int, int) ([]PendingMatch, error) {
+func (s *reviewStoreStub) PendingMatches(_ context.Context, filter PendingMatchFilter, limit, offset int) ([]PendingMatch, error) {
+	s.filter, s.limit, s.offset = filter, limit, offset
 	return s.items, nil
 }
 func (s *reviewStoreStub) ReviewCandidate(_ context.Context, _, _ string, candidateID int64) (Candidate, int, error) {
@@ -174,9 +178,12 @@ func TestReviewServiceDecoratesAndSanitizesPendingWithoutProviderCalls(t *testin
 		},
 	}}
 	provider := &reviewProviderStub{}
-	items, err := NewReviewService(store, provider, nil).Pending(context.Background(), 20, 0)
+	items, err := NewReviewService(store, provider, nil).Pending(context.Background(), PendingMatchFilterRejected, 20, 40)
 	if err != nil || provider.calls != 0 {
 		t.Fatalf("items=%+v calls=%d err=%v", items, provider.calls, err)
+	}
+	if store.filter != PendingMatchFilterRejected || store.limit != 20 || store.offset != 40 {
+		t.Fatalf("pending query=%q/%d/%d", store.filter, store.limit, store.offset)
 	}
 	if items[0].SourcePosterURL != "https://static.ugc.fr/posters/200.jpg" || items[0].SourceDetailURL != "https://www.ugc.fr/film.html?id=200" || items[0].Candidates[0].PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || items[0].Candidates[0].DetailURL != "https://www.themoviedb.org/movie/42?language=fr-FR" {
 		t.Fatalf("decorated item=%+v", items[0])

@@ -19,7 +19,7 @@ import (
 
 type adminReviewStore struct{}
 
-func (adminReviewStore) PendingMatches(context.Context, int, int) ([]enrichment.PendingMatch, error) {
+func (adminReviewStore) PendingMatches(context.Context, enrichment.PendingMatchFilter, int, int) ([]enrichment.PendingMatch, error) {
 	return []enrichment.PendingMatch{{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", SourceRuntimeMinutes: 100, SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: enrichment.StatusUnmatched, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", PosterURL: "https://image.tmdb.org/t/p/w500/42.jpg", DetailURL: "https://evil.example/candidate"}}}}, nil
 }
 func (adminReviewStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, int, error) {
@@ -31,6 +31,24 @@ func (adminReviewStore) ApproveReview(context.Context, string, string, int64, en
 func (adminReviewStore) RejectReview(context.Context, string, string, time.Time) error { return nil }
 
 type adminProvider struct{}
+
+type adminReviewFilterStore struct {
+	adminReviewStore
+	filter enrichment.PendingMatchFilter
+	limit  int
+	offset int
+	calls  int
+}
+
+func (s *adminReviewFilterStore) PendingMatches(_ context.Context, filter enrichment.PendingMatchFilter, limit, offset int) ([]enrichment.PendingMatch, error) {
+	s.filter, s.limit, s.offset = filter, limit, offset
+	s.calls++
+	status := enrichment.StatusUnmatched
+	if filter == enrichment.PendingMatchFilterRejected {
+		status = enrichment.StatusRejected
+	}
+	return []enrichment.PendingMatch{{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", Status: status}}, nil
+}
 
 func (adminProvider) Details(_ context.Context, movieID int64) (tmdb.Details, error) {
 	return tmdb.Details{ID: movieID, Title: "Film A", OriginalTitle: "Film A", Runtime: 100, Genres: []string{}}, nil
@@ -125,6 +143,45 @@ func TestAdminSessionSecurityAndRotation(t *testing.T) {
 	status = adminRequest(handler, http.MethodGet, "/api/v1/admin/session", "", "", cookie)
 	if !strings.Contains(status.Body.String(), `"authenticated":false`) {
 		t.Fatalf("expired body=%s", status.Body.String())
+	}
+}
+
+func TestAdminPendingMatchesStatusFilter(t *testing.T) {
+	store := &adminReviewFilterStore{}
+	reviews := enrichment.NewReviewService(store, nil, nil)
+	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
+	cookie := loginAdmin(t, handler, "password")
+
+	tests := []struct {
+		name       string
+		target     string
+		wantFilter enrichment.PendingMatchFilter
+		wantStatus string
+	}{
+		{name: "omitted defaults unresolved", target: "/api/v1/admin/tmdb-matches?limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterUnresolved, wantStatus: enrichment.StatusUnmatched},
+		{name: "explicit unresolved", target: "/api/v1/admin/tmdb-matches?status=unresolved&limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterUnresolved, wantStatus: enrichment.StatusUnmatched},
+		{name: "rejected", target: "/api/v1/admin/tmdb-matches?status=rejected&limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterRejected, wantStatus: enrichment.StatusRejected},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := adminRequest(handler, http.MethodGet, test.target, "", "", cookie)
+			if response.Code != http.StatusOK || store.filter != test.wantFilter || store.limit != 20 || store.offset != 40 || !strings.Contains(response.Body.String(), `"status":"`+test.wantStatus+`"`) {
+				t.Fatalf("status=%d filter=%q pagination=%d/%d body=%s", response.Code, store.filter, store.limit, store.offset, response.Body.String())
+			}
+		})
+	}
+
+	for _, target := range []string{
+		"/api/v1/admin/tmdb-matches?status=matched",
+		"/api/v1/admin/tmdb-matches?status=",
+		"/api/v1/admin/tmdb-matches?status=unresolved&status=rejected",
+	} {
+		calls := store.calls
+		response := adminRequest(handler, http.MethodGet, target, "", "", cookie)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_query", "Filtre de statut invalide.")
+		if store.calls != calls {
+			t.Fatalf("invalid filter reached store: target=%s calls=%d", target, store.calls)
+		}
 	}
 }
 

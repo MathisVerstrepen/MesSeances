@@ -3,6 +3,7 @@ import type {
   AdminLocalMovieGroup,
   AdminLocalMovieGroupsResponse,
   AdminMatchDecisionResponse,
+  AdminPendingMatchesFilter,
   AdminPendingMatchesResponse,
   AdminSaveSyncScheduleRequest,
   AdminSessionResponse,
@@ -98,10 +99,10 @@ export function useMesSeancesApi() {
         credentials: 'include'
       }))
     },
-    adminPendingMatches(limit: number, offset: number) {
+    adminPendingMatches(status: AdminPendingMatchesFilter, limit: number, offset: number) {
       return withAdminRedirect($fetch<AdminPendingMatchesResponse>(`${apiBase}/api/v1/admin/tmdb-matches`, {
         credentials: 'include',
-        query: { limit, offset }
+        query: { status, limit, offset }
       }))
     },
     adminApproveMatch(sourceProvider: Provider, sourceMovieId: string, tmdbId: number) {

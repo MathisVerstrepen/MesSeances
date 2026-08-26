@@ -13,8 +13,15 @@ import (
 
 const reviewMetadataTTL = 30 * 24 * time.Hour
 
+type PendingMatchFilter string
+
+const (
+	PendingMatchFilterUnresolved PendingMatchFilter = "unresolved"
+	PendingMatchFilterRejected   PendingMatchFilter = "rejected"
+)
+
 type ReviewStore interface {
-	PendingMatches(context.Context, int, int) ([]PendingMatch, error)
+	PendingMatches(context.Context, PendingMatchFilter, int, int) ([]PendingMatch, error)
 	ReviewCandidate(context.Context, string, string, int64) (Candidate, int, error)
 	ApproveReview(context.Context, string, string, int64, Metadata, int, time.Time) error
 	RejectReview(context.Context, string, string, time.Time) error
@@ -37,11 +44,11 @@ func NewReviewService(store ReviewStore, provider interface {
 	return &ReviewService{store: store, provider: provider, now: now}
 }
 
-func (s *ReviewService) Pending(ctx context.Context, limit, offset int) ([]PendingMatch, error) {
+func (s *ReviewService) Pending(ctx context.Context, filter PendingMatchFilter, limit, offset int) ([]PendingMatch, error) {
 	if s == nil || s.store == nil {
 		return nil, fmt.Errorf("review service unavailable")
 	}
-	items, err := s.store.PendingMatches(ctx, limit, offset)
+	items, err := s.store.PendingMatches(ctx, filter, limit, offset)
 	if err != nil {
 		return nil, err
 	}
