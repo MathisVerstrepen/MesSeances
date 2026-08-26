@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, CalendarDays, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
-import type { TheaterShowtimesResponse } from '~/types/api'
+import { AlertTriangle, Building2, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import type { CatalogMovie, TheaterShowtimesResponse } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
+import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { formatLongDate, todayInParis } from '~/utils/date'
 import { cinemaDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
@@ -16,7 +17,13 @@ const response = ref<TheaterShowtimesResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
 const notFound = ref(false)
+const cinemaMovies = ref<CatalogMovie[]>([])
+const moviesPending = ref(false)
+const moviesErrorMessage = ref('')
 let requestId = 0
+let moviesRequestId = 0
+let loadedMoviesTheaterId = ''
+const CATALOG_PAGE_SIZE = 100
 const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
 
 const slug = computed(() => {
@@ -25,6 +32,7 @@ const slug = computed(() => {
 })
 const requestedDate = computed(() => calendarDate(singularQueryValue(route.query.date)))
 const selectedDate = computed(() => requestedDate.value ?? todayInParis())
+const currentView = computed(() => singularQueryValue(route.query.view) === 'films' ? 'films' : 'showtimes')
 const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
 const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
 const groupingOptions = resultGroupingOptions
@@ -85,6 +93,63 @@ async function loadCinema() {
   notFound.value = state.kind === 'not-found'
   errorMessage.value = state.errorMessage
   pending.value = false
+  if (state.response && currentView.value === 'films') void loadMovies(state.response.theater.id)
+}
+
+async function fetchMovies(theaterId: string): Promise<CatalogMovie[]> {
+  const query = {
+    currently_screened: true,
+    theaters: theaterId,
+    sort: 'showtimes_desc' as const,
+    page_size: CATALOG_PAGE_SIZE
+  }
+  const firstPage = await api.movies({ ...query, page: 1 })
+  const pageCount = Math.ceil(firstPage.total / CATALOG_PAGE_SIZE)
+  if (pageCount <= 1) return firstPage.items
+
+  const remainingPages = await Promise.all(Array.from({ length: pageCount - 1 }, (_, index) => api.movies({
+    ...query,
+    page: index + 2
+  })))
+  return [firstPage, ...remainingPages].flatMap((page) => page.items)
+}
+
+async function fetchMoviesState(theaterId: string) {
+  try {
+    return { kind: 'success' as const, movies: await fetchMovies(theaterId), errorMessage: '' }
+  } catch (error) {
+    return { kind: 'upstream-error' as const, movies: [], errorMessage: getFrenchApiError(error) }
+  }
+}
+
+async function loadMovies(theaterId: string, force = false) {
+  if (!force && loadedMoviesTheaterId === theaterId && !moviesErrorMessage.value) return
+  const currentRequest = ++moviesRequestId
+  moviesPending.value = true
+  moviesErrorMessage.value = ''
+  const state = await fetchMoviesState(theaterId)
+  if (currentRequest !== moviesRequestId) return
+  cinemaMovies.value = state.movies
+  loadedMoviesTheaterId = state.kind === 'success' ? theaterId : ''
+  moviesErrorMessage.value = state.errorMessage
+  moviesPending.value = false
+}
+
+function viewQuery(view: 'showtimes' | 'films') {
+  return mergeOwnedQuery(route.query, ['view'], {
+    view: view === 'films' ? 'films' : undefined
+  })
+}
+
+function formatRuntime(runtimeMinutes: number): string {
+  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0) return 'Durée non renseignée'
+  const hours = Math.floor(runtimeMinutes / 60)
+  const minutes = runtimeMinutes % 60
+  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
+}
+
+function formatShowtimeCount(showtimeCount: number): string {
+  return `${showtimeCount} séance${showtimeCount === 1 ? '' : 's'}`
 }
 
 function selectDate(date: string) {
@@ -119,7 +184,35 @@ async function setResultLayout(layout: string) {
   })
 }
 
-watch([slug, selectedDate], () => void loadCinema())
+if (currentView.value === 'films' && response.value) {
+  moviesPending.value = true
+  const initialTheaterId = response.value.theater.id
+  const initialMovies = await useAsyncData(`cinema-movies:${slug.value}:${initialTheaterId}`, () => fetchMoviesState(initialTheaterId))
+  const initialMoviesState = initialMovies.data.value
+  cinemaMovies.value = initialMoviesState?.movies ?? []
+  moviesErrorMessage.value = initialMoviesState?.errorMessage ?? ''
+  loadedMoviesTheaterId = initialMoviesState?.kind === 'success' ? initialTheaterId : ''
+  moviesPending.value = false
+  if (import.meta.server && initialMoviesState?.kind === 'upstream-error') {
+    const event = useRequestEvent()
+    if (event) setResponseStatus(event, 502)
+  }
+}
+
+watch([slug, selectedDate], ([nextSlug], [previousSlug]) => {
+  if (nextSlug !== previousSlug) {
+    moviesRequestId++
+    cinemaMovies.value = []
+    moviesErrorMessage.value = ''
+    moviesPending.value = false
+    loadedMoviesTheaterId = ''
+  }
+  void loadCinema()
+})
+watch(currentView, (view) => {
+  const theaterId = response.value?.theater.id
+  if (view === 'films' && theaterId) void loadMovies(theaterId)
+})
 
 const normalizedResults = computed(() => response.value ? toTheaterShowtimeResults(response.value) : [])
 const movieGroups = computed(() => groupShowtimeResults(sortShowtimeResults(normalizedResults.value)))
@@ -257,31 +350,85 @@ useHead(() => ({
         </div>
       </header>
 
-      <section class="mt-12" aria-labelledby="cinema-showtimes-heading">
-        <div class="flex items-end justify-between gap-4 border-b-2 border-ink pb-5">
+      <section class="mt-12" :aria-labelledby="currentView === 'films' ? 'cinema-films-heading' : 'cinema-showtimes-heading'">
+        <div class="flex flex-col gap-5 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p class="utility-label">Programmation</p>
-            <h2 id="cinema-showtimes-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Séances</h2>
-            <p v-if="response.date" class="mt-2 font-mono text-xs font-bold uppercase capitalize text-muted"><time :datetime="response.date">{{ formatLongDate(response.date) }}</time></p>
+            <h2 v-if="currentView === 'showtimes'" id="cinema-showtimes-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Séances</h2>
+            <h2 v-else id="cinema-films-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Films</h2>
+            <p v-if="currentView === 'showtimes' && response.date" class="mt-2 font-mono text-xs font-bold uppercase capitalize text-muted"><time :datetime="response.date">{{ formatLongDate(response.date) }}</time></p>
           </div>
-          <ShareButton class="shrink-0" />
-        </div>
-        <div v-if="availableDates.length || (!pending && !errorMessage && normalizedResults.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <ShowtimeDateBar v-if="availableDates.length" :selected-date="response.date ?? selectedDate" :available-dates="availableDates" :today="todayInParis()" @select="selectDate" />
-          <div v-if="!pending && !errorMessage && normalizedResults.length" class="grid grid-cols-2 border-2 border-ink bg-surface divide-x-2 divide-ink lg:hidden" role="group" aria-label="Réglages d’affichage des séances">
-            <ResultSettingMenu id="cinema-mobile-result-grouping" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
-            <ResultSettingMenu id="cinema-mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
-          </div>
-          <div v-if="!pending && !errorMessage && normalizedResults.length" class="hidden shrink-0 items-stretch border-2 border-ink bg-surface divide-x-2 divide-ink lg:flex" role="group" aria-label="Réglages d’affichage des séances">
-            <ResultSettingMenu id="cinema-desktop-result-grouping" class="w-40" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
-            <ResultSettingMenu id="cinema-desktop-result-layout" class="w-32" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+          <div class="flex items-center gap-3 self-stretch sm:self-auto">
+            <nav class="grid flex-1 grid-cols-2 border-2 border-ink bg-surface sm:flex-none" aria-label="Vue de la programmation">
+              <NuxtLink
+                :to="{ query: viewQuery('showtimes') }"
+                class="view-switch"
+                :class="{ 'view-switch--active': currentView === 'showtimes' }"
+                :aria-current="currentView === 'showtimes' ? 'page' : undefined"
+              >
+                Séances
+              </NuxtLink>
+              <NuxtLink
+                :to="{ query: viewQuery('films') }"
+                class="view-switch border-l-2 border-ink"
+                :class="{ 'view-switch--active': currentView === 'films' }"
+                :aria-current="currentView === 'films' ? 'page' : undefined"
+              >
+                Films
+              </NuxtLink>
+            </nav>
+            <ShareButton class="shrink-0" />
           </div>
         </div>
 
-        <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des séances…</p></EditorialStatePanel>
-        <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces séances</h3></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
-        <EditorialStatePanel v-else-if="normalizedResults.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><CalendarDays :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucune séance à cette date</h3></template><p>Choisissez une autre date pour consulter la programmation.</p></EditorialStatePanel>
-        <ShowtimeResults v-else :results="normalizedResults" :grouping="resultGrouping" :layout="resultLayout" scope="single-theater" />
+        <template v-if="currentView === 'showtimes'">
+          <div v-if="availableDates.length || (!pending && !errorMessage && normalizedResults.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <ShowtimeDateBar v-if="availableDates.length" :selected-date="response.date ?? selectedDate" :available-dates="availableDates" :today="todayInParis()" @select="selectDate" />
+            <div v-if="!pending && !errorMessage && normalizedResults.length" class="grid grid-cols-2 border-2 border-ink bg-surface divide-x-2 divide-ink lg:hidden" role="group" aria-label="Réglages d’affichage des séances">
+              <ResultSettingMenu id="cinema-mobile-result-grouping" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
+              <ResultSettingMenu id="cinema-mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+            </div>
+            <div v-if="!pending && !errorMessage && normalizedResults.length" class="hidden shrink-0 items-stretch border-2 border-ink bg-surface divide-x-2 divide-ink lg:flex" role="group" aria-label="Réglages d’affichage des séances">
+              <ResultSettingMenu id="cinema-desktop-result-grouping" class="w-40" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
+              <ResultSettingMenu id="cinema-desktop-result-layout" class="w-32" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+            </div>
+          </div>
+
+          <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des séances…</p></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces séances</h3></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="normalizedResults.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><CalendarDays :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucune séance à cette date</h3></template><p>Choisissez une autre date pour consulter la programmation.</p></EditorialStatePanel>
+          <ShowtimeResults v-else :results="normalizedResults" :grouping="resultGrouping" :layout="resultLayout" scope="single-theater" />
+        </template>
+
+        <template v-else>
+          <EditorialStatePanel v-if="moviesPending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des films…</p></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="moviesErrorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces films</h3></template><p>{{ moviesErrorMessage }}</p><template #actions><button type="button" class="discovery-action" @click="loadMovies(response.theater.id, true)"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="cinemaMovies.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun film à l’affiche</h3></template><p>Ce cinéma ne propose aucun film actuellement.</p></EditorialStatePanel>
+          <template v-else>
+            <p class="mt-5 border-y-2 border-ink py-4 text-right font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ cinemaMovies.length }} film{{ cinemaMovies.length > 1 ? 's' : '' }}</p>
+            <ul class="catalog-grid mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" :aria-label="`Films à l’affiche au cinéma ${response.theater.name}`">
+              <li v-for="movie in cinemaMovies" :key="movie.slug" class="min-w-0">
+                <NuxtLink :to="cinemaMovieTarget(movie.slug, response.theater.id)" class="catalog-card group block focus-visible:ring-offset-4">
+                  <div class="poster-frame">
+                    <PosterImage
+                      :src="movie.poster_url"
+                      :alt="`Affiche de ${movie.title}`"
+                      class="h-full w-full"
+                      image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025]"
+                      fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
+                      :fallback-icon-size="32"
+                      loading="lazy"
+                    />
+                  </div>
+                  <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
+                    <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
+                    <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">{{ formatRuntime(movie.runtime_minutes) }} · {{ formatShowtimeCount(movie.showtime_count ?? 0) }}</span>
+                  </div>
+                </NuxtLink>
+              </li>
+            </ul>
+          </template>
+        </template>
       </section>
     </template>
   </main>
@@ -291,4 +438,14 @@ useHead(() => ({
 .discovery-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
 .discovery-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
 .utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.view-switch { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; padding: .6rem .9rem; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; transition: background-color 150ms ease,color 150ms ease; }
+.view-switch:hover,.view-switch--active { background: #27272a; color: #fff; }
+.view-switch:focus-visible { position: relative; z-index: 1; outline: 3px solid #1f6f78; outline-offset: 2px; }
+.catalog-card { color: #27272a; transition: transform 170ms ease; }
+.catalog-card:hover { transform: translateY(-4px); }
+.poster-frame { position: relative; aspect-ratio: 2 / 3; overflow: hidden; border: 2px solid #27272a; background: #e8e6de; box-shadow: 5px 5px 0 #27272a; }
+@media (prefers-reduced-motion: reduce) {
+  .view-switch,.catalog-card,.catalog-card :deep(img) { transition: none; }
+  .catalog-card:hover { transform: none; }
+}
 </style>

@@ -20,7 +20,7 @@ var queryKeys = map[string]map[string]struct{}{
 	"/films":               keys("q", "sort", "page", sharedTheatersKey),
 	"/credits":             keys(sharedTheatersKey),
 	"/film/:slug":          keys("date", "language", "format", "sort", sharedTheatersKey),
-	"/cinema/:slug":        keys("date", sharedTheatersKey),
+	"/cinema/:slug":        keys("date", "grouping", "layout", "view", sharedTheatersKey),
 	"/ville/:slug/cinemas": keys(sharedTheatersKey),
 }
 

@@ -658,12 +658,27 @@ useHead(() => ({
             <p class="mt-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted">{{ formatLongDate(selectedDate) }}</p>
           </div>
           <div class="flex flex-wrap items-center gap-3 self-start sm:justify-end sm:self-end">
-            <NuxtLink to="/cinemas" class="editorial-link shrink-0">Modifier mes cinémas</NuxtLink>
+            <SharedTheaterAction
+              v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value"
+              v-slot="{ pending: restorePending, errorMessage: restoreError, restoreSavedTheaters }"
+            >
+              <div class="flex shrink-0 flex-col items-end gap-1" aria-live="polite">
+                <button
+                  type="button"
+                  class="editorial-link"
+                  :disabled="restorePending"
+                  :aria-busy="restorePending"
+                  @click="restoreSavedTheaters"
+                >
+                  {{ restorePending ? 'Restauration…' : 'Utiliser mes cinémas' }}
+                </button>
+                <span v-if="restoreError" class="max-w-72 text-right text-xs font-bold text-red-800" role="alert">{{ restoreError }}</span>
+              </div>
+            </SharedTheaterAction>
+            <NuxtLink v-else to="/cinemas" class="editorial-link shrink-0">Modifier mes cinémas</NuxtLink>
             <ShareButton />
           </div>
         </div>
-
-        <SharedTheaterNotice v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value" class="mt-5" />
 
         <div class="filter-dock sticky top-0 z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 lg:hidden">
           <div class="grid grid-cols-3 divide-x-2 divide-ink">
@@ -1020,6 +1035,11 @@ useHead(() => ({
   font-weight: 800;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+.editorial-link:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .compact-control {
