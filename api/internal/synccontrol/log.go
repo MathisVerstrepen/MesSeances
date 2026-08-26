@@ -17,6 +17,7 @@ const (
 type logEvent string
 type logOperation string
 type logCategory string
+type logParseReason string
 
 const (
 	eventProviderStarted     logEvent = "provider_started"
@@ -60,6 +61,28 @@ const (
 	categoryInternal             logCategory = "internal"
 	categoryUnknown              logCategory = "unknown"
 	categoryTruncated            logCategory = "truncated"
+
+	parseReasonDocumentParse                         logParseReason = "document_parse"
+	parseReasonTimezoneUnavailable                   logParseReason = "timezone_unavailable"
+	parseReasonInvalidServiceDate                    logParseReason = "invalid_service_date"
+	parseReasonShowingAttributesMissingOrConflicting logParseReason = "showing_attributes_missing_or_conflicting"
+	parseReasonConflictingDuplicateShowing           logParseReason = "conflicting_duplicate_showing"
+	parseReasonUnrecognizedShowingsDocument          logParseReason = "unrecognized_showings_document"
+	parseReasonFilmIdentityConflict                  logParseReason = "film_identity_conflict"
+	parseReasonFilmTitleMissing                      logParseReason = "film_title_missing"
+	parseReasonFilmTitleConflicting                  logParseReason = "film_title_conflicting"
+	parseReasonFilmRuntimeMissing                    logParseReason = "film_runtime_missing"
+	parseReasonInvalidFilmRuntime                    logParseReason = "invalid_film_runtime"
+	parseReasonUnrecognizedShowingOwnership          logParseReason = "unrecognized_showing_ownership"
+	parseReasonInvalidFilmDetailLink                 logParseReason = "invalid_film_detail_link"
+	parseReasonUnknownShowingVersion                 logParseReason = "unknown_showing_version"
+	parseReasonInvalidShowingHour                    logParseReason = "invalid_showing_hour"
+	parseReasonShowingOutsideCinemaDay               logParseReason = "showing_outside_cinema_day"
+	parseReasonInvalidShowingDate                    logParseReason = "invalid_showing_date"
+	parseReasonUnknownShowingFormat                  logParseReason = "unknown_showing_format"
+	parseReasonShowingEndMissingOrConflicting        logParseReason = "showing_end_missing_or_conflicting"
+	parseReasonInvalidShowingEnd                     logParseReason = "invalid_showing_end"
+	parseReasonUnknown                               logParseReason = "unknown"
 )
 
 type logProgress struct {
@@ -78,6 +101,7 @@ type logRecord struct {
 	Stage        FailureStage
 	Operation    logOperation
 	Category     logCategory
+	ParseReason  logParseReason
 	HTTPStatus   int
 	Attempt      int
 	AttemptLimit int
@@ -87,6 +111,7 @@ type logRecord struct {
 type logFailure struct {
 	Operation    logOperation
 	Category     logCategory
+	ParseReason  logParseReason
 	HTTPStatus   int
 	Attempt      int
 	AttemptLimit int
@@ -118,7 +143,7 @@ func lifecycleLog(timestamp time.Time, provider Target, event logEvent) string {
 func failureLog(timestamp time.Time, provider Target, stage FailureStage, failure logFailure) string {
 	record := logRecord{
 		Timestamp: timestamp, Provider: provider, Event: eventProviderFailed, Stage: stage,
-		Operation: failure.Operation, Category: failure.Category, HTTPStatus: failure.HTTPStatus,
+		Operation: failure.Operation, Category: failure.Category, ParseReason: failure.ParseReason, HTTPStatus: failure.HTTPStatus,
 		Attempt: failure.Attempt, AttemptLimit: failure.AttemptLimit, Progress: failure.Progress,
 	}
 	if record.Operation == "" {
@@ -126,6 +151,9 @@ func failureLog(timestamp time.Time, provider Target, stage FailureStage, failur
 	}
 	if record.Category == "" {
 		record.Category = categoryUnknown
+	}
+	if parseReasonContext(record) && !validLogParseReason(record.ParseReason) {
+		record.ParseReason = parseReasonUnknown
 	}
 	line, _ := serializeLogRecord(record)
 	return line
@@ -142,6 +170,9 @@ func serializeLogRecord(record logRecord) (string, bool) {
 	}
 	level, message, ok := logMessage(record.Event, record.Stage, record.Category)
 	if !ok || !validLogOperation(record.Operation) {
+		return "", false
+	}
+	if record.ParseReason != "" && (!parseReasonContext(record) || !validLogParseReason(record.ParseReason)) {
 		return "", false
 	}
 	if record.HTTPStatus != 0 && (record.Category != categoryHTTPStatus || record.HTTPStatus < 100 || record.HTTPStatus > 599) {
@@ -167,6 +198,10 @@ func serializeLogRecord(record logRecord) (string, bool) {
 	line.WriteString(string(record.Operation))
 	line.WriteString(" category=")
 	line.WriteString(string(record.Category))
+	if record.ParseReason != "" {
+		line.WriteString(" parse_reason=")
+		line.WriteString(string(record.ParseReason))
+	}
 	if record.HTTPStatus != 0 {
 		line.WriteString(" http_status=")
 		line.WriteString(strconv.Itoa(record.HTTPStatus))
@@ -355,7 +390,7 @@ func parseLogLine(line string, provider Target, startedAt time.Time, finishedAt 
 	if err != nil || timestamp.Location() != time.UTC || timestamp.Before(startedAt.UTC()) || timestamp.After(finishedAt.UTC()) || values["provider"] != string(provider) {
 		return parsedLogLine{}, false
 	}
-	record := logRecord{Timestamp: timestamp, Provider: provider, Event: logEvent(values["event"]), Stage: FailureStage(values["stage"]), Operation: logOperation(values["operation"]), Category: logCategory(values["category"])}
+	record := logRecord{Timestamp: timestamp, Provider: provider, Event: logEvent(values["event"]), Stage: FailureStage(values["stage"]), Operation: logOperation(values["operation"]), Category: logCategory(values["category"]), ParseReason: logParseReason(values["parse_reason"])}
 	if value := values["http_status"]; value != "" {
 		record.HTTPStatus, err = strconv.Atoi(value)
 		if err != nil {
@@ -413,6 +448,26 @@ func validLogProvider(provider Target) bool {
 func validLogOperation(operation logOperation) bool {
 	switch operation {
 	case operationClient, operationSitemap, operationCinemas, operationCinema, operationProgram, operationShowings, operationMovies, operationDatasetValidation, operationPublication, operationOrchestration, operationLog, operationUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+func parseReasonContext(record logRecord) bool {
+	return record.Provider == TargetUGC && record.Event == eventProviderFailed && record.Stage == StageProviderFetch && record.Operation == operationShowings && record.Category == categoryInvalidPayload
+}
+
+func validLogParseReason(reason logParseReason) bool {
+	switch reason {
+	case parseReasonDocumentParse, parseReasonTimezoneUnavailable, parseReasonInvalidServiceDate,
+		parseReasonShowingAttributesMissingOrConflicting, parseReasonConflictingDuplicateShowing,
+		parseReasonUnrecognizedShowingsDocument, parseReasonFilmIdentityConflict, parseReasonFilmTitleMissing,
+		parseReasonFilmTitleConflicting, parseReasonFilmRuntimeMissing, parseReasonInvalidFilmRuntime,
+		parseReasonUnrecognizedShowingOwnership, parseReasonInvalidFilmDetailLink, parseReasonUnknownShowingVersion,
+		parseReasonInvalidShowingHour, parseReasonShowingOutsideCinemaDay, parseReasonInvalidShowingDate,
+		parseReasonUnknownShowingFormat, parseReasonShowingEndMissingOrConflicting, parseReasonInvalidShowingEnd,
+		parseReasonUnknown:
 		return true
 	default:
 		return false

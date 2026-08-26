@@ -51,6 +51,7 @@ const (
 type RequestError struct {
 	Operation    Operation
 	Category     ErrorCategory
+	ParseReason  ParseReason
 	StatusCode   int
 	Attempt      int
 	AttemptLimit int
@@ -73,7 +74,11 @@ func requestError(operation Operation, category ErrorCategory, status, attempt i
 	} else {
 		attempt = 0
 	}
-	return &RequestError{Operation: operation, Category: category, StatusCode: status, Attempt: attempt, AttemptLimit: limit, cause: cause}
+	parseReason := ParseReason("")
+	if operation == OperationShowings && category == CategoryInvalidPayload {
+		parseReason = parseReasonFromError(cause)
+	}
+	return &RequestError{Operation: operation, Category: category, ParseReason: parseReason, StatusCode: status, Attempt: attempt, AttemptLimit: limit, cause: cause}
 }
 
 type ClientConfig struct {

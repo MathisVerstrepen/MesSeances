@@ -442,6 +442,42 @@ func TestProductionExecutorBuildsCanonicalUGCFailureLog(t *testing.T) {
 	}
 }
 
+func TestProductionExecutorBoundsUGCParseReason(t *testing.T) {
+	const secret = "proxy-password token-secret provider-body-secret raw-url?query=secret"
+	timestamp := time.Date(2026, 8, 26, 9, 9, 51, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		reason ugc.ParseReason
+		want   string
+	}{
+		{name: "known", reason: ugc.ParseReasonShowingEndMissingOrConflicting, want: "showing_end_missing_or_conflicting"},
+		{name: "malicious", reason: ugc.ParseReason(secret), want: "unknown"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var slogOutput bytes.Buffer
+			executor := &ProductionExecutor{
+				now:    func() time.Time { return timestamp },
+				logger: slog.New(slog.NewJSONHandler(&slogOutput, nil)),
+				newUGC: func() (ugc.Getter, error) { return countedUGCGetter{requests: 64}, nil },
+				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+					return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%s: %w", secret, &ugc.RequestError{Operation: ugc.OperationShowings, Category: ugc.CategoryInvalidPayload, ParseReason: test.reason})
+				},
+			}
+			_, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-26"})
+			var runErr *RunError
+			if !errors.As(err, &runErr) {
+				t.Fatalf("error=%v", err)
+			}
+			lines := runErr.logs[TargetUGC]
+			wantTerminal := `ts=2026-08-26T09:09:51Z level=error provider=ugc event=provider_failed stage=provider_fetch operation=showings category=invalid_payload parse_reason=` + test.want + ` requests=64 message="La réponse du fournisseur n’a pas pu être interprétée."`
+			combined := strings.Join(lines, "\n") + slogOutput.String()
+			if len(lines) != 4 || lines[3] != wantTerminal || strings.Contains(combined, secret) || strings.Contains(combined, "proxy-password") || strings.Contains(combined, "provider-body-secret") {
+				t.Fatalf("lines=%q slog=%q", lines, slogOutput.String())
+			}
+		})
+	}
+}
+
 func failedPatheExecutor(logs *bytes.Buffer, fetchErr error) *ProductionExecutor {
 	return &ProductionExecutor{
 		now:      time.Now,

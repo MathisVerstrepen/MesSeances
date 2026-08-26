@@ -1,6 +1,7 @@
 package ugc
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -175,6 +176,78 @@ func TestParseShowings(t *testing.T) {
 	}
 	if !reflect.DeepEqual(records, want) {
 		t.Fatalf("records=%+v\nwant=%+v", records, want)
+	}
+}
+
+func TestParseShowingsFailureReasons(t *testing.T) {
+	legacyHeading := `<a data-film="1" title="Film">Film</a>`
+	canonicalHeading := func(href, title string) string {
+		return `<div class="block--title text-uppercase"><a class="color--dark-blue" href="` + href + `">` + title + `</a></div>`
+	}
+	button := func(attributes, inner string) string {
+		return `<button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00" ` + attributes + `>` + inner + `</button>`
+	}
+	block := func(heading, runtime, buttons string) string {
+		return `<article id="bloc-showing-film-1">` + heading + runtime + buttons + `</article>`
+	}
+	validEnd := `<span class="screening-time-end">(fin 14:00)</span>`
+	tests := []struct {
+		name        string
+		body        string
+		serviceDate string
+		reason      ParseReason
+		message     string
+	}{
+		{name: "invalid service date", body: ``, serviceDate: "secret-date", reason: ParseReasonInvalidServiceDate, message: "invalid service date"},
+		{name: "attributes missing", body: block(legacyHeading, `<span>(2h)</span>`, `<button data-showing="10">`+validEnd+`</button>`), reason: ParseReasonShowingAttributesMissingOrConflicting, message: "showing required attribute missing or conflicting"},
+		{name: "conflicting duplicate", body: block(legacyHeading, `<span>(2h)</span>`, button("", validEnd)+`<button data-showing="10" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="13:00"><span class="screening-time-end">(fin 15:00)</span></button>`), reason: ParseReasonConflictingDuplicateShowing, message: "conflicting duplicate showing"},
+		{name: "unrecognized document", body: `<section id="showings"><div class="provider-secret-layout">content</div></section>`, reason: ParseReasonUnrecognizedShowingsDocument, message: "unrecognized showings document"},
+		{name: "film identity conflict", body: block(canonicalHeading("film_wrong_2.html?cinemaId=25", "Film"), `<span>(2h)</span>`, button("", validEnd)), reason: ParseReasonFilmIdentityConflict, message: "film identity conflict"},
+		{name: "film title missing", body: block("", `<span>(2h)</span>`, button("", validEnd)), reason: ParseReasonFilmTitleMissing, message: "film title missing"},
+		{name: "film title conflicting", body: block(`<a data-film="1" title="Film A">A</a><a data-film="1" title="Film B">B</a>`, `<span>(2h)</span>`, button("", validEnd)), reason: ParseReasonFilmTitleConflicting, message: "film title conflicting"},
+		{name: "film runtime missing", body: block(legacyHeading, "", button("", validEnd)), reason: ParseReasonFilmRuntimeMissing, message: "film runtime missing"},
+		{name: "invalid film runtime", body: block(legacyHeading, `<span>(2h60)</span>`, button("", validEnd)), reason: ParseReasonInvalidFilmRuntime, message: "invalid film runtime"},
+		{name: "unrecognized ownership", body: button("", validEnd), reason: ParseReasonUnrecognizedShowingOwnership, message: "unrecognized showing ownership"},
+		{name: "invalid film detail link", body: block(canonicalHeading("film_invalid.html?cinemaId=25", "Film"), `<span>(2h)</span>`, button("", validEnd)), reason: ParseReasonInvalidFilmDetailLink, message: "invalid film detail link"},
+		{name: "unknown version", body: block(legacyHeading, `<span>(2h)</span>`, strings.Replace(button("", validEnd), `data-version="VF"`, `data-version="provider-secret"`, 1)), reason: ParseReasonUnknownShowingVersion, message: "unknown showing version"},
+		{name: "invalid hour", body: block(legacyHeading, `<span>(2h)</span>`, strings.Replace(button("", validEnd), `data-seancehour="12:00"`, `data-seancehour="secret-hour"`, 1)), reason: ParseReasonInvalidShowingHour, message: "invalid showing hour"},
+		{name: "outside cinema day", body: block(legacyHeading, `<span>(2h)</span>`, strings.Replace(button("", validEnd), `data-seancehour="12:00"`, `data-seancehour="03:00"`, 1)), reason: ParseReasonShowingOutsideCinemaDay, message: "showing outside cinema day"},
+		{name: "invalid showing date", body: block(legacyHeading, `<span>(2h)</span>`, strings.Replace(button("", validEnd), `data-seancedate="15/08/2026"`, `data-seancedate="provider-secret"`, 1)), reason: ParseReasonInvalidShowingDate, message: "invalid showing date"},
+		{name: "unknown format", body: block(legacyHeading, `<span>(2h)</span>`, `<div class="session"><span class="screening-2D3D">provider-secret-format</span>`+button("", validEnd)+`</div>`), reason: ParseReasonUnknownShowingFormat, message: "unknown showing format"},
+		{name: "showing end missing", body: block(legacyHeading, `<span>(2h)</span>`, button("", "")), reason: ParseReasonShowingEndMissingOrConflicting, message: "showing end missing or conflicting"},
+		{name: "invalid showing end", body: block(legacyHeading, `<span>(2h)</span>`, button("", `<span class="screening-time-end">provider-secret-end</span>`)), reason: ParseReasonInvalidShowingEnd, message: "invalid showing end"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			serviceDate := test.serviceDate
+			if serviceDate == "" {
+				serviceDate = "2026-08-15"
+			}
+			_, err := ParseShowings(strings.NewReader(test.body), Cinema{ProviderID: "25"}, serviceDate)
+			if err == nil || err.Error() != test.message || parseReasonFromError(err) != test.reason {
+				t.Fatalf("reason=%q error=%v", parseReasonFromError(err), err)
+			}
+		})
+	}
+}
+
+func TestShowingsParseFailureReasonWrappers(t *testing.T) {
+	secret := errors.New("proxy-password token-secret provider-body-secret")
+	_, parsedErr := ParseShowings(errorReader{err: secret}, Cinema{ProviderID: "25"}, "2026-08-15")
+	if parseReasonFromError(parsedErr) != ParseReasonDocumentParse || !errors.Is(parsedErr, secret) {
+		t.Fatalf("parsed document error=%v", parsedErr)
+	}
+	documentErr := newShowingsParseError(ParseReasonDocumentParse, fmt.Errorf("parse showings: %w", secret))
+	if parseReasonFromError(documentErr) != ParseReasonDocumentParse || !errors.Is(documentErr, secret) {
+		t.Fatalf("document error=%v", documentErr)
+	}
+	timezoneErr := newShowingsParseError(ParseReasonTimezoneUnavailable, secret)
+	if parseReasonFromError(timezoneErr) != ParseReasonTimezoneUnavailable || !errors.Is(timezoneErr, secret) {
+		t.Fatalf("timezone error=%v", timezoneErr)
+	}
+	unknownErr := newShowingsParseError(ParseReason("malicious-reason=token-secret"), secret)
+	if parseReasonFromError(unknownErr) != ParseReasonUnknown || !errors.Is(unknownErr, secret) {
+		t.Fatalf("unknown error=%v", unknownErr)
 	}
 }
 

@@ -1,6 +1,7 @@
 package ugc
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -18,6 +19,75 @@ import (
 )
 
 const emptyFilmBlockID = "bloc-showing-film-"
+
+type ParseReason string
+
+const (
+	ParseReasonDocumentParse                         ParseReason = "document_parse"
+	ParseReasonTimezoneUnavailable                   ParseReason = "timezone_unavailable"
+	ParseReasonInvalidServiceDate                    ParseReason = "invalid_service_date"
+	ParseReasonShowingAttributesMissingOrConflicting ParseReason = "showing_attributes_missing_or_conflicting"
+	ParseReasonConflictingDuplicateShowing           ParseReason = "conflicting_duplicate_showing"
+	ParseReasonUnrecognizedShowingsDocument          ParseReason = "unrecognized_showings_document"
+	ParseReasonFilmIdentityConflict                  ParseReason = "film_identity_conflict"
+	ParseReasonFilmTitleMissing                      ParseReason = "film_title_missing"
+	ParseReasonFilmTitleConflicting                  ParseReason = "film_title_conflicting"
+	ParseReasonFilmRuntimeMissing                    ParseReason = "film_runtime_missing"
+	ParseReasonInvalidFilmRuntime                    ParseReason = "invalid_film_runtime"
+	ParseReasonUnrecognizedShowingOwnership          ParseReason = "unrecognized_showing_ownership"
+	ParseReasonInvalidFilmDetailLink                 ParseReason = "invalid_film_detail_link"
+	ParseReasonUnknownShowingVersion                 ParseReason = "unknown_showing_version"
+	ParseReasonInvalidShowingHour                    ParseReason = "invalid_showing_hour"
+	ParseReasonShowingOutsideCinemaDay               ParseReason = "showing_outside_cinema_day"
+	ParseReasonInvalidShowingDate                    ParseReason = "invalid_showing_date"
+	ParseReasonUnknownShowingFormat                  ParseReason = "unknown_showing_format"
+	ParseReasonShowingEndMissingOrConflicting        ParseReason = "showing_end_missing_or_conflicting"
+	ParseReasonInvalidShowingEnd                     ParseReason = "invalid_showing_end"
+	ParseReasonUnknown                               ParseReason = "unknown"
+)
+
+type showingsParseError struct {
+	reason ParseReason
+	cause  error
+}
+
+func (e *showingsParseError) Error() string { return e.cause.Error() }
+func (e *showingsParseError) Unwrap() error { return e.cause }
+
+func newShowingsParseError(reason ParseReason, cause error) error {
+	if cause == nil {
+		cause = errors.New("showings parse failed")
+	}
+	return &showingsParseError{reason: safeParseReason(reason), cause: cause}
+}
+
+func showingsParseFailure(reason ParseReason, message string) error {
+	return newShowingsParseError(reason, errors.New(message))
+}
+
+func parseReasonFromError(err error) ParseReason {
+	var parseErr *showingsParseError
+	if errors.As(err, &parseErr) {
+		return safeParseReason(parseErr.reason)
+	}
+	return ParseReasonUnknown
+}
+
+func safeParseReason(reason ParseReason) ParseReason {
+	switch reason {
+	case ParseReasonDocumentParse, ParseReasonTimezoneUnavailable, ParseReasonInvalidServiceDate,
+		ParseReasonShowingAttributesMissingOrConflicting, ParseReasonConflictingDuplicateShowing,
+		ParseReasonUnrecognizedShowingsDocument, ParseReasonFilmIdentityConflict, ParseReasonFilmTitleMissing,
+		ParseReasonFilmTitleConflicting, ParseReasonFilmRuntimeMissing, ParseReasonInvalidFilmRuntime,
+		ParseReasonUnrecognizedShowingOwnership, ParseReasonInvalidFilmDetailLink, ParseReasonUnknownShowingVersion,
+		ParseReasonInvalidShowingHour, ParseReasonShowingOutsideCinemaDay, ParseReasonInvalidShowingDate,
+		ParseReasonUnknownShowingFormat, ParseReasonShowingEndMissingOrConflicting, ParseReasonInvalidShowingEnd,
+		ParseReasonUnknown:
+		return reason
+	default:
+		return ParseReasonUnknown
+	}
+}
 
 var blockPattern = regexp.MustCompile(`^bloc-showing-film-([1-9][0-9]*)$`)
 var runtimePattern = regexp.MustCompile(`\(([0-9]+)h([0-9]{1,2})?\)`)
@@ -105,7 +175,7 @@ func (cache *showingsParseCache) text(node *html.Node) string {
 func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.ShowtimeRecord, error) {
 	root, err := html.Parse(io.LimitReader(r, 8<<20))
 	if err != nil {
-		return nil, fmt.Errorf("parse showings: %w", err)
+		return nil, newShowingsParseError(ParseReasonDocumentParse, fmt.Errorf("parse showings: %w", err))
 	}
 	cache := newShowingsParseCache()
 	derivedFilmIDs, identitylessPackages, err := classifyEmptyFilmBlocks(root, cache)
@@ -117,11 +187,11 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 	}
 	location, err := scheduleLocation()
 	if err != nil {
-		return nil, err
+		return nil, newShowingsParseError(ParseReasonTimezoneUnavailable, err)
 	}
 	date, err := time.ParseInLocation("2006-01-02", serviceDate, location)
 	if err != nil {
-		return nil, fmt.Errorf("invalid service date")
+		return nil, showingsParseFailure(ParseReasonInvalidServiceDate, "invalid service date")
 	}
 	records := []schedule.ShowtimeRecord{}
 	byID := map[string]schedule.ShowtimeRecord{}
@@ -138,7 +208,7 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		}
 		buttons, malformedStructure := showingCandidates(block, cache)
 		if malformedStructure {
-			err = fmt.Errorf("showing required attribute missing or conflicting")
+			err = showingsParseFailure(ParseReasonShowingAttributesMissingOrConflicting, "showing required attribute missing or conflicting")
 			return
 		}
 		if len(buttons) == 0 {
@@ -157,7 +227,7 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 			}
 			if previous, exists := byID[record.ID]; exists {
 				if fmt.Sprintf("%#v", previous) != fmt.Sprintf("%#v", record) {
-					err = fmt.Errorf("conflicting duplicate showing")
+					err = showingsParseFailure(ParseReasonConflictingDuplicateShowing, "conflicting duplicate showing")
 				}
 				continue
 			}
@@ -174,10 +244,10 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		}
 		nextSessionOnly, validationErr := validateNextSessionOnly(root, cinema.ProviderID, date, location, cache)
 		if validationErr != nil {
-			return nil, validationErr
+			return nil, newShowingsParseError(ParseReasonUnrecognizedShowingsDocument, validationErr)
 		}
 		if !nextSessionOnly {
-			return nil, fmt.Errorf("unrecognized showings document")
+			return nil, showingsParseFailure(ParseReasonUnrecognizedShowingsDocument, "unrecognized showings document")
 		}
 	}
 	sort.Slice(records, func(i, j int) bool {
@@ -199,12 +269,12 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string, cache *showingsP
 					return "", 0, "", err
 				}
 				if dataFilm := attrAny(node, "data-film", "data-film-id"); dataFilm != "" && dataFilm != filmID {
-					return "", 0, "", fmt.Errorf("film identity conflict")
+					return "", 0, "", showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
 				}
 				visibleTitle := collapse(cache.text(node))
 				attributeTitle := collapse(attr(node, "title"))
 				if visibleTitle != "" && attributeTitle != "" && visibleTitle != attributeTitle {
-					return "", 0, "", fmt.Errorf("film title conflicting")
+					return "", 0, "", showingsParseFailure(ParseReasonFilmTitleConflicting, "film title conflicting")
 				}
 				candidate := visibleTitle
 				if candidate == "" {
@@ -217,7 +287,7 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string, cache *showingsP
 			candidate := collapse(attr(node, "title"))
 			if node.Parent == block && dataFilm != "" && candidate != "" {
 				if dataFilm != filmID {
-					return "", 0, "", fmt.Errorf("film identity conflict")
+					return "", 0, "", showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
 				}
 				legacyTitles = append(legacyTitles, candidate)
 			}
@@ -236,47 +306,47 @@ func parseMovieBlock(block *html.Node, filmID, cinemaID string, cache *showingsP
 			}
 		}
 		if !hasTitle {
-			return "", 0, "", fmt.Errorf("film title missing")
+			return "", 0, "", showingsParseFailure(ParseReasonFilmTitleMissing, "film title missing")
 		}
 		var ok bool
 		title, ok = singleNonempty(canonicalTitles)
 		if !ok {
-			return "", 0, "", fmt.Errorf("film title conflicting")
+			return "", 0, "", showingsParseFailure(ParseReasonFilmTitleConflicting, "film title conflicting")
 		}
 	} else {
 		if len(legacyTitles) == 0 {
-			return "", 0, "", fmt.Errorf("film title missing")
+			return "", 0, "", showingsParseFailure(ParseReasonFilmTitleMissing, "film title missing")
 		}
 		if len(legacyTitles) != 1 {
-			return "", 0, "", fmt.Errorf("film title conflicting")
+			return "", 0, "", showingsParseFailure(ParseReasonFilmTitleConflicting, "film title conflicting")
 		}
 		title = legacyTitles[0]
 	}
 	match := runtimePattern.FindStringSubmatch(collapse(cache.text(block)))
 	if len(match) == 0 {
-		return "", 0, "", fmt.Errorf("film runtime missing")
+		return "", 0, "", showingsParseFailure(ParseReasonFilmRuntimeMissing, "film runtime missing")
 	}
 	hours, err := strconv.ParseUint(match[1], 10, 64)
 	if err != nil {
-		return "", 0, "", fmt.Errorf("invalid film runtime")
+		return "", 0, "", showingsParseFailure(ParseReasonInvalidFilmRuntime, "invalid film runtime")
 	}
 	minutes := uint64(0)
 	if match[2] != "" {
 		minutes, err = strconv.ParseUint(match[2], 10, 64)
 		if err != nil {
-			return "", 0, "", fmt.Errorf("invalid film runtime")
+			return "", 0, "", showingsParseFailure(ParseReasonInvalidFilmRuntime, "invalid film runtime")
 		}
 	}
 	if minutes >= 60 {
-		return "", 0, "", fmt.Errorf("invalid film runtime")
+		return "", 0, "", showingsParseFailure(ParseReasonInvalidFilmRuntime, "invalid film runtime")
 	}
 	maxInt := uint64(^uint(0) >> 1)
 	if hours > (maxInt-minutes)/60 {
-		return "", 0, "", fmt.Errorf("invalid film runtime")
+		return "", 0, "", showingsParseFailure(ParseReasonInvalidFilmRuntime, "invalid film runtime")
 	}
 	runtime := int(hours*60 + minutes)
 	if _, ok := schedule.RuntimeDuration(runtime); !ok {
-		return "", 0, "", fmt.Errorf("invalid film runtime")
+		return "", 0, "", showingsParseFailure(ParseReasonInvalidFilmRuntime, "invalid film runtime")
 	}
 	return title, runtime, poster, nil
 }
@@ -333,7 +403,7 @@ func classifyEmptyFilmBlocks(root *html.Node, cache *showingsParseCache) (map[*h
 		for _, button := range buttons {
 			buttonFilm, hasIdentity, valid := strictProviderFilmID(button)
 			if !valid || hasIdentity && hasEmptyIdentity || hasIdentity && filmID != "" && buttonFilm != filmID || !hasIdentity && filmID != "" {
-				err = fmt.Errorf("showing required attribute missing or conflicting")
+				err = showingsParseFailure(ParseReasonShowingAttributesMissingOrConflicting, "showing required attribute missing or conflicting")
 				return
 			}
 			if hasIdentity {
@@ -344,7 +414,7 @@ func classifyEmptyFilmBlocks(root *html.Node, cache *showingsParseCache) (map[*h
 		}
 		if hasEmptyIdentity {
 			if hasDirectCanonicalFilmLink(block) {
-				err = fmt.Errorf("showing required attribute missing or conflicting")
+				err = showingsParseFailure(ParseReasonShowingAttributesMissingOrConflicting, "showing required attribute missing or conflicting")
 				return
 			}
 			identitylessPackages[block] = true
@@ -411,7 +481,7 @@ func validateShowingOwnership(root *html.Node, cache *showingsParseCache, derive
 			}
 		}
 		if owners != 1 {
-			return fmt.Errorf("unrecognized showing ownership")
+			return showingsParseFailure(ParseReasonUnrecognizedShowingOwnership, "unrecognized showing ownership")
 		}
 	}
 	return nil
@@ -524,33 +594,33 @@ func isCanonicalFilmHeading(node *html.Node) bool {
 func validateCanonicalFilmHref(raw, expectedFilmID, expectedCinemaID string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || strings.TrimSpace(raw) == "" || parsed.User != nil || parsed.Fragment != "" {
-		return fmt.Errorf("invalid film detail link")
+		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
 	if parsed.Host != "" {
 		if parsed.Scheme != "https" || strings.ToLower(parsed.Host) != "www.ugc.fr" {
-			return fmt.Errorf("invalid film detail link")
+			return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 		}
 	} else if parsed.Scheme != "" {
-		return fmt.Errorf("invalid film detail link")
+		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
 	match := sluggedFilmPathPattern.FindStringSubmatch(path.Base(parsed.Path))
 	if len(match) != 3 {
-		return fmt.Errorf("invalid film detail link")
+		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
 	if match[2] != expectedFilmID {
-		return fmt.Errorf("film identity conflict")
+		return showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
 	}
 	values := parsed.Query()
 	cinemaIDs := values["cinemaId"]
 	if len(cinemaIDs) != 1 {
-		return fmt.Errorf("invalid film detail link")
+		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
 	number, err := strconv.ParseUint(cinemaIDs[0], 10, 64)
 	if err != nil || number == 0 {
-		return fmt.Errorf("invalid film detail link")
+		return showingsParseFailure(ParseReasonInvalidFilmDetailLink, "invalid film detail link")
 	}
 	if cinemaIDs[0] != expectedCinemaID {
-		return fmt.Errorf("film identity conflict")
+		return showingsParseFailure(ParseReasonFilmIdentityConflict, "film identity conflict")
 	}
 	return nil
 }
@@ -786,19 +856,19 @@ func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string,
 	rawDate := attrAny(button, "data-seancedate", "data-seance-date")
 	rawHour := attrAny(button, "data-seancehour", "data-seance-hour")
 	if showingID == "" || !filmIDOK || buttonFilm != filmID || !cinemaIDOK || buttonCinema != cinemaID || version == "" || rawDate == "" || rawHour == "" {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("showing required attribute missing or conflicting")
+		return schedule.ShowtimeRecord{}, showingsParseFailure(ParseReasonShowingAttributesMissingOrConflicting, "showing required attribute missing or conflicting")
 	}
 	language, err := normalizeLanguage(version)
 	if err != nil {
-		return schedule.ShowtimeRecord{}, err
+		return schedule.ShowtimeRecord{}, newShowingsParseError(ParseReasonUnknownShowingVersion, err)
 	}
 	clock, err := time.Parse("15:04", rawHour)
 	if err != nil {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("invalid showing hour")
+		return schedule.ShowtimeRecord{}, showingsParseFailure(ParseReasonInvalidShowingHour, "invalid showing hour")
 	}
 	hour, minute := clock.Hour(), clock.Minute()
 	if hour > 2 && hour < 8 || hour == 2 && minute > 0 {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("showing outside cinema day")
+		return schedule.ShowtimeRecord{}, showingsParseFailure(ParseReasonShowingOutsideCinemaDay, "showing outside cinema day")
 	}
 	startDate := date
 	if hour < 8 {
@@ -807,11 +877,11 @@ func parseShowingButton(button *html.Node, cinemaID, filmID, serviceDate string,
 	start := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), hour, minute, 0, 0, location)
 	parsedAttrDate, err := parseProviderDate(rawDate, location)
 	if err != nil || (!sameDay(parsedAttrDate, date) && !sameDay(parsedAttrDate, startDate)) {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("invalid showing date")
+		return schedule.ShowtimeRecord{}, showingsParseFailure(ParseReasonInvalidShowingDate, "invalid showing date")
 	}
 	format := showingFormat(button, cache)
 	if !validShowingFormat(format) {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("unknown showing format")
+		return schedule.ShowtimeRecord{}, showingsParseFailure(ParseReasonUnknownShowingFormat, "unknown showing format")
 	}
 	room := ""
 	for ancestor := button.Parent; ancestor != nil; ancestor = ancestor.Parent {
@@ -844,15 +914,15 @@ func parseShowingEndTime(button *html.Node, start time.Time, cache *showingsPars
 		}
 	}
 	if len(nodes) != 1 {
-		return time.Time{}, fmt.Errorf("showing end missing or conflicting")
+		return time.Time{}, showingsParseFailure(ParseReasonShowingEndMissingOrConflicting, "showing end missing or conflicting")
 	}
 	match := showingEndPattern.FindStringSubmatch(collapse(cache.text(nodes[0])))
 	if match == nil {
-		return time.Time{}, fmt.Errorf("invalid showing end")
+		return time.Time{}, showingsParseFailure(ParseReasonInvalidShowingEnd, "invalid showing end")
 	}
 	clock, err := time.Parse("15:04", match[1])
 	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid showing end")
+		return time.Time{}, showingsParseFailure(ParseReasonInvalidShowingEnd, "invalid showing end")
 	}
 	localStart := start.In(start.Location())
 	date := time.Date(localStart.Year(), localStart.Month(), localStart.Day(), 0, 0, 0, 0, start.Location())
@@ -862,7 +932,7 @@ func parseShowingEndTime(button *html.Node, start time.Time, cache *showingsPars
 		end = time.Date(next.Year(), next.Month(), next.Day(), clock.Hour(), clock.Minute(), 0, 0, start.Location())
 	}
 	if !end.After(localStart) {
-		return time.Time{}, fmt.Errorf("invalid showing end")
+		return time.Time{}, showingsParseFailure(ParseReasonInvalidShowingEnd, "invalid showing end")
 	}
 	return end, nil
 }

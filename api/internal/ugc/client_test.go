@@ -549,3 +549,23 @@ func TestClientReturnsBoundedTypedDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestErrorBoundsShowingsParseReason(t *testing.T) {
+	const secret = "proxy-password token-secret provider-body-secret raw-url?query=secret"
+	known := requestError(OperationShowings, CategoryInvalidPayload, 0, 0, newShowingsParseError(ParseReasonInvalidShowingEnd, errors.New(secret)))
+	if known.ParseReason != ParseReasonInvalidShowingEnd || strings.Contains(known.Error(), secret) {
+		t.Fatalf("known=%+v error=%q", known, known.Error())
+	}
+	malicious := requestError(OperationShowings, CategoryInvalidPayload, 0, 0, newShowingsParseError(ParseReason(secret), errors.New(secret)))
+	if malicious.ParseReason != ParseReasonUnknown || strings.Contains(malicious.Error(), secret) {
+		t.Fatalf("malicious=%+v error=%q", malicious, malicious.Error())
+	}
+	untyped := requestError(OperationShowings, CategoryInvalidPayload, 0, 0, errors.New(secret))
+	if untyped.ParseReason != ParseReasonUnknown {
+		t.Fatalf("untyped=%+v", untyped)
+	}
+	other := requestError(OperationCinema, CategoryInvalidPayload, 0, 0, newShowingsParseError(ParseReasonInvalidShowingEnd, errors.New(secret)))
+	if other.ParseReason != "" {
+		t.Fatalf("non-showings reason=%q", other.ParseReason)
+	}
+}

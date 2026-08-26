@@ -358,6 +358,9 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 		if errors.As(err, &requestErr) {
 			details.Operation = safeUGCOperation(requestErr.Operation)
 			details.Category = safeUGCCategory(requestErr.Category)
+			if details.Operation == operationShowings && details.Category == categoryInvalidPayload {
+				details.ParseReason = safeUGCParseReason(requestErr.ParseReason)
+			}
 			details.HTTPStatus = requestErr.StatusCode
 			details.Attempt = requestErr.Attempt
 			details.AttemptLimit = requestErr.AttemptLimit
@@ -446,6 +449,53 @@ func safeUGCCategory(category ugc.ErrorCategory) logCategory {
 		return categoryInvalidPayload
 	default:
 		return categoryUnknown
+	}
+}
+
+func safeUGCParseReason(reason ugc.ParseReason) logParseReason {
+	switch reason {
+	case ugc.ParseReasonDocumentParse:
+		return parseReasonDocumentParse
+	case ugc.ParseReasonTimezoneUnavailable:
+		return parseReasonTimezoneUnavailable
+	case ugc.ParseReasonInvalidServiceDate:
+		return parseReasonInvalidServiceDate
+	case ugc.ParseReasonShowingAttributesMissingOrConflicting:
+		return parseReasonShowingAttributesMissingOrConflicting
+	case ugc.ParseReasonConflictingDuplicateShowing:
+		return parseReasonConflictingDuplicateShowing
+	case ugc.ParseReasonUnrecognizedShowingsDocument:
+		return parseReasonUnrecognizedShowingsDocument
+	case ugc.ParseReasonFilmIdentityConflict:
+		return parseReasonFilmIdentityConflict
+	case ugc.ParseReasonFilmTitleMissing:
+		return parseReasonFilmTitleMissing
+	case ugc.ParseReasonFilmTitleConflicting:
+		return parseReasonFilmTitleConflicting
+	case ugc.ParseReasonFilmRuntimeMissing:
+		return parseReasonFilmRuntimeMissing
+	case ugc.ParseReasonInvalidFilmRuntime:
+		return parseReasonInvalidFilmRuntime
+	case ugc.ParseReasonUnrecognizedShowingOwnership:
+		return parseReasonUnrecognizedShowingOwnership
+	case ugc.ParseReasonInvalidFilmDetailLink:
+		return parseReasonInvalidFilmDetailLink
+	case ugc.ParseReasonUnknownShowingVersion:
+		return parseReasonUnknownShowingVersion
+	case ugc.ParseReasonInvalidShowingHour:
+		return parseReasonInvalidShowingHour
+	case ugc.ParseReasonShowingOutsideCinemaDay:
+		return parseReasonShowingOutsideCinemaDay
+	case ugc.ParseReasonInvalidShowingDate:
+		return parseReasonInvalidShowingDate
+	case ugc.ParseReasonUnknownShowingFormat:
+		return parseReasonUnknownShowingFormat
+	case ugc.ParseReasonShowingEndMissingOrConflicting:
+		return parseReasonShowingEndMissingOrConflicting
+	case ugc.ParseReasonInvalidShowingEnd:
+		return parseReasonInvalidShowingEnd
+	default:
+		return parseReasonUnknown
 	}
 }
 

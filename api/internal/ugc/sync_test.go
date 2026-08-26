@@ -374,6 +374,32 @@ func TestSyncClassifiesParserFailureWithoutRawInput(t *testing.T) {
 	}
 }
 
+func TestSyncCarriesBoundedShowingsParseReason(t *testing.T) {
+	const secret = "proxy-password token-secret provider-body-secret raw-url?query=secret"
+	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
+	getter := &fakeGetter{get: func(_ context.Context, operation Operation, rawURL string) (FetchResult, error) {
+		switch operation {
+		case OperationSitemap:
+			return FetchResult{Body: sitemap, FinalURL: rawURL}, nil
+		case OperationCinema:
+			return FetchResult{Body: readFixture(t, "cinema.html"), FinalURL: rawURL}, nil
+		case OperationShowings:
+			body := `<article id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="` + secret + `" data-seancedate="15/08/2026" data-seancehour="12:00"></button></article>`
+			return FetchResult{Body: []byte(body), FinalURL: rawURL}, nil
+		default:
+			return FetchResult{}, errors.New("unexpected operation")
+		}
+	}}
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Operation != OperationShowings || requestErr.Category != CategoryInvalidPayload || requestErr.ParseReason != ParseReasonUnknownShowingVersion {
+		t.Fatalf("error=%+v", requestErr)
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "cinemaId") || strings.Contains(err.Error(), "15/08/2026") {
+		t.Fatalf("showings parser input leaked: %v", err)
+	}
+}
+
 func TestSyncStopsOnFailure(t *testing.T) {
 	sitemap := readFixture(t, "sitemap.xml")
 	siblingStarted := make(chan struct{}, 2)
