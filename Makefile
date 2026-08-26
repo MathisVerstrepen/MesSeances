@@ -5,6 +5,8 @@ SHELL := /bin/bash
 DATABASE_URL ?= postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable
 export DATABASE_URL
 
+DEV_COMPOSE_PROJECT_NAME ?= movieflow
+
 URL ?= http://localhost:3000/
 OUTPUT ?= /tmp/opencode/messeances-screenshot.png
 WIDTH ?= 1440
@@ -41,7 +43,7 @@ dev:
 	trap cleanup EXIT; \
 	trap 'exit 130' INT; \
 	trap 'exit 143' TERM; \
-	docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres; \
+	docker compose --project-name "$(DEV_COMPOSE_PROJECT_NAME)" --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres; \
 	mkdir -p api/bin; \
 	setsid bash -c 'cd api && exec go run github.com/air-verse/air@v1.61.7 -c .air.toml' & api_pid=$$!; \
 	setsid npm --prefix web run dev & web_pid=$$!; \
@@ -70,7 +72,7 @@ sync:
 		exit 2; \
 	fi
 	@printf '%s\n' '[sync] starting PostgreSQL'; \
-	docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	docker compose --project-name "$(DEV_COMPOSE_PROJECT_NAME)" --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
 	@printf '%s\n' '[sync] starting UGC'; \
 	cd api && go run ./cmd/sync-ugc -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
 	@printf '%s\n' '[sync] UGC finished'
