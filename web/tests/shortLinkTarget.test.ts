@@ -24,11 +24,19 @@ test('accepts encoded values without changing order or encoding', () => {
   assert.equal(isValidShortLinkTarget(`/films?q=${'x'.repeat(2039)}`), true)
 })
 
+test('accepts cinema films view and its display query', () => {
+  assert.equal(isValidShortLinkTarget('/cinema/ugc-lille?view=films'), true)
+  assert.equal(
+    isValidShortLinkTarget('/cinema/ugc-lille?date=2026-08-22&grouping=movie&layout=boxes&view=films&shared_theaters=ugc-25%2Cugc-26'),
+    true
+  )
+})
+
 test('rejects unsafe, malformed, and unsupported targets', () => {
   const targets = [
     '', 'planning', '//evil.example/x', 'https://evil.example/', '/\\evil', '/films#fragment',
     '/films/', '/film//x', '/film/.', '/film/..', '/film/%2e%2e', '/film/caf%C3%A9', '/film/-slug', '/film/slug!',
-    '/admin', '/ville/lille/cinemas/extra', '/?q=x', '/films?unknown=x', '/credits?q=x',
+    '/admin', '/ville/lille/cinemas/extra', '/?q=x', '/films?unknown=x', '/credits?q=x', '/cinema/ugc-lille?unknown=x',
     '/cinemas', '/cinemas?q=Lille', '/cinemas?%71=Lille+centre', '/cinemas?shared_theaters=ugc-25', '/cinemas?q=Lille&shared_theaters=ugc-25',
     '/films?q=x&q=y', '/films?q=x&%71=y', '/films?', '/films?q=x&', '/films?q=%', '/films?q=%C3',
     '/films?q=%0A', '/films?q=%00', '/films?%0A=x', '/films?q=x\r\nInjected:x',

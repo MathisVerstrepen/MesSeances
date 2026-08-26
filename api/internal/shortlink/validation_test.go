@@ -14,6 +14,8 @@ func TestValidTargetAcceptsSupportedRoutesAndQueries(t *testing.T) {
 		"/credits",
 		"/film/ugc-film-42?date=2026-08-22&language=VF&format=2D&sort=time",
 		"/cinema/ugc-lille?date=2026-08-22",
+		"/cinema/ugc-lille?view=films",
+		"/cinema/ugc-lille?date=2026-08-22&grouping=movie&layout=lines&view=films&shared_theaters=ugc-25%2Ckinepolis_42",
 		"/ville/villeneuve-d_ascq/cinemas",
 	} {
 		if !ValidTarget(target) {
@@ -27,7 +29,7 @@ func TestValidTargetRejectsUnsupportedOrUnsafeTargets(t *testing.T) {
 		"", "planning", "//evil.example/x", "/\\evil", "https://evil.example/", "/films#x",
 		"/films/", "/film//x", "/film/.", "/film/..", "/film/%2e%2e", "/film/caf%C3%A9", "/film/-slug", "/film/slug!",
 		"/cinemas", "/cinemas?q=Lille", "/cinemas?%71=Lille", "/cinemas?shared_theaters=ugc-25", "/cinemas?q=Lille&shared_theaters=ugc-25", "/credits?q=x", "/admin", "/ville/lille/cinemas/extra",
-		"/?q=x", "/films?unknown=x", "/films?q=x&q=y", "/films?q=x&%71=y", "/films?", "/films?q=x&",
+		"/?q=x", "/films?unknown=x", "/cinema/ugc-lille?unknown=x", "/films?q=x&q=y", "/films?q=x&%71=y", "/films?", "/films?q=x&",
 		"/films?q=%", "/films?q=%0A", "/films?q=%00", "/films?%0A=x", "/films?q=x\r\nInjected:x",
 		"/films?date=2026-08-22", strings.Repeat("/", 2049), "/films?q=" + strings.Repeat("x", 2048),
 		string([]byte{'/', 'f', 'i', 'l', 'm', 's', '?', 'q', '=', 0xff}),

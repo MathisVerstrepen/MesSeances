@@ -14,7 +14,7 @@ const QUERY_KEYS = {
   '/films': new Set(['q', 'sort', 'page', SHARED_THEATERS_KEY]),
   '/credits': new Set([SHARED_THEATERS_KEY]),
   '/film/:slug': new Set(['date', 'language', 'format', 'sort', SHARED_THEATERS_KEY]),
-  '/cinema/:slug': new Set(['date', SHARED_THEATERS_KEY]),
+  '/cinema/:slug': new Set(['date', 'grouping', 'layout', 'view', SHARED_THEATERS_KEY]),
   '/ville/:slug/cinemas': new Set([SHARED_THEATERS_KEY])
 } satisfies Record<RoutePattern, ReadonlySet<string>>
 
