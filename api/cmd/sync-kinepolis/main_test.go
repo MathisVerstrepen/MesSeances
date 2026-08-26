@@ -168,7 +168,8 @@ func TestRunOperationTimeoutReachesKinepolisExecutor(t *testing.T) {
 
 type fakeFetcher struct{}
 
-func (fakeFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
+func (fakeFetcher) Fetch(context.Context) ([]byte, error)               { return nil, nil }
+func (fakeFetcher) FetchCinema(context.Context, string) ([]byte, error) { return nil, nil }
 
 type fakeExecutor func(context.Context, synccontrol.Target, synccontrol.Window) (synccontrol.ProviderOutcome, error)
 

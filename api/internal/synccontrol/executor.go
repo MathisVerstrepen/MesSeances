@@ -198,6 +198,12 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		return data, outcome, newProviderRunError(provider, StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
 	if err != nil {
+		if provider == TargetKinepolis {
+			var requestErr *kinepolis.RequestError
+			if errors.As(err, &requestErr) {
+				return data, outcome, stageError(ctx, provider, StageProviderFetch, FailureProviderSync, err)
+			}
+		}
 		if errors.Is(err, schedule.ErrDatasetValidation) {
 			*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventFetchSucceeded))
 			return data, outcome, stageError(ctx, provider, StageDatasetValidation, FailureDatasetRejected, err)
@@ -333,6 +339,48 @@ func safePatheRequestOperation(operation pathe.Operation) logOperation {
 	}
 }
 
+func safeKinepolisOperation(operation kinepolis.Operation) logOperation {
+	switch operation {
+	case kinepolis.OperationSchedule:
+		return operationCinemas
+	case kinepolis.OperationCinema:
+		return operationCinema
+	default:
+		return operationUnknown
+	}
+}
+
+func safeKinepolisCategory(category kinepolis.ErrorCategory) logCategory {
+	switch category {
+	case kinepolis.CategoryCanceled:
+		return categoryCanceled
+	case kinepolis.CategoryInvalidURL:
+		return categoryInvalidURL
+	case kinepolis.CategoryNoProxy:
+		return categoryTransportUnavailable
+	case kinepolis.CategoryTransport:
+		return categoryTransport
+	case kinepolis.CategoryRedirect:
+		return categoryRedirect
+	case kinepolis.CategoryResponseRead:
+		return categoryResponseRead
+	case kinepolis.CategoryResponseLarge:
+		return categoryResponseTooLarge
+	case kinepolis.CategoryChallenge:
+		return categoryChallenge
+	case kinepolis.CategoryServer, kinepolis.CategoryStatus:
+		return categoryHTTPStatus
+	case kinepolis.CategoryContentType:
+		return categoryContentType
+	case kinepolis.CategoryInvalidPayload:
+		return categoryInvalidPayload
+	case kinepolis.CategoryEmptyResponse:
+		return categoryEmptyResponse
+	default:
+		return categoryUnknown
+	}
+}
+
 func attachRunLogs(err error, logs map[Target][]string) error {
 	var runErr *RunError
 	if errors.As(err, &runErr) {
@@ -344,7 +392,9 @@ func attachRunLogs(err error, logs map[Target][]string) error {
 func failureDetails(provider Target, stage FailureStage, err error, outcome SyncOutcome) logFailure {
 	details := fallbackFailure(stage, FailureInternal)
 	details.Progress = outcomeProgress(outcome)
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	var kinepolisErr *kinepolis.RequestError
+	hasTypedKinepolisFetchError := provider == TargetKinepolis && stage == StageProviderFetch && errors.As(err, &kinepolisErr)
+	if !hasTypedKinepolisFetchError && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 		details.Category = categoryCanceled
 		return details
 	}
@@ -364,6 +414,12 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 			details.HTTPStatus = requestErr.StatusCode
 			details.Attempt = requestErr.Attempt
 			details.AttemptLimit = requestErr.AttemptLimit
+		}
+	case TargetKinepolis:
+		if kinepolisErr != nil {
+			details.Operation = safeKinepolisOperation(kinepolisErr.Operation)
+			details.Category = safeKinepolisCategory(kinepolisErr.Category)
+			details.HTTPStatus = kinepolisErr.StatusCode
 		}
 	case TargetPathe:
 		var requestErr *pathe.RequestError

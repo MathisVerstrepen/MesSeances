@@ -3,8 +3,8 @@ package kinepolis
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,7 +25,7 @@ func namedFixture(t *testing.T, name string) []byte {
 }
 
 func TestParseJQueryExtendDrupalSettings(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-jquery-extend.html"), "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
+	data, _, err := parseSchedule(namedFixture(t, "schedule-jquery-extend.html"), "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestParseJQueryExtendDrupalSettings(t *testing.T) {
 			break
 		}
 	}
-	if wrapperShowing == nil || wrapperShowing.Language != schedule.LanguageVOSTFR || wrapperShowing.Format != "IMAX" || wrapperShowing.Room != "7" || wrapperShowing.BookingURL != "https://kinepolis.fr/direct-vista-redirect/VS-WRAPPER-1/0/LOM/0" {
+	if wrapperShowing == nil || wrapperShowing.Language != schedule.LanguageVOSTFR || wrapperShowing.Format != "IMAX" || wrapperShowing.Room != "7" || wrapperShowing.BookingURL != "https://kinepolis.fr/direct-vista-redirect/VS-WRAPPER-1/0/KLOM/0" {
 		t.Fatalf("showing=%+v", wrapperShowing)
 	}
 	if wrapperShowing.Movie.PosterURL != "https://cdn.kinepolis.fr/images/films/ho123.jpg" || wrapperShowing.Movie.Overview != "Résumé source" || wrapperShowing.Movie.ReleaseDate != "2026-08-01" || len(wrapperShowing.Movie.Genres) != 1 {
@@ -58,7 +58,7 @@ func TestParseJQueryExtendDrupalSettingsRejectsMalformedWrappers(t *testing.T) {
 	}
 	for name, body := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := Parse(body, "2026-08-15", time.Now())
+			_, _, err := parseSchedule(body, "2026-08-15", time.Now())
 			if err == nil || err.Error() != "Drupal settings JSON not found or malformed" {
 				t.Fatalf("error=%v", err)
 			}
@@ -68,21 +68,21 @@ func TestParseJQueryExtendDrupalSettingsRejectsMalformedWrappers(t *testing.T) {
 
 func TestParseEmbeddedSchedule(t *testing.T) {
 	generated := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)
-	data, err := Parse(fixture(t), "2026-08-15", generated)
+	data, inventory, err := parseSchedule(fixture(t), "2026-08-15", generated)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if data.Provider != schedule.ProviderKinepolis || len(data.Theaters) != 2 || len(data.Showtimes) != 2 {
+	if data.Provider != schedule.ProviderKinepolis || len(data.Theaters) != 2 || len(data.Showtimes) != 2 || len(inventory) != 17 {
 		t.Fatalf("dataset=%+v", data)
 	}
-	if data.Theaters[0].ID != "kinepolis-LOM" || data.Theaters[0].City != "Lomme" || data.Theaters[0].Address != "" || len(data.Theaters[0].AcceptedPasses) != 0 {
+	if data.Theaters[0].ID != "kinepolis-KLOM" || data.Theaters[0].City != "Lomme" || data.Theaters[0].Address != "" || len(data.Theaters[0].AcceptedPasses) != 0 {
 		t.Fatalf("theater=%+v", data.Theaters[0])
 	}
 	if data.Theaters[1].City != "Metz" {
 		t.Fatalf("exceptional city=%q", data.Theaters[1].City)
 	}
 	showing := data.Showtimes[0]
-	if showing.ID != "kinepolis-showing-VS-100" || showing.Language != schedule.LanguageVOSTFR || showing.Format != "IMAX" || showing.Room != "7" || showing.BookingURL != "https://kinepolis.fr/direct-vista-redirect/VS-100/0/LOM/0" {
+	if showing.ID != "kinepolis-showing-VS-100" || showing.Language != schedule.LanguageVOSTFR || showing.Format != "IMAX" || showing.Room != "7" || showing.BookingURL != "https://kinepolis.fr/direct-vista-redirect/VS-100/0/KLOM/0" {
 		t.Fatalf("showing=%+v", showing)
 	}
 	if showing.Movie.ProviderID != "HO123" || showing.Movie.PosterURL != "https://cdn.kinepolis.fr/images/films/ho123.jpg" || showing.Movie.Overview != "Résumé source" || showing.Movie.ReleaseDate != "2026-08-01" || len(showing.Movie.Genres) != 1 {
@@ -93,9 +93,44 @@ func TestParseEmbeddedSchedule(t *testing.T) {
 	}
 }
 
+func TestParseRequiresExactRawCinemaInventory(t *testing.T) {
+	valid := catalogComplexObjects()
+	tests := []struct {
+		name      string
+		complexes any
+	}{
+		{name: "sixteen", complexes: append([]any(nil), valid[:16]...)},
+		{name: "eighteen valid", complexes: append(append([]any(nil), valid...), map[string]any{"id": "EXTRA", "name": "Kinepolis Extra"})},
+		{name: "non object", complexes: replaceComplex(valid, 4, "invalid")},
+		{name: "missing ID", complexes: replaceComplex(valid, 4, map[string]any{"name": "Kinepolis Bourgoin-Jallieu"})},
+		{name: "missing name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR"})},
+		{name: "numeric ID", complexes: replaceComplex(valid, 4, map[string]any{"id": 4, "name": "Kinepolis Bourgoin-Jallieu"})},
+		{name: "boolean ID", complexes: replaceComplex(valid, 4, map[string]any{"id": true, "name": "Kinepolis Bourgoin-Jallieu"})},
+		{name: "null ID", complexes: replaceComplex(valid, 4, map[string]any{"id": nil, "name": "Kinepolis Bourgoin-Jallieu"})},
+		{name: "object ID", complexes: replaceComplex(valid, 4, map[string]any{"id": map[string]any{"value": "KBOUR"}, "name": "Kinepolis Bourgoin-Jallieu"})},
+		{name: "array name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR", "name": []any{"Kinepolis Bourgoin-Jallieu"}})},
+		{name: "numeric name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR", "name": 4})},
+		{name: "boolean name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR", "name": false})},
+		{name: "null name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR", "name": nil})},
+		{name: "object name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR", "name": map[string]any{"value": "Kinepolis Bourgoin-Jallieu"}})},
+		{name: "empty ID", complexes: replaceComplex(valid, 4, map[string]any{"id": " ", "name": "Kinepolis Bourgoin-Jallieu"})},
+		{name: "empty name", complexes: replaceComplex(valid, 4, map[string]any{"id": "KBOUR", "name": "\t"})},
+		{name: "eighteenth malformed", complexes: append(append([]any(nil), valid...), nil)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if data, inventory, err := parseSchedule(scheduleBody(t, test.complexes), "2026-08-15", time.Now()); err == nil {
+				t.Fatalf("accepted data=%+v inventory=%+v", data, inventory)
+			}
+		})
+	}
+}
+
 func TestParseIncludesPublicSessionBeyondFormerLimit(t *testing.T) {
 	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"F1","title":"Film","duration":90}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-14T18:00:00+02:00","vistaSessionId":"PAST","public":true,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00+02:00","vistaSessionId":"CURRENT","public":true,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2027-02-14T18:00:00+01:00","vistaSessionId":"FAR","public":true,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2027-03-01T18:00:00+01:00","vistaSessionId":"PRIVATE","public":false,"sold":false,"film":{"id":"F1"}},{"complexOperator":"LOM","showtime":"2027-03-02T18:00:00+01:00","vistaSessionId":"SOLD","public":true,"sold":true,"film":{"id":"F1"}}]}};`)
-	data, err := Parse(body, "2026-08-15", time.Now())
+	body = withCatalogComplexes(t, body)
+	body = []byte(strings.ReplaceAll(string(body), `"LOM"`, `"KLOM"`))
+	data, _, err := parseSchedule(body, "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,30 +139,11 @@ func TestParseIncludesPublicSessionBeyondFormerLimit(t *testing.T) {
 	}
 }
 
-func TestParseAcceptsTheatersAboveFormerSharedLimit(t *testing.T) {
-	complexes := make([]map[string]any, 257)
-	sessions := make([]map[string]any, 257)
-	for index := range complexes {
-		id := fmt.Sprintf("C%03d", index)
-		complexes[index] = map[string]any{"id": id, "name": "Kinepolis " + id}
-		sessions[index] = map[string]any{"complexOperator": id, "showtime": "2026-08-15T18:00:00+02:00", "vistaSessionId": fmt.Sprintf("S%03d", index), "film": map[string]any{"id": "F1"}}
-	}
-	settings := map[string]any{"complexes": complexes, "current_movies": map[string]any{"films": []map[string]any{{"id": "F1", "title": "Film", "duration": 90}}, "sessions": sessions}}
-	encoded, err := json.Marshal(settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := append([]byte("Drupal.settings.variables = "), encoded...)
-	body = append(body, ';')
-	data, err := Parse(body, "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
-	if err != nil || len(data.Theaters) != 257 || len(data.Showtimes) != 257 {
-		t.Fatalf("theaters=%d showtimes=%d err=%v", len(data.Theaters), len(data.Showtimes), err)
-	}
-}
-
 func TestParsePreservesMarathonRuntime(t *testing.T) {
 	body := []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"MARATHON","title":"Marathon","duration":721}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"MARATHON-1","film":{"id":"MARATHON"}}]}};`)
-	data, err := Parse(body, "2026-08-15", time.Now())
+	body = withCatalogComplexes(t, body)
+	body = []byte(strings.ReplaceAll(string(body), `"LOM"`, `"KLOM"`))
+	data, _, err := parseSchedule(body, "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +177,7 @@ func TestFormatCanonicalTechnologies(t *testing.T) {
 }
 
 func TestParseScreenXFromSessionMetadata(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-screenx.html"), "2026-08-15", time.Now())
+	data, _, err := parseSchedule(namedFixture(t, "schedule-screenx.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +187,7 @@ func TestParseScreenXFromSessionMetadata(t *testing.T) {
 }
 
 func TestParseLaserUltraFromSessionMetadata(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-laser-ultra.html"), "2026-08-15", time.Now())
+	data, _, err := parseSchedule(namedFixture(t, "schedule-laser-ultra.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +219,7 @@ func TestSessionFormatUsesSafeSessionSources(t *testing.T) {
 }
 
 func TestParseIgnoresFutureMovieSessions(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", time.Now())
+	data, _, err := parseSchedule(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +234,7 @@ func TestParseIgnoresFutureMovieSessions(t *testing.T) {
 }
 
 func TestParseDeduplicatesVistaSessionID(t *testing.T) {
-	data, err := Parse(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", time.Now())
+	data, _, err := parseSchedule(namedFixture(t, "schedule-scoping-dedup.html"), "2026-08-15", time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +242,7 @@ func TestParseDeduplicatesVistaSessionID(t *testing.T) {
 	for _, showing := range data.Showtimes {
 		if showing.ProviderShowingID == "DUPLICATE" {
 			duplicates++
-			if showing.TheaterID != "kinepolis-LOM" || showing.Movie.ProviderID != "HO1" {
+			if showing.TheaterID != "kinepolis-KLOM" || showing.Movie.ProviderID != "HO1" {
 				t.Fatalf("first duplicate did not win: %+v", showing)
 			}
 		}
@@ -243,7 +259,7 @@ func TestParseFailsClosed(t *testing.T) {
 	}{{"missing settings", []byte("<html></html>")}, {"malformed settings", []byte("Drupal.settings.variables = {")}, {"oversized", make([]byte, MaxBodySize+1)}, {"unknown film", []byte(`Drupal.settings.variables = {"complexes":[{"id":"LOM","name":"Kinepolis Lomme"}],"current_movies":{"films":[{"id":"HO1","title":"Film","duration":90}],"sessions":[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"S1","film":{"id":"MISSING"}}]}};`)}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := Parse(test.body, "2026-08-15", time.Now()); err == nil {
+			if _, _, err := parseSchedule(test.body, "2026-08-15", time.Now()); err == nil {
 				t.Fatal("invalid page accepted")
 			}
 		})
@@ -252,22 +268,43 @@ func TestParseFailsClosed(t *testing.T) {
 
 func TestParseSeparateDrupalAssignments(t *testing.T) {
 	body := []byte(`Drupal.settings.variables.complexes=[{"id":"LOM","name":"Kinepolis Lomme"}];Drupal.settings.variables.current_movies.films=[{"id":"HO1","title":"Film","duration":90}];Drupal.settings.variables.current_movies.sessions=[{"complexOperator":"LOM","showtime":"2026-08-15T18:00:00Z","vistaSessionId":"S1","film":{"id":"HO1","format":{"name":"2D"}}}];`)
-	data, err := Parse(body, "2026-08-15", time.Now())
+	body = withCatalogComplexes(t, body)
+	body = []byte(strings.ReplaceAll(string(body), `"LOM"`, `"KLOM"`))
+	data, _, err := parseSchedule(body, "2026-08-15", time.Now())
 	if err != nil || len(data.Showtimes) != 1 {
 		t.Fatalf("data=%+v err=%v", data, err)
 	}
 }
 
 type staticFetcher struct {
-	body []byte
-	err  error
+	body        []byte
+	err         error
+	details     map[string][]byte
+	detailErr   error
+	detailCalls []string
 }
 
-func (f staticFetcher) Fetch(context.Context) ([]byte, error) { return f.body, f.err }
+func (f *staticFetcher) Fetch(context.Context) ([]byte, error) { return f.body, f.err }
+func (f *staticFetcher) FetchCinema(_ context.Context, target string) ([]byte, error) {
+	f.detailCalls = append(f.detailCalls, target)
+	if f.detailErr != nil {
+		return nil, f.detailErr
+	}
+	return f.details[target], nil
+}
 func TestSyncUsesFetcherWithoutNetwork(t *testing.T) {
-	data, summary, err := Sync(context.Background(), staticFetcher{body: fixture(t)}, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
-	if err != nil || summary.Cinemas != 2 || summary.Showtimes != 2 || len(data.Showtimes) != 2 {
+	fetcher := &staticFetcher{body: fixture(t), details: map[string][]byte{
+		"/cinemas/kinepolis-lomme/infos/": cinemaDetailBody(t, "Kinepolis Lomme", "1 rue du Cinéma", "Lille", "59000"),
+		"/cinémas/kinepolis-waves/info/":  cinemaDetailBody(t, "Kinepolis Waves", "1 rue du Cinéma", "Lille", "59000"),
+	}}
+	data, summary, err := Sync(context.Background(), fetcher, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)})
+	if err != nil || summary.Cinemas != 2 || summary.Showtimes != 2 || len(data.Showtimes) != 2 || len(fetcher.detailCalls) != 2 {
 		t.Fatalf("summary=%+v err=%v", summary, err)
+	}
+	for _, theater := range data.Theaters {
+		if theater.Address != "1 rue du Cinéma" || theater.City != "Lille" || theater.PostalCode != "59000" {
+			t.Fatalf("theater=%+v", theater)
+		}
 	}
 }
 
@@ -278,4 +315,75 @@ func TestImageAndCitySafetyHelpers(t *testing.T) {
 	if complexCity("Kinepolis Saint-Julien-lès-Metz") != "Metz" {
 		t.Fatal("Metz mapping missing")
 	}
+}
+
+func catalogComplexObjects() []any {
+	complexes := make([]any, 0, len(cinemaDefinitions))
+	for _, definition := range cinemaDefinitions {
+		complexes = append(complexes, map[string]any{"id": definition.providerID, "name": definition.scheduleName})
+	}
+	return complexes
+}
+
+func replaceComplex(source []any, index int, replacement any) []any {
+	result := append([]any(nil), source...)
+	result[index] = replacement
+	return result
+}
+
+func scheduleBody(t *testing.T, complexes any) []byte {
+	t.Helper()
+	settings := map[string]any{
+		"complexes": complexes,
+		"current_movies": map[string]any{
+			"films":    []any{map[string]any{"id": "F1", "title": "Film", "duration": 90}},
+			"sessions": []any{map[string]any{"complexOperator": "KLOM", "showtime": "2026-08-15T18:00:00Z", "vistaSessionId": "S1", "film": map[string]any{"id": "F1"}}},
+		},
+	}
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append(append([]byte("Drupal.settings.variables = "), encoded...), ';')
+}
+
+func withCatalogComplexes(t *testing.T, body []byte) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(catalogComplexObjects())
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := strings.Index(string(body), `"complexes"`)
+	if start < 0 {
+		start = strings.Index(string(body), "complexes=")
+	}
+	if start < 0 {
+		t.Fatal("complexes marker missing")
+	}
+	relative := strings.IndexByte(string(body[start:]), '[')
+	if relative < 0 {
+		t.Fatal("complexes array missing")
+	}
+	start += relative
+	depth, end := 0, -1
+	for index := start; index < len(body); index++ {
+		switch body[index] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+			if depth == 0 {
+				end = index + 1
+			}
+		}
+		if end >= 0 {
+			break
+		}
+	}
+	if end < 0 {
+		t.Fatal("complexes array unterminated")
+	}
+	result := append([]byte(nil), body[:start]...)
+	result = append(result, encoded...)
+	return append(result, body[end:]...)
 }

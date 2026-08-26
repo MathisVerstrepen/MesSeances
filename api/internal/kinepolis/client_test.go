@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -184,7 +185,8 @@ func TestClientReadFailureRotatesAndCanSucceed(t *testing.T) {
 		}
 
 		_, err := client.Fetch(context.Background())
-		if err == nil || err.Error() != "fetch Kinepolis schedule failed on proxy 2: response read" || client.RequestCount() != 2 {
+		var requestErr *RequestError
+		if !errors.As(err, &requestErr) || requestErr.Operation != OperationSchedule || requestErr.Category != CategoryResponseRead || client.RequestCount() != 2 {
 			t.Fatalf("requests=%d err=%v", client.RequestCount(), err)
 		}
 		for index, body := range bodies {
@@ -212,7 +214,8 @@ func TestClientOversizeDoesNotRotate(t *testing.T) {
 	})
 
 	_, err = client.Fetch(context.Background())
-	if err == nil || err.Error() != "fetch Kinepolis schedule failed on proxy 1: response too large" || first != 1 || second != 0 || oversizedBody.closes != 1 {
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Category != CategoryResponseLarge || first != 1 || second != 0 || oversizedBody.closes != 1 {
 		t.Fatalf("requests=%d,%d closes=%d err=%v", first, second, oversizedBody.closes, err)
 	}
 }
@@ -243,8 +246,8 @@ func TestClientRotatesBlockedProxiesAndStopsWhenExhausted(t *testing.T) {
 				client.clients[index].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) { return testResponse(status, "blocked"), nil })
 			}
 			_, err = client.Fetch(context.Background())
-			var terminal *TerminalError
-			if !errors.As(err, &terminal) || client.RequestCount() != 2 {
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) || requestErr.Category != CategoryStatus || requestErr.StatusCode != status || client.RequestCount() != 2 {
 				t.Fatalf("requests=%d err=%v", client.RequestCount(), err)
 			}
 		})
@@ -285,8 +288,8 @@ func TestClientTerminalChallengeDoesNotRotateOrLeakBody(t *testing.T) {
 	})
 	client.clients[1].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) { second++; return testResponse(200, "ok"), nil })
 	_, err = client.Fetch(context.Background())
-	var terminal *TerminalError
-	if !errors.As(err, &terminal) || strings.Contains(err.Error(), secret) || first != 1 || second != 0 {
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Category != CategoryChallenge || strings.Contains(err.Error(), secret) || first != 1 || second != 0 {
 		t.Fatalf("requests=%d,%d err=%v", first, second, err)
 	}
 }
@@ -312,5 +315,179 @@ func TestClientRejectsStatusContentTypeTimeoutAndRedirect(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "https://evil.example/", nil)
 	if !errors.Is(checkRedirect(request, nil), errRedirectHost) {
 		t.Fatal("cross-host redirect accepted")
+	}
+}
+
+func TestCinemaURLSourceStates(t *testing.T) {
+	tests := []struct {
+		source, path, escaped string
+		wantInitialRawPath    string
+	}{
+		{source: "/cinemas/kinepolis-lomme/info/", path: "/cinemas/kinepolis-lomme/info/", escaped: "/cinemas/kinepolis-lomme/info/"},
+		{source: "https://kinepolis.fr/cinemas/kinepolis-rouen/infos/", path: "/cinemas/kinepolis-rouen/infos/", escaped: "/cinemas/kinepolis-rouen/infos/"},
+		{source: "/cinémas/kinepolis-waves/info/", path: "/cinémas/kinepolis-waves/info/", escaped: "/cin%C3%A9mas/kinepolis-waves/info/", wantInitialRawPath: "/cinémas/kinepolis-waves/info/"},
+	}
+	for _, test := range tests {
+		t.Run(test.source, func(t *testing.T) {
+			parsed, err := url.Parse(test.source)
+			if err != nil || parsed.Path != test.path || parsed.RawPath != test.wantInitialRawPath {
+				t.Fatalf("initial=%+v err=%v", parsed, err)
+			}
+			target, err := parseCinemaURLSource(test.source)
+			if err != nil || target.source != test.source || target.path != test.path || target.url.Path != test.path || target.url.RawPath != "" || target.url.EscapedPath() != test.escaped || target.url.RequestURI() != test.escaped {
+				t.Fatalf("target=%+v err=%v", target, err)
+			}
+		})
+	}
+}
+
+func TestCinemaURLSourceRejectsInvalidForms(t *testing.T) {
+	for _, source := range []string{
+		"", " /cinemas/kinepolis-lomme/info/", "/cinemas/kinepolis-lomme/info/ ", "//kinepolis.fr/cinemas/kinepolis-lomme/info/",
+		"http://kinepolis.fr/cinemas/kinepolis-lomme/info/", "https://KINEPOLIS.fr/cinemas/kinepolis-lomme/info/", "https://kinepolis.fr:443/cinemas/kinepolis-lomme/info/",
+		"https://user@kinepolis.fr/cinemas/kinepolis-lomme/info/", "/cinemas/kinepolis-lomme/info/?x=1", "/cinemas/kinepolis-lomme/info/#x",
+		"/cin%C3%A9mas/kinepolis-waves/info/", "/cinémas/kinepolis-waves/infos/", "/cinemas/kinepolis-lomme/", "/cinemas/kinepolis-lomme/info",
+		"/cinemas/Kinepolis-lomme/info/", "/cinemas/kinepolis_lomme/info/", "/cinemas/kinepolis-lomme\\info/", "/cinemas/kinepolis-lomme/info/extra",
+	} {
+		t.Run(source, func(t *testing.T) {
+			if target, err := parseCinemaURLSource(source); err == nil {
+				t.Fatalf("accepted %+v", target)
+			}
+		})
+	}
+}
+
+func TestClientFetchCinemaUsesNormalizedStandardRequestURI(t *testing.T) {
+	const source = "/cinémas/kinepolis-waves/info/"
+	client := testClient(t)
+	client.clients[0].Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != source || request.URL.RawPath != "" || request.URL.EscapedPath() != "/cin%C3%A9mas/kinepolis-waves/info/" || request.URL.RequestURI() != "/cin%C3%A9mas/kinepolis-waves/info/" {
+			t.Fatalf("request URL=%+v requestURI=%q", request.URL, request.URL.RequestURI())
+		}
+		return testResponse(http.StatusOK, "detail"), nil
+	})
+	body, err := client.FetchCinema(context.Background(), source)
+	if err != nil || string(body) != "detail" || client.RequestCount() != 1 {
+		t.Fatalf("body=%q count=%d err=%v", body, client.RequestCount(), err)
+	}
+}
+
+func TestClientFetchCinemaRedirectUsesOneOuterAttempt(t *testing.T) {
+	const source = "/cinémas/kinepolis-waves/info/"
+	client := testClient(t)
+	subrequests := 0
+	client.clients[0].Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		subrequests++
+		if subrequests == 1 {
+			response := testResponse(http.StatusFound, "redirect")
+			response.Header.Set("Location", "https://kinepolis.fr/cin%C3%A9mas/kinepolis-waves/info/")
+			return response, nil
+		}
+		if request.URL.Path != source || request.URL.RequestURI() != "/cin%C3%A9mas/kinepolis-waves/info/" {
+			t.Fatalf("redirect request=%+v", request.URL)
+		}
+		return testResponse(http.StatusOK, "detail"), nil
+	})
+	if _, err := client.FetchCinema(context.Background(), source); err != nil || subrequests != 2 || client.RequestCount() != 1 {
+		t.Fatalf("subrequests=%d outer=%d err=%v", subrequests, client.RequestCount(), err)
+	}
+}
+
+func TestValidFinalCinemaRequestRawStates(t *testing.T) {
+	accented, _ := parseCinemaURLSource("/cinémas/kinepolis-waves/info/")
+	ascii, _ := parseCinemaURLSource("/cinemas/kinepolis-lomme/infos/")
+	requestFor := func(target cinemaTarget) *http.Request {
+		request := &http.Request{URL: &url.URL{Scheme: "https", Host: "kinepolis.fr", Path: target.path}}
+		return request
+	}
+	for _, rawPath := range []string{"", accented.path, accented.url.EscapedPath()} {
+		request := requestFor(accented)
+		request.URL.RawPath = rawPath
+		if !validFinalCinemaRequest(request, accented) {
+			t.Fatalf("accented raw path rejected: %q", rawPath)
+		}
+	}
+	for _, mutate := range []func(*http.Request){
+		func(r *http.Request) { r.URL.RawPath = "/cin%C3%A9mas/kinepolis-other/info/" },
+		func(r *http.Request) { r.URL.RawFragment = "hidden" },
+		func(r *http.Request) { r.URL.RawQuery = "hidden=1" },
+		func(r *http.Request) { r.URL.Path += "extra" },
+		func(r *http.Request) { r.URL.Host = "evil.example" },
+	} {
+		request := requestFor(accented)
+		mutate(request)
+		if validFinalCinemaRequest(request, accented) {
+			t.Fatalf("invalid final state accepted: %+v", request.URL)
+		}
+	}
+	request := requestFor(ascii)
+	request.URL.RawPath = ascii.path
+	if validFinalCinemaRequest(request, ascii) {
+		t.Fatal("ASCII RawPath accepted")
+	}
+}
+
+func TestClientFetchCinemaPreservesTerminalAndRedactionBehavior(t *testing.T) {
+	const target = "/cinemas/kinepolis-lomme/info/"
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "challenge", status: http.StatusOK, body: "<title>DataDome CAPTCHA</title>synthetic-secret"},
+		{name: "forbidden", status: http.StatusForbidden, body: "synthetic-secret"},
+		{name: "rate limited", status: http.StatusTooManyRequests, body: "synthetic-secret"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := testClient(t)
+			client.clients[0].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+				return testResponse(test.status, test.body), nil
+			})
+			_, err := client.FetchCinema(context.Background(), target)
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) || strings.Contains(err.Error(), "synthetic-secret") || strings.Contains(err.Error(), target) || client.RequestCount() != 1 {
+				t.Fatalf("count=%d err=%v", client.RequestCount(), err)
+			}
+		})
+	}
+
+	client := testClient(t)
+	client.clients[0].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("synthetic-secret " + target)
+	})
+	if _, err := client.FetchCinema(context.Background(), target); err == nil || strings.Contains(err.Error(), "synthetic-secret") || strings.Contains(err.Error(), target) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestClientFetchCinemaCancellationStopsBeforeNextAttempt(t *testing.T) {
+	const target = "/cinemas/kinepolis-lomme/info/"
+	client := testClient(t)
+	client.lastStart = time.Now()
+	client.clients[0].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("request started after cancellation")
+		return nil, nil
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := client.FetchCinema(ctx, target); err == nil || !strings.Contains(err.Error(), "canceled") || strings.Contains(err.Error(), target) {
+		t.Fatalf("err=%v", err)
+	}
+	if client.RequestCount() != 0 {
+		t.Fatalf("count=%d", client.RequestCount())
+	}
+}
+
+func TestRequestErrorIsBoundedAndPreservesCause(t *testing.T) {
+	cause := errors.New("synthetic-secret cause")
+	err := requestError(OperationCinema, CategoryTransport, 0, cause)
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || !errors.Is(err, cause) || err.Error() != "Kinepolis cinema request failed: transport" || strings.Contains(err.Error(), "synthetic-secret") {
+		t.Fatalf("err=%v requestErr=%+v", err, requestErr)
+	}
+	malicious := "https://user:secret@proxy.example/?token=secret"
+	err = (&RequestError{Operation: Operation(malicious), Category: ErrorCategory(malicious), StatusCode: 999})
+	if err.Error() != "Kinepolis unknown request failed: unknown" || strings.Contains(err.Error(), malicious) {
+		t.Fatalf("unbounded error=%v", err)
 	}
 }

@@ -57,12 +57,14 @@ func (getter countedUGCGetter) RequestCount() int { return getter.requests }
 
 type unusedFetcher struct{}
 
-func (unusedFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
+func (unusedFetcher) Fetch(context.Context) ([]byte, error)               { return nil, nil }
+func (unusedFetcher) FetchCinema(context.Context, string) ([]byte, error) { return nil, nil }
 
 type countedFetcher struct{ requests int }
 
-func (countedFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
-func (f countedFetcher) RequestCount() int                   { return f.requests }
+func (countedFetcher) Fetch(context.Context) ([]byte, error)               { return nil, nil }
+func (countedFetcher) FetchCinema(context.Context, string) ([]byte, error) { return nil, nil }
+func (f countedFetcher) RequestCount() int                                 { return f.requests }
 
 type unusedPatheGetter struct{}
 
@@ -221,6 +223,117 @@ func TestProductionExecutorPopulatesKinepolisRequestCount(t *testing.T) {
 	outcomes, err := executor.Run(context.Background(), TargetKinepolis, window)
 	if err != nil || outcomes[TargetKinepolis].Sync.Requests != 6 {
 		t.Fatalf("outcomes=%+v err=%v", outcomes, err)
+	}
+}
+
+func TestProductionExecutorLogsSanitizedKinepolisFetchDiagnostics(t *testing.T) {
+	const sensitive = "https://user:proxy-password@proxy.example/path?token=token-secret cookie=session-secret body=provider-body-secret cause=transport-secret"
+	tests := []struct {
+		name          string
+		category      kinepolis.ErrorCategory
+		status        int
+		operation     kinepolis.Operation
+		wantCategory  string
+		wantOperation string
+		wantStatus    bool
+	}{
+		{name: "schedule invalid payload", category: kinepolis.CategoryInvalidPayload, operation: kinepolis.OperationSchedule, wantCategory: "invalid_payload", wantOperation: "cinemas"},
+		{name: "cinema invalid payload", category: kinepolis.CategoryInvalidPayload, operation: kinepolis.OperationCinema, wantCategory: "invalid_payload", wantOperation: "cinema"},
+		{name: "transport", category: kinepolis.CategoryTransport, operation: kinepolis.OperationCinema, wantCategory: "transport", wantOperation: "cinema"},
+		{name: "redirect", category: kinepolis.CategoryRedirect, operation: kinepolis.OperationCinema, wantCategory: "redirect", wantOperation: "cinema"},
+		{name: "response read", category: kinepolis.CategoryResponseRead, operation: kinepolis.OperationSchedule, wantCategory: "response_read", wantOperation: "cinemas"},
+		{name: "response large", category: kinepolis.CategoryResponseLarge, operation: kinepolis.OperationSchedule, wantCategory: "response_too_large", wantOperation: "cinemas"},
+		{name: "challenge", category: kinepolis.CategoryChallenge, operation: kinepolis.OperationCinema, wantCategory: "challenge", wantOperation: "cinema"},
+		{name: "forbidden", category: kinepolis.CategoryStatus, status: 403, operation: kinepolis.OperationCinema, wantCategory: "http_status", wantOperation: "cinema", wantStatus: true},
+		{name: "server", category: kinepolis.CategoryServer, status: 503, operation: kinepolis.OperationSchedule, wantCategory: "http_status", wantOperation: "cinemas", wantStatus: true},
+		{name: "content type", category: kinepolis.CategoryContentType, operation: kinepolis.OperationSchedule, wantCategory: "content_type", wantOperation: "cinemas"},
+		{name: "empty", category: kinepolis.CategoryEmptyResponse, operation: kinepolis.OperationCinema, wantCategory: "empty_response", wantOperation: "cinema"},
+		{name: "canceled", category: kinepolis.CategoryCanceled, operation: kinepolis.OperationCinema, wantCategory: "canceled", wantOperation: "cinema"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			executor := failedKinepolisExecutor(&logs, fmt.Errorf("%s: %w", sensitive, &kinepolis.RequestError{Operation: test.operation, Category: test.category, StatusCode: test.status}))
+			_, err := executor.Run(context.Background(), TargetKinepolis, Window{From: "2026-08-17"})
+			var runErr *RunError
+			if !errors.As(err, &runErr) || runErr.Stage != StageProviderFetch || runErr.Code != FailureProviderSync {
+				t.Fatalf("err=%v", err)
+			}
+			combined := strings.Join(runErr.logs[TargetKinepolis], "\n") + logs.String()
+			for _, want := range []string{"operation=" + test.wantOperation, "category=" + test.wantCategory, `"request_operation":"` + test.wantOperation + `"`, `"fetch_category":"` + test.wantCategory + `"`, "requests=1"} {
+				if !strings.Contains(combined, want) {
+					t.Fatalf("output missing %q: %s", want, combined)
+				}
+			}
+			if test.wantStatus != strings.Contains(combined, "http_status=") || test.wantStatus != strings.Contains(combined, `"http_status":`) {
+				t.Fatalf("status mismatch: %s", combined)
+			}
+			for _, forbidden := range []string{sensitive, "proxy-password", "proxy.example", "token-secret", "session-secret", "provider-body-secret", "transport-secret"} {
+				if strings.Contains(combined, forbidden) {
+					t.Fatalf("output leaked %q: %s", forbidden, combined)
+				}
+			}
+		})
+	}
+}
+
+func TestProductionExecutorKinepolisTypedErrorPrecedesDatasetSentinel(t *testing.T) {
+	requestErr := &kinepolis.RequestError{Operation: kinepolis.OperationSchedule, Category: kinepolis.CategoryInvalidPayload}
+	typed := fmt.Errorf("typed: %w; validation: %w", requestErr, schedule.ErrDatasetValidation)
+	executor := failedKinepolisExecutor(&bytes.Buffer{}, typed)
+	_, err := executor.Run(context.Background(), TargetKinepolis, Window{From: "2026-08-17"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Stage != StageProviderFetch || runErr.Code != FailureProviderSync {
+		t.Fatalf("typed precedence err=%v", err)
+	}
+
+	executor = failedKinepolisExecutor(&bytes.Buffer{}, fmt.Errorf("%w: final", schedule.ErrDatasetValidation))
+	_, err = executor.Run(context.Background(), TargetKinepolis, Window{From: "2026-08-17"})
+	if !errors.As(err, &runErr) || runErr.Stage != StageDatasetValidation || runErr.Code != FailureDatasetRejected {
+		t.Fatalf("bare validation err=%v", err)
+	}
+}
+
+func TestProductionExecutorRetainsTypedKinepolisOperationOnCancellation(t *testing.T) {
+	requestErr := &kinepolis.RequestError{Operation: kinepolis.OperationCinema, Category: kinepolis.CategoryCanceled}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	var logs bytes.Buffer
+	executor := failedKinepolisExecutor(&logs, fmt.Errorf("request: %w; context: %w", requestErr, context.Canceled))
+	_, err := executor.Run(ctx, TargetKinepolis, Window{From: "2026-08-17"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Stage != StageProviderFetch || runErr.Code != FailureCanceled {
+		t.Fatalf("err=%v", err)
+	}
+	combined := strings.Join(runErr.logs[TargetKinepolis], "\n") + logs.String()
+	if !strings.Contains(combined, "operation=cinema category=canceled") || !strings.Contains(combined, `"request_operation":"cinema"`) || !strings.Contains(combined, `"fetch_category":"canceled"`) {
+		t.Fatalf("output=%s", combined)
+	}
+}
+
+func TestProductionExecutorBoundsKinepolisFetchDiagnostics(t *testing.T) {
+	const malicious = "proxy-password token-secret provider-body-secret raw-url?secret"
+	var logs bytes.Buffer
+	executor := failedKinepolisExecutor(&logs, &kinepolis.RequestError{Operation: kinepolis.Operation(malicious), Category: kinepolis.ErrorCategory(malicious), StatusCode: 999})
+	_, err := executor.Run(context.Background(), TargetKinepolis, Window{From: "2026-08-17"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) {
+		t.Fatal(err)
+	}
+	combined := strings.Join(runErr.logs[TargetKinepolis], "\n") + logs.String()
+	if !strings.Contains(combined, "operation=unknown category=unknown") || !strings.Contains(combined, `"request_operation":"unknown"`) || strings.Contains(combined, "http_status") || strings.Contains(combined, malicious) {
+		t.Fatalf("unbounded output: %s", combined)
+	}
+}
+
+func failedKinepolisExecutor(logs *bytes.Buffer, fetchErr error) *ProductionExecutor {
+	return &ProductionExecutor{
+		now:          time.Now,
+		logger:       slog.New(slog.NewJSONHandler(logs, nil)),
+		newKinepolis: func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 1}, nil },
+		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
+			return schedule.Dataset{}, kinepolis.SyncSummary{}, fetchErr
+		},
 	}
 }
 

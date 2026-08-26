@@ -19,26 +19,44 @@ type film struct {
 	genres                                   []string
 }
 
-func Parse(body []byte, from string, generatedAt time.Time) (schedule.Dataset, error) {
+type complexRecord struct {
+	id   string
+	name string
+}
+
+func parseSchedule(body []byte, from string, generatedAt time.Time) (schedule.Dataset, []complexRecord, error) {
 	if len(body) == 0 || len(body) > MaxBodySize {
-		return schedule.Dataset{}, fmt.Errorf("invalid page size")
+		return schedule.Dataset{}, nil, fmt.Errorf("invalid page size")
 	}
 	root, err := settingsObject(body)
 	if err != nil {
-		return schedule.Dataset{}, err
+		return schedule.Dataset{}, nil, err
 	}
 	variables, ok := root.(map[string]any)
 	if !ok {
-		return schedule.Dataset{}, fmt.Errorf("embedded schedule is incomplete")
+		return schedule.Dataset{}, nil, fmt.Errorf("embedded schedule is incomplete")
 	}
 	if nested, ok := value(variables, "variables").(map[string]any); ok {
 		variables = nested
 	}
+	rawComplexes, ok := value(variables, "complexes").([]any)
+	if !ok || len(rawComplexes) != 17 {
+		return schedule.Dataset{}, nil, fmt.Errorf("embedded cinema inventory is invalid")
+	}
+	inventory := make([]complexRecord, 0, len(rawComplexes))
 	complexes, films := map[string]string{}, map[string]film{}
-	for _, object := range objectSlice(value(variables, "complexes")) {
-		if id, name := stringValue(object, "id"), stringValue(object, "name"); id != "" && name != "" {
-			complexes[id] = name
+	for _, rawComplex := range rawComplexes {
+		object, ok := rawComplex.(map[string]any)
+		if !ok {
+			return schedule.Dataset{}, nil, fmt.Errorf("embedded cinema inventory is invalid")
 		}
+		id, idOK := object["id"].(string)
+		name, nameOK := object["name"].(string)
+		if !idOK || !nameOK || strings.TrimSpace(id) == "" || strings.TrimSpace(name) == "" {
+			return schedule.Dataset{}, nil, fmt.Errorf("embedded cinema inventory is invalid")
+		}
+		inventory = append(inventory, complexRecord{id: id, name: name})
+		complexes[id] = name
 	}
 	currentMovies, _ := value(variables, "current_movies").(map[string]any)
 	for _, object := range objectSlice(value(currentMovies, "films")) {
@@ -54,12 +72,12 @@ func Parse(body []byte, from string, generatedAt time.Time) (schedule.Dataset, e
 		}
 	}
 	if len(complexes) == 0 || len(films) == 0 || len(sessions) == 0 {
-		return schedule.Dataset{}, fmt.Errorf("embedded schedule is incomplete")
+		return schedule.Dataset{}, nil, fmt.Errorf("embedded schedule is incomplete")
 	}
 	location, _ := time.LoadLocation(schedule.Timezone)
 	fromDate, err1 := time.ParseInLocation("2006-01-02", from, location)
 	if err1 != nil || fromDate.Format("2006-01-02") != from {
-		return schedule.Dataset{}, fmt.Errorf("invalid from date")
+		return schedule.Dataset{}, nil, fmt.Errorf("invalid from date")
 	}
 	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderKinepolis, Scope: schedule.ScopeAll, GeneratedAt: generatedAt.UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: from}, Theaters: []schedule.TheaterRecord{}, Showtimes: []schedule.ShowtimeRecord{}}
 	dates := map[string]map[string]bool{}
@@ -72,22 +90,22 @@ func Parse(body []byte, from string, generatedAt time.Time) (schedule.Dataset, e
 		complexID := stringValue(session, "complexOperator")
 		name, ok := complexes[complexID]
 		if !ok {
-			return schedule.Dataset{}, fmt.Errorf("session references unknown complex")
+			return schedule.Dataset{}, nil, fmt.Errorf("session references unknown complex")
 		}
 		filmObject, _ := value(session, "film").(map[string]any)
 		filmID := stringValue(filmObject, "id")
 		movie, ok := films[filmID]
 		if !ok {
-			return schedule.Dataset{}, fmt.Errorf("session references unknown film")
+			return schedule.Dataset{}, nil, fmt.Errorf("session references unknown film")
 		}
 		runtime, validRuntime := schedule.RuntimeDuration(movie.runtime)
 		if !validRuntime {
-			return schedule.Dataset{}, fmt.Errorf("session references unknown film")
+			return schedule.Dataset{}, nil, fmt.Errorf("session references unknown film")
 		}
 		showingID := stringValue(session, "vistaSessionId")
 		start, err := time.Parse(time.RFC3339, stringValue(session, "showtime"))
 		if err != nil {
-			return schedule.Dataset{}, fmt.Errorf("invalid session showtime")
+			return schedule.Dataset{}, nil, fmt.Errorf("invalid session showtime")
 		}
 		local := start.In(location)
 		service := local
@@ -115,7 +133,7 @@ func Parse(body []byte, from string, generatedAt time.Time) (schedule.Dataset, e
 		_ = name
 	}
 	if len(data.Showtimes) == 0 {
-		return schedule.Dataset{}, fmt.Errorf("schedule contains no showtimes on or after start date")
+		return schedule.Dataset{}, nil, fmt.Errorf("schedule contains no showtimes on or after start date")
 	}
 	for _, showing := range data.Showtimes {
 		if showing.ServiceDate > data.Window.Through {
@@ -136,9 +154,9 @@ func Parse(body []byte, from string, generatedAt time.Time) (schedule.Dataset, e
 		data.Theaters = append(data.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-" + id, ProviderID: id, Slug: "kinepolis-" + id, Name: complexes[id], City: complexCity(complexes[id]), AvailableDates: available, AcceptedPasses: []string{}})
 	}
 	if err := schedule.ValidateDataset(data, true); err != nil {
-		return schedule.Dataset{}, fmt.Errorf("%w: %v", schedule.ErrDatasetValidation, err)
+		return schedule.Dataset{}, nil, fmt.Errorf("%w: %v", schedule.ErrDatasetValidation, err)
 	}
-	return data, nil
+	return data, inventory, nil
 }
 
 const settingsMarkerBudget = 128
