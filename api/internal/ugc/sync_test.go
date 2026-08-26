@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -19,11 +20,11 @@ type fakeGetter struct {
 	responses map[string][]byte
 	finalURLs map[string]string
 	calls     int
-	failKind  string
-	get       func(context.Context, string, string) (FetchResult, error)
+	failKind  Operation
+	get       func(context.Context, Operation, string) (FetchResult, error)
 }
 
-func (f *fakeGetter) Get(ctx context.Context, kind, rawURL string) (FetchResult, error) {
+func (f *fakeGetter) Get(ctx context.Context, kind Operation, rawURL string) (FetchResult, error) {
 	f.mu.Lock()
 	f.calls++
 	get := f.get
@@ -103,21 +104,18 @@ func TestSyncAcceptsActiveCinemasAboveFormerLimit(t *testing.T) {
 		fmt.Fprintf(&sitemap, `<url><loc>https://www.ugc.fr/cinema.html?id=%d</loc></url>`, id)
 	}
 	sitemap.WriteString(`</urlset>`)
-	getter := &fakeGetter{get: func(_ context.Context, kind, rawURL string) (FetchResult, error) {
-		if kind == "sitemap" {
+	getter := &fakeGetter{get: func(_ context.Context, kind Operation, rawURL string) (FetchResult, error) {
+		if kind == OperationSitemap {
 			return FetchResult{Body: []byte(sitemap.String()), FinalURL: rawURL}, nil
 		}
-		fields := strings.Fields(kind)
-		if len(fields) < 2 {
-			return FetchResult{}, fmt.Errorf("unexpected request kind")
-		}
-		id := fields[1]
-		if fields[0] == "cinema" {
+		parsedURL, _ := url.Parse(rawURL)
+		id := parsedURL.Query().Get("id")
+		if kind == OperationCinema {
 			body := fmt.Sprintf(`<html><head><title>UGC Test, cinéma à Lille (59000)</title></head><body><section id="cinema-heading"><h1>UGC %s</h1><p class="address">1 rue Test 59000 Lille</p></section><input name="cinemaId" value="%s"><button id="nav_date_2026-08-15"></button></body></html>`, id, id)
 			return FetchResult{Body: []byte(body), FinalURL: rawURL}, nil
 		}
-		if fields[0] == "showings" {
-			id = fields[2]
+		if kind == OperationShowings {
+			id = parsedURL.Query().Get("cinemaId")
 			showingID := "9" + id
 			body := fmt.Sprintf(`<div id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(1h30)</span><button data-showing="%s" data-film="1" data-cinema="%s" data-version="VF" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 13:30)</span></button></div>`, showingID, id)
 			return FetchResult{Body: []byte(body), FinalURL: rawURL}, nil
@@ -144,12 +142,13 @@ func TestSyncPreservesCinemaDateAndShowtimeOrderAcrossReverseCompletion(t *testi
 	showingsStarted := make(chan string, 2)
 	cinemaRelease := map[string]chan struct{}{"25": make(chan struct{}), "44": make(chan struct{})}
 	showingsRelease := map[string]chan struct{}{"25": make(chan struct{}), "44": make(chan struct{})}
-	getter := &fakeGetter{get: func(ctx context.Context, kind, rawURL string) (FetchResult, error) {
-		if kind == "sitemap" {
+	getter := &fakeGetter{get: func(ctx context.Context, kind Operation, rawURL string) (FetchResult, error) {
+		if kind == OperationSitemap {
 			return FetchResult{Body: sitemap, FinalURL: rawURL}, nil
 		}
-		if strings.HasPrefix(kind, "cinema ") {
-			id := strings.TrimPrefix(kind, "cinema ")
+		if kind == OperationCinema {
+			parsedURL, _ := url.Parse(rawURL)
+			id := parsedURL.Query().Get("id")
 			cinemaStarted <- id
 			select {
 			case <-cinemaRelease[id]:
@@ -158,9 +157,9 @@ func TestSyncPreservesCinemaDateAndShowtimeOrderAcrossReverseCompletion(t *testi
 				return FetchResult{}, ctx.Err()
 			}
 		}
-		if strings.HasPrefix(kind, "showings cinema ") {
-			fields := strings.Fields(kind)
-			id := fields[2]
+		if kind == OperationShowings {
+			parsedURL, _ := url.Parse(rawURL)
+			id := parsedURL.Query().Get("cinemaId")
 			showingsStarted <- id
 			select {
 			case <-showingsRelease[id]:
@@ -302,7 +301,8 @@ func TestSyncRejectsMalformedCinemaAliasFinalURL(t *testing.T) {
 			aliasURL := "https://www.ugc.fr/cinema.html?id=50"
 			getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, aliasURL: readFixture(t, "cinema-44.html")}, finalURLs: map[string]string{aliasURL: finalURL}}
 			_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
-			if err == nil || err.Error() != "cinema 50 response has unexpected final URL" {
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) || requestErr.Operation != OperationCinema || requestErr.Category != CategoryRedirect {
 				t.Fatalf("error=%v", err)
 			}
 		})
@@ -344,7 +344,8 @@ func TestSyncRejectsUnexpectedCinemaFinalURL(t *testing.T) {
 	cinemaURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, cinemaURL: readFixture(t, "cinemas-directory.html")}, finalURLs: map[string]string{cinemaURL: "https://www.ugc.fr/cinemas.html?id=1&unexpected=true"}}
 	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
-	if err == nil || err.Error() != "cinema 2 response has unexpected final URL" {
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Operation != OperationCinema || requestErr.Category != CategoryRedirect {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -354,24 +355,41 @@ func TestSyncExpectedCinemaURLKeepsParseFailureTerminal(t *testing.T) {
 	cinemaURL := "https://www.ugc.fr/cinema.html?id=2"
 	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: sitemap, cinemaURL: readFixture(t, "cinemas-directory.html")}}
 	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
-	if err == nil || err.Error() != "parse cinema 2: cinema identity missing or conflicting" {
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Operation != OperationCinema || requestErr.Category != CategoryInvalidPayload {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestSyncClassifiesParserFailureWithoutRawInput(t *testing.T) {
+	const secret = "proxy-password token-secret session-secret provider-body-secret"
+	getter := &fakeGetter{responses: map[string][]byte{SitemapURL: []byte(`<not-a-sitemap>` + secret)}}
+	_, _, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Operation != OperationSitemap || requestErr.Category != CategoryInvalidPayload || requestErr.StatusCode != 0 || requestErr.Attempt != 0 || requestErr.AttemptLimit != 0 {
+		t.Fatalf("error=%+v", requestErr)
+	}
+	if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "not-a-sitemap") {
+		t.Fatalf("raw parser input leaked: %v", err)
+	}
+}
+
 func TestSyncStopsOnFailure(t *testing.T) {
 	sitemap := readFixture(t, "sitemap.xml")
 	siblingStarted := make(chan struct{}, 2)
 	siblingExited := make(chan struct{}, 2)
-	getter := &fakeGetter{get: func(ctx context.Context, kind, rawURL string) (FetchResult, error) {
+	getter := &fakeGetter{get: func(ctx context.Context, kind Operation, rawURL string) (FetchResult, error) {
 		switch kind {
-		case "sitemap":
+		case OperationSitemap:
 			return FetchResult{Body: sitemap, FinalURL: rawURL}, nil
-		case "cinema 3":
-			for range 2 {
-				<-siblingStarted
+		case OperationCinema:
+			parsedURL, _ := url.Parse(rawURL)
+			if parsedURL.Query().Get("id") == "3" {
+				for range 2 {
+					<-siblingStarted
+				}
+				return FetchResult{}, fmt.Errorf("synthetic transport failure")
 			}
-			return FetchResult{}, fmt.Errorf("synthetic transport failure")
-		case "cinema 25", "cinema 46":
 			siblingStarted <- struct{}{}
 			<-ctx.Done()
 			siblingExited <- struct{}{}

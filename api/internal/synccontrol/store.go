@@ -33,6 +33,7 @@ func NewPostgresRunStore(pool *pgxpool.Pool) *PostgresRunStore {
 }
 
 func (s *PostgresRunStore) Create(ctx context.Context, status Status) (Status, error) {
+	status = sanitizeStatusLogs(status)
 	providers, err := json.Marshal(status.Providers)
 	if err != nil {
 		return Status{}, fmt.Errorf("encode sync run failed")
@@ -164,7 +165,9 @@ func (s *PostgresRunStore) ReconcileRunning(ctx context.Context, finishedAt time
 		for provider, providerStatus := range status.Providers {
 			switch providerStatus.State {
 			case ProviderRunning:
-				status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: FailureCanceled}
+				target := Target(provider)
+				line := failureLog(finishedAt.UTC(), target, StageOrchestration, logFailure{Operation: operationOrchestration, Category: categoryCanceled})
+				status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: FailureCanceled, Log: []string{line}}
 			case ProviderPending:
 				status.Providers[provider] = ProviderStatus{State: ProviderSkipped}
 			}
@@ -214,7 +217,7 @@ func scanStatus(row rowScanner) (Status, error) {
 	if revision != nil && scheduledFor != nil && attempt != nil {
 		status.Occurrence = &Occurrence{Provider: status.Target, Revision: *revision, ScheduledFor: scheduledFor.UTC(), Attempt: int(*attempt)}
 	}
-	return status, nil
+	return sanitizeStatusLogs(status), nil
 }
 
 func persistenceValues(status Status) (int64, []byte, error) {
@@ -222,6 +225,7 @@ func persistenceValues(status Status) (int64, []byte, error) {
 	if err != nil || id <= 0 {
 		return 0, nil, fmt.Errorf("invalid sync run id")
 	}
+	status = sanitizeStatusLogs(status)
 	providers, err := json.Marshal(status.Providers)
 	if err != nil {
 		return 0, nil, fmt.Errorf("encode sync run failed")

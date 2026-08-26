@@ -121,7 +121,7 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	if err != nil || len(runs) != 2 || runs[0].ID != stale.ID || runs[1].ID != created.ID {
 		t.Fatalf("runs=%+v err=%v", runs, err)
 	}
-	if runs[0].State != StateFailed || runs[0].FinishedAt == nil || !runs[0].FinishedAt.Equal(reconciledAt) || runs[0].Providers[string(TargetUGC)].ErrorCode != FailureCanceled || runs[0].Providers[string(TargetKinepolis)].State != ProviderSkipped {
+	if runs[0].State != StateFailed || runs[0].FinishedAt == nil || !runs[0].FinishedAt.Equal(reconciledAt) || runs[0].Providers[string(TargetUGC)].ErrorCode != FailureCanceled || len(runs[0].Providers[string(TargetUGC)].Log) != 1 || !strings.Contains(runs[0].Providers[string(TargetUGC)].Log[0], "category=canceled") || runs[0].Providers[string(TargetKinepolis)].State != ProviderSkipped {
 		t.Fatalf("reconciled=%+v", runs[0])
 	}
 	outcome := runs[1].Providers[string(TargetUGC)].Outcome
@@ -144,10 +144,26 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 		t.Fatalf("duplicate scheduled claim err=%v", err)
 	}
 	claimed.State = StateFailed
-	claimed.FinishedAt = &reconciledAt
-	claimed.Providers[string(TargetUGC)] = ProviderStatus{State: ProviderFailed, ErrorCode: FailureProviderSync}
+	claimFinished := claimed.StartedAt.Add(time.Minute)
+	claimed.FinishedAt = &claimFinished
+	validLog := failureLog(claimFinished, TargetUGC, StageProviderFetch, logFailure{Operation: operationShowings, Category: categoryHTTPStatus, HTTPStatus: 403, Attempt: 1, AttemptLimit: 4})
+	claimed.Providers[string(TargetUGC)] = ProviderStatus{State: ProviderFailed, ErrorCode: FailureProviderSync, Log: []string{validLog, "https://user:proxy-password@proxy.example/?token=secret body=provider-secret"}}
 	if err := store.Update(ctx, claimed); err != nil {
 		t.Fatal("complete scheduled claim failed")
+	}
+	storedClaims, err := store.List(ctx, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedClaim *Status
+	for i := range storedClaims {
+		if storedClaims[i].ID == claimed.ID {
+			storedClaim = &storedClaims[i]
+			break
+		}
+	}
+	if storedClaim == nil || len(storedClaim.Providers[string(TargetUGC)].Log) != 2 || storedClaim.Providers[string(TargetUGC)].Log[0] != validLog || !strings.Contains(storedClaim.Providers[string(TargetUGC)].Log[1], "event=log_truncated") || strings.Contains(strings.Join(storedClaim.Providers[string(TargetUGC)].Log, "\n"), "proxy-password") {
+		t.Fatalf("sanitized persisted claim=%+v", storedClaim)
 	}
 	for _, attempt := range []int{1, 2} {
 		retry := scheduled

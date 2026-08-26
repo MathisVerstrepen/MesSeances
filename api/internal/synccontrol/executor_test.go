@@ -43,10 +43,17 @@ func (f writerFunc) Replace(ctx context.Context, data []schedule.Dataset) (sched
 
 type unusedGetter struct{}
 
-func (unusedGetter) Get(context.Context, string, string) (ugc.FetchResult, error) {
+func (unusedGetter) Get(context.Context, ugc.Operation, string) (ugc.FetchResult, error) {
 	return ugc.FetchResult{}, nil
 }
 func (unusedGetter) RequestCount() int { return 0 }
+
+type countedUGCGetter struct{ requests int }
+
+func (countedUGCGetter) Get(context.Context, ugc.Operation, string) (ugc.FetchResult, error) {
+	return ugc.FetchResult{}, nil
+}
+func (getter countedUGCGetter) RequestCount() int { return getter.requests }
 
 type unusedFetcher struct{}
 
@@ -329,15 +336,15 @@ func TestProductionExecutorLogsSanitizedPatheFetchDiagnostics(t *testing.T) {
 		wantStatus    string
 	}{
 		{name: "transport", category: pathe.CategoryTransport, operation: pathe.OperationCinemas, wantCategory: "transport", wantOperation: "cinemas"},
-		{name: "forbidden", category: pathe.CategoryStatus, status: 403, operation: pathe.OperationShows, wantCategory: "status", wantOperation: "shows", wantStatus: "403"},
-		{name: "rate limited", category: pathe.CategoryStatus, status: 429, operation: pathe.OperationCinemaProgram, wantCategory: "status", wantOperation: "cinema_program", wantStatus: "429"},
-		{name: "server status", category: pathe.CategoryServer, status: 503, operation: pathe.OperationMovieTimes, wantCategory: "status", wantOperation: "movie_showtimes", wantStatus: "503"},
-		{name: "challenge", category: pathe.CategoryChallenge, operation: pathe.OperationEventTimes, wantCategory: "challenge", wantOperation: "event_showtimes"},
+		{name: "forbidden", category: pathe.CategoryStatus, status: 403, operation: pathe.OperationShows, wantCategory: "http_status", wantOperation: "program", wantStatus: "403"},
+		{name: "rate limited", category: pathe.CategoryStatus, status: 429, operation: pathe.OperationCinemaProgram, wantCategory: "http_status", wantOperation: "program", wantStatus: "429"},
+		{name: "server status", category: pathe.CategoryServer, status: 503, operation: pathe.OperationMovieTimes, wantCategory: "http_status", wantOperation: "showings", wantStatus: "503"},
+		{name: "challenge", category: pathe.CategoryChallenge, operation: pathe.OperationEventTimes, wantCategory: "challenge", wantOperation: "showings"},
 		{name: "content type", category: pathe.CategoryContentType, operation: pathe.OperationCinemas, wantCategory: "content_type", wantOperation: "cinemas"},
-		{name: "redirect", category: pathe.CategoryRedirect, operation: pathe.OperationShows, wantCategory: "redirect", wantOperation: "shows"},
-		{name: "response too large", category: pathe.CategoryResponseLarge, operation: pathe.OperationCinemaProgram, wantCategory: "response_too_large", wantOperation: "cinema_program"},
-		{name: "invalid JSON", category: pathe.CategoryInvalidJSON, operation: pathe.OperationMovieTimes, wantCategory: "invalid_json", wantOperation: "movie_showtimes"},
-		{name: "canceled", category: pathe.CategoryCanceled, operation: pathe.OperationEventTimes, wantCategory: "canceled", wantOperation: "event_showtimes"},
+		{name: "redirect", category: pathe.CategoryRedirect, operation: pathe.OperationShows, wantCategory: "redirect", wantOperation: "program"},
+		{name: "response too large", category: pathe.CategoryResponseLarge, operation: pathe.OperationCinemaProgram, wantCategory: "response_too_large", wantOperation: "program"},
+		{name: "invalid JSON", category: pathe.CategoryInvalidJSON, operation: pathe.OperationMovieTimes, wantCategory: "invalid_payload", wantOperation: "showings"},
+		{name: "canceled", category: pathe.CategoryCanceled, operation: pathe.OperationEventTimes, wantCategory: "canceled", wantOperation: "showings"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -394,6 +401,44 @@ func TestProductionExecutorRetainsCGRFailureProgressCounters(t *testing.T) {
 	_, err := executor.Run(context.Background(), TargetCGR, Window{From: "2026-08-25"})
 	if err == nil || strings.Contains(logs.String(), secret) || !strings.Contains(logs.String(), `"cinemas":73`) || !strings.Contains(logs.String(), `"movies":380`) || !strings.Contains(logs.String(), `"requests":82`) {
 		t.Fatalf("logs=%q err=%v", logs.String(), err)
+	}
+}
+
+func TestProductionExecutorBuildsCanonicalUGCFailureLog(t *testing.T) {
+	const secret = "https://user:proxy-password@proxy.example/path?token=token-secret cookie=session-secret body=provider-body-secret cause=underlying-secret"
+	timestamp := time.Date(2026, 8, 26, 7, 57, 6, 0, time.UTC)
+	var slogOutput bytes.Buffer
+	executor := &ProductionExecutor{
+		now:    func() time.Time { return timestamp },
+		logger: slog.New(slog.NewJSONHandler(&slogOutput, nil)),
+		newUGC: func() (ugc.Getter, error) { return countedUGCGetter{requests: 26}, nil },
+		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
+			return schedule.Dataset{}, ugc.SyncSummary{}, fmt.Errorf("%s: %w", secret, &ugc.RequestError{Operation: ugc.OperationShowings, Category: ugc.CategoryHTTPStatus, StatusCode: 403, Attempt: 1, AttemptLimit: 4})
+		},
+	}
+	_, err := executor.Run(context.Background(), TargetUGC, Window{From: "2026-08-26"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Code != FailureProviderSync || runErr.Stage != StageProviderFetch {
+		t.Fatalf("error=%v", err)
+	}
+	lines := runErr.logs[TargetUGC]
+	if len(lines) != 4 {
+		t.Fatalf("lines=%q", lines)
+	}
+	wantTerminal := `ts=2026-08-26T07:57:06Z level=error provider=ugc event=provider_failed stage=provider_fetch operation=showings category=http_status http_status=403 attempt=1/4 requests=26 message="Le fournisseur a renvoyé un statut HTTP inattendu."`
+	if lines[3] != wantTerminal || !strings.Contains(lines[0], "event=provider_started") || !strings.Contains(lines[1], "event=client_ready") || !strings.Contains(lines[2], "event=fetch_started") {
+		t.Fatalf("lines=%q", lines)
+	}
+	combined := strings.Join(lines, "\n") + slogOutput.String()
+	for _, forbidden := range []string{secret, "proxy-password", "proxy.example", "token-secret", "session-secret", "provider-body-secret", "underlying-secret"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("output leaked %q: %s", forbidden, combined)
+		}
+	}
+	for _, want := range []string{`"fetch_category":"http_status"`, `"request_operation":"showings"`, `"http_status":403`, `"attempt":1`, `"attempt_limit":4`, `"requests":26`} {
+		if !strings.Contains(slogOutput.String(), want) {
+			t.Fatalf("slog missing %q: %s", want, slogOutput.String())
+		}
 	}
 }
 

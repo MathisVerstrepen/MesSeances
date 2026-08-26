@@ -72,14 +72,27 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	}
 	datasets := make([]schedule.Dataset, 0, len(providers))
 	syncOutcomes := make(map[Target]SyncOutcome, len(providers))
+	providerLogs := make(map[Target][]string, len(providers))
 	for _, provider := range providers {
-		data, syncOutcome, err := e.prepare(ctx, provider, window)
+		lines := []string{lifecycleLog(e.now().UTC(), provider, eventProviderStarted)}
+		data, syncOutcome, err := e.prepare(ctx, provider, window, &lines)
 		if err != nil {
+			var runErr *RunError
+			stage := StageOrchestration
+			if errors.As(err, &runErr) {
+				stage = runErr.Stage
+			}
+			lines = append(lines, failureLog(e.now().UTC(), provider, stage, failureDetails(provider, stage, err, syncOutcome)))
+			providerLogs[provider] = lines
 			e.observe(provider, ProviderOutcome{Sync: syncOutcome}, err, time.Since(started))
-			return nil, err
+			return nil, attachRunLogs(err, providerLogs)
 		}
 		datasets = append(datasets, data)
 		syncOutcomes[provider] = syncOutcome
+		providerLogs[provider] = lines
+	}
+	for _, provider := range providers {
+		providerLogs[provider] = append(providerLogs[provider], lifecycleLog(e.now().UTC(), provider, eventPublicationStarted))
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, e.operationTimeout)
 	publication, err := e.writer.Replace(writeCtx, datasets)
@@ -87,16 +100,22 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	if err != nil {
 		runErr := stageError(ctx, "", StagePublication, FailureReplacement, err)
 		for _, provider := range providers {
-			e.observe(provider, ProviderOutcome{}, runErr, time.Since(started))
+			failure := failureDetails(provider, StagePublication, runErr, syncOutcomes[provider])
+			providerLogs[provider] = append(providerLogs[provider], failureLog(e.now().UTC(), provider, StagePublication, failure))
+			e.observe(provider, ProviderOutcome{Sync: syncOutcomes[provider]}, runErr, time.Since(started))
 		}
-		return nil, runErr
+		return nil, attachRunLogs(runErr, providerLogs)
 	}
 	outcomes := make(map[Target]ProviderOutcome, len(providers))
 	for i, provider := range providers {
 		syncOutcome := syncOutcomes[provider]
 		metrics, ok := publication.Providers[schedule.Provider(provider)]
 		if !ok {
-			return nil, newProviderRunError(provider, StagePublication, FailureReplacement, nil)
+			runErr := newProviderRunError(provider, StagePublication, FailureReplacement, nil)
+			failure := fallbackFailure(StagePublication, FailureReplacement)
+			failure.Progress = outcomeProgress(syncOutcome)
+			providerLogs[provider] = append(providerLogs[provider], failureLog(e.now().UTC(), provider, StagePublication, failure))
+			return nil, attachRunLogs(runErr, providerLogs)
 		}
 		syncOutcome.Version = publication.Version
 		syncOutcome.Movies = metrics.Movies
@@ -110,7 +129,7 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	return outcomes, nil
 }
 
-func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, window Window) (schedule.Dataset, SyncOutcome, error) {
+func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, window Window, lines *[]string) (schedule.Dataset, SyncOutcome, error) {
 	var data schedule.Dataset
 	var outcome SyncOutcome
 	var err error
@@ -123,9 +142,14 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		if clientErr != nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary ugc.SyncSummary
 		data, summary, err = e.syncUGC(ctx, client, ugc.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: summary.Requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
+		requests := summary.Requests
+		if count := client.RequestCount(); count > requests {
+			requests = count
+		}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Dates: summary.Dates, Requests: requests, Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
 	case TargetKinepolis:
 		if e.newKinepolis == nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
@@ -134,6 +158,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		if clientErr != nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary kinepolis.SyncSummary
 		data, summary, err = e.syncKinepolis(ctx, client, kinepolis.SyncOptions{From: window.From, Now: e.now()})
 		requests := 0
@@ -149,6 +174,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		if clientErr != nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary pathe.SyncSummary
 		data, summary, err = e.syncPathe(ctx, client, pathe.SyncOptions{From: window.From, Now: e.now()})
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: summary.Requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
@@ -160,6 +186,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		if clientErr != nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
 		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary cgr.SyncSummary
 		data, summary, err = e.syncCGR(ctx, client, cgr.SyncOptions{From: window.From, Now: e.now()})
 		requests := summary.Requests
@@ -172,13 +199,16 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 	}
 	if err != nil {
 		if errors.Is(err, schedule.ErrDatasetValidation) {
+			*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventFetchSucceeded))
 			return data, outcome, stageError(ctx, provider, StageDatasetValidation, FailureDatasetRejected, err)
 		}
 		return data, outcome, stageError(ctx, provider, StageProviderFetch, FailureProviderSync, err)
 	}
+	*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventFetchSucceeded))
 	if data.Scope != schedule.ScopeAll || data.Provider != schedule.Provider(provider) || schedule.ValidateDataset(data, true) != nil {
 		return data, outcome, newProviderRunError(provider, StageDatasetValidation, FailureDatasetRejected, nil)
 	}
+	*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventValidationSucceeded))
 	outcome.Through = data.Window.Through
 	return data, outcome, nil
 }
@@ -240,124 +270,226 @@ func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, e
 }
 
 func providerFetchLogArgs(provider Target, err error) []any {
-	if provider == TargetCGR {
-		return cgrFetchLogArgs(err)
-	}
-	if provider != TargetPathe {
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Stage != StageProviderFetch {
 		return nil
 	}
-	var requestErr *pathe.RequestError
-	if !errors.As(err, &requestErr) {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return []any{"fetch_category", "canceled", "request_operation", "unknown"}
-		}
-		return nil
+	details := failureDetails(provider, runErr.Stage, err, SyncOutcome{})
+	args := []any{"fetch_category", string(details.Category), "request_operation", string(details.Operation)}
+	if details.HTTPStatus >= 100 && details.HTTPStatus <= 599 {
+		args = append(args, "http_status", details.HTTPStatus)
 	}
-	category := safePatheFetchCategory(requestErr.Category)
-	operation := safePatheRequestOperation(requestErr.Operation)
-	args := []any{"fetch_category", category, "request_operation", operation}
-	if requestErr.StatusCode >= 100 && requestErr.StatusCode <= 599 {
-		args = append(args, "http_status", requestErr.StatusCode)
+	if details.Attempt >= 1 && details.AttemptLimit >= details.Attempt && details.AttemptLimit <= 10 {
+		args = append(args, "attempt", details.Attempt, "attempt_limit", details.AttemptLimit)
 	}
 	return args
 }
 
-func cgrFetchLogArgs(err error) []any {
-	var requestErr *cgr.RequestError
-	if !errors.As(err, &requestErr) {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return []any{"fetch_category", "canceled", "request_operation", "unknown"}
-		}
-		return nil
-	}
-	category := "unknown"
-	switch requestErr.Category {
-	case cgr.CategoryCanceled:
-		category = "canceled"
-	case cgr.CategoryInvalidURL:
-		category = "invalid_url"
-	case cgr.CategoryNoClient:
-		category = "no_client"
-	case cgr.CategoryTransport:
-		category = "transport"
-	case cgr.CategoryRedirect:
-		category = "redirect"
-	case cgr.CategoryResponseRead:
-		category = "response_read"
-	case cgr.CategoryResponseLarge:
-		category = "response_too_large"
-	case cgr.CategoryServer, cgr.CategoryStatus:
-		category = "status"
-	case cgr.CategoryContentType:
-		category = "content_type"
-	case cgr.CategoryInvalidJSON:
-		category = "invalid_json"
-	case cgr.CategoryEmptyResponse:
-		category = "empty_response"
-	}
-	operation := "unknown"
-	switch requestErr.Operation {
-	case cgr.OperationCinemas:
-		operation = "cinemas"
-	case cgr.OperationProgram:
-		operation = "scheduled_movies"
-	case cgr.OperationSchedule:
-		operation = "schedule"
-	case cgr.OperationMovies:
-		operation = "movies"
-	}
-	args := []any{"fetch_category", category, "request_operation", operation}
-	if requestErr.StatusCode >= 100 && requestErr.StatusCode <= 599 {
-		args = append(args, "http_status", requestErr.StatusCode)
-	}
-	return args
-}
-
-func safePatheFetchCategory(category pathe.ErrorCategory) string {
+func safePatheFetchCategory(category pathe.ErrorCategory) logCategory {
 	switch category {
 	case pathe.CategoryCanceled:
-		return "canceled"
+		return categoryCanceled
 	case pathe.CategoryInvalidURL:
-		return "invalid_url"
+		return categoryInvalidURL
 	case pathe.CategoryNoProxy:
-		return "no_proxy"
+		return categoryTransportUnavailable
 	case pathe.CategoryTransport:
-		return "transport"
+		return categoryTransport
 	case pathe.CategoryRedirect:
-		return "redirect"
+		return categoryRedirect
 	case pathe.CategoryResponseRead:
-		return "response_read"
+		return categoryResponseRead
 	case pathe.CategoryResponseLarge:
-		return "response_too_large"
+		return categoryResponseTooLarge
 	case pathe.CategoryChallenge:
-		return "challenge"
+		return categoryChallenge
 	case pathe.CategoryServer, pathe.CategoryStatus:
-		return "status"
+		return categoryHTTPStatus
 	case pathe.CategoryContentType:
-		return "content_type"
+		return categoryContentType
 	case pathe.CategoryInvalidJSON:
-		return "invalid_json"
+		return categoryInvalidPayload
 	case pathe.CategoryEmptyResponse:
-		return "empty_response"
+		return categoryEmptyResponse
 	default:
-		return "unknown"
+		return categoryUnknown
 	}
 }
 
-func safePatheRequestOperation(operation pathe.Operation) string {
+func safePatheRequestOperation(operation pathe.Operation) logOperation {
 	switch operation {
 	case pathe.OperationCinemas:
-		return "cinemas"
+		return operationCinemas
 	case pathe.OperationShows:
-		return "shows"
+		return operationProgram
 	case pathe.OperationCinemaProgram:
-		return "cinema_program"
+		return operationProgram
 	case pathe.OperationMovieTimes:
-		return "movie_showtimes"
+		return operationShowings
 	case pathe.OperationEventTimes:
-		return "event_showtimes"
+		return operationShowings
 	default:
-		return "unknown"
+		return operationUnknown
+	}
+}
+
+func attachRunLogs(err error, logs map[Target][]string) error {
+	var runErr *RunError
+	if errors.As(err, &runErr) {
+		return runErr.withLogs(logs)
+	}
+	return err
+}
+
+func failureDetails(provider Target, stage FailureStage, err error, outcome SyncOutcome) logFailure {
+	details := fallbackFailure(stage, FailureInternal)
+	details.Progress = outcomeProgress(outcome)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		details.Category = categoryCanceled
+		return details
+	}
+	if stage != StageProviderFetch {
+		return details
+	}
+	details = logFailure{Operation: operationUnknown, Category: categoryUnknown, Progress: outcomeProgress(outcome)}
+	switch provider {
+	case TargetUGC:
+		var requestErr *ugc.RequestError
+		if errors.As(err, &requestErr) {
+			details.Operation = safeUGCOperation(requestErr.Operation)
+			details.Category = safeUGCCategory(requestErr.Category)
+			details.HTTPStatus = requestErr.StatusCode
+			details.Attempt = requestErr.Attempt
+			details.AttemptLimit = requestErr.AttemptLimit
+		}
+	case TargetPathe:
+		var requestErr *pathe.RequestError
+		if errors.As(err, &requestErr) {
+			details.Operation = safePatheRequestOperation(requestErr.Operation)
+			details.Category = safePatheFetchCategory(requestErr.Category)
+			details.HTTPStatus = requestErr.StatusCode
+		}
+	case TargetCGR:
+		var requestErr *cgr.RequestError
+		if errors.As(err, &requestErr) {
+			details.Operation = safeCGROperation(requestErr.Operation)
+			details.Category = safeCGRCategory(requestErr.Category)
+			details.HTTPStatus = requestErr.StatusCode
+		}
+	}
+	if details.HTTPStatus < 100 || details.HTTPStatus > 599 || details.Category != categoryHTTPStatus {
+		details.HTTPStatus = 0
+	}
+	if details.Attempt < 1 || details.AttemptLimit < details.Attempt || details.AttemptLimit > 10 {
+		details.Attempt, details.AttemptLimit = 0, 0
+	}
+	return details
+}
+
+func outcomeProgress(outcome SyncOutcome) logProgress {
+	progress := logProgress{}
+	if outcome.Requests > 0 {
+		progress.Requests = intPointer(outcome.Requests)
+	}
+	if outcome.Cinemas > 0 {
+		progress.Cinemas = intPointer(outcome.Cinemas)
+	}
+	if outcome.Movies > 0 {
+		progress.Movies = intPointer(outcome.Movies)
+	}
+	if outcome.Dates > 0 {
+		progress.Dates = intPointer(outcome.Dates)
+	}
+	if outcome.Showtimes > 0 {
+		progress.Showtimes = intPointer(outcome.Showtimes)
+	}
+	if outcome.Skipped > 0 {
+		progress.Skipped = intPointer(outcome.Skipped)
+	}
+	return progress
+}
+
+func safeUGCOperation(operation ugc.Operation) logOperation {
+	switch operation {
+	case ugc.OperationSitemap:
+		return operationSitemap
+	case ugc.OperationCinema:
+		return operationCinema
+	case ugc.OperationShowings:
+		return operationShowings
+	default:
+		return operationUnknown
+	}
+}
+
+func safeUGCCategory(category ugc.ErrorCategory) logCategory {
+	switch category {
+	case ugc.CategoryCanceled:
+		return categoryCanceled
+	case ugc.CategoryInvalidURL:
+		return categoryInvalidURL
+	case ugc.CategoryTransportUnavailable:
+		return categoryTransportUnavailable
+	case ugc.CategoryTransport:
+		return categoryTransport
+	case ugc.CategoryRedirect:
+		return categoryRedirect
+	case ugc.CategoryResponseRead:
+		return categoryResponseRead
+	case ugc.CategoryResponseLarge:
+		return categoryResponseTooLarge
+	case ugc.CategoryChallenge:
+		return categoryChallenge
+	case ugc.CategoryHTTPStatus:
+		return categoryHTTPStatus
+	case ugc.CategoryInvalidPayload:
+		return categoryInvalidPayload
+	default:
+		return categoryUnknown
+	}
+}
+
+func safeCGROperation(operation cgr.Operation) logOperation {
+	switch operation {
+	case cgr.OperationCinemas:
+		return operationCinemas
+	case cgr.OperationProgram:
+		return operationProgram
+	case cgr.OperationSchedule:
+		return operationShowings
+	case cgr.OperationMovies:
+		return operationMovies
+	default:
+		return operationUnknown
+	}
+}
+
+func safeCGRCategory(category cgr.ErrorCategory) logCategory {
+	switch category {
+	case cgr.CategoryCanceled:
+		return categoryCanceled
+	case cgr.CategoryInvalidURL:
+		return categoryInvalidURL
+	case cgr.CategoryNoClient:
+		return categoryTransportUnavailable
+	case cgr.CategoryTransport:
+		return categoryTransport
+	case cgr.CategoryRedirect:
+		return categoryRedirect
+	case cgr.CategoryResponseRead:
+		return categoryResponseRead
+	case cgr.CategoryResponseLarge:
+		return categoryResponseTooLarge
+	case cgr.CategoryServer, cgr.CategoryStatus:
+		return categoryHTTPStatus
+	case cgr.CategoryContentType:
+		return categoryContentType
+	case cgr.CategoryInvalidJSON:
+		return categoryInvalidPayload
+	case cgr.CategoryEmptyResponse:
+		return categoryEmptyResponse
+	default:
+		return categoryUnknown
 	}
 }
 

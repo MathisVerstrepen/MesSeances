@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowLeft, CalendarClock, Check, ChevronDown, Clock3, LoaderCircle, LogOut, RefreshCw, X } from '@lucide/vue'
 import type { AdminSyncEnrichmentState, AdminSyncFailureCode, AdminSyncJob, AdminSyncProviderState, AdminSyncResponse, AdminSyncState, AdminSyncTarget, AdminSyncTrigger, Provider } from '~/types/api'
+import { hasAdminSyncLog, joinAdminSyncLog } from '~/utils/adminSyncLog'
 
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -343,6 +344,14 @@ useHead({ title: 'Synchronisation - MesSeances' })
                 <p v-if="run.providers[provider].error_code" class="mt-2 text-sm font-medium text-red-700">
                   {{ failureLabels[run.providers[provider].error_code] }}
                 </p>
+
+                <div v-if="run.providers[provider].state === 'failed'" class="mt-3 min-w-0 max-w-full">
+                  <template v-if="hasAdminSyncLog(run.providers[provider].log)">
+                    <h4 class="text-sm font-semibold text-ink">Journal opérationnel</h4>
+                    <pre class="mt-2 max-w-full whitespace-pre-wrap break-words font-mono text-xs leading-5 text-ink [overflow-wrap:anywhere]"><code>{{ joinAdminSyncLog(run.providers[provider].log) }}</code></pre>
+                  </template>
+                  <p v-else class="text-sm text-muted">Aucun journal détaillé enregistré pour cette exécution.</p>
+                </div>
 
                 <template v-if="run.providers[provider].outcome">
                   <dl class="mt-3 grid grid-cols-2 gap-x-5 gap-y-3 text-sm sm:grid-cols-4">

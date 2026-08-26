@@ -16,7 +16,7 @@ const SitemapURL = "https://www.ugc.fr/dynamique/sitemaps/frontend/sitemap.xml"
 const ugcWorkerCount = 10
 
 type Getter interface {
-	Get(context.Context, string, string) (FetchResult, error)
+	Get(context.Context, Operation, string) (FetchResult, error)
 	RequestCount() int
 }
 type SyncOptions struct {
@@ -150,16 +150,16 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 	if err != nil || from.Format("2006-01-02") != options.From {
 		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("invalid from date")
 	}
-	sitemap, err := client.Get(ctx, "sitemap", SitemapURL)
+	sitemap, err := client.Get(ctx, OperationSitemap, SitemapURL)
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, err
 	}
 	if !matchesFinalURL(sitemap.FinalURL, SitemapURL) {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("sitemap response has unexpected final URL")
+		return schedule.Dataset{}, SyncSummary{}, requestError(OperationSitemap, CategoryRedirect, 0, 0, nil)
 	}
 	ids, err := ParseSitemap(bytes.NewReader(sitemap.Body))
 	if err != nil {
-		return schedule.Dataset{}, SyncSummary{}, err
+		return schedule.Dataset{}, SyncSummary{}, requestError(OperationSitemap, CategoryInvalidPayload, 0, 0, err)
 	}
 	selected := ids
 	scope := schedule.ScopeAll
@@ -187,13 +187,13 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 	}
 	cinemaResults, err := runIndexedPhase(ctx, cinemaJobs, func(phaseCtx context.Context, job cinemaFetchJob) (cinemaFetchResult, error) {
 		cinemaURL := "https://www.ugc.fr/cinema.html?id=" + url.QueryEscape(job.requestedID)
-		page, requestErr := client.Get(phaseCtx, "cinema "+job.requestedID, cinemaURL)
+		page, requestErr := client.Get(phaseCtx, OperationCinema, cinemaURL)
 		if requestErr != nil {
 			return cinemaFetchResult{}, requestErr
 		}
 		canonicalID, inactive, finalURLErr := classifyCinemaFinalURL(page.FinalURL)
 		if finalURLErr != nil {
-			return cinemaFetchResult{}, fmt.Errorf("cinema %s response has unexpected final URL", job.requestedID)
+			return cinemaFetchResult{}, requestError(OperationCinema, CategoryRedirect, 0, 0, finalURLErr)
 		}
 		return cinemaFetchResult{requestedID: job.requestedID, canonicalID: canonicalID, inactive: inactive, body: page.Body}, nil
 	})
@@ -216,7 +216,7 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		seenCanonical[result.canonicalID] = true
 		cinema, parseErr := ParseCinema(bytes.NewReader(result.body), result.canonicalID)
 		if parseErr != nil {
-			return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse cinema %s: %w", result.requestedID, parseErr)
+			return schedule.Dataset{}, SyncSummary{}, requestError(OperationCinema, CategoryInvalidPayload, 0, 0, parseErr)
 		}
 		included := []string{}
 		for _, value := range cinema.AdvertisedDates {
@@ -241,16 +241,16 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 		}
 	}
 	showingsResults, err := runIndexedPhase(ctx, showingsJobs, func(phaseCtx context.Context, job showingsFetchJob) ([]schedule.ShowtimeRecord, error) {
-		showingPage, requestErr := client.Get(phaseCtx, "showings cinema "+job.cinema.ProviderID+" date "+job.serviceDate, job.rawURL)
+		showingPage, requestErr := client.Get(phaseCtx, OperationShowings, job.rawURL)
 		if requestErr != nil {
 			return nil, requestErr
 		}
 		if !matchesFinalURL(showingPage.FinalURL, job.rawURL) {
-			return nil, fmt.Errorf("showings cinema %s date %s response has unexpected final URL", job.requestedID, job.serviceDate)
+			return nil, requestError(OperationShowings, CategoryRedirect, 0, 0, nil)
 		}
 		records, parseErr := ParseShowings(bytes.NewReader(showingPage.Body), job.cinema, job.serviceDate)
 		if parseErr != nil {
-			return nil, fmt.Errorf("parse showings cinema %s date %s: %w", job.requestedID, job.serviceDate, parseErr)
+			return nil, requestError(OperationShowings, CategoryInvalidPayload, 0, 0, parseErr)
 		}
 		return records, nil
 	})

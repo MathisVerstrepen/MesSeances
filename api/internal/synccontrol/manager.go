@@ -56,6 +56,7 @@ type ProviderStatus struct {
 	State     ProviderState    `json:"state"`
 	Outcome   *ProviderOutcome `json:"outcome,omitempty"`
 	ErrorCode FailureCode      `json:"error_code,omitempty"`
+	Log       []string         `json:"log,omitempty"`
 }
 
 type Occurrence struct {
@@ -323,7 +324,7 @@ func (m *Manager) run(target Target, window Window, lease RunLease, completion c
 func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	defer func() {
 		if recover() != nil {
-			terminal = m.markFailure(FailureInternal)
+			terminal = m.markFailure(FailureInternal, StageOrchestration)
 		}
 	}()
 	providers := []Target{target}
@@ -335,18 +336,21 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	}
 	outcomes, err := m.executor.Run(m.ctx, target, window)
 	if err != nil {
-		code, failedProvider := FailureInternal, Target("")
+		code, stage, failedProvider := FailureInternal, StageOrchestration, Target("")
+		var logs map[Target][]string
 		var runError *RunError
 		if errors.As(err, &runError) {
-			code, failedProvider = runError.Code, runError.Provider
+			code, stage, failedProvider, logs = runError.Code, runError.Stage, runError.Provider, runError.logs
+		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || m.ctx.Err() != nil {
+			code = FailureCanceled
 		}
-		return m.markOperationFailure(code, failedProvider)
+		return m.markOperationFailure(code, stage, failedProvider, logs)
 	}
 	latestThrough := window.From
 	for _, provider := range providers {
 		outcome, ok := outcomes[provider]
 		if !ok || !validDiscoveredThrough(window.From, outcome.Sync.Through) {
-			return m.markOperationFailure(FailureInternal, "")
+			return m.markOperationFailure(FailureInternal, StageOrchestration, "", nil)
 		}
 		if outcome.Sync.Through > latestThrough {
 			latestThrough = outcome.Sync.Through
@@ -366,21 +370,28 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	return terminal
 }
 
-func (m *Manager) markOperationFailure(code FailureCode, failedProvider Target) Status {
+func (m *Manager) markOperationFailure(code FailureCode, stage FailureStage, failedProvider Target, logs map[Target][]string) Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	finished := m.now().UTC()
 	for provider, status := range m.status.Providers {
 		if status.State != ProviderRunning && status.State != ProviderPending {
 			continue
 		}
 		if failedProvider == "" || provider == string(failedProvider) || code == FailureReplacement {
-			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
+			target := Target(provider)
+			lines := append([]string(nil), logs[target]...)
+			if len(lines) == 0 {
+				lines = []string{failureLog(finished, target, stage, fallbackFailure(stage, code))}
+			}
+			finishedAt := finished
+			lines = normalizeProviderLog(target, lines, m.status.StartedAt, &finishedAt)
+			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code, Log: lines}
 		} else {
 			m.status.Providers[provider] = ProviderStatus{State: ProviderSkipped}
 		}
 	}
 	m.status.State = StateFailed
-	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
 	return cloneStatus(m.status)
 }
@@ -403,19 +414,21 @@ func validDiscoveredThrough(from, through string) bool {
 	return fromErr == nil && throughErr == nil && throughDate.Format("2006-01-02") == through && schedule.ValidInclusiveDateWindow(fromDate, throughDate)
 }
 
-func (m *Manager) markFailure(code FailureCode) Status {
+func (m *Manager) markFailure(code FailureCode, stage FailureStage) Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	finished := m.now().UTC()
 	for provider, status := range m.status.Providers {
 		switch status.State {
 		case ProviderRunning:
-			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code}
+			target := Target(provider)
+			line := failureLog(finished, target, stage, fallbackFailure(stage, code))
+			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code, Log: []string{line}}
 		case ProviderPending:
 			m.status.Providers[provider] = ProviderStatus{State: ProviderSkipped}
 		}
 	}
 	m.status.State = StateFailed
-	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
 	return cloneStatus(m.status)
 }
@@ -460,7 +473,7 @@ func (m *Manager) clearBusy() {
 }
 
 func cloneStatus(status Status) Status {
-	copy := status
+	copy := sanitizeStatusLogs(status)
 	if status.FinishedAt != nil {
 		finished := *status.FinishedAt
 		copy.FinishedAt = &finished
@@ -469,10 +482,10 @@ func cloneStatus(status Status) Status {
 		occurrence := *status.Occurrence
 		copy.Occurrence = &occurrence
 	}
-	if status.Providers != nil {
-		copy.Providers = make(map[string]ProviderStatus, 4)
-		for provider, state := range status.Providers {
+	if copy.Providers != nil {
+		for provider, state := range copy.Providers {
 			state.Outcome = cloneOutcome(state.Outcome)
+			state.Log = append([]string(nil), state.Log...)
 			copy.Providers[provider] = state
 		}
 		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR} {
@@ -482,6 +495,23 @@ func cloneStatus(status Status) Status {
 		}
 	}
 	return copy
+}
+
+func fallbackFailure(stage FailureStage, code FailureCode) logFailure {
+	switch {
+	case code == FailureCanceled:
+		return logFailure{Operation: operationUnknown, Category: categoryCanceled}
+	case stage == StageClientCreation:
+		return logFailure{Operation: operationClient, Category: categoryInternal}
+	case stage == StageDatasetValidation:
+		return logFailure{Operation: operationDatasetValidation, Category: categoryValidation}
+	case stage == StagePublication:
+		return logFailure{Operation: operationPublication, Category: categoryPublication}
+	case stage == StageProviderFetch:
+		return logFailure{Operation: operationUnknown, Category: categoryUnknown}
+	default:
+		return logFailure{Operation: operationOrchestration, Category: categoryInternal}
+	}
 }
 
 func cloneStatuses(statuses []Status) []Status {

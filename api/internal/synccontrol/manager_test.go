@@ -299,6 +299,11 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 			if status.Providers["ugc"].State != test.wantUGC || status.Providers["kinepolis"].State != test.wantKin || status.Providers["pathe"].State != test.wantPathe || status.Providers["cgr"].State != test.wantCGR || len(status.Providers) != 4 || status.FinishedAt == nil {
 				t.Fatalf("status=%+v", status)
 			}
+			for provider, providerStatus := range status.Providers {
+				if providerStatus.State == ProviderFailed && (len(providerStatus.Log) == 0 || strings.Contains(strings.Join(providerStatus.Log, "\n"), "secret")) {
+					t.Fatalf("provider=%s unsafe failure log=%q", provider, providerStatus.Log)
+				}
+			}
 		})
 	}
 
@@ -315,7 +320,7 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 	_, _ = manager.Start(TargetUGC)
 	<-entered
 	cancel()
-	if status := waitForTerminal(t, manager); status.State != StateFailed || status.Providers["ugc"].State != ProviderFailed {
+	if status := waitForTerminal(t, manager); status.State != StateFailed || status.Providers["ugc"].State != ProviderFailed || len(status.Providers["ugc"].Log) == 0 || !strings.Contains(status.Providers["ugc"].Log[len(status.Providers["ugc"].Log)-1], "category=canceled") {
 		t.Fatalf("canceled=%+v", status)
 	}
 	if _, err := manager.Start(Target("bad")); !errors.Is(err, ErrInvalidTarget) {
@@ -446,8 +451,32 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	}
 	_, _ = manager.Start(TargetKinepolis)
 	provider = waitForTerminal(t, manager).Providers[string(TargetKinepolis)]
-	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil {
+	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil || len(provider.Log) != 1 || !strings.Contains(provider.Log[0], "event=provider_failed") || strings.Contains(provider.Log[0], "secret") {
 		t.Fatalf("provider=%+v", provider)
+	}
+}
+
+func TestManagerSanitizesExecutorFailureLogs(t *testing.T) {
+	timestamp := time.Date(2026, 8, 26, 7, 57, 6, 0, time.UTC)
+	valid := failureLog(timestamp, TargetUGC, StageProviderFetch, logFailure{Operation: operationShowings, Category: categoryHTTPStatus, HTTPStatus: 403, Attempt: 1, AttemptLimit: 4})
+	const secret = "https://user:proxy-password@proxy.example/?token=secret body=provider-secret"
+	manager, err := newTestManager(context.Background(), func() time.Time { return timestamp }, executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
+		return nil, newProviderRunError(TargetUGC, StageProviderFetch, FailureProviderSync, errors.New(secret)).withLogs(map[Target][]string{TargetUGC: {valid, secret}})
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Start(TargetUGC); err != nil {
+		t.Fatal(err)
+	}
+	provider := waitForTerminal(t, manager).Providers[string(TargetUGC)]
+	joined := strings.Join(provider.Log, "\n")
+	if provider.State != ProviderFailed || len(provider.Log) != 2 || provider.Log[0] != valid || !strings.Contains(provider.Log[1], "event=log_truncated") || strings.Contains(joined, "proxy-password") || strings.Contains(joined, "provider-secret") {
+		t.Fatalf("provider=%+v", provider)
+	}
+	provider.Log[0] = "mutated"
+	if manager.Status().Providers[string(TargetUGC)].Log[0] != valid {
+		t.Fatal("returned provider log aliases manager state")
 	}
 }
 
@@ -487,7 +516,7 @@ func TestManagerMarksEveryProviderFailedOnSharedPublicationFailure(t *testing.T)
 	status := waitForTerminal(t, manager)
 	for _, provider := range []string{string(TargetUGC), string(TargetKinepolis), string(TargetPathe), string(TargetCGR)} {
 		got := status.Providers[provider]
-		if got.State != ProviderFailed || got.ErrorCode != FailureReplacement || got.Outcome != nil {
+		if got.State != ProviderFailed || got.ErrorCode != FailureReplacement || got.Outcome != nil || len(got.Log) != 1 || !strings.Contains(got.Log[0], "stage=publication") || !strings.Contains(got.Log[0], "category=publication") || strings.Contains(got.Log[0], "secret") {
 			t.Fatalf("provider=%s status=%+v", provider, got)
 		}
 	}

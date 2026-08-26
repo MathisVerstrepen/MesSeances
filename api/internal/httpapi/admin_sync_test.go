@@ -70,13 +70,13 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 
 func TestAdminStartSyncContract(t *testing.T) {
 	started := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}, "pathe": {State: synccontrol.ProviderPending}, "cgr": {State: synccontrol.ProviderPending}}}}
+	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending, Log: []string{"sensitive-start-log"}}, "kinepolis": {State: synccontrol.ProviderPending}, "pathe": {State: synccontrol.ProviderPending}, "cgr": {State: synccontrol.ProviderPending}}}}
 	handler := syncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/all", "", "https://evil.example", cookie)
 	assertAPIError(t, wrongOrigin, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
 	accepted := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/all", "", "http://localhost:3000", cookie)
-	if accepted.Code != http.StatusAccepted || accepted.Header().Get("Cache-Control") != "no-store" || !strings.Contains(accepted.Body.String(), `"target":"all"`) || strings.Contains(accepted.Body.String(), "proxy") {
+	if accepted.Code != http.StatusAccepted || accepted.Header().Get("Cache-Control") != "no-store" || !strings.Contains(accepted.Body.String(), `"target":"all"`) || strings.Contains(accepted.Body.String(), "proxy") || strings.Contains(accepted.Body.String(), "sensitive-start-log") {
 		t.Fatalf("accepted status=%d body=%s", accepted.Code, accepted.Body.String())
 	}
 	if len(controller.started) != 1 || controller.started[0] != synccontrol.TargetAll {
@@ -119,6 +119,7 @@ func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 	secret := "synthetic-secret"
 	finished := time.Date(2026, 8, 17, 13, 0, 0, 0, time.UTC)
 	scheduledFor := time.Date(2026, 8, 17, 11, 30, 0, 0, time.UTC)
+	canonicalLog := `ts=2026-08-17T13:00:00Z level=error provider=ugc event=provider_failed stage=provider_fetch operation=showings category=http_status http_status=403 attempt=1/4 requests=26 message="Le fournisseur a renvoyé un statut HTTP inattendu."`
 	job := synccontrol.Status{
 		ID: "4", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual,
 		StartedAt: finished.Add(-time.Minute), From: "2026-08-17", Through: "2026-08-24",
@@ -128,12 +129,12 @@ func TestAdminSyncStatusExposesTypedTerminalContractWithoutCause(t *testing.T) {
 			"pathe":     {State: synccontrol.ProviderNotRequested},
 		},
 	}
-	controller := &fakeSyncController{snapshot: synccontrol.Snapshot{Job: &job, Runs: []synccontrol.Status{{ID: "3", Target: synccontrol.TargetUGC, State: synccontrol.StateFailed, Trigger: synccontrol.TriggerScheduled, Occurrence: &synccontrol.Occurrence{Provider: synccontrol.TargetUGC, Revision: 7, ScheduledFor: scheduledFor, Attempt: 1}, StartedAt: finished.Add(-2 * time.Hour), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync}}}}}}
+	controller := &fakeSyncController{snapshot: synccontrol.Snapshot{Job: &job, Runs: []synccontrol.Status{{ID: "3", Target: synccontrol.TargetUGC, State: synccontrol.StateFailed, Trigger: synccontrol.TriggerScheduled, Occurrence: &synccontrol.Occurrence{Provider: synccontrol.TargetUGC, Revision: 7, ScheduledFor: scheduledFor, Attempt: 1}, StartedAt: finished.Add(-2 * time.Hour), FinishedAt: &finished, From: "2026-08-17", Through: "2026-08-24", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderFailed, ErrorCode: synccontrol.FailureProviderSync, Log: []string{canonicalLog, secret}}}}}}}
 	handler := syncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs?cause="+secret, "", "", cookie)
 	body := response.Body.String()
-	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"window_through":"2026-12-24"`) || !strings.Contains(body, `"pathe":{"state":"not_requested"}`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"trigger":"manual"`) || !strings.Contains(body, `"trigger":"scheduled"`) || !strings.Contains(body, `"occurrence":{"schedule_revision":7,"scheduled_for":"2026-08-17T11:30:00Z","attempt":1}`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || strings.Contains(body, `"provider"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
+	if response.Code != http.StatusOK || !strings.Contains(body, `"version":9`) || !strings.Contains(body, `"movies":8`) || !strings.Contains(body, `"new_movies":2`) || !strings.Contains(body, `"requests":20`) || !strings.Contains(body, `"new_showtimes":4`) || !strings.Contains(body, `"window_through":"2026-12-24"`) || !strings.Contains(body, `"pathe":{"state":"not_requested"}`) || !strings.Contains(body, `"runs":[{"id":"3"`) || !strings.Contains(body, `"trigger":"manual"`) || !strings.Contains(body, `"trigger":"scheduled"`) || !strings.Contains(body, `"occurrence":{"schedule_revision":7,"scheduled_for":"2026-08-17T11:30:00Z","attempt":1}`) || !strings.Contains(body, `"status":"complete"`) || !strings.Contains(body, `"error_code":"provider_sync_failed"`) || !strings.Contains(body, `"log":["ts=2026-08-17T13:00:00Z level=error provider=ugc`) || !strings.Contains(body, `event=log_truncated`) || strings.Contains(body, `"provider"`) || strings.Contains(body, secret) || strings.Contains(body, "cause") {
 		t.Fatalf("status=%d body=%s", response.Code, body)
 	}
 }

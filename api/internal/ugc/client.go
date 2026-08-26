@@ -21,16 +21,65 @@ const maxRequestsPerProxy = 2
 var (
 	errRedirectHost  = errors.New("redirect host rejected")
 	errRedirectLimit = errors.New("redirect limit exceeded")
+	errResponseLarge = errors.New("response too large")
 )
+
+type Operation string
+
+const (
+	OperationUnknown  Operation = "unknown"
+	OperationSitemap  Operation = "sitemap"
+	OperationCinema   Operation = "cinema"
+	OperationShowings Operation = "showings"
+)
+
+type ErrorCategory string
+
+const (
+	CategoryCanceled             ErrorCategory = "canceled"
+	CategoryInvalidURL           ErrorCategory = "invalid URL"
+	CategoryTransportUnavailable ErrorCategory = "transport unavailable"
+	CategoryTransport            ErrorCategory = "transport"
+	CategoryRedirect             ErrorCategory = "redirect"
+	CategoryResponseRead         ErrorCategory = "response unreadable"
+	CategoryResponseLarge        ErrorCategory = "response too large"
+	CategoryChallenge            ErrorCategory = "challenge"
+	CategoryHTTPStatus           ErrorCategory = "HTTP status"
+	CategoryInvalidPayload       ErrorCategory = "invalid payload"
+)
+
+type RequestError struct {
+	Operation    Operation
+	Category     ErrorCategory
+	StatusCode   int
+	Attempt      int
+	AttemptLimit int
+	cause        error
+}
+
+func (e *RequestError) Error() string { return "UGC request failed" }
+func (e *RequestError) Unwrap() error { return e.cause }
+
+func requestError(operation Operation, category ErrorCategory, status, attempt int, cause error) *RequestError {
+	if operation != OperationSitemap && operation != OperationCinema && operation != OperationShowings {
+		operation = OperationUnknown
+	}
+	if category != CategoryHTTPStatus || status < 100 || status > 599 {
+		status = 0
+	}
+	limit := 0
+	if attempt > 0 && attempt <= maxRequestAttempts {
+		limit = maxRequestAttempts
+	} else {
+		attempt = 0
+	}
+	return &RequestError{Operation: operation, Category: category, StatusCode: status, Attempt: attempt, AttemptLimit: limit, cause: cause}
+}
 
 type ClientConfig struct {
 	Proxies []Proxy
 	Timeout time.Duration
 }
-type TerminalError struct{ category string }
-
-func (e *TerminalError) Error() string { return "UGC request stopped: " + e.category }
-
 type FetchResult struct {
 	Body     []byte
 	FinalURL string
@@ -70,35 +119,36 @@ func NewClient(config ClientConfig) (*Client, error) {
 
 func (c *Client) RequestCount() int { c.mu.Lock(); defer c.mu.Unlock(); return c.requestCount }
 
-func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, error) {
+func (c *Client) Get(ctx context.Context, operation Operation, rawURL string) (FetchResult, error) {
+	if operation != OperationSitemap && operation != OperationCinema && operation != OperationShowings {
+		return FetchResult{}, requestError(OperationUnknown, CategoryInvalidURL, 0, 0, nil)
+	}
 	parsed, err := url.Parse(rawURL)
 	if err != nil || !isAllowedUGCURL(parsed) {
-		return FetchResult{}, fmt.Errorf("%s request rejected: invalid public URL", kind)
+		return FetchResult{}, requestError(operation, CategoryInvalidURL, 0, 0, err)
 	}
 	attempted := make([]bool, len(c.clients))
 	start := -1
-	lastOrdinal := -1
 	for attempt := 0; attempt < maxRequestAttempts; attempt++ {
 		ordinal, acquireErr := c.acquire(ctx, start, attempted)
 		if acquireErr != nil {
 			if ctx.Err() != nil {
-				return FetchResult{}, fmt.Errorf("%s request canceled", kind)
+				return FetchResult{}, requestError(operation, CategoryCanceled, 0, attempt, ctx.Err())
 			}
-			if lastOrdinal >= 0 {
-				return FetchResult{}, fmt.Errorf("%s request failed after proxy %d", kind, lastOrdinal+1)
+			if attempt > 0 {
+				return FetchResult{}, requestError(operation, CategoryTransport, 0, attempt, acquireErr)
 			}
-			return FetchResult{}, fmt.Errorf("%s request failed: no proxy available", kind)
+			return FetchResult{}, requestError(operation, CategoryTransportUnavailable, 0, 0, acquireErr)
 		}
 		attempted[ordinal] = true
-		lastOrdinal = ordinal
 		start = (ordinal + 1) % len(c.clients)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 		if err != nil {
 			c.release(ordinal, false)
-			return FetchResult{}, fmt.Errorf("%s request rejected", kind)
+			return FetchResult{}, requestError(operation, CategoryInvalidURL, 0, attempt+1, err)
 		}
 		req.Header.Set("User-Agent", "MesSeances-schedule-sync/1.0")
-		if kind == "sitemap" {
+		if operation == OperationSitemap {
 			req.Header.Set("Accept", "application/xml,text/xml;q=0.9")
 		} else {
 			req.Header.Set("Accept", "text/html,application/xhtml+xml;q=0.9")
@@ -110,35 +160,45 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 		if requestErr != nil {
 			if ctx.Err() != nil {
 				c.release(ordinal, false)
-				return FetchResult{}, fmt.Errorf("%s request canceled", kind)
+				return FetchResult{}, requestError(operation, CategoryCanceled, 0, attempt+1, ctx.Err())
 			}
 			if errors.Is(requestErr, errRedirectHost) || errors.Is(requestErr, errRedirectLimit) {
 				c.release(ordinal, false)
-				return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: redirect rejected", kind, ordinal+1)
+				return FetchResult{}, requestError(operation, CategoryRedirect, 0, attempt+1, requestErr)
 			}
 			c.release(ordinal, true)
 			if retryErr := c.waitToRetry(ctx, attempted, attempt); retryErr == nil {
 				continue
 			}
 			if ctx.Err() != nil {
-				return FetchResult{}, fmt.Errorf("%s request canceled", kind)
+				return FetchResult{}, requestError(operation, CategoryCanceled, 0, attempt+1, ctx.Err())
 			}
-			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: transport", kind, ordinal+1)
+			return FetchResult{}, requestError(operation, CategoryTransport, 0, attempt+1, requestErr)
 		}
 		if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
-			response.Body.Close()
+			if response.Body != nil {
+				response.Body.Close()
+			}
 			c.release(ordinal, false)
-			return FetchResult{}, &TerminalError{category: fmt.Sprintf("HTTP %d for %s via proxy %d", response.StatusCode, kind, ordinal+1)}
+			return FetchResult{}, requestError(operation, CategoryHTTPStatus, response.StatusCode, attempt+1, nil)
+		}
+		if response.Body == nil {
+			c.release(ordinal, false)
+			return FetchResult{}, requestError(operation, CategoryResponseRead, 0, attempt+1, nil)
 		}
 		body, readErr := readBounded(response.Body, response.ContentLength)
 		response.Body.Close()
 		if readErr != nil {
 			c.release(ordinal, false)
-			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: response too large or unreadable", kind, ordinal+1)
+			category := CategoryResponseRead
+			if errors.Is(readErr, errResponseLarge) {
+				category = CategoryResponseLarge
+			}
+			return FetchResult{}, requestError(operation, category, 0, attempt+1, readErr)
 		}
 		if isChallenge(body) {
 			c.release(ordinal, false)
-			return FetchResult{}, &TerminalError{category: fmt.Sprintf("challenge response for %s via proxy %d", kind, ordinal+1)}
+			return FetchResult{}, requestError(operation, CategoryChallenge, 0, attempt+1, nil)
 		}
 		if response.StatusCode >= 500 {
 			c.release(ordinal, true)
@@ -146,23 +206,23 @@ func (c *Client) Get(ctx context.Context, kind, rawURL string) (FetchResult, err
 				continue
 			}
 			if ctx.Err() != nil {
-				return FetchResult{}, fmt.Errorf("%s request canceled", kind)
+				return FetchResult{}, requestError(operation, CategoryCanceled, 0, attempt+1, ctx.Err())
 			}
-			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: server error", kind, ordinal+1)
+			return FetchResult{}, requestError(operation, CategoryHTTPStatus, response.StatusCode, attempt+1, nil)
 		}
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
 			c.release(ordinal, false)
-			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: HTTP %d", kind, ordinal+1, response.StatusCode)
+			return FetchResult{}, requestError(operation, CategoryHTTPStatus, response.StatusCode, attempt+1, nil)
 		}
 		finalURL, finalURLErr := sanitizedFinalURL(response.Request)
 		if finalURLErr != nil {
 			c.release(ordinal, false)
-			return FetchResult{}, fmt.Errorf("%s request failed on proxy %d: invalid final response URL", kind, ordinal+1)
+			return FetchResult{}, requestError(operation, CategoryRedirect, 0, attempt+1, finalURLErr)
 		}
 		c.release(ordinal, false)
 		return FetchResult{Body: body, FinalURL: finalURL}, nil
 	}
-	return FetchResult{}, fmt.Errorf("%s request failed", kind)
+	return FetchResult{}, requestError(operation, CategoryTransport, 0, maxRequestAttempts, nil)
 }
 
 func sanitizedFinalURL(request *http.Request) (string, error) {
@@ -299,7 +359,7 @@ func readBounded(r io.Reader, contentLength int64) ([]byte, error) {
 	body := make([]byte, 0, capacity)
 	for {
 		if len(body) > maxResponseBytes {
-			return nil, fmt.Errorf("too large")
+			return nil, errResponseLarge
 		}
 		if len(body) == cap(body) {
 			nextCapacity := max(512, cap(body)*2)
@@ -314,7 +374,7 @@ func readBounded(r io.Reader, contentLength int64) ([]byte, error) {
 		body = body[:len(body)+n]
 		if err == io.EOF {
 			if len(body) > maxResponseBytes {
-				return nil, fmt.Errorf("too large")
+				return nil, errResponseLarge
 			}
 			return body, nil
 		}

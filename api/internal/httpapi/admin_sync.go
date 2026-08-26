@@ -24,7 +24,7 @@ func (a *adminAPI) syncStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, "sync_failed", "L'état des synchronisations n'a pas pu être chargé.")
 		return
 	}
-	writeJSON(w, http.StatusOK, syncResponse{Job: snapshot.Job, Runs: nonNilSyncRuns(snapshot.Runs)})
+	writeJSON(w, http.StatusOK, sanitizedSyncResponse(snapshot.Job, snapshot.Runs))
 }
 
 func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
@@ -55,8 +55,21 @@ func (a *adminAPI) startSync(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeError(w, http.StatusBadGateway, "sync_failed", "La synchronisation n'a pas pu démarrer.")
 	default:
-		writeJSON(w, http.StatusAccepted, syncResponse{Job: &status, Runs: nonNilSyncRuns(snapshot.Runs)})
+		writeJSON(w, http.StatusAccepted, sanitizedSyncResponse(&status, snapshot.Runs))
 	}
+}
+
+func sanitizedSyncResponse(job *synccontrol.Status, runs []synccontrol.Status) syncResponse {
+	var safeJob *synccontrol.Status
+	if job != nil {
+		status := synccontrol.SanitizeStatus(*job)
+		safeJob = &status
+	}
+	safeRuns := make([]synccontrol.Status, len(runs))
+	for i := range runs {
+		safeRuns[i] = synccontrol.SanitizeStatus(runs[i])
+	}
+	return syncResponse{Job: safeJob, Runs: nonNilSyncRuns(safeRuns)}
 }
 
 func nonNilSyncRuns(runs []synccontrol.Status) []synccontrol.Status {

@@ -72,6 +72,7 @@ type RunError struct {
 	Provider Target
 	Stage    FailureStage
 	cause    error
+	logs     map[Target][]string
 }
 
 func NewRunError(code FailureCode, cause error) *RunError {
@@ -84,3 +85,11 @@ func newProviderRunError(provider Target, stage FailureStage, code FailureCode, 
 
 func (e *RunError) Error() string { return fmt.Sprintf("sync run failed: %s", e.Code) }
 func (e *RunError) Unwrap() error { return e.cause }
+
+func (e *RunError) withLogs(logs map[Target][]string) *RunError {
+	e.logs = make(map[Target][]string, len(logs))
+	for provider, lines := range logs {
+		e.logs[provider] = append([]string(nil), lines...)
+	}
+	return e
+}

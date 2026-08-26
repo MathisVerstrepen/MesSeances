@@ -59,7 +59,7 @@ func (commandProvider) Details(context.Context, int64) (tmdb.Details, error) {
 
 type commandGetter struct{}
 
-func (commandGetter) Get(context.Context, string, string) (ugc.FetchResult, error) {
+func (commandGetter) Get(context.Context, ugc.Operation, string) (ugc.FetchResult, error) {
 	return ugc.FetchResult{}, nil
 }
 func (commandGetter) RequestCount() int { return 0 }

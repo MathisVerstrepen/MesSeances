@@ -27,6 +27,10 @@ type failingReader struct {
 	remaining int
 }
 
+type errorReader struct{ err error }
+
+func (reader errorReader) Read([]byte) (int, error) { return 0, reader.err }
+
 func (reader *failingReader) Read(buffer []byte) (int, error) {
 	if reader.remaining == 0 {
 		return 0, errors.New("synthetic read failure")
@@ -88,7 +92,7 @@ func TestClientTerminalResponseDoesNotRotate(t *testing.T) {
 	first, second := 0, 0
 	c := &Client{clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { first++; return response(403, "blocked"), nil })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { second++; return response(200, "ok"), nil })}}, unavailable: make([]bool, 2)}
 	_, err := c.Get(context.Background(), "showings", "https://www.ugc.fr/test")
-	var terminal *TerminalError
+	var terminal *RequestError
 	if !errors.As(err, &terminal) {
 		t.Fatalf("error=%v", err)
 	}
@@ -273,7 +277,7 @@ func TestClientCancellationDuringBackoffStopsRetry(t *testing.T) {
 	<-sleepStarted
 	cancel()
 	err := <-done
-	if err == nil || !strings.Contains(err.Error(), "canceled") || client.RequestCount() != 1 || retries.Load() != 0 {
+	if !errors.Is(err, context.Canceled) || client.RequestCount() != 1 || retries.Load() != 0 {
 		t.Fatalf("error=%v count=%d retries=%d", err, client.RequestCount(), retries.Load())
 	}
 }
@@ -307,7 +311,7 @@ func TestClientCancellationDuringCapacityWaitStopsSafely(t *testing.T) {
 		waitDone <- err
 	}()
 	cancel()
-	if err := <-waitDone; err == nil || !strings.Contains(err.Error(), "canceled") {
+	if err := <-waitDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("wait error=%v", err)
 	}
 	close(release)
@@ -340,7 +344,7 @@ func TestClientTerminalResponsesNeverRetryOrSleep(t *testing.T) {
 				sleep:       func(context.Context, time.Duration) error { sleeps.Add(1); return nil },
 			}
 			_, err := client.Get(context.Background(), "showings", "https://www.ugc.fr/test")
-			var terminal *TerminalError
+			var terminal *RequestError
 			if !errors.As(err, &terminal) || client.RequestCount() != 1 || sleeps.Load() != 0 {
 				t.Fatalf("error=%v count=%d sleeps=%d", err, client.RequestCount(), sleeps.Load())
 			}
@@ -400,7 +404,7 @@ func TestReadBoundedContentLengthIsOnlyAHint(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := readBounded(strings.NewReader(strings.Repeat("x", test.bodyBytes)), test.contentLength)
 			if test.wantError {
-				if err == nil || err.Error() != "too large" {
+				if !errors.Is(err, errResponseLarge) {
 					t.Fatalf("body=%d error=%v", len(body), err)
 				}
 				return
@@ -430,7 +434,7 @@ func TestClientExposesSanitizedFinalRedirectURL(t *testing.T) {
 		}
 		return response(http.StatusOK, "directory"), nil
 	})}}, unavailable: make([]bool, 1)}
-	result, err := c.Get(context.Background(), "cinema 2", "https://www.ugc.fr/cinema.html?id=2")
+	result, err := c.Get(context.Background(), OperationCinema, "https://www.ugc.fr/cinema.html?id=2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,5 +487,65 @@ func TestRedirectPolicyRejectsCrossAuthority(t *testing.T) {
 	allowed, _ := url.Parse("https://www.ugc.fr/next")
 	if err := checkUGCRedirect(&http.Request{URL: allowed}, []*http.Request{{URL: allowed}}); err != nil {
 		t.Fatalf("valid redirect rejected: %v", err)
+	}
+}
+
+func TestClientReturnsBoundedTypedDiagnostics(t *testing.T) {
+	const secret = "https://user:proxy-password@proxy.example/path?token=token-secret cookie=session-secret body=provider-body-secret cause=underlying-secret"
+	tests := []struct {
+		name      string
+		operation Operation
+		rawURL    string
+		clients   []*http.Client
+		context   func() context.Context
+		category  ErrorCategory
+		status    int
+		attempt   int
+		wantCalls int
+	}{
+		{name: "invalid URL", operation: OperationShowings, rawURL: secret, category: CategoryInvalidURL},
+		{name: "invalid operation", operation: Operation(secret), rawURL: "https://www.ugc.fr/test", category: CategoryInvalidURL},
+		{name: "canceled", operation: OperationCinema, rawURL: "https://www.ugc.fr/test", context: func() context.Context { ctx, cancel := context.WithCancel(context.Background()); cancel(); return ctx }, clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { t.Fatal("canceled request sent"); return nil, nil })}}, category: CategoryCanceled},
+		{name: "transport", operation: OperationCinema, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New(secret) })}, {Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New(secret) })}}, category: CategoryTransport, attempt: 2, wantCalls: 2},
+		{name: "redirect", operation: OperationCinema, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errRedirectHost })}}, category: CategoryRedirect, attempt: 1, wantCalls: 1},
+		{name: "forbidden", operation: OperationShowings, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(http.StatusForbidden, secret), nil })}}, category: CategoryHTTPStatus, status: 403, attempt: 1, wantCalls: 1},
+		{name: "rate limited", operation: OperationShowings, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return response(http.StatusTooManyRequests, secret), nil })}}, category: CategoryHTTPStatus, status: 429, attempt: 1, wantCalls: 1},
+		{name: "server exhausted", operation: OperationSitemap, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusServiceUnavailable, secret), nil
+		})}}, category: CategoryHTTPStatus, status: 503, attempt: 1, wantCalls: 1},
+		{name: "challenge", operation: OperationCinema, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return response(http.StatusOK, `<title>DataDome CAPTCHA</title>`+secret), nil
+		})}}, category: CategoryChallenge, attempt: 1, wantCalls: 1},
+		{name: "response read", operation: OperationCinema, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(errorReader{err: errors.New(secret)}), Request: request}, nil
+		})}}, category: CategoryResponseRead, attempt: 1, wantCalls: 1},
+		{name: "response too large", operation: OperationCinema, rawURL: "https://www.ugc.fr/test", clients: []*http.Client{{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(errorReader{err: errResponseLarge}), Request: request}, nil
+		})}}, category: CategoryResponseLarge, attempt: 1, wantCalls: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			if test.context != nil {
+				ctx = test.context()
+			}
+			client := &Client{clients: test.clients, unavailable: make([]bool, len(test.clients)), sleep: noRetrySleep}
+			_, err := client.Get(ctx, test.operation, test.rawURL)
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) || requestErr.Category != test.category || requestErr.StatusCode != test.status || requestErr.Attempt != test.attempt || client.RequestCount() != test.wantCalls {
+				t.Fatalf("error=%+v count=%d", requestErr, client.RequestCount())
+			}
+			if test.operation == Operation(secret) && requestErr.Operation != OperationUnknown {
+				t.Fatalf("unbounded operation=%q", requestErr.Operation)
+			}
+			if test.attempt > 0 && requestErr.AttemptLimit != maxRequestAttempts || test.attempt == 0 && requestErr.AttemptLimit != 0 {
+				t.Fatalf("attempt=%d/%d", requestErr.Attempt, requestErr.AttemptLimit)
+			}
+			for _, forbidden := range []string{secret, "proxy-password", "token-secret", "session-secret", "provider-body-secret", "underlying-secret"} {
+				if strings.Contains(err.Error(), forbidden) {
+					t.Fatalf("error leaked %q: %s", forbidden, err)
+				}
+			}
+		})
 	}
 }

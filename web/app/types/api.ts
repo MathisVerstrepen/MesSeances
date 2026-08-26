@@ -259,6 +259,7 @@ export interface AdminSyncProviderOutcome {
 export interface AdminSyncProviderStatus {
   state: AdminSyncProviderState
   error_code?: AdminSyncFailureCode
+  log?: string[]
   outcome?: AdminSyncProviderOutcome
 }
 
