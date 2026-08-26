@@ -160,6 +160,28 @@ func TestValidateDatasetScopeIdentityAndURLs(t *testing.T) {
 	}
 }
 
+func TestValidCGRBookingURL(t *testing.T) {
+	if !validBookingURL(ProviderCGR, "https://achat.cgrcinemas.fr/lille-synthetique/r/123456", "ignored", "W8010") {
+		t.Fatal("valid CGR booking URL rejected")
+	}
+	for _, raw := range []string{
+		"http://achat.cgrcinemas.fr/lille/r/123",
+		"https://www.cgrcinemas.fr/lille/r/123",
+		"https://achat.cgrcinemas.fr:443/lille/r/123",
+		"https://achat.cgrcinemas.fr/Lille/r/123",
+		"https://achat.cgrcinemas.fr/lille/r/0",
+		"https://achat.cgrcinemas.fr/lille/r/123/",
+		"https://achat.cgrcinemas.fr/lille/r/123?source=test",
+		"https://achat.cgrcinemas.fr/lille/r/123#test",
+		"https://user@achat.cgrcinemas.fr/lille/r/123",
+		"https://achat.cgrcinemas.fr/lille/../r/123",
+	} {
+		if validBookingURL(ProviderCGR, raw, "ignored", "W8010") {
+			t.Fatalf("unsafe CGR booking URL accepted: %q", raw)
+		}
+	}
+}
+
 func TestValidateDatasetRejectsUnsafeBackdropURLs(t *testing.T) {
 	valid := testDataset()
 	valid.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}

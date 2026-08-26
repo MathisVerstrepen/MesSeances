@@ -128,6 +128,13 @@ func validSourcePosterURL(provider, raw string) bool {
 	if provider == SourceKinepolis {
 		return err == nil && len(raw) <= 4096 && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !strings.Contains(parsed.Path, "..")
 	}
+	if provider == SourceCGR {
+		if err != nil || len(raw) > 4096 || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
+			return false
+		}
+		host := strings.ToLower(parsed.Hostname())
+		return parsed.Host == host && (host == "acsta.net" || strings.HasSuffix(host, ".acsta.net"))
+	}
 	if err != nil || len(raw) > 4096 || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
 		return false
 	}

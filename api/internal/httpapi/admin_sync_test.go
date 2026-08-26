@@ -70,7 +70,7 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 
 func TestAdminStartSyncContract(t *testing.T) {
 	started := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
-	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}, "pathe": {State: synccontrol.ProviderPending}}}}
+	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending}, "kinepolis": {State: synccontrol.ProviderPending}, "pathe": {State: synccontrol.ProviderPending}, "cgr": {State: synccontrol.ProviderPending}}}}
 	handler := syncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/all", "", "https://evil.example", cookie)
@@ -88,6 +88,10 @@ func TestAdminStartSyncContract(t *testing.T) {
 	pathe := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/pathe", "", "http://localhost:3000", cookie)
 	if pathe.Code != http.StatusAccepted || len(controller.started) != 2 || controller.started[1] != synccontrol.TargetPathe {
 		t.Fatalf("Pathé status=%d started=%v body=%s", pathe.Code, controller.started, pathe.Body.String())
+	}
+	cgr := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/cgr", "", "http://localhost:3000", cookie)
+	if cgr.Code != http.StatusAccepted || len(controller.started) != 3 || controller.started[2] != synccontrol.TargetCGR {
+		t.Fatalf("CGR status=%d started=%v body=%s", cgr.Code, controller.started, cgr.Body.String())
 	}
 	body := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/ugc", `{}`, "http://localhost:3000", cookie)
 	assertAPIError(t, body, http.StatusBadRequest, "invalid_request", "Requête invalide.")

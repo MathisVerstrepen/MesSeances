@@ -136,11 +136,14 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	cfg.Sync.KinepolisRequestInterval = 3 * time.Second
 	cfg.Sync.OperationTimeout = 37 * time.Second
 	options := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
-	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.OperationTimeout != cfg.Sync.OperationTimeout {
+	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.NewCGR == nil || options.OperationTimeout != cfg.Sync.OperationTimeout {
 		t.Fatalf("options=%+v", options)
 	}
 	if client, err := options.NewPathe(); err != nil || client == nil {
 		t.Fatalf("Pathé client=%v err=%v", client, err)
+	}
+	if client, err := options.NewCGR(); err != nil || client == nil {
+		t.Fatalf("CGR client=%v err=%v", client, err)
 	}
 }
 

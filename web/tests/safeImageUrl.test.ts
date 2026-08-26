@@ -28,3 +28,21 @@ test('rejects noncanonical or unsafe Pathé poster URLs', () => {
 
   for (const url of unsafeUrls) assert.equal(safePosterUrl(url), null, url)
 })
+
+test('accepts canonical CGR poster URLs on acsta.net and rejects unsafe variants', () => {
+  assert.equal(safePosterUrl('https://images.acsta.net/pictures/film.jpg'), 'https://images.acsta.net/pictures/film.jpg')
+  assert.equal(safePosterUrl('https://ACSTA.NET/posters/film.webp'), 'https://acsta.net/posters/film.webp')
+
+  const unsafeUrls = [
+    'http://images.acsta.net/pictures/film.jpg',
+    'https://acsta.net/',
+    'https://notacsta.net/pictures/film.jpg',
+    'https://acsta.net.evil.test/pictures/film.jpg',
+    'https://user@images.acsta.net/pictures/film.jpg',
+    'https://images.acsta.net:8443/pictures/film.jpg',
+    'https://images.acsta.net/pictures/film.jpg?size=large',
+    'https://images.acsta.net/pictures/%66ilm.jpg'
+  ]
+
+  for (const url of unsafeUrls) assert.equal(safePosterUrl(url), null, url)
+})

@@ -64,7 +64,7 @@ func TestMigrationsIntegration(t *testing.T) {
 	}
 
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 17 {
+	if err != nil || len(migrations) != 19 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -232,7 +232,7 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	}
 	var migrationCount int
 	var repeatedRefresh time.Time
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 17 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations").Scan(&migrationCount); err != nil || migrationCount != 18 {
 		t.Fatalf("migration count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
@@ -277,7 +277,7 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 17 {
+	if err != nil || len(migrations) != 19 {
 		t.Fatalf("migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -343,7 +343,7 @@ func TestPublicMovieCatalogBackfillIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 17 {
+	if err != nil || len(migrations) != 19 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -520,7 +520,7 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 17 {
+	if err != nil || len(migrations) != 19 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -669,7 +669,7 @@ func TestPatheProviderMigrationIntegration(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	migrations, err := embeddedMigrations()
-	if err != nil || len(migrations) != 17 {
+	if err != nil || len(migrations) != 19 {
 		t.Fatalf("embedded migrations=%d err=%v", len(migrations), err)
 	}
 	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
@@ -759,7 +759,7 @@ INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater
 		t.Fatalf("inbound showtime foreign keys=%d err=%v", inboundShowtimeForeignKeys, err)
 	}
 	var constraintsBefore, indexesBefore []string
-	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname <> 'showtimes_provider_identity_check'), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsBefore); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname NOT IN ('showtimes_provider_identity_check','showtimes_provider_check','showtimes_language_check','showtimes_check1','showtimes_time_check')), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsBefore); err != nil {
 		t.Fatal("read pre-017 showtime constraints failed")
 	}
 	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(indexname || '=' || indexdef ORDER BY indexname), ARRAY[]::text[]) FROM pg_indexes WHERE schemaname=current_schema() AND tablename='showtimes'`).Scan(&indexesBefore); err != nil {
@@ -833,7 +833,7 @@ INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater
 	}
 	removeShowing("V3308S135392")
 
-	if err := RunMigrations(ctx, pool); err != nil {
+	if _, err := pool.Exec(ctx, migrations[16].sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatalf("upgrade legacy Pathé showing identity failed: %v", err)
 	}
 	var upgradedRows int
@@ -843,8 +843,11 @@ INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater
 	if _, err := pool.Exec(ctx, migrations[16].sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatalf("idempotent migration 017 rerun failed: %v", err)
 	}
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply recorded Pathé and CGR migrations failed: %v", err)
+	}
 	var constraintsAfter, indexesAfter []string
-	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname <> 'showtimes_provider_identity_check'), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsAfter); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname NOT IN ('showtimes_provider_identity_check','showtimes_provider_check','showtimes_language_check','showtimes_check1','showtimes_time_check')), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsAfter); err != nil {
 		t.Fatal("read post-017 showtime constraints failed")
 	}
 	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(indexname || '=' || indexdef ORDER BY indexname), ARRAY[]::text[]) FROM pg_indexes WHERE schemaname=current_schema() AND tablename='showtimes'`).Scan(&indexesAfter); err != nil {
@@ -903,11 +906,36 @@ INSERT INTO sync_runs (target,state,started_at,finished_at,window_from,window_th
 			t.Fatalf("invalid Pathé row accepted: %s", query)
 		}
 	}
+	var cgrPublicID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO public_movies (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes) VALUES ('cgr','1001','Conférence CGR',0) RETURNING id`).Scan(&cgrPublicID); err != nil {
+		t.Fatalf("insert CGR public movie failed: %v", err)
+	}
+	cgrShowingID := "W8010-" + strings.Repeat("a", 64)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO provider_snapshots (generation_id,provider,schema_version,scope,generated_at,timezone,window_from,window_through) VALUES (1,'cgr',1,'all_cinemas',$1,'Europe/Paris','2026-08-24','2026-08-24');
+INSERT INTO theaters (generation_id,id,provider_id,slug,name,address,city,postal_code,provider) VALUES (1,'cgr-W8010','W8010','cgr-W8010','CGR Lille','1 rue','Lille','59000','cgr');
+INSERT INTO theater_dates (generation_id,theater_id,service_date) VALUES (1,'cgr-W8010','2026-08-24');
+INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes,poster_url) VALUES (1,'cgr','1001','cgr-film-1001','Conférence CGR',0,'https://images.acsta.net/posters/1001.jpg');
+INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES (1,'cgr-showing-' || $2,$2,'2026-08-24','cgr-W8010','1001','2026-08-24T19:00:00+02','2026-08-24T19:00:00+02','SPANISH','Localization.Language.Spanish','2D','','https://www.cgrcinemas.fr/lille/reserver/test','cgr');
+INSERT INTO movie_matches (source_provider,source_movie_id,metadata_provider,status,normalized_source_title,source_runtime_minutes,candidates,evaluated_at,retry_after,updated_at) VALUES ('cgr','1001','tmdb','unmatched','conference cgr',90,'[]',$1,$1,$1);
+INSERT INTO sync_schedules (provider,enabled,schedule_kind,local_time) VALUES ('cgr',false,'daily','05:30');
+INSERT INTO sync_runs (target,state,started_at,finished_at,window_from,window_through,providers) VALUES ('cgr','succeeded',$1,$1,'2026-08-24','2026-08-24','{}');
+INSERT INTO public_movie_sources (source_provider,source_movie_id,public_movie_id,source_slug,title,runtime_minutes,poster_url) VALUES ('cgr','1001',$3,'cgr-film-1001','Conférence CGR',0,'https://images.acsta.net/posters/1001.jpg');
+INSERT INTO movie_slug_aliases (slug,public_movie_id,alias_kind,source_provider,source_movie_id) VALUES ('cgr-film-1001',$3,'source','cgr','1001');
+`, pgx.QueryExecModeSimpleProtocol, now, cgrShowingID, cgrPublicID); err != nil {
+		t.Fatalf("insert CGR provider rows failed: %v", err)
+	}
 	var migrationCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=16 AND name='016_pathe_provider.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
 		t.Fatalf("migration 016 bookkeeping count=%d err=%v", migrationCount, err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=17 AND name='017_pathe_showing_identity.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
 		t.Fatalf("migration 017 bookkeeping count=%d err=%v", migrationCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=18 AND name='018_cgr_provider.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
+		t.Fatalf("migration 018 bookkeeping count=%d err=%v", migrationCount, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=19 AND name='019_repair_cgr_unknown_runtime.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {
+		t.Fatalf("migration 019 bookkeeping count=%d err=%v", migrationCount, err)
 	}
 }

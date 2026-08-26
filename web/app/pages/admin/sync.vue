@@ -19,8 +19,8 @@ let active = false
 const job = computed(() => status.value?.job ?? null)
 const now = ref(Date.now())
 const controlsDisabled = computed(() => initialPending.value || startingTarget.value !== null || status.value === null || job.value?.state === 'running')
-const providers = ['ugc', 'kinepolis', 'pathe'] as const
-const targets = ['all', 'ugc', 'kinepolis', 'pathe'] as const
+const providers = ['ugc', 'kinepolis', 'pathe', 'cgr'] as const
+const targets = ['all', ...providers] as const
 const activeJob = computed(() => job.value?.state === 'running' ? job.value : null)
 const history = computed(() => {
   const seen = new Set<string>()
@@ -53,13 +53,15 @@ const targetLabels = {
   all: 'Tous les cinémas',
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
-  pathe: 'Pathé'
+  pathe: 'Pathé',
+  cgr: 'CGR'
 } satisfies Record<AdminSyncTarget, string>
 
 const providerLabels = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
-  pathe: 'Pathé'
+  pathe: 'Pathé',
+  cgr: 'CGR'
 } satisfies Record<Provider, string>
 
 const triggerLabels = {
@@ -264,7 +266,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
             <CalendarClock :size="17" aria-hidden="true" /> Planifier
           </NuxtLink>
         </div>
-        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <button v-for="target in targets" :key="target" type="button" class="button-primary" :disabled="controlsDisabled" @click="startSync(target)">
             <LoaderCircle v-if="startingTarget === target" :size="17" class="animate-spin" aria-hidden="true" />
             <RefreshCw v-else :size="17" aria-hidden="true" />

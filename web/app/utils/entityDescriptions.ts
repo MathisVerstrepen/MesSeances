@@ -8,7 +8,8 @@ function providerLabel(provider: Provider): string {
   const labels = {
     ugc: 'UGC',
     kinepolis: 'Kinepolis',
-    pathe: 'Pathé'
+    pathe: 'Pathé',
+    cgr: 'CGR'
   } satisfies Record<Provider, string>
   return labels[provider]
 }

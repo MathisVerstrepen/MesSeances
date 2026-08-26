@@ -86,6 +86,10 @@ func TestLoadTimingDefaultsBoundsAndOverrides(t *testing.T) {
 	if err != nil || config.Sync.RequestTimeout != request || config.Sync.KinepolisRequestInterval != 0 {
 		t.Fatalf("Pathé config=%+v err=%v", config, err)
 	}
+	config, err = Load(CGRTiming, environment(map[string]string{"SYNC_REQUEST_TIMEOUT": "invalid-secret"}, nil), &Overrides{RequestTimeout: &request})
+	if err != nil || config.Sync.RequestTimeout != request || config.Sync.KinepolisRequestInterval != 0 {
+		t.Fatalf("CGR config=%+v err=%v", config, err)
+	}
 }
 
 func TestLoadProfilesReadOnlyOwnedVariables(t *testing.T) {
@@ -98,6 +102,11 @@ func TestLoadProfilesReadOnlyOwnedVariables(t *testing.T) {
 	_, err = Load(PatheTiming, environment(map[string]string{"SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid", "SYNC_OPERATION_TIMEOUT": "invalid"}, &reads), nil)
 	if err != nil || len(reads) != 1 || reads[0] != "SYNC_REQUEST_TIMEOUT" {
 		t.Fatalf("Pathé reads=%v err=%v", reads, err)
+	}
+	reads = nil
+	_, err = Load(CGRTiming, environment(map[string]string{"SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid", "SYNC_OPERATION_TIMEOUT": "invalid"}, &reads), nil)
+	if err != nil || len(reads) != 1 || reads[0] != "SYNC_REQUEST_TIMEOUT" {
+		t.Fatalf("CGR reads=%v err=%v", reads, err)
 	}
 	reads = nil
 	_, err = Load(SyncFull, environment(map[string]string{"DATABASE_URL": "postgres://configured", "SYNC_REQUEST_TIMEOUT": "invalid", "SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid"}, &reads), nil)

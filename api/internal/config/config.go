@@ -17,6 +17,7 @@ const (
 	UGCTiming
 	KinepolisTiming
 	PatheTiming
+	CGRTiming
 	SyncFull
 )
 
@@ -104,7 +105,7 @@ func Load(profile Profile, getenv func(string) string, overrides *Overrides) (Co
 		if err := loadKinepolisInterval(&result, getenv, overrides); err != nil {
 			return Config{}, err
 		}
-	case PatheTiming:
+	case PatheTiming, CGRTiming:
 		if err := loadRequestTimeout(&result, getenv, overrides); err != nil {
 			return Config{}, err
 		}

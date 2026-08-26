@@ -105,7 +105,8 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		providerShowings[providerShowingKey] = true
 		runtime, validRuntime := RuntimeDuration(showing.Movie.RuntimeMinutes)
 		movieProvider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
-		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime {
+		unknownCGRRuntime := provider == ProviderCGR && showing.Movie.RuntimeMinutes == 0
+		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime && !unknownCGRRuntime {
 			return fmt.Errorf("invalid movie")
 		}
 		if showing.Movie.LocalMovieID < 0 || showing.Movie.LocalMovieID == 0 && showing.Movie.LocalMetadataProvider != "" {
@@ -140,7 +141,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if err != nil || date.Before(from) || date.After(through) || !contains(theater.AvailableDates, showing.ServiceDate) {
 			return fmt.Errorf("invalid showing service date")
 		}
-		if showing.StartTime.IsZero() || showing.EndTime.IsZero() || !showing.EndTime.After(showing.StartTime) || (provider == ProviderKinepolis && !showing.EndTime.Equal(showing.StartTime.Add(runtime))) {
+		if showing.StartTime.IsZero() || showing.EndTime.IsZero() || (!showing.EndTime.After(showing.StartTime) && !(unknownCGRRuntime && showing.EndTime.Equal(showing.StartTime))) || (provider == ProviderKinepolis && !showing.EndTime.Equal(showing.StartTime.Add(runtime))) {
 			return fmt.Errorf("invalid showing times")
 		}
 		localStart := showing.StartTime.In(location)
@@ -181,7 +182,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
-		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes <= 0 || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
 			return fmt.Errorf("invalid public movie")
 		}
 		if movie.RedirectToID == movie.ID {
@@ -208,7 +209,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	for _, source := range data.MovieSources {
 		key := string(source.Provider) + "\x00" + source.SourceMovieID
 		target, ok := publicMovies[source.PublicMovieID]
-		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || !validProvider(source.Provider, false) || !validProviderIdentity(source.Provider, "movie", source.SourceMovieID) || source.SourceSlug != string(source.Provider)+"-film-"+source.SourceMovieID || source.Title == "" || source.RuntimeMinutes <= 0 || source.PosterURL != "" && !validProviderImageURL(source.Provider, source.PosterURL) {
+		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || !validProvider(source.Provider, false) || !validProviderIdentity(source.Provider, "movie", source.SourceMovieID) || source.SourceSlug != string(source.Provider)+"-film-"+source.SourceMovieID || source.Title == "" || source.RuntimeMinutes < 0 || source.RuntimeMinutes == 0 && source.Provider != ProviderCGR || source.PosterURL != "" && !validProviderImageURL(source.Provider, source.PosterURL) {
 			return fmt.Errorf("invalid public movie source")
 		}
 		sources[key] = source
@@ -282,7 +283,10 @@ func contains(values []string, value string) bool {
 }
 
 func validLanguage(v Language) bool {
-	return v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME
+	if v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME {
+		return true
+	}
+	return v != LanguageAll && providerLanguage.MatchString(string(v))
 }
 func validFormat(v Format) bool {
 	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE
@@ -309,6 +313,10 @@ func validBookingURL(provider Provider, raw, showingID, theaterProviderID string
 		parts := strings.Split(parsed.Path, "/")
 		return parsed.Host == "s.pathe.fr" && parsed.RawQuery == "" && parsed.Opaque == "" && !parsed.ForceQuery && len(parts) == 4 && parts[0] == "" && parts[1] == "fr" && providerIdentity.MatchString(parts[2]) && parts[2] == showingID && parts[3] == "booking" && !strings.Contains(parsed.Path, `\`) && !hasPatheTraversalSegment(parsed.Path)
 	}
+	if provider == ProviderCGR {
+		parts := strings.Split(parsed.Path, "/")
+		return parsed.Host == "achat.cgrcinemas.fr" && parsed.RawQuery == "" && parsed.Opaque == "" && !parsed.ForceQuery && len(parts) == 4 && parts[0] == "" && validCGRBookingSlug(parts[1]) && parts[2] == "r" && validPositiveDecimal(parts[3]) && !strings.Contains(parsed.Path, `\`) && !hasPatheTraversalSegment(parsed.Path)
+	}
 	if parsed.Host != "www.ugc.fr" || parsed.Path != "/reservationSeances.html" {
 		return false
 	}
@@ -316,13 +324,28 @@ func validBookingURL(provider Provider, raw, showingID, theaterProviderID string
 	return len(query) == 1 && len(query["id"]) == 1 && query.Get("id") == showingID
 }
 
+func validCGRBookingSlug(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
+			return false
+		}
+	}
+	return true
+}
+
 var (
 	providerIdentity     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 	patheShowingIdentity = regexp.MustCompile(`^V[1-9][0-9]*S[1-9][0-9]*$`)
+	cgrTheaterIdentity   = regexp.MustCompile(`^[A-Z][0-9]{4}$`)
+	cgrShowingIdentity   = regexp.MustCompile(`^[A-Z][0-9]{4}-[a-f0-9]{64}$`)
+	providerLanguage     = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,15}$`)
 )
 
 func validProvider(provider Provider, combined bool) bool {
-	return provider == ProviderUGC || provider == ProviderKinepolis || provider == ProviderPathe || combined && provider == ProviderCombined
+	return provider == ProviderUGC || provider == ProviderKinepolis || provider == ProviderPathe || provider == ProviderCGR || combined && provider == ProviderCombined
 }
 
 func validProviderIdentity(provider Provider, kind, value string) bool {
@@ -353,6 +376,18 @@ func validProviderIdentity(provider Provider, kind, value string) bool {
 		}
 		return true
 	}
+	if provider == ProviderCGR {
+		switch kind {
+		case "theater":
+			return cgrTheaterIdentity.MatchString(value)
+		case "movie":
+			return validPositiveDecimal(value)
+		case "showing":
+			return cgrShowingIdentity.MatchString(value)
+		default:
+			return false
+		}
+	}
 	return provider == ProviderKinepolis
 }
 
@@ -375,6 +410,13 @@ func validProviderImageURL(provider Provider, raw string) bool {
 	parsed, err := url.Parse(raw)
 	if provider == ProviderKinepolis {
 		return err == nil && len(raw) <= maxURLLength && parsed.Scheme == "https" && parsed.Host == "cdn.kinepolis.fr" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" && strings.HasPrefix(parsed.Path, "/images/") && !hasPathTraversalSegment(parsed.Path) && !strings.Contains(parsed.Path, `\`)
+	}
+	if provider == ProviderCGR {
+		if err != nil || len(raw) > maxURLLength || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
+			return false
+		}
+		host := strings.ToLower(parsed.Hostname())
+		return parsed.Host == host && (host == "acsta.net" || strings.HasSuffix(host, ".acsta.net"))
 	}
 	if err != nil || len(raw) > maxURLLength || parsed.Scheme != "https" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery || parsed.Path == "" || parsed.Path == "/" || hasPatheTraversalSegment(parsed.Path) || strings.Contains(parsed.Path, `\`) {
 		return false

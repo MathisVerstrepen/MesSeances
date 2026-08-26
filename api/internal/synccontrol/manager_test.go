@@ -196,7 +196,7 @@ func (f executorFunc) Run(ctx context.Context, target Target, window Window) (ma
 		outcome.Sync.Through = window.From
 	}
 	if target == TargetAll {
-		return map[Target]ProviderOutcome{TargetUGC: outcome, TargetKinepolis: outcome, TargetPathe: outcome}, nil
+		return map[Target]ProviderOutcome{TargetUGC: outcome, TargetKinepolis: outcome, TargetPathe: outcome, TargetCGR: outcome}, nil
 	}
 	return map[Target]ProviderOutcome{target: outcome}, nil
 }
@@ -220,7 +220,7 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if accepted.ID != "1" || accepted.State != StateRunning || accepted.Providers["ugc"].State != ProviderPending || accepted.Providers["kinepolis"].State != ProviderPending || accepted.Providers["pathe"].State != ProviderPending || len(accepted.Providers) != 3 || accepted.StartedAt.Location() != time.UTC {
+	if accepted.ID != "1" || accepted.State != StateRunning || accepted.Providers["ugc"].State != ProviderPending || accepted.Providers["kinepolis"].State != ProviderPending || accepted.Providers["pathe"].State != ProviderPending || accepted.Providers["cgr"].State != ProviderPending || len(accepted.Providers) != 4 || accepted.StartedAt.Location() != time.UTC {
 		t.Fatalf("accepted=%+v", accepted)
 	}
 	if accepted.From != "2026-08-18" || accepted.Through != accepted.From {
@@ -233,7 +233,7 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 		t.Fatalf("target=%s", target)
 	}
 	status := manager.Status()
-	if status.Providers["ugc"].State != ProviderRunning || status.Providers["kinepolis"].State != ProviderRunning || status.Providers["pathe"].State != ProviderRunning {
+	if status.Providers["ugc"].State != ProviderRunning || status.Providers["kinepolis"].State != ProviderRunning || status.Providers["pathe"].State != ProviderRunning || status.Providers["cgr"].State != ProviderRunning {
 		t.Fatalf("status=%+v", status)
 	}
 	status.Providers["ugc"] = ProviderStatus{State: "mutated"}
@@ -278,12 +278,13 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 		wantUGC   ProviderState
 		wantKin   ProviderState
 		wantPathe ProviderState
+		wantCGR   ProviderState
 	}{
 		{name: "failure skips other provider", target: TargetAll, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
 			return ProviderOutcome{}, newProviderRunError(TargetUGC, StageDatasetValidation, FailureDatasetRejected, errors.New("secret"))
-		}, wantUGC: ProviderFailed, wantKin: ProviderSkipped, wantPathe: ProviderSkipped},
-		{name: "panic becomes failure", target: TargetKinepolis, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { panic("secret") }, wantUGC: ProviderNotRequested, wantKin: ProviderFailed, wantPathe: ProviderNotRequested},
-		{name: "single provider succeeds", target: TargetPathe, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }, wantUGC: ProviderNotRequested, wantKin: ProviderNotRequested, wantPathe: ProviderSucceeded},
+		}, wantUGC: ProviderFailed, wantKin: ProviderSkipped, wantPathe: ProviderSkipped, wantCGR: ProviderSkipped},
+		{name: "panic becomes failure", target: TargetKinepolis, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { panic("secret") }, wantUGC: ProviderNotRequested, wantKin: ProviderFailed, wantPathe: ProviderNotRequested, wantCGR: ProviderNotRequested},
+		{name: "single provider succeeds", target: TargetPathe, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }, wantUGC: ProviderNotRequested, wantKin: ProviderNotRequested, wantPathe: ProviderSucceeded, wantCGR: ProviderNotRequested},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -295,7 +296,7 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 				t.Fatal(err)
 			}
 			status := waitForTerminal(t, manager)
-			if status.Providers["ugc"].State != test.wantUGC || status.Providers["kinepolis"].State != test.wantKin || status.Providers["pathe"].State != test.wantPathe || len(status.Providers) != 3 || status.FinishedAt == nil {
+			if status.Providers["ugc"].State != test.wantUGC || status.Providers["kinepolis"].State != test.wantKin || status.Providers["pathe"].State != test.wantPathe || status.Providers["cgr"].State != test.wantCGR || len(status.Providers) != 4 || status.FinishedAt == nil {
 				t.Fatalf("status=%+v", status)
 			}
 		})
@@ -458,6 +459,7 @@ func TestManagerTargetAllUsesLatestProviderEnd(t *testing.T) {
 			TargetUGC:       {Sync: SyncOutcome{Through: "2027-01-10"}},
 			TargetKinepolis: {Sync: SyncOutcome{Through: "2026-11-20"}},
 			TargetPathe:     {Sync: SyncOutcome{Through: "2026-12-15"}},
+			TargetCGR:       {Sync: SyncOutcome{Through: "2026-10-30"}},
 		}, nil
 	}))
 	if err != nil {
@@ -483,7 +485,7 @@ func TestManagerMarksEveryProviderFailedOnSharedPublicationFailure(t *testing.T)
 		t.Fatal(err)
 	}
 	status := waitForTerminal(t, manager)
-	for _, provider := range []string{string(TargetUGC), string(TargetKinepolis), string(TargetPathe)} {
+	for _, provider := range []string{string(TargetUGC), string(TargetKinepolis), string(TargetPathe), string(TargetCGR)} {
 		got := status.Providers[provider]
 		if got.State != ProviderFailed || got.ErrorCode != FailureReplacement || got.Outcome != nil {
 			t.Fatalf("provider=%s status=%+v", provider, got)
@@ -583,7 +585,7 @@ func TestManagerReconcilesAbandonedRunDuringStartup(t *testing.T) {
 		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
 	}
 	got := snapshot.Runs[0]
-	if got.ID != stale.ID || got.State != StateFailed || got.FinishedAt == nil || !got.FinishedAt.Equal(now) || got.Providers[string(TargetUGC)].ErrorCode != FailureCanceled || got.Providers[string(TargetKinepolis)].State != ProviderSkipped || got.Providers[string(TargetPathe)].State != ProviderNotRequested || len(got.Providers) != 3 {
+	if got.ID != stale.ID || got.State != StateFailed || got.FinishedAt == nil || !got.FinishedAt.Equal(now) || got.Providers[string(TargetUGC)].ErrorCode != FailureCanceled || got.Providers[string(TargetKinepolis)].State != ProviderSkipped || got.Providers[string(TargetPathe)].State != ProviderNotRequested || got.Providers[string(TargetCGR)].State != ProviderNotRequested || len(got.Providers) != 4 {
 		t.Fatalf("reconciled=%+v", got)
 	}
 	if executed || lease.releaseCount() != 1 || strings.Join(order, ",") != "acquire,reconcile,release" {

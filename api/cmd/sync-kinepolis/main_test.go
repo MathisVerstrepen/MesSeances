@@ -315,11 +315,12 @@ func TestMakeSyncOrchestratesAllProvidersWithSameProxyFile(t *testing.T) {
 	ugc := "go run ./cmd/sync-ugc -proxy-file \"$$PROXY_FILE\""
 	kinepolis := "go run ./cmd/sync-kinepolis -proxy-file \"$$PROXY_FILE\""
 	pathe := "go run ./cmd/sync-pathe -proxy-file \"$$PROXY_FILE\""
-	ugcIndex, kinepolisIndex, patheIndex := strings.Index(text, ugc), strings.Index(text, kinepolis), strings.Index(text, pathe)
-	if ugcIndex < 0 || kinepolisIndex < 0 || patheIndex < 0 || ugcIndex >= kinepolisIndex || kinepolisIndex >= patheIndex {
-		t.Fatalf("sync orchestration incorrect: ugc=%d kinepolis=%d pathe=%d", ugcIndex, kinepolisIndex, patheIndex)
+	cgr := "go run ./cmd/sync-cgr -proxy-file \"$$PROXY_FILE\""
+	ugcIndex, kinepolisIndex, patheIndex, cgrIndex := strings.Index(text, ugc), strings.Index(text, kinepolis), strings.Index(text, pathe), strings.Index(text, cgr)
+	if ugcIndex < 0 || kinepolisIndex < 0 || patheIndex < 0 || cgrIndex < 0 || ugcIndex >= kinepolisIndex || kinepolisIndex >= patheIndex || patheIndex >= cgrIndex {
+		t.Fatalf("sync orchestration incorrect: ugc=%d kinepolis=%d pathe=%d cgr=%d", ugcIndex, kinepolisIndex, patheIndex, cgrIndex)
 	}
-	for command, count := range map[string]int{ugc: 1, kinepolis: 1, pathe: 1} {
+	for command, count := range map[string]int{ugc: 1, kinepolis: 1, pathe: 1, cgr: 1} {
 		if strings.Count(text, command) != count {
 			t.Fatalf("proxy propagation count for %q = %d", command, strings.Count(text, command))
 		}

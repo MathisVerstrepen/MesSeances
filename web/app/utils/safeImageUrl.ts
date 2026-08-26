@@ -34,6 +34,9 @@ export function safePosterUrl(url: string | null | undefined) {
     const isPathePoster = (hostname === 'pathe.fr' || hostname.endsWith('.pathe.fr'))
       && parsed.pathname !== '/'
       && !parsed.pathname.includes('%')
+    const isCgrPoster = (hostname === 'acsta.net' || hostname.endsWith('.acsta.net'))
+      && parsed.pathname !== '/'
+      && !parsed.pathname.includes('%')
 
     if (
       parsed.protocol !== 'https:'
@@ -42,7 +45,7 @@ export function safePosterUrl(url: string | null | undefined) {
       || parsed.password
       || parsed.search
       || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster)
+      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster)
       || !hasSafePath(url, parsed.origin)
     ) return null
 

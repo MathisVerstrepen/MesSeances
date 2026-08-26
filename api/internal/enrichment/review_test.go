@@ -213,3 +213,14 @@ func TestValidPatheSourcePosterURL(t *testing.T) {
 		}
 	}
 }
+
+func TestValidCGRSourcePosterURL(t *testing.T) {
+	if !validSourcePosterURL(SourceCGR, "https://images.acsta.net/posters/1001.jpg") {
+		t.Fatal("valid CGR poster rejected")
+	}
+	for _, raw := range []string{"http://images.acsta.net/posters/1001.jpg", "https://evil.example/poster.jpg", "https://images.acsta.net/posters/../secret", "https://images.acsta.net/poster.jpg?x=1"} {
+		if validSourcePosterURL(SourceCGR, raw) {
+			t.Fatalf("unsafe CGR poster accepted: %q", raw)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"messeances/api/internal/cgr"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/pathe"
@@ -63,6 +64,16 @@ func (unusedPatheGetter) Get(context.Context, pathe.Operation, string) ([]byte, 
 }
 func (unusedPatheGetter) RequestCount() int { return 0 }
 
+type unusedCGRGetter struct{}
+
+func (unusedCGRGetter) Get(context.Context, cgr.Operation, string) ([]byte, error) { return nil, nil }
+func (unusedCGRGetter) RequestCount() int                                          { return 0 }
+
+type countingCGRGetter struct{ requests int }
+
+func (countingCGRGetter) Get(context.Context, cgr.Operation, string) ([]byte, error) { return nil, nil }
+func (g countingCGRGetter) RequestCount() int                                        { return g.requests }
+
 type fakeEnrichmentStore struct{}
 
 func (fakeEnrichmentStore) IsLocallyMerged(context.Context, string, string) (bool, error) {
@@ -103,6 +114,7 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
 		newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
+		newCGR:       func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
 		syncUGC: func(_ context.Context, _ ugc.Getter, options ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			if options.From != window.From {
 				t.Fatalf("UGC options=%+v", options)
@@ -115,17 +127,20 @@ func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 		syncPathe: func(_ context.Context, _ pathe.Getter, options pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
 		},
+		syncCGR: func(_ context.Context, _ cgr.Getter, options cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderCGR, window), cgr.SyncSummary{}, nil
+		},
 		enrich: func(_ context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
 			events = append(events, "enrich:"+movies[0].SourceProvider)
 			return nil, errors.New("degraded")
 		},
 	}
-	for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe} {
+	for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR} {
 		if _, err := executor.Run(context.Background(), provider, window); err != nil {
 			t.Fatalf("provider=%s err=%v", provider, err)
 		}
 	}
-	want := []string{"commit:ugc", "enrich:ugc", "commit:kinepolis", "enrich:kinepolis", "commit:pathe", "enrich:pathe"}
+	want := []string{"commit:ugc", "enrich:ugc", "commit:kinepolis", "enrich:kinepolis", "commit:pathe", "enrich:pathe", "commit:cgr", "enrich:cgr"}
 	if len(events) != len(want) {
 		t.Fatalf("events=%v", events)
 	}
@@ -143,7 +158,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
-			if len(datasets) != 3 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" {
+			if len(datasets) != 4 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
 				t.Fatalf("datasets=%+v", datasets)
 			}
 			return 11, nil
@@ -151,6 +166,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		newUGC:       func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
 		newPathe:     func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
+		newCGR:       func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			data := validDataset(t, schedule.ProviderUGC, window)
 			data.Window.Through = "2027-01-10"
@@ -166,6 +182,11 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 			data.Window.Through = "2026-12-15"
 			return data, pathe.SyncSummary{Requests: 17}, nil
 		},
+		syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+			data := validDataset(t, schedule.ProviderCGR, window)
+			data.Window.Through = "2026-10-30"
+			return data, cgr.SyncSummary{Requests: 8}, nil
+		},
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
 			enrichments++
 			if writes != 1 {
@@ -175,7 +196,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		},
 	}
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
-	if err != nil || writes != 1 || enrichments != 3 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetPathe].Sync.Requests != 17 {
+	if err != nil || writes != 1 || enrichments != 4 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
 	}
 }
@@ -204,6 +225,7 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, nil }),
 		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil }, newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
 		newPathe: func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
+		newCGR:   func() (cgr.Getter, error) { return unusedCGRGetter{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderUGC, window), ugc.SyncSummary{}, nil
 		},
@@ -212,6 +234,9 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 		},
 		syncPathe: func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error) {
 			return validDataset(t, schedule.ProviderPathe, window), pathe.SyncSummary{}, nil
+		},
+		syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+			return validDataset(t, schedule.ProviderCGR, window), cgr.SyncSummary{}, nil
 		},
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
 	}
@@ -352,6 +377,23 @@ func TestProductionExecutorBoundsPatheFetchDiagnostics(t *testing.T) {
 	logLine := logs.String()
 	if !strings.Contains(logLine, `"fetch_category":"unknown"`) || !strings.Contains(logLine, `"request_operation":"unknown"`) || strings.Contains(logLine, `"http_status"`) || strings.Contains(logLine, malicious) {
 		t.Fatalf("unbounded diagnostic log: %s", logLine)
+	}
+}
+
+func TestProductionExecutorRetainsCGRFailureProgressCounters(t *testing.T) {
+	const secret = "synthetic-parser-secret"
+	var logs bytes.Buffer
+	executor := &ProductionExecutor{
+		now:    time.Now,
+		logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+		newCGR: func() (cgr.Getter, error) { return countingCGRGetter{requests: 82}, nil },
+		syncCGR: func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error) {
+			return schedule.Dataset{}, cgr.SyncSummary{Cinemas: 73, Movies: 380, Requests: 0}, errors.New(secret)
+		},
+	}
+	_, err := executor.Run(context.Background(), TargetCGR, Window{From: "2026-08-25"})
+	if err == nil || strings.Contains(logs.String(), secret) || !strings.Contains(logs.String(), `"cinemas":73`) || !strings.Contains(logs.String(), `"movies":380`) || !strings.Contains(logs.String(), `"requests":82`) {
+		t.Fatalf("logs=%q err=%v", logs.String(), err)
 	}
 }
 
@@ -583,6 +625,10 @@ func validDataset(t *testing.T, provider schedule.Provider, window Window) sched
 		theaterID, theaterProviderID, movieID, showingID = "pathe-cinema", "cinema", "movie", "V3308S1"
 		address, postal = "1 rue", "59000"
 		booking = "https://s.pathe.fr/fr/V3308S1/booking"
+	} else if provider == schedule.ProviderCGR {
+		theaterID, theaterProviderID, movieID, showingID = "cgr-W8010", "W8010", "1001", "W8010-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		address, postal = "1 rue", "59000"
+		booking = "https://achat.cgrcinemas.fr/lille/r/123"
 	}
 	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: provider, Scope: schedule.ScopeAll, GeneratedAt: time.Now().UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: window.From, Through: window.From},
 		Theaters:  []schedule.TheaterRecord{{ID: theaterID, ProviderID: theaterProviderID, Slug: theaterID, Name: "Cinéma", Address: address, City: "Lille", PostalCode: postal, AvailableDates: []string{window.From}, AcceptedPasses: passes}},

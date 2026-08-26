@@ -47,7 +47,7 @@ func (s *memoryStore) List(context.Context) ([]Schedule, error) {
 		return nil, s.listErr
 	}
 	result := make([]Schedule, 0, len(s.rows))
-	for _, provider := range []synccontrol.Target{synccontrol.TargetUGC, synccontrol.TargetKinepolis, synccontrol.TargetPathe} {
+	for _, provider := range []synccontrol.Target{synccontrol.TargetUGC, synccontrol.TargetKinepolis, synccontrol.TargetPathe, synccontrol.TargetCGR} {
 		if row, ok := s.rows[provider]; ok {
 			result = append(result, cloneSchedule(row))
 		}

@@ -34,4 +34,13 @@ test('builds cinema descriptions from provider, location, and available-date cou
     postalCode: '69002',
     availableDateCount: 3
   }), 'Pathé Bellecour est un cinéma Pathé à 79 rue de la République, 69002, Lyon. Sa programmation compte 3 dates disponibles.')
+
+  assert.equal(cinemaDescription({
+    name: 'CGR Bordeaux Le Français',
+    provider: 'cgr',
+    city: 'Bordeaux',
+    address: '9 rue Montesquieu',
+    postalCode: '33000',
+    availableDateCount: 4
+  }), 'CGR Bordeaux Le Français est un cinéma CGR à 9 rue Montesquieu, 33000, Bordeaux. Sa programmation compte 4 dates disponibles.')
 })

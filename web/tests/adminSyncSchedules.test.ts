@@ -32,7 +32,8 @@ function job(
     providers: {
       ugc: { state: states.ugc ?? (target === 'ugc' || target === 'all' ? 'succeeded' : 'not_requested') },
       kinepolis: { state: states.kinepolis ?? (target === 'kinepolis' || target === 'all' ? 'succeeded' : 'not_requested') },
-      pathe: { state: states.pathe ?? (target === 'pathe' || target === 'all' ? 'succeeded' : 'not_requested') }
+      pathe: { state: states.pathe ?? (target === 'pathe' || target === 'all' ? 'succeeded' : 'not_requested') },
+      cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -81,6 +82,8 @@ test('selects newest terminal requested provider run across direct and all targe
   assert.equal(selectLatestProviderRun('kinepolis', null, [allNewest])?.id, 'all-newest')
   assert.equal(selectLatestProviderRun('pathe', null, [allNewest])?.id, 'all-newest')
   assert.equal(selectLatestProviderRun('pathe', null, [job('pathe-only', 'pathe', '2026-08-24T15:00:00Z')])?.id, 'pathe-only')
+  assert.equal(selectLatestProviderRun('cgr', null, [allNewest])?.id, 'all-newest')
+  assert.equal(selectLatestProviderRun('cgr', null, [job('cgr-only', 'cgr', '2026-08-24T15:30:00Z')])?.id, 'cgr-only')
   assert.equal(selectLatestProviderRun('kinepolis', null, [job('ugc-only', 'ugc', '2026-08-24T15:00:00Z')]), null)
   assert.equal(selectLatestProviderRun('kinepolis', null, [job('failed-all', 'all', '2026-08-24T16:00:00Z', { kinepolis: 'failed' }, 'failed')])?.id, 'failed-all')
 })

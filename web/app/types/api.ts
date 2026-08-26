@@ -2,7 +2,7 @@ export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = 'VOSTFR' | 'VF' | 'VO' | 'VF_SME'
 export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'ICE'
 export type QueryFormat = 'ALL' | ShowtimeFormat
-export type Provider = 'ugc' | 'kinepolis' | 'pathe'
+export type Provider = 'ugc' | 'kinepolis' | 'pathe' | 'cgr'
 export type MovieSort = 'title_asc' | 'title_desc' | 'release_date_desc' | 'runtime_asc' | 'runtime_desc' | 'showtimes_desc'
 
 export type Language = QueryLanguage

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { VNode } from 'vue'
 import type { Provider } from '~/types/api'
+import { safeBookingUrl } from '~/utils/bookingUrl'
 
 defineOptions({ inheritAttrs: false })
 
@@ -18,44 +19,18 @@ defineSlots<{
 }>()
 
 const reservation = computed(() => {
-  const value = props.url?.trim()
-  if (!value) return null
+  const booking = safeBookingUrl(props.url, props.provider)
+  if (!booking) return null
 
-  try {
-    const parsed = new URL(value)
-    const hostname = parsed.hostname.toLowerCase()
-    const hostProvider: Provider | null = hostname === 'www.ugc.fr'
-      ? 'ugc'
-      : hostname === 'kinepolis.fr'
-        ? 'kinepolis'
-        : hostname === 's.pathe.fr' ? 'pathe' : null
-    const isSafePatheBooking = hostProvider !== 'pathe' || (
-      !parsed.search
-      && !parsed.hash
-      && parsed.href === value
-      && /^\/fr\/[A-Za-z0-9_-]*S[1-9][0-9]*\/booking$/.test(parsed.pathname)
-    )
-    if (
-      parsed.protocol !== 'https:'
-      || !hostProvider
-      || (props.provider && props.provider !== hostProvider)
-      || parsed.username
-      || parsed.password
-      || parsed.port
-      || !isSafePatheBooking
-    ) return null
-
-    const labels = {
-      ugc: 'Réserver sur UGC.fr',
-      kinepolis: 'Réserver sur Kinepolis.fr',
-      pathe: 'Réserver sur Pathé.fr'
-    } satisfies Record<Provider, string>
-    return {
-      url: parsed.href,
-      label: labels[hostProvider]
-    }
-  } catch {
-    return null
+  const labels = {
+    ugc: 'Réserver sur UGC.fr',
+    kinepolis: 'Réserver sur Kinepolis.fr',
+    pathe: 'Réserver sur Pathé.fr',
+    cgr: 'Réserver sur CGR Cinémas'
+  } satisfies Record<Provider, string>
+  return {
+    url: booking.url,
+    label: labels[booking.provider]
   }
 })
 </script>

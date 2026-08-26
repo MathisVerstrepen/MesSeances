@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"messeances/api/internal/cgr"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
@@ -176,6 +177,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewPathe: func() (pathe.Getter, error) {
 			return pathe.NewClient(pathe.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCGR: func() (cgr.Getter, error) {
+			return cgr.NewClient(cgr.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

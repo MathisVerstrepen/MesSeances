@@ -21,6 +21,9 @@ func recordProvider(explicit Provider, identity string) Provider {
 	if strings.HasPrefix(identity, string(ProviderPathe)+"-") {
 		return ProviderPathe
 	}
+	if strings.HasPrefix(identity, string(ProviderCGR)+"-") {
+		return ProviderCGR
+	}
 	return ProviderUGC
 }
 func invalid(message string) error { return &ValidationError{Message: message} }

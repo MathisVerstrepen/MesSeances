@@ -566,6 +566,20 @@ func TestPatheSourceIdentityContracts(t *testing.T) {
 	}
 }
 
+func TestCGRSourceIdentityContracts(t *testing.T) {
+	valid := Match{SourceProvider: SourceCGR, SourceMovieID: "1001", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 90, Candidates: []Candidate{}, EvaluatedAt: matcherNow, RetryAfter: matcherNow.Add(decisionTTL)}
+	if err := validateMatch(valid); err != nil {
+		t.Fatalf("valid CGR source rejected: %v", err)
+	}
+	for _, id := range []string{"", "0", "01", "film-a"} {
+		invalid := valid
+		invalid.SourceMovieID = id
+		if err := validateMatch(invalid); err == nil {
+			t.Fatalf("invalid CGR source accepted: %q", id)
+		}
+	}
+}
+
 func TestMatcherReusesRejectionUntilSourceFingerprintChanges(t *testing.T) {
 	store, provider := newMemoryStore(), &fakeProvider{details: map[int64]tmdb.Details{}}
 	store.matches["10"] = Match{SourceProvider: SourceUGC, SourceMovieID: "10", MetadataProvider: ProviderTMDB, Status: StatusRejected, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 90, Candidates: []Candidate{{ID: 1, Title: "Film"}}, EvaluatedAt: matcherNow, RetryAfter: matcherNow}

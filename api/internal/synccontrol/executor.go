@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"messeances/api/internal/cgr"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/pathe"
@@ -25,6 +26,7 @@ type ProductionExecutorOptions struct {
 	NewUGC           func() (ugc.Getter, error)
 	NewKinepolis     func() (kinepolis.Fetcher, error)
 	NewPathe         func() (pathe.Getter, error)
+	NewCGR           func() (cgr.Getter, error)
 	Enrich           EnrichFunc
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -37,6 +39,7 @@ type ProductionExecutor struct {
 	newUGC           func() (ugc.Getter, error)
 	newKinepolis     func() (kinepolis.Fetcher, error)
 	newPathe         func() (pathe.Getter, error)
+	newCGR           func() (cgr.Getter, error)
 	enrich           EnrichFunc
 	now              func() time.Time
 	logger           *slog.Logger
@@ -45,16 +48,17 @@ type ProductionExecutor struct {
 	syncUGC          func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error)
 	syncKinepolis    func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
 	syncPathe        func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error)
+	syncCGR          func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
 	return &ProductionExecutor{
-		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe,
+		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe, newCGR: options.NewCGR,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
-		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync,
+		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
 }
 
@@ -62,8 +66,8 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	started := time.Now()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe}
-	} else if target != TargetUGC && target != TargetKinepolis && target != TargetPathe {
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR}
+	} else if target != TargetUGC && target != TargetKinepolis && target != TargetPathe && target != TargetCGR {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
 	datasets := make([]schedule.Dataset, 0, len(providers))
@@ -71,7 +75,7 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	for _, provider := range providers {
 		data, syncOutcome, err := e.prepare(ctx, provider, window)
 		if err != nil {
-			e.observe(provider, ProviderOutcome{}, err, time.Since(started))
+			e.observe(provider, ProviderOutcome{Sync: syncOutcome}, err, time.Since(started))
 			return nil, err
 		}
 		datasets = append(datasets, data)
@@ -148,6 +152,21 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		var summary pathe.SyncSummary
 		data, summary, err = e.syncPathe(ctx, client, pathe.SyncOptions{From: window.From, Now: e.now()})
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: summary.Requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+	case TargetCGR:
+		if e.newCGR == nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+		}
+		client, clientErr := e.newCGR()
+		if clientErr != nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
+		}
+		var summary cgr.SyncSummary
+		data, summary, err = e.syncCGR(ctx, client, cgr.SyncOptions{From: window.From, Now: e.now()})
+		requests := summary.Requests
+		if count := client.RequestCount(); count > requests {
+			requests = count
+		}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	default:
 		return data, outcome, newProviderRunError(provider, StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
@@ -210,7 +229,7 @@ func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, e
 			stage = runError.Stage
 		}
 		logArgs[5], logArgs[7], logArgs[9] = result, string(stage), string(code)
-		logArgs = append(logArgs, patheFetchLogArgs(provider, err)...)
+		logArgs = append(logArgs, providerFetchLogArgs(provider, err)...)
 		e.logger.Error("sync_run_completed", logArgs...)
 	} else {
 		e.logger.Info("sync_run_completed", logArgs...)
@@ -220,7 +239,10 @@ func (e *ProductionExecutor) observe(provider Target, outcome ProviderOutcome, e
 	}
 }
 
-func patheFetchLogArgs(provider Target, err error) []any {
+func providerFetchLogArgs(provider Target, err error) []any {
+	if provider == TargetCGR {
+		return cgrFetchLogArgs(err)
+	}
 	if provider != TargetPathe {
 		return nil
 	}
@@ -233,6 +255,57 @@ func patheFetchLogArgs(provider Target, err error) []any {
 	}
 	category := safePatheFetchCategory(requestErr.Category)
 	operation := safePatheRequestOperation(requestErr.Operation)
+	args := []any{"fetch_category", category, "request_operation", operation}
+	if requestErr.StatusCode >= 100 && requestErr.StatusCode <= 599 {
+		args = append(args, "http_status", requestErr.StatusCode)
+	}
+	return args
+}
+
+func cgrFetchLogArgs(err error) []any {
+	var requestErr *cgr.RequestError
+	if !errors.As(err, &requestErr) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return []any{"fetch_category", "canceled", "request_operation", "unknown"}
+		}
+		return nil
+	}
+	category := "unknown"
+	switch requestErr.Category {
+	case cgr.CategoryCanceled:
+		category = "canceled"
+	case cgr.CategoryInvalidURL:
+		category = "invalid_url"
+	case cgr.CategoryNoClient:
+		category = "no_client"
+	case cgr.CategoryTransport:
+		category = "transport"
+	case cgr.CategoryRedirect:
+		category = "redirect"
+	case cgr.CategoryResponseRead:
+		category = "response_read"
+	case cgr.CategoryResponseLarge:
+		category = "response_too_large"
+	case cgr.CategoryServer, cgr.CategoryStatus:
+		category = "status"
+	case cgr.CategoryContentType:
+		category = "content_type"
+	case cgr.CategoryInvalidJSON:
+		category = "invalid_json"
+	case cgr.CategoryEmptyResponse:
+		category = "empty_response"
+	}
+	operation := "unknown"
+	switch requestErr.Operation {
+	case cgr.OperationCinemas:
+		operation = "cinemas"
+	case cgr.OperationProgram:
+		operation = "scheduled_movies"
+	case cgr.OperationSchedule:
+		operation = "schedule"
+	case cgr.OperationMovies:
+		operation = "movies"
+	}
 	args := []any{"fetch_category", category, "request_operation", operation}
 	if requestErr.StatusCode >= 100 && requestErr.StatusCode <= 599 {
 		args = append(args, "http_status", requestErr.StatusCode)
@@ -291,6 +364,9 @@ func safePatheRequestOperation(operation pathe.Operation) string {
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
+		if showing.Movie.RuntimeMinutes == 0 {
+			continue
+		}
 		movie, found := unique[showing.Movie.ProviderID]
 		if !found {
 			movie = enrichment.Movie{SourceProvider: string(provider), ProviderID: showing.Movie.ProviderID, Title: showing.Movie.Title, RuntimeMinutes: showing.Movie.RuntimeMinutes}

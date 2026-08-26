@@ -100,6 +100,7 @@ func TestAdminSyncSchedulesStableOrderAndPreviews(t *testing.T) {
 		{Provider: synccontrol.TargetKinepolis, Revision: 4, Enabled: false, Definition: syncschedule.Definition{Kind: syncschedule.KindCron, Expression: "15 8 * * 1"}, UpdatedAt: updated},
 		{Provider: synccontrol.TargetPathe, Revision: 6, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindDaily, Time: "06:30"}, UpdatedAt: updated},
 		{Provider: synccontrol.TargetUGC, Revision: 2, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindDaily, Time: "12:30"}, UpdatedAt: updated},
+		{Provider: synccontrol.TargetCGR, Revision: 7, Enabled: true, Definition: syncschedule.Definition{Kind: syncschedule.KindDaily, Time: "05:30"}, UpdatedAt: updated},
 	}}
 	handler := syncScheduleAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
@@ -108,7 +109,8 @@ func TestAdminSyncSchedulesStableOrderAndPreviews(t *testing.T) {
 	ugc := strings.Index(body, `"provider":"ugc"`)
 	kinepolis := strings.Index(body, `"provider":"kinepolis"`)
 	pathe := strings.Index(body, `"provider":"pathe"`)
-	if response.Code != http.StatusOK || ugc < 0 || kinepolis < 0 || pathe < 0 || ugc >= kinepolis || kinepolis >= pathe || !strings.Contains(body, `"revision":2`) || !strings.Contains(body, `"revision":4`) || !strings.Contains(body, `"revision":6`) || strings.Count(body, `"next_runs":[`) != 3 || strings.Count(body, "T") < 15 {
+	cgr := strings.Index(body, `"provider":"cgr"`)
+	if response.Code != http.StatusOK || ugc < 0 || kinepolis < 0 || pathe < 0 || cgr < 0 || ugc >= kinepolis || kinepolis >= pathe || pathe >= cgr || !strings.Contains(body, `"revision":2`) || !strings.Contains(body, `"revision":4`) || !strings.Contains(body, `"revision":6`) || !strings.Contains(body, `"revision":7`) || strings.Count(body, `"next_runs":[`) != 4 || strings.Count(body, "T") < 20 {
 		t.Fatalf("status=%d body=%s", response.Code, body)
 	}
 }

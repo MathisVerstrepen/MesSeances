@@ -80,4 +80,7 @@ sync:
 	@printf '%s\n' '[sync] starting Pathé'; \
 	cd api && go run ./cmd/sync-pathe -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
 	@printf '%s\n' '[sync] Pathé finished'
+	@printf '%s\n' '[sync] starting CGR'; \
+	cd api && go run ./cmd/sync-cgr -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
+	@printf '%s\n' '[sync] CGR finished'
 	@printf '%s\n' '[sync] complete'

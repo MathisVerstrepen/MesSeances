@@ -118,7 +118,7 @@ func Reconcile(ctx context.Context, tx pgx.Tx) error {
 	for _, item := range components {
 		item.anchor = chooseAnchor(item)
 		item.metadata = chooseMetadata(item, tmdb[item.tmdbID])
-		if item.metadata.title == "" || item.metadata.runtime <= 0 {
+		if item.metadata.title == "" || item.metadata.runtime < 0 {
 			return fmt.Errorf("public movie canonical metadata is invalid")
 		}
 	}

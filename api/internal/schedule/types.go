@@ -9,6 +9,7 @@ const (
 	ProviderUGC       Provider = "ugc"
 	ProviderKinepolis Provider = "kinepolis"
 	ProviderPathe     Provider = "pathe"
+	ProviderCGR       Provider = "cgr"
 	ProviderCombined  Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"

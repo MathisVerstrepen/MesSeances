@@ -13,6 +13,7 @@ const (
 	SourceUGC       = "ugc"
 	SourceKinepolis = "kinepolis"
 	SourcePathe     = "pathe"
+	SourceCGR       = "cgr"
 	ProviderTMDB    = "tmdb"
 	LocaleFrench    = "fr-FR"
 
@@ -123,7 +124,7 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
-	if provider == SourceUGC {
+	if provider == SourceUGC || provider == SourceCGR {
 		movieID, err := strconv.ParseInt(id, 10, 64)
 		return err == nil && movieID > 0 && strconv.FormatInt(movieID, 10) == id
 	}
