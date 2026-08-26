@@ -10,7 +10,7 @@ func TestValidTargetAcceptsSupportedRoutesAndQueries(t *testing.T) {
 		"/",
 		"/planning?date=2026-08-22&language=VOSTFR&format=IMAX&mode=map&zoom=12",
 		"/recherche?theaters=ugc-25%2Cugc-26&date=2026-08-22&start_after=18%3A00&finish_before=23%3A00&language=VF&format=2D&include_ads=true&buffer_ads=20&grouping=movie&layout=grid",
-		"/films?q=Am%C3%A9lie+Poulain&sort=title&page=2",
+		"/films?q=Am%C3%A9lie+Poulain&sort=title&page=2&genres=Com%C3%A9die%2CDrame&duration=medium&date=2026-08-22&date_to=2026-08-23",
 		"/credits",
 		"/film/ugc-film-42?date=2026-08-22&language=VF&format=2D&sort=time",
 		"/cinema/ugc-lille?date=2026-08-22",
@@ -31,7 +31,7 @@ func TestValidTargetRejectsUnsupportedOrUnsafeTargets(t *testing.T) {
 		"/cinemas", "/cinemas?q=Lille", "/cinemas?%71=Lille", "/cinemas?shared_theaters=ugc-25", "/cinemas?q=Lille&shared_theaters=ugc-25", "/credits?q=x", "/admin", "/ville/lille/cinemas/extra",
 		"/?q=x", "/films?unknown=x", "/cinema/ugc-lille?unknown=x", "/films?q=x&q=y", "/films?q=x&%71=y", "/films?", "/films?q=x&",
 		"/films?q=%", "/films?q=%0A", "/films?q=%00", "/films?%0A=x", "/films?q=x\r\nInjected:x",
-		"/films?date=2026-08-22", strings.Repeat("/", 2049), "/films?q=" + strings.Repeat("x", 2048),
+		"/films?unsupported_date=2026-08-22", strings.Repeat("/", 2049), "/films?q=" + strings.Repeat("x", 2048),
 		string([]byte{'/', 'f', 'i', 'l', 'm', 's', '?', 'q', '=', 0xff}),
 	} {
 		if ValidTarget(target) {

@@ -415,6 +415,16 @@ func TestMoviesTransport(t *testing.T) {
 	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"overview":null,"release_date":null,"genres":[]`) {
 		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
+	if !strings.Contains(all.Body.String(), `"available_genres":["Drame"]`) {
+		t.Fatalf("available genres missing from catalog: %s", all.Body.String())
+	}
+	filtered := performRequest(t, handler, "/api/v1/movies?genres=drame&duration=medium&date=today&page_size=1")
+	if err := json.Unmarshal(filtered.Body.Bytes(), &catalog); err != nil {
+		t.Fatal(err)
+	}
+	if filtered.Code != http.StatusOK || catalog.Total != 1 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || !reflect.DeepEqual(catalog.AvailableGenres, []string{"Drame"}) {
+		t.Fatalf("advanced filtered status=%d payload=%+v", filtered.Code, catalog)
+	}
 	selected := performRequest(t, handler, "/api/v1/movies?theaters=ugc-26&page_size=1")
 	if err := json.Unmarshal(selected.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
@@ -442,6 +452,9 @@ func TestMoviesTransport(t *testing.T) {
 	}
 	if !strings.Contains(empty.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
 		t.Fatalf("snapshot timestamp missing from empty catalog transport: %s", empty.Body.String())
+	}
+	if !strings.Contains(empty.Body.String(), `"items":[],"available_genres":[]`) {
+		t.Fatalf("empty arrays missing from catalog transport: %s", empty.Body.String())
 	}
 
 	for _, test := range []struct {
@@ -690,6 +703,19 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"page size capped", "/api/v1/movies?page_size=101", "Le paramètre page_size doit être un entier compris entre 1 et 100."},
 		{"screened boolean", "/api/v1/movies?currently_screened=non", "Le paramètre currently_screened doit être true ou false."},
 		{"screened numeric boolean", "/api/v1/movies?currently_screened=1", "Le paramètre currently_screened doit être true ou false."},
+		{"movies empty genre", "/api/v1/movies?genres=Drame,", "Le paramètre genres contient une valeur vide."},
+		{"movies empty duration", "/api/v1/movies?duration=", "Le paramètre duration doit être short, medium ou long."},
+		{"movies invalid duration", "/api/v1/movies?duration=tiny", "Le paramètre duration doit être short, medium ou long."},
+		{"movies empty date", "/api/v1/movies?date=", "Le paramètre date doit être today, tomorrow, weekend ou respecter le format YYYY-MM-DD."},
+		{"movies invalid date", "/api/v1/movies?date=15-08-2026", "Le paramètre date doit être today, tomorrow, weekend ou respecter le format YYYY-MM-DD."},
+		{"movies invalid date to", "/api/v1/movies?date=2026-08-16&date_to=17-08-2026", "Le paramètre date_to doit respecter le format YYYY-MM-DD."},
+		{"movies past date", "/api/v1/movies?date=2026-08-14", "Les dates de séance ne peuvent pas être antérieures à aujourd’hui."},
+		{"movies inverted dates", "/api/v1/movies?date=2026-08-17&date_to=2026-08-16", "Le paramètre date_to doit être supérieur ou égal au paramètre date."},
+		{"movies date to without date", "/api/v1/movies?date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{"movies date to with preset", "/api/v1/movies?date=today&date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{"movies date to with malformed start", "/api/v1/movies?date=15-08-2026&date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{"movies ended date", "/api/v1/movies?include_ended=true&date=today", "Le paramètre include_ended est incompatible avec date ou date_to."},
+		{"movies ended date to", "/api/v1/movies?include_ended=true&date_to=2026-08-16", "Le paramètre include_ended est incompatible avec date ou date_to."},
 		{"movies empty theater", "/api/v1/movies?theaters=", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"movies unknown theater", "/api/v1/movies?theaters=inconnu", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"showtimes date required", "/api/v1/movies/tmdb-film-42/showtimes", "Le paramètre date est requis."},

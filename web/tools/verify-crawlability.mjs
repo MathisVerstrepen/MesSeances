@@ -345,6 +345,7 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
     ['/?campaign=1', `${siteUrl}/`],
     ['/films?q=test', `${siteUrl}/films`],
     ['/films?sort=title_asc', `${siteUrl}/films`],
+    ['/films?genres=Drame&duration=medium&date=today', `${siteUrl}/films`],
     ['/films?foreign=1', `${siteUrl}/films`],
     ['/films?page=1', `${siteUrl}/films`],
     ['/films?page=01', `${siteUrl}/films`],

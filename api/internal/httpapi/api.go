@@ -235,6 +235,21 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	var duration *schedule.MovieCatalogDuration
+	if query.Has("duration") {
+		value := schedule.MovieCatalogDuration(query.Get("duration"))
+		duration = &value
+	}
+	var date *string
+	if query.Has("date") {
+		value := query.Get("date")
+		date = &value
+	}
+	var dateTo *string
+	if query.Has("date_to") {
+		value := query.Get("date_to")
+		dateTo = &value
+	}
 
 	result, err := api.schedule.Movies(schedule.MovieCatalogQuery{
 		CurrentlyScreened: currentlyScreened,
@@ -242,6 +257,10 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 		Search:            query.Get("search"),
 		Sort:              schedule.MovieCatalogSort(query.Get("sort")),
 		TheaterIDs:        parseCSVQuery(query, "theaters"),
+		Genres:            parseCSVQuery(query, "genres"),
+		Duration:          duration,
+		Date:              date,
+		DateTo:            dateTo,
 		Page:              page,
 		PageSize:          pageSize,
 	})

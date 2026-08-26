@@ -9,7 +9,7 @@ test('accepts every supported route and owned query key', () => {
     '/',
     '/planning?date=2026-08-22&language=VOSTFR&format=IMAX&mode=map&zoom=12',
     '/recherche?theaters=ugc-25%2Cugc-26&date=2026-08-22&start_after=18%3A00&finish_before=23%3A00&language=VF&format=2D&include_ads=true&buffer_ads=20&grouping=movie&layout=grid',
-    '/films?q=Am%C3%A9lie+Poulain&sort=title&page=2',
+    '/films?q=Am%C3%A9lie+Poulain&sort=title&page=2&genres=Animation%2CDrame&duration=medium&date=2026-08-22&date_to=2026-08-24',
     '/credits',
     '/film/ugc-film-42?date=2026-08-22&language=VF&format=2D&sort=time',
     '/cinema/ugc-lille?date=2026-08-22',
@@ -40,7 +40,7 @@ test('rejects unsafe, malformed, and unsupported targets', () => {
     '/cinemas', '/cinemas?q=Lille', '/cinemas?%71=Lille+centre', '/cinemas?shared_theaters=ugc-25', '/cinemas?q=Lille&shared_theaters=ugc-25',
     '/films?q=x&q=y', '/films?q=x&%71=y', '/films?', '/films?q=x&', '/films?q=%', '/films?q=%C3',
     '/films?q=%0A', '/films?q=%00', '/films?%0A=x', '/films?q=x\r\nInjected:x',
-    '/films?date=2026-08-22', '/films?q=x#fragment', `/films?q=${'x'.repeat(2040)}`, `/${'x'.repeat(2048)}`,
+    '/films?date=today&date=tomorrow', '/films?duration=short&duration=long', '/films?q=x#fragment', `/films?q=${'x'.repeat(2040)}`, `/${'x'.repeat(2048)}`,
     `/films?q=${String.fromCharCode(0xd800)}`
   ]
   for (const target of targets) assert.equal(isValidShortLinkTarget(target), false, target)
