@@ -14,7 +14,7 @@ type memoryStore struct {
 	saveErr   error
 }
 
-func (s *memoryStore) Select(context.Context, Filters) ([]Theater, error) {
+func (s *memoryStore) Select(context.Context) ([]Theater, error) {
 	return s.theaters, s.selectErr
 }
 func (s *memoryStore) Save(_ context.Context, _ *Location, location Location) (bool, error) {
@@ -36,17 +36,17 @@ func (p *fakeProvider) Search(context.Context, Query) ([]Candidate, error) {
 	return p.candidates, p.err
 }
 
-func TestRunnerMatchDryRunSkipsAndAddressChanges(t *testing.T) {
+func TestRunnerMatchesSkipsAndWritesAddressChanges(t *testing.T) {
 	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
-	base := Theater{Provider: "ugc", ProviderID: "25", ID: "ugc-25", Address: "40 rue de Béthune", PostalCode: "59000", City: "Lille"}
+	base := Theater{Provider: "ugc", ProviderID: "25", Address: "40 rue de Béthune", PostalCode: "59000", City: "Lille"}
 	manual := base
-	manual.ProviderID, manual.ID = "26", "ugc-26"
+	manual.ProviderID = "26"
 	manual.Location = &Location{Status: StatusManual}
 	unchanged := base
-	unchanged.ProviderID, unchanged.ID = "27", "ugc-27"
+	unchanged.ProviderID = "27"
 	unchanged.Location = &Location{Status: StatusMatched, AddressHash: AddressHash(unchanged.Address, unchanged.PostalCode, unchanged.City)}
 	stale := base
-	stale.ProviderID, stale.ID = "28", "ugc-28"
+	stale.ProviderID = "28"
 	stale.Location = &Location{Status: StatusNotFound, AddressHash: AddressHash("old", stale.PostalCode, stale.City)}
 	store := &memoryStore{theaters: []Theater{manual, unchanged, base, stale}}
 	provider := &fakeProvider{candidates: []Candidate{{Longitude: 3.0612, Latitude: 50.6321, HasCoordinates: true, Label: "40 Rue de Béthune 59000 Lille", Score: .91, HasScore: true, PostalCode: "59000", City: "LILLE", Type: "housenumber"}}}
@@ -54,8 +54,8 @@ func TestRunnerMatchDryRunSkipsAndAddressChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	summary, err := runner.Run(context.Background(), RunOptions{DryRun: true})
-	if err != nil || summary.Selected != 2 || summary.Skipped != 2 || summary.Matched != 2 || summary.Written != 0 || len(store.saved) != 0 || provider.calls != 2 {
+	summary, err := runner.Run(context.Background(), RunOptions{})
+	if err != nil || summary.Selected != 2 || summary.Skipped != 2 || summary.Matched != 2 || summary.Written != 2 || len(store.saved) != 2 || provider.calls != 2 {
 		t.Fatalf("summary=%+v saved=%d calls=%d err=%v", summary, len(store.saved), provider.calls, err)
 	}
 }
@@ -87,11 +87,11 @@ func TestRunnerPreserveMatchedSelectionMatrix(t *testing.T) {
 		})
 	}
 	if !processable(&Location{Status: StatusMatched, AddressHash: oldHash}, currentHash, true, false) {
-		t.Fatal("default CLI selection no longer retries a changed matched row")
+		t.Fatal("PreserveMatched=false no longer retries a changed matched row")
 	}
 }
 
-func TestRunnerAmbiguousNotFoundLimitAndPartialFailure(t *testing.T) {
+func TestRunnerAmbiguousNotFoundAndPartialFailure(t *testing.T) {
 	theaters := []Theater{{Provider: "ugc", ProviderID: "1", Address: "", PostalCode: "59000", City: "Lille"}, {Provider: "ugc", ProviderID: "2", Address: "2 rue", PostalCode: "59000", City: "Lille"}}
 	store := &memoryStore{theaters: theaters}
 	provider := &fakeProvider{candidates: []Candidate{{Label: "2 Rue", Score: .95, HasScore: true, PostalCode: "59100", City: "Lille", Type: "housenumber"}}}
@@ -102,14 +102,8 @@ func TestRunnerAmbiguousNotFoundLimitAndPartialFailure(t *testing.T) {
 	}
 	provider.err = errors.New("secret provider failure")
 	store.saved = nil
-	summary, err = runner.Run(context.Background(), RunOptions{Limit: 1})
-	if err != nil || summary.Selected != 1 || summary.NotFound != 1 || summary.Failed != 0 {
-		t.Fatalf("limited summary=%+v err=%v", summary, err)
-	}
-	store.theaters = theaters[1:]
-	store.saved = nil
 	summary, err = runner.Run(context.Background(), RunOptions{})
-	if err == nil || summary.Failed != 1 || len(store.saved) != 0 {
+	if err == nil || summary.Selected != 2 || summary.NotFound != 1 || summary.Failed != 1 || summary.Written != 1 || len(store.saved) != 1 {
 		t.Fatalf("failure summary=%+v saved=%d err=%v", summary, len(store.saved), err)
 	}
 }

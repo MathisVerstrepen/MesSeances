@@ -44,16 +44,10 @@ type CandidateSuggestion struct {
 type Theater struct {
 	Provider   string
 	ProviderID string
-	ID         string
 	Address    string
 	PostalCode string
 	City       string
 	Location   *Location
-}
-
-type Filters struct {
-	Provider  string
-	TheaterID string
 }
 
 type Query struct {
@@ -79,10 +73,6 @@ type Provider interface {
 }
 
 type Store interface {
-	Select(context.Context, Filters) ([]Theater, error)
+	Select(context.Context) ([]Theater, error)
 	Save(context.Context, *Location, Location) (bool, error)
-}
-
-func ValidProvider(value string) bool {
-	return value == "ugc" || value == "kinepolis" || value == "pathe" || value == "cgr"
 }

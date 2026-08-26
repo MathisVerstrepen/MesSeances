@@ -129,7 +129,7 @@ func TestManagerStartsFixedBatchWithoutBlockingAndRejectsOverlap(t *testing.T) {
 	}
 	select {
 	case options := <-started:
-		if !options.RetryAmbiguous || !options.PreserveMatched || options.DryRun || options.Limit != 0 || options.Filters != (Filters{}) {
+		if !options.RetryAmbiguous || !options.PreserveMatched {
 			t.Fatalf("options=%+v", options)
 		}
 	case <-time.After(time.Second):

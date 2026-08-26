@@ -63,18 +63,9 @@ CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr
 
 ### Theater geocoding
 
-Theater coordinates live in stable rows outside schedule generations. After a complete snapshot exists, forward-geocode its addresses with IGN Géoplateforme:
+Theater coordinates live in stable rows outside schedule generations. After a complete snapshot exists, authenticated administrators can launch geocoding from the theater-locations page. This in-process job uses IGN Géoplateforme with a fixed 20-second timeout and processes new theaters, every ambiguous row, and changed not-found rows. It preserves every matched or manual row and unchanged not-found row. Requests run sequentially at no more than five starts per second and use bounded retries. Launch returns immediately, status and terminal counters are durable, and only one admin-launched geocoding job can run across API replicas.
 
-```sh
-cd api
-go run ./cmd/geocode-theaters
-```
-
-Available controls are `-dry-run`, `-provider ugc|kinepolis|pathe|cgr`, `-theater-id <canonical-id>`, `-limit <count>`, `-retry-ambiguous`, and `-timeout <duration>`. `-limit 0` is unlimited. Dry-run suppresses database writes but still sends IGN requests. Requests run sequentially at no more than five starts per second and use bounded retries.
-
-Authenticated administrators can also launch geocoding from the theater-locations page. This in-process job uses a fixed 20-second IGN timeout and processes new theaters, every ambiguous row, and changed not-found rows. It preserves every matched or manual row and unchanged not-found row. Launch returns immediately, status and terminal counters are durable, and only one admin-launched geocoding job can run across API replicas.
-
-Results are stored as `matched`, `ambiguous`, or `not_found`. Unchanged terminal results are skipped, changed address inputs are eligible again, and unchanged ambiguous rows require `-retry-ambiguous`. Manually curated `manual` rows are always protected. Failed requests leave prior rows untouched. Schedule loading accepts manual coordinates and only matched IGN coordinates whose stored address hash still matches current address inputs.
+Results are stored as `matched`, `ambiguous`, or `not_found`. Failed requests leave prior rows untouched. Schedule loading accepts manual coordinates and only matched IGN coordinates whose stored address hash still matches current address inputs.
 
 `GET /api/v1/theaters` returns `latitude` and `longitude` as numbers when accepted and explicit JSON `null` otherwise. Other theater-bearing API responses remain unchanged.
 

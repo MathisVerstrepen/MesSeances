@@ -66,7 +66,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		t.Fatal("publish schedule fixture failed")
 	}
 	store := geocoding.NewPostgresStore(pool)
-	theaters, err := store.Select(ctx, geocoding.Filters{Provider: "ugc", TheaterID: "ugc-25"})
+	theaters, err := store.Select(ctx)
 	if err != nil || len(theaters) != 1 || theaters[0].Location != nil {
 		t.Fatalf("selected=%+v err=%v", theaters, err)
 	}
@@ -78,7 +78,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err != nil || !written {
 		t.Fatalf("save ambiguous written=%t err=%v", written, err)
 	}
-	theaters, err = store.Select(ctx, geocoding.Filters{})
+	theaters, err = store.Select(ctx)
 	if err != nil || len(theaters) != 1 || theaters[0].Location == nil || theaters[0].Location.Suggestion == nil || theaters[0].Location.Suggestion.Latitude == nil || *theaters[0].Location.Suggestion.Latitude != latitude || theaters[0].Location.Suggestion.PostalCode != "59000" || theaters[0].Location.Suggestion.Type != "street" {
 		t.Fatalf("ambiguous round trip=%+v err=%v", theaters, err)
 	}
@@ -91,7 +91,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT candidate_latitude,candidate_longitude,candidate_postal_code,candidate_city,candidate_type FROM theater_locations WHERE provider='ugc' AND provider_theater_id='25'`).Scan(&candidateLatitude, &candidateLongitude, &candidatePostalCode, &candidateCity, &candidateType); err != nil || candidateLatitude != nil || candidateLongitude != nil || candidatePostalCode != nil || candidateCity != nil || candidateType != nil {
 		t.Fatalf("not-found suggestion not cleared: %v/%v/%v/%v/%v err=%v", candidateLatitude, candidateLongitude, candidatePostalCode, candidateCity, candidateType, err)
 	}
-	theaters, err = store.Select(ctx, geocoding.Filters{})
+	theaters, err = store.Select(ctx)
 	if err != nil || len(theaters) != 1 || theaters[0].Location == nil || theaters[0].Location.Status != geocoding.StatusNotFound {
 		t.Fatalf("not-found round trip=%+v err=%v", theaters, err)
 	}
@@ -100,7 +100,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if err != nil || !written {
 		t.Fatalf("restore ambiguous written=%t err=%v", written, err)
 	}
-	theaters, err = store.Select(ctx, geocoding.Filters{})
+	theaters, err = store.Select(ctx)
 	if err != nil || len(theaters) != 1 || theaters[0].Location == nil || theaters[0].Location.Suggestion == nil {
 		t.Fatalf("restored ambiguous=%+v err=%v", theaters, err)
 	}
@@ -125,7 +125,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE theater_locations SET latitude=50.63,longitude=3.06,source='manual',matched_label=NULL,match_score=NULL,address_hash=NULL,status='manual',updated_at=$1 WHERE provider='ugc' AND provider_theater_id='25'`, now.Add(time.Minute)); err != nil {
 		t.Fatal("install manual fixture failed")
 	}
-	theaters, err = store.Select(ctx, geocoding.Filters{})
+	theaters, err = store.Select(ctx)
 	if err != nil || len(theaters) != 1 || theaters[0].Location == nil || theaters[0].Location.Status != geocoding.StatusManual {
 		t.Fatalf("manual selection=%+v err=%v", theaters, err)
 	}

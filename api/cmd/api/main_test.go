@@ -51,7 +51,7 @@ func (testSnapshotWriter) Replace(context.Context, []schedule.Dataset) (schedule
 	return schedule.PublicationResult{}, nil
 }
 
-func (testGeocodingStore) Select(context.Context, geocoding.Filters) ([]geocoding.Theater, error) {
+func (testGeocodingStore) Select(context.Context) ([]geocoding.Theater, error) {
 	return nil, nil
 }
 

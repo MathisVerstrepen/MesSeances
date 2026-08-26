@@ -10,15 +10,11 @@ import (
 )
 
 type RunOptions struct {
-	Filters         Filters
-	Limit           int
 	RetryAmbiguous  bool
 	PreserveMatched bool
-	DryRun          bool
 }
 
 type Summary struct {
-	DryRun    bool
 	Selected  int
 	Skipped   int
 	Matched   int
@@ -45,11 +41,8 @@ func NewRunner(store Store, provider Provider, now func() time.Time) (*Runner, e
 }
 
 func (r *Runner) Run(ctx context.Context, options RunOptions) (Summary, error) {
-	summary := Summary{DryRun: options.DryRun}
-	if options.Limit < 0 {
-		return summary, fmt.Errorf("invalid geocoding limit")
-	}
-	theaters, err := r.store.Select(ctx, options.Filters)
+	var summary Summary
+	theaters, err := r.store.Select(ctx)
 	if err != nil {
 		return summary, err
 	}
@@ -58,9 +51,6 @@ func (r *Runner) Run(ctx context.Context, options RunOptions) (Summary, error) {
 		if !processable(theater.Location, hash, options.RetryAmbiguous, options.PreserveMatched) {
 			summary.Skipped++
 			continue
-		}
-		if options.Limit > 0 && summary.Selected >= options.Limit {
-			break
 		}
 		summary.Selected++
 		location := Location{Provider: theater.Provider, ProviderTheaterID: theater.ProviderID, Source: SourceIGN, AddressHash: hash, UpdatedAt: r.now().UTC()}
@@ -79,9 +69,6 @@ func (r *Runner) Run(ctx context.Context, options RunOptions) (Summary, error) {
 			}
 		}
 		incrementStatus(&summary, location.Status)
-		if options.DryRun {
-			continue
-		}
 		written, saveErr := r.store.Save(ctx, theater.Location, location)
 		if saveErr != nil {
 			summary.Failed++

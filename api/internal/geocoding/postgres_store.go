@@ -16,15 +16,15 @@ type PostgresStore struct{ pool *pgxpool.Pool }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore { return &PostgresStore{pool: pool} }
 
-func (s *PostgresStore) Select(ctx context.Context, filters Filters) ([]Theater, error) {
-	rows, err := s.pool.Query(ctx, `SELECT t.provider, t.provider_id, t.id, t.address, t.postal_code, t.city,
+func (s *PostgresStore) Select(ctx context.Context) ([]Theater, error) {
+	rows, err := s.pool.Query(ctx, `SELECT t.provider, t.provider_id, t.address, t.postal_code, t.city,
        l.latitude, l.longitude, l.source, l.matched_label, l.match_score, l.address_hash, l.status, l.updated_at,
        l.candidate_latitude, l.candidate_longitude, l.candidate_postal_code, l.candidate_city, l.candidate_type
 FROM schedule_snapshot snapshot
 JOIN theaters t ON t.generation_id=snapshot.version
 LEFT JOIN theater_locations l ON l.provider=t.provider AND l.provider_theater_id=t.provider_id
-WHERE snapshot.singleton=true AND ($1='' OR t.provider=$1) AND ($2='' OR t.id=$2)
-ORDER BY t.provider, t.provider_id, t.id`, filters.Provider, filters.TheaterID)
+WHERE snapshot.singleton=true
+ORDER BY t.provider, t.provider_id, t.id`)
 	if err != nil {
 		return nil, fmt.Errorf("select theaters for geocoding failed")
 	}
@@ -37,7 +37,7 @@ ORDER BY t.provider, t.provider_id, t.id`, filters.Provider, filters.TheaterID)
 		var candidateLatitude, candidateLongitude *float64
 		var candidatePostalCode, candidateCity, candidateType *string
 		var updatedAt *time.Time
-		if err := rows.Scan(&theater.Provider, &theater.ProviderID, &theater.ID, &theater.Address, &theater.PostalCode, &theater.City, &latitude, &longitude, &source, &label, &score, &hash, &status, &updatedAt, &candidateLatitude, &candidateLongitude, &candidatePostalCode, &candidateCity, &candidateType); err != nil {
+		if err := rows.Scan(&theater.Provider, &theater.ProviderID, &theater.Address, &theater.PostalCode, &theater.City, &latitude, &longitude, &source, &label, &score, &hash, &status, &updatedAt, &candidateLatitude, &candidateLongitude, &candidatePostalCode, &candidateCity, &candidateType); err != nil {
 			return nil, fmt.Errorf("select theaters for geocoding failed")
 		}
 		if status != nil {
