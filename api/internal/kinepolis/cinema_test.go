@@ -22,12 +22,12 @@ func TestCinemaDefinitionCatalog(t *testing.T) {
 		{providerID: "BRETI", scheduleName: "Kinepolis Brétigny-sur-Orge", path: "/cinemas/kinepolis-bretigny-sur-orge/infos/", detailNames: []string{"Kinepolis Brétigny-sur-Orge"}},
 		{providerID: "KLOM", scheduleName: "Kinepolis Lomme", path: "/cinemas/kinepolis-lomme/infos/", detailNames: []string{"Kinepolis Lomme"}},
 		{providerID: "ULONG", scheduleName: "Kinepolis Longwy", path: "/cinemas/kinepolis-longwy/infos/", detailNames: []string{"Kinepolis Longwy"}},
-		{providerID: "KMETZ", scheduleName: "Kinepolis St-Julien-lès-Metz", path: "/cinemas/kinepolis-st-julien-les-metz/infos/", detailNames: []string{"Kinepolis St-Julien-lès-Metz"}},
-		{providerID: "KNIM", scheduleName: "Kinepolis Nîmes", path: "/cinemas/kinepolis-nimes/infos/", detailNames: []string{"Kinepolis Nîmes"}},
+		{providerID: "KMETZ", scheduleName: "Kinepolis St-Julien-lès-Metz", path: "/cinemas/kinepolis-st-julien-les-metz/infos/", detailNames: []string{"Kinepolis St-Julien-lès-Metz", "Kinepolis St-Julien lès Metz"}},
+		{providerID: "KNIM", scheduleName: "Kinepolis Nîmes", path: "/cinemas/kinepolis-nimes/infos/", detailNames: []string{"Kinepolis Nîmes", "Kinepolis Nimes"}},
 		{providerID: "KSERV", scheduleName: "Kinepolis Servon", path: "/cinémas/kinepolis-servon/info/", detailNames: []string{"Kinepolis Servon"}},
 		{providerID: "KTHIO", scheduleName: "Kinepolis Thionville", path: "/cinemas/kinepolis-thionville/infos/", detailNames: []string{"Kinepolis Thionville"}},
 		{providerID: "WAVES", scheduleName: "Kinepolis Waves", path: "/cinémas/kinepolis-waves/info/", detailNames: []string{"Kinepolis Waves"}},
-		{providerID: "MTZAM", scheduleName: "Kinepolis Amphi Quartier Muse", path: "/cinémas/kinepolis-amphi-quartier-muse/info/", detailNames: []string{"Kinepolis Amphi Quartier Muse", "Kinepolis Amphi"}},
+		{providerID: "MTZAM", scheduleName: "Kinepolis Amphi Quartier Muse", path: "/cinémas/kinepolis-amphi-quartier-muse/info/", detailNames: []string{"Kinepolis Amphi Quartier Muse", "Kinepolis Amphi", "Kinepolis AMPHI – Quartier Muse"}},
 		{providerID: "FRAMN", scheduleName: "Kinepolis Amnéville", path: "/cinémas/kinepolis-amneville/info/", detailNames: []string{"Kinepolis Amnéville"}},
 		{providerID: "FRBLF", scheduleName: "Kinepolis Belfort", path: "/cinémas/kinepolis-belfort/info/", detailNames: []string{"Kinepolis Belfort"}},
 		{providerID: "FRBEZ", scheduleName: "Kinepolis Béziers", path: "/cinemas/kinepolis-beziers/info/", detailNames: []string{"Kinepolis Béziers"}},
@@ -139,6 +139,60 @@ func TestParseCinemaDetailIdentityAndPostalAddress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseCinemaDetailAcceptsObservedLiveIdentityVariants(t *testing.T) {
+	want := cinemaAddress{address: "1 rue", city: "Metz", postalCode: "57000"}
+	tests := []struct {
+		name         string
+		identity     string
+		allowedNames []string
+	}{
+		{name: "KMETZ", identity: "Kinepolis St-Julien lès Metz", allowedNames: []string{"Kinepolis St-Julien-lès-Metz", "Kinepolis St-Julien lès Metz"}},
+		{name: "KNIM", identity: "Kinepolis Nimes", allowedNames: []string{"Kinepolis Nîmes", "Kinepolis Nimes"}},
+		{name: "MTZAM", identity: "Kinepolis AMPHI – Quartier Muse", allowedNames: []string{"Kinepolis Amphi Quartier Muse", "Kinepolis Amphi", "Kinepolis AMPHI – Quartier Muse"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(ldScript(theaterJSON("MovieTheater", test.identity, want)))
+			address, err := parseCinemaDetail(body, test.allowedNames)
+			if err != nil || address != want {
+				t.Fatalf("address=%+v err=%v", address, err)
+			}
+		})
+	}
+}
+
+func TestParseCinemaDetailDoesNotNormalizeUnconfiguredPunctuationOrDiacritics(t *testing.T) {
+	address := cinemaAddress{address: "1 rue", city: "Metz", postalCode: "57000"}
+	tests := []struct {
+		name         string
+		identity     string
+		allowedNames []string
+	}{
+		{name: "KMETZ punctuation", identity: "Kinepolis St Julien lès Metz", allowedNames: []string{"Kinepolis St-Julien-lès-Metz", "Kinepolis St-Julien lès Metz"}},
+		{name: "KNIM diacritic", identity: "Kinépolis Nimes", allowedNames: []string{"Kinepolis Nîmes", "Kinepolis Nimes"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(ldScript(theaterJSON("MovieTheater", test.identity, address)))
+			if result, err := parseCinemaDetail(body, test.allowedNames); err == nil {
+				t.Fatalf("address=%+v", result)
+			}
+		})
+	}
+}
+
+func TestFRBEZUsesCanonicalDetailPath(t *testing.T) {
+	for _, definition := range cinemaDefinitions {
+		if definition.providerID == "FRBEZ" {
+			if definition.path != "/cinemas/kinepolis-beziers/info/" {
+				t.Fatalf("path=%q", definition.path)
+			}
+			return
+		}
+	}
+	t.Fatal("FRBEZ definition missing")
 }
 
 func TestParseCinemaDetailFailsClosed(t *testing.T) {
