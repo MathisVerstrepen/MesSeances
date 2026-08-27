@@ -38,6 +38,7 @@ const {
 
 type PreferenceTheater = Theater
 type LocationStatus = 'idle' | 'requesting' | 'active' | 'failed'
+type ViewMode = 'list' | 'map'
 
 const search = ref('')
 const statusMessage = ref('')
@@ -46,6 +47,8 @@ const locationStatus = ref<LocationStatus>('idle')
 const locationError = ref('')
 const userPosition = ref<GeographicPoint | null>(null)
 const locationAccuracyMeters = ref<number | null>(null)
+const viewMode = ref<ViewMode>('list')
+const preferencesReady = ref(false)
 let isUnmounted = false
 
 function cinemaQuery(value: string) {
@@ -170,13 +173,22 @@ function reportRequiredSelection() {
   validationMessage.value = 'Conservez au moins un cinéma dans vos favoris.'
 }
 
-function toggleTheater(id: string, event: Event) {
+function toggleTheater(id: string, event?: Event) {
   if (!toggleFavoriteTheater(id)) {
-    if (event.currentTarget instanceof HTMLInputElement) event.currentTarget.checked = true
+    if (event?.currentTarget instanceof HTMLInputElement) event.currentTarget.checked = true
     reportRequiredSelection()
     return
   }
   reportSaved()
+}
+
+function showList() {
+  viewMode.value = 'list'
+}
+
+function recoverMapBoundary(clearError: () => void) {
+  showList()
+  clearError()
 }
 
 function updateGroup(groupTheaters: readonly PreferenceTheater[], select: boolean) {
@@ -216,6 +228,7 @@ onMounted(async () => {
   const query = hydrateRoute()
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   await loadPreferences()
+  if (!isUnmounted) preferencesReady.value = true
 })
 onBeforeUnmount(() => {
   isUnmounted = true
@@ -364,7 +377,13 @@ useHead(() => ({
             <p class="utility-label">{{ visibleTheaterCount }} cinéma{{ visibleTheaterCount > 1 ? 's' : '' }}</p>
           </div>
 
-          <div v-if="isNearbyMode" class="theater-grid grid border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] sm:grid-cols-2">
+          <div class="view-switch mb-7" role="group" aria-label="Mode d’affichage des cinémas">
+            <button type="button" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'">Liste</button>
+            <button type="button" :aria-pressed="viewMode === 'map'" @click="viewMode = 'map'">Carte</button>
+          </div>
+
+          <template v-if="viewMode === 'list'">
+            <div v-if="isNearbyMode" class="theater-grid grid border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] sm:grid-cols-2">
             <div
               v-for="row in nearbyRows"
               :key="row.theater.id"
@@ -382,10 +401,10 @@ useHead(() => ({
               </label>
               <NuxtLink :to="`/cinema/${encodeURIComponent(row.theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
             </div>
-          </div>
+            </div>
 
-          <div v-else class="space-y-8">
-            <section v-for="group in visibleGroups" :key="group.city" class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
+            <div v-else class="space-y-8">
+              <section v-for="group in visibleGroups" :key="group.city" class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
               <header class="grid gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
                 <div class="min-w-0">
                   <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">
@@ -394,22 +413,28 @@ useHead(() => ({
                   <p class="utility-label mt-1">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
                 <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier les favoris à ${group.city}`">
-                  <button
-                    type="button"
-                    class="group-action"
-                    :disabled="group.theaters.every((theater) => selectedIds.has(theater.id))"
-                    @click="updateGroup(group.theaters, true)"
-                  >
-                    Tout sélectionner
-                  </button>
-                  <button
-                    type="button"
-                    class="group-action group-action--secondary"
-                    :disabled="group.theaters.every((theater) => !selectedIds.has(theater.id))"
-                    @click="updateGroup(group.theaters, false)"
-                  >
-                    Désélectionner
-                  </button>
+                  <ClientOnly>
+                    <button
+                      type="button"
+                      class="group-action"
+                      :disabled="!preferencesReady || group.theaters.every((theater) => selectedIds.has(theater.id))"
+                      @click="updateGroup(group.theaters, true)"
+                    >
+                      Tout sélectionner
+                    </button>
+                    <button
+                      type="button"
+                      class="group-action group-action--secondary"
+                      :disabled="!preferencesReady || group.theaters.every((theater) => !selectedIds.has(theater.id))"
+                      @click="updateGroup(group.theaters, false)"
+                    >
+                      Désélectionner
+                    </button>
+                    <template #fallback>
+                      <button type="button" class="group-action" disabled>Tout sélectionner</button>
+                      <button type="button" class="group-action group-action--secondary" disabled>Désélectionner</button>
+                    </template>
+                  </ClientOnly>
                 </div>
               </header>
 
@@ -431,8 +456,25 @@ useHead(() => ({
                   <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
                 </div>
               </div>
-            </section>
-          </div>
+              </section>
+            </div>
+          </template>
+
+          <NuxtErrorBoundary v-else>
+            <LazyCinemaTheaterMap
+              :theaters="filteredTheaters"
+              :favorite-theater-ids="favoriteTheaterIds"
+              :user-position="userPosition"
+              @show-list="showList"
+              @toggle-favorite="toggleTheater"
+            />
+            <template #error="{ clearError }">
+              <div class="map-boundary-failure" role="alert">
+                <strong>La carte ne peut pas être affichée.</strong>
+                <button type="button" class="state-button" @click="recoverMapBoundary(clearError)">Afficher la liste</button>
+              </div>
+            </template>
+          </NuxtErrorBoundary>
         </div>
       </div>
     </section>
@@ -521,7 +563,8 @@ useHead(() => ({
 
 .state-button:focus-visible,
 .group-action:focus-visible,
-.location-action:focus-visible {
+.location-action:focus-visible,
+.view-switch button:focus-visible {
   outline: 3px solid #27272a;
   outline-offset: 3px;
 }
@@ -597,6 +640,46 @@ useHead(() => ({
   border: 2px solid #27272a;
   background: var(--color-highlight);
   padding: 0.15rem 0.4rem;
+}
+
+.view-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(5.5rem, 1fr));
+  border: 2px solid #27272a;
+  background: #fff;
+}
+
+.view-switch button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.view-switch button + button {
+  border-left: 2px solid #27272a;
+}
+
+.view-switch button[aria-pressed="true"] {
+  background: #27272a;
+  color: #fff;
+  box-shadow: inset 0 -4px 0 var(--color-highlight);
+}
+
+.map-boundary-failure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 2px solid #991b1b;
+  background: #fef2f2;
+  padding: 1rem;
+  color: #7f1d1d;
+  box-shadow: 4px 4px 0 #991b1b;
 }
 
 .theater-option:nth-child(odd) {
