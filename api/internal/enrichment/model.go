@@ -170,5 +170,5 @@ func validateMetadata(metadata Metadata) error {
 }
 
 func validRuntimeMinutes(minutes int) bool {
-	return minutes > 0 && int64(minutes) <= int64(math.MaxInt64/time.Minute)
+	return minutes >= 0 && int64(minutes) <= int64(math.MaxInt64/time.Minute)
 }

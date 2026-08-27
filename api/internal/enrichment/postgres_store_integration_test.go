@@ -805,4 +805,31 @@ VALUES (1,'kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); 
 			t.Fatalf("stored genres=%#v", genres)
 		}
 	})
+
+	t.Run("approve unknown runtime", func(t *testing.T) {
+		const movieID = "9090"
+		const tmdbID int64 = 909000
+		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes)
+VALUES (1,'cgr',$1,'cgr-film-9090','Film à venir',0)`, movieID); err != nil {
+			t.Fatalf("insert unknown-runtime movie failed: %v", err)
+		}
+		provider := &reviewProviderStub{details: tmdb.Details{ID: tmdbID, Title: "Film à venir", OriginalTitle: "Film à venir", Runtime: 0, Genres: []string{}}}
+		if err := NewReviewService(store, provider, func() time.Time { return now.Add(5 * time.Hour) }).Approve(ctx, SourceCGR, movieID, tmdbID); err != nil {
+			t.Fatalf("approve unknown-runtime movie failed: %v", err)
+		}
+		if provider.calls != 1 {
+			t.Fatalf("provider detail calls=%d", provider.calls)
+		}
+		var status string
+		var sourceRuntime, metadataRuntime, publicRuntime int
+		if err := pool.QueryRow(ctx, `SELECT status, source_runtime_minutes FROM movie_matches WHERE source_provider='cgr' AND source_movie_id=$1 AND metadata_provider='tmdb'`, movieID).Scan(&status, &sourceRuntime); err != nil || status != StatusMatched || sourceRuntime != 0 {
+			t.Fatalf("stored match status=%q runtime=%d error=%v", status, sourceRuntime, err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT runtime_minutes FROM movie_metadata_cache WHERE provider='tmdb' AND provider_movie_id=$1 AND locale='fr-FR'`, tmdbID).Scan(&metadataRuntime); err != nil || metadataRuntime != 0 {
+			t.Fatalf("stored metadata runtime=%d error=%v", metadataRuntime, err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT runtime_minutes FROM public_movies WHERE confirmed_tmdb_id=$1 AND redirect_to_id IS NULL`, tmdbID).Scan(&publicRuntime); err != nil || publicRuntime != 0 {
+			t.Fatalf("public movie runtime=%d error=%v", publicRuntime, err)
+		}
+	})
 }

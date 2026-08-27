@@ -194,9 +194,11 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 		}
 	}
 	for _, constraint := range []string{
-		"movies_runtime_minutes_positive_check",
-		"movie_matches_source_runtime_minutes_positive_check",
-		"movie_metadata_cache_runtime_minutes_positive_check",
+		"movies_runtime_minutes_nonnegative_check",
+		"movie_matches_source_runtime_minutes_nonnegative_check",
+		"movie_metadata_cache_runtime_minutes_nonnegative_check",
+		"public_movies_runtime_minutes_nonnegative_check",
+		"public_movie_sources_runtime_minutes_nonnegative_check",
 	} {
 		var exists bool
 		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname=$1)`, constraint).Scan(&exists); err != nil || !exists {
@@ -207,18 +209,30 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 		"UPDATE movies SET runtime_minutes=%d WHERE provider_id='10'",
 		"UPDATE movie_matches SET source_runtime_minutes=%d WHERE source_movie_id='10'",
 		"UPDATE movie_metadata_cache SET runtime_minutes=%d WHERE provider_movie_id=41",
+		"UPDATE public_movies SET runtime_minutes=%d WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'",
+		"UPDATE public_movie_sources SET runtime_minutes=%d WHERE source_provider='ugc' AND source_movie_id='10'",
 	}
 	for _, statement := range updates {
 		if _, err := pool.Exec(ctx, fmt.Sprintf(statement, 721)); err != nil {
 			t.Fatalf("marathon runtime rejected by %s: %v", statement, err)
 		}
 	}
-	for _, runtime := range []int{0, -1} {
-		for _, statement := range updates {
-			query := fmt.Sprintf(statement, runtime)
-			if _, err := pool.Exec(ctx, query); err == nil {
-				t.Fatalf("invalid runtime accepted: %s", query)
-			}
+	for _, statement := range updates {
+		query := fmt.Sprintf(statement, 0)
+		if _, err := pool.Exec(ctx, query); err != nil {
+			t.Fatalf("unknown runtime rejected: %s: %v", query, err)
+		}
+	}
+	for _, statement := range updates {
+		query := fmt.Sprintf(statement, -1)
+		if _, err := pool.Exec(ctx, query); err == nil {
+			t.Fatalf("negative runtime accepted: %s", query)
+		}
+	}
+	for _, statement := range updates {
+		query := fmt.Sprintf(statement, 721)
+		if _, err := pool.Exec(ctx, query); err != nil {
+			t.Fatalf("marathon runtime restore rejected by %s: %v", statement, err)
 		}
 	}
 	for _, query := range []string{
