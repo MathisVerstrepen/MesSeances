@@ -662,6 +662,182 @@ func TestMoviesCatalogTheaterScopeFiltersCountsAndPaginates(t *testing.T) {
 	}
 }
 
+func TestMoviesCatalogGenreAndDurationFiltersPrecedePagination(t *testing.T) {
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := testDataset()
+	data.Window = Window{From: "2026-08-14", Through: "2026-08-14"}
+	data.Theaters = data.Theaters[:1]
+	data.Theaters[0].AvailableDates = []string{"2026-08-14"}
+	showing := func(id, title string, runtime int, genres []string, hour int) ShowtimeRecord {
+		start := time.Date(2026, 8, 14, hour, 0, 0, 0, location)
+		return ShowtimeRecord{
+			ID:                "ugc-showing-" + id,
+			ProviderShowingID: id,
+			ServiceDate:       "2026-08-14",
+			TheaterID:         "ugc-25",
+			Movie:             MovieRecord{ProviderID: id, Slug: "ugc-film-" + id, Title: title, RuntimeMinutes: runtime, Genres: genres},
+			StartTime:         start,
+			EndTime:           start.Add(time.Duration(runtime) * time.Minute),
+		}
+	}
+	courtEncore := showing("1001", "Court", 89, []string{"Comédie"}, 19)
+	courtEncore.ID = "ugc-showing-1006"
+	courtEncore.ProviderShowingID = "1006"
+	data.Showtimes = []ShowtimeRecord{
+		showing("1000", "Zéro", 0, []string{"Documentaire"}, 12),
+		showing("1001", "Court", 89, []string{"Comédie"}, 13),
+		showing("1002", "Bas", 90, []string{"Drame"}, 15),
+		showing("1003", "Haut", 120, []string{"Animation"}, 16),
+		showing("1004", "Long", 121, []string{"Comédie", "Drame"}, 17),
+		showing("1005", "Milieu", 100, []string{"Thriller"}, 18),
+		courtEncore,
+	}
+	service, err := NewService(newTestSource(data), ServiceOptions{Now: func() time.Time {
+		return time.Date(2026, 8, 14, 8, 0, 0, 0, location)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := service.Movies(MovieCatalogQuery{Genres: []string{" drame ", "COMÉDIE", "Drame"}, Sort: MovieCatalogSortTitleAsc, Page: 2, PageSize: 1})
+	if err != nil || page.Total != 3 || len(page.Items) != 1 || page.Items[0].Title != "Court" || page.Items[0].ShowtimeCount != 2 {
+		t.Fatalf("filtered page=%+v err=%v", page, err)
+	}
+	wantGenres := []string{"Animation", "Comédie", "Documentaire", "Drame", "Thriller"}
+	if !reflect.DeepEqual(page.AvailableGenres, wantGenres) {
+		t.Fatalf("available genres=%v want %v", page.AvailableGenres, wantGenres)
+	}
+
+	for _, test := range []struct {
+		name     string
+		duration MovieCatalogDuration
+		want     []string
+	}{
+		{name: "short excludes zero and includes 89", duration: MovieCatalogDurationShort, want: []string{"Court"}},
+		{name: "medium includes 90 through 120", duration: MovieCatalogDurationMedium, want: []string{"Bas", "Haut", "Milieu"}},
+		{name: "long starts above 120", duration: MovieCatalogDurationLong, want: []string{"Long"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			catalog, err := service.Movies(MovieCatalogQuery{Duration: &test.duration, Sort: MovieCatalogSortTitleAsc, PageSize: 10})
+			if err != nil || catalog.Total != len(test.want) || len(catalog.Items) != len(test.want) {
+				t.Fatalf("catalog=%+v err=%v", catalog, err)
+			}
+			for index, title := range test.want {
+				if catalog.Items[index].Title != title {
+					t.Fatalf("item[%d]=%q want %q", index, catalog.Items[index].Title, title)
+				}
+			}
+		})
+	}
+
+	unknown, err := service.Movies(MovieCatalogQuery{Genres: []string{"Inconnu"}, PageSize: 10})
+	if err != nil || unknown.Total != 0 || len(unknown.Items) != 0 || !reflect.DeepEqual(unknown.AvailableGenres, wantGenres) {
+		t.Fatalf("unknown genre result=%+v err=%v", unknown, err)
+	}
+	medium := MovieCatalogDurationMedium
+	combined, err := service.Movies(MovieCatalogQuery{Genres: []string{"Drame"}, Duration: &medium, PageSize: 10})
+	if err != nil || combined.Total != 1 || combined.Items[0].Title != "Bas" {
+		t.Fatalf("combined=%+v err=%v", combined, err)
+	}
+}
+
+func TestMoviesCatalogParisDatePresetsAndInclusiveRanges(t *testing.T) {
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := testDataset()
+	data.Window = Window{From: "2026-08-14", Through: "2026-08-17"}
+	data.Theaters = data.Theaters[:1]
+	data.Theaters[0].AvailableDates = []string{"2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17"}
+	showing := func(id, serviceDate string, start time.Time) ShowtimeRecord {
+		return ShowtimeRecord{
+			ID:                "ugc-showing-" + id,
+			ProviderShowingID: id,
+			ServiceDate:       serviceDate,
+			TheaterID:         "ugc-25",
+			Movie:             MovieRecord{ProviderID: "200", Slug: "ugc-film-200", Title: "Film daté", RuntimeMinutes: 100, Genres: []string{"Drame"}},
+			StartTime:         start,
+			EndTime:           start.Add(100 * time.Minute),
+		}
+	}
+	data.Showtimes = []ShowtimeRecord{
+		showing("2000", "2026-08-14", time.Date(2026, 8, 14, 20, 0, 0, 0, location)),
+		showing("2001", "2026-08-15", time.Date(2026, 8, 15, 20, 0, 0, 0, location)),
+		showing("2002", "2026-08-15", time.Date(2026, 8, 16, 0, 30, 0, 0, location)),
+		showing("2003", "2026-08-16", time.Date(2026, 8, 16, 20, 0, 0, 0, location)),
+		showing("2004", "2026-08-17", time.Date(2026, 8, 17, 20, 0, 0, 0, location)),
+	}
+	newService := func(now time.Time) *Service {
+		t.Helper()
+		service, err := NewService(newTestSource(data), ServiceOptions{Now: func() time.Time { return now }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return service
+	}
+	date := func(value string) *string { return &value }
+	assertCount := func(name string, service *Service, query MovieCatalogQuery, want int) {
+		t.Helper()
+		catalog, err := service.Movies(query)
+		if err != nil || catalog.Total != 1 || len(catalog.Items) != 1 || catalog.Items[0].ShowtimeCount != want {
+			t.Fatalf("%s catalog=%+v err=%v", name, catalog, err)
+		}
+	}
+
+	friday := newService(time.Date(2026, 8, 14, 8, 0, 0, 0, location))
+	assertCount("weekday today", friday, MovieCatalogQuery{Date: date("today")}, 1)
+	assertCount("weekday tomorrow", friday, MovieCatalogQuery{Date: date("tomorrow")}, 2)
+	assertCount("weekday weekend", friday, MovieCatalogQuery{Date: date("weekend")}, 3)
+	assertCount("inclusive custom range", friday, MovieCatalogQuery{Date: date("2026-08-15"), DateTo: date("2026-08-16")}, 3)
+	assertCount("equal custom endpoints", friday, MovieCatalogQuery{Date: date("2026-08-15"), DateTo: date("2026-08-15")}, 2)
+
+	saturday := newService(time.Date(2026, 8, 15, 8, 0, 0, 0, location))
+	assertCount("Saturday weekend", saturday, MovieCatalogQuery{Date: date("weekend")}, 3)
+	sunday := newService(time.Date(2026, 8, 16, 8, 0, 0, 0, location))
+	assertCount("Sunday weekend", sunday, MovieCatalogQuery{Date: date("weekend")}, 1)
+}
+
+func TestMoviesCatalogAdvancedFilterValidation(t *testing.T) {
+	service := testService(t)
+	date := func(value string) *string { return &value }
+	duration := func(value MovieCatalogDuration) *MovieCatalogDuration { return &value }
+	truth := true
+	for _, test := range []struct {
+		name    string
+		query   MovieCatalogQuery
+		message string
+	}{
+		{name: "empty genre", query: MovieCatalogQuery{Genres: []string{"Drame", ""}}, message: "Le paramètre genres contient une valeur vide."},
+		{name: "empty duration", query: MovieCatalogQuery{Duration: duration("")}, message: "Le paramètre duration doit être short, medium ou long."},
+		{name: "invalid duration", query: MovieCatalogQuery{Duration: duration("tiny")}, message: "Le paramètre duration doit être short, medium ou long."},
+		{name: "empty date", query: MovieCatalogQuery{Date: date("")}, message: "Le paramètre date doit être today, tomorrow, weekend ou respecter le format YYYY-MM-DD."},
+		{name: "invalid date", query: MovieCatalogQuery{Date: date("15-08-2026")}, message: "Le paramètre date doit être today, tomorrow, weekend ou respecter le format YYYY-MM-DD."},
+		{name: "invalid date to", query: MovieCatalogQuery{Date: date("2026-08-16"), DateTo: date("17-08-2026")}, message: "Le paramètre date_to doit respecter le format YYYY-MM-DD."},
+		{name: "past start", query: MovieCatalogQuery{Date: date("2026-08-14")}, message: "Les dates de séance ne peuvent pas être antérieures à aujourd’hui."},
+		{name: "past end", query: MovieCatalogQuery{Date: date("2026-08-15"), DateTo: date("2026-08-14")}, message: "Les dates de séance ne peuvent pas être antérieures à aujourd’hui."},
+		{name: "inverted range", query: MovieCatalogQuery{Date: date("2026-08-17"), DateTo: date("2026-08-16")}, message: "Le paramètre date_to doit être supérieur ou égal au paramètre date."},
+		{name: "date to without date", query: MovieCatalogQuery{DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{name: "date to with preset", query: MovieCatalogQuery{Date: date("today"), DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{name: "date to with malformed start", query: MovieCatalogQuery{Date: date("15-08-2026"), DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{name: "date with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, Date: date("today")}, message: "Le paramètre include_ended est incompatible avec date ou date_to."},
+		{name: "date to with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, Date: date("2026-08-15"), DateTo: date("2026-08-16")}, message: "Le paramètre include_ended est incompatible avec date ou date_to."},
+		{name: "date to alone with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, DateTo: date("2026-08-16")}, message: "Le paramètre include_ended est incompatible avec date ou date_to."},
+		{name: "existing ended conflict", query: MovieCatalogQuery{IncludeEnded: true, CurrentlyScreened: &truth}, message: "Le paramètre include_ended est incompatible avec currently_screened=true ou theaters."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := service.Movies(test.query)
+			var validation *ValidationError
+			if !errors.As(err, &validation) || validation.Message != test.message {
+				t.Fatalf("error=%v want %q", err, test.message)
+			}
+		})
+	}
+}
+
 func TestMovieCatalogShowtimeCountIsOmittedOutsideMovies(t *testing.T) {
 	service := testService(t)
 	detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"})

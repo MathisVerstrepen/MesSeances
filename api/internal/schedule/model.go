@@ -11,6 +11,8 @@ const (
 
 type MovieCatalogSort string
 
+type MovieCatalogDuration string
+
 const (
 	MovieCatalogSortTitleAsc        MovieCatalogSort = "title_asc"
 	MovieCatalogSortTitleDesc       MovieCatalogSort = "title_desc"
@@ -18,6 +20,12 @@ const (
 	MovieCatalogSortRuntimeAsc      MovieCatalogSort = "runtime_asc"
 	MovieCatalogSortRuntimeDesc     MovieCatalogSort = "runtime_desc"
 	MovieCatalogSortShowtimesDesc   MovieCatalogSort = "showtimes_desc"
+)
+
+const (
+	MovieCatalogDurationShort  MovieCatalogDuration = "short"
+	MovieCatalogDurationMedium MovieCatalogDuration = "medium"
+	MovieCatalogDurationLong   MovieCatalogDuration = "long"
 )
 
 func RuntimeDuration(minutes int) (time.Duration, bool) {
@@ -181,6 +189,7 @@ type MovieCatalog struct {
 	GeneratedAt     time.Time          `json:"generated_at"`
 	CatalogRevision string             `json:"catalog_revision"`
 	Items           []MovieCatalogItem `json:"items"`
+	AvailableGenres []string           `json:"available_genres"`
 	Page            int                `json:"page"`
 	PageSize        int                `json:"page_size"`
 	Total           int                `json:"total"`
@@ -234,6 +243,10 @@ type MovieCatalogQuery struct {
 	Search            string
 	Sort              MovieCatalogSort
 	TheaterIDs        []string
+	Genres            []string
+	Duration          *MovieCatalogDuration
+	Date              *string
+	DateTo            *string
 	Page              int
 	PageSize          int
 }
