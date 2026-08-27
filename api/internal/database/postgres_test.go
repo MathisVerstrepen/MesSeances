@@ -48,6 +48,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{21, "021_theater_location_suggestions.sql"},
 		{22, "022_theater_geocoding_runs.sql"},
 		{23, "023_allow_unknown_runtime.sql"},
+		{24, "024_sync_run_retention.sql"},
 	}
 
 	items, err := embeddedMigrations()

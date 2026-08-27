@@ -7,6 +7,12 @@ interface Credit {
   url: string
 }
 
+interface CartographyCredit {
+  name: string
+  role: string
+  url: string
+}
+
 const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; credits: Credit[] }> = [
   {
     id: 'operators',
@@ -29,6 +35,12 @@ const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; c
       { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' }
     ]
   }
+]
+
+const cartographyCredits: CartographyCredit[] = [
+  { name: 'OpenFreeMap', role: 'Styles et ressources cartographiques', url: 'https://openfreemap.org/' },
+  { name: 'OpenMapTiles', role: 'Technologie cartographique', url: 'https://openmaptiles.org/' },
+  { name: 'OpenStreetMap contributors', role: 'Données cartographiques', url: 'https://www.openstreetmap.org/copyright' }
 ]
 
 useHead({ title: 'Crédits - MesSeances' })
@@ -91,6 +103,27 @@ useHead({ title: 'Crédits - MesSeances' })
               </a>
               <p class="mt-auto border-t-2 border-ink px-4 py-5 text-xs leading-5 text-ink">La marque et le logo {{ credit.name }} appartiennent à leurs propriétaires respectifs. Leur présence n’implique ni affiliation avec MesSeances, ni approbation de MesSeances.</p>
             </section>
+          </div>
+        </section>
+
+        <section class="mt-14 sm:mt-20" aria-labelledby="cartography-heading">
+          <header class="mb-5 flex items-end justify-between gap-5 border-b-2 border-ink pb-4">
+            <h2 id="cartography-heading" class="text-2xl font-black uppercase tracking-[-0.03em] text-ink sm:text-4xl">Cartographie</h2>
+          </header>
+
+          <div class="grid border-l-2 border-t-2 border-ink sm:grid-cols-2 xl:grid-cols-3">
+            <a
+              v-for="credit in cartographyCredits"
+              :key="credit.name"
+              :href="credit.url"
+              class="cartography-link flex min-h-40 min-w-0 flex-col border-b-2 border-r-2 border-ink bg-surface p-5 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset sm:last:col-span-2 sm:p-6 xl:last:col-span-1"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span class="font-mono text-[0.65rem] font-black uppercase tracking-[0.12em] text-ink">Attribution</span>
+              <span class="mt-8 text-xl font-black uppercase leading-tight tracking-[-0.03em] text-ink sm:text-2xl">{{ credit.name }}</span>
+              <span class="mt-auto pt-6 text-xs leading-5 text-ink">{{ credit.role }}<span class="sr-only">, ouverture dans un nouvel onglet</span></span>
+            </a>
           </div>
         </section>
       </div>
@@ -157,8 +190,21 @@ useHead({ title: 'Crédits - MesSeances' })
 }
 
 .tmdb-link:hover,
-.provider-link:hover {
+.provider-link:hover,
+.cartography-link:hover {
   background: #f1efe8;
+}
+
+.cartography-link:nth-child(3n + 1) {
+  box-shadow: inset 0 -4px 0 var(--color-highlight);
+}
+
+.cartography-link:nth-child(3n + 2) {
+  box-shadow: inset 0 -4px 0 #ffcf3f;
+}
+
+.cartography-link:nth-child(3n) {
+  box-shadow: inset 0 -4px 0 var(--color-accent);
 }
 
 .provider-item:nth-child(3n + 1) .provider-link {

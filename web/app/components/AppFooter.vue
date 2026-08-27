@@ -41,6 +41,8 @@ function scrollToTop() {
             <h2 class="footer-heading">À propos</h2>
             <ul class="mt-5 space-y-3">
               <li><NuxtLink to="/credits" class="footer-link">Crédits &amp; sources</NuxtLink></li>
+              <li><NuxtLink to="/mentions-legales" class="footer-link">Mentions légales</NuxtLink></li>
+              <li><NuxtLink to="/confidentialite" class="footer-link">Confidentialité</NuxtLink></li>
               <li>
                 <a
                   href="https://github.com/MathisVerstrepen/MesSeances"
