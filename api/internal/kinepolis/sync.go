@@ -50,7 +50,7 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (schedule.D
 		data.Theaters[index].PostalCode = address.postalCode
 	}
 	if err := schedule.ValidateDataset(data, true); err != nil {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("%w: %v", schedule.ErrDatasetValidation, err)
+		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("%w: %s", schedule.ErrDatasetValidation, err.Error())
 	}
 	return data, SyncSummary{Cinemas: len(data.Theaters), Showtimes: len(data.Showtimes), GeneratedAt: data.GeneratedAt}, nil
 }

@@ -118,7 +118,7 @@ func liveContractClient(t *testing.T) *Client {
 	if err != nil {
 		t.Fatal("open CGR live proxy file")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	proxies, err := syncproxy.Parse(file)
 	if err != nil {
 		t.Fatal("parse CGR live proxy file")

@@ -136,7 +136,7 @@ func TestAdminTheaterLocationWritesRejectMalformedInputs(t *testing.T) {
 		response := adminRequest(handler, http.MethodPost, test.target, test.body, "http://localhost:3000", cookie)
 		assertAPIError(t, response, http.StatusBadRequest, "invalid_request", "Requête invalide.")
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/theater-locations/ugc/25/manual", strings.NewReader(`{"expected_updated_at":"`+timestamp+`","latitude":50,"longitude":3}`))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/theater-locations/ugc/25/manual", strings.NewReader(`{"expected_updated_at":"`+timestamp+`","latitude":50,"longitude":3}`))
 	request.Header.Set("Content-Type", "text/plain")
 	request.Header.Set("Origin", "http://localhost:3000")
 	request.AddCookie(cookie)

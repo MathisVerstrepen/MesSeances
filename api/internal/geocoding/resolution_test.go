@@ -2,6 +2,7 @@ package geocoding
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -66,11 +67,11 @@ func TestResolutionServiceValidatesKeysCoordinatesAndVersionToken(t *testing.T) 
 		t.Fatalf("accept calls=%d updated=%s err=%v", store.acceptCalls, store.lastUpdatedAt, err)
 	}
 	for _, input := range []struct{ provider, id string }{{"other", "A1234"}, {"ugc", "0"}, {"cgr", "12345"}, {"pathe", "bad/id"}} {
-		if err := service.AcceptSuggestion(context.Background(), input.provider, input.id, expected); err != ErrResolutionInvalid {
+		if err := service.AcceptSuggestion(context.Background(), input.provider, input.id, expected); !errors.Is(err, ErrResolutionInvalid) {
 			t.Fatalf("key=%+v err=%v", input, err)
 		}
 	}
-	if err := service.AcceptSuggestion(context.Background(), "ugc", "25", time.Time{}); err != ErrResolutionInvalid {
+	if err := service.AcceptSuggestion(context.Background(), "ugc", "25", time.Time{}); !errors.Is(err, ErrResolutionInvalid) {
 		t.Fatalf("zero timestamp err=%v", err)
 	}
 	for _, coordinates := range [][2]float64{{-90, -180}, {90, 180}, {0, 0}} {
@@ -79,7 +80,7 @@ func TestResolutionServiceValidatesKeysCoordinatesAndVersionToken(t *testing.T) 
 		}
 	}
 	for _, coordinates := range [][2]float64{{-90.1, 0}, {90.1, 0}, {0, -180.1}, {0, 180.1}, {math.NaN(), 0}, {0, math.Inf(1)}} {
-		if err := service.SetManual(context.Background(), "ugc", "25", expected, coordinates[0], coordinates[1]); err != ErrResolutionInvalid {
+		if err := service.SetManual(context.Background(), "ugc", "25", expected, coordinates[0], coordinates[1]); !errors.Is(err, ErrResolutionInvalid) {
 			t.Fatalf("invalid coordinates=%v err=%v", coordinates, err)
 		}
 	}

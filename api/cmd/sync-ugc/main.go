@@ -165,7 +165,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 			logCLIError(logger, "sync_command_failed", "dataset_rejected")
 			return 1
 		}
-		fmt.Fprintf(stdout, "sync complete mode=single_cinema persisted=false cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(stdout, "sync complete mode=single_cinema persisted=false cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
 		return 0
 	}
 	fullConfig, err := runtimeconfig.Load(runtimeconfig.SyncFull, deps.getenv, nil)
@@ -205,7 +205,7 @@ func runWithDependencies(ctx context.Context, args []string, stdout, stderr io.W
 	}
 	outcome := outcomes[synccontrol.TargetUGC]
 	summary := outcome.Sync
-	fmt.Fprintf(stdout, "sync complete mode=all_cinemas persisted=true version=%d cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(stdout, "sync complete mode=all_cinemas persisted=true version=%d cinemas=%d skipped=%d dates=%d requests=%d showtimes=%d proxies=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Skipped, summary.Dates, summary.Requests, summary.Showtimes, len(proxies), summary.GeneratedAt.Format(time.RFC3339))
 	renderEnrichment(stdout, logger, outcome.Enrichment)
 	return 0
 }
@@ -223,11 +223,11 @@ func renderEnrichment(stdout io.Writer, logger *slog.Logger, outcome synccontrol
 		logger.Warn("sync_enrichment_degraded", "component", "sync_ugc", "error_code", "enrichment_failed")
 	}
 	if outcome.Counts == nil {
-		fmt.Fprintf(stdout, "enrichment=%s\n", outcome.Status)
+		_, _ = fmt.Fprintf(stdout, "enrichment=%s\n", outcome.Status)
 		return
 	}
 	c := outcome.Counts
-	fmt.Fprintf(stdout, "enrichment=%s reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", outcome.Status, c.Reused, c.Matched, c.ReviewRequired, c.Unmatched, c.Failed)
+	_, _ = fmt.Fprintf(stdout, "enrichment=%s reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", outcome.Status, c.Reused, c.Matched, c.ReviewRequired, c.Unmatched, c.Failed)
 }
 
 func logCLIError(logger *slog.Logger, event, code string) {

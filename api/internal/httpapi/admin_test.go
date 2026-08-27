@@ -81,7 +81,7 @@ func configuredAdminHandler(t *testing.T, password string, now func() time.Time)
 }
 
 func adminRequest(handler http.Handler, method, target, body, origin string, cookie *http.Cookie) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	request := httptest.NewRequestWithContext(context.Background(), method, target, strings.NewReader(body))
 	request.RemoteAddr = "192.0.2.10:1234"
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
@@ -194,7 +194,7 @@ func TestAdminOriginAuthorizationAndCORS(t *testing.T) {
 	cookie := loginAdmin(t, handler, "password")
 	reject := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/reject", "", "https://evil.example", cookie)
 	assertAPIError(t, reject, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
-	preflight := httptest.NewRequest(http.MethodOptions, "/api/v1/admin/login", nil)
+	preflight := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/admin/login", nil)
 	preflight.Header.Set("Origin", "http://localhost:3000")
 	preflight.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	response := httptest.NewRecorder()

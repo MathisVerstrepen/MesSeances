@@ -283,7 +283,7 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, destina
 	if err != nil {
 		return fmt.Errorf("tmdb request failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
 		return ErrStop
 	}

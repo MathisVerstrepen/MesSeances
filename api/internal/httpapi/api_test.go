@@ -102,7 +102,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 
 func performRequest(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if got := response.Header().Get("Content-Type"); got != "application/json" {
@@ -133,13 +133,13 @@ func TestProbeContracts(t *testing.T) {
 func TestMetricsIsPublicAndGETOnly(t *testing.T) {
 	handler := testHandler(t)
 	get := httptest.NewRecorder()
-	handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	handler.ServeHTTP(get, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	if get.Code != http.StatusOK || !strings.HasPrefix(get.Header().Get("Content-Type"), "text/plain") || !strings.Contains(get.Body.String(), "go_info") {
 		t.Fatalf("GET status=%d content-type=%q body=%q", get.Code, get.Header().Get("Content-Type"), get.Body.String())
 	}
 	for _, method := range []string{http.MethodHead, http.MethodPost, http.MethodPut} {
 		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(method, "/metrics", nil))
+		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), method, "/metrics", nil))
 		if response.Code != http.StatusMethodNotAllowed {
 			t.Fatalf("method=%s status=%d body=%q", method, response.Code, response.Body.String())
 		}
@@ -151,7 +151,7 @@ func TestPanicRecoveryRedactsPanicRequestAndHeaders(t *testing.T) {
 	var logs bytes.Buffer
 	logger := observability.NewLogger(&logs)
 	handler := recoverJSON(logger)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic(secret) }))
-	request := httptest.NewRequest(http.MethodGet, "/anything?token="+secret, nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/anything?token="+secret, nil)
 	request.Header.Set("Authorization", "Bearer "+secret)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

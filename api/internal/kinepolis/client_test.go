@@ -312,7 +312,7 @@ func TestClientRejectsStatusContentTypeTimeoutAndRedirect(t *testing.T) {
 			t.Fatalf("response accepted: %+v", test)
 		}
 	}
-	request, _ := http.NewRequest(http.MethodGet, "https://evil.example/", nil)
+	request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://evil.example/", nil)
 	if !errors.Is(checkRedirect(request, nil), errRedirectHost) {
 		t.Fatal("cross-host redirect accepted")
 	}

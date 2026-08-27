@@ -322,11 +322,11 @@ func TestClientBodyLimitAndRedirectRejection(t *testing.T) {
 	if !errors.As(err, &requestErr) || requestErr.Category != CategoryResponseLarge {
 		t.Fatalf("err=%v", err)
 	}
-	request, _ := http.NewRequest(http.MethodGet, "https://evil.example/api/shows", nil)
+	request, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://evil.example/api/shows", nil)
 	if !errors.Is(checkRedirect(request, nil), errRedirectAuthority) {
 		t.Fatal("cross-authority redirect accepted")
 	}
-	request, _ = http.NewRequest(http.MethodGet, "https://www.pathe.fr/api/other", nil)
+	request, _ = http.NewRequestWithContext(t.Context(), http.MethodGet, "https://www.pathe.fr/api/other", nil)
 	response := testJSONResponse(http.StatusOK, `{}`)
 	response.Request = request
 	client = directClient(roundTripFunc(func(*http.Request) (*http.Response, error) { return response, nil }))

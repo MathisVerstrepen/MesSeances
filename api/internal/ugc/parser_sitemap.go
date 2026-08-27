@@ -2,6 +2,7 @@ package ugc
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -16,7 +17,7 @@ func ParseSitemap(r io.Reader) ([]string, error) {
 	ids := []string{}
 	for {
 		token, err := decoder.Token()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

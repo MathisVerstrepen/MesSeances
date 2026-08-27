@@ -93,16 +93,6 @@ func cgrTestDataset() Dataset {
 	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: ProviderCGR, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 15, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{Provider: ProviderCGR, ID: "cgr-W8010", ProviderID: "W8010", Slug: "cgr-W8010", Name: "CGR Lille", Address: "2 rue du Cinéma", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}, Showtimes: []ShowtimeRecord{{Provider: ProviderCGR, ID: "cgr-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: "2026-08-15", TheaterID: "cgr-W8010", Movie: MovieRecord{Provider: ProviderCGR, ProviderID: "1001", Slug: "cgr-film-1001", Title: "Conférence CGR", RuntimeMinutes: 0, PosterURL: "https://images.acsta.net/posters/1001.jpg"}, StartTime: start, EndTime: start, Language: schedule.Language("SPANISH"), ProviderVersion: "Localization.Language.Spanish", Format: Format2D, Room: "", BookingURL: "https://achat.cgrcinemas.fr/lille/r/12345"}}}
 }
 
-func testMovieSlug(movie MovieRecord) string {
-	if movie.LocalMovieID > 0 {
-		return "local-film-" + strconv.FormatInt(movie.LocalMovieID, 10)
-	}
-	if movie.Enrichment != nil && movie.Enrichment.TMDBID > 0 {
-		return "tmdb-film-" + strconv.FormatInt(movie.Enrichment.TMDBID, 10)
-	}
-	return movie.Slug
-}
-
 func TestPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {

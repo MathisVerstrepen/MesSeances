@@ -20,7 +20,7 @@ func fixture(t *testing.T, name string) *os.File {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { file.Close() })
+	t.Cleanup(func() { _ = file.Close() })
 	return file
 }
 

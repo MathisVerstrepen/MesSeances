@@ -166,7 +166,7 @@ func runWithDependencies(ctx context.Context, args []string, now func() time.Tim
 	}
 	outcome := outcomes[synccontrol.TargetCGR]
 	summary := outcome.Sync
-	fmt.Fprintf(stdout, "sync complete provider=cgr version=%d cinemas=%d showtimes=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Showtimes, summary.GeneratedAt.Format(time.RFC3339))
+	_, _ = fmt.Fprintf(stdout, "sync complete provider=cgr version=%d cinemas=%d showtimes=%d generated_at=%s\n", summary.Version, summary.Cinemas, summary.Showtimes, summary.GeneratedAt.Format(time.RFC3339))
 	renderEnrichment(stdout, outcome.Enrichment)
 	return 0
 }
@@ -204,9 +204,9 @@ func logCLIError(logger *slog.Logger, event, code string) {
 
 func renderEnrichment(stdout io.Writer, outcome synccontrol.EnrichmentOutcome) {
 	if outcome.Counts == nil {
-		fmt.Fprintf(stdout, "enrichment=%s\n", outcome.Status)
+		_, _ = fmt.Fprintf(stdout, "enrichment=%s\n", outcome.Status)
 		return
 	}
 	counts := outcome.Counts
-	fmt.Fprintf(stdout, "enrichment=%s reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", outcome.Status, counts.Reused, counts.Matched, counts.ReviewRequired, counts.Unmatched, counts.Failed)
+	_, _ = fmt.Fprintf(stdout, "enrichment=%s reused=%d matched=%d review_required=%d unmatched=%d failed=%d\n", outcome.Status, counts.Reused, counts.Matched, counts.ReviewRequired, counts.Unmatched, counts.Failed)
 }

@@ -45,11 +45,6 @@ func (e datasetValidationError) Is(target error) bool {
 	return target == schedule.ErrDatasetValidation
 }
 
-type programResult struct {
-	index int
-	pairs map[string][]string
-}
-
 type showtimeJob struct {
 	operation      Operation
 	rawURL         string
@@ -323,7 +318,6 @@ func runJobs[J, R any](ctx context.Context, jobs []J, work func(context.Context,
 	queueCanceled := false
 	for index, job := range jobs {
 		if phaseCtx.Err() != nil {
-			queueCanceled = true
 			break
 		}
 		select {

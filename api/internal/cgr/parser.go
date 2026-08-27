@@ -383,10 +383,6 @@ func showingIdentity(theaterID string, sourceParts ...string) string {
 
 func validTheaterID(value string) bool { return theaterIDPattern.MatchString(value) }
 func validMovieID(value string) bool   { return movieIDPattern.MatchString(value) }
-func validDate(value string) bool {
-	parsed, err := time.Parse("2006-01-02", value)
-	return err == nil && parsed.Format("2006-01-02") == value
-}
 
 func validScheduleWindow(from, to string) bool {
 	const layout = "2006-01-02T15:04:05"
