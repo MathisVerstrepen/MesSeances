@@ -89,7 +89,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("schedule snapshot startup failed")
 	}
-	service, err := schedule.NewService(source, schedule.ServiceOptions{DefaultCity: "Lille", CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}}})
+	service, err := schedule.NewService(source, newProductionScheduleOptions())
 	if err != nil {
 		return fmt.Errorf("schedule service startup failed")
 	}
@@ -175,6 +175,15 @@ func run(ctx context.Context) error {
 	}
 	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
+}
+
+func newProductionScheduleOptions() schedule.ServiceOptions {
+	return schedule.ServiceOptions{
+		DefaultCity: "Paris",
+		CityAliases: map[string][]string{
+			"Lille": {"Lille", "Villeneuve d'Ascq"},
+		},
+	}
 }
 
 func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
