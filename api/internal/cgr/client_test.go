@@ -145,9 +145,10 @@ func TestClientRetriesOnlyTransientProgramNotFound(t *testing.T) {
 				return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{}`)), Request: request}, nil
 			})
 			rawURL := programURL("W8010")
-			if test.operation == OperationCinemas {
+			switch test.operation {
+			case OperationCinemas:
 				rawURL = CinemasURL
-			} else if test.operation == OperationMovies {
+			case OperationMovies:
 				rawURL = moviesURL([]string{"1001"})
 			}
 			_, err = client.Get(context.Background(), test.operation, rawURL)

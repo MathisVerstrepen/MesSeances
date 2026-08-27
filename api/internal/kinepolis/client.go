@@ -189,7 +189,7 @@ func (c *Client) fetch(ctx context.Context, operation Operation, target *url.URL
 			return nil, requestError(operation, CategoryTransport, 0, requestErr)
 		}
 		body, readErr := readBounded(response.Body)
-		response.Body.Close()
+		_ = response.Body.Close()
 		if readErr != nil {
 			if errors.Is(readErr, errResponseTooLarge) {
 				return nil, requestError(operation, CategoryResponseLarge, 0, readErr)

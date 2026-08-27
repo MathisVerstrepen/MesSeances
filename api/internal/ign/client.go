@@ -126,7 +126,7 @@ func (c *Client) request(ctx context.Context, target string) ([]geocoding.Candid
 	if err != nil {
 		return nil, true, fmt.Errorf("IGN request failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseSize+1))
 		return nil, true, fmt.Errorf("IGN request failed")

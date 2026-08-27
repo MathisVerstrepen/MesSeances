@@ -453,7 +453,6 @@ func runJobs[J, R any](ctx context.Context, jobs []J, work func(context.Context,
 	for index, job := range jobs {
 		select {
 		case <-phaseCtx.Done():
-			break
 		case queue <- indexedJob[J]{index: index, value: job}:
 		}
 		if phaseCtx.Err() != nil {

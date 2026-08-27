@@ -35,10 +35,10 @@ func TestHTTPMiddlewareUsesBoundedRouteAndMethodLabels(t *testing.T) {
 	router := chi.NewRouter()
 	router.Use(HTTPMiddleware(slog.New(slog.NewJSONHandler(&logs, nil)), metrics))
 	router.Get("/movies/{slug}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("TRACE", "/movies/secret-movie", nil))
+	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequestWithContext(t.Context(), "TRACE", "/movies/secret-movie", nil))
 
 	recorder := httptest.NewRecorder()
-	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	body := recorder.Body.String()
 	if !strings.Contains(body, `messeances_http_requests_total{method="OTHER",route="unmatched",status="405"} 1`) {
 		t.Fatalf("missing bounded metric: %s", body)

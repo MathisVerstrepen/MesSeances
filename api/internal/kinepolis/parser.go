@@ -154,7 +154,7 @@ func parseSchedule(body []byte, from string, generatedAt time.Time) (schedule.Da
 		data.Theaters = append(data.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderKinepolis, ID: "kinepolis-" + id, ProviderID: id, Slug: "kinepolis-" + id, Name: complexes[id], City: complexCity(complexes[id]), AvailableDates: available, AcceptedPasses: []string{}})
 	}
 	if err := schedule.ValidateDataset(data, true); err != nil {
-		return schedule.Dataset{}, nil, fmt.Errorf("%w: %v", schedule.ErrDatasetValidation, err)
+		return schedule.Dataset{}, nil, fmt.Errorf("%w: %s", schedule.ErrDatasetValidation, err.Error())
 	}
 	return data, inventory, nil
 }
@@ -247,19 +247,6 @@ func assignedJSON(body, marker []byte) (any, bool) {
 	return value, true
 }
 
-func walk(value any, visit func(map[string]any)) {
-	switch v := value.(type) {
-	case map[string]any:
-		visit(v)
-		for _, child := range v {
-			walk(child, visit)
-		}
-	case []any:
-		for _, child := range v {
-			walk(child, visit)
-		}
-	}
-}
 func objectSlice(value any) []map[string]any {
 	raw, _ := value.([]any)
 	objects := make([]map[string]any, 0, len(raw))

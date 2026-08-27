@@ -182,7 +182,7 @@ func (c *Client) Get(ctx context.Context, operation Operation, rawURL string) (F
 		}
 		if response.StatusCode == http.StatusForbidden || response.StatusCode == http.StatusTooManyRequests {
 			if response.Body != nil {
-				response.Body.Close()
+				_ = response.Body.Close()
 			}
 			c.release(ordinal, false)
 			return FetchResult{}, requestError(operation, CategoryHTTPStatus, response.StatusCode, attempt+1, nil)
@@ -192,7 +192,7 @@ func (c *Client) Get(ctx context.Context, operation Operation, rawURL string) (F
 			return FetchResult{}, requestError(operation, CategoryResponseRead, 0, attempt+1, nil)
 		}
 		body, readErr := readBounded(response.Body, response.ContentLength)
-		response.Body.Close()
+		_ = response.Body.Close()
 		if readErr != nil {
 			c.release(ordinal, false)
 			category := CategoryResponseRead

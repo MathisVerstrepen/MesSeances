@@ -109,15 +109,16 @@ func validateMatch(match Match) error {
 			return fmt.Errorf("invalid match candidate")
 		}
 	}
-	if match.Status == StatusMatched {
+	switch match.Status {
+	case StatusMatched:
 		if match.MetadataMovieID <= 0 || match.Score < 0 || match.Score > 1 {
 			return fmt.Errorf("invalid matched decision")
 		}
-	} else if match.Status == StatusReviewRequired || match.Status == StatusUnmatched || match.Status == StatusRejected {
+	case StatusReviewRequired, StatusUnmatched, StatusRejected:
 		if match.MetadataMovieID != 0 || match.Score != 0 {
 			return fmt.Errorf("invalid unresolved decision")
 		}
-	} else {
+	default:
 		return fmt.Errorf("invalid match status")
 	}
 	return nil
@@ -132,7 +133,8 @@ func validSourceIdentity(provider, id string) bool {
 		return false
 	}
 	for index, r := range id {
-		if !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || index > 0 && (r == '-' || r == '_')) {
+		valid := r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || index > 0 && (r == '-' || r == '_')
+		if !valid {
 			return false
 		}
 	}

@@ -2,6 +2,7 @@ package publicmoviepg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -175,10 +176,10 @@ ORDER BY movie.provider, movie.provider_id`)
 		err := tx.QueryRow(ctx, `SELECT id FROM public_movies
 WHERE redirect_to_id IS NULL AND identity_anchor_provider=$1 AND identity_anchor_source_movie_id=$2
 FOR UPDATE`, item.provider, item.id).Scan(&publicID)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("lock reappeared public movie identity failed")
 		}
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			if err = tx.QueryRow(ctx, `INSERT INTO public_movies (
     identity_anchor_provider, identity_anchor_source_movie_id, title, runtime_minutes,
     poster_url, overview, release_date, genres

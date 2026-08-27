@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"strings"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
-	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
 )
 
@@ -83,39 +81,11 @@ type countingCGRGetter struct{ requests int }
 func (countingCGRGetter) Get(context.Context, cgr.Operation, string) ([]byte, error) { return nil, nil }
 func (g countingCGRGetter) RequestCount() int                                        { return g.requests }
 
-type fakeEnrichmentStore struct{}
-
-func (fakeEnrichmentStore) IsLocallyMerged(context.Context, string, string) (bool, error) {
-	return false, nil
-}
-func (fakeEnrichmentStore) Match(context.Context, string, string, string) (enrichment.Match, bool, error) {
-	return enrichment.Match{}, false, nil
-}
-func (fakeEnrichmentStore) ConfirmedMatches(context.Context, string, string, int, int) ([]enrichment.ReusableMetadataMatch, error) {
-	return nil, nil
-}
-func (fakeEnrichmentStore) Metadata(context.Context, string, int64, string) (enrichment.Metadata, bool, error) {
-	return enrichment.Metadata{}, false, nil
-}
-func (fakeEnrichmentStore) SaveDecision(context.Context, enrichment.Match) error { return nil }
-func (fakeEnrichmentStore) Publish(context.Context, enrichment.Match, enrichment.Metadata) error {
-	return nil
-}
-
-type fakeEnrichmentProvider struct{}
-
-func (fakeEnrichmentProvider) Search(context.Context, string) ([]tmdb.Candidate, error) {
-	return nil, nil
-}
-func (fakeEnrichmentProvider) Details(context.Context, int64) (tmdb.Details, error) {
-	return tmdb.Details{}, nil
-}
-
 func TestProductionExecutorCommitsBeforeNonFatalEnrichment(t *testing.T) {
 	window := Window{From: "2026-08-17"}
 	events := []string{}
 	executor := &ProductionExecutor{
-		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(_ context.Context, data []schedule.Dataset) (int64, error) {
 			events = append(events, "commit:"+string(data[0].Provider))
 			return 1, nil
@@ -164,7 +134,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 	window := Window{From: "2026-08-17"}
 	writes, enrichments := 0, 0
 	executor := &ProductionExecutor{
-		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
 			if len(datasets) != 4 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
@@ -213,7 +183,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 func TestProductionExecutorPopulatesKinepolisRequestCount(t *testing.T) {
 	window := Window{From: "2026-08-17"}
 	executor := &ProductionExecutor{
-		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer:       writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 4, nil }),
 		newKinepolis: func() (kinepolis.Fetcher, error) { return countedFetcher{requests: 6}, nil },
 		syncKinepolis: func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error) {
@@ -341,7 +311,7 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 	window := Window{From: "2026-08-17"}
 	writes, enrichments := 0, 0
 	executor := &ProductionExecutor{
-		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, nil }),
 		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil }, newKinepolis: func() (kinepolis.Fetcher, error) { return unusedFetcher{}, nil },
 		newPathe: func() (pathe.Getter, error) { return unusedPatheGetter{}, nil },
@@ -605,7 +575,7 @@ func failedPatheExecutor(logs *bytes.Buffer, fetchErr error) *ProductionExecutor
 func TestProductionExecutorRejectsInvalidDataAndCommitFailure(t *testing.T) {
 	writes := 0
 	executor := &ProductionExecutor{
-		now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 0, errors.New("db secret") }),
 		newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
 		syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
@@ -627,7 +597,7 @@ func TestProductionExecutorFailureCodes(t *testing.T) {
 	window := Window{From: "2026-08-17"}
 	base := func() *ProductionExecutor {
 		return &ProductionExecutor{
-			now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+			now: time.Now, logger: slog.New(slog.DiscardHandler),
 			writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
 			newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
 			syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
@@ -709,7 +679,7 @@ func TestProductionExecutorClassifiesEmptyUGCOutputsAsDatasetRejections(t *testi
 	for _, name := range []string{"zero cinemas", "zero showtimes"} {
 		t.Run(name, func(t *testing.T) {
 			executor := &ProductionExecutor{
-				now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)),
+				now: time.Now, logger: slog.New(slog.DiscardHandler),
 				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
 					t.Fatal("published rejected dataset")
 					return 0, nil
@@ -751,7 +721,7 @@ func TestProductionExecutorEnrichmentOutcomes(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			executor := &ProductionExecutor{
-				now: time.Now, logger: slog.New(slog.NewJSONHandler(io.Discard, nil)), enrich: test.enrich,
+				now: time.Now, logger: slog.New(slog.DiscardHandler), enrich: test.enrich,
 				writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { return 7, nil }),
 				newUGC: func() (ugc.Getter, error) { return unusedGetter{}, nil },
 				syncUGC: func(context.Context, ugc.Getter, ugc.SyncOptions) (schedule.Dataset, ugc.SyncSummary, error) {
@@ -811,15 +781,16 @@ func validDataset(t *testing.T, provider schedule.Provider, window Window) sched
 	theaterID, theaterProviderID, movieID, showingID := string(provider)+"-cinema", "cinema", "movie", "showing"
 	address, postal, passes := "", "", []string{}
 	booking := "https://kinepolis.fr/direct-vista-redirect/showing/0/cinema/0"
-	if provider == schedule.ProviderUGC {
+	switch provider {
+	case schedule.ProviderUGC:
 		theaterID, theaterProviderID, movieID, showingID = "ugc-25", "25", "200", "100"
 		address, postal, passes = "1 rue", "59000", []string{"UGC_ILLIMITE"}
 		booking = "https://www.ugc.fr/reservationSeances.html?id=100"
-	} else if provider == schedule.ProviderPathe {
+	case schedule.ProviderPathe:
 		theaterID, theaterProviderID, movieID, showingID = "pathe-cinema", "cinema", "movie", "V3308S1"
 		address, postal = "1 rue", "59000"
 		booking = "https://s.pathe.fr/fr/V3308S1/booking"
-	} else if provider == schedule.ProviderCGR {
+	case schedule.ProviderCGR:
 		theaterID, theaterProviderID, movieID, showingID = "cgr-W8010", "W8010", "1001", "W8010-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		address, postal = "1 rue", "59000"
 		booking = "https://achat.cgrcinemas.fr/lille/r/123"

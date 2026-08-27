@@ -87,7 +87,7 @@ func parseShows(body []byte) (map[string]show, error) {
 	if err := decodeJSON(body, &response); err != nil {
 		return nil, err
 	}
-	if response.Shows == nil || len(response.Shows) == 0 {
+	if len(response.Shows) == 0 {
 		return nil, fmt.Errorf("show list is empty")
 	}
 	result := make(map[string]show, len(response.Shows))

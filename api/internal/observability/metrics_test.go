@@ -17,7 +17,7 @@ func TestMetricsFamiliesUseExpectedBoundedLabels(t *testing.T) {
 	metrics.ObserveSync("ugc", "succeeded", "none", "none", "complete", time.Second, map[string]int{"showtimes": 12})
 	metrics.ObserveSync("pathe", "succeeded", "none", "none", "degraded", time.Second, map[string]int{"showtimes": 7})
 	response := httptest.NewRecorder()
-	metrics.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	metrics.Handler().ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	body := response.Body.String()
 	for _, expected := range []string{
 		`messeances_schedule_refresh_total{reason="none",result="published",stage="none"} 1`,
@@ -52,7 +52,7 @@ func TestSyncFailureMetricsExposeOnlyBoundedLabels(t *testing.T) {
 		metrics.ObserveSync(labels[0], labels[1], labels[2], labels[3], "degraded", time.Second, map[string]int{})
 	}
 	response := httptest.NewRecorder()
-	metrics.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	metrics.Handler().ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
 	body := response.Body.String()
 	for _, expected := range []string{
 		`error_code="client_creation_failed",provider="ugc",result="failed",stage="client_creation"`,

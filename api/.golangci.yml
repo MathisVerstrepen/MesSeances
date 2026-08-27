@@ -1,0 +1,60 @@
+version: "2"
+
+run:
+  relative-path-mode: gomod
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - errcheck
+    - errorlint
+    - govet
+    - ineffassign
+    - loggercheck
+    - noctx
+    - promlinter
+    - rowserrcheck
+    - sloglint
+    - staticcheck
+    - unused
+  exclusions:
+    warn-unused: true
+    rules:
+      - path: ^internal/ign/client_test\.go$
+        source: 'response:\s+response\('
+        linters:
+          - bodyclose
+      - path: ^internal/pathe/client_test\.go$
+        source: '^\s*\{".*", testJSONResponse\('
+        linters:
+          - bodyclose
+      - path: ^internal/pathe/client_test\.go$
+        source: '^\s*\}\(\), CategoryContentType\},$'
+        linters:
+          - bodyclose
+      - path: ^internal/pathe/client_test\.go$
+        source: '^\s*response := testJSONResponse\('
+        linters:
+          - bodyclose
+      - path: ^internal/syncproxy/proxy\.go$
+        source: 'http\.ReadResponse\(reader, request\)'
+        linters:
+          - bodyclose
+      - path: ^internal/syncschedule/service\.go$
+        text: 'SA2001: empty critical section'
+        linters:
+          - staticcheck
+      - path: ^internal/kinepolis/parser\.go$
+        source: 'fmt\.Errorf\("Drupal settings JSON not found or malformed"\)'
+        linters:
+          - staticcheck
+      - path: ^internal/pathe/sync\.go$
+        source: 'errors\.New\("Pathé phase canceled"\)'
+        linters:
+          - staticcheck
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

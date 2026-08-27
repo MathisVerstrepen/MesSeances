@@ -147,7 +147,7 @@ func TestAdminSaveSyncScheduleSecurityStrictJSONAndValidation(t *testing.T) {
 		assertAPIError(t, response, http.StatusBadRequest, "invalid_sync_schedule", "Configuration de synchronisation invalide.")
 	}
 
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/sync-schedules/ugc", strings.NewReader(`{"enabled":true,"schedule":{"kind":"daily","time":"09:30"}}`))
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/sync-schedules/ugc", strings.NewReader(`{"enabled":true,"schedule":{"kind":"daily","time":"09:30"}}`))
 	request.Header.Set("Origin", "http://localhost:3000")
 	request.AddCookie(cookie)
 	response := httptest.NewRecorder()

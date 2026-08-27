@@ -145,7 +145,8 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if err != nil || date.Before(from) || date.After(through) || !contains(theater.AvailableDates, showing.ServiceDate) {
 			return fmt.Errorf("invalid showing service date")
 		}
-		if showing.StartTime.IsZero() || showing.EndTime.IsZero() || (!showing.EndTime.After(showing.StartTime) && !(unknownCGRRuntime && showing.EndTime.Equal(showing.StartTime))) || (provider == ProviderKinepolis && !showing.EndTime.Equal(showing.StartTime.Add(runtime))) {
+		validEnd := showing.EndTime.After(showing.StartTime) || unknownCGRRuntime && showing.EndTime.Equal(showing.StartTime)
+		if showing.StartTime.IsZero() || showing.EndTime.IsZero() || !validEnd || provider == ProviderKinepolis && !showing.EndTime.Equal(showing.StartTime.Add(runtime)) {
 			return fmt.Errorf("invalid showing times")
 		}
 		localStart := showing.StartTime.In(location)

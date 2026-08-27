@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -47,7 +48,7 @@ func NewMetrics() *Metrics {
 		refreshLastSuccess:  prometheus.NewGauge(prometheus.GaugeOpts{Name: "messeances_schedule_refresh_last_success_timestamp_seconds", Help: "Last successful schedule refresh check timestamp."}),
 	}
 	registry.MustRegister(
-		prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
+		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		metrics.httpRequests, metrics.httpDuration, metrics.refreshes, metrics.refreshDuration,
 		metrics.revisions, metrics.syncRuns, metrics.syncDuration, metrics.syncEnrichment,
 		metrics.syncLastSuccess, metrics.syncLastRecords,

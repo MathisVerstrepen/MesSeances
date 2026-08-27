@@ -3,7 +3,6 @@ package schedule
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -37,7 +36,7 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 		options = option[0]
 	}
 	if options.Logger == nil {
-		options.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+		options.Logger = slog.New(slog.DiscardHandler)
 	}
 	data, revision, err := reader.Load(ctx)
 	if err != nil {

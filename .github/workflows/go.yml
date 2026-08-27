@@ -52,6 +52,12 @@ jobs:
           work-dir: api
           go-package: ./...
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.13.1
+          working-directory: api
+
   integration:
     runs-on: ubuntu-latest
     services:
