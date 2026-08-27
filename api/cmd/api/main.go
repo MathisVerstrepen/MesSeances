@@ -13,11 +13,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"messeances/api/internal/cgr"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/httpapi"
+	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/pathe"
@@ -99,10 +103,17 @@ func run(ctx context.Context) error {
 		enrichmentProvider = tmdbClient
 	}
 	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
+	adminOptions.TheaterLocations = newTheaterLocationController(pool, time.Now)
 	adminOptions.Logger = logger
 	adminOptions.Metrics = metrics
 	workerCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
+	geocodingManager, err := newTheaterGeocodingManager(workerCtx, pool, time.Now)
+	if err != nil {
+		return fmt.Errorf("geocoding configuration is invalid")
+	}
+	defer geocodingManager.Close()
+	adminOptions.TheaterGeocoding = geocodingManager
 	var syncManager httpapi.SyncController
 	var concreteSyncManager *synccontrol.Manager
 	var syncScheduler *syncschedule.Service
@@ -146,7 +157,7 @@ func run(ctx context.Context) error {
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
-			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, &polling)
+			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, geocodingManager, &polling)
 		})
 	}
 	defer cleanup()
@@ -188,13 +199,16 @@ type closeableWorker interface {
 	Close()
 }
 
-func shutdownWorkers(stopWorkers context.CancelFunc, schedules, manager closeableWorker, polling *sync.WaitGroup) {
+func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager closeableWorker, polling *sync.WaitGroup) {
 	stopWorkers()
 	if schedules != nil {
 		schedules.Close()
 	}
-	if manager != nil {
-		manager.Close()
+	if syncManager != nil {
+		syncManager.Close()
+	}
+	if geocodingManager != nil {
+		geocodingManager.Close()
 	}
 	polling.Wait()
 }
@@ -255,6 +269,26 @@ func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresS
 		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil))
 	}
 	return options
+}
+
+func newTheaterLocationController(pool *pgxpool.Pool, now func() time.Time) httpapi.TheaterLocationController {
+	return geocoding.NewResolutionService(geocoding.NewPostgresResolutionStore(pool), now)
+}
+
+func newTheaterGeocodingManager(ctx context.Context, pool *pgxpool.Pool, now func() time.Time) (*geocoding.Manager, error) {
+	runner, err := newTheaterGeocodingRunner(geocoding.NewPostgresStore(pool), runtimeconfig.DefaultRequestTimeout, now)
+	if err != nil {
+		return nil, err
+	}
+	return geocoding.NewManager(ctx, now, runner, geocoding.NewPostgresRunStore(pool), geocoding.NewPostgresRunLocker(pool))
+}
+
+func newTheaterGeocodingRunner(store geocoding.Store, timeout time.Duration, now func() time.Time) (*geocoding.Runner, error) {
+	client, err := ign.NewClient(ign.Config{Timeout: timeout})
+	if err != nil {
+		return nil, err
+	}
+	return geocoding.NewRunner(store, client, now)
 }
 
 func loadSyncProxies(path string, open func(string) (io.ReadCloser, error)) ([]syncproxy.Proxy, error) {

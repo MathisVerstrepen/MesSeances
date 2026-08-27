@@ -2,10 +2,10 @@ package schedule
 
 import "strings"
 
-func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
+func (s *Service) Theaters(query TheaterCatalogQuery) []TheaterCatalogItem {
 	chain := strings.TrimSpace(string(query.Chain))
 	if chain != "" && !strings.EqualFold(chain, string(ProviderUGC)) && !strings.EqualFold(chain, string(ProviderKinepolis)) && !strings.EqualFold(chain, string(ProviderPathe)) && !strings.EqualFold(chain, string(ProviderCGR)) {
-		return []Theater{}
+		return []TheaterCatalogItem{}
 	}
 	city := strings.TrimSpace(query.City)
 	view := s.source.Snapshot()
@@ -13,14 +13,15 @@ func (s *Service) Theaters(query TheaterCatalogQuery) []Theater {
 	if city != "" {
 		positions = view.catalogPositionsForCities(s.cityLookupValues(city))
 	}
-	result := make([]Theater, 0, len(positions))
+	result := make([]TheaterCatalogItem, 0, len(positions))
 	for _, position := range positions {
 		theater := view.data.Theaters[position]
 		provider := recordProvider(theater.Provider, theater.ID)
 		if chain != "" && !strings.EqualFold(chain, string(provider)) {
 			continue
 		}
-		result = append(result, materializeTheater(view, position))
+		base := materializeTheater(view, position)
+		result = append(result, TheaterCatalogItem{Provider: base.Provider, ID: base.ID, Slug: base.Slug, Name: base.Name, Address: base.Address, City: base.City, CitySlug: base.CitySlug, PostalCode: base.PostalCode, AvailableDates: base.AvailableDates, AcceptedPasses: base.AcceptedPasses, Latitude: cloneFloat(theater.Latitude), Longitude: cloneFloat(theater.Longitude)})
 	}
 	return result
 }

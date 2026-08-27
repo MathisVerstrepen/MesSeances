@@ -87,6 +87,8 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 			showtime("102", "ugc-99", "201", "Film B", "", "12:30"),
 		},
 	}
+	latitude, longitude := 50.6321, 3.0612
+	data.Theaters[0].Latitude, data.Theaters[0].Longitude = &latitude, &longitude
 	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{
 		DefaultCity: "Lille",
 		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
@@ -165,11 +167,11 @@ func TestTheatersTransport(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	var theaters []schedule.Theater
+	var theaters []schedule.TheaterCatalogItem
 	if err := json.Unmarshal(response.Body.Bytes(), &theaters); err != nil {
 		t.Fatal(err)
 	}
-	if len(theaters) != 2 || theaters[0].ID != "ugc-25" || theaters[1].ID != "ugc-26" || theaters[0].PostalCode != "59000" || theaters[0].Provider != schedule.ProviderUGC || theaters[0].CitySlug != "lille" || theaters[1].CitySlug != "villeneuve-d-ascq" {
+	if len(theaters) != 2 || theaters[0].ID != "ugc-25" || theaters[1].ID != "ugc-26" || theaters[0].PostalCode != "59000" || theaters[0].Provider != schedule.ProviderUGC || theaters[0].CitySlug != "lille" || theaters[1].CitySlug != "villeneuve-d-ascq" || theaters[0].Latitude == nil || *theaters[0].Latitude != 50.6321 || theaters[0].Longitude == nil || *theaters[0].Longitude != 3.0612 || theaters[1].Latitude != nil || theaters[1].Longitude != nil || !strings.Contains(response.Body.String(), `"latitude":null,"longitude":null`) {
 		t.Fatalf("theaters=%+v", theaters)
 	}
 
@@ -204,6 +206,9 @@ func TestCitiesTransportContracts(t *testing.T) {
 	if !reflect.DeepEqual(city, map[string]any{"name": "Lille", "slug": "lille"}) || len(theaters) != 1 || theaters[0].(map[string]any)["city_slug"] != "lille" || len(movies) != 1 || movies[0].(map[string]any)["slug"] != "tmdb-film-42" {
 		t.Fatalf("detail=%+v", payload)
 	}
+	if _, exists := theaters[0].(map[string]any)["latitude"]; exists {
+		t.Fatal("city detail unexpectedly exposes theater coordinates")
+	}
 	assertAPIError(t, performRequest(t, handler, "/api/v1/cities/Lille"), http.StatusNotFound, "not_found", "Ville introuvable.")
 	assertAPIError(t, performRequest(t, handler, "/api/v1/cities/inconnue"), http.StatusNotFound, "not_found", "Ville introuvable.")
 }
@@ -225,6 +230,9 @@ func TestTheaterShowtimesTransportContracts(t *testing.T) {
 	showtimes := payload["showtimes"].([]any)
 	if theater["slug"] != "ugc-lille" || theater["city_slug"] != "lille" || len(showtimes) != 1 || showtimes[0].(map[string]any)["id"] != "ugc-showing-100" {
 		t.Fatalf("payload=%+v", payload)
+	}
+	if _, exists := theater["latitude"]; exists {
+		t.Fatal("theater showtimes unexpectedly exposes coordinates")
 	}
 	empty := performRequest(t, handler, "/api/v1/theaters/ugc-lille/showtimes?date=2027-01-01")
 	if empty.Code != http.StatusOK || !strings.Contains(empty.Body.String(), `"date":"2027-01-01","showtimes":[]`) {
@@ -256,7 +264,7 @@ func TestTheatersKinepolisChainAndCombinedProviderDTOs(t *testing.T) {
 	}
 	handler := NewHandler(service, "http://localhost:3000")
 	response := performRequest(t, handler, "/api/v1/theaters?chain=kinepolis")
-	var theaters []schedule.Theater
+	var theaters []schedule.TheaterCatalogItem
 	if err := json.Unmarshal(response.Body.Bytes(), &theaters); err != nil {
 		t.Fatal(err)
 	}

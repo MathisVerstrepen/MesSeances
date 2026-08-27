@@ -13,6 +13,7 @@ import (
 
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/schedule"
@@ -44,8 +45,18 @@ type testCloseableWorker struct {
 
 type testSnapshotWriter struct{}
 
+type testGeocodingStore struct{}
+
 func (testSnapshotWriter) Replace(context.Context, []schedule.Dataset) (schedule.PublicationResult, error) {
 	return schedule.PublicationResult{}, nil
+}
+
+func (testGeocodingStore) Select(context.Context) ([]geocoding.Theater, error) {
+	return nil, nil
+}
+
+func (testGeocodingStore) Save(context.Context, *geocoding.Location, geocoding.Location) (bool, error) {
+	return false, nil
 }
 
 func (w testCloseableWorker) Close() { w.close() }
@@ -198,6 +209,26 @@ func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	}
 }
 
+func TestAPIStartupBuildsTheaterLocationControllerWithoutProviderClient(t *testing.T) {
+	controller := newTheaterLocationController(nil, func() time.Time { return time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC) })
+	if controller == nil {
+		t.Fatal("theater location controller was not wired")
+	}
+}
+
+func TestAPIStartupBuildsIGNRunnerWithFixedTimeoutAndNoOptionalCapabilities(t *testing.T) {
+	if runtimeconfig.DefaultRequestTimeout != 20*time.Second {
+		t.Fatalf("default request timeout=%s", runtimeconfig.DefaultRequestTimeout)
+	}
+	runner, err := newTheaterGeocodingRunner(testGeocodingStore{}, runtimeconfig.DefaultRequestTimeout, time.Now)
+	if err != nil || runner == nil {
+		t.Fatalf("runner=%v err=%v", runner, err)
+	}
+	if _, err := newTheaterGeocodingRunner(testGeocodingStore{}, time.Second, time.Now); err == nil {
+		t.Fatal("invalid IGN timeout accepted")
+	}
+}
+
 func TestServerWriteTimeoutCoversSynchronousTMDBRerun(t *testing.T) {
 	if serverWriteTimeout != 3*time.Minute {
 		t.Fatalf("write timeout=%s", serverWriteTimeout)
@@ -288,25 +319,26 @@ func TestShutdownWorkersStopsSchedulerAndManagerBeforeSourcePollingWait(t *testi
 		events = append(events, event)
 		mu.Unlock()
 	}
-	managerClosed := make(chan struct{})
+	geocodingClosed := make(chan struct{})
 	var polling sync.WaitGroup
 	polling.Add(1)
 	go func() {
 		defer polling.Done()
-		<-managerClosed
+		<-geocodingClosed
 		record("source")
 	}()
 
 	shutdownWorkers(
 		func() { record("cancel") },
 		testCloseableWorker{close: func() { record("schedules") }},
-		testCloseableWorker{close: func() { record("manager"); close(managerClosed) }},
+		testCloseableWorker{close: func() { record("sync-manager") }},
+		testCloseableWorker{close: func() { record("geocoding-manager"); close(geocodingClosed) }},
 		&polling,
 	)
 	mu.Lock()
 	got := strings.Join(events, ",")
 	mu.Unlock()
-	if got != "cancel,schedules,manager,source" {
+	if got != "cancel,schedules,sync-manager,geocoding-manager,source" {
 		t.Fatalf("cleanup order=%s", got)
 	}
 }

@@ -384,18 +384,41 @@ func trueValue(v map[string]any, keys ...string) bool {
 }
 func sessionAttributes(v map[string]any) string {
 	parts := []string{}
-	for _, key := range []string{"language", "version", "attributes"} {
-		collectStrings(value(v, key), &parts)
-		walk(value(v, key), func(item map[string]any) {
+	seen := map[string]bool{}
+	appendPart := func(part string) {
+		part = strings.TrimSpace(part)
+		key := strings.ToLower(part)
+		if part == "" || seen[key] {
+			return
+		}
+		seen[key] = true
+		parts = append(parts, part)
+	}
+	var collectAttributes func(any)
+	collectAttributes = func(source any) {
+		switch source := source.(type) {
+		case string:
+			appendPart(source)
+		case []any:
+			for _, child := range source {
+				collectAttributes(child)
+			}
+		case map[string]any:
 			for _, field := range []string{"name", "value", "label"} {
-				if s := stringValue(item, field); s != "" {
-					parts = append(parts, s)
+				if text := stringValue(source, field); text != "" {
+					appendPart(text)
 				}
 			}
-		})
-		if s, ok := value(v, key).(string); ok {
-			parts = append(parts, s)
+			for _, child := range source {
+				switch child.(type) {
+				case []any, map[string]any:
+					collectAttributes(child)
+				}
+			}
 		}
+	}
+	for _, key := range []string{"language", "version", "attributes", "sessionAttributes"} {
+		collectAttributes(value(v, key))
 	}
 	return strings.Join(parts, " ")
 }
@@ -417,7 +440,7 @@ func collectStrings(value any, destination *[]string) {
 	}
 }
 func language(v string) schedule.Language {
-	lower := strings.ToLower(v)
+	lower := strings.ReplaceAll(strings.ToLower(v), "î", "i")
 	if strings.Contains(lower, "sme") {
 		return schedule.LanguageVFSME
 	}
