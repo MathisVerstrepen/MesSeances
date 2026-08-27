@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, CalendarDays, ChevronDown, Film, LoaderCircle, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
+import { AlertTriangle, CalendarDays, Film, LoaderCircle, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
 import '@vuepic/vue-datepicker/dist/main.css'
@@ -26,6 +26,7 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const PAGE_SIZE = 24
 const DEFAULT_SORT: MovieSort = 'showtimes_desc'
+const LG_MEDIA_QUERY = '(min-width: 1024px)'
 const SORT_OPTIONS = [
   { value: 'title_asc', label: 'Titre A–Z' },
   { value: 'title_desc', label: 'Titre Z–A' },
@@ -35,7 +36,7 @@ const SORT_OPTIONS = [
   { value: 'showtimes_desc', label: 'Plus de séances' }
 ] as const satisfies readonly { value: MovieSort, label: string }[]
 const SORT_VALUES = SORT_OPTIONS.map((option) => option.value)
-const OWNED_QUERY_KEYS = ['q', 'sort', 'page', 'genres', 'duration', 'date', 'date_to'] as const
+const OWNED_QUERY_KEYS = ['q', 'sort', 'page', 'genres', 'duration', 'date', 'date_to', 'all_theaters'] as const
 const EMPTY_FILTERS: MovieCatalogFilters = { genres: [] }
 const DURATION_OPTIONS = [
   { value: 'short', label: 'Moins de 1h30' },
@@ -64,12 +65,14 @@ const appliedFilters = ref<MovieCatalogFilters>({ genres: [] })
 const draftFilters = ref<MovieCatalogFilterDraft>(movieCatalogFilterDraft(EMPTY_FILTERS, todayDate.value))
 const isAdvancedFiltersOpen = ref(false)
 const advancedFiltersTrigger = ref<HTMLButtonElement | null>(null)
+const resultsSection = ref<HTMLElement | null>(null)
 const catalog = ref<MoviesResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
 let requestId = 0
 let isMounted = false
 let isInitializing = false
+let advancedApplyNavigation: 'none' | 'collapse' | 'scroll' = 'none'
 let scrollAfterLoad = false
 let lastLoadKey = ''
 
@@ -82,8 +85,14 @@ const availableGenres = computed(() => normalizeMovieGenres([
   ...appliedFilters.value.genres
 ]))
 const advancedFilterCount = computed(() => appliedFilters.value.genres.length
+  + Number(Boolean(appliedFilters.value.allTheaters))
   + Number(Boolean(appliedFilters.value.duration))
   + Number(Boolean(appliedFilters.value.date)))
+const advancedFiltersButtonLabel = computed(() => {
+  const action = isAdvancedFiltersOpen.value ? 'Masquer' : 'Afficher'
+  const count = advancedFilterCount.value
+  return `${action} les filtres avancés${count ? ` (${count} actif${count > 1 ? 's' : ''})` : ''}`
+})
 const minPickerDate = computed(() => dateFromCalendarDate(todayDate.value) ?? new Date())
 const singlePickerDate = computed<Date | null>({
   get: () => dateFromCalendarDate(draftFilters.value.customDate),
@@ -118,6 +127,7 @@ const calendarAriaLabels = {
 const appliedFilterSummary = computed(() => {
   const filters = appliedFilters.value
   const items: string[] = []
+  if (filters.allTheaters) items.push('cinémas : tous les cinémas')
   if (filters.genres.length) items.push(`genres : ${filters.genres.join(', ')}`)
   const duration = DURATION_OPTIONS.find((option) => option.value === filters.duration)
   if (duration) items.push(`durée : ${duration.label.toLocaleLowerCase('fr-FR')}`)
@@ -130,6 +140,30 @@ const appliedFilterSummary = computed(() => {
   return items
 })
 
+function prepareAdvancedApplyNavigation() {
+  if (!isMounted) return
+  if (window.matchMedia(LG_MEDIA_QUERY).matches) {
+    advancedApplyNavigation = 'scroll'
+    return
+  }
+  advancedApplyNavigation = 'collapse'
+  isAdvancedFiltersOpen.value = false
+}
+
+async function finishAdvancedApplyNavigation() {
+  if (!isMounted || advancedApplyNavigation === 'none') return
+  if (advancedApplyNavigation === 'collapse') {
+    advancedApplyNavigation = 'none'
+    isAdvancedFiltersOpen.value = false
+    return
+  }
+  await nextTick()
+  const target = resultsSection.value
+  if (!target) return
+  advancedApplyNavigation = 'none'
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 async function loadMovies() {
   const currentRequest = ++requestId
   pending.value = true
@@ -139,16 +173,21 @@ async function loadMovies() {
     catalog.value = null
     errorMessage.value = preferences.error.value
     pending.value = false
+    await finishAdvancedApplyNavigation()
     return
   }
   if (!preferences.isInitialized.value) return
-  if (preferences.favoriteTheaterIds.value.length === 0) {
+  if (!appliedFilters.value.allTheaters && preferences.favoriteTheaterIds.value.length === 0) {
     catalog.value = null
     pending.value = false
+    await finishAdvancedApplyNavigation()
     return
   }
 
-  const theaterIds = preferences.favoriteTheaterIds.value.join(',')
+  const theaterIds = appliedFilters.value.allTheaters
+    ? undefined
+    : preferences.favoriteTheaterIds.value.join(',')
+  let shouldFinishAdvancedApplyNavigation = false
 
   try {
     const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
@@ -172,6 +211,7 @@ async function loadMovies() {
         return
       }
       catalog.value = response
+      shouldFinishAdvancedApplyNavigation = true
       if (scrollAfterLoad) {
         scrollAfterLoad = false
         window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -181,10 +221,12 @@ async function loadMovies() {
     if (currentRequest === requestId) {
       catalog.value = null
       errorMessage.value = getFrenchApiError(error)
+      shouldFinishAdvancedApplyNavigation = true
     }
   } finally {
     if (currentRequest === requestId) pending.value = false
   }
+  if (shouldFinishAdvancedApplyNavigation) await finishAdvancedApplyNavigation()
 }
 
 async function retryMovies() {
@@ -229,7 +271,7 @@ function hydrateRoute() {
   page.value = nextPage
   appliedFilters.value = nextFilters
   draftFilters.value = movieCatalogFilterDraft(nextFilters, todayDate.value)
-  if (hasMovieCatalogFilters(nextFilters)) isAdvancedFiltersOpen.value = true
+  if (hasMovieCatalogFilters(nextFilters) && advancedApplyNavigation !== 'collapse') isAdvancedFiltersOpen.value = true
   return filmQuery({ search: nextSearch, page: nextPage, sort: nextSort, filters: nextFilters })
 }
 
@@ -295,15 +337,17 @@ function handleRangeDateTextInput(_event: Event | string, parsedDate: Date | Arr
   draftFilters.value.rangeEnd = dates[1] instanceof Date ? calendarDateFromDate(dates[1]) : ''
 }
 
-function applyAdvancedFilters() {
+async function applyAdvancedFilters() {
   const filters = movieCatalogFiltersFromDraft(draftFilters.value, todayDate.value)
   if (!filters) return
   const query = filmQuery({ search: appliedSearch.value, page: 1, sort: sort.value, filters })
+  prepareAdvancedApplyNavigation()
   if (queriesEqual(route.query, query)) {
-    if (errorMessage.value) loadMovies()
+    if (errorMessage.value) await loadMovies()
+    else if (!pending.value) await finishAdvancedApplyNavigation()
     return
   }
-  router.push({ query })
+  await router.push({ query })
 }
 
 function clearAdvancedFilters() {
@@ -464,54 +508,58 @@ useHead(() => ({
 
     <section class="catalog-canvas border-b-2 border-ink">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12">
-        <div class="search-workspace grid gap-5 border-2 border-ink bg-[#ffcf3f] p-4 shadow-[7px_7px_0_#27272a] sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end lg:gap-8">
-          <form role="search" @submit.prevent="submitSearch">
-            <label class="control-label" for="film-search">Rechercher un film</label>
-            <div class="mt-2 flex min-w-0">
-              <input
-                id="film-search"
-                v-model="searchInput"
-                type="search"
-                class="catalog-field min-w-0 flex-1 border-r-0"
-                autocomplete="off"
-                placeholder="Titre du film"
-              />
-              <button type="submit" class="search-button shrink-0" :disabled="pending">
-                <Search :size="19" stroke-width="2.5" aria-hidden="true" />
-                <span class="hidden sm:inline">Rechercher</span>
-                <span class="sr-only sm:hidden">Rechercher</span>
-              </button>
-            </div>
-          </form>
+        <div class="search-workspace border-2 border-ink bg-[#ffcf3f] p-4 shadow-[7px_7px_0_#27272a] sm:p-6">
+          <div class="grid grid-cols-[minmax(0,1fr)_3.25rem] items-end gap-4 lg:grid-cols-[minmax(0,1fr)_14rem_3.25rem] lg:gap-5">
+            <form class="col-span-2 min-w-0 lg:col-span-1" role="search" @submit.prevent="submitSearch">
+              <label class="control-label" for="film-search">Rechercher un film</label>
+              <div class="mt-2 flex min-w-0">
+                <input
+                  id="film-search"
+                  v-model="searchInput"
+                  type="search"
+                  class="catalog-field min-w-0 flex-1 border-r-0"
+                  autocomplete="off"
+                  placeholder="Titre du film"
+                />
+                <button type="submit" class="search-button shrink-0" :disabled="pending">
+                  <Search :size="19" stroke-width="2.5" aria-hidden="true" />
+                  <span class="hidden sm:inline">Rechercher</span>
+                  <span class="sr-only sm:hidden">Rechercher</span>
+                </button>
+              </div>
+            </form>
 
-          <label class="block lg:min-w-56">
-            <span class="control-label">Trier par</span>
-            <select :value="sort" class="catalog-field mt-2 w-full" :disabled="pending" @change="changeSort">
-              <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </select>
-          </label>
+            <label class="block min-w-0">
+              <span class="control-label">Trier par</span>
+              <select :value="sort" class="catalog-field mt-2 w-full" :disabled="pending" @change="changeSort">
+                <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
 
-          <div class="lg:col-span-2" @keydown.esc.stop.prevent="closeAdvancedFilters">
             <button
               ref="advancedFiltersTrigger"
               type="button"
               class="advanced-trigger"
+              :class="{ 'advanced-trigger--active': advancedFilterCount > 0 }"
+              :aria-label="advancedFiltersButtonLabel"
               aria-controls="advanced-film-filters"
               :aria-expanded="isAdvancedFiltersOpen"
               @click="toggleAdvancedFilters"
+              @keydown.esc.stop.prevent="closeAdvancedFilters"
             >
-              <SlidersHorizontal :size="18" aria-hidden="true" />
-              <span>Plus de filtres<span v-if="advancedFilterCount"> ({{ advancedFilterCount }})</span></span>
-              <ChevronDown :size="18" class="ml-auto transition-transform" :class="isAdvancedFiltersOpen ? 'rotate-180' : ''" aria-hidden="true" />
+              <SlidersHorizontal :size="20" stroke-width="2.5" aria-hidden="true" />
+              <span v-if="advancedFilterCount" class="advanced-trigger-count" aria-hidden="true">{{ advancedFilterCount }}</span>
             </button>
+          </div>
 
-            <form
-              v-show="isAdvancedFiltersOpen"
-              id="advanced-film-filters"
-              class="advanced-panel"
-              aria-label="Filtres avancés des films"
-              @submit.prevent="applyAdvancedFilters"
-            >
+          <form
+            v-show="isAdvancedFiltersOpen"
+            id="advanced-film-filters"
+            class="advanced-panel"
+            aria-label="Filtres avancés des films"
+            @submit.prevent="applyAdvancedFilters"
+            @keydown.esc.stop.prevent="closeAdvancedFilters"
+          >
               <div class="grid gap-7 lg:grid-cols-3">
                 <fieldset class="min-w-0">
                   <legend class="control-label mb-3">Genres</legend>
@@ -524,19 +572,28 @@ useHead(() => ({
                   <p v-else class="border-2 border-ink bg-surface px-3 py-3 text-sm font-semibold">Aucun genre disponible.</p>
                 </fieldset>
 
-                <fieldset>
-                  <legend class="control-label mb-3">Durée</legend>
-                  <div class="grid gap-2">
+                <div>
+                  <fieldset>
+                    <legend class="control-label mb-3">Durée</legend>
+                    <div class="grid gap-2">
+                      <label class="filter-choice">
+                        <input v-model="draftFilters.duration" type="radio" name="film-duration" value="" class="size-4 shrink-0 accent-primary" />
+                        <span>Toutes les durées</span>
+                      </label>
+                      <label v-for="option in DURATION_OPTIONS" :key="option.value" class="filter-choice">
+                        <input v-model="draftFilters.duration" type="radio" name="film-duration" :value="option.value" class="size-4 shrink-0 accent-primary" />
+                        <span>{{ option.label }}</span>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="mt-6">
+                    <legend class="control-label mb-3">Cinémas</legend>
                     <label class="filter-choice">
-                      <input v-model="draftFilters.duration" type="radio" name="film-duration" value="" class="size-4 shrink-0 accent-primary" />
-                      <span>Toutes les durées</span>
+                      <input v-model="draftFilters.allTheaters" type="checkbox" class="size-4 shrink-0 accent-primary" />
+                      <span>Tous les cinémas</span>
                     </label>
-                    <label v-for="option in DURATION_OPTIONS" :key="option.value" class="filter-choice">
-                      <input v-model="draftFilters.duration" type="radio" name="film-duration" :value="option.value" class="size-4 shrink-0 accent-primary" />
-                      <span>{{ option.label }}</span>
-                    </label>
-                  </div>
-                </fieldset>
+                  </fieldset>
+                </div>
 
                 <fieldset class="min-w-0" :aria-invalid="draftError ? 'true' : undefined" :aria-describedby="draftError ? 'film-date-error' : undefined">
                   <legend class="control-label mb-3">Date de séance</legend>
@@ -614,9 +671,10 @@ useHead(() => ({
                 <button type="button" class="filter-reset-button" @click="clearAdvancedFilters">Effacer les filtres</button>
                 <button type="submit" class="filter-apply-button" :disabled="Boolean(draftError)">Appliquer</button>
               </div>
-            </form>
-          </div>
+          </form>
         </div>
+
+        <div ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
 
         <div v-if="catalog && !pending" class="results-bar mt-10 flex flex-col gap-2 border-y-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
           <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
@@ -639,7 +697,7 @@ useHead(() => ({
           <template #actions><button type="button" class="state-button" @click="retryMovies"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
         </EditorialStatePanel>
 
-        <EditorialStatePanel v-else-if="preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+        <EditorialStatePanel v-else-if="!appliedFilters.allTheaters && preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
           <template #icon><Film :size="36" aria-hidden="true" /></template>
           <p>Sélectionnez au moins un cinéma pour voir les films disponibles.</p>
         </EditorialStatePanel>
@@ -760,18 +818,45 @@ useHead(() => ({
 }
 
 .advanced-trigger {
-  display: flex;
-  width: 100%;
-  min-height: 2.75rem;
+  position: relative;
+  display: inline-flex;
+  width: 3.25rem;
+  height: 3.25rem;
   align-items: center;
-  gap: 0.6rem;
-  border-top: 2px solid #27272a;
-  padding: 0.75rem 0;
+  justify-content: center;
+  border: 2px solid #27272a;
+  background: #fff;
+  color: #27272a;
+  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.advanced-trigger:hover,
+.advanced-trigger[aria-expanded="true"] {
+  background: #27272a;
+  color: #fff;
+}
+
+.advanced-trigger--active:not([aria-expanded="true"]) {
+  box-shadow: inset 0 -4px 0 var(--color-highlight);
+}
+
+.advanced-trigger-count {
+  position: absolute;
+  top: -0.6rem;
+  right: -0.6rem;
+  display: inline-flex;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #27272a;
+  background: var(--color-highlight);
+  padding: 0 0.2rem;
+  color: #27272a;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  line-height: 1;
 }
 
 .advanced-trigger:focus-visible,
@@ -783,7 +868,7 @@ useHead(() => ({
 }
 
 .advanced-panel {
-  margin-top: 0.75rem;
+  margin-top: 1.5rem;
   border-top: 2px solid #27272a;
   padding-top: 1.5rem;
 }

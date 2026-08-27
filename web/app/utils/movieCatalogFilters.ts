@@ -7,6 +7,7 @@ export type MovieDateMode = 'none' | MovieDatePreset | 'custom' | 'range'
 
 export interface MovieCatalogFilters {
   genres: string[]
+  allTheaters?: true
   duration?: MovieDurationFilter
   date?: MovieDatePreset | string
   dateTo?: string
@@ -14,6 +15,7 @@ export interface MovieCatalogFilters {
 
 export interface MovieCatalogFilterDraft {
   genres: string[]
+  allTheaters: boolean
   duration: MovieDurationFilter | ''
   dateMode: MovieDateMode
   customDate: string
@@ -23,6 +25,7 @@ export interface MovieCatalogFilterDraft {
 
 interface SerializedMovieCatalogFilters {
   genres: string | undefined
+  all_theaters: '1' | undefined
   duration: MovieDurationFilter | undefined
   date: string | undefined
   date_to: string | undefined
@@ -94,6 +97,7 @@ export function parseMovieCatalogFilters(
   today: string
 ): MovieCatalogFilters {
   const filters: MovieCatalogFilters = { genres: genresFromQuery(query.genres) }
+  if (scalarQueryValue(query.all_theaters) === '1') filters.allTheaters = true
   const duration = durationFilter(scalarQueryValue(query.duration))
   if (duration) filters.duration = duration
 
@@ -115,6 +119,7 @@ export function serializeMovieCatalogFilters(filters: MovieCatalogFilters): Seri
   const genres = normalizeMovieGenres(filters.genres)
   return {
     genres: genres.length ? genres.join(',') : undefined,
+    all_theaters: filters.allTheaters === true ? '1' : undefined,
     duration: filters.duration,
     date: filters.date,
     date_to: filters.dateTo
@@ -124,6 +129,7 @@ export function serializeMovieCatalogFilters(filters: MovieCatalogFilters): Seri
 export function movieCatalogFilterDraft(filters: MovieCatalogFilters, today: string): MovieCatalogFilterDraft {
   const base: MovieCatalogFilterDraft = {
     genres: normalizeMovieGenres(filters.genres),
+    allTheaters: filters.allTheaters === true,
     duration: filters.duration ?? '',
     dateMode: 'none',
     customDate: today,
@@ -161,6 +167,7 @@ export function movieCatalogFiltersFromDraft(draft: MovieCatalogFilterDraft, tod
     genres: normalizeMovieGenres(draft.genres),
     duration: draft.duration || undefined
   }
+  if (draft.allTheaters) filters.allTheaters = true
   const preset = datePreset(draft.dateMode)
   if (preset) {
     filters.date = preset
@@ -174,12 +181,12 @@ export function movieCatalogFiltersFromDraft(draft: MovieCatalogFilterDraft, tod
 }
 
 export function hasMovieCatalogFilters(filters: MovieCatalogFilters): boolean {
-  return Boolean(filters.genres.length || filters.duration || filters.date)
+  return Boolean(filters.genres.length || filters.allTheaters || filters.duration || filters.date)
 }
 
 export function movieCatalogFiltersKey(filters: MovieCatalogFilters): string {
   const values = serializeMovieCatalogFilters(filters)
-  return [values.genres, values.duration, values.date, values.date_to].map((value) => value ?? '').join('|')
+  return [values.genres, values.all_theaters, values.duration, values.date, values.date_to].map((value) => value ?? '').join('|')
 }
 
 export function dateFromCalendarDate(value: string): Date | null {

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   formatShortCalendarDate,
+  hasMovieCatalogFilters,
   movieCatalogFilterDraft,
   movieCatalogFiltersFromDraft,
+  movieCatalogFiltersKey,
   normalizeMovieGenres,
   parseMovieCatalogFilters,
   serializeMovieCatalogFilters
@@ -23,7 +25,34 @@ test('hydrates duration values and omits unknown defaults', () => {
   assert.equal(parseMovieCatalogFilters({ duration: 'medium' }, TODAY).duration, 'medium')
   assert.equal(parseMovieCatalogFilters({ duration: 'exact' }, TODAY).duration, undefined)
   assert.equal(parseMovieCatalogFilters({ duration: ['short', 'long'] }, TODAY).duration, undefined)
-  assert.deepEqual(serializeMovieCatalogFilters({ genres: [] }), { genres: undefined, duration: undefined, date: undefined, date_to: undefined })
+  assert.deepEqual(serializeMovieCatalogFilters({ genres: [] }), { genres: undefined, all_theaters: undefined, duration: undefined, date: undefined, date_to: undefined })
+})
+
+test('hydrates and serializes only the canonical national theater scope', () => {
+  assert.deepEqual(parseMovieCatalogFilters({}, TODAY), { genres: [] })
+  assert.deepEqual(parseMovieCatalogFilters({ all_theaters: '1' }, TODAY), { genres: [], allTheaters: true })
+  assert.deepEqual(parseMovieCatalogFilters({ all_theaters: '1', date: 'today' }, TODAY), { genres: [], allTheaters: true, date: 'today' })
+
+  for (const all_theaters of ['', '0', 'true', 'false', '2', ['1', '1']]) {
+    assert.deepEqual(parseMovieCatalogFilters({ all_theaters }, TODAY), { genres: [] })
+  }
+
+  const serialized = serializeMovieCatalogFilters({ genres: ['Drame'], allTheaters: true, duration: 'medium', date: 'today' })
+  assert.deepEqual(serialized, { genres: 'Drame', all_theaters: '1', duration: 'medium', date: 'today', date_to: undefined })
+  assert.deepEqual(parseMovieCatalogFilters(serialized, TODAY), { genres: ['Drame'], allTheaters: true, duration: 'medium', date: 'today' })
+})
+
+test('round-trips national scope through drafts, active state, and load keys', () => {
+  const inactiveDraft = movieCatalogFilterDraft({ genres: [] }, TODAY)
+  assert.equal(inactiveDraft.allTheaters, false)
+  assert.deepEqual(movieCatalogFiltersFromDraft(inactiveDraft, TODAY), { genres: [], duration: undefined })
+  assert.equal(hasMovieCatalogFilters({ genres: [] }), false)
+
+  const activeDraft = movieCatalogFilterDraft({ genres: [], allTheaters: true }, TODAY)
+  assert.equal(activeDraft.allTheaters, true)
+  assert.deepEqual(movieCatalogFiltersFromDraft(activeDraft, TODAY), { genres: [], duration: undefined, allTheaters: true })
+  assert.equal(hasMovieCatalogFilters({ genres: [], allTheaters: true }), true)
+  assert.notEqual(movieCatalogFiltersKey({ genres: [] }), movieCatalogFiltersKey({ genres: [], allTheaters: true }))
 })
 
 test('hydrates presets, custom dates, and inclusive ranges canonically', () => {

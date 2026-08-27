@@ -10,7 +10,7 @@ func TestValidTargetAcceptsSupportedRoutesAndQueries(t *testing.T) {
 		"/",
 		"/planning?date=2026-08-22&language=VOSTFR&format=IMAX&mode=map&zoom=12",
 		"/recherche?theaters=ugc-25%2Cugc-26&date=2026-08-22&start_after=18%3A00&finish_before=23%3A00&language=VF&format=2D&include_ads=true&buffer_ads=20&grouping=movie&layout=grid",
-		"/films?q=Am%C3%A9lie+Poulain&sort=title&page=2&genres=Com%C3%A9die%2CDrame&duration=medium&date=2026-08-22&date_to=2026-08-23",
+		"/films?q=Am%C3%A9lie+Poulain&sort=title&page=2&genres=Com%C3%A9die%2CDrame&duration=medium&date=2026-08-22&date_to=2026-08-23&all_theaters=1",
 		"/credits",
 		"/film/ugc-film-42?date=2026-08-22&language=VF&format=2D&sort=time",
 		"/cinema/ugc-lille?date=2026-08-22",
