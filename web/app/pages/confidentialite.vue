@@ -5,7 +5,7 @@ const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/confidentialite')
 useSeoMeta({
   title: 'Confidentialité - MesSeances',
   description: 'Découvrez comment MesSeances utilise le stockage local, les journaux techniques, les images distantes et la mesure d’audience.',
-  robots: 'noindex,follow'
+  robots: 'index,follow'
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
