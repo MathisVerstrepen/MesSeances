@@ -520,7 +520,7 @@ func TestValidateMetadataRejectsUnsafeBackdrops(t *testing.T) {
 	}
 }
 
-func TestRuntimeValidationAcceptsMarathonsAndRejectsInvalidValues(t *testing.T) {
+func TestRuntimeValidationAcceptsUnknownAndMarathonsAndRejectsInvalidValues(t *testing.T) {
 	match := Match{SourceProvider: SourceUGC, SourceMovieID: "10", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 721, Candidates: []Candidate{{ID: 1, Title: "Film", Runtime: 721}}, EvaluatedAt: matcherNow, RetryAfter: matcherNow.Add(decisionTTL)}
 	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 1, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", RuntimeMinutes: 721, Genres: []string{}, FetchedAt: matcherNow, RefreshAfter: matcherNow.Add(metadataTTL)}
 	if err := validateMatch(match); err != nil {
@@ -529,7 +529,17 @@ func TestRuntimeValidationAcceptsMarathonsAndRejectsInvalidValues(t *testing.T) 
 	if err := validateMetadata(metadata); err != nil {
 		t.Fatalf("marathon metadata rejected: %v", err)
 	}
-	for _, runtime := range []int{0, -1, int(math.MaxInt64/time.Minute) + 1} {
+	unknownMatch := match
+	unknownMatch.SourceRuntimeMinutes = 0
+	if err := validateMatch(unknownMatch); err != nil {
+		t.Fatalf("unknown match runtime rejected: %v", err)
+	}
+	unknownMetadata := metadata
+	unknownMetadata.RuntimeMinutes = 0
+	if err := validateMetadata(unknownMetadata); err != nil {
+		t.Fatalf("unknown metadata runtime rejected: %v", err)
+	}
+	for _, runtime := range []int{-1, int(math.MaxInt64/time.Minute) + 1} {
 		invalidMatch := match
 		invalidMatch.SourceRuntimeMinutes = runtime
 		if err := validateMatch(invalidMatch); err == nil {

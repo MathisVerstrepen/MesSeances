@@ -86,16 +86,18 @@ func TestReviewServiceDoesNotFetchWhenPreflightConflicts(t *testing.T) {
 func TestReviewServiceUsesSourceRuntimeOnlyWhenProviderRuntimeMissing(t *testing.T) {
 	tests := []struct {
 		name            string
+		sourceRuntime   int
 		providerRuntime int
 		wantRuntime     int
 		wantFallback    int
 	}{
-		{name: "missing provider runtime", providerRuntime: 0, wantRuntime: 98, wantFallback: 98},
-		{name: "positive provider runtime", providerRuntime: 101, wantRuntime: 101},
+		{name: "missing provider runtime", sourceRuntime: 98, providerRuntime: 0, wantRuntime: 98, wantFallback: 98},
+		{name: "both runtimes unknown", sourceRuntime: 0, providerRuntime: 0, wantRuntime: 0, wantFallback: 0},
+		{name: "positive provider runtime", sourceRuntime: 98, providerRuntime: 101, wantRuntime: 101},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			store := &reviewStoreStub{candidate: Candidate{ID: 42, Title: "Film"}, sourceRuntime: 98}
+			store := &reviewStoreStub{candidate: Candidate{ID: 42, Title: "Film"}, sourceRuntime: test.sourceRuntime}
 			provider := &reviewProviderStub{details: tmdb.Details{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: test.providerRuntime, Genres: []string{}}}
 			err := NewReviewService(store, provider, func() time.Time { return matcherNow }).Approve(context.Background(), SourceKinepolis, "HO00016258", 42)
 			if err != nil || store.approved.RuntimeMinutes != test.wantRuntime || store.fallbackRuntime != test.wantFallback {
@@ -163,6 +165,12 @@ func TestValidReviewCandidateAssignmentAndRejectionRules(t *testing.T) {
 				t.Fatalf("candidate=%+v ok=%v", candidate, ok)
 			}
 		})
+	}
+	if candidate, ok := validReviewCandidate(StatusReviewRequired, NormalizeTitle("Film"), 0, raw, "Film", 0, 42); !ok || candidate.Score != .91 {
+		t.Fatalf("zero-runtime candidate=%+v ok=%v", candidate, ok)
+	}
+	if candidate, ok := validReviewCandidate(StatusReviewRequired, NormalizeTitle("Film"), -1, raw, "Film", -1, 42); ok {
+		t.Fatalf("negative-runtime candidate=%+v accepted", candidate)
 	}
 }
 
