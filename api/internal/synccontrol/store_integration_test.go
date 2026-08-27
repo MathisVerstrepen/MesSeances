@@ -242,7 +242,30 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	if err := brokenLease.session.Discard(ctx); err != nil {
 		t.Fatalf("discard lease session failed: %v", err)
 	}
-	leaseAfterLoss, err := lockerA.Acquire(ctx)
+	leaseAfterLoss, err := func() (RunLease, error) {
+		acquireCtx, cancelAcquire := context.WithTimeout(ctx, 5*time.Second)
+		defer cancelAcquire()
+		retryTicker := time.NewTicker(10 * time.Millisecond)
+		defer retryTicker.Stop()
+		for {
+			lease, acquireErr := lockerA.Acquire(acquireCtx)
+			if acquireErr == nil {
+				return lease, nil
+			}
+			if !errors.Is(acquireErr, ErrInProgress) {
+				return nil, acquireErr
+			}
+			select {
+			case <-acquireCtx.Done():
+				return nil, errors.Join(
+					errors.New("timed out waiting for PostgreSQL to release advisory lock"),
+					acquireCtx.Err(),
+					acquireErr,
+				)
+			case <-retryTicker.C:
+			}
+		}
+	}()
 	if err != nil {
 		t.Fatalf("acquire after lease session loss failed: %v", err)
 	}
