@@ -383,6 +383,8 @@ export interface Theater {
   postal_code: string
   available_dates: string[]
   accepted_passes: string[]
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface City {

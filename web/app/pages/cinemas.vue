@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, Check, LoaderCircle, RefreshCw, Search } from '@lucide/vue'
+import { AlertTriangle, Building2, Check, LoaderCircle, LocateFixed, RefreshCw, Search } from '@lucide/vue'
 import type { Theater } from '~/types/api'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { buildOpenStreetMapPositionUrl, formatPositionAccuracy, formatPositionCoordinate, formatTheaterDistance, isValidGeographicPoint, sortTheatersByDistance, type GeographicPoint } from '~/utils/theaterDistance'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,10 +37,16 @@ const {
 } = useCinemaPreferences()
 
 type PreferenceTheater = Theater
+type LocationStatus = 'idle' | 'requesting' | 'active' | 'failed'
 
 const search = ref('')
 const statusMessage = ref('')
 const validationMessage = ref('')
+const locationStatus = ref<LocationStatus>('idle')
+const locationError = ref('')
+const userPosition = ref<GeographicPoint | null>(null)
+const locationAccuracyMeters = ref<number | null>(null)
+let isUnmounted = false
 
 function cinemaQuery(value: string) {
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, { q: value || undefined })
@@ -60,14 +67,17 @@ function updateSearch(event: Event) {
 
 const selectedIds = computed(() => new Set(favoriteTheaterIds.value))
 const normalizedSearch = computed(() => search.value.trim().toLocaleLowerCase('fr-FR'))
+const filteredTheaters = computed(() => directoryTheaters.value.filter((theater) => {
+  const searchable = `${theater.name} ${theater.city}`.toLocaleLowerCase('fr-FR')
+  return !normalizedSearch.value || searchable.includes(normalizedSearch.value)
+}))
+const isNearbyMode = computed(() => locationStatus.value === 'active' && userPosition.value !== null)
+const usedPositionMapUrl = computed(() => userPosition.value ? buildOpenStreetMapPositionUrl(userPosition.value) : null)
 
 const visibleGroups = computed(() => {
   const groups = new Map<string, PreferenceTheater[]>()
 
-  for (const theater of directoryTheaters.value) {
-    const searchable = `${theater.name} ${theater.city}`.toLocaleLowerCase('fr-FR')
-    if (normalizedSearch.value && !searchable.includes(normalizedSearch.value)) continue
-
+  for (const theater of filteredTheaters.value) {
     const group = groups.get(theater.city) ?? []
     group.push(theater)
     groups.set(theater.city, group)
@@ -76,7 +86,78 @@ const visibleGroups = computed(() => {
   return [...groups.entries()].map(([city, cityTheaters]) => ({ city, theaters: cityTheaters }))
 })
 
-const visibleTheaterCount = computed(() => visibleGroups.value.reduce((total, group) => total + group.theaters.length, 0))
+const nearbyRows = computed(() => userPosition.value
+  ? sortTheatersByDistance(filteredTheaters.value, userPosition.value)
+  : [])
+const visibleTheaterCount = computed(() => filteredTheaters.value.length)
+
+function failLocation(message: string) {
+  if (isUnmounted) return
+  userPosition.value = null
+  locationAccuracyMeters.value = null
+  locationStatus.value = 'failed'
+  locationError.value = message
+}
+
+function handleLocationSuccess(position: GeolocationPosition) {
+  if (isUnmounted) return
+  const point = {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude
+  }
+  if (!isValidGeographicPoint(point)) {
+    failLocation('Position indisponible. Vérifiez que la localisation est activée, puis réessayez.')
+    return
+  }
+  userPosition.value = point
+  locationAccuracyMeters.value = Number.isFinite(position.coords.accuracy) && position.coords.accuracy >= 0
+    ? position.coords.accuracy
+    : null
+  locationStatus.value = 'active'
+  locationError.value = ''
+}
+
+function handleLocationError(error: GeolocationPositionError) {
+  if (error.code === 1) {
+    failLocation('Localisation refusée. Autorisez l’accès à votre position dans les réglages du navigateur, puis réessayez.')
+    return
+  }
+  if (error.code === 3) {
+    failLocation('La localisation a pris trop de temps. Réessayez.')
+    return
+  }
+  failLocation('Position indisponible. Vérifiez que la localisation est activée, puis réessayez.')
+}
+
+function useCurrentPosition() {
+  if (locationStatus.value === 'requesting') return
+  locationError.value = ''
+  userPosition.value = null
+  locationAccuracyMeters.value = null
+
+  if (!import.meta.client || !navigator.geolocation) {
+    failLocation('La localisation n’est pas disponible dans ce navigateur. Continuez avec la liste par ville.')
+    return
+  }
+
+  locationStatus.value = 'requesting'
+  try {
+    navigator.geolocation.getCurrentPosition(handleLocationSuccess, handleLocationError, {
+      enableHighAccuracy: false,
+      timeout: 8000,
+      maximumAge: 600000
+    })
+  } catch {
+    failLocation('Position indisponible. Vérifiez que la localisation est activée, puis réessayez.')
+  }
+}
+
+function showByCity() {
+  userPosition.value = null
+  locationAccuracyMeters.value = null
+  locationStatus.value = 'idle'
+  locationError.value = ''
+}
 
 function reportSaved() {
   validationMessage.value = ''
@@ -136,6 +217,9 @@ onMounted(async () => {
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   await loadPreferences()
 })
+onBeforeUnmount(() => {
+  isUnmounted = true
+})
 
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/cinemas')
@@ -193,7 +277,7 @@ useHead(() => ({
 
     <section class="cinemas-canvas border-b-2 border-ink" aria-label="Sélection des cinémas favoris">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12">
-        <div class="search-workspace border-2 border-ink bg-[#f1efe8] p-4 shadow-[7px_7px_0_#27272a] sm:p-6">
+        <div class="search-workspace grid gap-4 border-2 border-ink bg-[#f1efe8] p-4 shadow-[7px_7px_0_#27272a] sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <label class="block w-full text-ink">
             <span class="utility-label block">Rechercher un cinéma ou une ville</span>
             <span class="mt-2 flex min-w-0">
@@ -210,7 +294,38 @@ useHead(() => ({
               />
             </span>
           </label>
+          <button
+            v-if="!isNearbyMode"
+            type="button"
+            class="location-action"
+            :disabled="locationStatus === 'requesting'"
+            :aria-busy="locationStatus === 'requesting'"
+            @click="useCurrentPosition"
+          >
+            <LoaderCircle v-if="locationStatus === 'requesting'" :size="18" class="cinema-spinner animate-spin" aria-hidden="true" />
+            <LocateFixed v-else :size="18" aria-hidden="true" />
+            {{ locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position' }}
+          </button>
+          <button v-else type="button" class="location-action location-action--secondary" @click="showByCity">
+            Afficher par ville
+          </button>
         </div>
+
+        <p v-if="locationStatus === 'requesting'" class="mt-5 font-bold" role="status" aria-live="polite">Recherche de votre position…</p>
+        <p v-if="isNearbyMode" class="mt-5 text-sm font-semibold leading-relaxed" role="status" aria-live="polite">
+          <a
+            v-if="userPosition && usedPositionMapUrl"
+            :href="usedPositionMapUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-bold underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+          >Position utilisée : latitude {{ formatPositionCoordinate(userPosition.latitude) }} · longitude {{ formatPositionCoordinate(userPosition.longitude) }} <span aria-hidden="true">↗</span><span class="sr-only"> (ouvre OpenStreetMap dans un nouvel onglet)</span></a>
+          <span> · {{ formatPositionAccuracy(locationAccuracyMeters) }}</span>
+        </p>
+        <p v-if="locationError" class="validation-alert mt-5" role="alert">
+          <AlertTriangle :size="19" aria-hidden="true" />
+          {{ locationError }}
+        </p>
 
         <p class="sr-only" aria-live="polite">{{ statusMessage }}</p>
         <p v-if="validationMessage" class="validation-alert mt-7" role="alert">
@@ -244,12 +359,32 @@ useHead(() => ({
             <AlertTriangle :size="19" aria-hidden="true" />
             {{ error }}
           </p>
-          <div class="mb-7 flex flex-col gap-2 border-y-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-            <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">Cinémas disponibles</h2>
+          <div class="mb-7 flex flex-col gap-2 border-b-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
+            <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">{{ isNearbyMode ? 'Cinémas à proximité' : 'Cinémas disponibles' }}</h2>
             <p class="utility-label">{{ visibleTheaterCount }} cinéma{{ visibleTheaterCount > 1 ? 's' : '' }}</p>
           </div>
 
-          <div class="space-y-8">
+          <div v-if="isNearbyMode" class="theater-grid grid border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] sm:grid-cols-2">
+            <div
+              v-for="row in nearbyRows"
+              :key="row.theater.id"
+              class="theater-option border-b-2 border-ink p-4 sm:p-5"
+              :class="selectedIds.has(row.theater.id) ? 'theater-option--selected' : 'bg-surface'"
+            >
+              <div v-if="row.distanceKm !== null" class="mb-3 flex min-h-6 flex-wrap items-center gap-2 font-mono text-[11px] font-black uppercase">
+                <span v-if="row.distanceKm !== null">{{ formatTheaterDistance(row.distanceKm) }}</span>
+                <span v-if="row.isNearest" class="nearest-marker">Le plus proche</span>
+              </div>
+              <label class="group flex cursor-pointer items-start gap-4">
+                <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(row.theater.id)" @change="toggleTheater(row.theater.id, $event)" />
+                <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
+                <span class="min-w-0"><BrandedText :text="row.theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
+              </label>
+              <NuxtLink :to="`/cinema/${encodeURIComponent(row.theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
+            </div>
+          </div>
+
+          <div v-else class="space-y-8">
             <section v-for="group in visibleGroups" :key="group.city" class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
               <header class="grid gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
                 <div class="min-w-0">
@@ -385,7 +520,8 @@ useHead(() => ({
 }
 
 .state-button:focus-visible,
-.group-action:focus-visible {
+.group-action:focus-visible,
+.location-action:focus-visible {
   outline: 3px solid #27272a;
   outline-offset: 3px;
 }
@@ -404,7 +540,8 @@ useHead(() => ({
 }
 
 .state-button,
-.group-action {
+.group-action,
+.location-action {
   display: inline-flex;
   min-height: 2.75rem;
   align-items: center;
@@ -422,7 +559,8 @@ useHead(() => ({
 }
 
 .state-button:hover,
-.group-action:hover:not(:disabled) {
+.group-action:hover:not(:disabled),
+.location-action:hover:not(:disabled) {
   background: #991b1b;
 }
 
@@ -431,13 +569,34 @@ useHead(() => ({
   color: #27272a;
 }
 
+.location-action {
+  min-height: 3.25rem;
+  padding-inline: 1rem;
+}
+
+.location-action--secondary {
+  background: #fff;
+  color: #27272a;
+}
+
+.location-action--secondary:hover:not(:disabled) {
+  background: #e8e6de;
+}
+
 .group-action--secondary:hover:not(:disabled) {
   background: #e8e6de;
 }
 
-.group-action:disabled {
+.group-action:disabled,
+.location-action:disabled {
   cursor: not-allowed;
   opacity: 0.4;
+}
+
+.nearest-marker {
+  border: 2px solid #27272a;
+  background: var(--color-highlight);
+  padding: 0.15rem 0.4rem;
 }
 
 .theater-option:nth-child(odd) {
