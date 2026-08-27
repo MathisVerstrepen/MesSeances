@@ -103,7 +103,7 @@ export function useCinemaPreferences() {
         } else {
           let defaultIds: string[] = []
           try {
-            defaultIds = (await api.theaters({ city: 'Lille' })).map((theater) => theater.id)
+            defaultIds = (await api.theaters({ city: 'Paris' })).map((theater) => theater.id)
           } catch {
             // National catalog still provides a deterministic fallback.
           }

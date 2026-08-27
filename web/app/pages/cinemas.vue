@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, Check, LoaderCircle, LocateFixed, RefreshCw, Search } from '@lucide/vue'
+import { AlertTriangle, Building2, Check, CheckCheck, List, ListFilter, LoaderCircle, LocateFixed, Map as MapIcon, RefreshCw, Search, X } from '@lucide/vue'
 import type { Theater } from '~/types/api'
+import { groupTheatersByCityIdentity, updateTheaterSelection } from '~/utils/cinemaSelection'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -32,22 +33,21 @@ const {
   isLoading,
   error,
   initialize,
-  setFavoriteTheaterIds,
-  toggleFavoriteTheater
+  setFavoriteTheaterIds
 } = useCinemaPreferences()
 
-type PreferenceTheater = Theater
 type LocationStatus = 'idle' | 'requesting' | 'active' | 'failed'
 type ViewMode = 'list' | 'map'
 
 const search = ref('')
 const statusMessage = ref('')
-const validationMessage = ref('')
 const locationStatus = ref<LocationStatus>('idle')
 const locationError = ref('')
 const userPosition = ref<GeographicPoint | null>(null)
 const locationAccuracyMeters = ref<number | null>(null)
 const viewMode = ref<ViewMode>('list')
+const selectedOnly = ref(false)
+const draftFavoriteTheaterIds = ref<string[]>([])
 const preferencesReady = ref(false)
 let isUnmounted = false
 
@@ -68,31 +68,23 @@ function updateSearch(event: Event) {
   if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
-const selectedIds = computed(() => new Set(favoriteTheaterIds.value))
+const selectedIds = computed(() => new Set(draftFavoriteTheaterIds.value))
 const normalizedSearch = computed(() => search.value.trim().toLocaleLowerCase('fr-FR'))
-const filteredTheaters = computed(() => directoryTheaters.value.filter((theater) => {
+const searchResults = computed(() => directoryTheaters.value.filter((theater) => {
   const searchable = `${theater.name} ${theater.city}`.toLocaleLowerCase('fr-FR')
   return !normalizedSearch.value || searchable.includes(normalizedSearch.value)
 }))
+const displayedTheaters = computed(() => selectedOnly.value
+  ? searchResults.value.filter((theater) => selectedIds.value.has(theater.id))
+  : searchResults.value)
 const isNearbyMode = computed(() => locationStatus.value === 'active' && userPosition.value !== null)
 const usedPositionMapUrl = computed(() => userPosition.value ? buildOpenStreetMapPositionUrl(userPosition.value) : null)
-
-const visibleGroups = computed(() => {
-  const groups = new Map<string, PreferenceTheater[]>()
-
-  for (const theater of filteredTheaters.value) {
-    const group = groups.get(theater.city) ?? []
-    group.push(theater)
-    groups.set(theater.city, group)
-  }
-
-  return [...groups.entries()].map(([city, cityTheaters]) => ({ city, theaters: cityTheaters }))
-})
+const visibleGroups = computed(() => groupTheatersByCityIdentity(displayedTheaters.value))
 
 const nearbyRows = computed(() => userPosition.value
-  ? sortTheatersByDistance(filteredTheaters.value, userPosition.value)
+  ? sortTheatersByDistance(displayedTheaters.value, userPosition.value)
   : [])
-const visibleTheaterCount = computed(() => filteredTheaters.value.length)
+const visibleTheaterCount = computed(() => displayedTheaters.value.length)
 
 function failLocation(message: string) {
   if (isUnmounted) return
@@ -163,23 +155,34 @@ function showByCity() {
 }
 
 function reportSaved() {
-  validationMessage.value = ''
-  const count = favoriteTheaterIds.value.length
+  const count = draftFavoriteTheaterIds.value.length
   statusMessage.value = `${count} cinéma${count > 1 ? 's' : ''} enregistré${count > 1 ? 's' : ''}.`
 }
 
-function reportRequiredSelection() {
-  statusMessage.value = ''
-  validationMessage.value = 'Conservez au moins un cinéma dans vos favoris.'
-}
-
-function toggleTheater(id: string, event?: Event) {
-  if (!toggleFavoriteTheater(id)) {
-    if (event?.currentTarget instanceof HTMLInputElement) event.currentTarget.checked = true
-    reportRequiredSelection()
+function applyDraftSelection(nextIds: string[]) {
+  draftFavoriteTheaterIds.value = nextIds
+  if (nextIds.length === 0) {
+    statusMessage.value = 'Aucun cinéma sélectionné. Vos cinémas enregistrés restent inchangés.'
     return
   }
+
+  if (!setFavoriteTheaterIds(nextIds)) {
+    statusMessage.value = 'La sélection n’a pas pu être enregistrée.'
+    return
+  }
+
+  draftFavoriteTheaterIds.value = [...favoriteTheaterIds.value]
   reportSaved()
+}
+
+function toggleTheater(id: string) {
+  const theater = directoryTheaters.value.find((item) => item.id === id)
+  if (!theater) return
+  applyDraftSelection(updateTheaterSelection(
+    draftFavoriteTheaterIds.value,
+    [theater],
+    !selectedIds.value.has(id)
+  ))
 }
 
 function showList() {
@@ -191,22 +194,17 @@ function recoverMapBoundary(clearError: () => void) {
   clearError()
 }
 
-function updateGroup(groupTheaters: readonly PreferenceTheater[], select: boolean) {
-  const nextIds = new Set(favoriteTheaterIds.value)
-  for (const theater of groupTheaters) {
-    if (select) nextIds.add(theater.id)
-    else nextIds.delete(theater.id)
-  }
+function updateGroup(groupTheaters: readonly Theater[], select: boolean) {
+  applyDraftSelection(updateTheaterSelection(draftFavoriteTheaterIds.value, groupTheaters, select))
+}
 
-  if (!setFavoriteTheaterIds([...nextIds])) {
-    reportRequiredSelection()
-    return
-  }
-  reportSaved()
+function updateDisplayedSelection(select: boolean) {
+  applyDraftSelection(updateTheaterSelection(draftFavoriteTheaterIds.value, displayedTheaters.value, select))
 }
 
 async function loadPreferences() {
   await initialize(directoryTheaters.value)
+  if (!isUnmounted) draftFavoriteTheaterIds.value = [...favoriteTheaterIds.value]
 }
 
 async function retryDirectory() {
@@ -241,7 +239,7 @@ const pageDescription = 'Annuaire des cinémas et des villes disponibles sur Mes
 const robots = computed(() => directoryTheaters.value.length > 0 && !directoryError.value && Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
 const cinemasJsonLd = computed(() => {
   if (directoryError.value || Object.keys(route.query).length > 0) return null
-  const theaters = visibleGroups.value.flatMap((group) => group.theaters)
+  const theaters = searchResults.value
   if (theaters.length === 0) return null
   return serializeJsonLd({
     '@context': 'https://schema.org',
@@ -281,8 +279,8 @@ useHead(() => ({
           Mes<br /><span>cinémas</span><span class="text-primary">.</span>
         </h1>
         <div class="selection-counter">
-          <strong>{{ favoriteTheaterIds.length }}</strong>
-          <span>cinéma{{ favoriteTheaterIds.length > 1 ? 's' : '' }} sélectionné{{ favoriteTheaterIds.length > 1 ? 's' : '' }}</span>
+          <strong>{{ draftFavoriteTheaterIds.length }}</strong>
+          <span>cinéma{{ draftFavoriteTheaterIds.length > 1 ? 's' : '' }} sélectionné{{ draftFavoriteTheaterIds.length > 1 ? 's' : '' }}</span>
         </div>
         <span class="title-mark" aria-hidden="true"></span>
       </div>
@@ -340,11 +338,46 @@ useHead(() => ({
           {{ locationError }}
         </p>
 
+        <div v-if="directoryTheaters.length > 0 && !directoryError" class="selection-toolbar mt-7">
+          <div class="view-switch" role="group" aria-label="Mode d’affichage des cinémas">
+            <button type="button" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'"><List :size="16" aria-hidden="true" /> Liste</button>
+            <button type="button" :aria-pressed="viewMode === 'map'" @click="viewMode = 'map'"><MapIcon :size="16" aria-hidden="true" /> Carte</button>
+          </div>
+          <div class="selection-controls">
+            <button
+              type="button"
+              class="filter-action"
+              :aria-pressed="selectedOnly"
+              @click="selectedOnly = !selectedOnly"
+            >
+              <ListFilter :size="17" aria-hidden="true" />
+              <span>Sélectionnés uniquement</span>
+              <span class="filter-action__state" aria-hidden="true"><Check v-if="selectedOnly" :size="14" stroke-width="3" /></span>
+            </button>
+            <div class="bulk-actions" role="group" aria-label="Modifier les cinémas affichés">
+              <ClientOnly>
+                <button
+                  type="button"
+                  class="group-action"
+                  :disabled="!preferencesReady || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
+                  @click="updateDisplayedSelection(true)"
+                ><CheckCheck :size="16" aria-hidden="true" /> Tout sélectionner</button>
+                <button
+                  type="button"
+                  class="group-action group-action--secondary"
+                  :disabled="!preferencesReady || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
+                  @click="updateDisplayedSelection(false)"
+                ><X :size="16" aria-hidden="true" /> Désélectionner</button>
+                <template #fallback>
+                  <button type="button" class="group-action" disabled><CheckCheck :size="16" aria-hidden="true" /> Tout sélectionner</button>
+                  <button type="button" class="group-action group-action--secondary" disabled><X :size="16" aria-hidden="true" /> Désélectionner</button>
+                </template>
+              </ClientOnly>
+            </div>
+          </div>
+        </div>
+
         <p class="sr-only" aria-live="polite">{{ statusMessage }}</p>
-        <p v-if="validationMessage" class="validation-alert mt-7" role="alert">
-          <AlertTriangle :size="19" aria-hidden="true" />
-          {{ validationMessage }}
-        </p>
 
         <EditorialStatePanel v-if="directoryTheaters.length === 0 && isLoading" semantic="status" live="polite" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
           <template #icon><LoaderCircle :size="34" class="cinema-spinner animate-spin" aria-hidden="true" /></template>
@@ -362,9 +395,15 @@ useHead(() => ({
           <p>Aucun cinéma disponible.</p>
         </EditorialStatePanel>
 
-        <EditorialStatePanel v-else-if="visibleTheaterCount === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+        <EditorialStatePanel v-else-if="searchResults.length === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
           <template #icon><Search :size="34" aria-hidden="true" /></template>
           <p>Aucun cinéma ne correspond à votre recherche.</p>
+        </EditorialStatePanel>
+
+        <EditorialStatePanel v-else-if="selectedOnly && visibleTheaterCount === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
+          <template #icon><Building2 :size="36" aria-hidden="true" /></template>
+          <p>Aucun cinéma sélectionné parmi les résultats affichés.</p>
+          <template #actions><button type="button" class="state-button" @click="selectedOnly = false">Afficher tous les cinémas</button></template>
         </EditorialStatePanel>
 
         <div v-else class="mt-10">
@@ -375,11 +414,6 @@ useHead(() => ({
           <div class="mb-7 flex flex-col gap-2 border-b-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
             <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">{{ isNearbyMode ? 'Cinémas à proximité' : 'Cinémas disponibles' }}</h2>
             <p class="utility-label">{{ visibleTheaterCount }} cinéma{{ visibleTheaterCount > 1 ? 's' : '' }}</p>
-          </div>
-
-          <div class="view-switch mb-7" role="group" aria-label="Mode d’affichage des cinémas">
-            <button type="button" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'">Liste</button>
-            <button type="button" :aria-pressed="viewMode === 'map'" @click="viewMode = 'map'">Carte</button>
           </div>
 
           <template v-if="viewMode === 'list'">
@@ -395,7 +429,7 @@ useHead(() => ({
                 <span v-if="row.isNearest" class="nearest-marker">Le plus proche</span>
               </div>
               <label class="group flex cursor-pointer items-start gap-4">
-                <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(row.theater.id)" @change="toggleTheater(row.theater.id, $event)" />
+                <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(row.theater.id)" @change="toggleTheater(row.theater.id)" />
                 <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
                 <span class="min-w-0"><BrandedText :text="row.theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
               </label>
@@ -404,11 +438,11 @@ useHead(() => ({
             </div>
 
             <div v-else class="space-y-8">
-              <section v-for="group in visibleGroups" :key="group.city" class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
+              <section v-for="group in visibleGroups" :key="group.citySlug" class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
               <header class="grid gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5">
                 <div class="min-w-0">
                   <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">
-                    <NuxtLink :to="`/ville/${encodeURIComponent(group.theaters[0]!.city_slug)}/cinemas`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ group.city }}</NuxtLink>
+                    <NuxtLink :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ group.city }}</NuxtLink>
                   </h3>
                   <p class="utility-label mt-1">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
@@ -449,7 +483,7 @@ useHead(() => ({
                   ]"
                 >
                   <label class="group flex cursor-pointer items-start gap-4">
-                    <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id, $event)" />
+                    <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
                     <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
                     <span class="min-w-0"><BrandedText :text="theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
                   </label>
@@ -462,8 +496,8 @@ useHead(() => ({
 
           <NuxtErrorBoundary v-else>
             <LazyCinemaTheaterMap
-              :theaters="filteredTheaters"
-              :favorite-theater-ids="favoriteTheaterIds"
+              :theaters="displayedTheaters"
+              :favorite-theater-ids="draftFavoriteTheaterIds"
               :user-position="userPosition"
               @show-list="showList"
               @toggle-favorite="toggleTheater"
@@ -562,11 +596,75 @@ useHead(() => ({
 }
 
 .state-button:focus-visible,
+.filter-action:focus-visible,
 .group-action:focus-visible,
 .location-action:focus-visible,
 .view-switch button:focus-visible {
   outline: 3px solid #27272a;
   outline-offset: 3px;
+}
+
+.selection-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-block: 2px solid #27272a;
+  padding-block: 1rem;
+}
+
+.view-switch,
+.filter-action,
+.bulk-actions {
+  box-sizing: border-box;
+  height: 2.75rem;
+}
+
+.selection-controls {
+  display: inline-flex;
+  max-width: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.filter-action {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  border: 2px solid #27272a;
+  background: #fff;
+  padding: 0.6rem 0.8rem;
+  color: #27272a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.filter-action:hover,
+.filter-action[aria-pressed="true"] {
+  background: var(--color-highlight);
+  color: #27272a;
+}
+
+.filter-action[aria-pressed="true"] {
+  box-shadow: 4px 4px 0 #27272a;
+}
+
+.filter-action__state {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  place-items: center;
+  border: 2px solid currentColor;
+  background: #fff;
 }
 
 .validation-alert {
@@ -636,6 +734,31 @@ useHead(() => ({
   opacity: 0.4;
 }
 
+.bulk-actions {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+  max-width: 100%;
+  border: 2px dashed #27272a;
+  background: #f1efe8;
+  padding: 0.15rem;
+}
+
+.bulk-actions .group-action {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-width: 0;
+  background: transparent;
+  color: #27272a;
+}
+
+.bulk-actions .group-action:hover:not(:disabled),
+.bulk-actions .group-action--secondary:hover:not(:disabled) {
+  background: #27272a;
+  color: #fff;
+}
+
 .nearest-marker {
   border: 2px solid #27272a;
   background: var(--color-highlight);
@@ -650,7 +773,12 @@ useHead(() => ({
 }
 
 .view-switch button {
-  min-height: 2.75rem;
+  display: inline-flex;
+  height: 100%;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
   padding: 0.55rem 0.9rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.68rem;
@@ -723,6 +851,24 @@ useHead(() => ({
     bottom: auto;
     margin-top: 2rem;
     max-width: 13rem;
+  }
+
+  .selection-toolbar {
+    align-items: stretch;
+  }
+
+  .selection-controls {
+    width: 100%;
+  }
+
+  .view-switch,
+  .filter-action,
+  .bulk-actions {
+    width: 100%;
+  }
+
+  .bulk-actions .group-action {
+    padding-inline: 0.5rem;
   }
 
   .theater-option:nth-child(odd) {

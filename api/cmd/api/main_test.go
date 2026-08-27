@@ -137,6 +137,20 @@ func TestLoadAPIConfigurationIgnoresSyncTimingWhenCapabilityDisabled(t *testing.
 	}
 }
 
+func TestProductionScheduleOptionsDefaultToParisAndRetainLilleMetroAlias(t *testing.T) {
+	options := newProductionScheduleOptions()
+	if options.DefaultCity != "Paris" {
+		t.Fatalf("default city=%q", options.DefaultCity)
+	}
+	if len(options.CityAliases) != 1 {
+		t.Fatalf("city aliases=%v", options.CityAliases)
+	}
+	lille, ok := options.CityAliases["Lille"]
+	if !ok || len(lille) != 2 || lille[0] != "Lille" || lille[1] != "Villeneuve d'Ascq" {
+		t.Fatalf("Lille aliases=%v present=%t", lille, ok)
+	}
+}
+
 func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	proxies, err := syncproxy.Parse(strings.NewReader("127.0.0.1:8080\n"))
 	if err != nil {

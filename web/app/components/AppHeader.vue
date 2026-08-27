@@ -21,7 +21,11 @@ const favoriteSummary = computed(() => {
   if (!isInitialized.value && isLoading.value) return 'Chargement…'
 
   const count = favoriteTheaterIds.value.length
-  const cities = [...new Set(favoriteTheaters.value.map((theater) => theater.city))]
+  const cityLabels = new Map<string, string>()
+  for (const theater of favoriteTheaters.value) {
+    if (!cityLabels.has(theater.city_slug)) cityLabels.set(theater.city_slug, theater.city)
+  }
+  const cities = [...cityLabels.values()]
   if (count === 0) return 'Mes cinémas'
   if (cities.length === 1) return `${cities[0]} · ${count}`
   return `${count} cinémas · ${cities.length} villes`
