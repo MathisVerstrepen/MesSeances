@@ -91,12 +91,46 @@ Backend operational logs use JSON on stderr. Prometheus metrics are available wi
 
 Production Compose includes self-hosted Umami 3.3.1 and a dedicated PostgreSQL 15 service. Analytics storage is isolated in the `umami_postgres_data` volume, and its database has no published host port. Umami failure does not block the API or web services. The dashboard is bound to host loopback at `127.0.0.1:3001` by default.
 
+The `umami-retention` service runs `deploy/umami-retention.sql` immediately after the analytics database becomes healthy and then every 24 hours. Each run uses one PostgreSQL transaction and deletes audience sessions, session links, website events, event data, session data, revenue events, session replay chunks and saved replay references, and heatmap events whose retention timestamp is null or at least 25 months old. Account, team, website, report, segment, link, pixel, board, share, two-factor, and application-setting records are preserved. The SQL takes a transaction-scoped advisory lock and validates the complete public table set plus required analytics columns before deleting anything. A schema mismatch aborts and rolls back the run, then the container restart policy retries; purge output never includes database credentials. Service health remains unavailable until the first successful purge and becomes unavailable if no successful purge has completed within 25 hours, so production `--wait` startup detects this retention failure.
+
+This retention SQL is intentionally coupled to the official Umami v3.3.1 Prisma schema and the pinned `UMAMI_IMAGE`. Do not upgrade Umami independently. Before changing the image version, compare the new official `prisma/schema.prisma`, classify every new or changed analytics table, update the schema guard and deletion order, test against a disposable database, and deploy both changes together. Until the retention service completes its first successful run, pre-existing rows older than 25 months remain.
+
 Bootstrap Umami in two stages:
 
 1. Copy `deploy/.env.production.example` to ignored `deploy/.env.production`. Generate independent values for `UMAMI_POSTGRES_PASSWORD`, `UMAMI_APP_SECRET`, and `UMAMI_TWO_FACTOR_ENCRYPTION_KEY`; `openssl rand -hex 32` produces a URL-safe 64-character value suitable for each. Keep both `NUXT_PUBLIC_UMAMI_*` values empty, run `make prod`, and reach the loopback dashboard through operator-managed access such as an SSH tunnel to port 3001. Sign in with Umami's initial `admin` / `umami` credentials, immediately replace the password, and create the MesSeances website.
 2. Configure operator-managed public routing, DNS, and TLS so visitors can reach the tracker script without publishing the Compose port directly. Keep dashboard access restricted. This repository does not provision a reverse proxy, DNS, certificates, or public dashboard access. Set `NUXT_PUBLIC_UMAMI_SCRIPT_URL` to the browser-reachable absolute script URL and `NUXT_PUBLIC_UMAMI_WEBSITE_ID` to the website UUID, then rerun `make prod`. Both values are intentionally public and are not credentials; leaving either empty disables tracker injection.
 
 Keep Umami secrets only in ignored deployment environment files. Back up `umami_postgres_data` under the same retention policy as other production data. Normal Compose recreation preserves named volumes. Never run `docker compose down -v`: `-v` deletes both application and analytics database volumes.
+
+Persisted synchronization diagnostics in `sync_runs` have a 30-day maximum. Migration 024 removes already-expired terminal rows and adds a partial retention index. API startup performs the same cutoff purge and refuses to start if it fails; while the API remains running it repeats the purge every 24 hours. Only `succeeded` and `failed` rows with a non-null `finished_at` at or before the cutoff are deleted. Rows with `state='running'` are never selected, regardless of `started_at`. Existing expired rows remain until migration or API startup first succeeds.
+
+## Production log retention
+
+Production Compose routes stdout and stderr from every container to Docker's `journald` logging driver. This includes API JSON logs on stderr. The repository also provides `deploy/journald/90-messeances-retention.conf`, which sets global `MaxRetentionSec=30day` and daily journal-file rotation with `MaxFileSec=1day`. This global policy is intended only for the confirmed dedicated VPS.
+
+Host configuration cannot be installed or verified from this repository worktree. Production's 30-day technical-log maximum is therefore blocked until an operator runs these commands on the VPS from the deployed repository checkout:
+
+```sh
+sudo install -D -m 0644 deploy/journald/90-messeances-retention.conf /etc/systemd/journald.conf.d/90-messeances-retention.conf
+sudo systemctl restart systemd-journald
+sudo journalctl --rotate
+sudo journalctl --vacuum-time=30d
+```
+
+`journalctl --vacuum-time=30d` permanently removes archived host journal files older than 30 days. Verify effective host settings and container drivers after `make prod`:
+
+```sh
+sudo systemd-analyze cat-config systemd/journald.conf | grep -E '^(MaxRetentionSec=30day|MaxFileSec=1day)$'
+sudo journalctl --disk-usage
+for service in postgres umami-postgres umami umami-retention api web; do
+  container_id="$(docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml ps -q "$service")"
+  test -n "$container_id"
+  test "$(docker inspect --format '{{.HostConfig.LogConfig.Type}}' "$container_id")" = journald
+done
+sudo journalctl CONTAINER_NAME=messeances-production-api-1 --since '10 minutes ago' --no-pager
+```
+
+The final command should show recent API JSON records after the API has handled traffic. MesSeances does not retain reverse-proxy or separate host request logs; if operators add either later, they must keep those outputs under the same maximum or update the privacy statement.
 
 To stop PostgreSQL later without deleting local data:
 

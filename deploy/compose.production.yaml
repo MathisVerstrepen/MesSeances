@@ -1,9 +1,15 @@
 name: messeances-production
 
+x-journald-logging: &journald-logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+
 services:
   postgres:
     image: postgres:18-alpine
     restart: unless-stopped
+    logging: *journald-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-movieflow}
       POSTGRES_USER: ${POSTGRES_USER:-movieflow}
@@ -20,6 +26,7 @@ services:
   umami-postgres:
     image: postgres:15-alpine
     restart: unless-stopped
+    logging: *journald-logging
     environment:
       POSTGRES_DB: ${UMAMI_POSTGRES_DB:-umami}
       POSTGRES_USER: ${UMAMI_POSTGRES_USER:-umami}
@@ -36,6 +43,7 @@ services:
   umami:
     image: ${UMAMI_IMAGE:?UMAMI_IMAGE is required}
     restart: unless-stopped
+    logging: *journald-logging
     init: true
     depends_on:
       umami-postgres:
@@ -53,9 +61,45 @@ services:
       retries: 6
       start_period: 15s
 
+  umami-retention:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    logging: *journald-logging
+    depends_on:
+      umami-postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: umami-postgres
+      PGDATABASE: ${UMAMI_POSTGRES_DB:-umami}
+      PGUSER: ${UMAMI_POSTGRES_USER:-umami}
+      PGPASSWORD: ${UMAMI_POSTGRES_PASSWORD:?UMAMI_POSTGRES_PASSWORD is required}
+      PGCONNECT_TIMEOUT: "10"
+    volumes:
+      - type: bind
+        source: ${PWD:?run production Compose from the repository root}/deploy/umami-retention.sql
+        target: /retention/umami-retention.sql
+        read_only: true
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while true; do
+          psql --no-password --no-psqlrc --set=ON_ERROR_STOP=1 --quiet --file=/retention/umami-retention.sql
+          date +%s > /tmp/umami-retention-last-success
+          sleep 86400
+        done
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /tmp/umami-retention-last-success && test $$(($$(date +%s) - $$(cat /tmp/umami-retention-last-success))) -lt 90000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    stop_grace_period: 30s
+
   api:
     image: ${IMAGE_BASE:?IMAGE_BASE is required}-api:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: unless-stopped
+    logging: *journald-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,6 +132,7 @@ services:
   web:
     image: ${IMAGE_BASE:?IMAGE_BASE is required}-web:${IMAGE_TAG:?IMAGE_TAG is required}
     restart: unless-stopped
+    logging: *journald-logging
     depends_on:
       api:
         condition: service_healthy

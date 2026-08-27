@@ -84,6 +84,10 @@ func run(ctx context.Context) error {
 	if err := database.RunMigrations(startupCtx, pool); err != nil {
 		return fmt.Errorf("database migration failed")
 	}
+	runStore := synccontrol.NewPostgresRunStore(pool)
+	if err := runStore.PurgeTerminalBefore(startupCtx, time.Now().UTC().Add(-synccontrol.TerminalRunRetentionPeriod)); err != nil {
+		return fmt.Errorf("sync run retention startup failed")
+	}
 	store := schedulepg.NewStore(pool)
 	source, err := schedule.NewPostgresSource(startupCtx, store, schedule.SourceOptions{Logger: logger, Observer: metrics})
 	if err != nil {
@@ -129,7 +133,6 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
-		runStore := synccontrol.NewPostgresRunStore(pool)
 		manager, err := synccontrol.NewManager(workerCtx, time.Now, executor, runStore, synccontrol.NewPostgresRunLocker(pool))
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
@@ -149,10 +152,14 @@ func run(ctx context.Context) error {
 		syncScheduler = scheduler
 	}
 	var polling sync.WaitGroup
-	polling.Add(1)
+	polling.Add(2)
 	go func() {
 		defer polling.Done()
 		source.Run(workerCtx)
+	}()
+	go func() {
+		defer polling.Done()
+		runSyncRunRetention(workerCtx, runStore, logger, time.Now)
 	}()
 	var cleanupOnce sync.Once
 	cleanup := func() {
@@ -183,6 +190,24 @@ func newProductionScheduleOptions() schedule.ServiceOptions {
 		CityAliases: map[string][]string{
 			"Lille": {"Lille", "Villeneuve d'Ascq"},
 		},
+	}
+}
+
+func runSyncRunRetention(ctx context.Context, store *synccontrol.PostgresRunStore, logger *slog.Logger, now func() time.Time) {
+	ticker := time.NewTicker(synccontrol.TerminalRunRetentionPurgeInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			purgeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := store.PurgeTerminalBefore(purgeCtx, now().UTC().Add(-synccontrol.TerminalRunRetentionPeriod))
+			cancel()
+			if err != nil {
+				logger.Error("sync_run_retention_failed", "component", "sync", "error_code", "database_error")
+			}
+		}
 	}
 }
 

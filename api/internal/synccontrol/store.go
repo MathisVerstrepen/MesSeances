@@ -12,7 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const historyLimit = 50
+const (
+	historyLimit                      = 50
+	TerminalRunRetentionPeriod        = 30 * 24 * time.Hour
+	TerminalRunRetentionPurgeInterval = 24 * time.Hour
+)
 
 type Snapshot struct {
 	Job  *Status  `json:"job"`
@@ -30,6 +34,19 @@ type PostgresRunStore struct{ pool *pgxpool.Pool }
 
 func NewPostgresRunStore(pool *pgxpool.Pool) *PostgresRunStore {
 	return &PostgresRunStore{pool: pool}
+}
+
+// PurgeTerminalBefore removes completed run diagnostics at or before cutoff.
+// Running rows are excluded independently of their timestamps.
+func (s *PostgresRunStore) PurgeTerminalBefore(ctx context.Context, cutoff time.Time) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM sync_runs
+        WHERE state IN ('succeeded','failed')
+          AND finished_at IS NOT NULL
+          AND finished_at <= $1`, cutoff.UTC())
+	if err != nil {
+		return fmt.Errorf("purge sync runs failed")
+	}
+	return nil
 }
 
 func (s *PostgresRunStore) Create(ctx context.Context, status Status) (Status, error) {

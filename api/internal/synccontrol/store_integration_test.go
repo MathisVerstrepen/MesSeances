@@ -249,4 +249,52 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	if err := leaseAfterLoss.Release(ctx); err != nil {
 		t.Fatalf("release lease after session loss failed: %v", err)
 	}
+
+	retentionNow := time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+	retentionRows := []struct {
+		state      JobState
+		startedAt  time.Time
+		finishedAt *time.Time
+	}{
+		{state: StateSucceeded, startedAt: retentionNow.Add(-31 * 24 * time.Hour), finishedAt: timePointer(retentionNow.Add(-30 * 24 * time.Hour))},
+		{state: StateFailed, startedAt: retentionNow.Add(-10 * 24 * time.Hour), finishedAt: timePointer(retentionNow.Add(-10 * 24 * time.Hour))},
+		{state: StateRunning, startedAt: retentionNow.Add(-60 * 24 * time.Hour)},
+	}
+	retentionIDs := make([]int64, 0, len(retentionRows))
+	for _, row := range retentionRows {
+		var id int64
+		if err := pool.QueryRow(ctx, `INSERT INTO sync_runs
+			(target,state,started_at,finished_at,window_from,window_through,providers)
+			VALUES ('ugc',$1,$2,$3,'2026-08-01','2026-08-01','{}'::jsonb)
+			RETURNING id`, row.state, row.startedAt, row.finishedAt).Scan(&id); err != nil {
+			t.Fatal("insert retention fixture failed")
+		}
+		retentionIDs = append(retentionIDs, id)
+	}
+	if err := store.PurgeTerminalBefore(ctx, retentionNow.Add(-TerminalRunRetentionPeriod)); err != nil {
+		t.Fatal("purge terminal runs failed")
+	}
+	var survivors []int64
+	rows, err := pool.Query(ctx, `SELECT id FROM sync_runs WHERE id = ANY($1::bigint[]) ORDER BY id`, retentionIDs)
+	if err != nil {
+		t.Fatal("read retention survivors failed")
+	}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			t.Fatal("scan retention survivor failed")
+		}
+		survivors = append(survivors, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		t.Fatal("iterate retention survivors failed")
+	}
+	rows.Close()
+	if len(survivors) != 2 || survivors[0] != retentionIDs[1] || survivors[1] != retentionIDs[2] {
+		t.Fatalf("retention survivors=%v want recent=%d active=%d", survivors, retentionIDs[1], retentionIDs[2])
+	}
 }
+
+func timePointer(value time.Time) *time.Time { return &value }
