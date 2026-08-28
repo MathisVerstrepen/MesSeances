@@ -214,11 +214,11 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
 	options := newAdminOptions("password", "session-secret", store, nil)
-	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.TMDBReruns != nil {
+	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil {
 		t.Fatalf("options=%+v", options)
 	}
 	withProvider := newAdminOptions("password", "session-secret", store, testTMDBProvider{})
-	if withProvider.TMDBReruns == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil {
+	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil {
 		t.Fatalf("provider options=%+v", withProvider)
 	}
 }

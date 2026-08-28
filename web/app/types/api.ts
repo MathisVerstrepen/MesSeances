@@ -18,7 +18,8 @@ export interface Movie {
 export interface CatalogMovie extends Movie {
   poster_url: string | null
   tmdb_id: number | null
-  trailer_youtube_key?: string | null
+  trailer_vf_youtube_key?: string | null
+  trailer_vo_youtube_key?: string | null
   overview: string | null
   release_date: string | null
   genres: string[]
@@ -210,6 +211,13 @@ export interface AdminTMDBRerunSummary {
   matched: number
   review_required: number
   unmatched: number
+  failed: number
+}
+
+export interface AdminTMDBMetadataRefreshSummary {
+  processed: number
+  updated: number
+  unchanged: number
   failed: number
 }
 

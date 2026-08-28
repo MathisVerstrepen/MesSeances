@@ -175,8 +175,8 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 			if showing.Movie.Enrichment.BackdropURL != "" && !validTMDBBackdropURL(showing.Movie.Enrichment.BackdropURL) {
 				return fmt.Errorf("invalid enrichment backdrop URL")
 			}
-			if showing.Movie.Enrichment.TrailerYouTubeKey != "" && (showing.Movie.Enrichment.TMDBID <= 0 || !validYouTubeKey(showing.Movie.Enrichment.TrailerYouTubeKey)) {
-				return fmt.Errorf("invalid enrichment trailer YouTube key")
+			if invalidTrailerKeys(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.TrailerVFYouTubeKey, showing.Movie.Enrichment.TrailerVOYouTubeKey) {
+				return fmt.Errorf("invalid enrichment trailer YouTube keys")
 			}
 		}
 	}
@@ -192,7 +192,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
-		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || movie.TrailerYouTubeKey != "" && (movie.TMDBID <= 0 || !validYouTubeKey(movie.TrailerYouTubeKey)) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || invalidTrailerKeys(movie.TMDBID, movie.TrailerVFYouTubeKey, movie.TrailerVOYouTubeKey) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
 			return fmt.Errorf("invalid public movie")
 		}
 		if movie.RedirectToID == movie.ID {
@@ -246,6 +246,10 @@ func validatePublicMovieCatalog(data Dataset) error {
 		}
 	}
 	return nil
+}
+
+func invalidTrailerKeys(tmdbID int64, vf, vo string) bool {
+	return vf != "" && (tmdbID <= 0 || !validYouTubeKey(vf)) || vo != "" && (tmdbID <= 0 || !validYouTubeKey(vo)) || vf != "" && vf == vo
 }
 
 func validYouTubeKey(value string) bool {

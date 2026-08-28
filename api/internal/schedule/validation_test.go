@@ -251,7 +251,7 @@ func TestValidateDatasetRejectsMalformedPublicMovieTrailerYouTubeKey(t *testing.
 			data.Showtimes[index].Movie.PublicMovieID = 1
 		}
 	}
-	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film", RuntimeMinutes: 100, TMDBID: 42, TrailerYouTubeKey: "FRoff123456", UpdatedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)}}
+	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film", RuntimeMinutes: 100, TMDBID: 42, TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", UpdatedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)}}
 	data.MovieSources = []PublicMovieSourceRecord{
 		{Provider: ProviderUGC, SourceMovieID: "200", PublicMovieID: 1, SourceSlug: "ugc-film-200", Title: "Film", RuntimeMinutes: 100},
 		{Provider: ProviderKinepolis, SourceMovieID: "HO200", PublicMovieID: 1, SourceSlug: "kinepolis-film-HO200", Title: "Film", RuntimeMinutes: 100},
@@ -267,9 +267,13 @@ func TestValidateDatasetRejectsMalformedPublicMovieTrailerYouTubeKey(t *testing.
 	if err := ValidateDataset(data, true); err != nil {
 		t.Fatalf("valid trailer key rejected: %v", err)
 	}
-	data.PublicMovies[0].TrailerYouTubeKey = "invalid"
+	data.PublicMovies[0].TrailerVOYouTubeKey = "invalid"
 	if err := ValidateDataset(data, true); err == nil {
 		t.Fatal("malformed trailer key accepted")
+	}
+	data.PublicMovies[0].TrailerVOYouTubeKey = data.PublicMovies[0].TrailerVFYouTubeKey
+	if err := ValidateDataset(data, true); err == nil {
+		t.Fatal("duplicate trailer keys accepted")
 	}
 }
 

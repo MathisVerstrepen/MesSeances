@@ -52,9 +52,13 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 	if record.Enrichment != nil && record.Enrichment.TMDBID > 0 {
 		id := record.Enrichment.TMDBID
 		item.TMDBID = &id
-		if validYouTubeKey(record.Enrichment.TrailerYouTubeKey) {
-			value := record.Enrichment.TrailerYouTubeKey
-			item.TrailerYouTubeKey = &value
+		if validYouTubeKey(record.Enrichment.TrailerVFYouTubeKey) {
+			value := record.Enrichment.TrailerVFYouTubeKey
+			item.TrailerVFYouTubeKey = &value
+		}
+		if validYouTubeKey(record.Enrichment.TrailerVOYouTubeKey) {
+			value := record.Enrichment.TrailerVOYouTubeKey
+			item.TrailerVOYouTubeKey = &value
 		}
 		if record.Enrichment.Overview != "" {
 			value := record.Enrichment.Overview
@@ -89,9 +93,13 @@ func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 		value := record.TMDBID
 		item.TMDBID = &value
 	}
-	if record.TrailerYouTubeKey != "" {
-		value := record.TrailerYouTubeKey
-		item.TrailerYouTubeKey = &value
+	if record.TrailerVFYouTubeKey != "" {
+		value := record.TrailerVFYouTubeKey
+		item.TrailerVFYouTubeKey = &value
+	}
+	if record.TrailerVOYouTubeKey != "" {
+		value := record.TrailerVOYouTubeKey
+		item.TrailerVOYouTubeKey = &value
 	}
 	return item
 }

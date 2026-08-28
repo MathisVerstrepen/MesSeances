@@ -38,9 +38,9 @@ func TestChooseMetadataPrecedenceAndFieldFallback(t *testing.T) {
 	fallback := &source{key: sourceKey{provider: "kinepolis", id: "A"}, title: "Fallback", runtime: 95, poster: &fallbackPoster}
 	component := &component{members: []*source{fallback, primary}, tmdbID: 42}
 	tmdbOverview := "Résumé TMDB"
-	trailerKey := "FRoff123456"
-	chosen := chooseMetadata(component, tmdbMetadata{title: "Titre TMDB", runtime: 110, trailerYouTubeKey: &trailerKey, overview: &tmdbOverview})
-	if chosen.title != "Titre TMDB" || chosen.runtime != 110 || chosen.trailerYouTubeKey == nil || *chosen.trailerYouTubeKey != trailerKey || chosen.overview == nil || *chosen.overview != tmdbOverview || chosen.poster == nil || *chosen.poster != fallbackPoster || chosen.tmdbID != 42 {
+	trailerVFKey, trailerVOKey := "FRoff123456", "ENoff123456"
+	chosen := chooseMetadata(component, tmdbMetadata{title: "Titre TMDB", runtime: 110, trailerVFYouTubeKey: &trailerVFKey, trailerVOYouTubeKey: &trailerVOKey, overview: &tmdbOverview})
+	if chosen.title != "Titre TMDB" || chosen.runtime != 110 || chosen.trailerVFYouTubeKey == nil || *chosen.trailerVFYouTubeKey != trailerVFKey || chosen.trailerVOYouTubeKey == nil || *chosen.trailerVOYouTubeKey != trailerVOKey || chosen.overview == nil || *chosen.overview != tmdbOverview || chosen.poster == nil || *chosen.poster != fallbackPoster || chosen.tmdbID != 42 {
 		t.Fatalf("chosen metadata=%+v", chosen)
 	}
 }
@@ -129,8 +129,8 @@ FROM public_movie_sources`).Scan(&ugcID, &kinepolisID); err != nil || ugcID <= 0
 		t.Fatalf("strict singleton IDs ugc=%d kinepolis=%d err=%v", ugcID, kinepolisID, err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO movie_metadata_cache
-    (provider,provider_movie_id,locale,provider_title,localized_title,overview,trailer_youtube_key,runtime_minutes,genres,fetched_at,refresh_after)
-VALUES ('tmdb',42,'fr-FR','Original','Canonique TMDB','Résumé TMDB','FRoff123456',91,ARRAY['Action'],$1,$2);
+	    (provider,provider_movie_id,locale,provider_title,localized_title,overview,trailer_vf_youtube_key,trailer_vo_youtube_key,runtime_minutes,genres,fetched_at,refresh_after)
+VALUES ('tmdb',42,'fr-FR','Original','Canonique TMDB','Résumé TMDB','FRoff123456','ENoff123456',91,ARRAY['Action'],$1,$2);
 INSERT INTO movie_matches
     (source_provider,source_movie_id,metadata_provider,status,metadata_movie_id,score,normalized_source_title,source_runtime_minutes,candidates,evaluated_at,retry_after,updated_at)
 VALUES
@@ -145,7 +145,7 @@ VALUES
 		survivor, loser = kinepolisID, ugcID
 	}
 	var mergedUGC, mergedKinepolis, redirect int64
-	var canonicalTitle, canonicalTrailerKey string
+	var canonicalTitle, canonicalTrailerVFKey, canonicalTrailerVOKey string
 	if err := pool.QueryRow(ctx, `SELECT
     max(public_movie_id) FILTER (WHERE source_provider='ugc'),
     max(public_movie_id) FILTER (WHERE source_provider='kinepolis')
@@ -158,8 +158,8 @@ FROM public_movie_sources`).Scan(&mergedUGC, &mergedKinepolis); err != nil || me
 	if err := pool.QueryRow(ctx, "SELECT title FROM public_movies WHERE id=$1", survivor).Scan(&canonicalTitle); err != nil || canonicalTitle != "Canonique TMDB" {
 		t.Fatalf("canonical title=%q err=%v", canonicalTitle, err)
 	}
-	if err := pool.QueryRow(ctx, "SELECT trailer_youtube_key FROM public_movies WHERE id=$1", survivor).Scan(&canonicalTrailerKey); err != nil || canonicalTrailerKey != "FRoff123456" {
-		t.Fatalf("canonical trailer key=%q err=%v", canonicalTrailerKey, err)
+	if err := pool.QueryRow(ctx, "SELECT trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE id=$1", survivor).Scan(&canonicalTrailerVFKey, &canonicalTrailerVOKey); err != nil || canonicalTrailerVFKey != "FRoff123456" || canonicalTrailerVOKey != "ENoff123456" {
+		t.Fatalf("canonical trailer keys VF=%q VO=%q err=%v", canonicalTrailerVFKey, canonicalTrailerVOKey, err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO movie_metadata_cache
     (provider,provider_movie_id,locale,provider_title,localized_title,runtime_minutes,genres,fetched_at,refresh_after)

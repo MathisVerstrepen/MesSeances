@@ -253,7 +253,7 @@ func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMo
 	movies := []schedule.PublicMovieRecord{}
 	rows, err := tx.Query(ctx, `SELECT id, COALESCE(redirect_to_id,0), identity_anchor_provider, identity_anchor_source_movie_id,
 	       title, runtime_minutes, COALESCE(poster_url,''), COALESCE(backdrop_url,''), COALESCE(overview,''),
-	       COALESCE(release_date::text,''), genres, COALESCE(confirmed_tmdb_id,0), COALESCE(trailer_youtube_key,''), updated_at
+	       COALESCE(release_date::text,''), genres, COALESCE(confirmed_tmdb_id,0), COALESCE(trailer_vf_youtube_key,''), COALESCE(trailer_vo_youtube_key,''), updated_at
 FROM public_movies ORDER BY id`)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("read public movies failed")
@@ -261,7 +261,7 @@ FROM public_movies ORDER BY id`)
 	for rows.Next() {
 		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.TrailerYouTubeKey, &movie.UpdatedAt); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt); err != nil {
 			rows.Close()
 			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}

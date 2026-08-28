@@ -642,7 +642,8 @@ useHead(() => ({
           </ul>
           <MovieTrailer
             :movie-title="schedule.movie.title"
-            :youtube-key="schedule.movie.trailer_youtube_key"
+            :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
+            :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
           />
           <div v-if="schedule.movie.overview?.trim()" class="mt-7 max-w-3xl border-l-2 pl-4" :class="backdropAvailable ? 'border-white' : 'border-ink'">
             <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.18em]" :class="backdropAvailable ? 'text-white/70' : 'text-muted'">Synopsis</h2>

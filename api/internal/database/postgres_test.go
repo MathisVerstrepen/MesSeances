@@ -50,6 +50,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{23, "023_allow_unknown_runtime.sql"},
 		{24, "024_sync_run_retention.sql"},
 		{25, "025_movie_trailers.sql"},
+		{26, "026_dual_movie_trailers.sql"},
 	}
 
 	items, err := embeddedMigrations()

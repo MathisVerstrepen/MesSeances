@@ -294,24 +294,44 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 			t.Fatalf("invalid backdrop accepted: %q", invalid)
 		}
 	}
-	if _, err := pool.Exec(ctx, "UPDATE public_movies SET trailer_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'", "FRoff123456"); err == nil {
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET trailer_vf_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'", "FRoff123456"); err == nil {
 		t.Fatal("public trailer YouTube key without confirmed TMDB identity accepted")
 	}
 	if _, err := pool.Exec(ctx, "UPDATE public_movies SET confirmed_tmdb_id=41 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'"); err != nil {
 		t.Fatalf("set public movie TMDB identity failed: %v", err)
 	}
-	for _, statement := range []string{
-		"UPDATE movie_metadata_cache SET trailer_youtube_key=$1 WHERE provider_movie_id=41",
-		"UPDATE public_movies SET trailer_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'",
+	for _, check := range []struct {
+		statement string
+		reset     string
+	}{
+		{statement: "UPDATE movie_metadata_cache SET trailer_vf_youtube_key=$1 WHERE provider_movie_id=41", reset: "UPDATE movie_metadata_cache SET trailer_vf_youtube_key=NULL WHERE provider_movie_id=41"},
+		{statement: "UPDATE movie_metadata_cache SET trailer_vo_youtube_key=$1 WHERE provider_movie_id=41", reset: "UPDATE movie_metadata_cache SET trailer_vo_youtube_key=NULL WHERE provider_movie_id=41"},
+		{statement: "UPDATE public_movies SET trailer_vf_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'", reset: "UPDATE public_movies SET trailer_vf_youtube_key=NULL WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'"},
+		{statement: "UPDATE public_movies SET trailer_vo_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'", reset: "UPDATE public_movies SET trailer_vo_youtube_key=NULL WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'"},
 	} {
-		if _, err := pool.Exec(ctx, statement, "FRoff123456"); err != nil {
-			t.Fatalf("valid trailer YouTube key rejected by %s: %v", statement, err)
+		if _, err := pool.Exec(ctx, check.statement, "FRoff123456"); err != nil {
+			t.Fatalf("valid trailer YouTube key rejected by %s: %v", check.statement, err)
 		}
 		for _, invalid := range []string{"short", "FRoff12345!", "FRoff1234567"} {
-			if _, err := pool.Exec(ctx, statement, invalid); err == nil {
-				t.Fatalf("invalid trailer YouTube key accepted by %s: %q", statement, invalid)
+			if _, err := pool.Exec(ctx, check.statement, invalid); err == nil {
+				t.Fatalf("invalid trailer YouTube key accepted by %s: %q", check.statement, invalid)
 			}
 		}
+		if _, err := pool.Exec(ctx, check.reset); err != nil {
+			t.Fatalf("reset trailer key after %s: %v", check.statement, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, "UPDATE movie_metadata_cache SET trailer_vf_youtube_key='FRoff123456', trailer_vo_youtube_key='FRoff123456' WHERE provider_movie_id=41"); err == nil {
+		t.Fatal("duplicate metadata trailer variants accepted")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET trailer_vf_youtube_key='FRoff123456', trailer_vo_youtube_key='FRoff123456' WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'"); err == nil {
+		t.Fatal("duplicate public trailer variants accepted")
+	}
+	if _, err := pool.Exec(ctx, "SELECT trailer_youtube_key FROM movie_metadata_cache LIMIT 1"); err == nil {
+		t.Fatal("legacy metadata trailer column still exists")
+	}
+	if _, err := pool.Exec(ctx, "SELECT trailer_youtube_key FROM public_movies LIMIT 1"); err == nil {
+		t.Fatal("legacy public trailer column still exists")
 	}
 
 	if err := RunMigrations(ctx, pool); err != nil {

@@ -34,7 +34,8 @@ type PublicMovieRecord struct {
 	RuntimeMinutes         int
 	PosterURL              string
 	BackdropURL            string
-	TrailerYouTubeKey      string
+	TrailerVFYouTubeKey    string
+	TrailerVOYouTubeKey    string
 	Overview               string
 	ReleaseDate            string
 	Genres                 []string
@@ -95,13 +96,14 @@ type MovieRecord struct {
 }
 
 type MovieEnrichment struct {
-	TMDBID            int64
-	Overview          string
-	ReleaseDate       string
-	Genres            []string
-	PosterURL         string
-	BackdropURL       string
-	TrailerYouTubeKey string
+	TMDBID              int64
+	Overview            string
+	ReleaseDate         string
+	Genres              []string
+	PosterURL           string
+	BackdropURL         string
+	TrailerVFYouTubeKey string
+	TrailerVOYouTubeKey string
 }
 
 type ShowtimeRecord struct {

@@ -45,6 +45,7 @@ type AdminOptions struct {
 	SessionSecret    string
 	Reviews          *enrichment.ReviewService
 	TMDBReruns       TMDBRerunner
+	TMDBRefreshes    TMDBMetadataRefresher
 	LocalMovies      *enrichment.LocalMovieService
 	Syncs            SyncController
 	SyncSchedules    SyncScheduleController
@@ -57,6 +58,10 @@ type AdminOptions struct {
 
 type TMDBRerunner interface {
 	Rerun(context.Context) (enrichment.RerunSummary, error)
+}
+
+type TMDBMetadataRefresher interface {
+	Refresh(context.Context) (enrichment.MetadataRefreshSummary, error)
 }
 
 type SyncController interface {
@@ -148,6 +153,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)

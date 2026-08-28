@@ -48,20 +48,21 @@ type Match struct {
 }
 
 type Metadata struct {
-	Provider          string
-	ProviderMovieID   int64
-	Locale            string
-	ProviderTitle     string
-	LocalizedTitle    string
-	Overview          string
-	ReleaseDate       string
-	PosterURL         string
-	BackdropURL       string
-	TrailerYouTubeKey string
-	RuntimeMinutes    int
-	Genres            []string
-	FetchedAt         time.Time
-	RefreshAfter      time.Time
+	Provider            string
+	ProviderMovieID     int64
+	Locale              string
+	ProviderTitle       string
+	LocalizedTitle      string
+	Overview            string
+	ReleaseDate         string
+	PosterURL           string
+	BackdropURL         string
+	TrailerVFYouTubeKey string
+	TrailerVOYouTubeKey string
+	RuntimeMinutes      int
+	Genres              []string
+	FetchedAt           time.Time
+	RefreshAfter        time.Time
 }
 
 type Movie struct {
@@ -164,8 +165,8 @@ func validateMetadata(metadata Metadata) error {
 	if metadata.BackdropURL != "" && !validTMDBBackdropURL(metadata.BackdropURL) {
 		return fmt.Errorf("invalid metadata backdrop URL")
 	}
-	if metadata.TrailerYouTubeKey != "" && !validYouTubeKey(metadata.TrailerYouTubeKey) {
-		return fmt.Errorf("invalid metadata trailer YouTube key")
+	if metadata.TrailerVFYouTubeKey != "" && !validYouTubeKey(metadata.TrailerVFYouTubeKey) || metadata.TrailerVOYouTubeKey != "" && !validYouTubeKey(metadata.TrailerVOYouTubeKey) || metadata.TrailerVFYouTubeKey != "" && metadata.TrailerVFYouTubeKey == metadata.TrailerVOYouTubeKey {
+		return fmt.Errorf("invalid metadata trailer YouTube keys")
 	}
 	for _, genre := range metadata.Genres {
 		if strings.TrimSpace(genre) == "" || len(genre) > 256 {

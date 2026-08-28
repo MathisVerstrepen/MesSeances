@@ -300,7 +300,9 @@ func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresS
 		LocalMovies:   enrichment.NewLocalMovieService(store),
 	}
 	if provider != nil {
-		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil))
+		gate := enrichment.NewTMDBRunGate()
+		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil), gate)
+		options.TMDBRefreshes = enrichment.NewMetadataRefreshService(store, provider, nil, gate)
 	}
 	return options
 }

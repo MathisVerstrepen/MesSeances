@@ -36,10 +36,17 @@ func TestClientSearchAndDetails(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"results":[{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","poster_path":"/poster.jpg"}]}`))
 		case "/3/movie/42":
-			if r.URL.Query().Get("language") != "fr-FR" || r.URL.Query().Get("append_to_response") != "videos" || r.URL.Query().Get("include_video_language") != "fr,en,null" {
+			if r.URL.Query().Get("language") != "fr-FR" || r.URL.Query().Get("append_to_response") != "videos" {
 				t.Error("details query mismatch")
 			}
-			_, _ = w.Write([]byte(`{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","overview":"Résumé","release_date":"2001-04-25","poster_path":"/poster.jpg","backdrop_path":"/backdrop.jpg","runtime":122,"genres":[{"name":"Comédie"}],"videos":{"results":[{"key":"FRuno123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":false},{"key":"ENoff123456","site":"YouTube","type":"Trailer","iso_639_1":"en","official":true}]}}`))
+			switch r.URL.Query().Get("include_video_language") {
+			case "fr":
+				_, _ = w.Write([]byte(`{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","original_language":"en","overview":"Résumé","release_date":"2001-04-25","poster_path":"/poster.jpg","backdrop_path":"/backdrop.jpg","runtime":122,"genres":[{"name":"Comédie"}],"videos":{"results":[{"key":"FRuno123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":false}]}}`))
+			case "en":
+				_, _ = w.Write([]byte(`{"id":42,"videos":{"results":[{"key":"ENoff123456","site":"YouTube","type":"Trailer","iso_639_1":"en","official":true}]}}`))
+			default:
+				t.Errorf("video language query mismatch: %s", r.URL.RequestURI())
+			}
 		case "/3/configuration":
 			_, _ = w.Write([]byte(`{"images":{"secure_base_url":"https://image.tmdb.org/t/p/","poster_sizes":["w342","w500"],"backdrop_sizes":["w300","w780"]}}`))
 		default:
@@ -51,46 +58,42 @@ func TestClientSearchAndDetails(t *testing.T) {
 		t.Fatalf("candidates=%+v err=%v", candidates, err)
 	}
 	details, err := client.Details(context.Background(), 42)
-	if err != nil || details.PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || details.BackdropURL != "https://image.tmdb.org/t/p/w780/backdrop.jpg" || details.TrailerYouTubeKey != "ENoff123456" || details.Runtime != 122 || len(details.Genres) != 1 {
+	if err != nil || details.PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || details.BackdropURL != "https://image.tmdb.org/t/p/w780/backdrop.jpg" || details.OriginalLanguage != "en" || details.TrailerVFYouTubeKey != "FRuno123456" || details.TrailerVOYouTubeKey != "ENoff123456" || details.Runtime != 122 || len(details.Genres) != 1 {
 		t.Fatalf("details=%+v err=%v", details, err)
 	}
-	if len(requests) != 3 {
+	if len(requests) != 4 {
 		t.Fatalf("requests=%v", requests)
 	}
 }
 
-func TestSelectTrailerYouTubeKeyUsesOfficialThenFrenchFallback(t *testing.T) {
+func TestSelectTrailerYouTubeKeyUsesOfficialThenStableFallback(t *testing.T) {
 	tests := []struct {
-		name   string
-		videos []video
-		want   string
+		name     string
+		language string
+		videos   []video
+		want     string
 	}{
 		{
-			name: "French official wins",
+			name:     "official wins requested language",
+			language: "ja",
 			videos: []video{
-				{Key: "ENoff123456", Site: "YouTube", Type: "Trailer", Language: "en", Official: true},
-				{Key: "FRoff123456", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
+				{Key: "JAuno123456", Site: "YouTube", Type: "Trailer", Language: "ja"},
+				{Key: "JAoff123456", Site: "YouTube", Type: "Trailer", Language: "ja", Official: true},
 			},
-			want: "FRoff123456",
+			want: "JAoff123456",
 		},
 		{
-			name: "other official beats French unofficial",
+			name:     "unofficial fallback stays in requested language",
+			language: "fr",
 			videos: []video{
 				{Key: "FRuno123456", Site: "YouTube", Type: "Trailer", Language: "fr"},
 				{Key: "ENoff123456", Site: "YouTube", Type: "Trailer", Language: "en", Official: true},
-			},
-			want: "ENoff123456",
-		},
-		{
-			name: "French unofficial beats other unofficial",
-			videos: []video{
-				{Key: "ENuno123456", Site: "YouTube", Type: "Trailer", Language: "en"},
-				{Key: "FRuno123456", Site: "YouTube", Type: "Trailer", Language: "fr"},
 			},
 			want: "FRuno123456",
 		},
 		{
-			name: "first result wins within tier",
+			name:     "first result wins within tier",
+			language: "fr",
 			videos: []video{
 				{Key: "FRoff123456", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
 				{Key: "FRoff654321", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
@@ -98,9 +101,11 @@ func TestSelectTrailerYouTubeKeyUsesOfficialThenFrenchFallback(t *testing.T) {
 			want: "FRoff123456",
 		},
 		{
-			name: "invalid and non trailers are ignored",
+			name:     "invalid and non trailers are ignored",
+			language: "fr",
 			videos: []video{
 				{Key: "bad", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
+				{Key: "FRoff12345!", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
 				{Key: "FRoff123456", Site: "Vimeo", Type: "Trailer", Language: "fr", Official: true},
 				{Key: "ENoff123456", Site: "YouTube", Type: "Teaser", Language: "en", Official: true},
 			},
@@ -108,8 +113,51 @@ func TestSelectTrailerYouTubeKeyUsesOfficialThenFrenchFallback(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := selectTrailerYouTubeKey(test.videos); got != test.want {
+			if got := selectTrailerYouTubeKey(test.videos, test.language); got != test.want {
 				t.Fatalf("selected=%q want=%q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestClientDetailsSelectsNonEnglishOriginalAndDeduplicatesVariants(t *testing.T) {
+	tests := []struct {
+		name             string
+		originalLanguage string
+		frenchVideos     string
+		originalVideos   string
+		wantVF           string
+		wantVO           string
+		wantVideoRequest bool
+	}{
+		{name: "Japanese original", originalLanguage: "ja", frenchVideos: `[{"key":"FRuno123456","site":"YouTube","type":"Trailer","iso_639_1":"fr"}]`, originalVideos: `[{"key":"JAuno123456","site":"YouTube","type":"Trailer","iso_639_1":"ja"},{"key":"JAoff123456","site":"YouTube","type":"Trailer","iso_639_1":"ja","official":true}]`, wantVF: "FRuno123456", wantVO: "JAoff123456", wantVideoRequest: true},
+		{name: "missing French", originalLanguage: "de", frenchVideos: `[]`, originalVideos: `[{"key":"DEuno123456","site":"YouTube","type":"Trailer","iso_639_1":"de"}]`, wantVO: "DEuno123456", wantVideoRequest: true},
+		{name: "missing original", originalLanguage: "it", frenchVideos: `[{"key":"FRoff123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":true}]`, originalVideos: `[]`, wantVF: "FRoff123456", wantVideoRequest: true},
+		{name: "French original omits VO", originalLanguage: "fr", frenchVideos: `[{"key":"FRoff123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":true}]`, wantVF: "FRoff123456"},
+		{name: "identical keys omit VO", originalLanguage: "es", frenchVideos: `[{"key":"same1234567","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":true}]`, originalVideos: `[{"key":"same1234567","site":"YouTube","type":"Trailer","iso_639_1":"es","official":true}]`, wantVF: "same1234567", wantVideoRequest: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			videoRequests := 0
+			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/3/movie/7":
+					switch r.URL.Query().Get("include_video_language") {
+					case "fr":
+						_, _ = w.Write([]byte(`{"id":7,"title":"Film","original_title":"Original","original_language":"` + test.originalLanguage + `","runtime":90,"genres":[],"videos":{"results":` + test.frenchVideos + `}}`))
+					case test.originalLanguage:
+						videoRequests++
+						_, _ = w.Write([]byte(`{"id":7,"videos":{"results":` + test.originalVideos + `}}`))
+					default:
+						t.Fatalf("unexpected language request=%s", r.URL.RequestURI())
+					}
+				default:
+					t.Fatalf("unexpected request=%s", r.URL.RequestURI())
+				}
+			}, "token")
+			details, err := client.Details(context.Background(), 7)
+			if err != nil || details.TrailerVFYouTubeKey != test.wantVF || details.TrailerVOYouTubeKey != test.wantVO || (videoRequests == 1) != test.wantVideoRequest {
+				t.Fatalf("details=%+v video requests=%d err=%v", details, videoRequests, err)
 			}
 		})
 	}
