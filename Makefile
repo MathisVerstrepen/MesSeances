@@ -1,4 +1,4 @@
-.PHONY: dev prod screenshot sync
+.PHONY: build check dev fmt-check install lint prod screenshot sync test
 
 SHELL := /bin/bash
 
@@ -17,6 +17,32 @@ CHROME_BIN ?= google-chrome
 
 prod:
 	docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml up -d --wait --pull always
+
+install:
+	cd api && go mod download
+	npm --prefix web install
+
+fmt-check:
+	@cd api && unformatted="$$(gofmt -l .)"; \
+	if [ -n "$$unformatted" ]; then \
+		printf '%s\n' "$$unformatted"; \
+		exit 1; \
+	fi
+
+test:
+	cd api && go test ./...
+	npm --prefix web run test:unit
+
+lint:
+	cd api && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run
+
+build:
+	cd api && go build ./...
+	npm --prefix web run build
+
+check: fmt-check test lint build
+	npm --prefix web run typecheck
+	npm --prefix web run lint
 
 dev:
 	@set -eu; \
