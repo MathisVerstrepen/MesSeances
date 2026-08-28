@@ -1,5 +1,4 @@
 import base64
-import datetime as dt
 import io
 import json
 import os
@@ -18,7 +17,6 @@ REPOSITORY = "MathisVerstrepen/MesSeances"
 API = f"https://api.github.com/repos/{REPOSITORY}"
 SHA = "a" * 40
 HEAD_SHA = "b" * 40
-RELEASE_DATE = dt.date(2026, 8, 28)
 VERSION = "0.7.0"
 CHANGELOG_PATH = f"docs/changelogs/{VERSION}.md"
 BODY = """## Changed
@@ -41,7 +39,7 @@ BODY = """## Changed
 
 def pull(
     *,
-    title=f"{VERSION} - {RELEASE_DATE.isoformat()}",
+    title=f"Release {VERSION}",
     body=BODY,
     state="closed",
     merged=True,
@@ -215,27 +213,34 @@ class VersionTests(unittest.TestCase):
 
 
 class MetadataTests(unittest.TestCase):
-    def test_exact_title_and_date_are_accepted(self):
-        metadata = release.parse_release_title(
-            "0.7.0 - 2026-08-28", RELEASE_DATE
-        )
+    def test_exact_title_is_accepted(self):
+        metadata = release.parse_release_title("Release 0.7.0")
         self.assertEqual(str(metadata.version), VERSION)
-        self.assertEqual(metadata.date, RELEASE_DATE)
 
-    def test_title_format_calendar_and_expected_date_are_strict(self):
+    def test_title_format_and_version_are_strict(self):
         invalid = (
-            "v0.7.0 - 2026-08-28",
-            "0.7.0-beta.1 - 2026-08-28",
-            "0.7.0+build.1 - 2026-08-28",
-            "0.7.0-2026-08-28",
-            "0.7.0 - 2026-02-30",
-            "0.7.0 - 2026-08-28 ",
+            "0.7.0 - 2026-08-28",
+            "0.7.0",
+            "release 0.7.0",
+            "RELEASE 0.7.0",
+            "Release0.7.0",
+            "Release  0.7.0",
+            "Release\t0.7.0",
+            " Release 0.7.0",
+            "Release v0.7.0",
+            "Release 0.7.0-beta.1",
+            "Release 0.7.0+build.1",
+            "Release 01.7.0",
+            "Release 0.07.0",
+            "Release 0.7.00",
+            "Release 0.7",
+            "Release 0.7.0.1",
+            "Release 0..7.0",
+            "Release 0.7.0 ",
         )
         for title in invalid:
             with self.subTest(title=title), self.assertRaises(release.ReleaseError):
-                release.parse_release_title(title, RELEASE_DATE)
-        with self.assertRaisesRegex(release.ReleaseError, "must be 2026-08-28"):
-            release.parse_release_title("0.7.0 - 2026-08-27", RELEASE_DATE)
+                release.parse_release_title(title)
 
     def test_body_validation_preserves_exact_text(self):
         self.assertIs(release.validate_release_body(BODY), BODY)
@@ -317,7 +322,7 @@ class PullValidationTests(unittest.TestCase):
         self.transport.add("GET", tree_request(HEAD_SHA), tree())
         self.transport.add("GET", "/tags?per_page=100", [])
         self.assertEqual(
-            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE), VERSION
+            release.validate_pull_request(self.client, 12), VERSION
         )
         self.transport.assert_done()
 
@@ -334,7 +339,7 @@ class PullValidationTests(unittest.TestCase):
                 client = release.GitHubClient(REPOSITORY, "secret", transport)
                 transport.add("GET", "/pulls/12", candidate)
                 with self.assertRaisesRegex(release.ReleaseError, "same-repository"):
-                    release.validate_pull_request(client, 12, expected_date=RELEASE_DATE)
+                    release.validate_pull_request(client, 12)
                 transport.assert_done()
 
     def test_stale_version_rejected_without_writes(self):
@@ -345,7 +350,7 @@ class PullValidationTests(unittest.TestCase):
         self.transport.add("GET", tree_request(HEAD_SHA), tree())
         self.transport.add("GET", "/tags?per_page=100", [{"name": "0.8.0"}])
         with self.assertRaisesRegex(release.ReleaseError, "not newer"):
-            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
+            release.validate_pull_request(self.client, 12)
         self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
 
     def test_malformed_head_sha_is_rejected_before_changelog_read(self):
@@ -353,7 +358,7 @@ class PullValidationTests(unittest.TestCase):
             "GET", "/pulls/12", pull(state="open", merged=False, sha=None, head_sha="short")
         )
         with self.assertRaisesRegex(release.ReleaseError, "head commit SHA"):
-            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
+            release.validate_pull_request(self.client, 12)
         self.transport.assert_done()
 
     def test_missing_changelog_is_rejected_before_tag_read(self):
@@ -362,7 +367,7 @@ class PullValidationTests(unittest.TestCase):
             "GET", changelog_request(HEAD_SHA), {"message": "missing secret"}, status=404
         )
         with self.assertRaisesRegex(release.ReleaseError, "changelog is missing") as raised:
-            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
+            release.validate_pull_request(self.client, 12)
         self.assertNotIn("secret", str(raised.exception))
         self.transport.assert_done()
 
@@ -404,7 +409,7 @@ class PullValidationTests(unittest.TestCase):
                 )
                 transport.add("GET", changelog_request(HEAD_SHA), item)
                 with self.assertRaises(release.ReleaseError):
-                    release.validate_pull_request(client, 12, expected_date=RELEASE_DATE)
+                    release.validate_pull_request(client, 12)
                 self.assertTrue(all(call["method"] == "GET" for call in transport.calls))
                 transport.assert_done()
 
@@ -431,7 +436,7 @@ class PullValidationTests(unittest.TestCase):
                 )
                 transport.add("GET", tree_request(HEAD_SHA), tree_response)
                 with self.assertRaises(release.ReleaseError):
-                    release.validate_pull_request(client, 12, expected_date=RELEASE_DATE)
+                    release.validate_pull_request(client, 12)
                 self.assertTrue(all(call["method"] == "GET" for call in transport.calls))
                 transport.assert_done()
 
@@ -567,7 +572,7 @@ class PublishTests(unittest.TestCase):
             pull(head_repository="attacker/MesSeances"),
             pull(state="open", merged=False),
             pull(sha="short"),
-            pull(title="0.7.0 - 2026-08-27"),
+            pull(title="0.7.0 - 2026-08-28"),
             pull(body=BODY.replace("## Fixed", "## Repairs")),
         )
         for candidate in candidates:

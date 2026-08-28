@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import base64
 import binascii
-import datetime as dt
 import json
 import os
 import re
@@ -20,7 +19,7 @@ from typing import Any, Callable, Mapping
 
 VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 TITLE_RE = re.compile(
-    r"^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)) - (\d{4}-\d{2}-\d{2})$"
+    r"^Release ((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$"
 )
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 API_ROOT = "https://api.github.com"
@@ -59,7 +58,6 @@ class Version:
 @dataclass(frozen=True)
 class ReleaseMetadata:
     version: Version
-    date: dt.date
 
 
 @dataclass(frozen=True)
@@ -171,23 +169,13 @@ def _next_link(header: str | None) -> str | None:
     return None
 
 
-def parse_release_title(title: Any, expected_date: dt.date) -> ReleaseMetadata:
+def parse_release_title(title: Any) -> ReleaseMetadata:
     if not isinstance(title, str):
         raise ReleaseError("release PR title is missing")
     match = TITLE_RE.fullmatch(title)
     if not match:
-        raise ReleaseError(
-            "release PR title must be exactly '<X.Y.Z> - <YYYY-MM-DD>'"
-        )
-    try:
-        release_date = dt.date.fromisoformat(match.group(2))
-    except ValueError as exc:
-        raise ReleaseError("release PR title contains an invalid calendar date") from exc
-    if release_date != expected_date:
-        raise ReleaseError(
-            f"release PR date must be {expected_date.isoformat()}, got {release_date.isoformat()}"
-        )
-    return ReleaseMetadata(Version.parse(match.group(1)), release_date)
+        raise ReleaseError("release PR title must be exactly 'Release X.Y.Z'")
+    return ReleaseMetadata(Version.parse(match.group(1)))
 
 
 def validate_release_body(body: Any) -> str:
@@ -399,30 +387,15 @@ def _validate_pull_identity(
         )
 
 
-def _utc_today() -> dt.date:
-    return dt.datetime.now(dt.timezone.utc).date()
-
-
-def _merged_date(value: Any) -> dt.date:
-    if not isinstance(value, str):
-        raise ReleaseError("release PR merged_at timestamp is missing")
-    try:
-        return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").date()
-    except ValueError as exc:
-        raise ReleaseError("release PR merged_at timestamp is invalid") from exc
-
-
 def validate_pull_request(
     client: GitHubClient,
     pull_request_number: int,
-    *,
-    expected_date: dt.date | None = None,
 ) -> str:
     pull, _ = client.request("GET", f"/pulls/{pull_request_number}")
     _validate_pull_identity(pull, client.repository)
     if pull.get("state") != "open" or pull.get("merged") is not False:
         raise ReleaseError("release PR validation requires an open, unmerged PR")
-    metadata = parse_release_title(pull.get("title"), expected_date or _utc_today())
+    metadata = parse_release_title(pull.get("title"))
     body = validate_release_body(pull.get("body"))
     _validate_changelog(client, metadata.version, _pull_head_sha(pull), body)
     tags = client.paginate("/tags?per_page=100")
@@ -534,7 +507,7 @@ def publish(
     if not isinstance(merge_sha, str) or not SHA_RE.fullmatch(merge_sha):
         raise ReleaseError("release PR merge commit SHA is invalid")
 
-    metadata = parse_release_title(pull.get("title"), _merged_date(pull.get("merged_at")))
+    metadata = parse_release_title(pull.get("title"))
     body = validate_release_body(pull.get("body"))
     _validate_merge_commit(client, merge_sha)
     _validate_changelog(client, metadata.version, merge_sha, body)

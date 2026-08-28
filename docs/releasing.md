@@ -64,7 +64,7 @@ Use an unlinked bullet when no corresponding feature pull request is available:
 - Concise factual change
 ```
 
-Create `docs/changelogs/X.Y.Z.md` using title version exactly, with no `v`, extra title, introduction, or other prose. File must be an ordinary tracked repository file encoded as strict UTF-8, use LF line endings, end with exactly one newline, and contain only final release body. Create, validate, commit, and push this file to synchronized `dev` before creating release pull request. Then pass same file directly as pull request body:
+Create `docs/changelogs/X.Y.Z.md` using strict version from `Release X.Y.Z` exactly, with no `v`, extra title, introduction, or other prose. File must be an ordinary tracked repository file encoded as strict UTF-8, use LF line endings, end with exactly one newline, and contain only final release body. Create, validate, commit, and push this file to synchronized `dev` before creating release pull request. Then pass same file directly as pull request body:
 
 ```sh
 version=0.7.0
@@ -79,13 +79,13 @@ git push origin dev
 gh pr create \
   --base main \
   --head dev \
-  --title "$version - $(date -u +%F)" \
+  --title "Release $version" \
   --body-file "docs/changelogs/$version.md"
 ```
 
 Before commit, require staged changes contain exactly expected changelog path. Before push, require commit contains exactly that path and parent is previously synchronized `dev`. Recheck remote `dev` immediately before push and stop on a race instead of forcing. Never amend or force-push release preparation. If exact changelog is already tracked at synchronized `dev`, reuse it without creating another commit.
 
-Browser flow uses [the release comparison page](https://github.com/MathisVerstrepen/MesSeances/compare/main...dev?expand=1&template=release.md). Select `release.md` if GitHub presents a template chooser, set base to `main` and compare to `dev`, set title to `X.Y.Z - YYYY-MM-DD` using current UTC date, remove all template comments, and paste exact changelog content as body. Verify body and file still match byte-for-byte after creation.
+Browser flow uses [the release comparison page](https://github.com/MathisVerstrepen/MesSeances/compare/main...dev?expand=1&template=release.md). Select `release.md` if GitHub presents a template chooser, set base to `main` and compare to `dev`, set title to exact `Release X.Y.Z`, remove all template comments, and paste exact changelog content as body. Verify body and file still match byte-for-byte after creation.
 
 Body must contain only these headings in this exact order:
 
@@ -108,8 +108,6 @@ Body must contain only these headings in this exact order:
 ```
 
 Every section needs at least one `- ` Markdown bullet. Use `- None` as sole bullet when a section has no entries. Do not link `- None`. Do not add an introduction, extra headings, continuation paragraphs, or combine `- None` with another bullet. Pull request body and changelog must be exact string and byte matches, including LF line endings and one final newline.
-
-Open-PR validation requires title date to equal current UTC date whenever validation runs. Before merging an older open release PR, update title date to current UTC date; editing title starts validation again. Publisher compares title date with GitHub's immutable UTC `merged_at` date, not rerun date. This keeps initial merge strict while allowing deterministic recovery reruns on later days.
 
 Validation derives only `docs/changelogs/<strict-title-version>.md` after title and body grammar pass. It reads GitHub Contents API and recursive Git tree at exact pull request head SHA, not runner working tree or branch name, and rejects missing files, symlinks, submodules, wrong path/ref/type/mode metadata, malformed or truncated responses, invalid base64 or UTF-8, wrong newline form, and any body mismatch.
 
