@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   checks:
+    name: Go CI / checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -59,6 +60,7 @@ jobs:
           working-directory: api
 
   integration:
+    name: Go CI / integration
     runs-on: ubuntu-latest
     services:
       postgres:

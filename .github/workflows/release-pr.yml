@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate release metadata
+    name: Release PR / Validate release metadata
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
