@@ -7,6 +7,8 @@ type PreparationState = 'idle' | 'pending' | 'ready' | 'error'
 
 const props = withDefaults(defineProps<{
   appearance?: 'compact' | 'hero'
+  target?: string
+  theaterIds?: readonly string[]
 }>(), {
   appearance: 'compact'
 })
@@ -27,6 +29,8 @@ const liveMessage = ref('')
 const popupLeft = ref(16)
 const popupTop = ref(0)
 const popupId = useId()
+const target = computed(() => props.target ?? route.fullPath)
+const theaterIds = computed(() => props.theaterIds ?? pageSelection.activeTheaterIds.value)
 let requestSequence = 0
 let popupFocusSequence = 0
 let isInitializingForShare = false
@@ -43,9 +47,9 @@ const displayUrl = computed(() => {
 
 const popupStyle = computed(() => ({ left: `${popupLeft.value}px`, top: `${popupTop.value}px` }))
 
-watch(() => route.fullPath, () => reset())
+watch([() => route.fullPath, () => props.target, () => props.theaterIds?.join(',')], () => reset())
 watch(() => pageSelection.activeTheaterIds.value.join(','), () => {
-  if (!isInitializingForShare) reset()
+  if (!isInitializingForShare && props.theaterIds === undefined) reset()
 })
 
 function clearCopyFeedback() {
@@ -120,22 +124,22 @@ async function prepareLink() {
   }
   if (currentRequest !== requestSequence) return
 
-  const target = withSharedTheaterSelection(route.fullPath, pageSelection.activeTheaterIds.value)
-  if (!pageSelection.isInitialized.value || target === null) {
+  const preparedTarget = withSharedTheaterSelection(target.value, theaterIds.value)
+  if (!pageSelection.isInitialized.value || preparedTarget === null) {
     preparationState.value = 'error'
     preparationError.value = 'Aucun cinéma ne peut être partagé. Vérifiez votre sélection puis réessayez.'
     return
   }
-  if (!isValidShortLinkTarget(target)) {
+  if (!isValidShortLinkTarget(preparedTarget)) {
     preparationState.value = 'error'
     preparationError.value = 'Cette page ne peut pas être partagée. Vérifiez l’adresse puis réessayez.'
     return
   }
 
   try {
-    const response = await api.createShortLink(target)
+    const response = await api.createShortLink(preparedTarget)
     if (currentRequest !== requestSequence) return
-    if (response.target !== target || !isValidShortLinkCode(response.code)) throw new Error('Invalid shortlink response')
+    if (response.target !== preparedTarget || !isValidShortLinkCode(response.code)) throw new Error('Invalid shortlink response')
     shortUrl.value = `${window.location.origin}/s/${response.code}`
     preparationState.value = 'ready'
     liveMessage.value = 'Lien prêt à être copié.'

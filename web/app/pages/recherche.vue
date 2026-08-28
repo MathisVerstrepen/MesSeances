@@ -9,6 +9,7 @@ import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { resultGroupingOptions, resultLayoutOptions, toSlotShowtimeResults } from '~/utils/showtimeResults'
 import type { LocationQuery } from 'vue-router'
@@ -75,6 +76,16 @@ const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query
 const groupingOptions = resultGroupingOptions
 const layoutOptions = resultLayoutOptions
 const normalizedResults = computed(() => toSlotShowtimeResults(results.value ?? []))
+const shareTarget = computed(() => {
+  const search = appliedSearch.value
+  if (!search) return null
+
+  return buildCompleteSearchShareTarget({
+    ...search,
+    grouping: resultGrouping.value,
+    layout: resultLayout.value
+  })
+})
 const activeFilterSummary = computed(() => {
   const search = appliedSearch.value
   if (!search) return []
@@ -752,7 +763,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <p class="utility-label">Résultats</p>
             <h2 class="mt-2 text-3xl font-black capitalize tracking-[-0.045em] text-ink sm:text-4xl">{{ searchedDate ? formatLongDate(searchedDate) : 'Lancez votre recherche' }}</h2>
           </div>
-          <ShareButton class="shrink-0" />
+          <ShareButton v-if="appliedSearch && shareTarget" class="shrink-0" :target="shareTarget" :theater-ids="appliedSearch.theaterIds" />
         </div>
 
         <div v-if="appliedSearch" class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3" :class="results ? '' : 'lg:hidden'">
