@@ -37,7 +37,23 @@ type ShortlinkService interface {
 
 type HandlerOptions struct {
 	Admin      AdminOptions
+	Readiness  ReadinessOptions
 	Shortlinks ShortlinkService
+}
+
+type ReadinessOptions struct {
+	Schedule  schedule.Source
+	Database  DatabasePinger
+	Revisions RevisionReader
+	Now       func() time.Time
+}
+
+type DatabasePinger interface {
+	Ping(context.Context) error
+}
+
+type RevisionReader interface {
+	CurrentRevision(context.Context) (schedule.SnapshotRevision, error)
 }
 
 type AdminOptions struct {
@@ -94,6 +110,15 @@ type probeResponse struct {
 	Status string `json:"status"`
 }
 
+const readinessDatabaseTimeout = 250 * time.Millisecond
+
+type readinessChecker struct {
+	schedule  schedule.Source
+	database  DatabasePinger
+	revisions RevisionReader
+	now       func() time.Time
+}
+
 func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 	return NewHandlerWithOptions(service, webOrigin, HandlerOptions{})
 }
@@ -109,6 +134,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.Admin.Metrics == nil {
 		options.Admin.Metrics = observability.NewMetrics()
 	}
+	readiness := newReadinessChecker(options.Readiness)
 	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, origin: webOrigin}
 	router := chi.NewRouter()
 	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
@@ -125,7 +151,11 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ok"})
 	})
-	router.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+	router.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if !readiness.ready(r.Context()) {
+			writeJSON(w, http.StatusServiceUnavailable, probeResponse{Status: "not_ready"})
+			return
+		}
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
@@ -172,6 +202,38 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	})
 
 	return router
+}
+
+func newReadinessChecker(options ReadinessOptions) readinessChecker {
+	if options.Now == nil {
+		options.Now = time.Now
+	}
+	return readinessChecker{
+		schedule:  options.Schedule,
+		database:  options.Database,
+		revisions: options.Revisions,
+		now:       options.Now,
+	}
+}
+
+func (c readinessChecker) ready(ctx context.Context) bool {
+	if c.schedule == nil || c.database == nil || c.revisions == nil {
+		return false
+	}
+	view := c.schedule.Snapshot()
+	if !view.ReadyAt(c.now()) {
+		return false
+	}
+	databaseCtx, cancel := context.WithTimeout(ctx, readinessDatabaseTimeout)
+	defer cancel()
+	if c.database.Ping(databaseCtx) != nil {
+		return false
+	}
+	revision, err := c.revisions.CurrentRevision(databaseCtx)
+	if err != nil {
+		return false
+	}
+	return revision.ScheduleVersion > 0 && revision.EnrichmentVersion >= 0 && revision.TheaterLocationVersion >= 0
 }
 
 func (api *API) timeline(w http.ResponseWriter, r *http.Request) {

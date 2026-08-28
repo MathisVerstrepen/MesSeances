@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 )
+
+const maxScheduleAge = 24 * time.Hour
 
 type theaterDateKey struct {
 	theaterID string
@@ -41,6 +44,7 @@ type movieIndex struct {
 // a view while a source publishes a newer revision.
 type SnapshotView struct {
 	data             Dataset
+	readiness        snapshotReadiness
 	theaterByID      map[string]int
 	theaterBySlug    map[string]int
 	cityBuckets      []cityBucket
@@ -60,6 +64,13 @@ type SnapshotView struct {
 	theaterCatalog   []int
 	theaterRank      []int
 	catalogRevision  string
+}
+
+type snapshotReadiness struct {
+	complete    bool
+	generatedAt time.Time
+	windowFrom  time.Time
+	windowEnd   time.Time
 }
 
 // NewSnapshotView detaches data from its caller and builds request indexes.
@@ -83,6 +94,7 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 		theaterRank:      make([]int, len(data.Theaters)),
 		theaterCity:      make([]int, len(data.Theaters)),
 	}
+	view.readiness = newSnapshotReadiness(view.data)
 	if len(revisions) > 0 {
 		view.catalogRevision = fmt.Sprintf("schedule:%d;enrichment:%d", revisions[0].ScheduleVersion, revisions[0].EnrichmentVersion)
 	}
@@ -192,6 +204,44 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 		sort.Strings(view.movieDates[slug])
 	}
 	return view
+}
+
+// ReadyAt reports whether the view contains a complete schedule that is fresh
+// and covers the current calendar date in Europe/Paris.
+func (v *SnapshotView) ReadyAt(now time.Time) bool {
+	if v == nil || !v.readiness.complete || now.IsZero() {
+		return false
+	}
+	if v.readiness.generatedAt.After(now) || now.Sub(v.readiness.generatedAt) > maxScheduleAge {
+		return false
+	}
+	localNow := now.In(v.readiness.windowFrom.Location())
+	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, localNow.Location())
+	return !today.Before(v.readiness.windowFrom) && today.Before(v.readiness.windowEnd)
+}
+
+func newSnapshotReadiness(data Dataset) snapshotReadiness {
+	if ValidateDataset(data, true) != nil {
+		return snapshotReadiness{}
+	}
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		return snapshotReadiness{}
+	}
+	from, err := time.ParseInLocation(dateLayout, data.Window.From, location)
+	if err != nil {
+		return snapshotReadiness{}
+	}
+	through, err := time.ParseInLocation(dateLayout, data.Window.Through, location)
+	if err != nil {
+		return snapshotReadiness{}
+	}
+	return snapshotReadiness{
+		complete:    true,
+		generatedAt: data.GeneratedAt,
+		windowFrom:  from,
+		windowEnd:   through.AddDate(0, 0, 1),
+	}
 }
 
 func publicMovieIDSlug(id int64) string { return fmt.Sprintf("film-%d", id) }

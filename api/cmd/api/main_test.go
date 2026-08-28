@@ -200,7 +200,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	}
 	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions, nil)
+	handler := newAPIHandler(nil, cfg, adminOptions, nil, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -258,7 +258,7 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{})
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
