@@ -151,6 +151,10 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 			t.Fatalf("first showing=%s want=%s", movies[1].FirstShowingAt, wantFirst)
 		}
 	})
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes)
+VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200','ugc-film-200','Film',721)`); err != nil {
+		t.Fatal("insert matched movie fixture failed")
+	}
 	unmatched := Match{SourceProvider: SourceUGC, SourceMovieID: "200", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 721, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
 	if err := store.SaveDecision(ctx, unmatched); err != nil {
 		t.Fatal(err)
