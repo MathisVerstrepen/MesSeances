@@ -84,6 +84,10 @@ func run(ctx context.Context) error {
 	if err := database.RunMigrations(startupCtx, pool); err != nil {
 		return fmt.Errorf("database migration failed")
 	}
+	shortlinkStore := shortlink.NewPostgresStore(pool)
+	if err := purgeShortlinksAtStartup(startupCtx, shortlinkStore, time.Now); err != nil {
+		return err
+	}
 	runStore := synccontrol.NewPostgresRunStore(pool)
 	if err := runStore.PurgeTerminalBefore(startupCtx, time.Now().UTC().Add(-synccontrol.TerminalRunRetentionPeriod)); err != nil {
 		return fmt.Errorf("sync run retention startup failed")
@@ -155,7 +159,7 @@ func run(ctx context.Context) error {
 		syncScheduler = scheduler
 	}
 	var polling sync.WaitGroup
-	polling.Add(2)
+	polling.Add(3)
 	go func() {
 		defer polling.Done()
 		source.Run(workerCtx)
@@ -163,6 +167,10 @@ func run(ctx context.Context) error {
 	go func() {
 		defer polling.Done()
 		runSyncRunRetention(workerCtx, runStore, logger, time.Now)
+	}()
+	go func() {
+		defer polling.Done()
+		runShortlinkRetention(workerCtx, shortlinkStore, logger, time.Now)
 	}()
 	var cleanupOnce sync.Once
 	cleanup := func() {
@@ -173,7 +181,7 @@ func run(ctx context.Context) error {
 	defer cleanup()
 	adminOptions.Syncs = syncManager
 	adminOptions.SyncSchedules = syncScheduler
-	shortlinkService := shortlink.NewService(shortlink.NewPostgresStore(pool), shortlink.ServiceOptions{})
+	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: newAPIHandler(service, cfg, adminOptions, shortlinkService, httpapi.ReadinessOptions{
@@ -213,6 +221,39 @@ func runSyncRunRetention(ctx context.Context, store *synccontrol.PostgresRunStor
 			cancel()
 			if err != nil {
 				logger.Error("sync_run_retention_failed", "component", "sync", "error_code", "database_error")
+			}
+		}
+	}
+}
+
+type shortlinkRetentionStore interface {
+	PurgeCreatedBefore(context.Context, time.Time) error
+}
+
+func purgeShortlinksAtStartup(ctx context.Context, store shortlinkRetentionStore, now func() time.Time) error {
+	if err := store.PurgeCreatedBefore(ctx, now().UTC().Add(-shortlink.RetentionPeriod)); err != nil {
+		return fmt.Errorf("shortlink retention startup failed")
+	}
+	return nil
+}
+
+func runShortlinkRetention(ctx context.Context, store shortlinkRetentionStore, logger *slog.Logger, now func() time.Time) {
+	ticker := time.NewTicker(shortlink.RetentionPurgeInterval)
+	defer ticker.Stop()
+	runShortlinkRetentionTicks(ctx, store, logger, now, ticker.C)
+}
+
+func runShortlinkRetentionTicks(ctx context.Context, store shortlinkRetentionStore, logger *slog.Logger, now func() time.Time, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			purgeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := store.PurgeCreatedBefore(purgeCtx, now().UTC().Add(-shortlink.RetentionPeriod))
+			cancel()
+			if err != nil {
+				logger.Error("shortlink_retention_failed", "component", "shortlink", "error_code", "database_error")
 			}
 		}
 	}
@@ -258,7 +299,12 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 }
 
 func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, readiness httpapi.ReadinessOptions) http.Handler {
-	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{Admin: adminOptions, Readiness: readiness, Shortlinks: shortlinks})
+	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
+		Admin:             adminOptions,
+		Readiness:         readiness,
+		Shortlinks:        shortlinks,
+		TrustedProxyCIDRs: cfg.Server.TrustedProxyCIDRs,
+	})
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {

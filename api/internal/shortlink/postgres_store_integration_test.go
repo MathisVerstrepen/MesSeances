@@ -71,6 +71,63 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if _, err := first.Resolve(ctx, "BBBBBBBBBBBBBBBBBBBBBB"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("not found err=%v", err)
 	}
+	cutoff := time.Date(2026, 8, 28, 12, 0, 0, 0, time.FixedZone("test", 2*60*60))
+	retentionLinks := []struct {
+		link      Link
+		createdAt time.Time
+		retained  bool
+	}{
+		{link: Link{Code: "CCCCCCCCCCCCCCCCCCCCCC", Target: "/films"}, createdAt: cutoff.Add(-time.Nanosecond)},
+		{link: Link{Code: "DDDDDDDDDDDDDDDDDDDDDD", Target: "/films"}, createdAt: cutoff, retained: true},
+		{link: Link{Code: "EEEEEEEEEEEEEEEEEEEEEE", Target: "/films"}, createdAt: cutoff.Add(time.Nanosecond), retained: true},
+	}
+	for _, item := range retentionLinks {
+		if _, err := pool.Exec(ctx, "INSERT INTO short_links (code, target, created_at) VALUES ($1, $2, $3)", item.link.Code, item.link.Target, item.createdAt); err != nil {
+			t.Fatal("insert retention fixture failed")
+		}
+	}
+	if err := first.PurgeCreatedBefore(ctx, cutoff); err != nil {
+		t.Fatal("purge short links failed")
+	}
+	for _, item := range retentionLinks {
+		resolved, err := first.Resolve(ctx, item.link.Code)
+		if item.retained && (err != nil || resolved != item.link) {
+			t.Fatalf("retained link=%+v resolved=%+v err=%v", item.link, resolved, err)
+		}
+		if !item.retained && !errors.Is(err, ErrNotFound) {
+			t.Fatalf("expired link err=%v", err)
+		}
+	}
+	var retentionIndex bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1
+		FROM pg_catalog.pg_class AS index_relation
+		JOIN pg_catalog.pg_namespace AS index_namespace
+		  ON index_namespace.oid = index_relation.relnamespace
+		JOIN pg_catalog.pg_index AS index_metadata
+		  ON index_metadata.indexrelid = index_relation.oid
+		JOIN pg_catalog.pg_class AS table_relation
+		  ON table_relation.oid = index_metadata.indrelid
+		JOIN pg_catalog.pg_namespace AS table_namespace
+		  ON table_namespace.oid = table_relation.relnamespace
+		JOIN pg_catalog.pg_attribute AS column_metadata
+		  ON column_metadata.attrelid = table_relation.oid
+		 AND column_metadata.attnum = index_metadata.indkey[0]
+		 AND NOT column_metadata.attisdropped
+		WHERE index_namespace.nspname = $1
+		  AND table_namespace.nspname = $1
+		  AND index_relation.relname = 'short_links_retention_idx'
+		  AND index_relation.relkind = 'i'
+		  AND table_relation.relname = 'short_links'
+		  AND table_relation.relkind = 'r'
+		  AND index_metadata.indisvalid
+		  AND index_metadata.indisready
+		  AND index_metadata.indnkeyatts = 1
+		  AND index_metadata.indexprs IS NULL
+		  AND column_metadata.attname = 'created_at'
+	)`, schema).Scan(&retentionIndex); err != nil || !retentionIndex {
+		t.Fatalf("retention index exists=%t err=%v", retentionIndex, err)
+	}
 	for _, invalid := range []Link{
 		{Code: "short", Target: "/"},
 		{Code: "BBBBBBBBBBBBBBBBBBBBBB", Target: ""},

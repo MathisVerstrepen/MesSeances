@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func environment(values map[string]string, reads *[]string) func(string) string 
 func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 	base := map[string]string{"DATABASE_URL": "postgres://secret", "ADMIN_PASSWORD": "password", "ADMIN_SESSION_SECRET": "secret"}
 	config, err := Load(APIBase, environment(base, nil), nil)
-	if err != nil || config.Server.Port != 8080 || config.Server.Origin != "http://localhost:3000" || config.Database.URL != base["DATABASE_URL"] {
+	if err != nil || config.Server.Port != 8080 || config.Server.Origin != "http://localhost:3000" || config.Server.TrustedProxyCIDRs != nil || config.Database.URL != base["DATABASE_URL"] {
 		t.Fatalf("config=%+v err=%v", config, err)
 	}
 	for _, test := range []struct{ name, key, value string }{
@@ -38,6 +39,11 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 		{"origin padded port", "WEB_ORIGIN", "https://example.com:08443"},
 		{"origin noncanonical IPv4", "WEB_ORIGIN", "http://127.000.0.1:8080"},
 		{"password only", "ADMIN_SESSION_SECRET", ""},
+		{"proxy empty member", "TRUSTED_PROXY_CIDRS", "10.0.0.0/8,,192.0.2.0/24"},
+		{"proxy trailing empty member", "TRUSTED_PROXY_CIDRS", "10.0.0.0/8,"},
+		{"proxy address without prefix", "TRUSTED_PROXY_CIDRS", "10.0.0.1"},
+		{"proxy invalid prefix", "TRUSTED_PROXY_CIDRS", "synthetic-secret"},
+		{"proxy broad mapped prefix", "TRUSTED_PROXY_CIDRS", "::ffff:0:0/95"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			values := map[string]string{}
@@ -56,6 +62,27 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 		loaded, err := Load(APIBase, environment(values, nil), nil)
 		if err != nil || loaded.Server.Origin != origin {
 			t.Fatalf("valid origin %q config=%+v err=%v", origin, loaded, err)
+		}
+	}
+}
+
+func TestLoadAPIBaseParsesAndNormalizesTrustedProxyCIDRs(t *testing.T) {
+	values := map[string]string{
+		"DATABASE_URL":        "postgres://configured",
+		"TRUSTED_PROXY_CIDRS": " 10.1.2.3/8, 2001:db8:1::12/48 , ::ffff:192.0.2.1/120 ",
+	}
+	loaded, err := Load(APIBase, environment(values, nil), nil)
+	want := []netip.Prefix{
+		netip.MustParsePrefix("10.0.0.0/8"),
+		netip.MustParsePrefix("2001:db8:1::/48"),
+		netip.MustParsePrefix("192.0.2.0/24"),
+	}
+	if err != nil || len(loaded.Server.TrustedProxyCIDRs) != len(want) {
+		t.Fatalf("prefixes=%v err=%v", loaded.Server.TrustedProxyCIDRs, err)
+	}
+	for index := range want {
+		if loaded.Server.TrustedProxyCIDRs[index] != want[index] {
+			t.Fatalf("prefix[%d]=%s want=%s", index, loaded.Server.TrustedProxyCIDRs[index], want[index])
 		}
 	}
 }

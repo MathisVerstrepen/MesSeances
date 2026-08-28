@@ -158,7 +158,7 @@ func TestResolveShortlinkContract(t *testing.T) {
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/shortlinks/"+code, nil)
 	response := httptest.NewRecorder()
 	shortlinkHandler(service).ServeHTTP(response, request)
-	if response.Code != http.StatusOK || response.Body.String() != `{"code":"AAAAAAAAAAAAAAAAAAAAAA","target":"/planning?zoom=12&mode=map"}`+"\n" || response.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" || service.resolvedCode != code {
+	if response.Code != http.StatusOK || response.Body.String() != `{"code":"AAAAAAAAAAAAAAAAAAAAAA","target":"/planning?zoom=12&mode=map"}`+"\n" || response.Header().Get("Cache-Control") != "no-store" || service.resolvedCode != code {
 		t.Fatalf("status=%d cache=%q code=%q body=%q", response.Code, response.Header().Get("Cache-Control"), service.resolvedCode, response.Body.String())
 	}
 }
@@ -168,7 +168,7 @@ func TestResolveLegacyCinemasShortlinkIsUnavailable(t *testing.T) {
 	service := shortlink.NewService(legacyCinemasShortlinkStore{code: code}, shortlink.ServiceOptions{})
 	response := httptest.NewRecorder()
 	shortlinkHandler(service).ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/shortlinks/"+code, nil))
-	if response.Code != http.StatusServiceUnavailable || response.Body.String() != `{"error":{"code":"shortlink_unavailable","message":"Le service de partage est temporairement indisponible."}}`+"\n" || response.Header().Get("Cache-Control") != "" {
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != `{"error":{"code":"shortlink_unavailable","message":"Le service de partage est temporairement indisponible."}}`+"\n" || response.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d cache=%q body=%q", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
 	}
 }
@@ -187,7 +187,7 @@ func TestResolveShortlinkErrorMapping(t *testing.T) {
 		service := &stubShortlinks{resolveError: test.err}
 		response := httptest.NewRecorder()
 		shortlinkHandler(service).ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/shortlinks/AAAAAAAAAAAAAAAAAAAAAA", nil))
-		if response.Code != test.status || !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) || strings.Contains(response.Body.String(), "secret") || response.Header().Get("Cache-Control") != "" {
+		if response.Code != test.status || !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) || strings.Contains(response.Body.String(), "secret") || response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("err=%v status=%d cache=%q body=%q", test.err, response.Code, response.Header().Get("Cache-Control"), response.Body.String())
 		}
 	}

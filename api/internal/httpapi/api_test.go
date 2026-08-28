@@ -47,6 +47,10 @@ func testHandler(t *testing.T) http.Handler {
 }
 
 func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
+	return testHandlerWithOptions(t, HandlerOptions{Admin: options})
+}
+
+func testHandlerWithOptions(t *testing.T, options HandlerOptions) http.Handler {
 	t.Helper()
 	data := fixtureDataset(t)
 	source := fixtureSource{view: schedule.NewSnapshotView(data)}
@@ -60,17 +64,15 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 	}
 	dependencies := &readinessDependencies{}
 	readinessSource := fixtureSource{view: schedule.NewSnapshotView(readinessFixtureDataset(t))}
-	return NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{
-		Admin: options,
-		Readiness: ReadinessOptions{
-			Schedule:  readinessSource,
-			Database:  dependencies,
-			Revisions: dependencies,
-			Now: func() time.Time {
-				return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
-			},
+	options.Readiness = ReadinessOptions{
+		Schedule:  readinessSource,
+		Database:  dependencies,
+		Revisions: dependencies,
+		Now: func() time.Time {
+			return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
 		},
-	})
+	}
+	return NewHandlerWithOptions(service, "http://localhost:3000", options)
 }
 
 func fixtureDataset(t *testing.T) schedule.Dataset {
@@ -890,7 +892,6 @@ func TestSearchSlotFormatTransport(t *testing.T) {
 }
 
 func TestInvalidQueriesTransport(t *testing.T) {
-	handler := testHandler(t)
 	tests := []struct {
 		name    string
 		target  string
@@ -931,6 +932,7 @@ func TestInvalidQueriesTransport(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			handler := testHandler(t)
 			response := performRequest(t, handler, test.target)
 			assertAPIError(t, response, http.StatusBadRequest, "invalid_query", test.message)
 		})

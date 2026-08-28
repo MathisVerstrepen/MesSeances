@@ -21,6 +21,7 @@ function parseShortLinkResponse(response: UpstreamShortLinkPayload, requestedCod
 }
 
 export default defineEventHandler(async (event) => {
+  setResponseHeader(event, 'Cache-Control', 'no-store')
   const code = getRouterParam(event, 'code') ?? ''
   if (!isValidShortLinkCode(code)) {
     throw createError({ statusCode: 404, statusMessage: 'Lien introuvable', message: 'Ce lien de partage est introuvable.' })
@@ -44,6 +45,5 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 502, statusMessage: 'Réponse invalide', message: 'Le service de partage a renvoyé une réponse invalide.' })
   }
 
-  setResponseHeader(event, 'Cache-Control', 'public, max-age=31536000, immutable')
   return sendRedirect(event, shortLink.target, 308)
 })
