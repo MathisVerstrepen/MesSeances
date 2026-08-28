@@ -504,6 +504,8 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 			(1,'301','ugc-film-301','Local principal',101,'https://static.ugc.fr/posters/301.jpg'),
 			(1,'302','ugc-film-302','Local secondaire',102,NULL),
 			(1,'303','ugc-film-303','Local rejeté associé',102,NULL),
+			(1,'304','ugc-film-304','Local ajouté',104,NULL),
+			(1,'305','ugc-film-305','Local ajout atomique',105,NULL),
 			(1,'310','ugc-film-310','Concurrent commun',100,NULL),
 			(1,'311','ugc-film-311','Concurrent A',100,NULL),
 			(1,'312','ugc-film-312','Concurrent B',100,NULL),
@@ -529,12 +531,48 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != before+1 {
 			t.Fatalf("merge version=%d before=%d error=%v", version, before, err)
 		}
+		appended := LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: "304"}
+		appendBefore := version
+		if err := store.AddLocalMovieMembers(ctx, group.ID, []LocalMovieSource{appended}); err != nil {
+			t.Fatalf("append local member failed: %v", err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != appendBefore+1 {
+			t.Fatalf("append version=%d before=%d error=%v", version, appendBefore, err)
+		}
+		var persistedPrimary LocalMovieSource
+		var persistedMemberCount int
+		if err := pool.QueryRow(ctx, `SELECT grouping.primary_source_provider, grouping.primary_source_movie_id, COUNT(member.source_movie_id)
+			FROM local_movie_groups grouping JOIN local_movie_group_members member ON member.local_movie_id=grouping.id
+			WHERE grouping.id=$1 GROUP BY grouping.id`, group.ID).Scan(&persistedPrimary.SourceProvider, &persistedPrimary.SourceMovieID, &persistedMemberCount); err != nil || persistedPrimary != primary || persistedMemberCount != 3 {
+			t.Fatalf("appended group primary=%+v members=%d error=%v", persistedPrimary, persistedMemberCount, err)
+		}
+		var reconciled bool
+		if err := pool.QueryRow(ctx, `SELECT primary_source.public_movie_id = added_source.public_movie_id
+			FROM public_movie_sources primary_source, public_movie_sources added_source
+			WHERE primary_source.source_provider=$1 AND primary_source.source_movie_id=$2
+			  AND added_source.source_provider=$3 AND added_source.source_movie_id=$4`, primary.SourceProvider, primary.SourceMovieID, appended.SourceProvider, appended.SourceMovieID).Scan(&reconciled); err != nil || !reconciled {
+			t.Fatalf("appended public movie reconciliation=%t error=%v", reconciled, err)
+		}
+		if err := store.AddLocalMovieMembers(ctx, 1<<62, []LocalMovieSource{{SourceProvider: SourceUGC, SourceMovieID: "305"}}); !errors.Is(err, ErrLocalMovieNotFound) {
+			t.Fatalf("missing append target error=%v", err)
+		}
+		atomicCandidate := LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: "305"}
+		if err := store.AddLocalMovieMembers(ctx, group.ID, []LocalMovieSource{atomicCandidate, primary}); !errors.Is(err, ErrLocalMovieConflict) {
+			t.Fatalf("conflicting append error=%v", err)
+		}
+		var atomicCandidateMerged bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM local_movie_group_members WHERE source_provider=$1 AND source_movie_id=$2)`, atomicCandidate.SourceProvider, atomicCandidate.SourceMovieID).Scan(&atomicCandidateMerged); err != nil || atomicCandidateMerged {
+			t.Fatalf("atomic candidate merged=%t error=%v", atomicCandidateMerged, err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != appendBefore+1 {
+			t.Fatalf("failed appends version=%d before=%d error=%v", version, appendBefore, err)
+		}
 		rejectedGroup, err := store.MergeLocalMovies(ctx, []LocalMovieSource{{SourceProvider: SourceUGC, SourceMovieID: "302"}, {SourceProvider: SourceUGC, SourceMovieID: "303"}}, LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: "302"})
 		if err != nil || rejectedGroup.ID <= group.ID {
 			t.Fatalf("rejected candidate group=%+v first=%+v error=%v", rejectedGroup, group, err)
 		}
 		groups, err := store.LocalMovieGroups(ctx, 1, 0)
-		if err != nil || len(groups) != 1 || groups[0].ID != group.ID || len(groups[0].Members) != 2 {
+		if err != nil || len(groups) != 1 || groups[0].ID != group.ID || len(groups[0].Members) != 3 || groups[0].Primary != primary {
 			t.Fatalf("groups=%+v error=%v", groups, err)
 		}
 		paged, err := store.LocalMovieGroups(ctx, 1, 1)
@@ -546,7 +584,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 			t.Fatal(err)
 		}
 		for _, item := range pending {
-			if item.SourceProvider == primary.SourceProvider && item.SourceMovieID == primary.SourceMovieID || item.SourceProvider == secondary.SourceProvider && item.SourceMovieID == secondary.SourceMovieID {
+			if item.SourceProvider == primary.SourceProvider && item.SourceMovieID == primary.SourceMovieID || item.SourceProvider == secondary.SourceProvider && item.SourceMovieID == secondary.SourceMovieID || item.SourceProvider == appended.SourceProvider && item.SourceMovieID == appended.SourceMovieID {
 				t.Fatalf("local member remained pending: %+v", item)
 			}
 		}
@@ -576,7 +614,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 		if err := store.UnmergeLocalMovie(ctx, group.ID); !errors.Is(err, ErrLocalMovieNotFound) {
 			t.Fatalf("second unmerge error=%v", err)
 		}
-		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != before+4 {
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != before+5 {
 			t.Fatalf("unmerge version=%d before=%d error=%v", version, before, err)
 		}
 

@@ -1,5 +1,7 @@
 import type {
   AdminAcceptTheaterLocationSuggestionRequest,
+  AdminAddLocalMovieMembersRequest,
+  AdminAddLocalMovieMembersResponse,
   AdminCreateLocalMovieGroupRequest,
   AdminLocalMovieGroup,
   AdminLocalMovieGroupsResponse,
@@ -149,6 +151,13 @@ export function useMesSeancesApi() {
     },
     adminCreateLocalMovieGroup(input: AdminCreateLocalMovieGroupRequest) {
       return withAdminRedirect($fetch<AdminLocalMovieGroup>(`${apiBase}/api/v1/admin/local-movie-groups`, {
+        method: 'POST',
+        credentials: 'include',
+        body: input
+      }))
+    },
+    adminAddLocalMovieMembers(localMovieId: string, input: AdminAddLocalMovieMembersRequest) {
+      return withAdminRedirect($fetch<AdminAddLocalMovieMembersResponse>(`${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/members`, {
         method: 'POST',
         credentials: 'include',
         body: input

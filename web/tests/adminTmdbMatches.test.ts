@@ -17,6 +17,7 @@ const matches = [
 interface AdminFetchOptions {
   method?: 'POST'
   credentials: 'include'
+  body?: unknown
 }
 
 test('keeps rejected matches out of the unresolved section', () => {
@@ -68,6 +69,31 @@ test('loads the matched-metadata refresh status with admin credentials', async (
   assert.deepEqual(calls, [{
     url: 'http://localhost:8080/api/v1/admin/tmdb-matches/refresh-metadata',
     options: { credentials: 'include' }
+  }])
+})
+
+test('posts selected sources to the encoded existing local group endpoint', async () => {
+  const calls: Array<{ url: string, options: AdminFetchOptions }> = []
+  const input = {
+    members: [
+      { source_provider: 'ugc' as const, source_movie_id: '123' },
+      { source_provider: 'pathe' as const, source_movie_id: 'film/456' }
+    ]
+  }
+  Object.assign(globalThis, {
+    useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080/' } }),
+    $fetch: (url: string, options: AdminFetchOptions) => {
+      calls.push({ url, options })
+      return Promise.resolve({ status: 'members_added', local_movie_id: 'local-film/7' })
+    }
+  })
+
+  const response = await useMesSeancesApi().adminAddLocalMovieMembers('local-film/7', input)
+
+  assert.deepEqual(response, { status: 'members_added', local_movie_id: 'local-film/7' })
+  assert.deepEqual(calls, [{
+    url: 'http://localhost:8080/api/v1/admin/local-movie-groups/local-film%2F7/members',
+    options: { method: 'POST', credentials: 'include', body: input }
   }])
 })
 

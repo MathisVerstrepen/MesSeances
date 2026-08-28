@@ -282,6 +282,15 @@ export interface AdminCreateLocalMovieGroupRequest {
   primary: AdminLocalMovieSource
 }
 
+export interface AdminAddLocalMovieMembersRequest {
+  members: AdminLocalMovieSource[]
+}
+
+export interface AdminAddLocalMovieMembersResponse {
+  status: 'members_added'
+  local_movie_id: string
+}
+
 export interface AdminUnmergeLocalMovieResponse {
   status: 'unmerged'
   local_movie_id: string
