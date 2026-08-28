@@ -45,6 +45,16 @@ func NewTMDBRunGate() *TMDBRunGate {
 	return &TMDBRunGate{}
 }
 
+func (g *TMDBRunGate) tryAcquire() bool {
+	return g != nil && g.running.CompareAndSwap(false, true)
+}
+
+func (g *TMDBRunGate) release() {
+	if g != nil {
+		g.running.Store(false)
+	}
+}
+
 func NewRerunService(store RerunStore, matcher ForceMatcher, gate *TMDBRunGate) *RerunService {
 	if gate == nil {
 		gate = NewTMDBRunGate()
@@ -56,10 +66,10 @@ func (s *RerunService) Rerun(ctx context.Context) (RerunSummary, error) {
 	if s == nil || s.store == nil || s.matcher == nil || s.gate == nil {
 		return RerunSummary{}, ErrRerunUnavailable
 	}
-	if !s.gate.running.CompareAndSwap(false, true) {
+	if !s.gate.tryAcquire() {
 		return RerunSummary{}, ErrRerunInProgress
 	}
-	defer s.gate.running.Store(false)
+	defer s.gate.release()
 
 	movies, err := s.store.UnresolvedMovies(ctx)
 	if err != nil {

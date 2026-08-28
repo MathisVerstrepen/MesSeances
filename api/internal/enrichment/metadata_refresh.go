@@ -50,14 +50,17 @@ func NewMetadataRefreshService(store MetadataRefreshStore, provider interface {
 }
 
 func (s *MetadataRefreshService) Refresh(ctx context.Context) (MetadataRefreshSummary, error) {
-	if s == nil || s.store == nil || s.provider == nil || s.gate == nil {
+	if !s.available() {
 		return MetadataRefreshSummary{}, ErrMetadataRefreshUnavailable
 	}
-	if !s.gate.running.CompareAndSwap(false, true) {
+	if !s.gate.tryAcquire() {
 		return MetadataRefreshSummary{}, ErrMetadataRefreshInProgress
 	}
-	defer s.gate.running.Store(false)
+	defer s.gate.release()
+	return s.refresh(ctx)
+}
 
+func (s *MetadataRefreshService) refresh(ctx context.Context) (MetadataRefreshSummary, error) {
 	matchedIDs, err := s.store.MatchedTMDBIDs(ctx)
 	if err != nil {
 		return MetadataRefreshSummary{}, fmt.Errorf("read matched TMDB IDs failed: %w", err)
@@ -106,6 +109,10 @@ func (s *MetadataRefreshService) Refresh(ctx context.Context) (MetadataRefreshSu
 		}
 	}
 	return summary, nil
+}
+
+func (s *MetadataRefreshService) available() bool {
+	return s != nil && s.store != nil && s.provider != nil && s.gate != nil
 }
 
 func distinctPositiveIDs(ids []int64) []int64 {

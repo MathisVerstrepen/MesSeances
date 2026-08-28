@@ -221,6 +221,37 @@ export interface AdminTMDBMetadataRefreshSummary {
   failed: number
 }
 
+export interface AdminTMDBMetadataRefreshRunningJob {
+  state: 'running'
+  started_at: string
+  finished_at: null
+  summary: null
+}
+
+export interface AdminTMDBMetadataRefreshSucceededJob {
+  state: 'succeeded'
+  started_at: string
+  finished_at: string
+  summary: AdminTMDBMetadataRefreshSummary
+}
+
+export interface AdminTMDBMetadataRefreshFailedJob {
+  state: 'failed'
+  started_at: string
+  finished_at: string
+  summary: null
+  error_code: 'refresh_failed'
+}
+
+export type AdminTMDBMetadataRefreshJob =
+  | AdminTMDBMetadataRefreshRunningJob
+  | AdminTMDBMetadataRefreshSucceededJob
+  | AdminTMDBMetadataRefreshFailedJob
+
+export interface AdminTMDBMetadataRefreshResponse {
+  job: AdminTMDBMetadataRefreshJob | null
+}
+
 export interface AdminLocalMovieSource {
   source_provider: Provider
   source_movie_id: string

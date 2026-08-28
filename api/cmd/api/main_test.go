@@ -198,7 +198,10 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
+	adminOptions, manager, err := newAdminOptions(context.Background(), cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
+	if err != nil || manager != nil {
+		t.Fatalf("admin options manager=%v err=%v", manager, err)
+	}
 	adminOptions.Now = time.Now
 	handler := newAPIHandler(nil, cfg, adminOptions, nil, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
@@ -213,11 +216,18 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
-	options := newAdminOptions("password", "session-secret", store, nil)
+	options, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil)
+	if err != nil || manager != nil {
+		t.Fatalf("without provider manager=%v err=%v", manager, err)
+	}
 	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil {
 		t.Fatalf("options=%+v", options)
 	}
-	withProvider := newAdminOptions("password", "session-secret", store, testTMDBProvider{})
+	withProvider, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{})
+	if err != nil || manager == nil {
+		t.Fatalf("with provider manager=%v err=%v", manager, err)
+	}
+	defer manager.Close()
 	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil {
 		t.Fatalf("provider options=%+v", withProvider)
 	}
@@ -243,7 +253,7 @@ func TestAPIStartupBuildsIGNRunnerWithFixedTimeoutAndNoOptionalCapabilities(t *t
 	}
 }
 
-func TestServerWriteTimeoutCoversSynchronousTMDBRerun(t *testing.T) {
+func TestServerWriteTimeoutRemainsBoundedForBackgroundTMDBRefresh(t *testing.T) {
 	if serverWriteTimeout != 3*time.Minute {
 		t.Fatalf("write timeout=%s", serverWriteTimeout)
 	}
@@ -347,12 +357,13 @@ func TestShutdownWorkersStopsSchedulerAndManagerBeforeSourcePollingWait(t *testi
 		testCloseableWorker{close: func() { record("schedules") }},
 		testCloseableWorker{close: func() { record("sync-manager") }},
 		testCloseableWorker{close: func() { record("geocoding-manager"); close(geocodingClosed) }},
+		testCloseableWorker{close: func() { record("metadata-refresh-manager") }},
 		&polling,
 	)
 	mu.Lock()
 	got := strings.Join(events, ",")
 	mu.Unlock()
-	if got != "cancel,schedules,sync-manager,geocoding-manager,source" {
+	if got != "cancel,schedules,sync-manager,geocoding-manager,metadata-refresh-manager,source" {
 		t.Fatalf("cleanup order=%s", got)
 	}
 }

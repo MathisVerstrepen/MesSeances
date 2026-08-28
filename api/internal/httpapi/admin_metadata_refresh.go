@@ -7,6 +7,18 @@ import (
 	"messeances/api/internal/enrichment"
 )
 
+type metadataRefreshResponse struct {
+	Job *enrichment.MetadataRefreshStatus `json:"job"`
+}
+
+func (a *adminAPI) tmdbMetadataRefreshStatus(w http.ResponseWriter, _ *http.Request) {
+	if a.tmdbRefreshes == nil {
+		writeError(w, http.StatusServiceUnavailable, "tmdb_metadata_refresh_unavailable", "Service d'actualisation TMDB indisponible.")
+		return
+	}
+	writeJSON(w, http.StatusOK, metadataRefreshResponse{Job: a.tmdbRefreshes.Snapshot()})
+}
+
 func (a *adminAPI) refreshTMDBMetadata(w http.ResponseWriter, r *http.Request) {
 	if !emptyAdminBody(w, r) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
@@ -16,7 +28,7 @@ func (a *adminAPI) refreshTMDBMetadata(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "tmdb_metadata_refresh_unavailable", "Service d'actualisation TMDB indisponible.")
 		return
 	}
-	summary, err := a.tmdbRefreshes.Refresh(r.Context())
+	status, err := a.tmdbRefreshes.Start()
 	if err != nil {
 		switch {
 		case errors.Is(err, enrichment.ErrMetadataRefreshInProgress):
@@ -28,5 +40,5 @@ func (a *adminAPI) refreshTMDBMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	writeJSON(w, http.StatusOK, summary)
+	writeJSON(w, http.StatusAccepted, metadataRefreshResponse{Job: &status})
 }

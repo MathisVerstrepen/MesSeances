@@ -77,7 +77,8 @@ type TMDBRerunner interface {
 }
 
 type TMDBMetadataRefresher interface {
-	Refresh(context.Context) (enrichment.MetadataRefreshSummary, error)
+	Start() (enrichment.MetadataRefreshStatus, error)
+	Snapshot() *enrichment.MetadataRefreshStatus
 }
 
 type SyncController interface {
@@ -183,6 +184,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)
+			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)

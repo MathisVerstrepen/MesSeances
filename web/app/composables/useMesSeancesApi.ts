@@ -16,7 +16,7 @@ import type {
   AdminTheaterGeocodingResponse,
   AdminTheaterLocationResolutionResponse,
   AdminTheaterLocationsResponse,
-  AdminTMDBMetadataRefreshSummary,
+  AdminTMDBMetadataRefreshResponse,
   AdminTMDBRerunSummary,
   AdminUnmergeLocalMovieResponse,
   ApiErrorResponse,
@@ -131,8 +131,13 @@ export function useMesSeancesApi() {
       }))
     },
     adminRefreshTMDBMetadata() {
-      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshSummary>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
+      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
         method: 'POST',
+        credentials: 'include'
+      }))
+    },
+    adminTMDBMetadataRefreshStatus() {
+      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
         credentials: 'include'
       }))
     },
