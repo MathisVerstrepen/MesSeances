@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -21,11 +23,59 @@ type fixtureSource struct {
 
 func (s fixtureSource) Snapshot() *schedule.SnapshotView { return s.view }
 
+type readinessDependencies struct {
+	ping            func(context.Context) error
+	currentRevision func(context.Context) (schedule.SnapshotRevision, error)
+}
+
+func (d *readinessDependencies) Ping(ctx context.Context) error {
+	if d.ping != nil {
+		return d.ping(ctx)
+	}
+	return nil
+}
+
+func (d *readinessDependencies) CurrentRevision(ctx context.Context) (schedule.SnapshotRevision, error) {
+	if d.currentRevision != nil {
+		return d.currentRevision(ctx)
+	}
+	return schedule.SnapshotRevision{ScheduleVersion: 1}, nil
+}
+
 func testHandler(t *testing.T) http.Handler {
 	return testHandlerWithAdmin(t, AdminOptions{})
 }
 
 func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
+	return testHandlerWithOptions(t, HandlerOptions{Admin: options})
+}
+
+func testHandlerWithOptions(t *testing.T, options HandlerOptions) http.Handler {
+	t.Helper()
+	data := fixtureDataset(t)
+	source := fixtureSource{view: schedule.NewSnapshotView(data)}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{
+		DefaultCity: "Lille",
+		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
+		Now:         func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := &readinessDependencies{}
+	readinessSource := fixtureSource{view: schedule.NewSnapshotView(readinessFixtureDataset(t))}
+	options.Readiness = ReadinessOptions{
+		Schedule:  readinessSource,
+		Database:  dependencies,
+		Revisions: dependencies,
+		Now: func() time.Time {
+			return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+		},
+	}
+	return NewHandlerWithOptions(service, "http://localhost:3000", options)
+}
+
+func fixtureDataset(t *testing.T) schedule.Dataset {
 	t.Helper()
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
@@ -57,7 +107,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 			BookingURL:      "https://www.ugc.fr/reservationSeances.html?id=" + id,
 		}
 		if movieID == "200" {
-			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456"}
 		}
 		switch id {
 		case "100":
@@ -89,15 +139,16 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 	}
 	latitude, longitude := 50.6321, 3.0612
 	data.Theaters[0].Latitude, data.Theaters[0].Longitude = &latitude, &longitude
-	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{
-		DefaultCity: "Lille",
-		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
-		Now:         func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
-	})
-	if err != nil {
-		t.Fatal(err)
+	return data
+}
+
+func readinessFixtureDataset(t *testing.T) schedule.Dataset {
+	t.Helper()
+	data := fixtureDataset(t)
+	for index := range data.Theaters {
+		data.Theaters[index].Slug = data.Theaters[index].ID
 	}
-	return NewHandlerWithAdmin(service, "http://localhost:3000", options)
+	return data
 }
 
 func performRequest(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
@@ -127,6 +178,146 @@ func TestProbeContracts(t *testing.T) {
 				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestReadinessRejectsUnusableOrUnfreshMemory(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		source schedule.Source
+		mutate func(*schedule.Dataset)
+		now    time.Time
+	}{
+		{name: "missing source"},
+		{name: "nil snapshot", source: fixtureSource{}},
+		{name: "incomplete snapshot", mutate: func(data *schedule.Dataset) { data.Showtimes = nil }},
+		{name: "stale snapshot", mutate: func(data *schedule.Dataset) { data.GeneratedAt = now.Add(-24*time.Hour - time.Nanosecond) }},
+		{name: "future snapshot", mutate: func(data *schedule.Dataset) { data.GeneratedAt = now.Add(time.Nanosecond) }},
+		{name: "before Paris window", now: time.Date(2026, 8, 14, 21, 0, 0, 0, time.UTC)},
+		{name: "after Paris window", now: time.Date(2026, 8, 15, 22, 0, 0, 0, time.UTC)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testNow := test.now
+			if testNow.IsZero() {
+				testNow = now
+			}
+			source := test.source
+			if source == nil && test.name != "missing source" {
+				data := readinessFixtureDataset(t)
+				data.GeneratedAt = testNow.Add(-time.Hour)
+				if test.mutate != nil {
+					test.mutate(&data)
+				}
+				source = fixtureSource{view: schedule.NewSnapshotView(data)}
+			}
+			dependencies := &readinessDependencies{}
+			handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+				Schedule: source, Database: dependencies, Revisions: dependencies, Now: func() time.Time { return testNow },
+			}})
+			response := performRequest(t, handler, "/readyz")
+			if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"not_ready\"}\n" {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestReadinessRejectsDatabaseFailuresAndInvalidRevisions(t *testing.T) {
+	secret := "sensitive-database-detail"
+	tests := []struct {
+		name         string
+		ping         func(context.Context) error
+		revision     schedule.SnapshotRevision
+		revisionErr  error
+		wantStatus   int
+		wantResponse string
+	}{
+		{name: "ping failure", ping: func(context.Context) error { return errors.New(secret) }, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "revision failure", revisionErr: errors.New(secret), wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "missing schedule revision", revision: schedule.SnapshotRevision{}, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "negative enrichment revision", revision: schedule.SnapshotRevision{ScheduleVersion: 1, EnrichmentVersion: -1}, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "negative location revision", revision: schedule.SnapshotRevision{ScheduleVersion: 1, TheaterLocationVersion: -1}, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "database revision may differ", revision: schedule.SnapshotRevision{ScheduleVersion: 99, EnrichmentVersion: 2, TheaterLocationVersion: 3}, wantStatus: http.StatusOK, wantResponse: "ready"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := readinessFixtureDataset(t)
+			source := fixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{ScheduleVersion: 7})}
+			dependencies := &readinessDependencies{
+				ping: test.ping,
+				currentRevision: func(context.Context) (schedule.SnapshotRevision, error) {
+					return test.revision, test.revisionErr
+				},
+			}
+			handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+				Schedule: source, Database: dependencies, Revisions: dependencies,
+				Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+			}})
+			response := performRequest(t, handler, "/readyz")
+			if response.Code != test.wantStatus || response.Body.String() != "{\"status\":\""+test.wantResponse+"\"}\n" || strings.Contains(response.Body.String(), secret) {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestReadinessBoundsDatabaseChecksAndHonorsCancellation(t *testing.T) {
+	data := readinessFixtureDataset(t)
+	source := fixtureSource{view: schedule.NewSnapshotView(data)}
+	checks := 0
+	checkContext := func(ctx context.Context) error {
+		checks++
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > readinessDatabaseTimeout {
+			t.Errorf("database context deadline=%v ok=%t", deadline, ok)
+		}
+		return nil
+	}
+	dependencies := &readinessDependencies{
+		ping: checkContext,
+		currentRevision: func(ctx context.Context) (schedule.SnapshotRevision, error) {
+			if err := checkContext(ctx); err != nil {
+				return schedule.SnapshotRevision{}, err
+			}
+			return schedule.SnapshotRevision{ScheduleVersion: 1}, nil
+		},
+	}
+	handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+		Schedule: source, Database: dependencies, Revisions: dependencies,
+		Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+	}})
+	response := performRequest(t, handler, "/readyz")
+	if response.Code != http.StatusOK || checks != 2 {
+		t.Fatalf("status=%d checks=%d body=%q", response.Code, checks, response.Body.String())
+	}
+
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	canceledChecks := 0
+	dependencies.ping = func(ctx context.Context) error {
+		canceledChecks++
+		return ctx.Err()
+	}
+	request := httptest.NewRequestWithContext(canceledCtx, http.MethodGet, "/readyz", nil)
+	canceledResponse := httptest.NewRecorder()
+	handler.ServeHTTP(canceledResponse, request)
+	if canceledResponse.Code != http.StatusServiceUnavailable || canceledChecks != 1 || canceledResponse.Body.String() != "{\"status\":\"not_ready\"}\n" {
+		t.Fatalf("status=%d checks=%d body=%q", canceledResponse.Code, canceledChecks, canceledResponse.Body.String())
+	}
+}
+
+func TestHealthzIgnoresReadinessDependencies(t *testing.T) {
+	calls := 0
+	dependencies := &readinessDependencies{ping: func(context.Context) error {
+		calls++
+		return errors.New("database unavailable")
+	}}
+	handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{Database: dependencies, Revisions: dependencies}})
+	response := performRequest(t, handler, "/healthz")
+	if response.Code != http.StatusOK || response.Body.String() != "{\"status\":\"ok\"}\n" || calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%q", response.Code, calls, response.Body.String())
 	}
 }
 
@@ -410,7 +601,7 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
+	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || catalog.Items[0].TrailerVFYouTubeKey == nil || *catalog.Items[0].TrailerVFYouTubeKey != "FRoff123456" || catalog.Items[0].TrailerVOYouTubeKey == nil || *catalog.Items[0].TrailerVOYouTubeKey != "ENoff123456" || len(catalog.Items[0].Genres) != 1 {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 	if !strings.Contains(response.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
@@ -420,7 +611,7 @@ func TestMoviesTransport(t *testing.T) {
 		t.Fatal("nested movie contract unexpectedly enriched")
 	}
 	all := performRequest(t, handler, "/api/v1/movies?page_size=2")
-	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"overview":null,"release_date":null,"genres":[]`) {
+	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"trailer_vf_youtube_key":null,"trailer_vo_youtube_key":null,"overview":null,"release_date":null,"genres":[]`) {
 		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
 	if !strings.Contains(all.Body.String(), `"available_genres":["Drame"]`) {
@@ -569,6 +760,9 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	if result.BackdropURL == nil || *result.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" {
 		t.Fatalf("backdrop=%v", result.BackdropURL)
 	}
+	if result.Movie.TrailerVFYouTubeKey == nil || *result.Movie.TrailerVFYouTubeKey != "FRoff123456" || result.Movie.TrailerVOYouTubeKey == nil || *result.Movie.TrailerVOYouTubeKey != "ENoff123456" {
+		t.Fatalf("trailer YouTube keys VF=%v VO=%v", result.Movie.TrailerVFYouTubeKey, result.Movie.TrailerVOYouTubeKey)
+	}
 	missing := performRequest(t, handler, "/api/v1/movies/ugc-film-201/showtimes?date=2026-08-15")
 	if missing.Code != http.StatusOK {
 		t.Fatalf("missing backdrop status=%d body=%s", missing.Code, missing.Body.String())
@@ -698,7 +892,6 @@ func TestSearchSlotFormatTransport(t *testing.T) {
 }
 
 func TestInvalidQueriesTransport(t *testing.T) {
-	handler := testHandler(t)
 	tests := []struct {
 		name    string
 		target  string
@@ -739,6 +932,7 @@ func TestInvalidQueriesTransport(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			handler := testHandler(t)
 			response := performRequest(t, handler, test.target)
 			assertAPIError(t, response, http.StatusBadRequest, "invalid_query", test.message)
 		})

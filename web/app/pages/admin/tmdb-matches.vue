@@ -7,15 +7,22 @@ import type {
   AdminPendingMatch,
   AdminPendingMatchesResponse,
   AdminTMDBCandidate,
+  AdminTMDBMetadataRefreshResponse,
+  AdminTMDBMetadataRefreshSummary,
   AdminTMDBRerunSummary,
   Provider
 } from '~/types/api'
-import { adminPendingMatchesForFilter } from '~/utils/adminTmdbMatches'
+import {
+  adminPendingMatchesForFilter,
+  adminTMDBMetadataRefreshPresentation,
+  shouldRefreshAdminTMDBMatchLists
+} from '~/utils/adminTmdbMatches'
 import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 
 definePageMeta({ middleware: 'admin-auth' })
 
 const PAGE_SIZE = 20
+const METADATA_REFRESH_POLL_DELAY = 2000
 const OWNED_QUERY_KEYS = ['page', 'rejected_page', 'groups_page'] as const
 const api = useMesSeancesApi()
 const route = useRoute()
@@ -36,6 +43,10 @@ const groupsError = ref('')
 const errorMessage = ref('')
 const rerunError = ref('')
 const rerunSummary = ref<AdminTMDBRerunSummary | null>(null)
+const metadataRefreshError = ref('')
+const metadataRefreshSummary = ref<AdminTMDBMetadataRefreshSummary | null>(null)
+const metadataRefreshStatus = ref<AdminTMDBMetadataRefreshResponse | null>(null)
+const metadataRefreshStatusPending = ref(false)
 const selectedCandidates = ref<Record<string, number>>({})
 const manualTmdbIds = ref<Record<string, string | number>>({})
 const selectedSources = ref<Record<string, AdminPendingMatch>>({})
@@ -45,6 +56,7 @@ const activeMutationKind = ref<'candidate' | 'manual' | 'reject' | ''>('')
 const mergePending = ref(false)
 const unmergePending = ref('')
 const rerunPending = ref(false)
+const metadataRefreshPending = ref(false)
 const rejectConfirmation = ref('')
 const unmergeConfirmation = ref('')
 const loggingOut = ref(false)
@@ -59,6 +71,9 @@ let scrollRejectedAfterLoad = false
 let lastLoadPage = 0
 let lastLoadRejectedPage = 0
 let lastLoadGroupsPage = 0
+let metadataRefreshPollTimer: ReturnType<typeof setTimeout> | undefined
+let observedRunningMetadataRefreshStartedAt: string | null = null
+const refreshedMetadataRefreshStartedAts = new Set<string>()
 
 const page = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
 const rejectedPage = computed(() => Math.floor(rejectedOffset.value / PAGE_SIZE) + 1)
@@ -68,7 +83,10 @@ const canRejectedGoNext = computed(() => (rejectedResult.value?.items.length ?? 
 const canGroupsGoNext = computed(() => (groupsResult.value?.items.length ?? 0) === PAGE_SIZE)
 const selectedSourceList = computed(() => Object.values(selectedSources.value))
 const canMerge = computed(() => selectedSourceList.value.length >= 2 && Boolean(primarySourceKey.value && selectedSources.value[primarySourceKey.value]))
-const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value || rerunPending.value))
+const metadataRefreshJob = computed(() => metadataRefreshStatus.value?.job ?? null)
+const metadataRefreshRunning = computed(() => metadataRefreshJob.value?.state === 'running')
+const metadataRefreshLoading = computed(() => metadataRefreshPending.value || metadataRefreshRunning.value)
+const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value || rerunPending.value || metadataRefreshPending.value || metadataRefreshStatusPending.value || metadataRefreshRunning.value))
 const matchSections = computed(() => [
   {
     id: 'pending-matches-title',
@@ -281,6 +299,88 @@ async function rerunTMDBMatches() {
   }
 }
 
+function clearMetadataRefreshPolling() {
+  if (metadataRefreshPollTimer !== undefined) {
+    clearTimeout(metadataRefreshPollTimer)
+    metadataRefreshPollTimer = undefined
+  }
+}
+
+function scheduleMetadataRefreshPolling() {
+  clearMetadataRefreshPolling()
+  if (!isMounted || !metadataRefreshRunning.value) return
+  metadataRefreshPollTimer = setTimeout(() => {
+    metadataRefreshPollTimer = undefined
+    void loadTMDBMetadataRefreshStatus(true)
+  }, METADATA_REFRESH_POLL_DELAY)
+}
+
+function applyTMDBMetadataRefreshStatus(response: AdminTMDBMetadataRefreshResponse) {
+  const nextJob = response.job
+  const shouldRefreshLists = shouldRefreshAdminTMDBMatchLists(
+    observedRunningMetadataRefreshStartedAt,
+    nextJob,
+    refreshedMetadataRefreshStartedAts
+  )
+  const presentation = adminTMDBMetadataRefreshPresentation(nextJob)
+
+  metadataRefreshStatus.value = response
+  metadataRefreshSummary.value = presentation.summary
+  metadataRefreshError.value = presentation.error
+  observedRunningMetadataRefreshStartedAt = presentation.running ? nextJob?.started_at ?? null : null
+
+  if (shouldRefreshLists && nextJob) {
+    refreshedMetadataRefreshStartedAts.add(nextJob.started_at)
+    void Promise.all([loadMatches(true), loadRejectedMatches(true)])
+  }
+}
+
+async function loadTMDBMetadataRefreshStatus(fromPolling = false): Promise<AdminTMDBMetadataRefreshResponse | null> {
+  if (metadataRefreshStatusPending.value) return null
+  if (!fromPolling) clearMetadataRefreshPolling()
+  metadataRefreshStatusPending.value = true
+  try {
+    const response = await api.adminTMDBMetadataRefreshStatus()
+    if (!isMounted) return null
+    applyTMDBMetadataRefreshStatus(response)
+    return response
+  } catch (error) {
+    if (isMounted) metadataRefreshError.value = getFrenchAdminApiError(error)
+    return null
+  } finally {
+    if (isMounted) {
+      metadataRefreshStatusPending.value = false
+      scheduleMetadataRefreshPolling()
+    }
+  }
+}
+
+async function refreshTMDBMetadata() {
+  if (anyMutation.value || metadataRefreshStatusPending.value) return
+  clearMetadataRefreshPolling()
+  metadataRefreshPending.value = true
+  metadataRefreshError.value = ''
+  try {
+    const response = await api.adminRefreshTMDBMetadata()
+    if (!isMounted) return
+    applyTMDBMetadataRefreshStatus(response)
+  } catch (error) {
+    if (!isMounted) return
+    if (getApiErrorStatus(error) === 409) {
+      const conflictMessage = getFrenchAdminApiError(error)
+      const response = await loadTMDBMetadataRefreshStatus()
+      if (response && response.job?.state !== 'running') metadataRefreshError.value = conflictMessage
+      return
+    }
+    metadataRefreshError.value = getFrenchAdminApiError(error)
+  } finally {
+    if (isMounted) {
+      metadataRefreshPending.value = false
+      scheduleMetadataRefreshPolling()
+    }
+  }
+}
+
 function clearMergeSelection() {
   selectedSources.value = {}
   primarySourceKey.value = ''
@@ -463,7 +563,12 @@ watch(() => route.query, () => {
 })
 onMounted(() => {
   isMounted = true
-  applyRoute()
+  void applyRoute()
+  void loadTMDBMetadataRefreshStatus()
+})
+onBeforeUnmount(() => {
+  isMounted = false
+  clearMetadataRefreshPolling()
 })
 useHead({ title: 'Identités des films - MesSeances' })
 </script>
@@ -489,6 +594,28 @@ useHead({ title: 'Identités des films - MesSeances' })
       <p class="flex-1">{{ errorMessage }}</p>
       <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="errorMessage = ''">Fermer</button>
     </div>
+
+    <section class="mt-7 border-b border-line pb-7" aria-labelledby="tmdb-metadata-title">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="tmdb-metadata-title" class="text-xl font-semibold text-ink">Métadonnées TMDB associées</h2>
+        <button type="button" class="button-primary" :disabled="pending || anyMutation || metadataRefreshStatusPending" @click="refreshTMDBMetadata">
+          <LoaderCircle v-if="metadataRefreshLoading" :size="17" class="animate-spin" aria-hidden="true" />
+          <RefreshCw v-else :size="17" aria-hidden="true" />
+          {{ metadataRefreshLoading ? 'Actualisation en cours…' : 'Actualiser toutes les métadonnées TMDB' }}
+        </button>
+      </div>
+
+      <p class="sr-only" role="status" aria-live="polite">{{ metadataRefreshLoading ? 'Actualisation des métadonnées TMDB en cours pour tous les films associés.' : '' }}</p>
+      <div v-if="metadataRefreshError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+        <p class="flex-1">{{ metadataRefreshError }}</p>
+        <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="metadataRefreshError = ''">Fermer</button>
+      </div>
+      <div v-if="metadataRefreshSummary" class="mt-4 rounded-md border p-4 text-sm" :class="metadataRefreshSummary.failed > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'" role="status" aria-live="polite">
+        <p class="font-semibold">{{ metadataRefreshSummary.failed > 0 ? 'Actualisation terminée avec des erreurs.' : 'Actualisation terminée.' }}</p>
+        <p class="mt-1">{{ metadataRefreshSummary.processed }} traité(s), {{ metadataRefreshSummary.updated }} mis à jour, {{ metadataRefreshSummary.unchanged }} inchangé(s), {{ metadataRefreshSummary.failed }} en erreur.</p>
+      </div>
+    </section>
 
     <div class="mt-7">
       <div class="flex flex-wrap items-center justify-between gap-3">

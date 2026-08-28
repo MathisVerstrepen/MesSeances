@@ -51,7 +51,7 @@ func (*blockingProvider) Details(context.Context, int64) (tmdb.Details, error) {
 func TestRerunServiceSummaryAndErrors(t *testing.T) {
 	movies := []Movie{{ProviderID: "1"}, {ProviderID: "2"}, {ProviderID: "3"}, {ProviderID: "4"}, {ProviderID: "5"}}
 	store := &rerunStore{movies: movies}
-	service := NewRerunService(store, rerunMatcher{summary: Summary{Reused: 1, Matched: 1, ReviewRequired: 1, Unmatched: 1, Failed: 1}})
+	service := NewRerunService(store, rerunMatcher{summary: Summary{Reused: 1, Matched: 1, ReviewRequired: 1, Unmatched: 1, Failed: 1}}, nil)
 	summary, err := service.Rerun(context.Background())
 	if err != nil || summary != (RerunSummary{Processed: 5, Reused: 1, Matched: 1, ReviewRequired: 1, Unmatched: 1, Failed: 1}) {
 		t.Fatalf("summary=%+v err=%v", summary, err)
@@ -60,12 +60,12 @@ func TestRerunServiceSummaryAndErrors(t *testing.T) {
 	if _, err := (*RerunService)(nil).Rerun(context.Background()); !errors.Is(err, ErrRerunUnavailable) {
 		t.Fatalf("nil service error=%v", err)
 	}
-	service = NewRerunService(store, rerunMatcher{err: tmdb.ErrStop})
+	service = NewRerunService(store, rerunMatcher{err: tmdb.ErrStop}, nil)
 	if _, err := service.Rerun(context.Background()); !errors.Is(err, ErrRerunUnavailable) {
 		t.Fatalf("provider stop error=%v", err)
 	}
 	store.err = errors.New("database secret")
-	service = NewRerunService(store, rerunMatcher{})
+	service = NewRerunService(store, rerunMatcher{}, nil)
 	if _, err := service.Rerun(context.Background()); err == nil || errors.Is(err, ErrRerunUnavailable) {
 		t.Fatalf("store error=%v", err)
 	}
@@ -74,7 +74,7 @@ func TestRerunServiceSummaryAndErrors(t *testing.T) {
 func TestRerunServiceSingleFlightReleasesAfterEveryRun(t *testing.T) {
 	store := &rerunStore{movies: []Movie{{ProviderID: "10", Title: "Film", RuntimeMinutes: 90}}}
 	provider := &blockingProvider{started: make(chan struct{}), release: make(chan struct{})}
-	service := NewRerunService(store, NewMatcher(newMemoryStore(), provider, func() time.Time { return matcherNow }))
+	service := NewRerunService(store, NewMatcher(newMemoryStore(), provider, func() time.Time { return matcherNow }), nil)
 	first := make(chan error, 1)
 	go func() {
 		_, err := service.Rerun(context.Background())

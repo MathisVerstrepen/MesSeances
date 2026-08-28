@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -35,8 +36,9 @@ type Overrides struct {
 type Config struct {
 	Database struct{ URL string }
 	Server   struct {
-		Port   int
-		Origin string
+		Port              int
+		Origin            string
+		TrustedProxyCIDRs []netip.Prefix
 	}
 	Admin struct {
 		Password      string
@@ -76,11 +78,15 @@ func Load(profile Profile, getenv func(string) string, overrides *Overrides) (Co
 		if !validOrigin(origin) {
 			return Config{}, configurationError()
 		}
+		trustedProxyCIDRs, err := parseTrustedProxyCIDRs(getenv("TRUSTED_PROXY_CIDRS"))
+		if err != nil {
+			return Config{}, err
+		}
 		password, secret := getenv("ADMIN_PASSWORD"), getenv("ADMIN_SESSION_SECRET")
 		if (strings.TrimSpace(password) == "") != (strings.TrimSpace(secret) == "") {
 			return Config{}, configurationError()
 		}
-		result.Server.Port, result.Server.Origin = parsedPort, origin
+		result.Server.Port, result.Server.Origin, result.Server.TrustedProxyCIDRs = parsedPort, origin, trustedProxyCIDRs
 		result.Admin.Password, result.Admin.SessionSecret = password, secret
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		result.Proxy.Path = strings.TrimSpace(getenv("PROXY_FILE"))
@@ -129,6 +135,32 @@ func loadDatabase(result *Config, getenv func(string) string) error {
 		return configurationError()
 	}
 	return nil
+}
+
+func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	members := strings.Split(raw, ",")
+	prefixes := make([]netip.Prefix, 0, len(members))
+	for _, member := range members {
+		member = strings.TrimSpace(member)
+		if member == "" {
+			return nil, configurationError()
+		}
+		prefix, err := netip.ParsePrefix(member)
+		if err != nil {
+			return nil, configurationError()
+		}
+		if prefix.Addr().Is4In6() {
+			if prefix.Bits() < 96 {
+				return nil, configurationError()
+			}
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+		}
+		prefixes = append(prefixes, prefix.Masked())
+	}
+	return prefixes, nil
 }
 
 func loadRequestTimeout(result *Config, getenv func(string) string, overrides *Overrides) error {

@@ -49,6 +49,9 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{22, "022_theater_geocoding_runs.sql"},
 		{23, "023_allow_unknown_runtime.sql"},
 		{24, "024_sync_run_retention.sql"},
+		{25, "025_movie_trailers.sql"},
+		{26, "026_dual_movie_trailers.sql"},
+		{27, "027_short_link_retention.sql"},
 	}
 
 	items, err := embeddedMigrations()
@@ -62,5 +65,9 @@ func TestEmbeddedMigrations(t *testing.T) {
 		if item.version != want[i].version || item.name != want[i].name {
 			t.Fatalf("migration[%d]=(%d,%q) want=(%d,%q)", i, item.version, item.name, want[i].version, want[i].name)
 		}
+	}
+	wantRetentionSQL := "CREATE INDEX short_links_retention_idx ON short_links (created_at);\n\nDELETE FROM short_links\nWHERE created_at < CURRENT_TIMESTAMP - INTERVAL '90 days';\n"
+	if got := items[len(items)-1].sql; got != wantRetentionSQL {
+		t.Fatalf("short-link retention migration=%q", got)
 	}
 }

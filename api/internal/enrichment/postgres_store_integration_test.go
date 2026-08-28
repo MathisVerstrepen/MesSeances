@@ -151,6 +151,10 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 			t.Fatalf("first showing=%s want=%s", movies[1].FirstShowingAt, wantFirst)
 		}
 	})
+	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes)
+VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200','ugc-film-200','Film',721)`); err != nil {
+		t.Fatal("insert matched movie fixture failed")
+	}
 	unmatched := Match{SourceProvider: SourceUGC, SourceMovieID: "200", MetadataProvider: ProviderTMDB, Status: StatusUnmatched, NormalizedSourceTitle: "film", SourceRuntimeMinutes: 721, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(decisionTTL)}
 	if err := store.SaveDecision(ctx, unmatched); err != nil {
 		t.Fatal(err)
@@ -168,13 +172,17 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	matched.Status, matched.MetadataMovieID, matched.Score = StatusMatched, 42, 1
 	matched.Candidates = []Candidate{{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: 721, Score: 1}}
 	matched.RetryAfter = now.Add(metadataTTL)
-	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", RuntimeMinutes: 721, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
+	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 721, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
 	if err := store.Publish(ctx, matched, metadata); err != nil {
 		t.Fatal(err)
 	}
 	loadedMetadata, found, err := store.Metadata(ctx, ProviderTMDB, 42, LocaleFrench)
-	if err != nil || !found || loadedMetadata.RuntimeMinutes != 721 || loadedMetadata.Overview != "Résumé" || loadedMetadata.BackdropURL != metadata.BackdropURL || len(loadedMetadata.Genres) != 1 {
+	if err != nil || !found || loadedMetadata.RuntimeMinutes != 721 || loadedMetadata.Overview != "Résumé" || loadedMetadata.BackdropURL != metadata.BackdropURL || loadedMetadata.TrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || loadedMetadata.TrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey || len(loadedMetadata.Genres) != 1 {
 		t.Fatalf("metadata=%+v found=%v error=%v", loadedMetadata, found, err)
+	}
+	var publicTrailerVFYouTubeKey, publicTrailerVOYouTubeKey string
+	if err := pool.QueryRow(ctx, "SELECT trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE confirmed_tmdb_id=42 AND redirect_to_id IS NULL").Scan(&publicTrailerVFYouTubeKey, &publicTrailerVOYouTubeKey); err != nil || publicTrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || publicTrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey {
+		t.Fatalf("public trailer keys VF=%q VO=%q error=%v", publicTrailerVFYouTubeKey, publicTrailerVOYouTubeKey, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 1 {
 		t.Fatalf("published version=%d error=%v", version, err)
@@ -830,6 +838,53 @@ VALUES (1,'cgr',$1,'cgr-film-9090','Film à venir',0)`, movieID); err != nil {
 		}
 		if err := pool.QueryRow(ctx, `SELECT runtime_minutes FROM public_movies WHERE confirmed_tmdb_id=$1 AND redirect_to_id IS NULL`, tmdbID).Scan(&publicRuntime); err != nil || publicRuntime != 0 {
 			t.Fatalf("public movie runtime=%d error=%v", publicRuntime, err)
+		}
+	})
+
+	t.Run("refresh matched metadata without changing decisions", func(t *testing.T) {
+		duplicate := matched
+		duplicate.SourceProvider = SourceKinepolis
+		duplicate.SourceMovieID = "REFRESH-DUP"
+		if err := store.SaveDecision(ctx, duplicate); err != nil {
+			t.Fatalf("save duplicate matched decision failed: %v", err)
+		}
+		defer func() {
+			_, _ = pool.Exec(context.Background(), "DELETE FROM movie_matches WHERE source_provider='kinepolis' AND source_movie_id='REFRESH-DUP'")
+		}()
+
+		ids, err := store.MatchedTMDBIDs(ctx)
+		if err != nil {
+			t.Fatalf("read matched TMDB IDs failed: %v", err)
+		}
+		count := 0
+		for _, id := range ids {
+			if id == matched.MetadataMovieID {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("matched IDs contain %d copies of %d: %v", count, matched.MetadataMovieID, ids)
+		}
+
+		before, found, err := store.Match(ctx, matched.SourceProvider, matched.SourceMovieID, ProviderTMDB)
+		if err != nil || !found {
+			t.Fatalf("read decision before refresh: found=%v err=%v", found, err)
+		}
+		refreshed := Metadata{Provider: ProviderTMDB, ProviderMovieID: matched.MetadataMovieID, Locale: LocaleFrench, ProviderTitle: "Film original actualisé", LocalizedTitle: "Film actualisé", Overview: "Nouveau résumé", ReleaseDate: "2026-08-28", PosterURL: "https://image.tmdb.org/t/p/w500/refreshed.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/refreshed.jpg", TrailerVFYouTubeKey: "refresh1234", TrailerVOYouTubeKey: "refresh5678", RuntimeMinutes: 99, Genres: []string{"Action"}, FetchedAt: now.Add(24 * time.Hour), RefreshAfter: now.Add(31 * 24 * time.Hour)}
+		if err := store.RefreshMetadata(ctx, []Metadata{refreshed}); err != nil {
+			t.Fatalf("refresh metadata failed: %v", err)
+		}
+		after, found, err := store.Match(ctx, matched.SourceProvider, matched.SourceMovieID, ProviderTMDB)
+		if err != nil || !found || after.Status != before.Status || after.MetadataMovieID != before.MetadataMovieID || after.Score != before.Score || after.NormalizedSourceTitle != before.NormalizedSourceTitle || after.SourceRuntimeMinutes != before.SourceRuntimeMinutes || !after.EvaluatedAt.Equal(before.EvaluatedAt) || !after.RetryAfter.Equal(before.RetryAfter) || len(after.Candidates) != len(before.Candidates) {
+			t.Fatalf("decision changed before=%+v after=%+v found=%v err=%v", before, after, found, err)
+		}
+		loaded, found, err := store.Metadata(ctx, ProviderTMDB, matched.MetadataMovieID, LocaleFrench)
+		if err != nil || !found || !sameMetadataContent(loaded, refreshed) {
+			t.Fatalf("refreshed metadata=%+v found=%v err=%v", loaded, found, err)
+		}
+		var publicTitle, publicTrailerVF, publicTrailerVO string
+		if err := pool.QueryRow(ctx, "SELECT title, trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE confirmed_tmdb_id=$1 AND redirect_to_id IS NULL", matched.MetadataMovieID).Scan(&publicTitle, &publicTrailerVF, &publicTrailerVO); err != nil || publicTitle != refreshed.LocalizedTitle || publicTrailerVF != refreshed.TrailerVFYouTubeKey || publicTrailerVO != refreshed.TrailerVOYouTubeKey {
+			t.Fatalf("public title=%q VF trailer=%q VO trailer=%q err=%v", publicTitle, publicTrailerVF, publicTrailerVO, err)
 		}
 	})
 }

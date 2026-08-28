@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -47,6 +48,10 @@ type testSnapshotWriter struct{}
 
 type testGeocodingStore struct{}
 
+type testShortlinkRetentionStore struct {
+	purge func(context.Context, time.Time) error
+}
+
 func (testSnapshotWriter) Replace(context.Context, []schedule.Dataset) (schedule.PublicationResult, error) {
 	return schedule.PublicationResult{}, nil
 }
@@ -57,6 +62,10 @@ func (testGeocodingStore) Select(context.Context) ([]geocoding.Theater, error) {
 
 func (testGeocodingStore) Save(context.Context, *geocoding.Location, geocoding.Location) (bool, error) {
 	return false, nil
+}
+
+func (s testShortlinkRetentionStore) PurgeCreatedBefore(ctx context.Context, cutoff time.Time) error {
+	return s.purge(ctx, cutoff)
 }
 
 func (w testCloseableWorker) Close() { w.close() }
@@ -198,9 +207,12 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
+	adminOptions, manager, err := newAdminOptions(context.Background(), cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
+	if err != nil || manager != nil {
+		t.Fatalf("admin options manager=%v err=%v", manager, err)
+	}
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions, nil)
+	handler := newAPIHandler(nil, cfg, adminOptions, nil, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -213,12 +225,19 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
-	options := newAdminOptions("password", "session-secret", store, nil)
-	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.TMDBReruns != nil {
+	options, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil)
+	if err != nil || manager != nil {
+		t.Fatalf("without provider manager=%v err=%v", manager, err)
+	}
+	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil {
 		t.Fatalf("options=%+v", options)
 	}
-	withProvider := newAdminOptions("password", "session-secret", store, testTMDBProvider{})
-	if withProvider.TMDBReruns == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil {
+	withProvider, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{})
+	if err != nil || manager == nil {
+		t.Fatalf("with provider manager=%v err=%v", manager, err)
+	}
+	defer manager.Close()
+	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil {
 		t.Fatalf("provider options=%+v", withProvider)
 	}
 }
@@ -243,7 +262,7 @@ func TestAPIStartupBuildsIGNRunnerWithFixedTimeoutAndNoOptionalCapabilities(t *t
 	}
 }
 
-func TestServerWriteTimeoutCoversSynchronousTMDBRerun(t *testing.T) {
+func TestServerWriteTimeoutRemainsBoundedForBackgroundTMDBRefresh(t *testing.T) {
 	if serverWriteTimeout != 3*time.Minute {
 		t.Fatalf("write timeout=%s", serverWriteTimeout)
 	}
@@ -258,7 +277,7 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{})
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -266,6 +285,75 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated || response.Body.String() != `{"code":"AAAAAAAAAAAAAAAAAAAAAA","target":"/"}`+"\n" {
 		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestShortlinkRetentionStartupUsesStrictUTC90DayCutoffAndSanitizesFailure(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.FixedZone("test", 2*60*60))
+	var gotCutoff time.Time
+	store := testShortlinkRetentionStore{purge: func(ctx context.Context, cutoff time.Time) error {
+		gotCutoff = cutoff
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("startup purge context has no deadline")
+		}
+		return errors.New("secret database detail")
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	err := purgeShortlinksAtStartup(ctx, store, func() time.Time { return now })
+	wantCutoff := now.UTC().Add(-shortlink.RetentionPeriod)
+	if err == nil || err.Error() != "shortlink retention startup failed" || strings.Contains(err.Error(), "secret") || !gotCutoff.Equal(wantCutoff) || gotCutoff.Location() != time.UTC {
+		t.Fatalf("cutoff=%s location=%s err=%v", gotCutoff, gotCutoff.Location(), err)
+	}
+}
+
+func TestShortlinkRetentionPeriodicFailureDoesNotStopTicksAndCancellationReturns(t *testing.T) {
+	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
+	calls := make(chan time.Time, 2)
+	var mu sync.Mutex
+	callCount := 0
+	store := testShortlinkRetentionStore{purge: func(ctx context.Context, cutoff time.Time) error {
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 30*time.Second {
+			t.Errorf("periodic purge deadline=%s present=%t", deadline, ok)
+		}
+		calls <- cutoff
+		mu.Lock()
+		defer mu.Unlock()
+		callCount++
+		if callCount == 1 {
+			return errors.New("secret database detail")
+		}
+		return nil
+	}}
+	var logs bytes.Buffer
+	logger := observability.NewLogger(&logs)
+	ctx, cancel := context.WithCancel(context.Background())
+	ticks := make(chan time.Time, 2)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runShortlinkRetentionTicks(ctx, store, logger, func() time.Time { return now }, ticks)
+	}()
+
+	ticks <- now
+	first := <-calls
+	now = now.Add(24 * time.Hour)
+	ticks <- now
+	second := <-calls
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("retention worker did not return after cancellation")
+	}
+	if !first.Equal(time.Date(2026, 5, 30, 12, 0, 0, 0, time.UTC)) || !second.Equal(time.Date(2026, 5, 31, 12, 0, 0, 0, time.UTC)) {
+		t.Fatalf("cutoffs=%s,%s", first, second)
+	}
+	if !strings.Contains(logs.String(), `"msg":"shortlink_retention_failed"`) || !strings.Contains(logs.String(), `"error_code":"database_error"`) || strings.Contains(logs.String(), "secret") {
+		t.Fatalf("logs=%q", logs.String())
+	}
+	if shortlink.RetentionPurgeInterval != 24*time.Hour || shortlink.RetentionPeriod != 90*24*time.Hour {
+		t.Fatalf("interval=%s retention=%s", shortlink.RetentionPurgeInterval, shortlink.RetentionPeriod)
 	}
 }
 
@@ -347,12 +435,13 @@ func TestShutdownWorkersStopsSchedulerAndManagerBeforeSourcePollingWait(t *testi
 		testCloseableWorker{close: func() { record("schedules") }},
 		testCloseableWorker{close: func() { record("sync-manager") }},
 		testCloseableWorker{close: func() { record("geocoding-manager"); close(geocodingClosed) }},
+		testCloseableWorker{close: func() { record("metadata-refresh-manager") }},
 		&polling,
 	)
 	mu.Lock()
 	got := strings.Join(events, ",")
 	mu.Unlock()
-	if got != "cancel,schedules,sync-manager,geocoding-manager,source" {
+	if got != "cancel,schedules,sync-manager,geocoding-manager,metadata-refresh-manager,source" {
 		t.Fatalf("cleanup order=%s", got)
 	}
 }

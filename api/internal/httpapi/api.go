@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -36,8 +37,26 @@ type ShortlinkService interface {
 }
 
 type HandlerOptions struct {
-	Admin      AdminOptions
-	Shortlinks ShortlinkService
+	Admin             AdminOptions
+	Readiness         ReadinessOptions
+	Shortlinks        ShortlinkService
+	TrustedProxyCIDRs []netip.Prefix
+	RateLimitClock    func() time.Time
+}
+
+type ReadinessOptions struct {
+	Schedule  schedule.Source
+	Database  DatabasePinger
+	Revisions RevisionReader
+	Now       func() time.Time
+}
+
+type DatabasePinger interface {
+	Ping(context.Context) error
+}
+
+type RevisionReader interface {
+	CurrentRevision(context.Context) (schedule.SnapshotRevision, error)
 }
 
 type AdminOptions struct {
@@ -45,6 +64,7 @@ type AdminOptions struct {
 	SessionSecret    string
 	Reviews          *enrichment.ReviewService
 	TMDBReruns       TMDBRerunner
+	TMDBRefreshes    TMDBMetadataRefresher
 	LocalMovies      *enrichment.LocalMovieService
 	Syncs            SyncController
 	SyncSchedules    SyncScheduleController
@@ -57,6 +77,11 @@ type AdminOptions struct {
 
 type TMDBRerunner interface {
 	Rerun(context.Context) (enrichment.RerunSummary, error)
+}
+
+type TMDBMetadataRefresher interface {
+	Start() (enrichment.MetadataRefreshStatus, error)
+	Snapshot() *enrichment.MetadataRefreshStatus
 }
 
 type SyncController interface {
@@ -94,6 +119,15 @@ type probeResponse struct {
 	Status string `json:"status"`
 }
 
+const readinessDatabaseTimeout = 250 * time.Millisecond
+
+type readinessChecker struct {
+	schedule  schedule.Source
+	database  DatabasePinger
+	revisions RevisionReader
+	now       func() time.Time
+}
+
 func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 	return NewHandlerWithOptions(service, webOrigin, HandlerOptions{})
 }
@@ -109,7 +143,14 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.Admin.Metrics == nil {
 		options.Admin.Metrics = observability.NewMetrics()
 	}
+	readiness := newReadinessChecker(options.Readiness)
+	if options.RateLimitClock == nil {
+		options.RateLimitClock = time.Now
+	}
 	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, origin: webOrigin}
+	clients := newClientIdentifier(options.TrustedProxyCIDRs)
+	expensiveReads := rateLimit(newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock), clients)
+	shortlinkCreations := rateLimit(newTokenBucketLimiter(shortlinkCreationBurst, shortlinkCreationRefillRate, shortlinkCreationIdleHorizon, maxRateLimitClients, options.RateLimitClock), clients)
 	router := chi.NewRouter()
 	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
 	router.Use(jsonContentType)
@@ -125,19 +166,23 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ok"})
 	})
-	router.Get("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+	router.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if !readiness.ready(r.Context()) {
+			writeJSON(w, http.StatusServiceUnavailable, probeResponse{Status: "not_ready"})
+			return
+		}
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
-	router.Get("/api/v1/timeline", api.timeline)
+	router.With(expensiveReads).Get("/api/v1/timeline", api.timeline)
 	router.Get("/api/v1/theaters", api.theaters)
-	router.Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
+	router.With(expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.Get("/api/v1/cities", api.cities)
 	router.Get("/api/v1/cities/{slug}", api.city)
-	router.Get("/api/v1/movies", api.movies)
-	router.Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
-	router.Get("/api/v1/search/slot", api.searchSlot)
-	router.With(api.noStoreShortlink, api.requireShortlinkOrigin).Post("/api/v1/shortlinks", api.createShortlink)
+	router.With(expensiveReads).Get("/api/v1/movies", api.movies)
+	router.With(expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
+	router.With(expensiveReads).Get("/api/v1/search/slot", api.searchSlot)
+	router.With(api.noStoreShortlink, api.requireShortlinkOrigin, shortlinkCreations).Post("/api/v1/shortlinks", api.createShortlink)
 	router.Get("/api/v1/shortlinks/{code}", api.resolveShortlink)
 	router.Route("/api/v1/admin", func(router chi.Router) {
 		router.Use(api.admin.noStore)
@@ -148,6 +193,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)
+			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
@@ -172,6 +219,38 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	})
 
 	return router
+}
+
+func newReadinessChecker(options ReadinessOptions) readinessChecker {
+	if options.Now == nil {
+		options.Now = time.Now
+	}
+	return readinessChecker{
+		schedule:  options.Schedule,
+		database:  options.Database,
+		revisions: options.Revisions,
+		now:       options.Now,
+	}
+}
+
+func (c readinessChecker) ready(ctx context.Context) bool {
+	if c.schedule == nil || c.database == nil || c.revisions == nil {
+		return false
+	}
+	view := c.schedule.Snapshot()
+	if !view.ReadyAt(c.now()) {
+		return false
+	}
+	databaseCtx, cancel := context.WithTimeout(ctx, readinessDatabaseTimeout)
+	defer cancel()
+	if c.database.Ping(databaseCtx) != nil {
+		return false
+	}
+	revision, err := c.revisions.CurrentRevision(databaseCtx)
+	if err != nil {
+		return false
+	}
+	return revision.ScheduleVersion > 0 && revision.EnrichmentVersion >= 0 && revision.TheaterLocationVersion >= 0
 }
 
 func (api *API) timeline(w http.ResponseWriter, r *http.Request) {

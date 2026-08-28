@@ -18,6 +18,8 @@ export interface Movie {
 export interface CatalogMovie extends Movie {
   poster_url: string | null
   tmdb_id: number | null
+  trailer_vf_youtube_key?: string | null
+  trailer_vo_youtube_key?: string | null
   overview: string | null
   release_date: string | null
   genres: string[]
@@ -210,6 +212,44 @@ export interface AdminTMDBRerunSummary {
   review_required: number
   unmatched: number
   failed: number
+}
+
+export interface AdminTMDBMetadataRefreshSummary {
+  processed: number
+  updated: number
+  unchanged: number
+  failed: number
+}
+
+export interface AdminTMDBMetadataRefreshRunningJob {
+  state: 'running'
+  started_at: string
+  finished_at: null
+  summary: null
+}
+
+export interface AdminTMDBMetadataRefreshSucceededJob {
+  state: 'succeeded'
+  started_at: string
+  finished_at: string
+  summary: AdminTMDBMetadataRefreshSummary
+}
+
+export interface AdminTMDBMetadataRefreshFailedJob {
+  state: 'failed'
+  started_at: string
+  finished_at: string
+  summary: null
+  error_code: 'refresh_failed'
+}
+
+export type AdminTMDBMetadataRefreshJob =
+  | AdminTMDBMetadataRefreshRunningJob
+  | AdminTMDBMetadataRefreshSucceededJob
+  | AdminTMDBMetadataRefreshFailedJob
+
+export interface AdminTMDBMetadataRefreshResponse {
+  job: AdminTMDBMetadataRefreshJob | null
 }
 
 export interface AdminLocalMovieSource {

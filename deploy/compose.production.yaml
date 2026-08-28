@@ -114,6 +114,7 @@ services:
       SYNC_OPERATION_TIMEOUT: ${SYNC_OPERATION_TIMEOUT:-2m}
       PORT: "8080"
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
     volumes:
       - type: bind
         source: ${PROXY_FILE_HOST:?PROXY_FILE_HOST is required}

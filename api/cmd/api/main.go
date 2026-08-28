@@ -84,6 +84,10 @@ func run(ctx context.Context) error {
 	if err := database.RunMigrations(startupCtx, pool); err != nil {
 		return fmt.Errorf("database migration failed")
 	}
+	shortlinkStore := shortlink.NewPostgresStore(pool)
+	if err := purgeShortlinksAtStartup(startupCtx, shortlinkStore, time.Now); err != nil {
+		return err
+	}
 	runStore := synccontrol.NewPostgresRunStore(pool)
 	if err := runStore.PurgeTerminalBefore(startupCtx, time.Now().UTC().Add(-synccontrol.TerminalRunRetentionPeriod)); err != nil {
 		return fmt.Errorf("sync run retention startup failed")
@@ -98,6 +102,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("schedule service startup failed")
 	}
 	enrichmentStore := enrichment.NewPostgresStore(pool)
+	workerCtx, stopWorkers := context.WithCancel(ctx)
+	defer stopWorkers()
 	var enrichmentProvider enrichment.Provider
 	if cfg.TMDB.Token != "" {
 		tmdbClient, err := tmdb.NewClient(cfg.TMDB.Token)
@@ -106,12 +112,13 @@ func run(ctx context.Context) error {
 		}
 		enrichmentProvider = tmdbClient
 	}
-	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
+	adminOptions, metadataRefreshManager, err := newAdminOptions(workerCtx, cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
+	if err != nil {
+		return fmt.Errorf("TMDB metadata refresh configuration is invalid")
+	}
 	adminOptions.TheaterLocations = newTheaterLocationController(pool, time.Now)
 	adminOptions.Logger = logger
 	adminOptions.Metrics = metrics
-	workerCtx, stopWorkers := context.WithCancel(ctx)
-	defer stopWorkers()
 	geocodingManager, err := newTheaterGeocodingManager(workerCtx, pool, time.Now)
 	if err != nil {
 		return fmt.Errorf("geocoding configuration is invalid")
@@ -152,7 +159,7 @@ func run(ctx context.Context) error {
 		syncScheduler = scheduler
 	}
 	var polling sync.WaitGroup
-	polling.Add(2)
+	polling.Add(3)
 	go func() {
 		defer polling.Done()
 		source.Run(workerCtx)
@@ -161,19 +168,27 @@ func run(ctx context.Context) error {
 		defer polling.Done()
 		runSyncRunRetention(workerCtx, runStore, logger, time.Now)
 	}()
+	go func() {
+		defer polling.Done()
+		runShortlinkRetention(workerCtx, shortlinkStore, logger, time.Now)
+	}()
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
-			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, geocodingManager, &polling)
+			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, geocodingManager, metadataRefreshManager, &polling)
 		})
 	}
 	defer cleanup()
 	adminOptions.Syncs = syncManager
 	adminOptions.SyncSchedules = syncScheduler
-	shortlinkService := shortlink.NewService(shortlink.NewPostgresStore(pool), shortlink.ServiceOptions{})
+	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
 	server := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:           newAPIHandler(service, cfg, adminOptions, shortlinkService),
+		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler: newAPIHandler(service, cfg, adminOptions, shortlinkService, httpapi.ReadinessOptions{
+			Schedule:  source,
+			Database:  pool,
+			Revisions: store,
+		}),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -211,6 +226,39 @@ func runSyncRunRetention(ctx context.Context, store *synccontrol.PostgresRunStor
 	}
 }
 
+type shortlinkRetentionStore interface {
+	PurgeCreatedBefore(context.Context, time.Time) error
+}
+
+func purgeShortlinksAtStartup(ctx context.Context, store shortlinkRetentionStore, now func() time.Time) error {
+	if err := store.PurgeCreatedBefore(ctx, now().UTC().Add(-shortlink.RetentionPeriod)); err != nil {
+		return fmt.Errorf("shortlink retention startup failed")
+	}
+	return nil
+}
+
+func runShortlinkRetention(ctx context.Context, store shortlinkRetentionStore, logger *slog.Logger, now func() time.Time) {
+	ticker := time.NewTicker(shortlink.RetentionPurgeInterval)
+	defer ticker.Stop()
+	runShortlinkRetentionTicks(ctx, store, logger, now, ticker.C)
+}
+
+func runShortlinkRetentionTicks(ctx context.Context, store shortlinkRetentionStore, logger *slog.Logger, now func() time.Time, ticks <-chan time.Time) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticks:
+			purgeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			err := store.PurgeCreatedBefore(purgeCtx, now().UTC().Add(-shortlink.RetentionPeriod))
+			cancel()
+			if err != nil {
+				logger.Error("shortlink_retention_failed", "component", "shortlink", "error_code", "database_error")
+			}
+		}
+	}
+}
+
 func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, enrich synccontrol.EnrichFunc, now func() time.Time, logger *slog.Logger, observer synccontrol.SyncObserver) synccontrol.ProductionExecutorOptions {
 	return synccontrol.ProductionExecutorOptions{
 		Writer: writer, Now: now, Logger: logger, Observer: observer, Enrich: enrich, OperationTimeout: cfg.Sync.OperationTimeout,
@@ -233,7 +281,7 @@ type closeableWorker interface {
 	Close()
 }
 
-func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager closeableWorker, polling *sync.WaitGroup) {
+func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager, metadataRefreshManager closeableWorker, polling *sync.WaitGroup) {
 	stopWorkers()
 	if schedules != nil {
 		schedules.Close()
@@ -244,11 +292,19 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	if geocodingManager != nil {
 		geocodingManager.Close()
 	}
+	if metadataRefreshManager != nil {
+		metadataRefreshManager.Close()
+	}
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService) http.Handler {
-	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{Admin: adminOptions, Shortlinks: shortlinks})
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, readiness httpapi.ReadinessOptions) http.Handler {
+	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
+		Admin:             adminOptions,
+		Readiness:         readiness,
+		Shortlinks:        shortlinks,
+		TrustedProxyCIDRs: cfg.Server.TrustedProxyCIDRs,
+	})
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {
@@ -292,7 +348,7 @@ func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFun
 	}
 }
 
-func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {
+func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
 	options := httpapi.AdminOptions{
 		Password:      password,
 		SessionSecret: sessionSecret,
@@ -300,9 +356,16 @@ func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresS
 		LocalMovies:   enrichment.NewLocalMovieService(store),
 	}
 	if provider != nil {
-		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil))
+		gate := enrichment.NewTMDBRunGate()
+		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil), gate)
+		manager, err := enrichment.NewMetadataRefreshManager(ctx, enrichment.NewMetadataRefreshService(store, provider, nil, gate), nil)
+		if err != nil {
+			return httpapi.AdminOptions{}, nil, err
+		}
+		options.TMDBRefreshes = manager
+		return options, manager, nil
 	}
-	return options
+	return options, nil, nil
 }
 
 func newTheaterLocationController(pool *pgxpool.Pool, now func() time.Time) httpapi.TheaterLocationController {
