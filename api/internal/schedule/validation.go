@@ -178,6 +178,9 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 			if invalidTrailerKeys(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.TrailerVFYouTubeKey, showing.Movie.Enrichment.TrailerVOYouTubeKey) {
 				return fmt.Errorf("invalid enrichment trailer YouTube keys")
 			}
+			if invalidIMDBID(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.IMDBID) {
+				return fmt.Errorf("invalid enrichment IMDb ID")
+			}
 		}
 	}
 	if data.PublicMovies != nil || data.MovieSources != nil || data.MovieAliases != nil {
@@ -192,7 +195,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
-		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || invalidTrailerKeys(movie.TMDBID, movie.TrailerVFYouTubeKey, movie.TrailerVOYouTubeKey) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || invalidTrailerKeys(movie.TMDBID, movie.TrailerVFYouTubeKey, movie.TrailerVOYouTubeKey) || invalidIMDBID(movie.TMDBID, movie.IMDBID) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
 			return fmt.Errorf("invalid public movie")
 		}
 		if movie.RedirectToID == movie.ID {
@@ -250,6 +253,22 @@ func validatePublicMovieCatalog(data Dataset) error {
 
 func invalidTrailerKeys(tmdbID int64, vf, vo string) bool {
 	return vf != "" && (tmdbID <= 0 || !validYouTubeKey(vf)) || vo != "" && (tmdbID <= 0 || !validYouTubeKey(vo)) || vf != "" && vf == vo
+}
+
+func invalidIMDBID(tmdbID int64, imdbID string) bool {
+	return imdbID != "" && (tmdbID <= 0 || !validIMDBID(imdbID))
+}
+
+func validIMDBID(value string) bool {
+	if len(value) < 9 || len(value) > 32 || !strings.HasPrefix(value, "tt") {
+		return false
+	}
+	for _, character := range value[2:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validYouTubeKey(value string) bool {

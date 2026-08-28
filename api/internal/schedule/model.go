@@ -180,6 +180,7 @@ type MovieCatalogItem struct {
 	ShowtimeCount       int       `json:"showtime_count,omitempty"`
 	PosterURL           *string   `json:"poster_url"`
 	TMDBID              *int64    `json:"tmdb_id"`
+	IMDBID              *string   `json:"imdb_id"`
 	TrailerVFYouTubeKey *string   `json:"trailer_vf_youtube_key"`
 	TrailerVOYouTubeKey *string   `json:"trailer_vo_youtube_key"`
 	Overview            *string   `json:"overview"`

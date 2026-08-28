@@ -30,6 +30,7 @@ type Candidate struct {
 
 type Details struct {
 	ID                  int64
+	IMDBID              string
 	Title               string
 	OriginalTitle       string
 	OriginalLanguage    string
@@ -164,6 +165,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	}
 	var response struct {
 		ID               int64  `json:"id"`
+		IMDBID           string `json:"imdb_id"`
 		Title            string `json:"title"`
 		OriginalTitle    string `json:"original_title"`
 		OriginalLanguage string `json:"original_language"`
@@ -187,7 +189,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	if err := c.get(ctx, "/3/movie/"+strconv.FormatInt(id, 10), query, &response); err != nil {
 		return Details{}, err
 	}
-	if response.ID != id || !validText(response.Title, 1024) || !validText(response.OriginalTitle, 1024) || !validOriginalLanguage(response.OriginalLanguage) || response.Runtime < 0 || response.Runtime > 600 || len(response.Overview) > 10000 {
+	if response.ID != id || response.IMDBID != "" && !validIMDBID(response.IMDBID) || !validText(response.Title, 1024) || !validText(response.OriginalTitle, 1024) || !validOriginalLanguage(response.OriginalLanguage) || response.Runtime < 0 || response.Runtime > 600 || len(response.Overview) > 10000 {
 		return Details{}, fmt.Errorf("tmdb movie response is invalid")
 	}
 	if response.ReleaseDate != "" {
@@ -195,7 +197,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 			return Details{}, fmt.Errorf("tmdb movie response is invalid")
 		}
 	}
-	details := Details{ID: response.ID, Title: response.Title, OriginalTitle: response.OriginalTitle, OriginalLanguage: response.OriginalLanguage, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerVFYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results, "fr"), Runtime: response.Runtime, Genres: []string{}}
+	details := Details{ID: response.ID, IMDBID: response.IMDBID, Title: response.Title, OriginalTitle: response.OriginalTitle, OriginalLanguage: response.OriginalLanguage, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerVFYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results, "fr"), Runtime: response.Runtime, Genres: []string{}}
 	if response.OriginalLanguage != "" && response.OriginalLanguage != "fr" {
 		var videosResponse struct {
 			ID     int64 `json:"id"`
@@ -263,6 +265,18 @@ func validOriginalLanguage(value string) bool {
 		return true
 	}
 	return len(value) == 2 && value[0] >= 'a' && value[0] <= 'z' && value[1] >= 'a' && value[1] <= 'z'
+}
+
+func validIMDBID(value string) bool {
+	if len(value) < 9 || len(value) > 32 || !strings.HasPrefix(value, "tt") {
+		return false
+	}
+	for _, character := range value[2:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validYouTubeKey(value string) bool {

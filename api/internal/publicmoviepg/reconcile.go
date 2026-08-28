@@ -43,6 +43,7 @@ type publicMovie struct {
 type metadata struct {
 	title               string
 	runtime             int
+	imdbID              *string
 	poster              *string
 	backdrop            *string
 	trailerVFYouTubeKey *string
@@ -56,6 +57,7 @@ type metadata struct {
 type tmdbMetadata struct {
 	title               string
 	runtime             int
+	imdbID              *string
 	poster              *string
 	backdrop            *string
 	trailerVFYouTubeKey *string
@@ -358,7 +360,7 @@ func loadTMDBMetadata(ctx context.Context, tx pgx.Tx, components []*component) (
 	if len(ids) == 0 {
 		return map[int64]tmdbMetadata{}, nil
 	}
-	rows, err := tx.Query(ctx, `SELECT provider_movie_id, localized_title, runtime_minutes, poster_url,
+	rows, err := tx.Query(ctx, `SELECT provider_movie_id, localized_title, runtime_minutes, imdb_id, poster_url,
        backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, overview, release_date, genres
 FROM movie_metadata_cache WHERE provider='tmdb' AND locale='fr-FR' AND provider_movie_id=ANY($1)`, ids)
 	if err != nil {
@@ -369,7 +371,7 @@ FROM movie_metadata_cache WHERE provider='tmdb' AND locale='fr-FR' AND provider_
 	for rows.Next() {
 		var id int64
 		var item tmdbMetadata
-		if err := rows.Scan(&id, &item.title, &item.runtime, &item.poster, &item.backdrop, &item.trailerVFYouTubeKey, &item.trailerVOYouTubeKey, &item.overview, &item.releaseDate, &item.genres); err != nil {
+		if err := rows.Scan(&id, &item.title, &item.runtime, &item.imdbID, &item.poster, &item.backdrop, &item.trailerVFYouTubeKey, &item.trailerVOYouTubeKey, &item.overview, &item.releaseDate, &item.genres); err != nil {
 			return nil, fmt.Errorf("read canonical TMDB metadata failed")
 		}
 		result[id] = item
@@ -404,7 +406,7 @@ func chooseMetadata(component *component, tmdb tmdbMetadata) metadata {
 	if tmdb.runtime > 0 {
 		result.runtime = tmdb.runtime
 	}
-	result.poster, result.backdrop, result.trailerVFYouTubeKey, result.trailerVOYouTubeKey, result.overview, result.releaseDate = tmdb.poster, tmdb.backdrop, tmdb.trailerVFYouTubeKey, tmdb.trailerVOYouTubeKey, nonblank(tmdb.overview), tmdb.releaseDate
+	result.imdbID, result.poster, result.backdrop, result.trailerVFYouTubeKey, result.trailerVOYouTubeKey, result.overview, result.releaseDate = tmdb.imdbID, tmdb.poster, tmdb.backdrop, tmdb.trailerVFYouTubeKey, tmdb.trailerVOYouTubeKey, nonblank(tmdb.overview), tmdb.releaseDate
 	if len(tmdb.genres) > 0 {
 		result.genres = append([]string{}, tmdb.genres...)
 	}
@@ -513,7 +515,7 @@ func persistAssignments(ctx context.Context, tx pgx.Tx, components []*component,
 	}
 	for id, movie := range movies {
 		if movie.redirectTo == 0 && movie.confirmedTMDB > 0 && movie.confirmedTMDB != desiredTMDB[id] {
-			if _, err := tx.Exec(ctx, "UPDATE public_movies SET confirmed_tmdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL WHERE id=$1", id); err != nil {
+			if _, err := tx.Exec(ctx, "UPDATE public_movies SET confirmed_tmdb_id=NULL, imdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL WHERE id=$1", id); err != nil {
 				return fmt.Errorf("clear corrected public movie TMDB identity failed")
 			}
 		}
@@ -532,7 +534,7 @@ WHERE source_provider=$1 AND source_movie_id=$2`, member.key.provider, member.ke
 		}
 		if _, err := tx.Exec(ctx, `UPDATE public_movies SET
     title=$2, runtime_minutes=$3, poster_url=$4, backdrop_url=$5, trailer_vf_youtube_key=$6, trailer_vo_youtube_key=$7, overview=$8,
-    release_date=$9, genres=$10, confirmed_tmdb_id=$11,
+    release_date=$9, genres=$10, confirmed_tmdb_id=$11, imdb_id=$12,
     updated_at=CASE WHEN title IS DISTINCT FROM $2::varchar
         OR runtime_minutes IS DISTINCT FROM $3::integer
         OR poster_url IS DISTINCT FROM $4::varchar
@@ -543,11 +545,12 @@ WHERE source_provider=$1 AND source_movie_id=$2`, member.key.provider, member.ke
         OR release_date IS DISTINCT FROM $9::date
         OR genres IS DISTINCT FROM $10::text[]
         OR confirmed_tmdb_id IS DISTINCT FROM $11::bigint
+        OR imdb_id IS DISTINCT FROM $12::varchar
         THEN CURRENT_TIMESTAMP ELSE updated_at END,
     last_seen_at=GREATEST(last_seen_at, (SELECT max(last_seen_at) FROM public_movie_sources WHERE public_movie_id=$1))
 WHERE id=$1 AND redirect_to_id IS NULL`, component.publicID, component.metadata.title, component.metadata.runtime,
 			component.metadata.poster, component.metadata.backdrop, component.metadata.trailerVFYouTubeKey, component.metadata.trailerVOYouTubeKey, component.metadata.overview, component.metadata.releaseDate,
-			component.metadata.genres, nullableID(component.metadata.tmdbID)); err != nil {
+			component.metadata.genres, nullableID(component.metadata.tmdbID), component.metadata.imdbID); err != nil {
 			return fmt.Errorf("update canonical public movie failed")
 		}
 	}
@@ -561,7 +564,7 @@ WHERE id=$1 AND redirect_to_id IS NULL`, component.publicID, component.metadata.
 		var target int64
 		for target = range targets {
 		}
-		if _, err := tx.Exec(ctx, `UPDATE public_movies SET redirect_to_id=$2, confirmed_tmdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL,
+		if _, err := tx.Exec(ctx, `UPDATE public_movies SET redirect_to_id=$2, confirmed_tmdb_id=NULL, imdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL,
     updated_at=CASE WHEN redirect_to_id IS DISTINCT FROM $2 THEN CURRENT_TIMESTAMP ELSE updated_at END
 WHERE id=$1 AND redirect_to_id IS NULL`, oldID, target); err != nil {
 			return fmt.Errorf("write public movie redirect tombstone failed")
