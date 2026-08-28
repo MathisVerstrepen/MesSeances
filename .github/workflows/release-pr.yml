@@ -1,0 +1,36 @@
+name: Release PR
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out trusted automation
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Validate release pull request
+        env:
+          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: >-
+          python scripts/release_automation.py validate-pr
+          --repository "$RELEASE_REPOSITORY"
+          --pull-request-number "$RELEASE_PULL_REQUEST"

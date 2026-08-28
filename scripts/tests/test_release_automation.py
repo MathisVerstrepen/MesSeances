@@ -1,0 +1,532 @@
+import datetime as dt
+import io
+import json
+import os
+import sys
+import unittest
+from pathlib import Path
+from unittest import mock
+
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import release_automation as release
+
+
+REPOSITORY = "MathisVerstrepen/MesSeances"
+API = f"https://api.github.com/repos/{REPOSITORY}"
+SHA = "a" * 40
+RELEASE_DATE = dt.date(2026, 8, 28)
+VERSION = "0.7.0"
+BODY = """## Changed
+
+- Changed licensing details
+
+## Added
+
+- Added release automation
+
+## Improved
+
+- None
+
+## Fixed
+
+- Fixed image publication
+"""
+
+
+def pull(
+    *,
+    title=f"{VERSION} - {RELEASE_DATE.isoformat()}",
+    body=BODY,
+    state="closed",
+    merged=True,
+    sha=SHA,
+    base="main",
+    head="dev",
+    base_repository=REPOSITORY,
+    head_repository=REPOSITORY,
+):
+    return {
+        "number": 12,
+        "state": state,
+        "merged": merged,
+        "merged_at": "2026-08-28T15:04:05Z" if merged else None,
+        "merge_commit_sha": sha,
+        "title": title,
+        "body": body,
+        "base": {"ref": base, "repo": {"full_name": base_repository}},
+        "head": {"ref": head, "repo": {"full_name": head_repository}},
+    }
+
+
+class FakeTransport:
+    def __init__(self):
+        self.responses = []
+        self.calls = []
+
+    def add(self, method, path, data=None, status=200, headers=None):
+        body = b"" if data is None else json.dumps(data).encode()
+        self.responses.append((method, path, release.Response(status, headers or {}, body)))
+
+    def __call__(self, method, url, headers, body, timeout):
+        self.calls.append(
+            {
+                "method": method,
+                "path": url.removeprefix(API),
+                "headers": headers,
+                "payload": json.loads(body) if body else None,
+                "timeout": timeout,
+            }
+        )
+        if not self.responses:
+            raise AssertionError(f"unexpected request: {method} {url}")
+        expected_method, expected_path, response = self.responses.pop(0)
+        if method != expected_method or url != API + expected_path:
+            raise AssertionError(
+                f"expected {expected_method} {expected_path}, "
+                f"got {method} {url.removeprefix(API)}"
+            )
+        return response
+
+    def assert_done(self):
+        if self.responses:
+            raise AssertionError(f"unused responses: {self.responses}")
+
+
+class VersionTests(unittest.TestCase):
+    def test_strict_version_parsing_and_rendering(self):
+        parsed = release.Version.parse("12.34.56")
+        self.assertEqual((parsed.major, parsed.minor, parsed.patch), (12, 34, 56))
+        self.assertEqual(str(parsed), "12.34.56")
+
+    def test_invalid_versions_are_rejected(self):
+        invalid = (
+            "v1.2.3-beta.1",
+            "1.2.3-beta",
+            "1.2.3-beta.01",
+            "1.2.3-rc.1",
+            "1.2.3+build.1",
+            "01.2.3",
+            "1.02.3",
+            "1.2.03",
+            "1.2.3-BETA.1",
+            "1.2.3 ",
+        )
+        for value in invalid:
+            with self.subTest(value=value), self.assertRaises(release.ReleaseError):
+                release.Version.parse(value)
+
+    def test_numeric_semver_ordering(self):
+        versions = [
+            release.Version.parse("1.9.9"),
+            release.Version.parse("1.10.0"),
+            release.Version.parse("1.10.10"),
+        ]
+        self.assertEqual(str(max(versions)), "1.10.10")
+        self.assertGreater(
+            release.Version.parse("1.10.0"),
+            release.Version.parse("1.9.9"),
+        )
+
+    def test_empty_strict_tag_history_bootstraps(self):
+        release.validate_version_progression(
+            [
+                {"name": "v9.0.0"},
+                {"name": "1.0.0-beta.1"},
+                {"name": "1.0.0+build.1"},
+                {"name": "release-2025"},
+            ],
+            release.Version.parse("0.1.0"),
+            allow_existing=False,
+        )
+
+    def test_progression_must_be_numerically_newer(self):
+        tags = [{"name": "1.9.9"}, {"name": "1.8.100"}]
+        release.validate_version_progression(
+            tags, release.Version.parse("1.10.0"), allow_existing=False
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "not newer"):
+            release.validate_version_progression(
+                tags, release.Version.parse("1.9.8"), allow_existing=False
+            )
+
+    def test_existing_candidate_only_allowed_for_reconciliation(self):
+        tags = [{"name": VERSION}]
+        with self.assertRaisesRegex(release.ReleaseError, "already has a tag"):
+            release.validate_version_progression(
+                tags, release.Version.parse(VERSION), allow_existing=False
+            )
+        release.validate_version_progression(
+            tags, release.Version.parse(VERSION), allow_existing=True
+        )
+
+
+class MetadataTests(unittest.TestCase):
+    def test_exact_title_and_date_are_accepted(self):
+        metadata = release.parse_release_title(
+            "0.7.0 - 2026-08-28", RELEASE_DATE
+        )
+        self.assertEqual(str(metadata.version), VERSION)
+        self.assertEqual(metadata.date, RELEASE_DATE)
+
+    def test_title_format_calendar_and_expected_date_are_strict(self):
+        invalid = (
+            "v0.7.0 - 2026-08-28",
+            "0.7.0-beta.1 - 2026-08-28",
+            "0.7.0+build.1 - 2026-08-28",
+            "0.7.0-2026-08-28",
+            "0.7.0 - 2026-02-30",
+            "0.7.0 - 2026-08-28 ",
+        )
+        for title in invalid:
+            with self.subTest(title=title), self.assertRaises(release.ReleaseError):
+                release.parse_release_title(title, RELEASE_DATE)
+        with self.assertRaisesRegex(release.ReleaseError, "must be 2026-08-28"):
+            release.parse_release_title("0.7.0 - 2026-08-27", RELEASE_DATE)
+
+    def test_body_validation_preserves_exact_text(self):
+        self.assertIs(release.validate_release_body(BODY), BODY)
+
+    def test_body_requires_ordered_sections_and_bullets(self):
+        invalid = (
+            "",
+            BODY.replace("## Changed", "Changed"),
+            BODY.replace("## Added", "## New"),
+            BODY.replace("- Changed licensing details", "Changed licensing details"),
+            BODY.replace("- Added release automation", ""),
+            BODY.replace("- None", "- None\n- Also improved caching"),
+            "Intro\n\n" + BODY,
+            BODY + "\n## Security\n\n- None\n",
+        )
+        for body in invalid:
+            with self.subTest(body=body), self.assertRaises(release.ReleaseError):
+                release.validate_release_body(body)
+
+
+class ClientTests(unittest.TestCase):
+    def setUp(self):
+        self.transport = FakeTransport()
+        self.client = release.GitHubClient(REPOSITORY, "secret", self.transport)
+
+    def test_pagination_stays_inside_repository_scope(self):
+        next_url = API + "/tags?per_page=100&page=2"
+        self.transport.add(
+            "GET",
+            "/tags?per_page=100",
+            [{"name": "0.6.0"}],
+            headers={"Link": f'<{next_url}>; rel="next"'},
+        )
+        self.transport.add("GET", "/tags?per_page=100&page=2", [{"name": VERSION}])
+        self.assertEqual(len(self.client.paginate("/tags?per_page=100")), 2)
+        self.transport.assert_done()
+
+        self.transport.add(
+            "GET",
+            "/tags",
+            [],
+            headers={"Link": '<https://api.github.com/repos/other/repo/tags>; rel="next"'},
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "escaped repository scope"):
+            self.client.paginate("/tags")
+
+    def test_api_errors_do_not_expose_token_or_response_body(self):
+        self.transport.add(
+            "POST", "/releases", {"message": "secret provider response"}, status=403
+        )
+        with self.assertRaises(release.GitHubError) as raised:
+            self.client.request("POST", "/releases", {"body": "sensitive body"})
+        message = str(raised.exception)
+        self.assertEqual(raised.exception.status, 403)
+        self.assertNotIn("secret", message)
+        self.assertNotIn("sensitive", message)
+        self.assertEqual(message, "GitHub POST /repos/MathisVerstrepen/MesSeances/releases failed with status 403")
+
+    def test_invalid_json_response_fails_safely(self):
+        self.transport.responses.append(
+            ("GET", "/tags", release.Response(200, {}, b"not-json"))
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "not valid JSON"):
+            self.client.request("GET", "/tags")
+
+
+class PullValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.transport = FakeTransport()
+        self.client = release.GitHubClient(REPOSITORY, "secret", self.transport)
+
+    def test_valid_open_dev_to_main_pr_and_empty_history(self):
+        self.transport.add("GET", "/pulls/12", pull(state="open", merged=False, sha=None))
+        self.transport.add("GET", "/tags?per_page=100", [])
+        self.assertEqual(
+            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE), VERSION
+        )
+        self.transport.assert_done()
+
+    def test_fork_or_wrong_branch_is_rejected_before_tag_read(self):
+        unsafe = (
+            pull(state="open", merged=False, head_repository="attacker/MesSeances"),
+            pull(state="open", merged=False, head="release"),
+            pull(state="open", merged=False, base="production"),
+            pull(state="open", merged=False, base_repository="attacker/MesSeances"),
+        )
+        for candidate in unsafe:
+            with self.subTest(candidate=candidate):
+                transport = FakeTransport()
+                client = release.GitHubClient(REPOSITORY, "secret", transport)
+                transport.add("GET", "/pulls/12", candidate)
+                with self.assertRaisesRegex(release.ReleaseError, "same-repository"):
+                    release.validate_pull_request(client, 12, expected_date=RELEASE_DATE)
+                transport.assert_done()
+
+    def test_stale_version_rejected_without_writes(self):
+        self.transport.add("GET", "/pulls/12", pull(state="open", merged=False, sha=None))
+        self.transport.add("GET", "/tags?per_page=100", [{"name": "0.8.0"}])
+        with self.assertRaisesRegex(release.ReleaseError, "not newer"):
+            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
+        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+
+
+class PublishTests(unittest.TestCase):
+    def setUp(self):
+        self.transport = FakeTransport()
+        self.client = release.GitHubClient(REPOSITORY, "secret", self.transport)
+
+    def queue_validation(self, *, pr=None, tags=None):
+        self.transport.add("GET", "/pulls/12", pr or pull())
+        self.transport.add("GET", f"/commits/{SHA}", {"sha": SHA})
+        self.transport.add(
+            "GET", "/tags?per_page=100", tags if tags is not None else []
+        )
+
+    def test_first_release_creates_lightweight_tag_and_stable_latest_release(self):
+        self.queue_validation()
+        self.transport.add("GET", f"/git/ref/tags/{VERSION}", {"message": "missing"}, status=404)
+        self.transport.add("POST", "/git/refs", {"ref": f"refs/tags/{VERSION}"}, status=201)
+        self.transport.add(
+            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
+        )
+        self.transport.add("GET", f"/releases/tags/{VERSION}", {"message": "missing"}, status=404)
+        self.transport.add("POST", "/releases", {"id": 8}, status=201)
+
+        self.assertEqual(release.publish(self.client, 12), VERSION)
+        writes = [call for call in self.transport.calls if call["method"] == "POST"]
+        self.assertEqual(
+            writes[0]["payload"], {"ref": f"refs/tags/{VERSION}", "sha": SHA}
+        )
+        self.assertEqual(
+            writes[1]["payload"],
+            {
+                "tag_name": VERSION,
+                "name": VERSION,
+                "body": BODY,
+                "draft": False,
+                "prerelease": False,
+                "generate_release_notes": False,
+                "make_latest": "true",
+            },
+        )
+        self.transport.assert_done()
+
+    def test_same_target_tag_and_exact_release_are_idempotent(self):
+        self.queue_validation(tags=[{"name": VERSION}])
+        self.transport.add(
+            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
+        )
+        existing = {"id": 8, **release._canonical_release(VERSION, BODY)}
+        self.transport.add("GET", f"/releases/tags/{VERSION}", existing)
+        self.transport.add("GET", "/releases/latest", {"id": 8})
+
+        self.assertEqual(release.publish(self.client, 12), VERSION)
+        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+        self.transport.assert_done()
+
+    def test_mismatched_existing_tag_is_never_moved_or_deleted(self):
+        self.queue_validation(tags=[{"name": VERSION}])
+        self.transport.add(
+            "GET",
+            f"/git/ref/tags/{VERSION}",
+            {"object": {"type": "commit", "sha": "b" * 40}},
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "does not resolve"):
+            release.publish(self.client, 12)
+        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+        self.assertFalse(any("/releases" in call["path"] for call in self.transport.calls))
+
+    def test_existing_release_is_reconciled_as_stable_and_latest(self):
+        self.queue_validation(tags=[{"name": "0.6.9"}, {"name": VERSION}])
+        self.transport.add(
+            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
+        )
+        self.transport.add(
+            "GET",
+            f"/releases/tags/{VERSION}",
+            {
+                "id": 8,
+                "tag_name": VERSION,
+                "name": "wrong",
+                "body": "wrong",
+                "draft": True,
+                "prerelease": True,
+            },
+        )
+        self.transport.add("GET", "/releases/latest", {"id": 7})
+        self.transport.add("PATCH", "/releases/8", {"id": 8})
+
+        release.publish(self.client, 12)
+        self.assertEqual(
+            self.transport.calls[-1]["payload"],
+            {
+                "tag_name": VERSION,
+                "name": VERSION,
+                "body": BODY,
+                "draft": False,
+                "prerelease": False,
+                "make_latest": "true",
+            },
+        )
+
+    def test_create_races_are_reread_and_reconciled(self):
+        self.queue_validation()
+        self.transport.add("GET", f"/git/ref/tags/{VERSION}", {"message": "missing"}, status=404)
+        self.transport.add("POST", "/git/refs", {"message": "exists"}, status=422)
+        self.transport.add(
+            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
+        )
+        self.transport.add("GET", f"/releases/tags/{VERSION}", {"message": "missing"}, status=404)
+        self.transport.add("POST", "/releases", {"message": "exists"}, status=422)
+        self.transport.add(
+            "GET",
+            f"/releases/tags/{VERSION}",
+            {
+                "id": 8,
+                "tag_name": VERSION,
+                "name": "old",
+                "body": "old",
+                "draft": True,
+                "prerelease": True,
+            },
+        )
+        self.transport.add("GET", "/releases/latest", {"id": 7})
+        self.transport.add("PATCH", "/releases/8", {"id": 8})
+        self.assertEqual(release.publish(self.client, 12), VERSION)
+
+    def test_unsafe_or_unmerged_pr_fails_before_mutation(self):
+        candidates = (
+            pull(head_repository="attacker/MesSeances"),
+            pull(state="open", merged=False),
+            pull(sha="short"),
+            pull(title="0.7.0 - 2026-08-27"),
+            pull(body=BODY.replace("## Fixed", "## Repairs")),
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=candidate):
+                transport = FakeTransport()
+                client = release.GitHubClient(REPOSITORY, "secret", transport)
+                transport.add("GET", "/pulls/12", candidate)
+                with self.assertRaises(release.ReleaseError):
+                    release.publish(client, 12)
+                transport.assert_done()
+
+    def test_invalid_merge_commit_response_fails_before_tag_read(self):
+        self.transport.add("GET", "/pulls/12", pull())
+        self.transport.add("GET", f"/commits/{SHA}", {"sha": "b" * 40})
+        with self.assertRaisesRegex(release.ReleaseError, "merge commit response"):
+            release.publish(self.client, 12)
+        self.transport.assert_done()
+
+    def test_newer_tag_rejects_rerun_before_mutation(self):
+        self.queue_validation(tags=[{"name": VERSION}, {"name": "0.7.1"}])
+        with self.assertRaisesRegex(release.ReleaseError, "not newer"):
+            release.publish(self.client, 12)
+        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+
+
+class PromotionTests(unittest.TestCase):
+    def test_only_current_newest_strict_tag_can_promote(self):
+        transport = FakeTransport()
+        client = release.GitHubClient(REPOSITORY, "secret", transport)
+        transport.add(
+            "GET",
+            "/tags?per_page=100",
+            [
+                {"name": VERSION},
+                {"name": "v9.0.0"},
+                {"name": "1.0.0-beta.1"},
+                {"name": "release-2025"},
+            ],
+        )
+        self.assertEqual(release.verify_promotion(client, VERSION), VERSION)
+        self.assertTrue(all(call["method"] == "GET" for call in transport.calls))
+
+        transport = FakeTransport()
+        client = release.GitHubClient(REPOSITORY, "secret", transport)
+        transport.add(
+            "GET", "/tags?per_page=100", [{"name": VERSION}, {"name": "0.7.1"}]
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "stale"):
+            release.verify_promotion(client, VERSION)
+
+
+class CliTests(unittest.TestCase):
+    def test_missing_token_exits_nonzero_without_network(self):
+        stderr = io.StringIO()
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            release, "urllib_transport", side_effect=AssertionError("network called")
+        ), mock.patch("sys.stderr", stderr):
+            result = release.main(
+                [
+                    "validate-pr",
+                    "--repository",
+                    REPOSITORY,
+                    "--pull-request-number",
+                    "12",
+                ]
+            )
+        self.assertEqual(result, 1)
+        self.assertIn("RELEASE_TOKEN is required", stderr.getvalue())
+
+    def test_success_prints_version_and_failure_is_safe(self):
+        stdout = io.StringIO()
+        client = mock.Mock()
+        with mock.patch.object(release, "GitHubClient", return_value=client), mock.patch.object(
+            release, "validate_pull_request", return_value=VERSION
+        ), mock.patch.dict(os.environ, {"RELEASE_TOKEN": "secret"}, clear=True), mock.patch(
+            "sys.stdout", stdout
+        ):
+            result = release.main(
+                [
+                    "validate-pr",
+                    "--repository",
+                    REPOSITORY,
+                    "--pull-request-number",
+                    "12",
+                ]
+            )
+        self.assertEqual(result, 0)
+        self.assertEqual(stdout.getvalue(), VERSION + "\n")
+
+        stderr = io.StringIO()
+        with mock.patch.object(release, "GitHubClient", return_value=client), mock.patch.object(
+            release, "verify_promotion", side_effect=release.ReleaseError("stale release")
+        ), mock.patch.dict(os.environ, {"RELEASE_TOKEN": "secret"}, clear=True), mock.patch(
+            "sys.stderr", stderr
+        ):
+            result = release.main(
+                [
+                    "verify-promotion",
+                    "--repository",
+                    REPOSITORY,
+                    "--version",
+                    VERSION,
+                ]
+            )
+        self.assertEqual(result, 1)
+        self.assertEqual(
+            stderr.getvalue(), "release automation failed: stale release\n"
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
