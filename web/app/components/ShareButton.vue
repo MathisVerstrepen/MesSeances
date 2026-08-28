@@ -144,10 +144,10 @@ async function prepareLink() {
     preparationState.value = 'ready'
     liveMessage.value = 'Lien prêt à être copié.'
     void updatePopupPosition()
-  } catch {
+  } catch (error) {
     if (currentRequest !== requestSequence) return
     preparationState.value = 'error'
-    preparationError.value = 'Le lien n’a pas pu être préparé. Réessayez.'
+    preparationError.value = getFrenchShortLinkPreparationError(error)
   }
 }
 

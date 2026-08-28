@@ -248,6 +248,13 @@ export function getFrenchApiError(cause: unknown): string {
   return 'Impossible de joindre le service. Vérifiez que l’API est démarrée, puis réessayez.'
 }
 
+export function getFrenchShortLinkPreparationError(cause: unknown): string {
+  if (getApiErrorCode(cause) === 'rate_limited' || getApiErrorStatus(cause) === 429) {
+    return 'Vous avez créé trop de liens trop rapidement. Patientez quelques minutes puis réessayez.'
+  }
+  return 'Le lien n’a pas pu être préparé. Réessayez.'
+}
+
 export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'

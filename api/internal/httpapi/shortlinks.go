@@ -51,6 +51,7 @@ func (api *API) createShortlink(w http.ResponseWriter, r *http.Request) {
 }
 
 func (api *API) resolveShortlink(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if api.shortlinks == nil {
 		writeShortlinkUnavailable(w)
 		return
@@ -60,7 +61,6 @@ func (api *API) resolveShortlink(w http.ResponseWriter, r *http.Request) {
 		writeShortlinkServiceError(w, err)
 		return
 	}
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	writeShortlinkJSON(w, http.StatusOK, link)
 }
 

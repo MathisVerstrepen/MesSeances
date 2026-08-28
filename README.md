@@ -83,6 +83,8 @@ Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INT
 
 `PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
 
+`TRUSTED_PROXY_CIDRS` is an optional comma-separated list of exact CIDR ranges for reverse proxies that connect directly to the API. When the socket peer is trusted, public rate limits resolve `X-Forwarded-For` from right to left across trusted hops; malformed chains fall back to the socket peer. Forwarding headers from every other peer are ignored. Leave this setting empty for direct client connections. Operators must enumerate deployed ingress peer ranges and must not use broad public network ranges.
+
 Nuxt uses three distinct origins. `NUXT_API_BASE` is private to server-side rendering and defaults to `http://localhost:8080`; production Compose fixes it to the internal `http://api:8080` service address. `NUXT_PUBLIC_API_BASE` is the API origin reachable by visitors' browsers and defaults to `http://localhost:8080`. `NUXT_PUBLIC_SITE_URL` is the canonical public site origin used for absolute canonical and social metadata URLs and defaults to `http://localhost:3000`; production Compose derives it from `WEB_ORIGIN`. Configure public values as exact `http` or `https` origins without a trailing slash or path. Never expose the internal `api:8080` address as a public browser URL.
 
 Backend operational logs use JSON on stderr. Prometheus metrics are available without application authentication at `GET /metrics` on the API listener. Restrict this endpoint with deployment network or reverse-proxy controls; production Compose keeps the API host binding on loopback.
@@ -103,6 +105,8 @@ Bootstrap Umami in two stages:
 Keep Umami secrets only in ignored deployment environment files. Back up `umami_postgres_data` under the same retention policy as other production data. Normal Compose recreation preserves named volumes. Never run `docker compose down -v`: `-v` deletes both application and analytics database volumes.
 
 Persisted synchronization diagnostics in `sync_runs` have a 30-day maximum. Migration 024 removes already-expired terminal rows and adds a partial retention index. API startup performs the same cutoff purge and refuses to start if it fails; while the API remains running it repeats the purge every 24 hours. Only `succeeded` and `failed` rows with a non-null `finished_at` at or before the cutoff are deleted. Rows with `state='running'` are never selected, regardless of `started_at`. Existing expired rows remain until migration or API startup first succeeds.
+
+Short links become eligible for deletion once strictly older than 90 days. Migration 027 removes eligible links and adds an index on `created_at`. API startup repeats the strict cutoff purge and refuses to start if it fails; while running it retries every 24 hours, so healthy cleanup can retain an eligible link until the next daily run and failures can extend retention further. Periodic failures are logged without link targets or database details. Short-link resolution responses use `Cache-Control: no-store` so newly resolved targets cannot outlive database retention in browser or intermediary caches.
 
 ## Production log retention
 

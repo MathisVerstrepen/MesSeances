@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -36,9 +37,11 @@ type ShortlinkService interface {
 }
 
 type HandlerOptions struct {
-	Admin      AdminOptions
-	Readiness  ReadinessOptions
-	Shortlinks ShortlinkService
+	Admin             AdminOptions
+	Readiness         ReadinessOptions
+	Shortlinks        ShortlinkService
+	TrustedProxyCIDRs []netip.Prefix
+	RateLimitClock    func() time.Time
 }
 
 type ReadinessOptions struct {
@@ -141,7 +144,13 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		options.Admin.Metrics = observability.NewMetrics()
 	}
 	readiness := newReadinessChecker(options.Readiness)
+	if options.RateLimitClock == nil {
+		options.RateLimitClock = time.Now
+	}
 	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, origin: webOrigin}
+	clients := newClientIdentifier(options.TrustedProxyCIDRs)
+	expensiveReads := rateLimit(newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock), clients)
+	shortlinkCreations := rateLimit(newTokenBucketLimiter(shortlinkCreationBurst, shortlinkCreationRefillRate, shortlinkCreationIdleHorizon, maxRateLimitClients, options.RateLimitClock), clients)
 	router := chi.NewRouter()
 	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
 	router.Use(jsonContentType)
@@ -165,15 +174,15 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
-	router.Get("/api/v1/timeline", api.timeline)
+	router.With(expensiveReads).Get("/api/v1/timeline", api.timeline)
 	router.Get("/api/v1/theaters", api.theaters)
-	router.Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
+	router.With(expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.Get("/api/v1/cities", api.cities)
 	router.Get("/api/v1/cities/{slug}", api.city)
-	router.Get("/api/v1/movies", api.movies)
-	router.Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
-	router.Get("/api/v1/search/slot", api.searchSlot)
-	router.With(api.noStoreShortlink, api.requireShortlinkOrigin).Post("/api/v1/shortlinks", api.createShortlink)
+	router.With(expensiveReads).Get("/api/v1/movies", api.movies)
+	router.With(expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
+	router.With(expensiveReads).Get("/api/v1/search/slot", api.searchSlot)
+	router.With(api.noStoreShortlink, api.requireShortlinkOrigin, shortlinkCreations).Post("/api/v1/shortlinks", api.createShortlink)
 	router.Get("/api/v1/shortlinks/{code}", api.resolveShortlink)
 	router.Route("/api/v1/admin", func(router chi.Router) {
 		router.Use(api.admin.noStore)

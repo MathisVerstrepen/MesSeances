@@ -89,4 +89,4 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: PostgreSQL integration tests
         working-directory: api
-        run: go test ./internal/database ./internal/schedulepg ./internal/enrichment ./internal/synccontrol ./internal/syncschedule -run 'Integration$' -count=1
+        run: go test ./internal/database ./internal/schedulepg ./internal/enrichment ./internal/synccontrol ./internal/syncschedule ./internal/shortlink -run 'Integration$' -count=1
