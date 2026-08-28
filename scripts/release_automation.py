@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import datetime as dt
 import json
 import os
@@ -23,6 +25,8 @@ TITLE_RE = re.compile(
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 API_ROOT = "https://api.github.com"
 BODY_SECTIONS = ("Changed", "Added", "Improved", "Fixed")
+CHANGELOG_ROOT = "docs/changelogs"
+MAX_CHANGELOG_BYTES = 1_000_000
 
 
 class ReleaseError(RuntimeError):
@@ -191,6 +195,8 @@ def validate_release_body(body: Any) -> str:
         raise ReleaseError("release PR body is missing")
     if "\r" in body:
         raise ReleaseError("release PR body must use LF line endings")
+    if not body.endswith("\n") or body.endswith("\n\n"):
+        raise ReleaseError("release PR body must end with exactly one newline")
 
     lines = body.splitlines()
     while lines and lines[-1] == "":
@@ -219,6 +225,130 @@ def validate_release_body(body: Any) -> str:
     if index != len(lines):
         raise ReleaseError("release PR body contains content outside required sections")
     return body
+
+
+def _pull_head_sha(pull: Any) -> str:
+    try:
+        sha = pull["head"]["sha"]
+    except (KeyError, TypeError) as exc:
+        raise ReleaseError("release PR head commit SHA is invalid") from exc
+    if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
+        raise ReleaseError("release PR head commit SHA is invalid")
+    return sha
+
+
+def _changelog_path(version: Version) -> str:
+    return f"{CHANGELOG_ROOT}/{version}.md"
+
+
+def _validate_contents_url(client: GitHubClient, value: Any, path: str, ref: str) -> None:
+    if not isinstance(value, str):
+        raise ReleaseError("GitHub changelog response is invalid")
+    parsed = urllib.parse.urlsplit(value)
+    expected_path = f"/repos/{client.repository}/contents/{path}"
+    try:
+        query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True)
+    except ValueError as exc:
+        raise ReleaseError("GitHub changelog response is invalid") from exc
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "api.github.com"
+        or urllib.parse.unquote(parsed.path) != expected_path
+        or query != [("ref", ref)]
+        or parsed.fragment
+    ):
+        raise ReleaseError("GitHub changelog response did not prove the expected path and ref")
+
+
+def _decode_changelog_content(value: Any) -> bytes:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9+/=\r\n]*", value):
+        raise ReleaseError("GitHub changelog content encoding is invalid")
+    compact = value.replace("\r", "").replace("\n", "")
+    try:
+        decoded = base64.b64decode(compact, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ReleaseError("GitHub changelog content encoding is invalid") from exc
+    if base64.b64encode(decoded).decode("ascii") != compact:
+        raise ReleaseError("GitHub changelog content encoding is invalid")
+    return decoded
+
+
+def _validate_changelog_tree(
+    client: GitHubClient, path: str, ref: str, blob_sha: str, size: int
+) -> None:
+    tree, _ = client.request("GET", f"/git/trees/{_q(ref)}?recursive=1")
+    if (
+        not isinstance(tree, dict)
+        or tree.get("truncated") is not False
+        or not isinstance(tree.get("tree"), list)
+        or any(
+            not isinstance(entry, dict) or not isinstance(entry.get("path"), str)
+            for entry in tree.get("tree", [])
+        )
+    ):
+        raise ReleaseError("GitHub repository tree response is invalid or truncated")
+    matches = [
+        entry
+        for entry in tree["tree"]
+        if isinstance(entry, dict) and entry.get("path") == path
+    ]
+    if len(matches) != 1:
+        raise ReleaseError("GitHub repository tree did not prove one changelog file")
+    entry = matches[0]
+    entry_sha = entry.get("sha")
+    entry_size = entry.get("size")
+    if (
+        entry.get("type") != "blob"
+        or entry.get("mode") not in {"100644", "100755"}
+        or not isinstance(entry_sha, str)
+        or not SHA_RE.fullmatch(entry_sha)
+        or entry_sha.lower() != blob_sha.lower()
+        or isinstance(entry_size, bool)
+        or not isinstance(entry_size, int)
+        or entry_size != size
+    ):
+        raise ReleaseError("release changelog must be an ordinary repository file")
+
+
+def _validate_changelog(
+    client: GitHubClient, version: Version, ref: str, body: str
+) -> None:
+    path = _changelog_path(version)
+    request_path = f"/contents/{path}?ref={_q(ref)}"
+    item = client.get_optional(request_path)
+    if item is None:
+        raise ReleaseError("required release changelog is missing")
+    if not isinstance(item, dict):
+        raise ReleaseError("GitHub changelog response is invalid")
+    if item.get("type") != "file" or "target" in item or "submodule_git_url" in item:
+        raise ReleaseError("release changelog must be an ordinary repository file")
+    if item.get("path") != path or item.get("name") != f"{version}.md":
+        raise ReleaseError("GitHub changelog response did not match the expected path")
+    if item.get("encoding") != "base64":
+        raise ReleaseError("GitHub changelog content encoding is invalid")
+    size = item.get("size")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise ReleaseError("GitHub changelog response is invalid")
+    if size > MAX_CHANGELOG_BYTES:
+        raise ReleaseError("release changelog exceeds the supported size")
+    blob_sha = item.get("sha")
+    if not isinstance(blob_sha, str) or not SHA_RE.fullmatch(blob_sha):
+        raise ReleaseError("GitHub changelog response is invalid")
+    _validate_contents_url(client, item.get("url"), path, ref)
+    content = _decode_changelog_content(item.get("content"))
+    if len(content) != size:
+        raise ReleaseError("GitHub changelog content was incomplete")
+    try:
+        text = content.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ReleaseError("release changelog is not valid UTF-8") from exc
+    if "\r" in text:
+        raise ReleaseError("release changelog must use LF line endings")
+    if not text.endswith("\n") or text.endswith("\n\n"):
+        raise ReleaseError("release changelog must end with exactly one newline")
+    if text != body:
+        raise ReleaseError("release changelog does not exactly match release PR body")
+    _validate_changelog_tree(client, path, ref, blob_sha, size)
 
 
 def _strict_versions(tags: list[Any], excluded: Version | None = None) -> list[Version]:
@@ -293,7 +423,8 @@ def validate_pull_request(
     if pull.get("state") != "open" or pull.get("merged") is not False:
         raise ReleaseError("release PR validation requires an open, unmerged PR")
     metadata = parse_release_title(pull.get("title"), expected_date or _utc_today())
-    validate_release_body(pull.get("body"))
+    body = validate_release_body(pull.get("body"))
+    _validate_changelog(client, metadata.version, _pull_head_sha(pull), body)
     tags = client.paginate("/tags?per_page=100")
     validate_version_progression(tags, metadata.version, allow_existing=False)
     return str(metadata.version)
@@ -406,6 +537,7 @@ def publish(
     metadata = parse_release_title(pull.get("title"), _merged_date(pull.get("merged_at")))
     body = validate_release_body(pull.get("body"))
     _validate_merge_commit(client, merge_sha)
+    _validate_changelog(client, metadata.version, merge_sha, body)
     tags = client.paginate("/tags?per_page=100")
     validate_version_progression(tags, metadata.version, allow_existing=True)
     version = str(metadata.version)

@@ -1,3 +1,4 @@
+import base64
 import datetime as dt
 import io
 import json
@@ -16,8 +17,10 @@ import release_automation as release
 REPOSITORY = "MathisVerstrepen/MesSeances"
 API = f"https://api.github.com/repos/{REPOSITORY}"
 SHA = "a" * 40
+HEAD_SHA = "b" * 40
 RELEASE_DATE = dt.date(2026, 8, 28)
 VERSION = "0.7.0"
+CHANGELOG_PATH = f"docs/changelogs/{VERSION}.md"
 BODY = """## Changed
 
 - Changed licensing details
@@ -47,6 +50,7 @@ def pull(
     head="dev",
     base_repository=REPOSITORY,
     head_repository=REPOSITORY,
+    head_sha=HEAD_SHA,
 ):
     return {
         "number": 12,
@@ -57,8 +61,55 @@ def pull(
         "title": title,
         "body": body,
         "base": {"ref": base, "repo": {"full_name": base_repository}},
-        "head": {"ref": head, "repo": {"full_name": head_repository}},
+        "head": {
+            "ref": head,
+            "sha": head_sha,
+            "repo": {"full_name": head_repository},
+        },
     }
+
+
+def changelog(*, content=BODY.encode(), ref=SHA, **overrides):
+    encoded = content if isinstance(content, str) else base64.encodebytes(content).decode("ascii")
+    decoded_size = len(BODY.encode()) if isinstance(content, str) else len(content)
+    item = {
+        "type": "file",
+        "encoding": "base64",
+        "size": decoded_size,
+        "name": f"{VERSION}.md",
+        "path": CHANGELOG_PATH,
+        "sha": "c" * 40,
+        "content": encoded,
+        "url": f"{API}/contents/{CHANGELOG_PATH}?ref={ref}",
+    }
+    item.update(overrides)
+    return item
+
+
+def changelog_request(ref):
+    return f"/contents/{CHANGELOG_PATH}?ref={ref}"
+
+
+def tree(*, mode="100644", sha="c" * 40, size=len(BODY.encode()), **overrides):
+    response = {
+        "sha": "d" * 40,
+        "truncated": False,
+        "tree": [
+            {
+                "path": CHANGELOG_PATH,
+                "mode": mode,
+                "type": "blob",
+                "sha": sha,
+                "size": size,
+            }
+        ],
+    }
+    response.update(overrides)
+    return response
+
+
+def tree_request(ref):
+    return f"/git/trees/{ref}?recursive=1"
 
 
 class FakeTransport:
@@ -192,6 +243,8 @@ class MetadataTests(unittest.TestCase):
     def test_body_requires_ordered_sections_and_bullets(self):
         invalid = (
             "",
+            BODY[:-1],
+            BODY + "\n",
             BODY.replace("## Changed", "Changed"),
             BODY.replace("## Added", "## New"),
             BODY.replace("- Changed licensing details", "Changed licensing details"),
@@ -258,6 +311,10 @@ class PullValidationTests(unittest.TestCase):
 
     def test_valid_open_dev_to_main_pr_and_empty_history(self):
         self.transport.add("GET", "/pulls/12", pull(state="open", merged=False, sha=None))
+        self.transport.add(
+            "GET", changelog_request(HEAD_SHA), changelog(ref=HEAD_SHA)
+        )
+        self.transport.add("GET", tree_request(HEAD_SHA), tree())
         self.transport.add("GET", "/tags?per_page=100", [])
         self.assertEqual(
             release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE), VERSION
@@ -282,10 +339,101 @@ class PullValidationTests(unittest.TestCase):
 
     def test_stale_version_rejected_without_writes(self):
         self.transport.add("GET", "/pulls/12", pull(state="open", merged=False, sha=None))
+        self.transport.add(
+            "GET", changelog_request(HEAD_SHA), changelog(ref=HEAD_SHA)
+        )
+        self.transport.add("GET", tree_request(HEAD_SHA), tree())
         self.transport.add("GET", "/tags?per_page=100", [{"name": "0.8.0"}])
         with self.assertRaisesRegex(release.ReleaseError, "not newer"):
             release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
         self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+
+    def test_malformed_head_sha_is_rejected_before_changelog_read(self):
+        self.transport.add(
+            "GET", "/pulls/12", pull(state="open", merged=False, sha=None, head_sha="short")
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "head commit SHA"):
+            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
+        self.transport.assert_done()
+
+    def test_missing_changelog_is_rejected_before_tag_read(self):
+        self.transport.add("GET", "/pulls/12", pull(state="open", merged=False, sha=None))
+        self.transport.add(
+            "GET", changelog_request(HEAD_SHA), {"message": "missing secret"}, status=404
+        )
+        with self.assertRaisesRegex(release.ReleaseError, "changelog is missing") as raised:
+            release.validate_pull_request(self.client, 12, expected_date=RELEASE_DATE)
+        self.assertNotIn("secret", str(raised.exception))
+        self.transport.assert_done()
+
+    def test_invalid_changelog_responses_fail_closed(self):
+        invalid = {
+            "ambiguous list": [],
+            "wrong type": changelog(ref=HEAD_SHA, type="symlink"),
+            "submodule": changelog(
+                ref=HEAD_SHA, submodule_git_url="https://github.com/other/repo.git"
+            ),
+            "wrong path": changelog(ref=HEAD_SHA, path="docs/changelogs/other.md"),
+            "wrong name": changelog(ref=HEAD_SHA, name="other.md"),
+            "wrong ref": changelog(
+                ref=HEAD_SHA,
+                url=f"{API}/contents/{CHANGELOG_PATH}?ref={'d' * 40}",
+            ),
+            "wrong response sha": changelog(ref=HEAD_SHA, sha="short"),
+            "wrong encoding": changelog(ref=HEAD_SHA, encoding="utf-8"),
+            "malformed base64": changelog(ref=HEAD_SHA, content="not base64***"),
+            "invalid utf8": changelog(content=b"\xff\n", ref=HEAD_SHA),
+            "crlf": changelog(content=BODY.replace("\n", "\r\n").encode(), ref=HEAD_SHA),
+            "missing final newline": changelog(content=BODY[:-1].encode(), ref=HEAD_SHA),
+            "extra final newline": changelog(content=(BODY + "\n").encode(), ref=HEAD_SHA),
+            "content mismatch": changelog(
+                content=BODY.replace("Changed licensing", "Changed legal").encode(),
+                ref=HEAD_SHA,
+            ),
+            "oversized": changelog(
+                ref=HEAD_SHA, size=release.MAX_CHANGELOG_BYTES + 1
+            ),
+            "truncated": changelog(ref=HEAD_SHA, size=len(BODY.encode()) + 1),
+        }
+        for name, item in invalid.items():
+            with self.subTest(name=name):
+                transport = FakeTransport()
+                client = release.GitHubClient(REPOSITORY, "secret", transport)
+                transport.add(
+                    "GET", "/pulls/12", pull(state="open", merged=False, sha=None)
+                )
+                transport.add("GET", changelog_request(HEAD_SHA), item)
+                with self.assertRaises(release.ReleaseError):
+                    release.validate_pull_request(client, 12, expected_date=RELEASE_DATE)
+                self.assertTrue(all(call["method"] == "GET" for call in transport.calls))
+                transport.assert_done()
+
+    def test_tree_must_prove_one_ordinary_file_at_exact_head(self):
+        invalid = {
+            "ambiguous response": [],
+            "truncated": tree(truncated=True),
+            "missing path": tree(tree=[]),
+            "duplicate path": tree(tree=tree()["tree"] * 2),
+            "symlink mode": tree(mode="120000"),
+            "submodule mode": tree(mode="160000"),
+            "wrong blob": tree(sha="e" * 40),
+            "wrong size": tree(size=len(BODY.encode()) + 1),
+        }
+        for name, tree_response in invalid.items():
+            with self.subTest(name=name):
+                transport = FakeTransport()
+                client = release.GitHubClient(REPOSITORY, "secret", transport)
+                transport.add(
+                    "GET", "/pulls/12", pull(state="open", merged=False, sha=None)
+                )
+                transport.add(
+                    "GET", changelog_request(HEAD_SHA), changelog(ref=HEAD_SHA)
+                )
+                transport.add("GET", tree_request(HEAD_SHA), tree_response)
+                with self.assertRaises(release.ReleaseError):
+                    release.validate_pull_request(client, 12, expected_date=RELEASE_DATE)
+                self.assertTrue(all(call["method"] == "GET" for call in transport.calls))
+                transport.assert_done()
 
 
 class PublishTests(unittest.TestCase):
@@ -296,6 +444,8 @@ class PublishTests(unittest.TestCase):
     def queue_validation(self, *, pr=None, tags=None):
         self.transport.add("GET", "/pulls/12", pr or pull())
         self.transport.add("GET", f"/commits/{SHA}", {"sha": SHA})
+        self.transport.add("GET", changelog_request(SHA), changelog(ref=SHA))
+        self.transport.add("GET", tree_request(SHA), tree())
         self.transport.add(
             "GET", "/tags?per_page=100", tags if tags is not None else []
         )
@@ -434,6 +584,25 @@ class PublishTests(unittest.TestCase):
         self.transport.add("GET", f"/commits/{SHA}", {"sha": "b" * 40})
         with self.assertRaisesRegex(release.ReleaseError, "merge commit response"):
             release.publish(self.client, 12)
+        self.transport.assert_done()
+
+    def test_changelog_mismatch_at_merge_commit_stops_before_any_write(self):
+        private_file_text = "provider-secret-123"
+        self.transport.add("GET", "/pulls/12", pull())
+        self.transport.add("GET", f"/commits/{SHA}", {"sha": SHA})
+        self.transport.add(
+            "GET",
+            changelog_request(SHA),
+            changelog(content=BODY.replace("release automation", private_file_text).encode()),
+        )
+        with self.assertRaisesRegex(
+            release.ReleaseError, "does not exactly match"
+        ) as raised:
+            release.publish(self.client, 12)
+        self.assertNotIn(private_file_text, str(raised.exception))
+        self.assertNotIn(BODY, str(raised.exception))
+        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+        self.assertFalse(any("/git/ref" in call["path"] for call in self.transport.calls))
         self.transport.assert_done()
 
     def test_newer_tag_rejects_rerun_before_mutation(self):
