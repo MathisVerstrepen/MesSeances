@@ -1,4 +1,5 @@
 .agents/
+.opencode/
 .codebase-memory/
 .cbmignore
 AGENTS.md

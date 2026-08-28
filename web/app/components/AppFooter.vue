@@ -2,6 +2,8 @@
 import { ArrowUp } from '@lucide/vue'
 
 const currentYear = new Date().getFullYear()
+const configuredVersion = useRuntimeConfig().public.appVersion.trim()
+const appVersion = configuredVersion || 'dev'
 
 const explorerLinks = [
   { to: '/recherche', label: 'Trouver une séance' },
@@ -69,6 +71,7 @@ function scrollToTop() {
       <div class="mx-auto flex max-w-[1440px] flex-col gap-4 px-4 py-4 font-mono text-[10px] font-bold uppercase tracking-[0.1em] sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-10">
         <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6">
           <p>© {{ currentYear }} MesSeances</p>
+          <p>Version {{ appVersion }}</p>
           <p>
             Made with ❤️ by
             <a

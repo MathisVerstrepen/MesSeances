@@ -138,11 +138,18 @@ To stop PostgreSQL later without deleting local data:
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml down
 ```
 
+## Development and releases
+
+Development integrates through feature pull requests into `dev`. Release pull requests use selectable release template from `dev` to protected `main`; valid merged releases create strict stable tags, stable GitHub Releases, versioned API/web GHCR images, and `latest` aliases. Production deployment remains manual.
+
+See [development and release operation](docs/releasing.md) for exact worktree commands, pull request title/body contract, GitHub and `gh` flows, branch-protection check names, publication behavior, and failure recovery.
+
 ## Contributor checks
 
 These offline checks do not run UGC, Kinepolis, Pathé, or CGR synchronization and do not make real TMDB or IGN calls:
 
 ```sh
+python -m unittest discover -s scripts/tests
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
 docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
 cd api && go test ./...

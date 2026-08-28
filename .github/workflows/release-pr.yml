@@ -1,0 +1,113 @@
+name: Release PR
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Release PR / Validate release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out pre-merge base
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base-automation
+          persist-credentials: false
+
+      - name: Select release automation source
+        id: automation
+        env:
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_STATE: ${{ github.event.pull_request.state }}
+          EVENT_MERGED: ${{ github.event.pull_request.merged }}
+          EVENT_REPOSITORY: ${{ github.repository }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha_pattern='^[0-9a-f]{40}$'
+          [[ "$BASE_SHA" =~ $sha_pattern ]]
+          [[ "$HEAD_SHA" =~ $sha_pattern ]]
+          [[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]
+
+          tool_path=base-automation/scripts/release_automation.py
+          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
+            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
+            printf 'pre-merge base release tooling is not a regular file\n' >&2
+            exit 1
+          fi
+
+          case "$EVENT_ACTION" in
+            opened|edited|synchronize|reopened|ready_for_review) ;;
+            *) exit 1 ;;
+          esac
+          [[ "$EVENT_NAME" == pull_request ]]
+          [[ "$EVENT_STATE" == open ]]
+          [[ "$EVENT_MERGED" == false ]]
+          [[ "$BASE_REF" == main ]]
+          [[ "$HEAD_REF" == dev ]]
+          [[ "$BASE_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_FORK" == false ]]
+
+          printf 'source=head\nref=%s\n' "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out selected release automation
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.automation.outputs.ref }}
+          path: release-automation
+          persist-credentials: false
+
+      - name: Verify selected release automation
+        env:
+          AUTOMATION_REF: ${{ steps.automation.outputs.ref }}
+          AUTOMATION_SOURCE: ${{ steps.automation.outputs.source }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$(git -C release-automation rev-parse HEAD)" == "$AUTOMATION_REF" ]]
+          [[ -f release-automation/scripts/release_automation.py ]]
+          [[ ! -L release-automation/scripts/release_automation.py ]]
+          case "$AUTOMATION_SOURCE" in
+            base) [[ "$AUTOMATION_REF" == "$BASE_SHA" ]] ;;
+            head) [[ "$AUTOMATION_REF" == "$HEAD_SHA" ]] ;;
+            *) exit 1 ;;
+          esac
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Validate release pull request
+        env:
+          RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: >-
+          python release-automation/scripts/release_automation.py validate-pr
+          --repository "$RELEASE_REPOSITORY"
+          --pull-request-number "$RELEASE_PULL_REQUEST"

@@ -144,6 +144,7 @@ func TestManagerStartsFixedBatchWithoutBlockingAndRejectsOverlap(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("run did not finish")
 	}
+	manager.Close()
 	status, err := manager.Snapshot(context.Background())
 	if err != nil || status == nil || status.State != RunStateSucceeded || status.Summary == nil || status.Summary.Selected != 7 || status.Summary.Written != 7 || status.ErrorCode != nil {
 		t.Fatalf("status=%+v err=%v", status, err)
