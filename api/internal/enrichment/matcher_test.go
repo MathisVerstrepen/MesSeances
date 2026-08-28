@@ -344,9 +344,23 @@ func TestMatcherSoleExactTitleMissingProviderRuntimeUsesSourceFallback(t *testin
 }
 
 func TestMetadataFromDetailsReturnsNonNilEmptyGenres(t *testing.T) {
-	metadata := metadataFromDetails(tmdb.Details{ID: 577599, Title: "Film", OriginalTitle: "Film", Runtime: 90}, 90, matcherNow)
-	if metadata.Genres == nil || len(metadata.Genres) != 0 {
-		t.Fatalf("genres=%#v", metadata.Genres)
+	metadata := metadataFromDetails(tmdb.Details{ID: 577599, Title: "Film", OriginalTitle: "Film", TrailerYouTubeKey: "FRoff123456", Runtime: 90}, 90, matcherNow)
+	if metadata.Genres == nil || len(metadata.Genres) != 0 || metadata.TrailerYouTubeKey != "FRoff123456" {
+		t.Fatalf("metadata=%+v", metadata)
+	}
+}
+
+func TestValidateMetadataRejectsMalformedTrailerYouTubeKeys(t *testing.T) {
+	base := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", TrailerYouTubeKey: "FRoff123456", RuntimeMinutes: 90, Genres: []string{}, FetchedAt: matcherNow, RefreshAfter: matcherNow.Add(metadataTTL)}
+	if err := validateMetadata(base); err != nil {
+		t.Fatalf("valid trailer key rejected: %v", err)
+	}
+	for _, key := range []string{"short", "FRoff12345!", "FRoff1234567", "FRoff12345/"} {
+		metadata := base
+		metadata.TrailerYouTubeKey = key
+		if err := validateMetadata(metadata); err == nil {
+			t.Fatalf("malformed trailer key accepted: %q", key)
+		}
 	}
 }
 

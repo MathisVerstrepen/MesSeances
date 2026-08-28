@@ -29,15 +29,24 @@ type Candidate struct {
 }
 
 type Details struct {
-	ID            int64
-	Title         string
-	OriginalTitle string
-	Overview      string
-	ReleaseDate   string
-	PosterURL     string
-	BackdropURL   string
-	Runtime       int
-	Genres        []string
+	ID                int64
+	Title             string
+	OriginalTitle     string
+	Overview          string
+	ReleaseDate       string
+	PosterURL         string
+	BackdropURL       string
+	TrailerYouTubeKey string
+	Runtime           int
+	Genres            []string
+}
+
+type video struct {
+	Key      string `json:"key"`
+	Site     string `json:"site"`
+	Type     string `json:"type"`
+	Language string `json:"iso_639_1"`
+	Official bool   `json:"official"`
 }
 
 type Config struct {
@@ -163,8 +172,16 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 		Genres        []struct {
 			Name string `json:"name"`
 		} `json:"genres"`
+		Videos struct {
+			Results []video `json:"results"`
+		} `json:"videos"`
 	}
-	if err := c.get(ctx, "/3/movie/"+strconv.FormatInt(id, 10), url.Values{"language": {"fr-FR"}}, &response); err != nil {
+	query := url.Values{
+		"append_to_response":     {"videos"},
+		"include_video_language": {"fr,en,null"},
+		"language":               {"fr-FR"},
+	}
+	if err := c.get(ctx, "/3/movie/"+strconv.FormatInt(id, 10), query, &response); err != nil {
 		return Details{}, err
 	}
 	if response.ID != id || !validText(response.Title, 1024) || !validText(response.OriginalTitle, 1024) || response.Runtime < 0 || response.Runtime > 600 || len(response.Overview) > 10000 {
@@ -175,7 +192,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 			return Details{}, fmt.Errorf("tmdb movie response is invalid")
 		}
 	}
-	details := Details{ID: response.ID, Title: response.Title, OriginalTitle: response.OriginalTitle, Overview: response.Overview, ReleaseDate: response.ReleaseDate, Runtime: response.Runtime, Genres: []string{}}
+	details := Details{ID: response.ID, Title: response.Title, OriginalTitle: response.OriginalTitle, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results), Runtime: response.Runtime, Genres: []string{}}
 	for _, genre := range response.Genres {
 		if !validText(genre.Name, 256) || len(details.Genres) == 32 {
 			return Details{}, fmt.Errorf("tmdb movie response is invalid")
@@ -197,6 +214,40 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 		details.BackdropURL = backdropURL
 	}
 	return details, nil
+}
+
+func selectTrailerYouTubeKey(videos []video) string {
+	selected := ""
+	selectedRank := 4
+	for _, candidate := range videos {
+		if candidate.Site != "YouTube" || candidate.Type != "Trailer" || !validYouTubeKey(candidate.Key) {
+			continue
+		}
+		rank := 3
+		if candidate.Official {
+			rank = 1
+		}
+		if candidate.Language == "fr" {
+			rank--
+		}
+		if rank < selectedRank {
+			selected, selectedRank = candidate.Key, rank
+		}
+	}
+	return selected
+}
+
+func validYouTubeKey(value string) bool {
+	if len(value) != 11 {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (c *Client) posterURL(ctx context.Context, path string) (string, error) {

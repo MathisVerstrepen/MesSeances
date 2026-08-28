@@ -57,7 +57,7 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 			BookingURL:      "https://www.ugc.fr/reservationSeances.html?id=" + id,
 		}
 		if movieID == "200" {
-			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg"}
+			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerYouTubeKey: "FRoff123456"}
 		}
 		switch id {
 		case "100":
@@ -410,7 +410,7 @@ func TestMoviesTransport(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
 		t.Fatal(err)
 	}
-	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || len(catalog.Items[0].Genres) != 1 {
+	if !catalog.GeneratedAt.Equal(wantGeneratedAt) || catalog.Page != 1 || catalog.PageSize != 1 || catalog.Total != 2 || len(catalog.Items) != 1 || catalog.Items[0].Slug != "tmdb-film-42" || catalog.Items[0].ShowtimeCount != 2 || catalog.Items[0].PosterURL == nil || catalog.Items[0].TMDBID == nil || *catalog.Items[0].TMDBID != 42 || catalog.Items[0].TrailerYouTubeKey == nil || *catalog.Items[0].TrailerYouTubeKey != "FRoff123456" || len(catalog.Items[0].Genres) != 1 {
 		t.Fatalf("catalog=%+v", catalog)
 	}
 	if !strings.Contains(response.Body.String(), `"generated_at":"2026-08-14T12:00:00Z"`) {
@@ -420,7 +420,7 @@ func TestMoviesTransport(t *testing.T) {
 		t.Fatal("nested movie contract unexpectedly enriched")
 	}
 	all := performRequest(t, handler, "/api/v1/movies?page_size=2")
-	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"overview":null,"release_date":null,"genres":[]`) {
+	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"trailer_youtube_key":null,"overview":null,"release_date":null,"genres":[]`) {
 		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
 	if !strings.Contains(all.Body.String(), `"available_genres":["Drame"]`) {
@@ -568,6 +568,9 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	}
 	if result.BackdropURL == nil || *result.BackdropURL != "https://image.tmdb.org/t/p/w780/a.jpg" {
 		t.Fatalf("backdrop=%v", result.BackdropURL)
+	}
+	if result.Movie.TrailerYouTubeKey == nil || *result.Movie.TrailerYouTubeKey != "FRoff123456" {
+		t.Fatalf("trailer YouTube key=%v", result.Movie.TrailerYouTubeKey)
 	}
 	missing := performRequest(t, handler, "/api/v1/movies/ugc-film-201/showtimes?date=2026-08-15")
 	if missing.Code != http.StatusOK {

@@ -173,16 +173,17 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
-	Slug           string    `json:"slug"`
-	Title          string    `json:"title"`
-	RuntimeMinutes int       `json:"runtime_minutes"`
-	UpdatedAt      time.Time `json:"updated_at"`
-	ShowtimeCount  int       `json:"showtime_count,omitempty"`
-	PosterURL      *string   `json:"poster_url"`
-	TMDBID         *int64    `json:"tmdb_id"`
-	Overview       *string   `json:"overview"`
-	ReleaseDate    *string   `json:"release_date"`
-	Genres         []string  `json:"genres"`
+	Slug              string    `json:"slug"`
+	Title             string    `json:"title"`
+	RuntimeMinutes    int       `json:"runtime_minutes"`
+	UpdatedAt         time.Time `json:"updated_at"`
+	ShowtimeCount     int       `json:"showtime_count,omitempty"`
+	PosterURL         *string   `json:"poster_url"`
+	TMDBID            *int64    `json:"tmdb_id"`
+	TrailerYouTubeKey *string   `json:"trailer_youtube_key"`
+	Overview          *string   `json:"overview"`
+	ReleaseDate       *string   `json:"release_date"`
+	Genres            []string  `json:"genres"`
 }
 
 type MovieCatalog struct {

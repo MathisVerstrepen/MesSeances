@@ -18,6 +18,7 @@ export interface Movie {
 export interface CatalogMovie extends Movie {
   poster_url: string | null
   tmdb_id: number | null
+  trailer_youtube_key?: string | null
   overview: string | null
   release_date: string | null
   genres: string[]

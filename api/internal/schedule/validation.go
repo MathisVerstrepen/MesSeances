@@ -171,8 +171,13 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if !validBookingURL(provider, showing.BookingURL, showing.ProviderShowingID, theater.ProviderID) || (showing.Movie.PosterURL != "" && !validProviderImageURL(posterProvider, showing.Movie.PosterURL)) {
 			return fmt.Errorf("invalid provider URL")
 		}
-		if showing.Movie.Enrichment != nil && showing.Movie.Enrichment.BackdropURL != "" && !validTMDBBackdropURL(showing.Movie.Enrichment.BackdropURL) {
-			return fmt.Errorf("invalid enrichment backdrop URL")
+		if showing.Movie.Enrichment != nil {
+			if showing.Movie.Enrichment.BackdropURL != "" && !validTMDBBackdropURL(showing.Movie.Enrichment.BackdropURL) {
+				return fmt.Errorf("invalid enrichment backdrop URL")
+			}
+			if showing.Movie.Enrichment.TrailerYouTubeKey != "" && (showing.Movie.Enrichment.TMDBID <= 0 || !validYouTubeKey(showing.Movie.Enrichment.TrailerYouTubeKey)) {
+				return fmt.Errorf("invalid enrichment trailer YouTube key")
+			}
 		}
 	}
 	if data.PublicMovies != nil || data.MovieSources != nil || data.MovieAliases != nil {
@@ -187,7 +192,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
-		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || movie.TrailerYouTubeKey != "" && (movie.TMDBID <= 0 || !validYouTubeKey(movie.TrailerYouTubeKey)) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
 			return fmt.Errorf("invalid public movie")
 		}
 		if movie.RedirectToID == movie.ID {
@@ -241,6 +246,19 @@ func validatePublicMovieCatalog(data Dataset) error {
 		}
 	}
 	return nil
+}
+
+func validYouTubeKey(value string) bool {
+	if len(value) != 11 {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func sameLocalMovieMetadata(a, b MovieRecord) bool {

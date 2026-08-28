@@ -244,6 +244,35 @@ func TestValidateDatasetRejectsUnsafeBackdropURLs(t *testing.T) {
 	}
 }
 
+func TestValidateDatasetRejectsMalformedPublicMovieTrailerYouTubeKey(t *testing.T) {
+	data := combinedTestDataset()
+	for index := range data.Showtimes {
+		if data.Showtimes[index].Movie.ProviderID == "200" || data.Showtimes[index].Movie.ProviderID == "HO200" {
+			data.Showtimes[index].Movie.PublicMovieID = 1
+		}
+	}
+	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film", RuntimeMinutes: 100, TMDBID: 42, TrailerYouTubeKey: "FRoff123456", UpdatedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)}}
+	data.MovieSources = []PublicMovieSourceRecord{
+		{Provider: ProviderUGC, SourceMovieID: "200", PublicMovieID: 1, SourceSlug: "ugc-film-200", Title: "Film", RuntimeMinutes: 100},
+		{Provider: ProviderKinepolis, SourceMovieID: "HO200", PublicMovieID: 1, SourceSlug: "kinepolis-film-HO200", Title: "Film", RuntimeMinutes: 100},
+	}
+	data.MovieAliases = []MovieSlugAliasRecord{}
+	filtered := data.Showtimes[:0]
+	for _, showing := range data.Showtimes {
+		if showing.Movie.ProviderID == "200" || showing.Movie.ProviderID == "HO200" {
+			filtered = append(filtered, showing)
+		}
+	}
+	data.Showtimes = filtered
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid trailer key rejected: %v", err)
+	}
+	data.PublicMovies[0].TrailerYouTubeKey = "invalid"
+	if err := ValidateDataset(data, true); err == nil {
+		t.Fatal("malformed trailer key accepted")
+	}
+}
+
 func TestValidateKinepolisDatasetIdentityPassesAndURLs(t *testing.T) {
 	data := kinepolisTestDataset()
 	if err := ValidateDataset(data, true); err != nil {

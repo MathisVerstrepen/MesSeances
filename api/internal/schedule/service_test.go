@@ -1287,7 +1287,7 @@ func TestCanonicalMovieInventoryAliasesEndedAndSourceTiming(t *testing.T) {
 	data.Showtimes = filtered
 	updated := time.Date(2026, 8, 10, 9, 0, 0, 0, time.UTC)
 	data.PublicMovies = []PublicMovieRecord{
-		{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film canonique", RuntimeMinutes: 120, TMDBID: 42, UpdatedAt: updated},
+		{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film canonique", RuntimeMinutes: 120, TMDBID: 42, TrailerYouTubeKey: "FRoff123456", UpdatedAt: updated},
 		{ID: 2, RedirectToID: 1, IdentityAnchorProvider: ProviderKinepolis, IdentityAnchorSourceID: "OLD", Title: "Ancien doublon", RuntimeMinutes: 100, UpdatedAt: updated},
 		{ID: 9, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "999", Title: "Film terminé", RuntimeMinutes: 88, UpdatedAt: updated.Add(time.Hour)},
 	}
@@ -1327,7 +1327,7 @@ func TestCanonicalMovieInventoryAliasesEndedAndSourceTiming(t *testing.T) {
 		}
 	}
 	national, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "film-1", Date: "2026-08-15"})
-	if err != nil || !national.CurrentlyScreened {
+	if err != nil || !national.CurrentlyScreened || national.Movie.TrailerYouTubeKey == nil || *national.Movie.TrailerYouTubeKey != "FRoff123456" {
 		t.Fatalf("national=%+v err=%v", national, err)
 	}
 	for _, theater := range national.Theaters {

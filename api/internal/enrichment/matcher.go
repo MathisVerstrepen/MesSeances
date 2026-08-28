@@ -324,7 +324,7 @@ func metadataFromDetails(details tmdb.Details, sourceRuntime int, now time.Time)
 	}
 	genres := make([]string, len(details.Genres))
 	copy(genres, details.Genres)
-	return Metadata{Provider: ProviderTMDB, ProviderMovieID: details.ID, Locale: LocaleFrench, ProviderTitle: details.OriginalTitle, LocalizedTitle: details.Title, Overview: details.Overview, ReleaseDate: details.ReleaseDate, PosterURL: details.PosterURL, BackdropURL: details.BackdropURL, RuntimeMinutes: runtime, Genres: genres, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
+	return Metadata{Provider: ProviderTMDB, ProviderMovieID: details.ID, Locale: LocaleFrench, ProviderTitle: details.OriginalTitle, LocalizedTitle: details.Title, Overview: details.Overview, ReleaseDate: details.ReleaseDate, PosterURL: details.PosterURL, BackdropURL: details.BackdropURL, TrailerYouTubeKey: details.TrailerYouTubeKey, RuntimeMinutes: runtime, Genres: genres, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
 }
 
 func candidateRecords(candidates []tmdb.Candidate) []Candidate {

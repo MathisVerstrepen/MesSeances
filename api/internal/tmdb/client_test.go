@@ -36,7 +36,10 @@ func TestClientSearchAndDetails(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"results":[{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","poster_path":"/poster.jpg"}]}`))
 		case "/3/movie/42":
-			_, _ = w.Write([]byte(`{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","overview":"Résumé","release_date":"2001-04-25","poster_path":"/poster.jpg","backdrop_path":"/backdrop.jpg","runtime":122,"genres":[{"name":"Comédie"}]}`))
+			if r.URL.Query().Get("language") != "fr-FR" || r.URL.Query().Get("append_to_response") != "videos" || r.URL.Query().Get("include_video_language") != "fr,en,null" {
+				t.Error("details query mismatch")
+			}
+			_, _ = w.Write([]byte(`{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","overview":"Résumé","release_date":"2001-04-25","poster_path":"/poster.jpg","backdrop_path":"/backdrop.jpg","runtime":122,"genres":[{"name":"Comédie"}],"videos":{"results":[{"key":"FRuno123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":false},{"key":"ENoff123456","site":"YouTube","type":"Trailer","iso_639_1":"en","official":true}]}}`))
 		case "/3/configuration":
 			_, _ = w.Write([]byte(`{"images":{"secure_base_url":"https://image.tmdb.org/t/p/","poster_sizes":["w342","w500"],"backdrop_sizes":["w300","w780"]}}`))
 		default:
@@ -48,11 +51,67 @@ func TestClientSearchAndDetails(t *testing.T) {
 		t.Fatalf("candidates=%+v err=%v", candidates, err)
 	}
 	details, err := client.Details(context.Background(), 42)
-	if err != nil || details.PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || details.BackdropURL != "https://image.tmdb.org/t/p/w780/backdrop.jpg" || details.Runtime != 122 || len(details.Genres) != 1 {
+	if err != nil || details.PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || details.BackdropURL != "https://image.tmdb.org/t/p/w780/backdrop.jpg" || details.TrailerYouTubeKey != "ENoff123456" || details.Runtime != 122 || len(details.Genres) != 1 {
 		t.Fatalf("details=%+v err=%v", details, err)
 	}
 	if len(requests) != 3 {
 		t.Fatalf("requests=%v", requests)
+	}
+}
+
+func TestSelectTrailerYouTubeKeyUsesOfficialThenFrenchFallback(t *testing.T) {
+	tests := []struct {
+		name   string
+		videos []video
+		want   string
+	}{
+		{
+			name: "French official wins",
+			videos: []video{
+				{Key: "ENoff123456", Site: "YouTube", Type: "Trailer", Language: "en", Official: true},
+				{Key: "FRoff123456", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
+			},
+			want: "FRoff123456",
+		},
+		{
+			name: "other official beats French unofficial",
+			videos: []video{
+				{Key: "FRuno123456", Site: "YouTube", Type: "Trailer", Language: "fr"},
+				{Key: "ENoff123456", Site: "YouTube", Type: "Trailer", Language: "en", Official: true},
+			},
+			want: "ENoff123456",
+		},
+		{
+			name: "French unofficial beats other unofficial",
+			videos: []video{
+				{Key: "ENuno123456", Site: "YouTube", Type: "Trailer", Language: "en"},
+				{Key: "FRuno123456", Site: "YouTube", Type: "Trailer", Language: "fr"},
+			},
+			want: "FRuno123456",
+		},
+		{
+			name: "first result wins within tier",
+			videos: []video{
+				{Key: "FRoff123456", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
+				{Key: "FRoff654321", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
+			},
+			want: "FRoff123456",
+		},
+		{
+			name: "invalid and non trailers are ignored",
+			videos: []video{
+				{Key: "bad", Site: "YouTube", Type: "Trailer", Language: "fr", Official: true},
+				{Key: "FRoff123456", Site: "Vimeo", Type: "Trailer", Language: "fr", Official: true},
+				{Key: "ENoff123456", Site: "YouTube", Type: "Teaser", Language: "en", Official: true},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := selectTrailerYouTubeKey(test.videos); got != test.want {
+				t.Fatalf("selected=%q want=%q", got, test.want)
+			}
+		})
 	}
 }
 

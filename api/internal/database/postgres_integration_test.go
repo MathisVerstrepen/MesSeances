@@ -294,6 +294,25 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 			t.Fatalf("invalid backdrop accepted: %q", invalid)
 		}
 	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET trailer_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'", "FRoff123456"); err == nil {
+		t.Fatal("public trailer YouTube key without confirmed TMDB identity accepted")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET confirmed_tmdb_id=41 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'"); err != nil {
+		t.Fatalf("set public movie TMDB identity failed: %v", err)
+	}
+	for _, statement := range []string{
+		"UPDATE movie_metadata_cache SET trailer_youtube_key=$1 WHERE provider_movie_id=41",
+		"UPDATE public_movies SET trailer_youtube_key=$1 WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'",
+	} {
+		if _, err := pool.Exec(ctx, statement, "FRoff123456"); err != nil {
+			t.Fatalf("valid trailer YouTube key rejected by %s: %v", statement, err)
+		}
+		for _, invalid := range []string{"short", "FRoff12345!", "FRoff1234567"} {
+			if _, err := pool.Exec(ctx, statement, invalid); err == nil {
+				t.Fatalf("invalid trailer YouTube key accepted by %s: %q", statement, invalid)
+			}
+		}
+	}
 
 	if err := RunMigrations(ctx, pool); err != nil {
 		t.Fatal("repeat migration run failed")

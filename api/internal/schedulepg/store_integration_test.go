@@ -291,12 +291,12 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	t.Run("enrichment publication is durable and visible", func(t *testing.T) {
 		now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 		match := enrichment.Match{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(30 * 24 * time.Hour)}
-		metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", RuntimeMinutes: 100, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(30 * 24 * time.Hour)}
+		metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerYouTubeKey: "FRoff123456", RuntimeMinutes: 100, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(30 * 24 * time.Hour)}
 		if err := enrichment.NewPostgresStore(pool).Publish(ctx, match, metadata); err != nil {
 			t.Fatal(err)
 		}
 		loaded, revision, err := store.Load(ctx)
-		if err != nil || revision.EnrichmentVersion != 1 || len(loaded.PublicMovies) != 4 || loaded.PublicMovies[0].TMDBID != 42 || loaded.PublicMovies[0].BackdropURL != metadata.BackdropURL {
+		if err != nil || revision.EnrichmentVersion != 1 || len(loaded.PublicMovies) != 4 || loaded.PublicMovies[0].TMDBID != 42 || loaded.PublicMovies[0].BackdropURL != metadata.BackdropURL || loaded.PublicMovies[0].TrailerYouTubeKey != metadata.TrailerYouTubeKey {
 			t.Fatalf("revision=%+v movie=%+v err=%v", revision, loaded.Showtimes[0].Movie, err)
 		}
 	})
