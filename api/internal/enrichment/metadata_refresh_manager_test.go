@@ -193,7 +193,7 @@ func TestMetadataRefreshManagerSnapshotConcurrentAccess(t *testing.T) {
 }
 
 func TestNewMetadataRefreshManagerRejectsMissingDependencies(t *testing.T) {
-	if _, err := NewMetadataRefreshManager(nil, nil, nil); err == nil {
+	if _, err := NewMetadataRefreshManager(context.TODO(), nil, nil); err == nil {
 		t.Fatal("nil dependencies accepted")
 	}
 	if (*MetadataRefreshManager)(nil).Snapshot() != nil {
