@@ -1,5 +1,7 @@
 import tailwindcss from '@tailwindcss/vite'
 
+declare const process: { env: Record<string, string | undefined> }
+
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: false },
@@ -63,6 +65,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     apiBase: 'http://localhost:8080',
     public: {
+      appVersion: process.env.NUXT_PUBLIC_APP_VERSION || 'dev',
       apiBase: 'http://localhost:8080',
       siteUrl: 'http://localhost:3000',
       umamiScriptUrl: '',

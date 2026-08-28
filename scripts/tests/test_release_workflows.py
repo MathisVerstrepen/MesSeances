@@ -124,6 +124,53 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
             "- name: Repoint latest aliases without rebuilding",
         )
 
+    def test_web_build_uses_only_validated_finalize_version_as_build_arg(self):
+        workflow = PUBLICATION_WORKFLOW.read_text(encoding="utf-8")
+        build = workflow.split("  build:\n", 1)[1].split("\n  promote:\n", 1)[0]
+        api_matrix = build.split("          - suffix: api\n", 1)[1].split(
+            "          - suffix: web\n", 1
+        )[0]
+        web_matrix = build.split("          - suffix: web\n", 1)[1].split(
+            "    steps:\n", 1
+        )[0]
+
+        self.assertIn("dockerfile: deploy/Dockerfile.api", api_matrix)
+        self.assertIn('build-args: ""', api_matrix)
+        self.assertNotIn("RELEASE_VERSION", api_matrix)
+        self.assertIn("dockerfile: deploy/Dockerfile.web", web_matrix)
+        self.assertIn(
+            "build-args: RELEASE_VERSION=${{ needs.finalize.outputs.version }}",
+            web_matrix,
+        )
+        self.assertEqual(build.count("build-args: ${{ matrix.build-args }}"), 1)
+        self.assertNotIn("github.event.pull_request.title", build)
+
+    def test_web_build_fails_closed_without_strict_finalize_version(self):
+        workflow = PUBLICATION_WORKFLOW.read_text(encoding="utf-8")
+        build = workflow.split("  build:\n", 1)[1].split("\n  promote:\n", 1)[0]
+        guard_step = build.split("      - name: Require web release version\n", 1)[
+            1
+        ].split("\n      - name:", 1)[0]
+        guard_scripts = step_scripts(workflow, "Require web release version")
+
+        self.assertEqual(len(guard_scripts), 1)
+        self.assertIn("if: matrix.suffix == 'web'", guard_step)
+        self.assertIn(
+            "RELEASE_VERSION: ${{ needs.finalize.outputs.version }}", guard_step
+        )
+        self.assertIn("set -euo pipefail", guard_scripts[0])
+        self.assertIn(
+            '[[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\\.'
+            '(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$ ]]',
+            guard_scripts[0],
+        )
+        assert_order(
+            self,
+            build,
+            "- name: Require web release version",
+            "- name: Build and push versioned image",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

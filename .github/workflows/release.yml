@@ -164,8 +164,10 @@ jobs:
         include:
           - suffix: api
             dockerfile: deploy/Dockerfile.api
+            build-args: ""
           - suffix: web
             dockerfile: deploy/Dockerfile.web
+            build-args: RELEASE_VERSION=${{ needs.finalize.outputs.version }}
     steps:
       - name: Check out merged release
         uses: actions/checkout@v5
@@ -188,6 +190,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Require web release version
+        if: matrix.suffix == 'web'
+        env:
+          RELEASE_VERSION: ${{ needs.finalize.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+
       - name: Build and push versioned image
         uses: docker/build-push-action@v6
         with:
@@ -196,6 +207,7 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: ${{ steps.image.outputs.base }}-${{ matrix.suffix }}:${{ needs.finalize.outputs.version }}
+          build-args: ${{ matrix.build-args }}
 
   promote:
     needs: [finalize, build]
