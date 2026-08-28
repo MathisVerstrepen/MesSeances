@@ -5,10 +5,7 @@ on:
     branches: [main]
     types: [closed]
 
-permissions:
-  contents: write
-  packages: write
-  pull-requests: read
+permissions: {}
 
 concurrency:
   group: publish-release
@@ -20,14 +17,120 @@ jobs:
     name: Create tag and release
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
     outputs:
       version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Check out trusted automation
+      - name: Check out pre-merge base
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          path: base-automation
+          persist-credentials: false
+
+      - name: Select release automation source
+        id: automation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha_pattern='^[0-9a-f]{40}$'
+          [[ "$BASE_SHA" =~ $sha_pattern ]]
+          [[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]
+
+          tool_path=base-automation/scripts/release_automation.py
+          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
+            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
+            printf 'pre-merge base release tooling is not a regular file\n' >&2
+            exit 1
+          fi
+
+          [[ "$EVENT_NAME" == pull_request ]]
+          [[ "$EVENT_ACTION" == closed ]]
+          [[ "$EVENT_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PR_STATE" == closed ]]
+          [[ "$PR_MERGED" == true ]]
+          [[ "$BASE_REF" == main ]]
+          [[ "$HEAD_REF" == dev ]]
+          [[ "$BASE_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_FORK" == false ]]
+          [[ "$HEAD_SHA" =~ $sha_pattern ]]
+          [[ "$MERGE_SHA" =~ $sha_pattern ]]
+
+          pr_json="$(gh api "repos/$EVENT_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e \
+            --arg number "$PR_NUMBER" \
+            '(.number | tostring) == $number' \
+            >/dev/null <<<"$pr_json"
+          jq -e \
+            --arg repository "$EVENT_REPOSITORY" \
+            --arg base_sha "$BASE_SHA" \
+            --arg head_sha "$HEAD_SHA" \
+            --arg merge_sha "$MERGE_SHA" \
+            '.state == "closed" and .merged == true and
+             .base.ref == "main" and .head.ref == "dev" and
+             .base.repo.full_name == $repository and
+             .head.repo.full_name == $repository and .head.repo.fork == false and
+             .base.sha == $base_sha and .head.sha == $head_sha and
+             .merge_commit_sha == $merge_sha' \
+            >/dev/null <<<"$pr_json"
+
+          main_json="$(gh api "repos/$EVENT_REPOSITORY/branches/main")"
+          jq -e \
+            --arg merge_sha "$MERGE_SHA" \
+            '.name == "main" and .protected == true and .commit.sha == $merge_sha' \
+            >/dev/null <<<"$main_json"
+
+          printf 'source=merge\nref=%s\n' "$MERGE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out selected release automation
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.automation.outputs.ref }}
           path: release-automation
+          persist-credentials: false
+
+      - name: Verify selected release automation
+        env:
+          AUTOMATION_REF: ${{ steps.automation.outputs.ref }}
+          AUTOMATION_SOURCE: ${{ steps.automation.outputs.source }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$(git -C release-automation rev-parse HEAD)" == "$AUTOMATION_REF" ]]
+          [[ -f release-automation/scripts/release_automation.py ]]
+          [[ ! -L release-automation/scripts/release_automation.py ]]
+          case "$AUTOMATION_SOURCE" in
+            base) [[ "$AUTOMATION_REF" == "$BASE_SHA" ]] ;;
+            merge) [[ "$AUTOMATION_REF" == "$MERGE_SHA" ]] ;;
+            *) exit 1 ;;
+          esac
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -52,6 +155,9 @@ jobs:
     name: Build ${{ matrix.suffix }} image
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -96,12 +202,119 @@ jobs:
     name: Promote latest aliases
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      pull-requests: read
     steps:
-      - name: Check out trusted automation
+      - name: Check out pre-merge base
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.pull_request.base.sha }}
+          path: base-automation
+          persist-credentials: false
+
+      - name: Select release automation source
+        id: automation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_ACTION: ${{ github.event.action }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          BASE_REPOSITORY: ${{ github.event.pull_request.base.repo.full_name }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sha_pattern='^[0-9a-f]{40}$'
+          [[ "$BASE_SHA" =~ $sha_pattern ]]
+          [[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]
+
+          tool_path=base-automation/scripts/release_automation.py
+          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
+            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
+            printf 'pre-merge base release tooling is not a regular file\n' >&2
+            exit 1
+          fi
+
+          [[ "$EVENT_NAME" == pull_request ]]
+          [[ "$EVENT_ACTION" == closed ]]
+          [[ "$EVENT_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PR_STATE" == closed ]]
+          [[ "$PR_MERGED" == true ]]
+          [[ "$BASE_REF" == main ]]
+          [[ "$HEAD_REF" == dev ]]
+          [[ "$BASE_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_FORK" == false ]]
+          [[ "$HEAD_SHA" =~ $sha_pattern ]]
+          [[ "$MERGE_SHA" =~ $sha_pattern ]]
+
+          pr_json="$(gh api "repos/$EVENT_REPOSITORY/pulls/$PR_NUMBER")"
+          jq -e \
+            --arg number "$PR_NUMBER" \
+            '(.number | tostring) == $number' \
+            >/dev/null <<<"$pr_json"
+          jq -e \
+            --arg repository "$EVENT_REPOSITORY" \
+            --arg base_sha "$BASE_SHA" \
+            --arg head_sha "$HEAD_SHA" \
+            --arg merge_sha "$MERGE_SHA" \
+            '.state == "closed" and .merged == true and
+             .base.ref == "main" and .head.ref == "dev" and
+             .base.repo.full_name == $repository and
+             .head.repo.full_name == $repository and .head.repo.fork == false and
+             .base.sha == $base_sha and .head.sha == $head_sha and
+             .merge_commit_sha == $merge_sha' \
+            >/dev/null <<<"$pr_json"
+
+          main_json="$(gh api "repos/$EVENT_REPOSITORY/branches/main")"
+          jq -e \
+            --arg merge_sha "$MERGE_SHA" \
+            '.name == "main" and .protected == true and .commit.sha == $merge_sha' \
+            >/dev/null <<<"$main_json"
+
+          printf 'source=merge\nref=%s\n' "$MERGE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out selected release automation
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.automation.outputs.ref }}
           path: release-automation
+          persist-credentials: false
+
+      - name: Verify selected release automation
+        env:
+          AUTOMATION_REF: ${{ steps.automation.outputs.ref }}
+          AUTOMATION_SOURCE: ${{ steps.automation.outputs.source }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$(git -C release-automation rev-parse HEAD)" == "$AUTOMATION_REF" ]]
+          [[ -f release-automation/scripts/release_automation.py ]]
+          [[ ! -L release-automation/scripts/release_automation.py ]]
+          case "$AUTOMATION_SOURCE" in
+            base) [[ "$AUTOMATION_REF" == "$BASE_SHA" ]] ;;
+            merge) [[ "$AUTOMATION_REF" == "$MERGE_SHA" ]] ;;
+            *) exit 1 ;;
+          esac
 
       - name: Set up Python
         uses: actions/setup-python@v6

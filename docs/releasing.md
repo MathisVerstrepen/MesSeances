@@ -89,7 +89,7 @@ Open-PR validation requires title date to equal current UTC date whenever valida
 
 ## Publication behavior
 
-Merging a valid same-repository `dev` to `main` pull request runs one serialized release workflow. Workflow runs release tooling checked out from pull request's trusted pre-merge `main` base, re-fetches pull request and commit data through GitHub API, revalidates repository, branches, merge state, merge SHA, title, body, and all tags, then:
+Merging a valid same-repository `dev` to `main` pull request runs one serialized release workflow. When release tooling exists on the pull request's pre-merge `main` base, validation, finalization, and promotion execute that exact base version. For the one-time bootstrap where the exact base lacks the tooling path, read-only validation may execute the exact non-fork `dev` head only after event repository, branch, state, and SHA checks pass. Privileged finalization and promotion never execute unmerged head tooling: each may execute the exact merge commit only after GitHub API data confirms a merged same-repository `dev` to `main` pull request with matching base, head, and merge SHAs and confirms that merge commit is current protected `main`. Any mismatch stops before Python. No separate manual tooling seed on `main` is required. Release automation then re-fetches pull request and commit data through GitHub API, revalidates repository, branches, merge state, merge SHA, title, body, and all tags, then:
 
 1. Creates lightweight Git tag `X.Y.Z` at exact merge commit without ever moving or deleting a tag.
 2. Creates or reconciles stable GitHub Release with same name, exact validated pull request body, `prerelease=false`, and latest-release status.
@@ -115,5 +115,6 @@ gh run view RUN_ID --json jobs --jq '.jobs[] | [.databaseId, .name, .conclusion]
 - If tag resolves to another commit, stop. Automation intentionally never moves or deletes tags. Investigate repository history, leave collided tag untouched, and use a numerically newer release through a new `dev` to `main` pull request after `dev` has another commit.
 - If a newer strict stable tag now exists, stale run cannot update image `latest` aliases. Recover newest release from its own workflow run.
 - If one `latest` alias changed before second alias command failed, rerun promotion job. Both version manifests are revalidated before aliases are repointed again.
+- During first-release bootstrap, a failed finalization or promotion rerun can use merge-commit tooling only while that exact merge commit remains current protected `main`. If `main` advanced or protection is missing, automation stops before Python; do not seed, copy, or run tooling manually with workflow credentials. Inspect repository state and recover through a newly reviewed release path.
 
 Never delete or force-update a release tag to make a failed run pass.
