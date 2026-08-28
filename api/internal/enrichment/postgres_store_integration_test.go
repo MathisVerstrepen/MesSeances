@@ -172,16 +172,16 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 	matched.Status, matched.MetadataMovieID, matched.Score = StatusMatched, 42, 1
 	matched.Candidates = []Candidate{{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: 721, Score: 1}}
 	matched.RetryAfter = now.Add(metadataTTL)
-	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 721, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
+	metadata := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, IMDBID: "tt1234567", Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 721, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(metadataTTL)}
 	if err := store.Publish(ctx, matched, metadata); err != nil {
 		t.Fatal(err)
 	}
 	loadedMetadata, found, err := store.Metadata(ctx, ProviderTMDB, 42, LocaleFrench)
-	if err != nil || !found || loadedMetadata.RuntimeMinutes != 721 || loadedMetadata.Overview != "Résumé" || loadedMetadata.BackdropURL != metadata.BackdropURL || loadedMetadata.TrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || loadedMetadata.TrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey || len(loadedMetadata.Genres) != 1 {
+	if err != nil || !found || loadedMetadata.IMDBID != metadata.IMDBID || loadedMetadata.RuntimeMinutes != 721 || loadedMetadata.Overview != "Résumé" || loadedMetadata.BackdropURL != metadata.BackdropURL || loadedMetadata.TrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || loadedMetadata.TrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey || len(loadedMetadata.Genres) != 1 {
 		t.Fatalf("metadata=%+v found=%v error=%v", loadedMetadata, found, err)
 	}
-	var publicTrailerVFYouTubeKey, publicTrailerVOYouTubeKey string
-	if err := pool.QueryRow(ctx, "SELECT trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE confirmed_tmdb_id=42 AND redirect_to_id IS NULL").Scan(&publicTrailerVFYouTubeKey, &publicTrailerVOYouTubeKey); err != nil || publicTrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || publicTrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey {
+	var publicIMDBID, publicTrailerVFYouTubeKey, publicTrailerVOYouTubeKey string
+	if err := pool.QueryRow(ctx, "SELECT imdb_id, trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE confirmed_tmdb_id=42 AND redirect_to_id IS NULL").Scan(&publicIMDBID, &publicTrailerVFYouTubeKey, &publicTrailerVOYouTubeKey); err != nil || publicIMDBID != metadata.IMDBID || publicTrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || publicTrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey {
 		t.Fatalf("public trailer keys VF=%q VO=%q error=%v", publicTrailerVFYouTubeKey, publicTrailerVOYouTubeKey, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 1 {
@@ -908,7 +908,7 @@ VALUES (1,'cgr',$1,'cgr-film-9090','Film à venir',0)`, movieID); err != nil {
 		if err != nil || !found {
 			t.Fatalf("read decision before refresh: found=%v err=%v", found, err)
 		}
-		refreshed := Metadata{Provider: ProviderTMDB, ProviderMovieID: matched.MetadataMovieID, Locale: LocaleFrench, ProviderTitle: "Film original actualisé", LocalizedTitle: "Film actualisé", Overview: "Nouveau résumé", ReleaseDate: "2026-08-28", PosterURL: "https://image.tmdb.org/t/p/w500/refreshed.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/refreshed.jpg", TrailerVFYouTubeKey: "refresh1234", TrailerVOYouTubeKey: "refresh5678", RuntimeMinutes: 99, Genres: []string{"Action"}, FetchedAt: now.Add(24 * time.Hour), RefreshAfter: now.Add(31 * 24 * time.Hour)}
+		refreshed := Metadata{Provider: ProviderTMDB, ProviderMovieID: matched.MetadataMovieID, IMDBID: "tt7654321", Locale: LocaleFrench, ProviderTitle: "Film original actualisé", LocalizedTitle: "Film actualisé", Overview: "Nouveau résumé", ReleaseDate: "2026-08-28", PosterURL: "https://image.tmdb.org/t/p/w500/refreshed.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/refreshed.jpg", TrailerVFYouTubeKey: "refresh1234", TrailerVOYouTubeKey: "refresh5678", RuntimeMinutes: 99, Genres: []string{"Action"}, FetchedAt: now.Add(24 * time.Hour), RefreshAfter: now.Add(31 * 24 * time.Hour)}
 		if err := store.RefreshMetadata(ctx, []Metadata{refreshed}); err != nil {
 			t.Fatalf("refresh metadata failed: %v", err)
 		}
@@ -920,8 +920,8 @@ VALUES (1,'cgr',$1,'cgr-film-9090','Film à venir',0)`, movieID); err != nil {
 		if err != nil || !found || !sameMetadataContent(loaded, refreshed) {
 			t.Fatalf("refreshed metadata=%+v found=%v err=%v", loaded, found, err)
 		}
-		var publicTitle, publicTrailerVF, publicTrailerVO string
-		if err := pool.QueryRow(ctx, "SELECT title, trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE confirmed_tmdb_id=$1 AND redirect_to_id IS NULL", matched.MetadataMovieID).Scan(&publicTitle, &publicTrailerVF, &publicTrailerVO); err != nil || publicTitle != refreshed.LocalizedTitle || publicTrailerVF != refreshed.TrailerVFYouTubeKey || publicTrailerVO != refreshed.TrailerVOYouTubeKey {
+		var publicTitle, publicIMDBID, publicTrailerVF, publicTrailerVO string
+		if err := pool.QueryRow(ctx, "SELECT title, imdb_id, trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE confirmed_tmdb_id=$1 AND redirect_to_id IS NULL", matched.MetadataMovieID).Scan(&publicTitle, &publicIMDBID, &publicTrailerVF, &publicTrailerVO); err != nil || publicTitle != refreshed.LocalizedTitle || publicIMDBID != refreshed.IMDBID || publicTrailerVF != refreshed.TrailerVFYouTubeKey || publicTrailerVO != refreshed.TrailerVOYouTubeKey {
 			t.Fatalf("public title=%q VF trailer=%q VO trailer=%q err=%v", publicTitle, publicTrailerVF, publicTrailerVO, err)
 		}
 	})

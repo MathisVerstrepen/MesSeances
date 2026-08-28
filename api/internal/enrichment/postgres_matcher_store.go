@@ -59,9 +59,9 @@ ORDER BY source_provider, source_movie_id`, excludeSourceProvider, metadataProvi
 
 func (s *PostgresStore) Metadata(ctx context.Context, provider string, movieID int64, locale string) (Metadata, bool, error) {
 	var metadata Metadata
-	var overview, releaseDate, poster, backdrop, trailerVFYouTubeKey, trailerVOYouTubeKey *string
-	err := s.pool.QueryRow(ctx, `SELECT provider, provider_movie_id, locale, provider_title, localized_title, overview, release_date::text, poster_url, backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, runtime_minutes, genres, fetched_at, refresh_after
-FROM movie_metadata_cache WHERE provider=$1 AND provider_movie_id=$2 AND locale=$3`, provider, movieID, locale).Scan(&metadata.Provider, &metadata.ProviderMovieID, &metadata.Locale, &metadata.ProviderTitle, &metadata.LocalizedTitle, &overview, &releaseDate, &poster, &backdrop, &trailerVFYouTubeKey, &trailerVOYouTubeKey, &metadata.RuntimeMinutes, &metadata.Genres, &metadata.FetchedAt, &metadata.RefreshAfter)
+	var imdbID, overview, releaseDate, poster, backdrop, trailerVFYouTubeKey, trailerVOYouTubeKey *string
+	err := s.pool.QueryRow(ctx, `SELECT provider, provider_movie_id, imdb_id, locale, provider_title, localized_title, overview, release_date::text, poster_url, backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, runtime_minutes, genres, fetched_at, refresh_after
+FROM movie_metadata_cache WHERE provider=$1 AND provider_movie_id=$2 AND locale=$3`, provider, movieID, locale).Scan(&metadata.Provider, &metadata.ProviderMovieID, &imdbID, &metadata.Locale, &metadata.ProviderTitle, &metadata.LocalizedTitle, &overview, &releaseDate, &poster, &backdrop, &trailerVFYouTubeKey, &trailerVOYouTubeKey, &metadata.RuntimeMinutes, &metadata.Genres, &metadata.FetchedAt, &metadata.RefreshAfter)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Metadata{}, false, nil
 	}
@@ -70,6 +70,9 @@ FROM movie_metadata_cache WHERE provider=$1 AND provider_movie_id=$2 AND locale=
 	}
 	if overview != nil {
 		metadata.Overview = *overview
+	}
+	if imdbID != nil {
+		metadata.IMDBID = *imdbID
 	}
 	if releaseDate != nil {
 		metadata.ReleaseDate = *releaseDate

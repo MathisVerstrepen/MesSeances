@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
-import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel, isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
+import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
@@ -81,10 +81,8 @@ const releaseDateLabel = computed(() => {
     year: 'numeric'
   }).format(date)
 })
-const tmdbUrl = computed(() => {
-  const id = schedule.value?.movie.tmdb_id
-  return id !== null && id !== undefined && Number.isFinite(id) && id > 0 ? `https://www.themoviedb.org/movie/${id}` : ''
-})
+const externalLinks = computed(() => buildMovieExternalLinks(schedule.value?.movie.tmdb_id, schedule.value?.movie.imdb_id))
+const tmdbUrl = computed(() => externalLinks.value.find((link) => link.destination === 'tmdb')?.url ?? '')
 const languages = computed<Array<Showtime['language']>>(() => {
   const values = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.language)) ?? []
   return [...new Set(values)]
@@ -600,16 +598,7 @@ useHead(() => ({
           @error="backdropFailed = true"
         />
         <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
-        <a
-          v-if="tmdbUrl"
-          :href="tmdbUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Voir ce film sur TMDB (nouvel onglet)"
-          class="absolute right-4 top-4 z-20 inline-flex min-h-11 min-w-11 items-center justify-center p-1 hover:opacity-75 focus-visible:ring-2 focus-visible:ring-highlight focus-visible:ring-offset-4 sm:right-6 sm:top-6 lg:right-8 lg:top-8"
-        >
-          <img :src="tmdbLogo" alt="" class="h-auto w-20" />
-        </a>
+        <MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule.movie.title" />
         <div
           class="relative z-10 mx-auto aspect-[2/3] w-40 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] lg:w-[220px]"
         >
@@ -623,7 +612,7 @@ useHead(() => ({
             :fallback-icon-size="32"
           />
         </div>
-        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, tmdbUrl ? 'sm:pr-28' : undefined]">
+        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-16' : undefined]">
           <h1 class="movie-title text-[clamp(3rem,7vw,7rem)] font-black uppercase leading-[0.82] tracking-[-0.075em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
           <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
             <span class="meta-chip">{{ schedule.movie.runtime_minutes }} min</span>

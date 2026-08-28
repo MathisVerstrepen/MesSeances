@@ -59,15 +59,15 @@ func (p *metadataRefreshProvider) Details(_ context.Context, id int64) (tmdb.Det
 
 func TestMetadataRefreshFetchesDistinctIDsAndPublishesAllCurrentFields(t *testing.T) {
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	unchanged := metadataFromDetails(tmdb.Details{ID: 20, OriginalTitle: "Original 20", Title: "Film 20", Overview: "Résumé", ReleaseDate: "2026-08-01", PosterURL: "https://image.tmdb.org/t/p/w500/poster.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/backdrop.jpg", TrailerVFYouTubeKey: "abcdefghijk", TrailerVOYouTubeKey: "lmnopqrstuv", Runtime: 101, Genres: []string{"Drame"}}, 0, now.Add(-time.Hour))
+	unchanged := metadataFromDetails(tmdb.Details{ID: 20, IMDBID: "tt1234567", OriginalTitle: "Original 20", Title: "Film 20", Overview: "Résumé", ReleaseDate: "2026-08-01", PosterURL: "https://image.tmdb.org/t/p/w500/poster.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/backdrop.jpg", TrailerVFYouTubeKey: "abcdefghijk", TrailerVOYouTubeKey: "lmnopqrstuv", Runtime: 101, Genres: []string{"Drame"}}, 0, now.Add(-time.Hour))
 	unchanged.RefreshAfter = now.Add(29 * 24 * time.Hour)
 	store := &metadataRefreshStore{
 		ids:      []int64{20, 10, 20, 0, -1},
 		metadata: map[int64]Metadata{20: unchanged},
 	}
 	provider := &metadataRefreshProvider{results: map[int64]metadataDetailsResult{
-		10: {details: tmdb.Details{ID: 10, OriginalTitle: "Original 10", Title: "Film 10", Overview: "Nouveau résumé", ReleaseDate: "2026-08-02", PosterURL: "https://image.tmdb.org/t/p/w500/new.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/new.jpg", TrailerVFYouTubeKey: "12345678901", TrailerVOYouTubeKey: "10987654321", Runtime: 95, Genres: []string{"Action", "Comédie"}}},
-		20: {details: tmdb.Details{ID: 20, OriginalTitle: "Original 20", Title: "Film 20", Overview: "Résumé", ReleaseDate: "2026-08-01", PosterURL: "https://image.tmdb.org/t/p/w500/poster.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/backdrop.jpg", TrailerVFYouTubeKey: "abcdefghijk", TrailerVOYouTubeKey: "lmnopqrstuv", Runtime: 101, Genres: []string{"Drame"}}},
+		10: {details: tmdb.Details{ID: 10, IMDBID: "tt7654321", OriginalTitle: "Original 10", Title: "Film 10", Overview: "Nouveau résumé", ReleaseDate: "2026-08-02", PosterURL: "https://image.tmdb.org/t/p/w500/new.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/new.jpg", TrailerVFYouTubeKey: "12345678901", TrailerVOYouTubeKey: "10987654321", Runtime: 95, Genres: []string{"Action", "Comédie"}}},
+		20: {details: tmdb.Details{ID: 20, IMDBID: "tt1234567", OriginalTitle: "Original 20", Title: "Film 20", Overview: "Résumé", ReleaseDate: "2026-08-01", PosterURL: "https://image.tmdb.org/t/p/w500/poster.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/backdrop.jpg", TrailerVFYouTubeKey: "abcdefghijk", TrailerVOYouTubeKey: "lmnopqrstuv", Runtime: 101, Genres: []string{"Drame"}}},
 	}}
 	service := NewMetadataRefreshService(store, provider, func() time.Time { return now }, nil)
 
@@ -82,7 +82,7 @@ func TestMetadataRefreshFetchesDistinctIDsAndPublishesAllCurrentFields(t *testin
 		t.Fatalf("publish calls=%d published=%+v", store.publishCalls, store.published)
 	}
 	got := store.published[0]
-	if got.ProviderMovieID != 10 || got.ProviderTitle != "Original 10" || got.LocalizedTitle != "Film 10" || got.Overview != "Nouveau résumé" || got.ReleaseDate != "2026-08-02" || got.PosterURL != "https://image.tmdb.org/t/p/w500/new.jpg" || got.BackdropURL != "https://image.tmdb.org/t/p/w780/new.jpg" || got.TrailerVFYouTubeKey != "12345678901" || got.TrailerVOYouTubeKey != "10987654321" || got.RuntimeMinutes != 95 || len(got.Genres) != 2 || !got.FetchedAt.Equal(now) || !got.RefreshAfter.Equal(now.Add(metadataTTL)) {
+	if got.ProviderMovieID != 10 || got.IMDBID != "tt7654321" || got.ProviderTitle != "Original 10" || got.LocalizedTitle != "Film 10" || got.Overview != "Nouveau résumé" || got.ReleaseDate != "2026-08-02" || got.PosterURL != "https://image.tmdb.org/t/p/w500/new.jpg" || got.BackdropURL != "https://image.tmdb.org/t/p/w780/new.jpg" || got.TrailerVFYouTubeKey != "12345678901" || got.TrailerVOYouTubeKey != "10987654321" || got.RuntimeMinutes != 95 || len(got.Genres) != 2 || !got.FetchedAt.Equal(now) || !got.RefreshAfter.Equal(now.Add(metadataTTL)) {
 		t.Fatalf("refreshed metadata=%+v", got)
 	}
 	if !store.published[1].FetchedAt.Equal(now) || !store.published[1].RefreshAfter.Equal(now.Add(metadataTTL)) {
@@ -91,7 +91,12 @@ func TestMetadataRefreshFetchesDistinctIDsAndPublishesAllCurrentFields(t *testin
 }
 
 func TestSameMetadataContentComparesBothTrailerVariants(t *testing.T) {
-	base := Metadata{Provider: ProviderTMDB, ProviderMovieID: 1, Locale: LocaleFrench, ProviderTitle: "Original", LocalizedTitle: "Film", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 90, Genres: []string{}}
+	base := Metadata{Provider: ProviderTMDB, ProviderMovieID: 1, IMDBID: "tt1234567", Locale: LocaleFrench, ProviderTitle: "Original", LocalizedTitle: "Film", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 90, Genres: []string{}}
+	imdbChanged := base
+	imdbChanged.IMDBID = "tt7654321"
+	if sameMetadataContent(base, imdbChanged) {
+		t.Fatal("IMDb-only change classified as unchanged")
+	}
 	for _, variant := range []string{"vf", "vo"} {
 		changed := base
 		if variant == "vf" {

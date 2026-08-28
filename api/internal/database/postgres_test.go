@@ -52,6 +52,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{25, "025_movie_trailers.sql"},
 		{26, "026_dual_movie_trailers.sql"},
 		{27, "027_short_link_retention.sql"},
+		{28, "028_movie_imdb_id.sql"},
 	}
 
 	items, err := embeddedMigrations()
@@ -67,7 +68,14 @@ func TestEmbeddedMigrations(t *testing.T) {
 		}
 	}
 	wantRetentionSQL := "CREATE INDEX short_links_retention_idx ON short_links (created_at);\n\nDELETE FROM short_links\nWHERE created_at < CURRENT_TIMESTAMP - INTERVAL '90 days';\n"
-	if got := items[len(items)-1].sql; got != wantRetentionSQL {
-		t.Fatalf("short-link retention migration=%q", got)
+	var retentionSQL string
+	for _, item := range items {
+		if item.version == 27 {
+			retentionSQL = item.sql
+			break
+		}
+	}
+	if retentionSQL != wantRetentionSQL {
+		t.Fatalf("short-link retention migration=%q", retentionSQL)
 	}
 }

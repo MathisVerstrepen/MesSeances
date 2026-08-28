@@ -344,9 +344,27 @@ func TestMatcherSoleExactTitleMissingProviderRuntimeUsesSourceFallback(t *testin
 }
 
 func TestMetadataFromDetailsReturnsNonNilEmptyGenres(t *testing.T) {
-	metadata := metadataFromDetails(tmdb.Details{ID: 577599, Title: "Film", OriginalTitle: "Film", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", Runtime: 90}, 90, matcherNow)
-	if metadata.Genres == nil || len(metadata.Genres) != 0 || metadata.TrailerVFYouTubeKey != "FRoff123456" || metadata.TrailerVOYouTubeKey != "ENoff123456" {
+	metadata := metadataFromDetails(tmdb.Details{ID: 577599, IMDBID: "tt1234567", Title: "Film", OriginalTitle: "Film", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", Runtime: 90}, 90, matcherNow)
+	if metadata.Genres == nil || len(metadata.Genres) != 0 || metadata.IMDBID != "tt1234567" || metadata.TrailerVFYouTubeKey != "FRoff123456" || metadata.TrailerVOYouTubeKey != "ENoff123456" {
 		t.Fatalf("metadata=%+v", metadata)
+	}
+}
+
+func TestValidateMetadataRejectsMalformedIMDBID(t *testing.T) {
+	base := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, IMDBID: "tt1234567", Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", RuntimeMinutes: 90, Genres: []string{}, FetchedAt: matcherNow, RefreshAfter: matcherNow.Add(metadataTTL)}
+	if err := validateMetadata(base); err != nil {
+		t.Fatalf("valid IMDb ID rejected: %v", err)
+	}
+	for _, imdbID := range []string{"TT1234567", "tt123456", "tt123456x", "tt" + strings.Repeat("1", 31)} {
+		metadata := base
+		metadata.IMDBID = imdbID
+		if err := validateMetadata(metadata); err == nil {
+			t.Fatalf("malformed IMDb ID accepted: %q", imdbID)
+		}
+	}
+	base.IMDBID = ""
+	if err := validateMetadata(base); err != nil {
+		t.Fatalf("absent IMDb ID rejected: %v", err)
 	}
 }
 

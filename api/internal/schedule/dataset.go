@@ -40,6 +40,7 @@ type PublicMovieRecord struct {
 	ReleaseDate            string
 	Genres                 []string
 	TMDBID                 int64
+	IMDBID                 string
 	UpdatedAt              time.Time
 }
 
@@ -97,6 +98,7 @@ type MovieRecord struct {
 
 type MovieEnrichment struct {
 	TMDBID              int64
+	IMDBID              string
 	Overview            string
 	ReleaseDate         string
 	Genres              []string
