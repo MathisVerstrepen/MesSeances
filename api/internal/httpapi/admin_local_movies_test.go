@@ -11,15 +11,18 @@ import (
 )
 
 type adminLocalMovieStore struct {
-	groups     []enrichment.LocalMovieGroup
-	groupsErr  error
-	mergeErr   error
-	unmergeErr error
-	limit      int
-	offset     int
-	merged     []enrichment.LocalMovieSource
-	primary    enrichment.LocalMovieSource
-	unmergedID int64
+	groups         []enrichment.LocalMovieGroup
+	groupsErr      error
+	mergeErr       error
+	addMembersErr  error
+	unmergeErr     error
+	limit          int
+	offset         int
+	merged         []enrichment.LocalMovieSource
+	primary        enrichment.LocalMovieSource
+	addedMembers   []enrichment.LocalMovieSource
+	addedMembersID int64
+	unmergedID     int64
 }
 
 func (s *adminLocalMovieStore) LocalMovieGroups(_ context.Context, limit, offset int) ([]enrichment.LocalMovieGroup, error) {
@@ -33,6 +36,11 @@ func (s *adminLocalMovieStore) MergeLocalMovies(_ context.Context, members []enr
 		return enrichment.LocalMovieGroup{}, s.mergeErr
 	}
 	return enrichment.LocalMovieGroup{ID: 7, Primary: primary, Members: []enrichment.LocalMovieMember{{LocalMovieSource: members[0], Available: true}, {LocalMovieSource: members[1], Available: true}}}, nil
+}
+
+func (s *adminLocalMovieStore) AddLocalMovieMembers(_ context.Context, id int64, members []enrichment.LocalMovieSource) error {
+	s.addedMembersID, s.addedMembers = id, members
+	return s.addMembersErr
 }
 
 func (s *adminLocalMovieStore) UnmergeLocalMovie(_ context.Context, id int64) error {
@@ -84,6 +92,11 @@ func TestAdminLocalMovieMergeAndUnmergeContracts(t *testing.T) {
 	if merge.Code != http.StatusCreated || merge.Header().Get("Cache-Control") != "no-store" || !strings.Contains(merge.Body.String(), `"local_movie_id":"local-film-7"`) || len(store.merged) != 2 || store.primary.SourceMovieID != "200" {
 		t.Fatalf("merge status=%d merged=%+v primary=%+v body=%s", merge.Code, store.merged, store.primary, merge.Body.String())
 	}
+	addBody := `{"members":[{"source_provider":"ugc","source_movie_id":"201"}]}`
+	add := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/members", addBody, "http://localhost:3000", cookie)
+	if add.Code != http.StatusOK || add.Header().Get("Cache-Control") != "no-store" || store.addedMembersID != 7 || len(store.addedMembers) != 1 || store.addedMembers[0].SourceMovieID != "201" || strings.TrimSpace(add.Body.String()) != `{"status":"members_added","local_movie_id":"local-film-7"}` {
+		t.Fatalf("add status=%d id=%d members=%+v body=%s", add.Code, store.addedMembersID, store.addedMembers, add.Body.String())
+	}
 	unmerge := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/unmerge", "", "http://localhost:3000", cookie)
 	if unmerge.Code != http.StatusOK || store.unmergedID != 7 || strings.TrimSpace(unmerge.Body.String()) != `{"status":"unmerged","local_movie_id":"local-film-7"}` {
 		t.Fatalf("unmerge status=%d id=%d body=%s", unmerge.Code, store.unmergedID, unmerge.Body.String())
@@ -97,6 +110,10 @@ func TestAdminLocalMovieSecurityAndStrictInputs(t *testing.T) {
 	cookie := loginAdmin(t, handler, "password")
 	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups", `{}`, "https://evil.example", cookie)
 	assertAPIError(t, wrongOrigin, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
+	unauthorizedAdd := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/members", `{"members":[{"source_provider":"ugc","source_movie_id":"201"}]}`, "http://localhost:3000", nil)
+	assertAPIError(t, unauthorizedAdd, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	wrongOriginAdd := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/members", `{"members":[{"source_provider":"ugc","source_movie_id":"201"}]}`, "https://evil.example", cookie)
+	assertAPIError(t, wrongOriginAdd, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
 
 	for _, target := range []string{
 		"/api/v1/admin/local-movie-groups?limit=0",
@@ -123,6 +140,23 @@ func TestAdminLocalMovieSecurityAndStrictInputs(t *testing.T) {
 	}
 	badUnmerge := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/unmerge", `{}`, "http://localhost:3000", cookie)
 	assertAPIError(t, badUnmerge, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+
+	validAdd := `{"members":[{"source_provider":"ugc","source_movie_id":"201"}]}`
+	for _, test := range []struct {
+		target string
+		body   string
+	}{
+		{target: "/api/v1/admin/local-movie-groups/not-local/members", body: validAdd},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/members", body: `{}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/members", body: `{"members":[]}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/members", body: `{"members":[{"source_provider":"ugc","source_movie_id":"201"},{"source_provider":"ugc","source_movie_id":"201"}]}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/members", body: strings.TrimSuffix(validAdd, "}") + `,"unknown":true}`},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/members", body: validAdd + validAdd},
+		{target: "/api/v1/admin/local-movie-groups/local-film-7/members", body: validAdd + strings.Repeat(" ", maxAdminBody)},
+	} {
+		response := adminRequest(handler, http.MethodPost, test.target, test.body, "http://localhost:3000", cookie)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+	}
 }
 
 func TestAdminLocalMovieUnavailableFailsClosed(t *testing.T) {
@@ -150,10 +184,10 @@ func TestAdminLocalMovieErrorMappings(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			store := &adminLocalMovieStore{unmergeErr: test.err}
+			store := &adminLocalMovieStore{addMembersErr: test.err}
 			handler := localMovieAdminHandler(t, store)
 			cookie := loginAdmin(t, handler, "password")
-			response := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/unmerge", "", "http://localhost:3000", cookie)
+			response := adminRequest(handler, http.MethodPost, "/api/v1/admin/local-movie-groups/local-film-7/members", `{"members":[{"source_provider":"ugc","source_movie_id":"201"}]}`, "http://localhost:3000", cookie)
 			if response.Code != test.wantStatus || !strings.Contains(response.Body.String(), `"code":"`+test.wantCode+`"`) || strings.Contains(response.Body.String(), "database detail") {
 				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 			}

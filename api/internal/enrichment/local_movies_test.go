@@ -7,10 +7,12 @@ import (
 )
 
 type localMovieMemoryStore struct {
-	groups  []LocalMovieGroup
-	merged  []LocalMovieSource
-	primary LocalMovieSource
-	unmerge int64
+	groups         []LocalMovieGroup
+	merged         []LocalMovieSource
+	primary        LocalMovieSource
+	addedMembers   []LocalMovieSource
+	addedMembersID int64
+	unmerge        int64
 }
 
 func (s *localMovieMemoryStore) LocalMovieGroups(context.Context, int, int) ([]LocalMovieGroup, error) {
@@ -19,6 +21,10 @@ func (s *localMovieMemoryStore) LocalMovieGroups(context.Context, int, int) ([]L
 func (s *localMovieMemoryStore) MergeLocalMovies(_ context.Context, members []LocalMovieSource, primary LocalMovieSource) (LocalMovieGroup, error) {
 	s.merged, s.primary = members, primary
 	return LocalMovieGroup{ID: 7, Primary: primary, Members: []LocalMovieMember{{LocalMovieSource: members[0], Available: true}, {LocalMovieSource: members[1], Available: true}}}, nil
+}
+func (s *localMovieMemoryStore) AddLocalMovieMembers(_ context.Context, id int64, members []LocalMovieSource) error {
+	s.addedMembersID, s.addedMembers = id, members
+	return nil
 }
 func (s *localMovieMemoryStore) UnmergeLocalMovie(_ context.Context, id int64) error {
 	s.unmerge = id
@@ -73,5 +79,39 @@ func TestLocalMovieServiceIDsAndFallback(t *testing.T) {
 	}
 	if err := NewLocalMovieService(store).Unmerge(context.Background(), "local-film-9"); err != nil || store.unmerge != 9 {
 		t.Fatalf("unmerge=%d error=%v", store.unmerge, err)
+	}
+}
+
+func TestLocalMovieServiceValidatesAddedMembers(t *testing.T) {
+	ugc := LocalMovieSource{SourceProvider: SourceUGC, SourceMovieID: "10"}
+	kinepolis := LocalMovieSource{SourceProvider: SourceKinepolis, SourceMovieID: "HO0001"}
+	tests := []struct {
+		name    string
+		groupID string
+		members []LocalMovieSource
+	}{
+		{name: "invalid group ID", groupID: "local-film-01", members: []LocalMovieSource{ugc}},
+		{name: "empty", groupID: "local-film-7"},
+		{name: "duplicate", groupID: "local-film-7", members: []LocalMovieSource{ugc, ugc}},
+		{name: "invalid member", groupID: "local-film-7", members: []LocalMovieSource{{SourceProvider: SourceKinepolis, SourceMovieID: "bad id"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &localMovieMemoryStore{}
+			err := NewLocalMovieService(store).AddMembers(context.Background(), test.groupID, test.members)
+			if !errors.Is(err, ErrLocalMovieInvalid) || store.addedMembers != nil {
+				t.Fatalf("added=%v error=%v", store.addedMembers, err)
+			}
+		})
+	}
+
+	members := []LocalMovieSource{ugc, kinepolis}
+	store := &localMovieMemoryStore{}
+	if err := NewLocalMovieService(store).AddMembers(context.Background(), "local-film-7", members); err != nil || store.addedMembersID != 7 || len(store.addedMembers) != 2 {
+		t.Fatalf("id=%d members=%+v error=%v", store.addedMembersID, store.addedMembers, err)
+	}
+	members[0].SourceMovieID = "changed"
+	if store.addedMembers[0] != ugc {
+		t.Fatalf("store members share caller backing array: %+v", store.addedMembers)
 	}
 }

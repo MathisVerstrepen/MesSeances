@@ -38,6 +38,7 @@ type LocalMovieGroup struct {
 type LocalMovieStore interface {
 	LocalMovieGroups(context.Context, int, int) ([]LocalMovieGroup, error)
 	MergeLocalMovies(context.Context, []LocalMovieSource, LocalMovieSource) (LocalMovieGroup, error)
+	AddLocalMovieMembers(context.Context, int64, []LocalMovieSource) error
 	UnmergeLocalMovie(context.Context, int64) error
 }
 
@@ -79,6 +80,20 @@ func (s *LocalMovieService) Merge(ctx context.Context, members []LocalMovieSourc
 	return group, nil
 }
 
+func (s *LocalMovieService) AddMembers(ctx context.Context, localMovieID string, members []LocalMovieSource) error {
+	if s == nil || s.store == nil {
+		return fmt.Errorf("local movie service unavailable")
+	}
+	id, err := ParseLocalMovieID(localMovieID)
+	if err != nil {
+		return err
+	}
+	if err := validateLocalMovieMembers(members); err != nil {
+		return err
+	}
+	return s.store.AddLocalMovieMembers(ctx, id, append([]LocalMovieSource(nil), members...))
+}
+
 func (s *LocalMovieService) Unmerge(ctx context.Context, localMovieID string) error {
 	if s == nil || s.store == nil {
 		return fmt.Errorf("local movie service unavailable")
@@ -111,11 +126,24 @@ func ParseLocalMovieID(value string) (int64, error) {
 }
 
 func validateLocalMovieMerge(members []LocalMovieSource, primary LocalMovieSource) error {
-	if len(members) < 2 || !validSourceIdentity(primary.SourceProvider, primary.SourceMovieID) {
+	if len(members) < 2 || !validSourceIdentity(primary.SourceProvider, primary.SourceMovieID) || validateLocalMovieMembers(members) != nil {
+		return ErrLocalMovieInvalid
+	}
+	primaryFound := false
+	for _, member := range members {
+		primaryFound = primaryFound || member == primary
+	}
+	if !primaryFound {
+		return ErrLocalMovieInvalid
+	}
+	return nil
+}
+
+func validateLocalMovieMembers(members []LocalMovieSource) error {
+	if len(members) == 0 {
 		return ErrLocalMovieInvalid
 	}
 	seen := make(map[string]struct{}, len(members))
-	primaryFound := false
 	for _, member := range members {
 		if !validSourceIdentity(member.SourceProvider, member.SourceMovieID) {
 			return ErrLocalMovieInvalid
@@ -125,10 +153,6 @@ func validateLocalMovieMerge(members []LocalMovieSource, primary LocalMovieSourc
 			return ErrLocalMovieInvalid
 		}
 		seen[key] = struct{}{}
-		primaryFound = primaryFound || member == primary
-	}
-	if !primaryFound {
-		return ErrLocalMovieInvalid
 	}
 	return nil
 }
