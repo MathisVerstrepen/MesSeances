@@ -100,11 +100,32 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	}
 	var retentionIndex bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM pg_indexes
-		WHERE schemaname=current_schema() AND tablename='short_links'
-		  AND indexname='short_links_retention_idx'
-		  AND indexdef LIKE '%(created_at)%'
-	)`).Scan(&retentionIndex); err != nil || !retentionIndex {
+		SELECT 1
+		FROM pg_catalog.pg_class AS index_relation
+		JOIN pg_catalog.pg_namespace AS index_namespace
+		  ON index_namespace.oid = index_relation.relnamespace
+		JOIN pg_catalog.pg_index AS index_metadata
+		  ON index_metadata.indexrelid = index_relation.oid
+		JOIN pg_catalog.pg_class AS table_relation
+		  ON table_relation.oid = index_metadata.indrelid
+		JOIN pg_catalog.pg_namespace AS table_namespace
+		  ON table_namespace.oid = table_relation.relnamespace
+		JOIN pg_catalog.pg_attribute AS column_metadata
+		  ON column_metadata.attrelid = table_relation.oid
+		 AND column_metadata.attnum = index_metadata.indkey[0]
+		 AND NOT column_metadata.attisdropped
+		WHERE index_namespace.nspname = $1
+		  AND table_namespace.nspname = $1
+		  AND index_relation.relname = 'short_links_retention_idx'
+		  AND index_relation.relkind = 'i'
+		  AND table_relation.relname = 'short_links'
+		  AND table_relation.relkind = 'r'
+		  AND index_metadata.indisvalid
+		  AND index_metadata.indisready
+		  AND index_metadata.indnkeyatts = 1
+		  AND index_metadata.indexprs IS NULL
+		  AND column_metadata.attname = 'created_at'
+	)`, schema).Scan(&retentionIndex); err != nil || !retentionIndex {
 		t.Fatalf("retention index exists=%t err=%v", retentionIndex, err)
 	}
 	for _, invalid := range []Link{
