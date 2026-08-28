@@ -277,6 +277,48 @@ func TestValidateDatasetRejectsMalformedPublicMovieTrailerYouTubeKey(t *testing.
 	}
 }
 
+func TestValidateDatasetRejectsMalformedOrUnassociatedIMDBID(t *testing.T) {
+	data := testDataset()
+	data.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, IMDBID: "tt1234567"}
+	if err := ValidateDataset(data, true); err != nil {
+		t.Fatalf("valid enrichment IMDb ID rejected: %v", err)
+	}
+	for _, imdbID := range []string{"TT1234567", "tt123456", "tt123456x"} {
+		invalid := testDataset()
+		invalid.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: 42, IMDBID: imdbID}
+		if err := ValidateDataset(invalid, true); err == nil {
+			t.Fatalf("malformed enrichment IMDb ID accepted: %q", imdbID)
+		}
+	}
+	unassociated := testDataset()
+	unassociated.Showtimes[0].Movie.Enrichment = &MovieEnrichment{IMDBID: "tt1234567"}
+	if err := ValidateDataset(unassociated, true); err == nil {
+		t.Fatal("IMDb ID without TMDB identity accepted")
+	}
+	public := combinedTestDataset()
+	for index := range public.Showtimes {
+		if public.Showtimes[index].Movie.ProviderID == "200" || public.Showtimes[index].Movie.ProviderID == "HO200" {
+			public.Showtimes[index].Movie.PublicMovieID = 1
+		}
+	}
+	public.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film", RuntimeMinutes: 100, TMDBID: 42, IMDBID: "tt1234567", UpdatedAt: time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)}}
+	public.MovieSources = []PublicMovieSourceRecord{{Provider: ProviderUGC, SourceMovieID: "200", PublicMovieID: 1, SourceSlug: "ugc-film-200", Title: "Film", RuntimeMinutes: 100}, {Provider: ProviderKinepolis, SourceMovieID: "HO200", PublicMovieID: 1, SourceSlug: "kinepolis-film-HO200", Title: "Film", RuntimeMinutes: 100}}
+	filtered := public.Showtimes[:0]
+	for _, showing := range public.Showtimes {
+		if showing.Movie.PublicMovieID == 1 {
+			filtered = append(filtered, showing)
+		}
+	}
+	public.Showtimes = filtered
+	if err := ValidateDataset(public, true); err != nil {
+		t.Fatalf("valid public IMDb ID rejected: %v", err)
+	}
+	public.PublicMovies[0].IMDBID = "TT1234567"
+	if err := ValidateDataset(public, true); err == nil {
+		t.Fatal("malformed public IMDb ID accepted")
+	}
+}
+
 func TestValidateKinepolisDatasetIdentityPassesAndURLs(t *testing.T) {
 	data := kinepolisTestDataset()
 	if err := ValidateDataset(data, true); err != nil {

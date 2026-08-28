@@ -161,6 +161,33 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	if err := RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run pending migrations failed")
 	}
+	var cacheIMDBNull, publicIMDBNull bool
+	if err := pool.QueryRow(ctx, "SELECT bool_and(imdb_id IS NULL) FROM movie_metadata_cache").Scan(&cacheIMDBNull); err != nil || !cacheIMDBNull {
+		t.Fatalf("pre-v28 cache IMDb compatibility null=%t err=%v", cacheIMDBNull, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT bool_and(imdb_id IS NULL) FROM public_movies").Scan(&publicIMDBNull); err != nil || !publicIMDBNull {
+		t.Fatalf("pre-v28 public IMDb compatibility null=%t err=%v", publicIMDBNull, err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE movie_metadata_cache SET imdb_id='tt1234567' WHERE provider_movie_id=41"); err != nil {
+		t.Fatalf("valid cache IMDb ID rejected: %v", err)
+	}
+	for _, invalid := range []string{"TT1234567", "tt123456", "tt123456x", "tt" + strings.Repeat("1", 31)} {
+		if _, err := pool.Exec(ctx, "UPDATE movie_metadata_cache SET imdb_id=$1 WHERE provider_movie_id=41", invalid); err == nil {
+			t.Fatalf("invalid cache IMDb ID accepted: %q", invalid)
+		}
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET imdb_id='tt1234567' WHERE redirect_to_id IS NULL"); err == nil {
+		t.Fatal("public IMDb ID without confirmed TMDB accepted")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET confirmed_tmdb_id=42, imdb_id='tt12345678901234567890' WHERE redirect_to_id IS NULL"); err != nil {
+		t.Fatalf("valid long public IMDb ID rejected: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET imdb_id='TT1234567' WHERE redirect_to_id IS NULL"); err == nil {
+		t.Fatal("malformed public IMDb ID accepted")
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movies SET imdb_id=NULL, confirmed_tmdb_id=NULL WHERE redirect_to_id IS NULL"); err != nil {
+		t.Fatalf("reset public IMDb fixture failed: %v", err)
+	}
 	var publicMovieCount, publicSourceCount, publicAliasCount int
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM public_movies WHERE redirect_to_id IS NULL").Scan(&publicMovieCount); err != nil || publicMovieCount != 1 {
 		t.Fatalf("backfilled public movies=%d err=%v", publicMovieCount, err)

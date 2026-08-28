@@ -18,6 +18,7 @@ export interface Movie {
 export interface CatalogMovie extends Movie {
   poster_url: string | null
   tmdb_id: number | null
+  imdb_id: string | null
   trailer_vf_youtube_key?: string | null
   trailer_vo_youtube_key?: string | null
   overview: string | null
@@ -280,6 +281,15 @@ export interface AdminLocalMovieGroupsResponse {
 export interface AdminCreateLocalMovieGroupRequest {
   members: AdminLocalMovieSource[]
   primary: AdminLocalMovieSource
+}
+
+export interface AdminAddLocalMovieMembersRequest {
+  members: AdminLocalMovieSource[]
+}
+
+export interface AdminAddLocalMovieMembersResponse {
+  status: 'members_added'
+  local_movie_id: string
 }
 
 export interface AdminUnmergeLocalMovieResponse {

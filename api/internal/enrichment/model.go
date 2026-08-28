@@ -50,6 +50,7 @@ type Match struct {
 type Metadata struct {
 	Provider            string
 	ProviderMovieID     int64
+	IMDBID              string
 	Locale              string
 	ProviderTitle       string
 	LocalizedTitle      string
@@ -150,6 +151,9 @@ func validateMetadata(metadata Metadata) error {
 	if !validRuntimeMinutes(metadata.RuntimeMinutes) || len(metadata.Overview) > 10000 || len(metadata.Genres) > 32 || metadata.FetchedAt.IsZero() || metadata.RefreshAfter.IsZero() {
 		return fmt.Errorf("invalid metadata")
 	}
+	if metadata.IMDBID != "" && !validIMDBID(metadata.IMDBID) {
+		return fmt.Errorf("invalid metadata IMDb ID")
+	}
 	if metadata.ReleaseDate != "" {
 		parsed, err := time.Parse("2006-01-02", metadata.ReleaseDate)
 		if err != nil || parsed.Format("2006-01-02") != metadata.ReleaseDate {
@@ -174,6 +178,18 @@ func validateMetadata(metadata Metadata) error {
 		}
 	}
 	return nil
+}
+
+func validIMDBID(value string) bool {
+	if len(value) < 9 || len(value) > 32 || !strings.HasPrefix(value, "tt") {
+		return false
+	}
+	for _, character := range value[2:] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func validYouTubeKey(value string) bool {

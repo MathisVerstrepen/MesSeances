@@ -41,7 +41,7 @@ func TestClientSearchAndDetails(t *testing.T) {
 			}
 			switch r.URL.Query().Get("include_video_language") {
 			case "fr":
-				_, _ = w.Write([]byte(`{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","original_language":"en","overview":"Résumé","release_date":"2001-04-25","poster_path":"/poster.jpg","backdrop_path":"/backdrop.jpg","runtime":122,"genres":[{"name":"Comédie"}],"videos":{"results":[{"key":"FRuno123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":false}]}}`))
+				_, _ = w.Write([]byte(`{"id":42,"imdb_id":"tt0211915","title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","original_language":"en","overview":"Résumé","release_date":"2001-04-25","poster_path":"/poster.jpg","backdrop_path":"/backdrop.jpg","runtime":122,"genres":[{"name":"Comédie"}],"videos":{"results":[{"key":"FRuno123456","site":"YouTube","type":"Trailer","iso_639_1":"fr","official":false}]}}`))
 			case "en":
 				_, _ = w.Write([]byte(`{"id":42,"videos":{"results":[{"key":"ENoff123456","site":"YouTube","type":"Trailer","iso_639_1":"en","official":true}]}}`))
 			default:
@@ -58,11 +58,39 @@ func TestClientSearchAndDetails(t *testing.T) {
 		t.Fatalf("candidates=%+v err=%v", candidates, err)
 	}
 	details, err := client.Details(context.Background(), 42)
-	if err != nil || details.PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || details.BackdropURL != "https://image.tmdb.org/t/p/w780/backdrop.jpg" || details.OriginalLanguage != "en" || details.TrailerVFYouTubeKey != "FRuno123456" || details.TrailerVOYouTubeKey != "ENoff123456" || details.Runtime != 122 || len(details.Genres) != 1 {
+	if err != nil || details.IMDBID != "tt0211915" || details.PosterURL != "https://image.tmdb.org/t/p/w500/poster.jpg" || details.BackdropURL != "https://image.tmdb.org/t/p/w780/backdrop.jpg" || details.OriginalLanguage != "en" || details.TrailerVFYouTubeKey != "FRuno123456" || details.TrailerVOYouTubeKey != "ENoff123456" || details.Runtime != 122 || len(details.Genres) != 1 {
 		t.Fatalf("details=%+v err=%v", details, err)
 	}
 	if len(requests) != 4 {
 		t.Fatalf("requests=%v", requests)
+	}
+}
+
+func TestClientDetailsAllowsMissingOrNullIMDBIDAndRejectsMalformedValue(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		field   string
+		wantErr bool
+	}{
+		{name: "missing"},
+		{name: "null", field: `,"imdb_id":null`},
+		{name: "long canonical", field: `,"imdb_id":"tt12345678901234567890"`},
+		{name: "uppercase prefix", field: `,"imdb_id":"TT1234567"`, wantErr: true},
+		{name: "too few digits", field: `,"imdb_id":"tt123456"`, wantErr: true},
+		{name: "non digit", field: `,"imdb_id":"tt123456x"`, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"id":1,"title":"Film","original_title":"Film","runtime":90,"genres":[]` + test.field + `}`))
+			}, "token")
+			details, err := client.Details(context.Background(), 1)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("details=%+v err=%v", details, err)
+			}
+			if !test.wantErr && test.field == "" && details.IMDBID != "" {
+				t.Fatalf("missing IMDb ID=%q", details.IMDBID)
+			}
+		})
 	}
 }
 

@@ -54,6 +54,7 @@ const primarySourceKey = ref('')
 const activeMutation = ref('')
 const activeMutationKind = ref<'candidate' | 'manual' | 'reject' | ''>('')
 const mergePending = ref(false)
+const addMembersPending = ref('')
 const unmergePending = ref('')
 const rerunPending = ref(false)
 const metadataRefreshPending = ref(false)
@@ -86,7 +87,7 @@ const canMerge = computed(() => selectedSourceList.value.length >= 2 && Boolean(
 const metadataRefreshJob = computed(() => metadataRefreshStatus.value?.job ?? null)
 const metadataRefreshRunning = computed(() => metadataRefreshJob.value?.state === 'running')
 const metadataRefreshLoading = computed(() => metadataRefreshPending.value || metadataRefreshRunning.value)
-const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || unmergePending.value || rerunPending.value || metadataRefreshPending.value || metadataRefreshStatusPending.value || metadataRefreshRunning.value))
+const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || addMembersPending.value || unmergePending.value || rerunPending.value || metadataRefreshPending.value || metadataRefreshStatusPending.value || metadataRefreshRunning.value))
 const matchSections = computed(() => [
   {
     id: 'pending-matches-title',
@@ -483,6 +484,28 @@ async function mergeSelectedSources() {
   }
 }
 
+async function addSelectedSourcesToGroup(group: AdminLocalMovieGroup) {
+  if (!selectedSourceList.value.length || anyMutation.value) return
+  addMembersPending.value = group.local_movie_id
+  errorMessage.value = ''
+  try {
+    await api.adminAddLocalMovieMembers(group.local_movie_id, {
+      members: selectedSourceList.value.map(({ source_provider, source_movie_id }) => ({ source_provider, source_movie_id }))
+    })
+    clearMergeSelection()
+    await refreshResources()
+  } catch (error) {
+    if (getApiErrorStatus(error) === 404) {
+      errorMessage.value = 'Ce regroupement n’existe plus. Les listes ont été actualisées.'
+      await refreshResources()
+    } else {
+      await handleMutationError(error)
+    }
+  } finally {
+    addMembersPending.value = ''
+  }
+}
+
 async function unmerge(group: AdminLocalMovieGroup) {
   if (anyMutation.value) return
   unmergePending.value = group.local_movie_id
@@ -649,7 +672,7 @@ useHead({ title: 'Identités des films - MesSeances' })
           <button type="button" class="text-sm font-semibold text-muted underline" :disabled="anyMutation" @click="clearMergeSelection">Effacer</button>
         </div>
         <fieldset class="mt-3" :disabled="anyMutation">
-          <legend class="sr-only">Choisir la source principale</legend>
+          <legend class="sr-only">Choisir la source principale du nouveau regroupement</legend>
           <ul class="flex flex-wrap gap-2">
             <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-accent-line bg-surface px-3 py-2 text-sm">
               <label class="flex cursor-pointer items-center gap-2">
@@ -662,10 +685,10 @@ useHead({ title: 'Identités des films - MesSeances' })
         </fieldset>
         <div class="mt-4 flex flex-wrap items-center gap-3">
           <button type="button" class="button-primary" :disabled="!canMerge || anyMutation" @click="mergeSelectedSources">
-            <LoaderCircle v-if="mergePending" :size="17" class="animate-spin" aria-hidden="true" /><Layers3 v-else :size="17" aria-hidden="true" /> Regrouper les films
+            <LoaderCircle v-if="mergePending" :size="17" class="animate-spin" aria-hidden="true" /><Layers3 v-else :size="17" aria-hidden="true" /> Créer le regroupement
           </button>
-          <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">Sélectionnez au moins deux films.</p>
-          <p v-else-if="!primarySourceKey" class="text-sm text-muted">Choisissez la source principale.</p>
+          <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">Sélectionnez au moins deux films pour créer un regroupement.</p>
+          <p v-else-if="!primarySourceKey" class="text-sm text-muted">Choisissez la source principale du nouveau regroupement.</p>
         </div>
       </div>
 
@@ -780,16 +803,23 @@ useHead({ title: 'Identités des films - MesSeances' })
               </p>
               <p v-else class="mt-0.5 font-semibold text-red-700">Aucune source disponible</p>
             </div>
-            <div v-if="unmergeConfirmation === group.local_movie_id" class="flex flex-wrap items-center justify-end gap-1.5">
-              <span class="text-xs font-semibold text-red-800">Dissocier ?</span>
-              <button type="button" class="h-8 rounded-md bg-red-700 px-2.5 text-xs font-semibold text-white hover:bg-red-800 disabled:opacity-50" :disabled="anyMutation" @click="unmerge(group)">
-                <LoaderCircle v-if="unmergePending === group.local_movie_id" :size="14" class="inline animate-spin" aria-hidden="true" /> Confirmer
+            <div class="flex flex-wrap items-center justify-end gap-1.5">
+              <button type="button" class="button-primary h-8 px-2.5 text-xs" :disabled="selectedSourceList.length === 0 || anyMutation" @click="addSelectedSourcesToGroup(group)">
+                <LoaderCircle v-if="addMembersPending === group.local_movie_id" :size="14" class="animate-spin" aria-hidden="true" />
+                <Layers3 v-else :size="14" aria-hidden="true" />
+                {{ addMembersPending === group.local_movie_id ? 'Ajout en cours…' : `Ajouter la sélection (${selectedSourceList.length})` }}
               </button>
-              <button type="button" class="h-8 rounded-md border border-line px-2.5 text-xs font-semibold text-ink" :disabled="anyMutation" @click="unmergeConfirmation = ''">Annuler</button>
+              <template v-if="unmergeConfirmation === group.local_movie_id">
+                <span class="text-xs font-semibold text-red-800">Dissocier ?</span>
+                <button type="button" class="h-8 rounded-md bg-red-700 px-2.5 text-xs font-semibold text-white hover:bg-red-800 disabled:opacity-50" :disabled="anyMutation" @click="unmerge(group)">
+                  <LoaderCircle v-if="unmergePending === group.local_movie_id" :size="14" class="inline animate-spin" aria-hidden="true" /> Confirmer
+                </button>
+                <button type="button" class="h-8 rounded-md border border-line px-2.5 text-xs font-semibold text-ink" :disabled="anyMutation" @click="unmergeConfirmation = ''">Annuler</button>
+              </template>
+              <button v-else type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50" :disabled="anyMutation" @click="unmergeConfirmation = group.local_movie_id">
+                <Trash2 :size="14" aria-hidden="true" /> Dissocier
+              </button>
             </div>
-            <button v-else type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50" :disabled="anyMutation" @click="unmergeConfirmation = group.local_movie_id">
-              <Trash2 :size="14" aria-hidden="true" /> Dissocier
-            </button>
           </div>
           <ul class="divide-y divide-line border-t border-line" :aria-label="`Membres de ${group.local_movie_id}`">
             <li v-for="member in group.members" :key="sourceKey(member)" class="flex min-w-0 items-center gap-2 px-3 py-2" :class="member.available ? '' : 'bg-subtle text-muted'">

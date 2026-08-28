@@ -21,6 +21,15 @@ type mergeLocalMoviesRequest struct {
 	Primary enrichment.LocalMovieSource   `json:"primary"`
 }
 
+type addLocalMovieMembersRequest struct {
+	Members []enrichment.LocalMovieSource `json:"members"`
+}
+
+type addLocalMovieMembersResponse struct {
+	Status       string `json:"status"`
+	LocalMovieID string `json:"local_movie_id"`
+}
+
 type unmergeLocalMovieResponse struct {
 	Status       string `json:"status"`
 	LocalMovieID string `json:"local_movie_id"`
@@ -60,6 +69,24 @@ func (a *adminAPI) mergeLocalMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, group)
+}
+
+func (a *adminAPI) addLocalMovieMembers(w http.ResponseWriter, r *http.Request) {
+	var input addLocalMovieMembersRequest
+	if err := decodeAdminJSON(w, r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+		return
+	}
+	if a.locals == nil {
+		a.writeLocalMovieError(w, errors.New("local movie service unavailable"))
+		return
+	}
+	localMovieID := chi.URLParam(r, "localMovieID")
+	if err := a.locals.AddMembers(r.Context(), localMovieID, input.Members); err != nil {
+		a.writeLocalMovieError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, addLocalMovieMembersResponse{Status: "members_added", LocalMovieID: localMovieID})
 }
 
 func (a *adminAPI) unmergeLocalMovie(w http.ResponseWriter, r *http.Request) {
