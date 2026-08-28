@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -21,11 +23,57 @@ type fixtureSource struct {
 
 func (s fixtureSource) Snapshot() *schedule.SnapshotView { return s.view }
 
+type readinessDependencies struct {
+	ping            func(context.Context) error
+	currentRevision func(context.Context) (schedule.SnapshotRevision, error)
+}
+
+func (d *readinessDependencies) Ping(ctx context.Context) error {
+	if d.ping != nil {
+		return d.ping(ctx)
+	}
+	return nil
+}
+
+func (d *readinessDependencies) CurrentRevision(ctx context.Context) (schedule.SnapshotRevision, error) {
+	if d.currentRevision != nil {
+		return d.currentRevision(ctx)
+	}
+	return schedule.SnapshotRevision{ScheduleVersion: 1}, nil
+}
+
 func testHandler(t *testing.T) http.Handler {
 	return testHandlerWithAdmin(t, AdminOptions{})
 }
 
 func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
+	t.Helper()
+	data := fixtureDataset(t)
+	source := fixtureSource{view: schedule.NewSnapshotView(data)}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{
+		DefaultCity: "Lille",
+		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
+		Now:         func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := &readinessDependencies{}
+	readinessSource := fixtureSource{view: schedule.NewSnapshotView(readinessFixtureDataset(t))}
+	return NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{
+		Admin: options,
+		Readiness: ReadinessOptions{
+			Schedule:  readinessSource,
+			Database:  dependencies,
+			Revisions: dependencies,
+			Now: func() time.Time {
+				return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+			},
+		},
+	})
+}
+
+func fixtureDataset(t *testing.T) schedule.Dataset {
 	t.Helper()
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
@@ -89,15 +137,16 @@ func testHandlerWithAdmin(t *testing.T, options AdminOptions) http.Handler {
 	}
 	latitude, longitude := 50.6321, 3.0612
 	data.Theaters[0].Latitude, data.Theaters[0].Longitude = &latitude, &longitude
-	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{
-		DefaultCity: "Lille",
-		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
-		Now:         func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
-	})
-	if err != nil {
-		t.Fatal(err)
+	return data
+}
+
+func readinessFixtureDataset(t *testing.T) schedule.Dataset {
+	t.Helper()
+	data := fixtureDataset(t)
+	for index := range data.Theaters {
+		data.Theaters[index].Slug = data.Theaters[index].ID
 	}
-	return NewHandlerWithAdmin(service, "http://localhost:3000", options)
+	return data
 }
 
 func performRequest(t *testing.T, handler http.Handler, target string) *httptest.ResponseRecorder {
@@ -127,6 +176,146 @@ func TestProbeContracts(t *testing.T) {
 				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestReadinessRejectsUnusableOrUnfreshMemory(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		source schedule.Source
+		mutate func(*schedule.Dataset)
+		now    time.Time
+	}{
+		{name: "missing source"},
+		{name: "nil snapshot", source: fixtureSource{}},
+		{name: "incomplete snapshot", mutate: func(data *schedule.Dataset) { data.Showtimes = nil }},
+		{name: "stale snapshot", mutate: func(data *schedule.Dataset) { data.GeneratedAt = now.Add(-24*time.Hour - time.Nanosecond) }},
+		{name: "future snapshot", mutate: func(data *schedule.Dataset) { data.GeneratedAt = now.Add(time.Nanosecond) }},
+		{name: "before Paris window", now: time.Date(2026, 8, 14, 21, 0, 0, 0, time.UTC)},
+		{name: "after Paris window", now: time.Date(2026, 8, 15, 22, 0, 0, 0, time.UTC)},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testNow := test.now
+			if testNow.IsZero() {
+				testNow = now
+			}
+			source := test.source
+			if source == nil && test.name != "missing source" {
+				data := readinessFixtureDataset(t)
+				data.GeneratedAt = testNow.Add(-time.Hour)
+				if test.mutate != nil {
+					test.mutate(&data)
+				}
+				source = fixtureSource{view: schedule.NewSnapshotView(data)}
+			}
+			dependencies := &readinessDependencies{}
+			handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+				Schedule: source, Database: dependencies, Revisions: dependencies, Now: func() time.Time { return testNow },
+			}})
+			response := performRequest(t, handler, "/readyz")
+			if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"not_ready\"}\n" {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestReadinessRejectsDatabaseFailuresAndInvalidRevisions(t *testing.T) {
+	secret := "sensitive-database-detail"
+	tests := []struct {
+		name         string
+		ping         func(context.Context) error
+		revision     schedule.SnapshotRevision
+		revisionErr  error
+		wantStatus   int
+		wantResponse string
+	}{
+		{name: "ping failure", ping: func(context.Context) error { return errors.New(secret) }, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "revision failure", revisionErr: errors.New(secret), wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "missing schedule revision", revision: schedule.SnapshotRevision{}, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "negative enrichment revision", revision: schedule.SnapshotRevision{ScheduleVersion: 1, EnrichmentVersion: -1}, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "negative location revision", revision: schedule.SnapshotRevision{ScheduleVersion: 1, TheaterLocationVersion: -1}, wantStatus: http.StatusServiceUnavailable, wantResponse: "not_ready"},
+		{name: "database revision may differ", revision: schedule.SnapshotRevision{ScheduleVersion: 99, EnrichmentVersion: 2, TheaterLocationVersion: 3}, wantStatus: http.StatusOK, wantResponse: "ready"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			data := readinessFixtureDataset(t)
+			source := fixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{ScheduleVersion: 7})}
+			dependencies := &readinessDependencies{
+				ping: test.ping,
+				currentRevision: func(context.Context) (schedule.SnapshotRevision, error) {
+					return test.revision, test.revisionErr
+				},
+			}
+			handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+				Schedule: source, Database: dependencies, Revisions: dependencies,
+				Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+			}})
+			response := performRequest(t, handler, "/readyz")
+			if response.Code != test.wantStatus || response.Body.String() != "{\"status\":\""+test.wantResponse+"\"}\n" || strings.Contains(response.Body.String(), secret) {
+				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestReadinessBoundsDatabaseChecksAndHonorsCancellation(t *testing.T) {
+	data := readinessFixtureDataset(t)
+	source := fixtureSource{view: schedule.NewSnapshotView(data)}
+	checks := 0
+	checkContext := func(ctx context.Context) error {
+		checks++
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > readinessDatabaseTimeout {
+			t.Errorf("database context deadline=%v ok=%t", deadline, ok)
+		}
+		return nil
+	}
+	dependencies := &readinessDependencies{
+		ping: checkContext,
+		currentRevision: func(ctx context.Context) (schedule.SnapshotRevision, error) {
+			if err := checkContext(ctx); err != nil {
+				return schedule.SnapshotRevision{}, err
+			}
+			return schedule.SnapshotRevision{ScheduleVersion: 1}, nil
+		},
+	}
+	handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+		Schedule: source, Database: dependencies, Revisions: dependencies,
+		Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+	}})
+	response := performRequest(t, handler, "/readyz")
+	if response.Code != http.StatusOK || checks != 2 {
+		t.Fatalf("status=%d checks=%d body=%q", response.Code, checks, response.Body.String())
+	}
+
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	canceledChecks := 0
+	dependencies.ping = func(ctx context.Context) error {
+		canceledChecks++
+		return ctx.Err()
+	}
+	request := httptest.NewRequestWithContext(canceledCtx, http.MethodGet, "/readyz", nil)
+	canceledResponse := httptest.NewRecorder()
+	handler.ServeHTTP(canceledResponse, request)
+	if canceledResponse.Code != http.StatusServiceUnavailable || canceledChecks != 1 || canceledResponse.Body.String() != "{\"status\":\"not_ready\"}\n" {
+		t.Fatalf("status=%d checks=%d body=%q", canceledResponse.Code, canceledChecks, canceledResponse.Body.String())
+	}
+}
+
+func TestHealthzIgnoresReadinessDependencies(t *testing.T) {
+	calls := 0
+	dependencies := &readinessDependencies{ping: func(context.Context) error {
+		calls++
+		return errors.New("database unavailable")
+	}}
+	handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{Database: dependencies, Revisions: dependencies}})
+	response := performRequest(t, handler, "/healthz")
+	if response.Code != http.StatusOK || response.Body.String() != "{\"status\":\"ok\"}\n" || calls != 0 {
+		t.Fatalf("status=%d calls=%d body=%q", response.Code, calls, response.Body.String())
 	}
 }
 

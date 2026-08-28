@@ -172,8 +172,12 @@ func run(ctx context.Context) error {
 	adminOptions.SyncSchedules = syncScheduler
 	shortlinkService := shortlink.NewService(shortlink.NewPostgresStore(pool), shortlink.ServiceOptions{})
 	server := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler:           newAPIHandler(service, cfg, adminOptions, shortlinkService),
+		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
+		Handler: newAPIHandler(service, cfg, adminOptions, shortlinkService, httpapi.ReadinessOptions{
+			Schedule:  source,
+			Database:  pool,
+			Revisions: store,
+		}),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -247,8 +251,8 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService) http.Handler {
-	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{Admin: adminOptions, Shortlinks: shortlinks})
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, readiness httpapi.ReadinessOptions) http.Handler {
+	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{Admin: adminOptions, Readiness: readiness, Shortlinks: shortlinks})
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {
