@@ -16,6 +16,7 @@ import type {
   AdminTheaterGeocodingResponse,
   AdminTheaterLocationResolutionResponse,
   AdminTheaterLocationsResponse,
+  AdminTMDBMetadataRefreshResponse,
   AdminTMDBRerunSummary,
   AdminUnmergeLocalMovieResponse,
   ApiErrorResponse,
@@ -126,6 +127,17 @@ export function useMesSeancesApi() {
     adminRerunTMDBMatches() {
       return withAdminRedirect($fetch<AdminTMDBRerunSummary>(`${apiBase}/api/v1/admin/tmdb-matches/rerun`, {
         method: 'POST',
+        credentials: 'include'
+      }))
+    },
+    adminRefreshTMDBMetadata() {
+      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
+        method: 'POST',
+        credentials: 'include'
+      }))
+    },
+    adminTMDBMetadataRefreshStatus() {
+      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
         credentials: 'include'
       }))
     },
@@ -243,6 +255,9 @@ export function getFrenchAdminApiError(cause: unknown): string {
   if (code === 'tmdb_rerun_in_progress') return 'Une relance TMDB est déjà en cours.'
   if (code === 'tmdb_rerun_unavailable') return 'Le service de relance TMDB est temporairement indisponible.'
   if (code === 'tmdb_rerun_failed') return 'La relance TMDB a échoué. La liste a été actualisée, car certains films ont peut-être déjà été traités.'
+  if (code === 'tmdb_metadata_refresh_in_progress') return 'Une autre opération TMDB est déjà en cours.'
+  if (code === 'tmdb_metadata_refresh_unavailable') return 'Le service d’actualisation des métadonnées TMDB est temporairement indisponible.'
+  if (code === 'tmdb_metadata_refresh_failed') return 'L’actualisation des métadonnées TMDB a échoué. Réessayez plus tard.'
   if (code === 'local_movie_conflict') return 'Ces films ont changé et ne peuvent plus être regroupés. La liste a été actualisée.'
   if (code === 'local_movie_failed') return 'Le regroupement des films est temporairement indisponible.'
   if (code === 'sync_unavailable') return 'Le service de synchronisation est temporairement indisponible.'

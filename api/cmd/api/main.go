@@ -98,6 +98,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("schedule service startup failed")
 	}
 	enrichmentStore := enrichment.NewPostgresStore(pool)
+	workerCtx, stopWorkers := context.WithCancel(ctx)
+	defer stopWorkers()
 	var enrichmentProvider enrichment.Provider
 	if cfg.TMDB.Token != "" {
 		tmdbClient, err := tmdb.NewClient(cfg.TMDB.Token)
@@ -106,12 +108,13 @@ func run(ctx context.Context) error {
 		}
 		enrichmentProvider = tmdbClient
 	}
-	adminOptions := newAdminOptions(cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
+	adminOptions, metadataRefreshManager, err := newAdminOptions(workerCtx, cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
+	if err != nil {
+		return fmt.Errorf("TMDB metadata refresh configuration is invalid")
+	}
 	adminOptions.TheaterLocations = newTheaterLocationController(pool, time.Now)
 	adminOptions.Logger = logger
 	adminOptions.Metrics = metrics
-	workerCtx, stopWorkers := context.WithCancel(ctx)
-	defer stopWorkers()
 	geocodingManager, err := newTheaterGeocodingManager(workerCtx, pool, time.Now)
 	if err != nil {
 		return fmt.Errorf("geocoding configuration is invalid")
@@ -164,7 +167,7 @@ func run(ctx context.Context) error {
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
-			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, geocodingManager, &polling)
+			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, geocodingManager, metadataRefreshManager, &polling)
 		})
 	}
 	defer cleanup()
@@ -237,7 +240,7 @@ type closeableWorker interface {
 	Close()
 }
 
-func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager closeableWorker, polling *sync.WaitGroup) {
+func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geocodingManager, metadataRefreshManager closeableWorker, polling *sync.WaitGroup) {
 	stopWorkers()
 	if schedules != nil {
 		schedules.Close()
@@ -247,6 +250,9 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	}
 	if geocodingManager != nil {
 		geocodingManager.Close()
+	}
+	if metadataRefreshManager != nil {
+		metadataRefreshManager.Close()
 	}
 	polling.Wait()
 }
@@ -296,7 +302,7 @@ func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFun
 	}
 }
 
-func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) httpapi.AdminOptions {
+func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
 	options := httpapi.AdminOptions{
 		Password:      password,
 		SessionSecret: sessionSecret,
@@ -304,9 +310,16 @@ func newAdminOptions(password, sessionSecret string, store *enrichment.PostgresS
 		LocalMovies:   enrichment.NewLocalMovieService(store),
 	}
 	if provider != nil {
-		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil))
+		gate := enrichment.NewTMDBRunGate()
+		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil), gate)
+		manager, err := enrichment.NewMetadataRefreshManager(ctx, enrichment.NewMetadataRefreshService(store, provider, nil, gate), nil)
+		if err != nil {
+			return httpapi.AdminOptions{}, nil, err
+		}
+		options.TMDBRefreshes = manager
+		return options, manager, nil
 	}
-	return options
+	return options, nil, nil
 }
 
 func newTheaterLocationController(pool *pgxpool.Pool, now func() time.Time) httpapi.TheaterLocationController {
