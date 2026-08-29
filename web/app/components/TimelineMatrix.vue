@@ -24,7 +24,7 @@ const inspector = ref<HTMLElement | null>(null)
 const inspectorCloseButton = ref<HTMLButtonElement | null>(null)
 const now = ref(new Date())
 let selectionTrigger: HTMLElement | null = null
-let clockTimer: ReturnType<typeof setTimeout> | undefined
+let clockTimer: number | undefined
 let isClockMounted = false
 let dragPointerId: number | null = null
 let dragStartX = 0

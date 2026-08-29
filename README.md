@@ -172,3 +172,19 @@ EXPECT_UPSTREAM_FAILURE=1 npm --prefix web run verify:crawlability
 ```
 
 Run the failure mode with Nuxt configured against an intentionally unavailable API origin. Neither command starts services or triggers provider/TMDB requests.
+
+### Core Web Vitals benchmark
+
+With API and Nuxt already running and publicly reachable by Chrome, run three Lighthouse CI mobile lab measurements against `http://localhost:3000/`:
+
+```sh
+make web-vitals
+```
+
+Override target URL, run count, or Chrome executable when needed:
+
+```sh
+make web-vitals URL=https://messeances.fr/ RUNS=5 CHROME_BIN=/path/to/chrome
+```
+
+Command does not start or stop API or Nuxt. It fails when representative median run exceeds LCP 2500 ms, CLS 0.1, or TBT 200 ms. Local HTML and JSON reports are written under `web/.lighthouseci/reports/` and ignored by Git. LCP and CLS are direct page-load lab metrics; TBT is responsiveness proxy because page-load Lighthouse cannot provide representative INP.
