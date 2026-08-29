@@ -41,7 +41,7 @@ const isPersonalizedSchedule = ref(false)
 const isEndedFilm = ref(false)
 let requestId = 0
 let currentTimeTimer: number | undefined
-let dayCheckTimer: ReturnType<typeof setTimeout> | undefined
+let dayCheckTimer: number | undefined
 let isReady = false
 let lastScheduleKey = ''
 
