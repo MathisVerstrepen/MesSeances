@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check install lint prod screenshot sync test
+.PHONY: build check dev fmt-check install lint prod screenshot sync test web-vitals
 
 SHELL := /bin/bash
 
@@ -14,6 +14,7 @@ HEIGHT ?= 900
 WAIT_MS ?= 1000
 API_URL ?= http://localhost:8080
 CHROME_BIN ?= google-chrome
+RUNS ?= 3
 
 prod:
 	docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml up -d --wait --pull always
@@ -88,6 +89,12 @@ screenshot: export API_URL := $(API_URL)
 screenshot: export CHROME_BIN := $(CHROME_BIN)
 screenshot:
 	@node web/tools/screenshot.mjs
+
+web-vitals: export URL := $(URL)
+web-vitals: export RUNS := $(RUNS)
+web-vitals: export CHROME_BIN := $(CHROME_BIN)
+web-vitals:
+	npm --prefix web run web-vitals
 
 sync:
 	@printf '%s\n' '[sync] starting'
