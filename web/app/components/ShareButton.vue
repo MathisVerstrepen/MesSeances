@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .share-control {
   position: relative;
-  z-index: 30;
+  z-index: 20;
   display: inline-block;
   width: 2.75rem;
   height: 2.75rem;
