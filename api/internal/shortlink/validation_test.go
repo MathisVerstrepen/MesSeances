@@ -24,6 +24,16 @@ func TestValidTargetAcceptsSupportedRoutesAndQueries(t *testing.T) {
 	}
 }
 
+func TestValidTargetAcceptsSelectedSearchScreenings(t *testing.T) {
+	target := "/recherche?theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016&date=2026-08-30&start_after=13%3A15&finish_before=22%3A45&selected=cgr%3Acgr-showing-P0798-eb8c701bf9eb902f738cb7a32ed14cb55b9e2b42e0fc346ac79d9cf11d171bbc%2Cpathe%3Apathe-showing-V3001S170227&shared_theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016"
+	if !ValidTarget(target) {
+		t.Fatalf("selected search target rejected: %q", target)
+	}
+	if ValidTarget(target + "&unknown=value") {
+		t.Fatal("selected search target with unknown key accepted")
+	}
+}
+
 func TestValidTargetRejectsUnsupportedOrUnsafeTargets(t *testing.T) {
 	for _, target := range []string{
 		"", "planning", "//evil.example/x", "/\\evil", "https://evil.example/", "/films#x",

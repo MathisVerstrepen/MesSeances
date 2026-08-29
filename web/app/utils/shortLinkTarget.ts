@@ -10,7 +10,7 @@ type RoutePattern = '/' | '/planning' | '/recherche' | '/films' | '/credits' | '
 const QUERY_KEYS = {
   '/': new Set(),
   '/planning': new Set(['date', 'language', 'format', 'mode', 'zoom', SHARED_THEATERS_KEY]),
-  '/recherche': new Set(['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads', 'grouping', 'layout', SHARED_THEATERS_KEY]),
+  '/recherche': new Set(['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads', 'grouping', 'layout', 'selected', SHARED_THEATERS_KEY]),
   '/films': new Set(['q', 'sort', 'page', 'genres', 'duration', 'date', 'date_to', 'all_theaters', SHARED_THEATERS_KEY]),
   '/credits': new Set([SHARED_THEATERS_KEY]),
   '/film/:slug': new Set(['date', 'language', 'format', 'sort', SHARED_THEATERS_KEY]),
