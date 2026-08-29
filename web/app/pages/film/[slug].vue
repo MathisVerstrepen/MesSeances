@@ -4,7 +4,8 @@ import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeF
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel, isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
-import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
+import { buildFilmJsonLd } from '~/utils/filmJsonLd'
+import { serializeJsonLd } from '~/utils/jsonLd'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -252,6 +253,21 @@ function isNotFoundError(cause: unknown): boolean {
   return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
 }
 
+type NationwideScheduleResult =
+  | { kind: 'success'; schedule: MovieShowtimesResponse }
+  | { kind: 'error'; error: unknown }
+
+interface NationwideSeoState {
+  schedule: MovieShowtimesResponse | null
+}
+
+function normalizeNationwideRequest(request: Promise<MovieShowtimesResponse>): Promise<NationwideScheduleResult> {
+  return request.then(
+    (response) => ({ kind: 'success' as const, schedule: response }),
+    (cause: unknown) => ({ kind: 'error' as const, error: cause })
+  )
+}
+
 async function loadSchedule() {
   if (!preferences.isInitialized.value) {
     pending.value = false
@@ -382,18 +398,34 @@ async function retryLoad() {
 
 hydrateRoute()
 const initialScheduleKey = `${slug.value}|${selectedDate.value}`
+const initialRequestedDate = selectedDate.value
+const nationwideSeo: NationwideSeoState = { schedule: null }
+const initialNationwideResult = import.meta.server
+  ? normalizeNationwideRequest(api.movieShowtimes(slug.value, { date: initialRequestedDate }))
+  : null
 const initialResult = await useAsyncData(`film-schedule:${initialScheduleKey}`, async () => {
   try {
     let resolvedDate = selectedDate.value
-    let response = await api.movieShowtimes(slug.value, { date: resolvedDate })
+    let response = await api.movieShowtimes(slug.value, { date: resolvedDate, city: 'Paris' })
     const responseDates = nonPastAvailableDates(response)
     const fallback = resolvedAvailableDate(responseDates, resolvedDate)
     if (!responseDates.includes(resolvedDate) && responseDates.length > 0) {
       resolvedDate = fallback
-      response = await api.movieShowtimes(slug.value, { date: resolvedDate })
+      response = await api.movieShowtimes(slug.value, { date: resolvedDate, city: 'Paris' })
     } else if (responseDates.length === 0) {
       resolvedDate = today.value
     }
+
+    if (import.meta.server) {
+      const nationwideResult = resolvedDate === initialRequestedDate
+        ? await initialNationwideResult!
+        : await normalizeNationwideRequest(api.movieShowtimes(slug.value, { date: resolvedDate }))
+      if (nationwideResult.kind === 'error') {
+        return { kind: 'upstream-error' as const, schedule: null, selectedDate: resolvedDate, errorMessage: getFrenchApiError(nationwideResult.error) }
+      }
+      nationwideSeo.schedule = nationwideResult.schedule
+    }
+
     return { kind: 'success' as const, schedule: response, selectedDate: resolvedDate, errorMessage: '' }
   } catch (error) {
     if (isNotFoundError(error)) {
@@ -466,65 +498,6 @@ const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url)
 const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
   ? 'index,follow'
   : 'noindex,follow')
-const filmJsonLd = computed(() => {
-  const currentSchedule = schedule.value
-  if (!currentSchedule || pending.value || errorMessage.value || notFound.value) return null
-
-  const movieUrl = canonicalUrl.value
-  const movieId = `${movieUrl}#movie`
-  const images = [safePosterUrl(currentSchedule.movie.poster_url), safeBackdropUrl(currentSchedule.backdrop_url)]
-    .filter((value): value is string => Boolean(value))
-  const movie: JsonLdNode = {
-    '@type': 'Movie',
-    '@id': movieId,
-    name: currentSchedule.movie.title,
-    url: movieUrl
-  }
-  if (currentSchedule.movie.runtime_minutes > 0) movie.duration = `PT${currentSchedule.movie.runtime_minutes}M`
-  if (currentSchedule.movie.overview?.trim()) movie.description = currentSchedule.movie.overview.trim()
-  if (releaseDateLabel.value && currentSchedule.movie.release_date) movie.datePublished = currentSchedule.movie.release_date
-  if (currentSchedule.movie.genres.length) movie.genre = currentSchedule.movie.genres
-  if (images.length === 1) movie.image = images[0]
-  else if (images.length > 1) movie.image = images
-  if (tmdbUrl.value) movie.sameAs = tmdbUrl.value
-
-  const graph: JsonLdNode[] = [
-    movie,
-    {
-      '@type': 'BreadcrumbList',
-      '@id': `${movieUrl}#breadcrumb`,
-      itemListElement: [
-        { '@type': 'ListItem', position: 1, name: 'Accueil', item: absoluteSiteUrl(config.public.siteUrl, '/') },
-        { '@type': 'ListItem', position: 2, name: 'Films', item: absoluteSiteUrl(config.public.siteUrl, '/films') },
-        { '@type': 'ListItem', position: 3, name: currentSchedule.movie.title, item: movieUrl }
-      ]
-    }
-  ]
-  const seenShowtimes = new Set<string>()
-  for (const theater of visibleTheaters.value) {
-    const theaterUrl = absoluteSiteUrl(config.public.siteUrl, `/cinema/${encodeURIComponent(theater.slug)}`)
-    const theaterId = `${theaterUrl}#cinema`
-    graph.push({ '@type': 'MovieTheater', '@id': theaterId, name: theater.name, url: theaterUrl })
-    for (const showtime of theater.showtimes) {
-      const showtimeId = showtime.id.trim()
-      const start = Date.parse(showtime.start_time)
-      const end = Date.parse(showtime.end_time)
-      if (!showtimeId || seenShowtimes.has(showtimeId) || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
-      seenShowtimes.add(showtimeId)
-      graph.push({
-        '@type': 'ScreeningEvent',
-        '@id': `${theaterUrl}#screening-${encodeURIComponent(showtimeId)}`,
-        name: `${currentSchedule.movie.title} à ${theater.name}`,
-        startDate: showtime.start_time,
-        endDate: showtime.end_time,
-        location: { '@id': theaterId },
-        workPresented: { '@id': movieId }
-      })
-    }
-  }
-  return serializeJsonLd({ '@context': 'https://schema.org', '@graph': graph })
-})
-
 useSeoMeta({
   robots,
   title: seoTitle,
@@ -541,10 +514,17 @@ useSeoMeta({
   twitterDescription: seoDescription,
   twitterImage: seoImageUrl
 })
-useHead(() => ({
-  link: [{ rel: 'canonical', href: canonicalUrl.value }],
-  script: filmJsonLd.value ? [{ key: 'film-jsonld', type: 'application/ld+json', innerHTML: filmJsonLd.value }] : []
-}))
+useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
+const serverNationwideSchedule = nationwideSeo.schedule
+if (import.meta.server && initialState?.kind === 'success' && responseSlug === slug.value && serverNationwideSchedule) {
+  const filmJsonLd = serializeJsonLd(buildFilmJsonLd(serverNationwideSchedule, {
+    movieUrl: canonicalUrl.value,
+    siteUrl: config.public.siteUrl,
+    datePublished: releaseDateLabel.value ? serverNationwideSchedule.movie.release_date ?? undefined : undefined,
+    tmdbUrl: tmdbUrl.value || undefined
+  }))
+  useHead({ script: [{ key: 'film-jsonld', type: 'application/ld+json', innerHTML: filmJsonLd }] })
+}
 </script>
 
 <template>

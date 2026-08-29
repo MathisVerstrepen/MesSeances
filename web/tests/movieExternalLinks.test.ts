@@ -90,13 +90,13 @@ test('menu implements keyboard focus and all dismissal paths', async () => {
   assert.match(component, /@click="closeMenu\(\{ restoreFocus: true \}\)"/u)
 })
 
-test('movie page integrates menu while keeping TMDB-only JSON-LD', async () => {
+test('movie page integrates menu while passing only TMDB external identity to film JSON-LD', async () => {
   const page = await readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8')
 
   assert.match(page, /buildMovieExternalLinks\(schedule\.value\?\.movie\.tmdb_id, schedule\.value\?\.movie\.imdb_id\)/u)
   assert.match(page, /<MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule\.movie\.title" \/>/u)
   assert.match(page, /externalLinks\.length \? 'sm:pr-16'/u)
-  assert.match(page, /if \(tmdbUrl\.value\) movie\.sameAs = tmdbUrl\.value/u)
+  assert.match(page, /tmdbUrl: tmdbUrl\.value \|\| undefined/u)
   assert.doesNotMatch(page, /logo_tmdb/u)
-  assert.doesNotMatch(page, /movie\.sameAs = externalLinks/u)
+  assert.doesNotMatch(page, /(?:sameAs|tmdbUrl): externalLinks/u)
 })
