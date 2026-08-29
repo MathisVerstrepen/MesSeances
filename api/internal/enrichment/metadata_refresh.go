@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrMetadataRefreshInProgress  = errors.New("TMDB metadata refresh already in progress")
-	ErrMetadataRefreshUnavailable = errors.New("TMDB metadata refresh unavailable")
+	ErrMetadataRefreshInProgress        = errors.New("TMDB metadata refresh already in progress")
+	ErrMetadataRefreshUnavailable       = errors.New("TMDB metadata refresh unavailable")
+	ErrMetadataRefreshOccurrenceClaimed = errors.New("TMDB metadata refresh occurrence already claimed")
 )
 
 type MetadataRefreshSummary struct {

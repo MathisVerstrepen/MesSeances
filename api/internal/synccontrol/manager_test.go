@@ -534,7 +534,8 @@ func TestManagerScheduledOccurrenceCompletionAndFinalization(t *testing.T) {
 		t.Fatal(err)
 	}
 	accepted, completion, err := manager.StartScheduled(Occurrence{
-		Provider: TargetUGC, Revision: 9,
+		ScheduleID: 1,
+		Provider:   TargetUGC, Revision: 9,
 		ScheduledFor: time.Date(2026, 10, 25, 2, 30, 45, 0, time.FixedZone("CEST", 2*60*60)),
 		Attempt:      2,
 	})
@@ -582,7 +583,7 @@ func TestManagerScheduledClaimConflictReleasesWithoutExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, completion, err := manager.StartScheduled(Occurrence{Provider: TargetPathe, Revision: 1, ScheduledFor: time.Now(), Attempt: 0})
+	status, completion, err := manager.StartScheduled(Occurrence{ScheduleID: 1, Provider: TargetPathe, Revision: 1, ScheduledFor: time.Now(), Attempt: 0})
 	if !errors.Is(err, ErrOccurrenceClaimed) || status.ID != "" || completion != nil {
 		t.Fatalf("status=%+v completion=%v err=%v", status, completion, err)
 	}
@@ -719,7 +720,7 @@ func TestManagerReleasesLeaseForEveryTerminalPath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, completion, err := manager.StartScheduled(Occurrence{Provider: TargetUGC, Revision: 1, ScheduledFor: time.Now(), Attempt: 0})
+			_, completion, err := manager.StartScheduled(Occurrence{ScheduleID: 1, Provider: TargetUGC, Revision: 1, ScheduledFor: time.Now(), Attempt: 0})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -742,7 +743,7 @@ func TestManagerCloseFinalizesAndReleasesScheduledLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, completion, err := manager.StartScheduled(Occurrence{Provider: TargetKinepolis, Revision: 1, ScheduledFor: time.Now(), Attempt: 0})
+	_, completion, err := manager.StartScheduled(Occurrence{ScheduleID: 1, Provider: TargetKinepolis, Revision: 1, ScheduledFor: time.Now(), Attempt: 0})
 	if err != nil {
 		t.Fatal(err)
 	}

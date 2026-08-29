@@ -11,6 +11,7 @@ import type {
   AdminSaveSyncScheduleRequest,
   AdminSessionResponse,
   AdminSyncScheduleItem,
+  AdminSyncScheduleTarget,
   AdminSyncSchedulesResponse,
   AdminSyncResponse,
   AdminSyncTarget,
@@ -210,11 +211,24 @@ export function useMesSeancesApi() {
         credentials: 'include'
       }))
     },
-    adminSaveSyncSchedule(provider: Provider, input: AdminSaveSyncScheduleRequest) {
-      return withAdminRedirect($fetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(provider)}`, {
+    adminCreateSyncSchedule(target: AdminSyncScheduleTarget, input: AdminSaveSyncScheduleRequest) {
+      return withAdminRedirect($fetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}`, {
         method: 'POST',
         credentials: 'include',
         body: input
+      }))
+    },
+    adminUpdateSyncSchedule(target: AdminSyncScheduleTarget, id: string, input: AdminSaveSyncScheduleRequest) {
+      return withAdminRedirect($fetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        credentials: 'include',
+        body: input
+      }))
+    },
+    adminDeleteSyncSchedule(target: AdminSyncScheduleTarget, id: string) {
+      return withAdminRedirect($fetch<void>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        credentials: 'include'
       }))
     },
     adminStartSync(target: AdminSyncTarget) {
@@ -280,6 +294,8 @@ export function getFrenchAdminApiError(cause: unknown): string {
   if (code === 'sync_in_progress') return 'Une synchronisation est déjà en cours.'
   if (code === 'sync_failed') return 'La synchronisation n’a pas pu démarrer. Réessayez plus tard.'
   if (code === 'invalid_sync_schedule') return 'La configuration est invalide. Vérifiez les champs requis et leur format, puis réessayez.'
+  if (code === 'sync_schedule_not_found') return 'Cette planification n’existe plus. Actualisez la page.'
+  if (code === 'sync_schedule_target_unavailable') return 'Cette synchronisation est temporairement indisponible. Désactivez la planification ou réessayez plus tard.'
   if (code === 'sync_schedule_unavailable') return 'La planification des synchronisations est temporairement indisponible.'
   if (code === 'sync_schedule_failed') return 'La planification n’a pas pu être enregistrée. Vos modifications sont conservées, réessayez plus tard.'
   if (code === 'theater_location_not_found') return 'Cette localisation n’est plus à traiter. Actualisez la liste.'

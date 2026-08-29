@@ -53,6 +53,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{26, "026_dual_movie_trailers.sql"},
 		{27, "027_short_link_retention.sql"},
 		{28, "028_movie_imdb_id.sql"},
+		{29, "029_multi_sync_schedules.sql"},
 	}
 
 	items, err := embeddedMigrations()

@@ -53,24 +53,54 @@ func (m *MetadataRefreshManager) Start() (MetadataRefreshStatus, error) {
 	if m == nil {
 		return MetadataRefreshStatus{}, ErrMetadataRefreshUnavailable
 	}
+	status, _, err := m.start(nil)
+	return status, err
+}
+
+func (m *MetadataRefreshManager) start(claim MetadataRefreshClaim) (MetadataRefreshStatus, <-chan MetadataRefreshCompletion, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if m.closed || m.ctx.Err() != nil {
-		return MetadataRefreshStatus{}, ErrMetadataRefreshUnavailable
+		m.mu.Unlock()
+		return MetadataRefreshStatus{}, nil, ErrMetadataRefreshUnavailable
 	}
 	if m.busy || !m.service.gate.tryAcquire() {
-		return MetadataRefreshStatus{}, ErrMetadataRefreshInProgress
+		m.mu.Unlock()
+		return MetadataRefreshStatus{}, nil, ErrMetadataRefreshInProgress
+	}
+	m.busy = true
+	m.wg.Add(1)
+	m.mu.Unlock()
+
+	if claim != nil {
+		claimed, err := claim(m.ctx)
+		if err != nil || !claimed {
+			m.rejectScheduledStart()
+			if err != nil {
+				return MetadataRefreshStatus{}, nil, ErrMetadataRefreshUnavailable
+			}
+			return MetadataRefreshStatus{}, nil, ErrMetadataRefreshOccurrenceClaimed
+		}
 	}
 
-	m.busy = true
+	m.mu.Lock()
+	if m.closed || m.ctx.Err() != nil {
+		m.mu.Unlock()
+		m.rejectScheduledStart()
+		return MetadataRefreshStatus{}, nil, ErrMetadataRefreshUnavailable
+	}
 	status := MetadataRefreshStatus{
 		State:     MetadataRefreshRunning,
 		StartedAt: m.now().UTC(),
 	}
 	m.status = &status
-	m.wg.Add(1)
-	go m.run()
-	return cloneMetadataRefreshStatus(status), nil
+	var completion chan MetadataRefreshCompletion
+	if claim != nil {
+		completion = make(chan MetadataRefreshCompletion, 1)
+	}
+	accepted := cloneMetadataRefreshStatus(status)
+	m.mu.Unlock()
+	go m.run(completion)
+	return accepted, completion, nil
 }
 
 func (m *MetadataRefreshManager) Snapshot() *MetadataRefreshStatus {
@@ -99,7 +129,7 @@ func (m *MetadataRefreshManager) Close() {
 	m.wg.Wait()
 }
 
-func (m *MetadataRefreshManager) run() {
+func (m *MetadataRefreshManager) run(completion chan MetadataRefreshCompletion) {
 	defer m.wg.Done()
 	summary, err := m.execute()
 	finishedAt := m.now().UTC()
@@ -118,6 +148,18 @@ func (m *MetadataRefreshManager) run() {
 	m.busy = false
 	m.service.gate.release()
 	m.mu.Unlock()
+	if completion != nil {
+		completion <- MetadataRefreshCompletion{Succeeded: err == nil}
+		close(completion)
+	}
+}
+
+func (m *MetadataRefreshManager) rejectScheduledStart() {
+	m.mu.Lock()
+	m.busy = false
+	m.service.gate.release()
+	m.mu.Unlock()
+	m.wg.Done()
 }
 
 func (m *MetadataRefreshManager) execute() (summary MetadataRefreshSummary, err error) {

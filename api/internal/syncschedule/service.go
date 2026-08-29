@@ -7,12 +7,11 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-
-	"messeances/api/internal/synccontrol"
 )
 
 type Starter interface {
-	StartScheduled(synccontrol.Occurrence) (synccontrol.Status, <-chan synccontrol.Completion, error)
+	StartScheduled(Occurrence) (<-chan Completion, error)
+	AvailableTargets() []Target
 }
 
 type scheduler interface {
@@ -58,7 +57,8 @@ type serviceDependencies struct {
 }
 
 type occurrenceKey struct {
-	provider     synccontrol.Target
+	scheduleID   int64
+	target       Target
 	revision     int64
 	scheduledFor time.Time
 }
@@ -86,16 +86,17 @@ type Service struct {
 	closeDone      chan struct{}
 
 	// mu protects service lifecycle, registrations, queue, active, and nextSeq.
-	started  bool
-	closed   bool
-	ticker   serviceTicker
-	refresh  sync.WaitGroup
-	dispatch sync.WaitGroup
-	entries  map[synccontrol.Target]*registration
-	queue    []queueItem
-	active   map[occurrenceKey]struct{}
-	wake     chan struct{}
-	nextSeq  uint64
+	started   bool
+	closed    bool
+	ticker    serviceTicker
+	refresh   sync.WaitGroup
+	dispatch  sync.WaitGroup
+	entries   map[int64]*registration
+	available map[Target]struct{}
+	queue     []queueItem
+	active    map[occurrenceKey]struct{}
+	wake      chan struct{}
+	nextSeq   uint64
 }
 
 func NewService(store Store, starter Starter) (*Service, error) {
@@ -126,8 +127,8 @@ func newService(store Store, starter Starter, location *time.Location, deps serv
 	return &Service{
 		store: store, starter: starter, location: location, deps: deps,
 		shutdown: shutdown, cancelShutdown: cancelShutdown, closeDone: make(chan struct{}),
-		entries: make(map[synccontrol.Target]*registration),
-		active:  make(map[occurrenceKey]struct{}), wake: make(chan struct{}, 1),
+		entries: make(map[int64]*registration), available: availableTargetSet(starter.AvailableTargets()),
+		active: make(map[occurrenceKey]struct{}), wake: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -240,10 +241,23 @@ func (s *Service) List(ctx context.Context) ([]Schedule, error) {
 	return result, nil
 }
 
-// Save commits first, then installs the returned database revision locally.
-func (s *Service) Save(ctx context.Context, provider synccontrol.Target, enabled bool, definition Definition) (Schedule, error) {
-	if !validProvider(provider) {
+func (s *Service) AvailableTargets() []Target {
+	targets := make([]Target, 0, len(s.available))
+	for _, target := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMetadataRefresh} {
+		if _, ok := s.available[target]; ok {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
+// Create commits first, then installs the returned database revision locally.
+func (s *Service) Create(ctx context.Context, target Target, enabled bool, definition Definition) (Schedule, error) {
+	if !ValidTarget(target) {
 		return Schedule{}, ErrInvalidSchedule
+	}
+	if enabled && !s.targetAvailable(target) {
+		return Schedule{}, ErrTargetUnavailable
 	}
 	parsed, err := parseDefinition(definition, s.location, s.deps.now())
 	if err != nil {
@@ -260,7 +274,7 @@ func (s *Service) Save(ctx context.Context, provider synccontrol.Target, enabled
 	shutdown := s.shutdown
 	s.mu.Unlock()
 	saveCtx, cancelSave := contextWithShutdown(ctx, shutdown)
-	committed, err := s.store.Upsert(saveCtx, Schedule{Provider: provider, Enabled: enabled, Definition: parsed.definition})
+	committed, err := s.store.Create(saveCtx, Schedule{Target: target, Enabled: enabled, Definition: parsed.definition})
 	cancelSave()
 	if err != nil {
 		return Schedule{}, errors.New("sync schedule save failed")
@@ -279,6 +293,93 @@ func (s *Service) Save(ctx context.Context, provider synccontrol.Target, enabled
 	}
 	s.mu.Unlock()
 	return cloneSchedule(prepared.schedule), nil
+}
+
+// Update keeps target and ID immutable and increments only the selected row.
+func (s *Service) Update(ctx context.Context, target Target, id int64, enabled bool, definition Definition) (Schedule, error) {
+	if !ValidTarget(target) || id <= 0 {
+		return Schedule{}, ErrInvalidSchedule
+	}
+	parsed, err := parseDefinition(definition, s.location, s.deps.now())
+	if err != nil {
+		return Schedule{}, ErrInvalidSchedule
+	}
+
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return Schedule{}, errors.New("sync schedule service closed")
+	}
+	shutdown := s.shutdown
+	s.mu.Unlock()
+	checkCtx, cancelCheck := contextWithShutdown(ctx, shutdown)
+	_, err = s.store.Get(checkCtx, target, id)
+	cancelCheck()
+	if errors.Is(err, ErrScheduleMissing) {
+		return Schedule{}, ErrScheduleMissing
+	}
+	if err != nil {
+		return Schedule{}, errors.New("sync schedule update failed")
+	}
+	if enabled && !s.targetAvailable(target) {
+		return Schedule{}, ErrTargetUnavailable
+	}
+	updateCtx, cancelUpdate := contextWithShutdown(ctx, shutdown)
+	committed, err := s.store.Update(updateCtx, Schedule{ID: id, Target: target, Enabled: enabled, Definition: parsed.definition})
+	cancelUpdate()
+	if errors.Is(err, ErrScheduleMissing) {
+		return Schedule{}, ErrScheduleMissing
+	}
+	if err != nil {
+		return Schedule{}, errors.New("sync schedule update failed")
+	}
+	prepared, err := s.prepareSchedule(committed)
+	if err != nil {
+		return Schedule{}, errors.New("sync schedule committed configuration invalid")
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return Schedule{}, errors.New("sync schedule service closed")
+	}
+	if s.started {
+		s.applyPreparedLocked([]preparedSchedule{prepared}, false)
+	}
+	s.mu.Unlock()
+	return cloneSchedule(prepared.schedule), nil
+}
+
+func (s *Service) Delete(ctx context.Context, target Target, id int64) error {
+	if !ValidTarget(target) || id <= 0 {
+		return ErrInvalidSchedule
+	}
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	deleteCtx, cancelDelete := contextWithShutdown(ctx, s.shutdown)
+	err := s.store.Delete(deleteCtx, target, id)
+	cancelDelete()
+	if errors.Is(err, ErrScheduleMissing) {
+		return ErrScheduleMissing
+	}
+	if err != nil {
+		return errors.New("sync schedule delete failed")
+	}
+	s.mu.Lock()
+	if current := s.entries[id]; current != nil {
+		s.removeLocked(current)
+		delete(s.entries, id)
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Service) ClaimOccurrence(ctx context.Context, occurrence Occurrence) (bool, error) {
+	if occurrence.ScheduleID <= 0 || !ValidTarget(occurrence.Target) || occurrence.Revision <= 0 || occurrence.ScheduledFor.IsZero() || occurrence.Attempt != 0 {
+		return false, ErrInvalidSchedule
+	}
+	return s.store.ClaimOccurrence(ctx, occurrence)
 }
 
 func (s *Service) NextRuns(definition Definition) ([]time.Time, error) {
@@ -321,12 +422,12 @@ type preparedSchedule struct {
 
 func (s *Service) prepareRows(rows []Schedule) ([]preparedSchedule, error) {
 	prepared := make([]preparedSchedule, 0, len(rows))
-	seen := make(map[synccontrol.Target]struct{}, len(rows))
+	seen := make(map[int64]struct{}, len(rows))
 	for _, row := range rows {
-		if _, ok := seen[row.Provider]; ok {
+		if _, ok := seen[row.ID]; ok {
 			return nil, ErrInvalidSchedule
 		}
-		seen[row.Provider] = struct{}{}
+		seen[row.ID] = struct{}{}
 		item, err := s.prepareSchedule(row)
 		if err != nil {
 			return nil, err
@@ -337,7 +438,7 @@ func (s *Service) prepareRows(rows []Schedule) ([]preparedSchedule, error) {
 }
 
 func (s *Service) prepareSchedule(schedule Schedule) (preparedSchedule, error) {
-	if !validProvider(schedule.Provider) || schedule.Revision <= 0 || schedule.UpdatedAt.IsZero() {
+	if schedule.ID <= 0 || !ValidTarget(schedule.Target) || schedule.Revision <= 0 || schedule.UpdatedAt.IsZero() {
 		return preparedSchedule{}, ErrInvalidSchedule
 	}
 	parsed, err := parseDefinition(schedule.Definition, s.location, s.deps.now())
@@ -349,21 +450,21 @@ func (s *Service) prepareSchedule(schedule Schedule) (preparedSchedule, error) {
 }
 
 func (s *Service) applyPreparedLocked(prepared []preparedSchedule, complete bool) {
-	incoming := make(map[synccontrol.Target]preparedSchedule, len(prepared))
+	incoming := make(map[int64]preparedSchedule, len(prepared))
 	for _, item := range prepared {
-		incoming[item.schedule.Provider] = item
+		incoming[item.schedule.ID] = item
 	}
 	if complete {
-		for provider, current := range s.entries {
-			if _, ok := incoming[provider]; ok {
+		for id, current := range s.entries {
+			if _, ok := incoming[id]; ok {
 				continue
 			}
 			s.removeLocked(current)
-			delete(s.entries, provider)
+			delete(s.entries, id)
 		}
 	}
-	for provider, item := range incoming {
-		current := s.entries[provider]
+	for id, item := range incoming {
+		current := s.entries[id]
 		if current != nil && current.schedule.Revision >= item.schedule.Revision {
 			continue
 		}
@@ -371,8 +472,8 @@ func (s *Service) applyPreparedLocked(prepared []preparedSchedule, complete bool
 			s.removeLocked(current)
 		}
 		entry := &registration{schedule: cloneSchedule(item.schedule)}
-		s.entries[provider] = entry
-		if !item.schedule.Enabled {
+		s.entries[id] = entry
+		if !item.schedule.Enabled || !s.targetAvailable(item.schedule.Target) {
 			continue
 		}
 		entry.ctx, entry.cancel = context.WithCancel(s.ctx)
@@ -418,17 +519,17 @@ func (s *Service) runRegistration(entry *registration) {
 	if scheduledFor.IsZero() {
 		return
 	}
-	fresh, err := s.fresh(ctx, entry.schedule.Provider, entry.schedule.Revision)
+	fresh, err := s.fresh(ctx, entry.schedule.Target, entry.schedule.ID, entry.schedule.Revision)
 	if err != nil || !fresh {
 		return
 	}
 
 	key := occurrenceKey{
-		provider: entry.schedule.Provider, revision: entry.schedule.Revision, scheduledFor: scheduledFor,
+		scheduleID: entry.schedule.ID, target: entry.schedule.Target, revision: entry.schedule.Revision, scheduledFor: scheduledFor,
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	current := s.entries[key.provider]
+	current := s.entries[key.scheduleID]
 	if !s.started || s.closed || ctx.Err() != nil || current != entry || current.schedule.Revision != key.revision {
 		return
 	}
@@ -517,15 +618,15 @@ func stopAndDrainTimer(timer serviceTimer) {
 }
 
 func (s *Service) dispatchItem(ctx context.Context, item queueItem) bool {
-	_, completion, err := s.starter.StartScheduled(synccontrol.Occurrence{
-		Provider: item.key.provider, Revision: item.key.revision,
+	completion, err := s.starter.StartScheduled(Occurrence{
+		ScheduleID: item.key.scheduleID, Target: item.key.target, Revision: item.key.revision,
 		ScheduledFor: item.key.scheduledFor, Attempt: item.attempt,
 	})
-	if errors.Is(err, synccontrol.ErrInProgress) {
+	if errors.Is(err, ErrInProgress) {
 		s.requeue(item, item.attempt, s.deps.now().Add(time.Second))
 		return true
 	}
-	if errors.Is(err, synccontrol.ErrOccurrenceClaimed) {
+	if errors.Is(err, ErrOccurrenceClaimed) {
 		s.finish(item.key)
 		return true
 	}
@@ -538,14 +639,14 @@ func (s *Service) dispatchItem(ctx context.Context, item queueItem) bool {
 		return true
 	}
 
-	var result synccontrol.Completion
+	var result Completion
 	var received bool
 	select {
 	case <-ctx.Done():
 		return false
 	case result, received = <-completion:
 	}
-	if received && result.Status.State == synccontrol.StateSucceeded && result.FinalizationError == nil {
+	if received && result.Succeeded && result.FinalizationError == nil {
 		s.finish(item.key)
 		return true
 	}
@@ -592,8 +693,8 @@ func (s *Service) signalDispatcherLocked() {
 	}
 }
 
-func (s *Service) fresh(ctx context.Context, provider synccontrol.Target, revision int64) (bool, error) {
-	schedule, err := s.store.Get(ctx, provider)
+func (s *Service) fresh(ctx context.Context, target Target, id, revision int64) (bool, error) {
+	schedule, err := s.store.Get(ctx, target, id)
 	if errors.Is(err, ErrScheduleMissing) {
 		return false, nil
 	}
@@ -604,6 +705,21 @@ func (s *Service) fresh(ctx context.Context, provider synccontrol.Target, revisi
 		return false, err
 	}
 	return schedule.Enabled && schedule.Revision == revision, nil
+}
+
+func (s *Service) targetAvailable(target Target) bool {
+	_, ok := s.available[target]
+	return ok
+}
+
+func availableTargetSet(targets []Target) map[Target]struct{} {
+	available := make(map[Target]struct{}, len(targets))
+	for _, target := range targets {
+		if ValidTarget(target) {
+			available[target] = struct{}{}
+		}
+	}
+	return available
 }
 
 func contextWithShutdown(parent context.Context, shutdown context.Context) (context.Context, context.CancelFunc) {

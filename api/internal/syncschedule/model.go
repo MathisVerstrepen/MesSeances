@@ -3,11 +3,10 @@ package syncschedule
 import (
 	"errors"
 	"time"
-
-	"messeances/api/internal/synccontrol"
 )
 
 type Kind string
+type Target string
 
 const (
 	Timezone             = "Europe/Paris"
@@ -16,11 +15,20 @@ const (
 	KindCron        Kind = "cron"
 	RefreshInterval      = 30 * time.Second
 	RetryDelay           = 15 * time.Minute
+
+	TargetUGC             Target = "ugc"
+	TargetKinepolis       Target = "kinepolis"
+	TargetPathe           Target = "pathe"
+	TargetCGR             Target = "cgr"
+	TargetMetadataRefresh Target = "tmdb_metadata_refresh"
 )
 
 var (
-	ErrInvalidSchedule = errors.New("invalid sync schedule")
-	ErrScheduleMissing = errors.New("sync schedule not found")
+	ErrInvalidSchedule   = errors.New("invalid sync schedule")
+	ErrScheduleMissing   = errors.New("sync schedule not found")
+	ErrTargetUnavailable = errors.New("sync schedule target unavailable")
+	ErrInProgress        = errors.New("scheduled operation already in progress")
+	ErrOccurrenceClaimed = errors.New("scheduled occurrence already claimed")
 )
 
 // Definition is the persisted schedule union. Only fields belonging to Kind
@@ -33,11 +41,25 @@ type Definition struct {
 }
 
 type Schedule struct {
-	Provider   synccontrol.Target `json:"provider"`
-	Revision   int64              `json:"revision"`
-	Enabled    bool               `json:"enabled"`
-	Definition Definition         `json:"schedule"`
-	UpdatedAt  time.Time          `json:"updated_at"`
+	ID         int64      `json:"-"`
+	Target     Target     `json:"target"`
+	Revision   int64      `json:"revision"`
+	Enabled    bool       `json:"enabled"`
+	Definition Definition `json:"schedule"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
+type Occurrence struct {
+	ScheduleID   int64
+	Target       Target
+	Revision     int64
+	ScheduledFor time.Time
+	Attempt      int
+}
+
+type Completion struct {
+	Succeeded         bool
+	FinalizationError error
 }
 
 func cloneSchedule(schedule Schedule) Schedule {
@@ -45,6 +67,23 @@ func cloneSchedule(schedule Schedule) Schedule {
 	return schedule
 }
 
-func validProvider(provider synccontrol.Target) bool {
-	return provider == synccontrol.TargetUGC || provider == synccontrol.TargetKinepolis || provider == synccontrol.TargetPathe || provider == synccontrol.TargetCGR
+func ValidTarget(target Target) bool {
+	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMetadataRefresh
+}
+
+func TargetOrder(target Target) int {
+	switch target {
+	case TargetUGC:
+		return 0
+	case TargetKinepolis:
+		return 1
+	case TargetPathe:
+		return 2
+	case TargetCGR:
+		return 3
+	case TargetMetadataRefresh:
+		return 4
+	default:
+		return 5
+	}
 }

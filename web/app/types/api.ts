@@ -305,8 +305,10 @@ export type AdminSyncFailureCode = 'none' | 'client_creation_failed' | 'provider
 export type AdminSyncEnrichmentState = 'skipped' | 'complete' | 'degraded'
 export type AdminSyncScheduleKind = 'daily' | 'weekly' | 'cron'
 export type AdminSyncWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+export type AdminSyncScheduleTarget = Provider | 'tmdb_metadata_refresh'
 
 export interface AdminSyncOccurrence {
+  schedule_id: string
   schedule_revision: number
   scheduled_for: string
   attempt: number
@@ -331,7 +333,8 @@ export interface AdminCronSyncSchedule {
 export type AdminSyncSchedule = AdminDailySyncSchedule | AdminWeeklySyncSchedule | AdminCronSyncSchedule
 
 export interface AdminSyncScheduleItem {
-  provider: Provider
+  id: string
+  target: AdminSyncScheduleTarget
   revision: number
   enabled: boolean
   schedule: AdminSyncSchedule
@@ -341,6 +344,7 @@ export interface AdminSyncScheduleItem {
 
 export interface AdminSyncSchedulesResponse {
   timezone: 'Europe/Paris'
+  available_targets: AdminSyncScheduleTarget[]
   schedules: AdminSyncScheduleItem[]
 }
 
