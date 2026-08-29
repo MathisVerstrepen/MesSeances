@@ -16,7 +16,7 @@ const (
 var queryKeys = map[string]map[string]struct{}{
 	"/":                    {},
 	"/planning":            keys("date", "language", "format", "mode", "zoom", sharedTheatersKey),
-	"/recherche":           keys("theaters", "date", "start_after", "finish_before", "language", "format", "include_ads", "buffer_ads", "grouping", "layout", sharedTheatersKey),
+	"/recherche":           keys("theaters", "date", "start_after", "finish_before", "language", "format", "include_ads", "buffer_ads", "grouping", "layout", "selected", sharedTheatersKey),
 	"/films":               keys("q", "sort", "page", "genres", "duration", "date", "date_to", "all_theaters", sharedTheatersKey),
 	"/credits":             keys(sharedTheatersKey),
 	"/film/:slug":          keys("date", "language", "format", "sort", sharedTheatersKey),
