@@ -95,6 +95,15 @@ func TestCreateShortlinkValidatesSharedTheatersWithoutChangingResponseShape(t *t
 	}
 }
 
+func TestCreateShortlinkAcceptsSelectedSearchScreenings(t *testing.T) {
+	target := "/recherche?theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016&date=2026-08-30&start_after=13%3A15&finish_before=22%3A45&selected=cgr%3Acgr-showing-P0798-eb8c701bf9eb902f738cb7a32ed14cb55b9e2b42e0fc346ac79d9cf11d171bbc%2Cpathe%3Apathe-showing-V3001S170227&shared_theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016"
+	service := shortlink.NewService(acceptingShortlinkStore{}, shortlink.ServiceOptions{Random: bytes.NewReader(make([]byte, 16))})
+	response := postShortlink(shortlinkHandler(service), "http://localhost:3000", "application/json", `{"target":"`+target+`"}`)
+	if response.Code != http.StatusCreated || response.Body.String() != `{"code":"AAAAAAAAAAAAAAAAAAAAAA","target":"`+target+`"}`+"\n" {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestCreateShortlinkRejectsCinemasTarget(t *testing.T) {
 	service := shortlink.NewService(acceptingShortlinkStore{}, shortlink.ServiceOptions{Random: bytes.NewReader(make([]byte, 16))})
 	response := postShortlink(shortlinkHandler(service), "http://localhost:3000", "application/json", `{"target":"/cinemas?q=Lille&shared_theaters=ugc-25"}`)

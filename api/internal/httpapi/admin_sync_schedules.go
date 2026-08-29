@@ -7,21 +7,23 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	"messeances/api/internal/synccontrol"
 	"messeances/api/internal/syncschedule"
 )
 
 type syncSchedulesResponse struct {
-	Timezone  string             `json:"timezone"`
-	Schedules []syncScheduleItem `json:"schedules"`
+	Timezone         string                `json:"timezone"`
+	AvailableTargets []syncschedule.Target `json:"available_targets"`
+	Schedules        []syncScheduleItem    `json:"schedules"`
 }
 
 type syncScheduleItem struct {
-	Provider  synccontrol.Target      `json:"provider"`
+	ID        string                  `json:"id"`
+	Target    syncschedule.Target     `json:"target"`
 	Revision  int64                   `json:"revision"`
 	Enabled   bool                    `json:"enabled"`
 	Schedule  syncschedule.Definition `json:"schedule"`
@@ -56,30 +58,71 @@ func (a *adminAPI) syncSchedules(w http.ResponseWriter, r *http.Request) {
 		writeSyncScheduleFailure(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, syncSchedulesResponse{Timezone: syncschedule.Timezone, Schedules: items})
+	writeJSON(w, http.StatusOK, syncSchedulesResponse{
+		Timezone: syncschedule.Timezone, AvailableTargets: a.schedules.AvailableTargets(), Schedules: items,
+	})
 }
 
-func (a *adminAPI) saveSyncSchedule(w http.ResponseWriter, r *http.Request) {
+func (a *adminAPI) createSyncSchedule(w http.ResponseWriter, r *http.Request) {
 	if a.schedules == nil {
 		writeSyncScheduleUnavailable(w)
 		return
 	}
-	provider := synccontrol.Target(chi.URLParam(r, "provider"))
-	if provider != synccontrol.TargetUGC && provider != synccontrol.TargetKinepolis && provider != synccontrol.TargetPathe && provider != synccontrol.TargetCGR {
+	target, ok := syncScheduleTarget(w, r)
+	if !ok {
+		return
+	}
+	enabled, definition, ok := decodeSyncScheduleRequest(w, r)
+	if !ok {
+		return
+	}
+	saved, err := a.schedules.Create(r.Context(), target, enabled, definition)
+	a.writeSyncScheduleMutation(w, saved, err, http.StatusCreated)
+}
+
+func (a *adminAPI) updateSyncSchedule(w http.ResponseWriter, r *http.Request) {
+	if a.schedules == nil {
+		writeSyncScheduleUnavailable(w)
+		return
+	}
+	target, ok := syncScheduleTarget(w, r)
+	if !ok {
+		return
+	}
+	id, ok := syncScheduleID(w, r)
+	if !ok {
+		return
+	}
+	enabled, definition, ok := decodeSyncScheduleRequest(w, r)
+	if !ok {
+		return
+	}
+	saved, err := a.schedules.Update(r.Context(), target, id, enabled, definition)
+	a.writeSyncScheduleMutation(w, saved, err, http.StatusOK)
+}
+
+func (a *adminAPI) deleteSyncSchedule(w http.ResponseWriter, r *http.Request) {
+	if a.schedules == nil {
+		writeSyncScheduleUnavailable(w)
+		return
+	}
+	target, ok := syncScheduleTarget(w, r)
+	if !ok {
+		return
+	}
+	id, ok := syncScheduleID(w, r)
+	if !ok {
+		return
+	}
+	if !emptyAdminBody(w, r) {
 		writeInvalidSyncSchedule(w)
 		return
 	}
-	var request saveSyncScheduleRequest
-	if err := decodeAdminJSON(w, r, &request); err != nil {
-		writeInvalidSyncSchedule(w)
+	err := a.schedules.Delete(r.Context(), target, id)
+	if errors.Is(err, syncschedule.ErrScheduleMissing) {
+		writeSyncScheduleNotFound(w)
 		return
 	}
-	enabled, definition, err := parseSyncScheduleRequest(request)
-	if err != nil {
-		writeInvalidSyncSchedule(w)
-		return
-	}
-	saved, err := a.schedules.Save(r.Context(), provider, enabled, definition)
 	if errors.Is(err, syncschedule.ErrInvalidSchedule) {
 		writeInvalidSyncSchedule(w)
 		return
@@ -88,12 +131,63 @@ func (a *adminAPI) saveSyncSchedule(w http.ResponseWriter, r *http.Request) {
 		writeSyncScheduleFailure(w)
 		return
 	}
-	item, err := a.syncScheduleItem(saved)
-	if err != nil {
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *adminAPI) writeSyncScheduleMutation(w http.ResponseWriter, saved syncschedule.Schedule, err error, status int) {
+	switch {
+	case errors.Is(err, syncschedule.ErrInvalidSchedule):
+		writeInvalidSyncSchedule(w)
+		return
+	case errors.Is(err, syncschedule.ErrScheduleMissing):
+		writeSyncScheduleNotFound(w)
+		return
+	case errors.Is(err, syncschedule.ErrTargetUnavailable):
+		writeSyncScheduleTargetUnavailable(w)
+		return
+	case err != nil:
 		writeSyncScheduleFailure(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, item)
+	item, itemErr := a.syncScheduleItem(saved)
+	if itemErr != nil {
+		writeSyncScheduleFailure(w)
+		return
+	}
+	writeJSON(w, status, item)
+}
+
+func syncScheduleTarget(w http.ResponseWriter, r *http.Request) (syncschedule.Target, bool) {
+	target := syncschedule.Target(chi.URLParam(r, "target"))
+	if !syncschedule.ValidTarget(target) {
+		writeInvalidSyncSchedule(w)
+		return "", false
+	}
+	return target, true
+}
+
+func syncScheduleID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	raw := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != raw {
+		writeInvalidSyncSchedule(w)
+		return 0, false
+	}
+	return id, true
+}
+
+func decodeSyncScheduleRequest(w http.ResponseWriter, r *http.Request) (bool, syncschedule.Definition, bool) {
+	var request saveSyncScheduleRequest
+	if err := decodeAdminJSON(w, r, &request); err != nil {
+		writeInvalidSyncSchedule(w)
+		return false, syncschedule.Definition{}, false
+	}
+	enabled, definition, err := parseSyncScheduleRequest(request)
+	if err != nil {
+		writeInvalidSyncSchedule(w)
+		return false, syncschedule.Definition{}, false
+	}
+	return enabled, definition, true
 }
 
 func (a *adminAPI) syncScheduleItems(schedules []syncschedule.Schedule) ([]syncScheduleItem, error) {
@@ -106,18 +200,21 @@ func (a *adminAPI) syncScheduleItems(schedules []syncschedule.Schedule) ([]syncS
 		items = append(items, item)
 	}
 	sort.SliceStable(items, func(i, j int) bool {
-		return syncScheduleProviderOrder(items[i].Provider) < syncScheduleProviderOrder(items[j].Provider)
+		left, right := syncschedule.TargetOrder(items[i].Target), syncschedule.TargetOrder(items[j].Target)
+		leftID, _ := strconv.ParseInt(items[i].ID, 10, 64)
+		rightID, _ := strconv.ParseInt(items[j].ID, 10, 64)
+		return left < right || left == right && leftID < rightID
 	})
 	return items, nil
 }
 
 func (a *adminAPI) syncScheduleItem(schedule syncschedule.Schedule) (syncScheduleItem, error) {
 	nextRuns, err := a.schedules.NextRuns(schedule.Definition)
-	if err != nil || len(nextRuns) != 5 {
+	if err != nil || len(nextRuns) != 5 || schedule.ID <= 0 {
 		return syncScheduleItem{}, errors.New("sync schedule preview failed")
 	}
 	return syncScheduleItem{
-		Provider: schedule.Provider, Revision: schedule.Revision, Enabled: schedule.Enabled,
+		ID: strconv.FormatInt(schedule.ID, 10), Target: schedule.Target, Revision: schedule.Revision, Enabled: schedule.Enabled,
 		Schedule: schedule.Definition, NextRuns: nextRuns, UpdatedAt: schedule.UpdatedAt,
 	}, nil
 }
@@ -171,24 +268,16 @@ func decodeStrictJSON(value []byte, destination any) error {
 	return nil
 }
 
-func syncScheduleProviderOrder(provider synccontrol.Target) int {
-	if provider == synccontrol.TargetUGC {
-		return 0
-	}
-	if provider == synccontrol.TargetKinepolis {
-		return 1
-	}
-	if provider == synccontrol.TargetPathe {
-		return 2
-	}
-	if provider == synccontrol.TargetCGR {
-		return 3
-	}
-	return 4
-}
-
 func writeInvalidSyncSchedule(w http.ResponseWriter) {
 	writeError(w, http.StatusBadRequest, "invalid_sync_schedule", "Configuration de synchronisation invalide.")
+}
+
+func writeSyncScheduleNotFound(w http.ResponseWriter) {
+	writeError(w, http.StatusNotFound, "sync_schedule_not_found", "Planification de synchronisation introuvable.")
+}
+
+func writeSyncScheduleTargetUnavailable(w http.ResponseWriter) {
+	writeError(w, http.StatusServiceUnavailable, "sync_schedule_target_unavailable", "Cette synchronisation n'est pas disponible.")
 }
 
 func writeSyncScheduleUnavailable(w http.ResponseWriter) {

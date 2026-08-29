@@ -31,7 +31,7 @@ let requestId = 0
 let isMounted = false
 let isInitializing = false
 let lastTimelineKey = ''
-let dayCheckTimer: ReturnType<typeof setTimeout> | undefined
+let dayCheckTimer: number | undefined
 
 function matchesFormat(format: string) {
   if (formatFilter.value === 'ALL') return true

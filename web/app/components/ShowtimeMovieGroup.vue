@@ -2,10 +2,17 @@
 import type { ResultLayout, ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   results: ShowtimeResultViewModel[]
   layout: ResultLayout
   scope: ShowtimeResultScope
+  selectedKeys?: readonly string[]
+}>(), {
+  selectedKeys: () => []
+})
+
+const emit = defineEmits<{
+  toggleSelection: [key: string]
 }>()
 
 const movie = computed(() => props.results[0] ?? null)
@@ -25,6 +32,7 @@ const backdropUrl = computed(() => {
 })
 const backdropFailed = ref(false)
 const backdropImage = ref<HTMLImageElement | null>(null)
+const selectedKeySet = computed(() => new Set(props.selectedKeys))
 
 watch([posterUrl, backdropUrl], () => {
   backdropFailed.value = false
@@ -93,10 +101,10 @@ onMounted(() => nextTick(() => {
     </header>
 
     <ul v-if="layout === 'lines'" class="divide-y-2 divide-ink" :aria-label="scope === 'single-theater' ? `Séances de ${movie.movieTitle}` : 'Séances compatibles'">
-      <ShowtimeResultLine v-for="result in results" :key="result.key" :result="result" :scope="scope" :show-movie="false" />
+      <ShowtimeResultLine v-for="result in results" :key="result.key" :result="result" :scope="scope" :show-movie="false" :selected="selectedKeySet.has(result.key)" @toggle-selection="emit('toggleSelection', $event)" />
     </ul>
     <ul v-else class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-5 lg:grid-cols-[repeat(auto-fill,minmax(210px,1fr))]" :aria-label="scope === 'single-theater' ? `Séances de ${movie.movieTitle}` : 'Séances compatibles'">
-      <li v-for="result in results" :key="result.key" class="min-w-0"><ShowtimeResultBox :result="result" :scope="scope" :show-movie="false" /></li>
+      <li v-for="result in results" :key="result.key" class="min-w-0"><ShowtimeResultBox :result="result" :scope="scope" :show-movie="false" :selected="selectedKeySet.has(result.key)" @toggle-selection="emit('toggleSelection', $event)" /></li>
     </ul>
   </article>
 </template>

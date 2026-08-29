@@ -144,18 +144,26 @@ func run(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("sync configuration is invalid")
 		}
-		scheduler, err := syncschedule.NewService(syncschedule.NewPostgresStore(pool), manager)
+		concreteSyncManager = manager
+		syncManager = manager
+	}
+	if concreteSyncManager != nil || metadataRefreshManager != nil {
+		scheduleStore := syncschedule.NewPostgresStore(pool)
+		starter := syncScheduleStarter{providers: concreteSyncManager, metadata: metadataRefreshManager, claimer: scheduleStore}
+		scheduler, err := syncschedule.NewService(scheduleStore, starter)
 		if err != nil {
-			manager.Close()
+			if concreteSyncManager != nil {
+				concreteSyncManager.Close()
+			}
 			return fmt.Errorf("sync schedule configuration is invalid")
 		}
 		if err := scheduler.Start(workerCtx); err != nil {
 			scheduler.Close()
-			manager.Close()
+			if concreteSyncManager != nil {
+				concreteSyncManager.Close()
+			}
 			return fmt.Errorf("sync schedule configuration is invalid")
 		}
-		concreteSyncManager = manager
-		syncManager = manager
 		syncScheduler = scheduler
 	}
 	var polling sync.WaitGroup

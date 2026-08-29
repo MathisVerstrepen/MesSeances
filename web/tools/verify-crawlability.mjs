@@ -1,11 +1,21 @@
+import { spawn } from 'node:child_process'
+import { access } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { fileURLToPath } from 'node:url'
 import process from 'node:process'
+import { setTimeout as delay } from 'node:timers/promises'
+import { parse as parseDevalue } from 'devalue'
 
 const apiUrl = origin(process.env.API_URL ?? 'http://localhost:8080', 'API_URL')
 const webUrl = origin(process.env.WEB_URL ?? 'http://localhost:3000', 'WEB_URL')
 const siteUrl = origin(process.env.SITE_URL ?? 'http://localhost:3000', 'SITE_URL')
 const expectUpstreamFailure = process.env.EXPECT_UPSTREAM_FAILURE === '1'
+const expectSeoOnlyFailure = process.env.EXPECT_SEO_ONLY_FAILURE === '1'
+const expectSsrSuccess = process.env.EXPECT_SSR_SUCCESS === '1'
 const API_PAGE_SIZE = 100
 const CATALOG_PAGE_SIZE = 24
+
+assert([expectUpstreamFailure, expectSeoOnlyFailure, expectSsrSuccess].filter(Boolean).length <= 1, 'EXPECT_UPSTREAM_FAILURE, EXPECT_SEO_ONLY_FAILURE, and EXPECT_SSR_SUCCESS are mutually exclusive')
 
 function origin(value, name) {
   const parsed = new URL(value)
@@ -58,15 +68,47 @@ function canonical(html) {
 }
 
 function jsonLdDocuments(html) {
+  return jsonLdScripts(html).map((script, index) => {
+    try {
+      return JSON.parse(decodeHtml(script.body))
+    } catch (error) {
+      throw new Error(`JSON-LD script ${index + 1} is invalid: ${error.message}`)
+    }
+  })
+}
+
+function scriptElements(html) {
   return [...html.matchAll(/<script\b([^>]*)>(.*?)<\/script>/gis)]
-    .filter((match) => attributes(`<script ${match[1]}>`).type === 'application/ld+json')
-    .map((match, index) => {
-      try {
-        return JSON.parse(decodeHtml(match[2]))
-      } catch (error) {
-        throw new Error(`JSON-LD script ${index + 1} is invalid: ${error.message}`)
-      }
-    })
+    .map((match) => ({ attributes: attributes(`<script ${match[1]}>`), body: match[2], source: match[0] }))
+}
+
+function jsonLdScripts(html) {
+  return scriptElements(html).filter((script) => script.attributes.type === 'application/ld+json')
+}
+
+function withoutJsonLd(html) {
+  return scriptElements(html)
+    .filter((script) => script.attributes.type === 'application/ld+json')
+    .reduce((result, script) => result.replace(script.source, ''), html)
+}
+
+function nuxtPayload(html, path) {
+  const scripts = scriptElements(html).filter((script) => script.attributes.id === '__NUXT_DATA__' || 'data-nuxt-data' in script.attributes)
+  const script = one(scripts, `${path}: Nuxt hydration payload`)
+  try {
+    const identity = (value) => value
+    const revivers = Object.fromEntries(['NuxtError', 'EmptyShallowRef', 'EmptyRef', 'ShallowRef', 'ShallowReactive', 'Ref', 'Reactive', 'Island'].map((type) => [type, identity]))
+    return { payload: parseDevalue(script.body, revivers), bytes: Buffer.byteLength(script.body) }
+  } catch (error) {
+    throw new Error(`${path}: Nuxt hydration payload is invalid: ${error.message}`)
+  }
+}
+
+function filmPayloadState(html, slug, path) {
+  const result = nuxtPayload(html, path)
+  const entries = Object.entries(result.payload?.data ?? {}).filter(([key]) => key.startsWith(`film-schedule:${slug}|`))
+  const entry = one(entries, `${path}: film async-data entry`)
+  return { key: entry[0], state: entry[1], payloadBytes: result.bytes }
 }
 
 function graphNodes(html) {
@@ -517,10 +559,43 @@ function verifyEventNodes(actual, expected, path) {
   }
 }
 
+function filmEventFacts(event) {
+  return JSON.stringify({
+    startDate: event.startDate,
+    endDate: event.endDate,
+    location: event.location,
+    workPresented: event.workPresented
+  })
+}
+
+function verifyCompactFilmEvents(actual, schedule, movieId, path) {
+  const expected = schedule.theaters.flatMap((theater) => {
+    const theaterId = `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}#cinema`
+    return theater.showtimes.map((showtime) => ({
+      startDate: showtime.start_time,
+      endDate: showtime.end_time,
+      location: { '@id': theaterId },
+      workPresented: { '@id': movieId }
+    }))
+  })
+  assert(actual.length === expected.length, `${path}: expected all ${expected.length} nationwide ScreeningEvent nodes, received ${actual.length}`)
+  for (const [index, event] of actual.entries()) {
+    assert(JSON.stringify(Object.keys(event).sort()) === JSON.stringify(['@type', 'startDate', 'endDate', 'location', 'workPresented'].sort()), `${path}: compact ScreeningEvent ${index + 1} keys mismatch`)
+    assert(event['@type'] === 'ScreeningEvent', `${path}: compact ScreeningEvent ${index + 1} type mismatch`)
+    assert(!('@id' in event) && !('name' in event), `${path}: compact ScreeningEvent ${index + 1} repeats identity or name`)
+  }
+  const actualFacts = actual.map(filmEventFacts).sort()
+  const expectedFacts = expected.map(filmEventFacts).sort()
+  assert(JSON.stringify(actualFacts) === JSON.stringify(expectedFacts), `${path}: nationwide ScreeningEvent multiset mismatch`)
+}
+
 function verifyFilmJsonLd(html, movie, schedule, path) {
   const nodes = verifyGlobalGraph(html)
   const canonicalUrl = `${siteUrl}/film/${encodeURIComponent(movie.slug)}`
-  const movieNode = nodes.find((node) => node['@type'] === 'Movie' && node['@id'] === `${canonicalUrl}#movie`)
+  const movieId = `${canonicalUrl}#movie`
+  const movieNodes = nodesOfType(nodes, 'Movie')
+  assert(movieNodes.length === 1, `${path}: expected exactly one Movie node`)
+  const movieNode = movieNodes.find((node) => node['@id'] === movieId)
   assert(movieNode?.name === movie.title && movieNode.url === canonicalUrl, `${path}: Movie identity mismatch`)
   assert(movieNode.duration === `PT${movie.runtime_minutes}M`, `${path}: Movie duration mismatch`)
   assert(movieNode.image !== `${siteUrl}/pwa-512x512.png`, `${path}: app icon used as Movie image`)
@@ -529,18 +604,28 @@ function verifyFilmJsonLd(html, movie, schedule, path) {
   assert(JSON.stringify(breadcrumb.itemListElement.map((item) => item.item)) === JSON.stringify([`${siteUrl}/`, `${siteUrl}/films`, canonicalUrl]), `${path}: BreadcrumbList links mismatch`)
   verifyBreadcrumb(html, { path, id: `${canonicalUrl}#breadcrumb`, names: ['Accueil', 'Films', movie.title], urls: [`${siteUrl}/`, `${siteUrl}/films`, canonicalUrl] })
 
-  const showtimes = schedule.theaters.flatMap((theater) => theater.showtimes.map((showtime) => ({ ...showtime, theater })))
-  const expected = expectedEvents(
-    showtimes,
-    (showtime) => `${siteUrl}/cinema/${encodeURIComponent(showtime.theater.slug)}`,
-    (showtime) => `${siteUrl}/cinema/${encodeURIComponent(showtime.theater.slug)}#cinema`,
-    () => `${canonicalUrl}#movie`
-  )
-  verifyEventNodes(nodesOfType(nodes, 'ScreeningEvent'), expected, path)
+  verifyCompactFilmEvents(nodesOfType(nodes, 'ScreeningEvent'), schedule, movieId, path)
   const theaters = nodesOfType(nodes, 'MovieTheater')
-  assert(theaters.length === schedule.theaters.filter((theater) => theater.showtimes.length).length, `${path}: MovieTheater count mismatch`)
+  const expectedTheaters = schedule.theaters.filter((theater) => theater.showtimes.length)
+  assert(theaters.length === expectedTheaters.length, `${path}: MovieTheater count mismatch`)
+  assert(new Set(theaters.map((theater) => theater['@id'])).size === theaters.length, `${path}: duplicate MovieTheater identity`)
+  for (const expectedTheater of expectedTheaters) {
+    const theaterUrl = `${siteUrl}/cinema/${encodeURIComponent(expectedTheater.slug)}`
+    const theater = theaters.find((node) => node['@id'] === `${theaterUrl}#cinema`)
+    assert(JSON.stringify(theater) === JSON.stringify({ '@type': 'MovieTheater', '@id': `${theaterUrl}#cinema`, name: expectedTheater.name, url: theaterUrl }), `${path}: MovieTheater ${expectedTheater.slug} mismatch`)
+  }
   assertNoItemList(html, path)
   assertStableInternalLinks(html, path)
+
+  const scripts = jsonLdScripts(html).filter((script) => {
+    try {
+      return JSON.stringify(JSON.parse(decodeHtml(script.body))).includes(movieId)
+    } catch {
+      return false
+    }
+  })
+  const script = one(scripts, `${path}: inline film JSON-LD`)
+  return { jsonLdBytes: Buffer.byteLength(script.body), eventCount: nodesOfType(nodes, 'ScreeningEvent').length, theaterCount: theaters.length }
 }
 
 function verifyCinemaJsonLd(html, response, path) {
@@ -736,6 +821,120 @@ function todayInParis() {
   return `${value.year}-${value.month}-${value.day}`
 }
 
+function calendarDate(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? ''))
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day, 12))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? match[0] : null
+}
+
+function nonPastAvailableDates(response, today) {
+  return [...new Set(response.available_dates)]
+    .filter((date) => calendarDate(date) === date && date >= today)
+    .sort()
+}
+
+function resolvedAvailableDate(dates, requestedDate, today) {
+  if (dates.includes(requestedDate)) return requestedDate
+  return dates.includes(today) ? today : dates[0] ?? today
+}
+
+function filmShowtimeCount(schedule) {
+  return schedule.theaters.reduce((count, theater) => count + theater.showtimes.length, 0)
+}
+
+async function fetchFilmSchedule(slug, date, city) {
+  const query = new URLSearchParams({ date })
+  if (city) query.set('city', city)
+  const result = await get(`${apiUrl}/api/v1/movies/${encodeURIComponent(slug)}/showtimes?${query}`)
+  assert(result.response.status === 200, `API film fixture ${slug} ${date}${city ? ` ${city}` : ' nationwide'}: expected 200, received ${result.response.status}`)
+  const schedule = JSON.parse(result.body)
+  assert(schedule.movie?.slug === slug && Array.isArray(schedule.available_dates) && Array.isArray(schedule.theaters), `API film fixture ${slug}: malformed schedule`)
+  assert(schedule.theaters.every((theater) => Array.isArray(theater.showtimes)), `API film fixture ${slug}: malformed theater showtimes`)
+  return schedule
+}
+
+async function resolveFilmFixture(movie, today) {
+  let paris = await fetchFilmSchedule(movie.slug, today, 'Paris')
+  const dates = nonPastAvailableDates(paris, today)
+  const resolvedDate = resolvedAvailableDate(dates, today, today)
+  if (!dates.includes(today) && dates.length > 0) paris = await fetchFilmSchedule(movie.slug, resolvedDate, 'Paris')
+  const nationwide = await fetchFilmSchedule(movie.slug, resolvedDate)
+  assert(paris.date === resolvedDate, `Film fixture ${movie.slug}: Paris response date ${paris.date} differs from resolved ${resolvedDate}`)
+  assert(nationwide.date === resolvedDate, `Film fixture ${movie.slug}: nationwide response date ${nationwide.date} differs from Paris-resolved ${resolvedDate}`)
+  return { movie: paris.movie, requestedDate: today, resolvedDate, paris, nationwide }
+}
+
+function nationwideOnlyMarkers(fixture) {
+  const parisTheaterIds = new Set(fixture.paris.theaters.map((theater) => theater.id))
+  const parisTheaterSlugs = new Set(fixture.paris.theaters.map((theater) => theater.slug))
+  const parisShowtimeIds = new Set(fixture.paris.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.id)))
+  const markers = []
+  for (const theater of fixture.nationwide.theaters) {
+    if (theater.showtimes.length && !parisTheaterIds.has(theater.id)) markers.push({ type: 'theater ID', value: theater.id })
+    if (theater.showtimes.length && !parisTheaterSlugs.has(theater.slug)) markers.push({ type: 'theater slug', value: theater.slug })
+    for (const showtime of theater.showtimes) {
+      if (!parisShowtimeIds.has(showtime.id)) markers.push({ type: 'showtime ID', value: showtime.id })
+    }
+  }
+  return [...new Map(markers.filter((marker) => String(marker.value).length >= 4).map((marker) => [`${marker.type}:${marker.value}`, marker])).values()]
+}
+
+async function discoverFilmFixture(catalog, preferredMovie, today) {
+  const candidates = [preferredMovie, ...catalog.items.filter((movie) => movie.slug !== preferredMovie.slug)]
+  let best = null
+  for (const candidate of candidates) {
+    const fixture = await resolveFilmFixture(candidate, today)
+    const parisEvents = filmShowtimeCount(fixture.paris)
+    const nationwideEvents = filmShowtimeCount(fixture.nationwide)
+    const markers = nationwideOnlyMarkers(fixture)
+    const score = Number(parisEvents > 0) * 1000 + Number(nationwideEvents > 0) * 100 + Number(markers.length > 0) * 10 + Math.min(parisEvents, 9)
+    if (!best || score > best.score) best = { ...fixture, markers, score }
+    if (parisEvents > 0 && nationwideEvents > 0 && markers.length > 0) return { ...fixture, markers }
+  }
+  assert(best, 'No film fixture could be resolved')
+  return best
+}
+
+function openingTags(html) {
+  return [...html.matchAll(/<[a-z][^>]*>/gi)].map((match) => attributes(match[0]))
+}
+
+function classCount(html, className) {
+  return openingTags(html).filter((item) => String(item.class ?? '').split(/\s+/).includes(className)).length
+}
+
+function verifyFilmRuntimeIsolation(page, fixture, path) {
+  assert(page.response.status === 200, `${path}: expected 200, received ${page.response.status}`)
+  assert(fixture.paris.date === fixture.resolvedDate && fixture.nationwide.date === fixture.resolvedDate, `${path}: Paris/nationwide date alignment mismatch`)
+  const { state, key, payloadBytes } = filmPayloadState(page.body, fixture.movie.slug, path)
+  assert(JSON.stringify(Object.keys(state).sort()) === JSON.stringify(['kind', 'schedule', 'selectedDate', 'errorMessage'].sort()), `${path}: film async-data state keys mismatch`)
+  assert(state.kind === 'success' && state.errorMessage === '', `${path}: film async-data success state mismatch`)
+  assert(state.selectedDate === fixture.resolvedDate, `${path}: hydration selected date ${state.selectedDate} differs from Paris-resolved ${fixture.resolvedDate}`)
+  assert(state.schedule?.date === fixture.resolvedDate, `${path}: hydrated Paris schedule date mismatch`)
+  assert(JSON.stringify(state.schedule) === JSON.stringify(fixture.paris), `${path}: hydration schedule is not exact Paris-scoped response`)
+
+  const expectedTheaters = fixture.paris.theaters.filter((theater) => theater.showtimes.length).length
+  const expectedShowtimes = filmShowtimeCount(fixture.paris)
+  assert(classCount(page.body, 'theater-section') === expectedTheaters, `${path}: SSR theater section count is not Paris scoped`)
+  assert(classCount(page.body, 'showtime-card') === expectedShowtimes, `${path}: SSR showtime card count is not Paris scoped`)
+
+  const stripped = decodeHtml(withoutJsonLd(page.body))
+  const serializedState = JSON.stringify(state)
+  if (fixture.markers.length === 0) {
+    console.log(`Unconfirmed coverage: ${path} has no nationwide-only theater/showtime marker outside Paris scope.`)
+  } else {
+    for (const marker of fixture.markers) {
+      assert(!stripped.includes(marker.value), `${path}: nationwide-only ${marker.type} leaked outside JSON-LD: ${marker.value}`)
+      assert(!serializedState.includes(marker.value), `${path}: nationwide-only ${marker.type} leaked into Nuxt hydration: ${marker.value}`)
+    }
+  }
+  return { payloadBytes, payloadKey: key, parisTheaters: expectedTheaters, parisEvents: expectedShowtimes, nationwideMarkers: fixture.markers.length }
+}
+
 async function verifyFailureMode() {
   for (const path of ['/', '/films', '/cinemas', '/film/upstream-check', '/cinema/upstream-check', '/ville/upstream-check/cinemas']) {
     const result = await get(`${webUrl}${path}`)
@@ -752,6 +951,404 @@ async function verifyFailureMode() {
   assert(!sitemap.body.includes('<urlset'), '/sitemap.xml: partial or stale sitemap returned on upstream failure')
   assert(sitemap.response.headers.get('x-robots-tag') === 'noindex,follow', '/sitemap.xml: missing error X-Robots-Tag')
   console.log('Crawlability upstream-failure checks passed (6 rendered 502 routes, global graph, and non-partial sitemap 503).')
+}
+
+function listen(server, port = 0) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off('listening', onListening)
+      reject(error)
+    }
+    const onListening = () => {
+      server.off('error', onError)
+      resolve(server.address())
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    server.listen(port, '127.0.0.1')
+  })
+}
+
+function closeServer(server) {
+  return new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
+}
+
+async function availablePort() {
+  const server = createServer()
+  const address = await listen(server)
+  await closeServer(server)
+  return address.port
+}
+
+function fixtureMovieSchedule(date) {
+  const movie = {
+    slug: 'film-990001',
+    title: 'Film fixture Paris SEO',
+    runtime_minutes: 101,
+    updated_at: `${date}T00:00:00Z`,
+    poster_url: null,
+    tmdb_id: null,
+    imdb_id: null,
+    overview: 'Fixture de vérification SSR.',
+    release_date: date,
+    genres: ['Drame']
+  }
+  const showtime = {
+    provider: 'ugc',
+    id: 'paris-showtime-fixture-990001',
+    movie: { slug: movie.slug, title: movie.title, runtime_minutes: movie.runtime_minutes, updated_at: movie.updated_at },
+    start_time: `${date}T18:00:00+02:00`,
+    end_time: `${date}T19:41:00+02:00`,
+    language: 'VOSTFR',
+    format: '2D',
+    room: 'Salle fixture',
+    booking_url: null
+  }
+  return {
+    movie,
+    backdrop_url: null,
+    date,
+    currently_screened: true,
+    available_dates: [date],
+    theaters: [{
+      provider: 'ugc',
+      id: 'paris-theater-fixture-990001',
+      slug: 'paris-theater-fixture-990001',
+      name: 'Cinéma fixture Paris SEO',
+      city: 'Paris',
+      city_slug: 'paris',
+      showtimes: [showtime]
+    }]
+  }
+}
+
+function addCalendarDays(date, days) {
+  const [year, month, day] = date.split('-').map(Number)
+  const value = new Date(Date.UTC(year, month - 1, day + days, 12))
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}-${String(value.getUTCDate()).padStart(2, '0')}`
+}
+
+function successfulFixtureSchedules(requestedDate) {
+  const resolvedDate = addCalendarDays(requestedDate, 1)
+  const movie = {
+    slug: 'film-990002',
+    title: 'Film fixture SSR national',
+    runtime_minutes: 112,
+    updated_at: `${requestedDate}T00:00:00Z`,
+    poster_url: 'https://image.tmdb.org/t/p/w500/fixture-990002.jpg',
+    tmdb_id: 990002,
+    imdb_id: null,
+    overview: 'Fixture positive de vérification SSR.',
+    release_date: requestedDate,
+    genres: ['Drame', 'Comédie']
+  }
+  const showtimeMovie = {
+    slug: movie.slug,
+    title: movie.title,
+    runtime_minutes: movie.runtime_minutes,
+    updated_at: movie.updated_at
+  }
+  const showtime = (id, start, end, provider = 'ugc') => ({
+    provider,
+    id,
+    movie: showtimeMovie,
+    start_time: `${resolvedDate}T${start}+02:00`,
+    end_time: `${resolvedDate}T${end}+02:00`,
+    language: 'VOSTFR',
+    format: '2D',
+    room: 'Fixture',
+    booking_url: null
+  })
+  const parisTheater = {
+    provider: 'ugc',
+    id: 'paris-theater-success-990002',
+    slug: 'paris-theater-success-990002',
+    name: 'Cinéma fixture Paris positif',
+    city: 'Paris',
+    city_slug: 'paris',
+    showtimes: [
+      showtime('shared-success-showtime-990002', '18:00:00', '19:52:00'),
+      showtime('paris-success-showtime-990002', '20:15:00', '22:07:00')
+    ]
+  }
+  const lyonTheater = {
+    provider: 'pathe',
+    id: 'lyon-theater-success-990002',
+    slug: 'lyon-theater-success-990002',
+    name: 'Cinéma fixture Lyon national',
+    city: 'Lyon',
+    city_slug: 'lyon',
+    showtimes: [
+      showtime('shared-success-showtime-990002', '17:30:00', '19:22:00', 'pathe'),
+      showtime('lyon-only-showtime-990002', '21:37:00', '23:29:00', 'pathe')
+    ]
+  }
+  const base = {
+    movie,
+    backdrop_url: 'https://image.tmdb.org/t/p/w780/fixture-990002.jpg',
+    currently_screened: true,
+    available_dates: [resolvedDate]
+  }
+  const initialParis = { ...base, date: requestedDate, theaters: [] }
+  const initialNationwide = {
+    ...base,
+    date: requestedDate,
+    theaters: [{
+      provider: 'cgr',
+      id: 'discarded-theater-success-990002',
+      slug: 'discarded-theater-success-990002',
+      name: 'Cinéma fixture national date initiale',
+      city: 'Bordeaux',
+      city_slug: 'bordeaux',
+      showtimes: [{ ...showtime('discarded-showtime-success-990002', '16:00:00', '17:52:00', 'cgr'), start_time: `${requestedDate}T16:00:00+02:00`, end_time: `${requestedDate}T17:52:00+02:00` }]
+    }]
+  }
+  const paris = { ...base, date: resolvedDate, theaters: [parisTheater] }
+  const nationwide = { ...base, date: resolvedDate, theaters: [structuredClone(parisTheater), lyonTheater] }
+  return {
+    requestedDate,
+    resolvedDate,
+    movie,
+    initialParis,
+    initialNationwide,
+    paris,
+    nationwide,
+    discardedMarkers: ['discarded-theater-success-990002', 'discarded-showtime-success-990002'],
+    nationwideEventMarkers: [lyonTheater.showtimes[0].start_time, lyonTheater.showtimes[1].start_time]
+  }
+}
+
+async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  child.kill('SIGTERM')
+  await Promise.race([
+    new Promise((resolve) => child.once('exit', resolve)),
+    delay(3000)
+  ])
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGKILL')
+    await new Promise((resolve) => child.once('exit', resolve))
+  }
+}
+
+async function waitForBuiltPage(url, child, output) {
+  let lastError
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Built Nuxt server exited before readiness.\n${output()}`)
+    try {
+      return await get(url)
+    } catch (error) {
+      lastError = error
+      await delay(100)
+    }
+  }
+  throw new Error(`Built Nuxt server did not become ready: ${lastError?.message ?? 'unknown error'}\n${output()}`)
+}
+
+async function verifySeoOnlyFailureMode() {
+  const builtServerPath = fileURLToPath(new URL('../.output/server/index.mjs', import.meta.url))
+  try {
+    await access(builtServerPath)
+  } catch {
+    throw new Error(`SEO-only failure mode requires current Nuxt build at ${builtServerPath}; run npm --prefix web run build first`)
+  }
+
+  const fixtureDate = todayInParis()
+  const schedule = fixtureMovieSchedule(fixtureDate)
+  const requests = []
+  const failureMarker = 'nationwide-seo-only-failure-990001'
+  const mockApi = createServer((request, response) => {
+    const target = new URL(request.url ?? '/', 'http://127.0.0.1')
+    requests.push({ pathname: target.pathname, query: Object.fromEntries(target.searchParams) })
+    response.setHeader('content-type', 'application/json; charset=utf-8')
+    if (request.method !== 'GET' || target.pathname !== `/api/v1/movies/${schedule.movie.slug}/showtimes`) {
+      response.statusCode = 404
+      response.end(JSON.stringify({ error: { code: 'not_found' } }))
+      return
+    }
+    if (target.searchParams.get('date') !== fixtureDate) {
+      response.statusCode = 400
+      response.end(JSON.stringify({ error: { code: 'invalid_date' } }))
+      return
+    }
+    if (target.searchParams.get('city') === 'Paris' && !target.searchParams.has('theaters')) {
+      response.statusCode = 200
+      response.end(JSON.stringify(schedule))
+      return
+    }
+    if (!target.searchParams.has('city') && !target.searchParams.has('theaters')) {
+      response.statusCode = 502
+      response.end(JSON.stringify({ error: { code: 'seo_fixture_failure' }, marker: failureMarker }))
+      return
+    }
+    response.statusCode = 400
+    response.end(JSON.stringify({ error: { code: 'unexpected_scope' } }))
+  })
+
+  let child
+  try {
+    const apiAddress = await listen(mockApi)
+    const privateApiOrigin = `http://127.0.0.1:${apiAddress.port}`
+    const port = await availablePort()
+    const fixtureWebOrigin = `http://127.0.0.1:${port}`
+    let stdout = ''
+    let stderr = ''
+    child = spawn(process.execPath, [builtServerPath], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: {
+        ...process.env,
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        NITRO_HOST: '127.0.0.1',
+        NITRO_PORT: String(port),
+        NUXT_API_BASE: privateApiOrigin,
+        NUXT_PUBLIC_API_BASE: privateApiOrigin,
+        NUXT_PUBLIC_SITE_URL: siteUrl
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    const output = () => `${stdout}${stderr}`.trim().slice(-4000)
+    const path = `/film/${schedule.movie.slug}`
+    const page = await waitForBuiltPage(`${fixtureWebOrigin}${path}`, child, output)
+
+    verifyErrorPolicy(page, path, 502)
+    const text = visibleText(page.body)
+    const expectedMessage = 'Impossible de joindre le service. Vérifiez que l’API est démarrée, puis réessayez.'
+    assert(text.includes(expectedMessage), `${path}: existing generic French upstream UI is missing`)
+    assert(!text.includes('Film introuvable'), `${path}: SEO-only failure rendered not-found UI`)
+    const nodes = verifyGlobalGraph(page.body)
+    for (const type of ['Movie', 'BreadcrumbList', 'MovieTheater', 'ScreeningEvent']) {
+      assert(nodesOfType(nodes, type).length === 0, `${path}: SEO-only failure emitted ${type} film graph`)
+    }
+
+    const { state, payloadBytes } = filmPayloadState(page.body, schedule.movie.slug, path)
+    assert(JSON.stringify(Object.keys(state).sort()) === JSON.stringify(['kind', 'schedule', 'selectedDate', 'errorMessage'].sort()), `${path}: failure async-data state keys mismatch`)
+    assert(state.kind === 'upstream-error' && state.schedule === null, `${path}: failure hydration state must contain only null schedule upstream error`)
+    assert(state.selectedDate === fixtureDate && state.errorMessage === expectedMessage, `${path}: failure hydration date or French message mismatch`)
+    const serializedState = JSON.stringify(state)
+    for (const marker of [schedule.movie.title, schedule.theaters[0].id, schedule.theaters[0].slug, schedule.theaters[0].showtimes[0].id, failureMarker]) {
+      assert(!serializedState.includes(marker), `${path}: fixture schedule marker leaked into failure hydration: ${marker}`)
+      assert(!withoutJsonLd(page.body).includes(marker), `${path}: fixture schedule marker leaked outside JSON-LD: ${marker}`)
+    }
+    for (const marker of ['available_dates', 'theaters']) assert(!serializedState.includes(marker), `${path}: schedule structure leaked into failure hydration: ${marker}`)
+
+    const fixtureRequests = requests.filter((request) => request.pathname === `/api/v1/movies/${schedule.movie.slug}/showtimes`)
+    const parisRequests = fixtureRequests.filter((request) => request.query.date === fixtureDate && request.query.city === 'Paris' && request.query.theaters === undefined)
+    const nationwideRequests = fixtureRequests.filter((request) => request.query.date === fixtureDate && request.query.city === undefined && request.query.theaters === undefined)
+    assert(parisRequests.length > 0, 'SEO-only mode did not observe Paris-scoped success request')
+    assert(nationwideRequests.length > 0, 'SEO-only mode did not observe blank-scope nationwide failure request')
+    assert(parisRequests.length + nationwideRequests.length === fixtureRequests.length, 'SEO-only mode observed unexpected movie schedule scope')
+    console.log(`Crawlability SEO-only failure checks passed (Paris 200 x${parisRequests.length} + nationwide 502 x${nationwideRequests.length} -> film HTTP 502; payload ${payloadBytes} bytes; no film graph or schedule payload).`)
+  } finally {
+    if (child) await stopChild(child)
+    if (mockApi.listening) await closeServer(mockApi)
+  }
+}
+
+async function verifySsrSuccessMode() {
+  const builtServerPath = fileURLToPath(new URL('../.output/server/index.mjs', import.meta.url))
+  try {
+    await access(builtServerPath)
+  } catch {
+    throw new Error(`SSR success mode requires current Nuxt build at ${builtServerPath}; run npm --prefix web run build first`)
+  }
+
+  const fixture = successfulFixtureSchedules(todayInParis())
+  fixture.markers = nationwideOnlyMarkers(fixture)
+  assert(fixture.markers.length > 0, 'SSR success fixture must contain nationwide-only theater/showtime markers')
+  const requests = []
+  const mockApi = createServer((request, response) => {
+    const target = new URL(request.url ?? '/', 'http://127.0.0.1')
+    requests.push({ pathname: target.pathname, query: Object.fromEntries(target.searchParams) })
+    response.setHeader('content-type', 'application/json; charset=utf-8')
+    if (request.method !== 'GET' || target.pathname !== `/api/v1/movies/${fixture.movie.slug}/showtimes` || target.searchParams.has('theaters')) {
+      response.statusCode = 404
+      response.end(JSON.stringify({ error: { code: 'not_found' } }))
+      return
+    }
+
+    const date = target.searchParams.get('date')
+    const city = target.searchParams.get('city')
+    let schedule
+    if (city === 'Paris' && date === fixture.requestedDate) schedule = fixture.initialParis
+    else if (city === 'Paris' && date === fixture.resolvedDate) schedule = fixture.paris
+    else if (city === null && date === fixture.requestedDate) schedule = fixture.initialNationwide
+    else if (city === null && date === fixture.resolvedDate) schedule = fixture.nationwide
+    if (!schedule) {
+      response.statusCode = 400
+      response.end(JSON.stringify({ error: { code: 'unexpected_scope_or_date' } }))
+      return
+    }
+    response.statusCode = 200
+    response.end(JSON.stringify(schedule))
+  })
+
+  let child
+  try {
+    const apiAddress = await listen(mockApi)
+    const privateApiOrigin = `http://127.0.0.1:${apiAddress.port}`
+    const port = await availablePort()
+    const fixtureWebOrigin = `http://127.0.0.1:${port}`
+    let stdout = ''
+    let stderr = ''
+    child = spawn(process.execPath, [builtServerPath], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: {
+        ...process.env,
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        NITRO_HOST: '127.0.0.1',
+        NITRO_PORT: String(port),
+        NUXT_API_BASE: privateApiOrigin,
+        NUXT_PUBLIC_API_BASE: privateApiOrigin,
+        NUXT_PUBLIC_SITE_URL: siteUrl
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    const output = () => `${stdout}${stderr}`.trim().slice(-4000)
+    const path = `/film/${fixture.movie.slug}`
+    const page = await waitForBuiltPage(`${fixtureWebOrigin}${path}`, child, output)
+
+    verifyPolicy(page, path, 'index,follow', `${siteUrl}${path}`)
+    const graphEvidence = verifyFilmJsonLd(page.body, fixture.movie, fixture.nationwide, path)
+    const runtimeEvidence = verifyFilmRuntimeIsolation(page, fixture, path)
+    assert(fixture.resolvedDate !== fixture.requestedDate, `${path}: fixture did not exercise Paris date fallback`)
+
+    const filmScript = one(jsonLdScripts(page.body).filter((script) => script.body.includes(`${siteUrl}${path}#movie`)), `${path}: successful inline film JSON-LD`)
+    const outsideJsonLd = decodeHtml(withoutJsonLd(page.body))
+    const { state } = filmPayloadState(page.body, fixture.movie.slug, path)
+    const serializedState = JSON.stringify(state)
+    for (const marker of fixture.discardedMarkers) {
+      assert(!filmScript.body.includes(marker), `${path}: discarded initial-date nationwide marker entered final JSON-LD: ${marker}`)
+      assert(!outsideJsonLd.includes(marker), `${path}: discarded initial-date nationwide marker leaked outside JSON-LD: ${marker}`)
+      assert(!serializedState.includes(marker), `${path}: discarded initial-date nationwide marker leaked into hydration: ${marker}`)
+    }
+    for (const marker of fixture.nationwideEventMarkers) {
+      assert(filmScript.body.includes(marker), `${path}: nationwide-only showtime fact missing from inline JSON-LD: ${marker}`)
+      assert(!outsideJsonLd.includes(marker), `${path}: nationwide-only showtime fact leaked outside JSON-LD: ${marker}`)
+      assert(!serializedState.includes(marker), `${path}: nationwide-only showtime fact leaked into hydration: ${marker}`)
+    }
+
+    const fixtureRequests = requests.filter((request) => request.pathname === `/api/v1/movies/${fixture.movie.slug}/showtimes`)
+    const expectedRequests = [
+      { date: fixture.requestedDate, city: 'Paris' },
+      { date: fixture.requestedDate, city: undefined },
+      { date: fixture.resolvedDate, city: 'Paris' },
+      { date: fixture.resolvedDate, city: undefined }
+    ]
+    for (const expected of expectedRequests) {
+      assert(fixtureRequests.some((request) => request.query.date === expected.date && request.query.city === expected.city && request.query.theaters === undefined), `${path}: missing ${expected.city ?? 'nationwide'} request for ${expected.date}`)
+    }
+    assert(fixtureRequests.length === expectedRequests.length, `${path}: expected ${expectedRequests.length} scoped/date requests, received ${fixtureRequests.length}`)
+    console.log(`Crawlability SSR-success checks passed (${fixture.requestedDate} -> Paris fallback ${fixture.resolvedDate}; HTTP 200; Paris UI/hydration ${runtimeEvidence.parisTheaters} theater(s)/${runtimeEvidence.parisEvents} event(s); nationwide JSON-LD ${graphEvidence.theaterCount} theater(s)/${graphEvidence.eventCount} event(s), ${graphEvidence.jsonLdBytes} UTF-8 bytes; Nuxt payload ${runtimeEvidence.payloadBytes} bytes; ${runtimeEvidence.nationwideMarkers} nationwide-only identity marker(s) and ${fixture.nationwideEventMarkers.length} showtime fact marker(s) isolated).`)
+  } finally {
+    if (child) await stopChild(child)
+    if (mockApi.listening) await closeServer(mockApi)
+  }
 }
 
 async function verifyNormalMode() {
@@ -807,20 +1404,22 @@ async function verifyNormalMode() {
   assert(new Set(metadata.map((item) => item.title)).size === pages.length, 'Route titles are not unique')
   assert(new Set(metadata.map((item) => item.description)).size === pages.length, 'Route descriptions are not unique')
 
-  const filmApi = await get(`${apiUrl}/api/v1/movies/${encodeURIComponent(movie.slug)}/showtimes?date=${todayInParis()}`)
-  assert(filmApi.response.status === 200, 'API representative film showtimes unavailable')
-  const filmSchedule = JSON.parse(filmApi.body)
-  const filmPage = await get(`${webUrl}/film/${encodedSlug}`)
-  verifyFilmJsonLd(filmPage.body, filmSchedule.movie, filmSchedule, `/film/${encodedSlug}`)
+  const filmFixture = await discoverFilmFixture(currentCatalog, movie, today)
+  const filmEncodedSlug = encodeURIComponent(filmFixture.movie.slug)
+  const filmPath = `/film/${filmEncodedSlug}`
+  const filmPage = await get(`${webUrl}${filmPath}`)
+  const graphEvidence = verifyFilmJsonLd(filmPage.body, filmFixture.movie, filmFixture.nationwide, filmPath)
+  const runtimeEvidence = verifyFilmRuntimeIsolation(filmPage, filmFixture, filmPath)
   const filmHrefs = tags(filmPage.body, 'a').map((anchor) => new URL(anchor.href, webUrl))
   const cityTargets = new Set()
-  for (const scheduleTheater of filmSchedule.theaters) {
-    assert(String(scheduleTheater.city_slug ?? '').trim(), `/film/${encodedSlug}: API theater city_slug missing`)
+  for (const scheduleTheater of filmFixture.paris.theaters) {
+    assert(String(scheduleTheater.city_slug ?? '').trim(), `${filmPath}: API theater city_slug missing`)
     cityTargets.add(`/ville/${encodeURIComponent(scheduleTheater.city_slug)}/cinemas`)
   }
   for (const cityTarget of cityTargets) {
-    assert(filmHrefs.some((target) => target.pathname === cityTarget && !target.search && !target.hash), `/film/${encodedSlug}: city link ${cityTarget} missing`)
+    assert(filmHrefs.some((target) => target.pathname === cityTarget && !target.search && !target.hash), `${filmPath}: city link ${cityTarget} missing`)
   }
+  console.log(`Film SSR fixture: ${filmFixture.movie.slug}; resolved ${filmFixture.resolvedDate}; Paris UI ${runtimeEvidence.parisTheaters} theater(s)/${runtimeEvidence.parisEvents} event(s); nationwide JSON-LD ${graphEvidence.theaterCount} theater(s)/${graphEvidence.eventCount} event(s), ${graphEvidence.jsonLdBytes} UTF-8 bytes; Nuxt payload ${runtimeEvidence.payloadBytes} bytes; ${runtimeEvidence.nationwideMarkers} nationwide-only marker(s) absent outside JSON-LD.`)
 
   const entityDescriptions = new Set()
   for (const cityDetail of cityDetails) {
@@ -919,4 +1518,4 @@ async function verifyNormalMode() {
   console.log(`Crawlability checks passed (${currentCatalog.total} current films, ${allCatalog.total} canonical films, ${inventory.citySlugs.length} cities, ${inventory.theaterSlugs.length} cinemas, exact sitemap, descriptions, JSON-LD, indexing, links, redirects, and errors).`)
 }
 
-await (expectUpstreamFailure ? verifyFailureMode() : verifyNormalMode())
+await (expectSsrSuccess ? verifySsrSuccessMode() : expectSeoOnlyFailure ? verifySeoOnlyFailureMode() : expectUpstreamFailure ? verifyFailureMode() : verifyNormalMode())

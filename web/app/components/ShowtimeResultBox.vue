@@ -4,10 +4,17 @@ import type { ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showt
 import { formatParisTime } from '~/utils/date'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   result: ShowtimeResultViewModel
   scope: ShowtimeResultScope
   showMovie: boolean
+  selected?: boolean
+}>(), {
+  selected: false
+})
+
+const emit = defineEmits<{
+  toggleSelection: [key: string]
 }>()
 
 const advertisedStartTooltipId = useId()
@@ -24,6 +31,7 @@ const mediaKind = computed<'backdrop' | 'poster' | null>(() => {
   return null
 })
 const mediaUrl = computed(() => mediaKind.value === 'backdrop' ? backdropUrl.value : mediaKind.value === 'poster' ? posterUrl.value : null)
+const selectionLabel = computed(() => `${props.selected ? 'Retirer' : 'Ajouter'} la séance de ${props.result.movieTitle} à ${formatParisTime(displayedStartTime.value)} au cinéma ${props.result.theaterName}`)
 
 watch([() => props.result.backdropUrl, () => props.result.posterUrl], () => {
   backdropFailed.value = false
@@ -127,8 +135,15 @@ function formatRoom(room: string) {
     </BookingLink>
   </article>
 
-  <article v-else class="flex h-full min-h-32 min-w-0 flex-col border-2 border-ink bg-surface p-3 text-left shadow-[4px_4px_0_#27272a]">
-    <div v-if="showMovie" class="relative -mx-3 -mt-3 mb-3 flex h-24 items-center justify-center overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
+  <article v-else class="relative flex h-full min-h-32 min-w-0 flex-col border-2 p-3 text-left" :class="selected ? 'border-primary bg-[#fff0b3] shadow-[5px_5px_0_#991b1b]' : 'border-ink bg-surface shadow-[4px_4px_0_#27272a]'">
+    <button
+      type="button"
+      class="absolute inset-0 z-10 cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-primary"
+      :aria-label="selectionLabel"
+      :aria-pressed="selected"
+      @click="emit('toggleSelection', result.key)"
+    />
+    <div v-if="showMovie" class="pointer-events-none relative -mx-3 -mt-3 mb-3 flex h-24 items-center justify-center overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
       <img v-if="mediaKind === 'backdrop' && mediaUrl" ref="mediaImage" :src="mediaUrl" alt="" width="320" height="96" loading="lazy" decoding="async" class="size-full object-cover" aria-hidden="true" @error="handleMediaError">
       <template v-else-if="mediaKind === 'poster' && mediaUrl">
         <img :src="mediaUrl" alt="" width="320" height="96" loading="lazy" decoding="async" class="absolute inset-0 size-full scale-110 object-cover blur-lg" aria-hidden="true">
@@ -137,12 +152,12 @@ function formatRoom(room: string) {
       </template>
       <span v-else class="flex size-11 items-center justify-center border-2 border-muted text-muted" aria-hidden="true"><Film :size="24" /></span>
     </div>
-    <h3 v-if="showMovie" class="mb-3 line-clamp-2 text-sm font-black leading-tight tracking-[-0.02em] text-ink"><NuxtLink :to="`/film/${encodeURIComponent(result.movieSlug)}`" class="hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ result.movieTitle }}</NuxtLink></h3>
+    <h3 v-if="showMovie" class="mb-3 line-clamp-2 text-sm font-black leading-tight tracking-[-0.02em] text-ink"><NuxtLink :to="`/film/${encodeURIComponent(result.movieSlug)}`" class="relative z-20 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ result.movieTitle }}</NuxtLink></h3>
 
     <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">
       {{ formatParisTime(displayedStartTime) }}
       <span v-if="hasDelayedStart" class="group relative inline-block text-sm font-normal tracking-normal">
-        <span :aria-describedby="advertisedStartTooltipId" class="inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
+        <span :aria-describedby="advertisedStartTooltipId" class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
         <span :id="advertisedStartTooltipId" class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100" role="tooltip">Heure de début annoncée, publicités incluses</span>
       </span>
       → {{ formatParisTime(result.endTime) }}
@@ -160,8 +175,8 @@ function formatRoom(room: string) {
       :data-showtime-id="result.showtimeId"
       unstyled
       class="mt-auto inline-flex min-h-11 items-end pt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em]"
-      available-class="text-ink underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-      unavailable-class="text-muted"
+      available-class="relative z-20 text-ink underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+      unavailable-class="pointer-events-none text-muted"
     >
       <template #default="{ available }">{{ available ? 'Réserver' : 'Réservation indisponible' }}</template>
     </BookingLink>
