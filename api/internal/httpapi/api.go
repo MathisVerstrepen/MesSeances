@@ -91,7 +91,10 @@ type SyncController interface {
 
 type SyncScheduleController interface {
 	List(context.Context) ([]syncschedule.Schedule, error)
-	Save(context.Context, synccontrol.Target, bool, syncschedule.Definition) (syncschedule.Schedule, error)
+	AvailableTargets() []syncschedule.Target
+	Create(context.Context, syncschedule.Target, bool, syncschedule.Definition) (syncschedule.Schedule, error)
+	Update(context.Context, syncschedule.Target, int64, bool, syncschedule.Definition) (syncschedule.Schedule, error)
+	Delete(context.Context, syncschedule.Target, int64) error
 	NextRuns(syncschedule.Definition) ([]time.Time, error)
 }
 
@@ -157,7 +160,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.Use(recoverJSON(options.Admin.Logger))
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{webOrigin},
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodOptions},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -202,7 +205,9 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/syncs", api.admin.syncStatus)
 			router.With(api.admin.requireOrigin).Post("/syncs/{target}", api.admin.startSync)
 			router.Get("/sync-schedules", api.admin.syncSchedules)
-			router.With(api.admin.requireOrigin).Post("/sync-schedules/{provider}", api.admin.saveSyncSchedule)
+			router.With(api.admin.requireOrigin).Post("/sync-schedules/{target}", api.admin.createSyncSchedule)
+			router.With(api.admin.requireOrigin).Put("/sync-schedules/{target}/{id}", api.admin.updateSyncSchedule)
+			router.With(api.admin.requireOrigin).Delete("/sync-schedules/{target}/{id}", api.admin.deleteSyncSchedule)
 			router.Get("/theater-locations", api.admin.pendingTheaterLocations)
 			router.Get("/theater-locations/geocoding-runs", api.admin.theaterGeocodingStatus)
 			router.With(api.admin.requireOrigin).Post("/theater-locations/geocoding-runs", api.admin.startTheaterGeocoding)

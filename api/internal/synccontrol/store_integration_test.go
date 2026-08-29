@@ -66,14 +66,15 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 		window_through date NOT NULL,
 		providers jsonb NOT NULL,
 		trigger_source text NOT NULL DEFAULT 'manual',
+		schedule_id bigint,
 		schedule_revision bigint,
 		scheduled_for timestamptz,
 		schedule_attempt smallint,
-		CHECK ((trigger_source='manual' AND schedule_revision IS NULL AND scheduled_for IS NULL AND schedule_attempt IS NULL)
-			OR (trigger_source='scheduled' AND target IN ('ugc','kinepolis') AND schedule_revision > 0 AND scheduled_for IS NOT NULL AND schedule_attempt BETWEEN 0 AND 2))
+		CHECK ((trigger_source='manual' AND schedule_id IS NULL AND schedule_revision IS NULL AND scheduled_for IS NULL AND schedule_attempt IS NULL)
+			OR (trigger_source='scheduled' AND target IN ('ugc','kinepolis') AND schedule_id > 0 AND schedule_revision > 0 AND scheduled_for IS NOT NULL AND schedule_attempt BETWEEN 0 AND 2))
 	);
 	CREATE UNIQUE INDEX sync_runs_scheduled_occurrence_attempt_idx
-		ON sync_runs (target,schedule_revision,scheduled_for,schedule_attempt)
+		ON sync_runs (schedule_id,schedule_revision,scheduled_for,schedule_attempt)
 		WHERE trigger_source='scheduled'`); err != nil {
 		t.Fatal("create sync run fixture failed")
 	}
@@ -129,7 +130,7 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 		t.Fatalf("persisted outcome=%+v", outcome)
 	}
 
-	occurrence := Occurrence{Provider: TargetUGC, Revision: 7, ScheduledFor: time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), Attempt: 0}
+	occurrence := Occurrence{ScheduleID: 1, Provider: TargetUGC, Revision: 7, ScheduledFor: time.Date(2026, 10, 25, 0, 30, 0, 0, time.UTC), Attempt: 0}
 	scheduled := running
 	scheduled.Target = TargetUGC
 	scheduled.Trigger = TriggerScheduled
@@ -167,7 +168,7 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 	}
 	for _, attempt := range []int{1, 2} {
 		retry := scheduled
-		retry.Occurrence = &Occurrence{Provider: TargetUGC, Revision: 7, ScheduledFor: occurrence.ScheduledFor, Attempt: attempt}
+		retry.Occurrence = &Occurrence{ScheduleID: 1, Provider: TargetUGC, Revision: 7, ScheduledFor: occurrence.ScheduledFor, Attempt: attempt}
 		retry.StartedAt = scheduled.StartedAt.Add(time.Duration(attempt) * time.Minute)
 		createdRetry, err := store.Create(ctx, retry)
 		if err != nil {
@@ -185,7 +186,7 @@ func TestPostgresRunStoreIntegration(t *testing.T) {
 		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
 	}
 	latest := snapshot.Runs[0]
-	if latest.Trigger != TriggerScheduled || latest.Occurrence == nil || latest.Occurrence.Provider != TargetUGC || latest.Occurrence.Revision != 7 || latest.Occurrence.Attempt != 2 || !latest.Occurrence.ScheduledFor.Equal(occurrence.ScheduledFor) {
+	if latest.Trigger != TriggerScheduled || latest.Occurrence == nil || latest.Occurrence.ScheduleID != 1 || latest.Occurrence.Provider != TargetUGC || latest.Occurrence.Revision != 7 || latest.Occurrence.Attempt != 2 || !latest.Occurrence.ScheduledFor.Equal(occurrence.ScheduledFor) {
 		t.Fatalf("scheduled round trip=%+v", latest)
 	}
 

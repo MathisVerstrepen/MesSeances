@@ -1,7 +1,9 @@
 import type {
   AdminSaveSyncScheduleRequest,
   AdminSyncJob,
+  AdminSyncScheduleItem,
   AdminSyncScheduleKind,
+  AdminSyncScheduleTarget,
   AdminSyncWeekday,
   Provider
 } from '../types/api.ts'
@@ -27,6 +29,31 @@ export interface AdminSyncScheduleDraftValidation {
 
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/
 const WEEKDAY_ORDER: readonly AdminSyncWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
+export function blankAdminSyncScheduleDraft(): AdminSyncScheduleDraft {
+  return { enabled: false, kind: 'daily', time: '', weekdays: [], expression: '' }
+}
+
+export function adminSyncScheduleDraftFromItem(item: AdminSyncScheduleItem): AdminSyncScheduleDraft {
+  if (item.schedule.kind === 'daily') {
+    return { enabled: item.enabled, kind: 'daily', time: item.schedule.time, weekdays: [], expression: '' }
+  }
+  if (item.schedule.kind === 'weekly') {
+    return { enabled: item.enabled, kind: 'weekly', time: item.schedule.time, weekdays: [...item.schedule.weekdays], expression: '' }
+  }
+  return { enabled: item.enabled, kind: 'cron', time: '', weekdays: [], expression: item.schedule.expression }
+}
+
+export function adminSyncScheduleDraftFingerprint(draft: AdminSyncScheduleDraft): string {
+  return JSON.stringify(buildAdminSyncScheduleRequest(draft))
+}
+
+export function isAdminSyncScheduleTargetAvailable(
+  target: AdminSyncScheduleTarget,
+  availableTargets: readonly AdminSyncScheduleTarget[]
+): boolean {
+  return availableTargets.includes(target)
+}
 
 export function validateAdminSyncScheduleDraft(draft: AdminSyncScheduleDraft): AdminSyncScheduleDraftValidation {
   const errors: AdminSyncScheduleDraftErrors = {}

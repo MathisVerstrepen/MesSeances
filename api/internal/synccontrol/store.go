@@ -61,19 +61,21 @@ func (s *PostgresRunStore) Create(ctx context.Context, status Status) (Status, e
 		status.Trigger = trigger
 	}
 	var revision any
+	var scheduleID any
 	var scheduledFor any
 	var attempt any
 	if status.Occurrence != nil {
+		scheduleID = status.Occurrence.ScheduleID
 		revision = status.Occurrence.Revision
 		scheduledFor = status.Occurrence.ScheduledFor
 		attempt = status.Occurrence.Attempt
 	}
 	var id int64
 	err = s.pool.QueryRow(ctx, `INSERT INTO sync_runs
-        (target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_revision,scheduled_for,schedule_attempt)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT DO NOTHING
-        RETURNING id`, status.Target, status.State, status.StartedAt, status.FinishedAt, status.From, status.Through, providers, trigger, revision, scheduledFor, attempt).Scan(&id)
+		(target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_id,schedule_revision,scheduled_for,schedule_attempt)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		ON CONFLICT DO NOTHING
+		RETURNING id`, status.Target, status.State, status.StartedAt, status.FinishedAt, status.From, status.Through, providers, trigger, scheduleID, revision, scheduledFor, attempt).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) && trigger == TriggerScheduled {
 		return Status{}, ErrOccurrenceClaimed
 	}
@@ -207,7 +209,7 @@ func (s *PostgresRunStore) ReconcileRunning(ctx context.Context, finishedAt time
 	return nil
 }
 
-const runColumns = `id,target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_revision,scheduled_for,schedule_attempt`
+const runColumns = `id,target,state,started_at,finished_at,window_from,window_through,providers,trigger_source,schedule_id,schedule_revision,scheduled_for,schedule_attempt`
 
 type rowScanner interface{ Scan(...any) error }
 
@@ -217,9 +219,10 @@ func scanStatus(row rowScanner) (Status, error) {
 	var providers []byte
 	var from, through time.Time
 	var revision *int64
+	var scheduleID *int64
 	var scheduledFor *time.Time
 	var attempt *int16
-	if err := row.Scan(&id, &status.Target, &status.State, &status.StartedAt, &status.FinishedAt, &from, &through, &providers, &status.Trigger, &revision, &scheduledFor, &attempt); err != nil {
+	if err := row.Scan(&id, &status.Target, &status.State, &status.StartedAt, &status.FinishedAt, &from, &through, &providers, &status.Trigger, &scheduleID, &revision, &scheduledFor, &attempt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return Status{}, pgx.ErrNoRows
 		}
@@ -231,8 +234,8 @@ func scanStatus(row rowScanner) (Status, error) {
 	status.ID = strconv.FormatInt(id, 10)
 	status.From = from.Format("2006-01-02")
 	status.Through = through.Format("2006-01-02")
-	if revision != nil && scheduledFor != nil && attempt != nil {
-		status.Occurrence = &Occurrence{Provider: status.Target, Revision: *revision, ScheduledFor: scheduledFor.UTC(), Attempt: int(*attempt)}
+	if scheduleID != nil && revision != nil && scheduledFor != nil && attempt != nil {
+		status.Occurrence = &Occurrence{ScheduleID: *scheduleID, Provider: status.Target, Revision: *revision, ScheduledFor: scheduledFor.UTC(), Attempt: int(*attempt)}
 	}
 	return sanitizeStatusLogs(status), nil
 }

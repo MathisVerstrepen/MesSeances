@@ -662,8 +662,12 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
         VALUES ('ugc','failed','2026-08-24T08:00:00Z','2026-08-24T08:01:00Z','2026-08-24','2026-08-24','{}') RETURNING id`).Scan(&oldRunID); err != nil {
 		t.Fatal("insert pre-015 sync run failed")
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
+	migration015 := requireMigrationPrefix(t, migrations, 15, "015_sync_schedules.sql")[14]
+	if _, err := pool.Exec(ctx, migration015.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatal("run migration 015 failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration015.version, migration015.name); err != nil {
+		t.Fatal("record migration 015 failed")
 	}
 	var trigger string
 	var revision *int64
@@ -962,8 +966,16 @@ INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater
 	if _, err := pool.Exec(ctx, migrations[16].sql, pgx.QueryExecModeSimpleProtocol); err != nil {
 		t.Fatalf("idempotent migration 017 rerun failed: %v", err)
 	}
-	if err := RunMigrations(ctx, pool); err != nil {
-		t.Fatalf("apply recorded Pathé and CGR migrations failed: %v", err)
+	if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migrations[16].version, migrations[16].name); err != nil {
+		t.Fatal("record migration 017 failed")
+	}
+	for _, migration := range migrations[17:28] {
+		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			t.Fatalf("apply migration %d failed: %v", migration.version, err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
+			t.Fatalf("record migration %d failed", migration.version)
+		}
 	}
 	var constraintsAfter, indexesAfter []string
 	if err := pool.QueryRow(ctx, `SELECT coalesce(array_agg(conname || '=' || pg_get_constraintdef(oid) ORDER BY conname) FILTER (WHERE conname NOT IN ('showtimes_provider_identity_check','showtimes_provider_check','showtimes_language_check','showtimes_check1','showtimes_time_check')), ARRAY[]::text[]) FROM pg_constraint WHERE conrelid='showtimes'::regclass`).Scan(&constraintsAfter); err != nil {
@@ -1043,6 +1055,9 @@ INSERT INTO public_movie_sources (source_provider,source_movie_id,public_movie_i
 INSERT INTO movie_slug_aliases (slug,public_movie_id,alias_kind,source_provider,source_movie_id) VALUES ('cgr-film-1001',$3,'source','cgr','1001');
 `, pgx.QueryExecModeSimpleProtocol, now, cgrShowingID, cgrPublicID); err != nil {
 		t.Fatalf("insert CGR provider rows failed: %v", err)
+	}
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatalf("apply multi-schedule migration failed: %v", err)
 	}
 	var migrationCount int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movieflow_schema_migrations WHERE version=16 AND name='016_pathe_provider.sql'`).Scan(&migrationCount); err != nil || migrationCount != 1 {

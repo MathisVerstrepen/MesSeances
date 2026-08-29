@@ -60,6 +60,7 @@ type ProviderStatus struct {
 }
 
 type Occurrence struct {
+	ScheduleID   int64     `json:"schedule_id,string"`
 	Provider     Target    `json:"-"`
 	Revision     int64     `json:"schedule_revision"`
 	ScheduledFor time.Time `json:"scheduled_for"`
@@ -164,7 +165,7 @@ func (m *Manager) StartScheduled(occurrence Occurrence) (Status, <-chan Completi
 	if occurrence.Provider != TargetUGC && occurrence.Provider != TargetKinepolis && occurrence.Provider != TargetPathe && occurrence.Provider != TargetCGR {
 		return Status{}, nil, ErrInvalidOccurrence
 	}
-	if occurrence.Revision <= 0 || occurrence.ScheduledFor.IsZero() || occurrence.Attempt < 0 || occurrence.Attempt > 2 {
+	if occurrence.ScheduleID <= 0 || occurrence.Revision <= 0 || occurrence.ScheduledFor.IsZero() || occurrence.Attempt < 0 || occurrence.Attempt > 2 {
 		return Status{}, nil, ErrInvalidOccurrence
 	}
 	occurrence.ScheduledFor = occurrence.ScheduledFor.UTC().Truncate(time.Minute)
