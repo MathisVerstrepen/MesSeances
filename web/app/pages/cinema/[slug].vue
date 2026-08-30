@@ -153,7 +153,7 @@ function formatShowtimeCount(showtimeCount: number): string {
 }
 
 function selectDate(date: string) {
-  router.push({
+  router.replace({
     query: mergeOwnedQuery(route.query, ['date', ...DISPLAY_QUERY_KEYS], {
       date: date === todayInParis() ? undefined : date,
       grouping: resultGrouping.value === 'chronological' ? 'chronological' : undefined,

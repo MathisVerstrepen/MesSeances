@@ -193,7 +193,7 @@ function filmQuery() {
 
 function updateFilmQuery(values: Partial<Record<'date' | 'language' | 'format' | 'sort', string | undefined>>) {
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
-  if (!queriesEqual(route.query, query)) router.push({ query })
+  if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
 function hydrateRoute() {

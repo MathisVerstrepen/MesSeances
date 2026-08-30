@@ -294,14 +294,14 @@ function submitSearch() {
     if (errorMessage.value) loadMovies()
     return
   }
-  router.push({ query })
+  router.replace({ query })
 }
 
 function changeSort(event: Event) {
   if (!(event.currentTarget instanceof HTMLSelectElement)) return
   const nextSort = enumQueryValue(event.currentTarget.value, SORT_VALUES)
   if (!nextSort || nextSort === sort.value) return
-  router.push({ query: filmQuery({ search: appliedSearch.value, page: 1, sort: nextSort, filters: appliedFilters.value }) })
+  router.replace({ query: filmQuery({ search: appliedSearch.value, page: 1, sort: nextSort, filters: appliedFilters.value }) })
 }
 
 function toggleAdvancedFilters() {
@@ -347,7 +347,7 @@ async function applyAdvancedFilters() {
     else if (!pending.value) await finishAdvancedApplyNavigation()
     return
   }
-  await router.push({ query })
+  await router.replace({ query })
 }
 
 function clearAdvancedFilters() {
@@ -357,7 +357,7 @@ function clearAdvancedFilters() {
     draftFilters.value = movieCatalogFilterDraft(EMPTY_FILTERS, todayDate.value)
     return
   }
-  router.push({ query })
+  router.replace({ query })
 }
 
 function followPageLink(event: MouseEvent, nextPage: number) {

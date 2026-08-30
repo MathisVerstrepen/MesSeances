@@ -116,7 +116,7 @@ async function applyRoute() {
 
 function updateTimelineQuery(values: Partial<Record<'date' | 'language' | 'format' | 'mode' | 'zoom', string>>) {
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
-  if (!queriesEqual(route.query, query)) router.push({ query })
+  if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
 function updateLanguage(event: Event) {

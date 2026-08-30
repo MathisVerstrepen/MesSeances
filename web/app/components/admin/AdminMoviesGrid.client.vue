@@ -374,26 +374,26 @@ function applyGridState(state: AdminMovieRouteState) {
 function onSortOrFilterChanged(_event: SortChangedEvent<AdminMovieItem> | FilterChangedEvent<AdminMovieItem>) {
   if (applyingGridState || !gridApi.value) return
   const next = adminMovieRouteStateFromGrid(routeState.value, gridApi.value.getColumnState().flatMap((column) => column.sort ? [{ colId: column.colId, sort: column.sort }] : []), gridApi.value.getFilterModel())
-  void updateRoute(next)
+  void replaceRoute(next)
 }
 
 function onPaginationChanged(event: PaginationChangedEvent<AdminMovieItem>) {
   if (applyingGridState || !event.newPage || !gridApi.value) return
   const nextPage = gridApi.value.paginationGetCurrentPage() + 1
-  if (nextPage !== routeState.value.page) void updateRoute({ ...routeState.value, page: nextPage })
+  if (nextPage !== routeState.value.page) void pushRoute({ ...routeState.value, page: nextPage })
 }
 
 function updateSearch() {
   if (searchTimer !== undefined) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
-    void updateRoute({ ...routeState.value, q: searchInput.value.trim(), page: 1 })
+    void replaceRoute({ ...routeState.value, q: searchInput.value.trim(), page: 1 })
   }, 350)
 }
 
 function updateOverrides() {
   const status = overrideStatusInput.value
   if (status === 'automatic') overrideFieldInput.value = ''
-  void updateRoute({
+  void replaceRoute({
     ...routeState.value,
     override_status: status,
     override_field: status === 'automatic' ? undefined : overrideFieldInput.value || undefined,
@@ -401,9 +401,18 @@ function updateOverrides() {
   })
 }
 
-async function updateRoute(state: AdminMovieRouteState) {
+function routeQuery(state: AdminMovieRouteState) {
   const ownedValues = Object.fromEntries(Object.entries(adminMovieRouteQuery(state)))
-  const query = mergeOwnedQuery(route.query, ADMIN_MOVIE_ROUTE_KEYS, ownedValues)
+  return mergeOwnedQuery(route.query, ADMIN_MOVIE_ROUTE_KEYS, ownedValues)
+}
+
+async function replaceRoute(state: AdminMovieRouteState) {
+  const query = routeQuery(state)
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
+}
+
+async function pushRoute(state: AdminMovieRouteState) {
+  const query = routeQuery(state)
   if (!queriesEqual(route.query, query)) await router.push({ query })
 }
 
