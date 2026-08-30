@@ -59,7 +59,7 @@ const calendarAriaLabels = {
 <template>
   <VueDatePicker
     v-model="pickerDate"
-    class="editorial-datepicker shrink-0"
+    class="min-w-0 shrink-0"
     :allowed-dates="allowedDateValues"
     :aria-labels="calendarAriaLabels"
     :disabled="disabled"
@@ -82,10 +82,6 @@ const calendarAriaLabels = {
 </template>
 
 <style scoped>
-.editorial-datepicker {
-  min-width: 0;
-}
-
 :global(.editorial-calendar-menu) {
   --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;

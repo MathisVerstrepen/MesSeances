@@ -12,12 +12,27 @@ const props = withDefaults(defineProps<{
 })
 
 const role = computed(() => props.semantic === 'neutral' ? undefined : props.semantic)
+
+const sizeClasses = {
+  compact: 'min-h-[17rem]',
+  standard: 'min-h-[20rem]',
+  detail: 'min-h-[22rem] max-sm:min-h-[19rem]',
+  tall: 'min-h-[24rem] max-sm:min-h-[19rem]',
+  viewport: 'min-h-[max(22rem,calc(100vh-23rem))] max-sm:min-h-[20rem]',
+  'viewport-compact': 'min-h-[max(20rem,calc(100vh-23rem))]'
+} satisfies Record<NonNullable<typeof props.size>, string>
+
+const shadowClasses = {
+  small: 'shadow-[6px_6px_0_#27272a]',
+  medium: 'shadow-[7px_7px_0_#27272a]',
+  large: 'shadow-[8px_8px_0_#27272a]'
+} satisfies Record<NonNullable<typeof props.shadow>, string>
 </script>
 
 <template>
   <div
-    class="editorial-state-panel"
-    :class="[`editorial-state-panel--${size}`, `editorial-state-panel--shadow-${shadow}`]"
+    class="flex flex-col items-center justify-center gap-4 border-2 border-ink bg-surface p-8 text-center"
+    :class="[sizeClasses[size], shadowClasses[shadow]]"
     :role="role"
     :aria-live="live"
   >
@@ -27,33 +42,3 @@ const role = computed(() => props.semantic === 'neutral' ? undefined : props.sem
     <slot name="actions" />
   </div>
 </template>
-
-<style scoped>
-.editorial-state-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 2rem;
-  text-align: center;
-}
-
-.editorial-state-panel--compact { min-height: 17rem; }
-.editorial-state-panel--standard { min-height: 20rem; }
-.editorial-state-panel--detail { min-height: 22rem; }
-.editorial-state-panel--tall { min-height: 24rem; }
-.editorial-state-panel--viewport { min-height: max(22rem, calc(100vh - 23rem)); }
-.editorial-state-panel--viewport-compact { min-height: max(20rem, calc(100vh - 23rem)); }
-.editorial-state-panel--shadow-small { box-shadow: 6px 6px 0 #27272a; }
-.editorial-state-panel--shadow-medium { box-shadow: 7px 7px 0 #27272a; }
-.editorial-state-panel--shadow-large { box-shadow: 8px 8px 0 #27272a; }
-
-@media (max-width: 639px) {
-  .editorial-state-panel--detail,
-  .editorial-state-panel--tall { min-height: 19rem; }
-  .editorial-state-panel--viewport { min-height: 20rem; }
-}
-</style>

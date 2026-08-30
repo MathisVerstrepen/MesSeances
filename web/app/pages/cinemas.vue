@@ -274,23 +274,23 @@ useHead(() => ({
   <main class="cinemas-page bg-[#f8f7f2] text-ink">
     <section class="border-b-2 border-ink bg-surface" aria-labelledby="cinemas-title">
       <div class="relative mx-auto max-w-[1440px] overflow-hidden px-4 pb-10 pt-12 sm:px-6 sm:pb-14 sm:pt-16 lg:px-10 lg:pb-16 lg:pt-20">
-        <p class="utility-label text-ink">Préférences · locales</p>
-        <h1 id="cinemas-title" class="cinemas-title mt-5 max-w-6xl text-[clamp(4rem,11vw,10rem)] font-black uppercase leading-[0.76] tracking-[-0.085em]">
+        <p class="font-mono text-[0.65rem] font-black uppercase tracking-[0.15em] text-ink">Préférences · locales</p>
+        <h1 id="cinemas-title" class="mt-5 max-w-6xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(4rem,11vw,10rem)] font-black uppercase leading-[0.76] tracking-[-0.085em] [&>span:first-of-type]:text-transparent [&>span:first-of-type]:[-webkit-text-stroke:2px_#27272a]">
           Mes<br /><span>cinémas</span><span class="text-primary">.</span>
         </h1>
-        <div class="selection-counter">
-          <strong>{{ draftFavoriteTheaterIds.length }}</strong>
+        <div class="absolute right-[15%] bottom-[14%] flex max-w-44 items-center gap-[0.65rem] border-2 border-ink bg-surface px-3 py-[0.65rem] font-mono text-[0.6rem] leading-[1.25] font-black uppercase tracking-[0.08em] shadow-[4px_4px_0_#27272a] max-sm:relative max-sm:right-auto max-sm:bottom-auto max-sm:mt-8 max-sm:max-w-52">
+          <strong class="font-sans text-[1.75rem] leading-none">{{ draftFavoriteTheaterIds.length }}</strong>
           <span>cinéma{{ draftFavoriteTheaterIds.length > 1 ? 's' : '' }} sélectionné{{ draftFavoriteTheaterIds.length > 1 ? 's' : '' }}</span>
         </div>
-        <span class="title-mark" aria-hidden="true"></span>
+        <span class="absolute right-[8%] bottom-[22%] aspect-square w-[clamp(2.5rem,5vw,4.75rem)] rotate-[8deg] border-2 border-ink bg-highlight shadow-[5px_5px_0_#27272a] max-sm:right-5 max-sm:bottom-6" aria-hidden="true"></span>
       </div>
     </section>
 
-    <section class="cinemas-canvas border-b-2 border-ink" aria-label="Sélection des cinémas favoris">
+    <section class="border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px]" aria-label="Sélection des cinémas favoris">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12">
         <div class="search-workspace grid gap-4 border-2 border-ink bg-[#f1efe8] p-4 shadow-[7px_7px_0_#27272a] sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <label class="block w-full text-ink">
-            <span class="utility-label block">Rechercher un cinéma ou une ville</span>
+            <span class="block font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]">Rechercher un cinéma ou une ville</span>
             <span class="mt-2 flex min-w-0">
               <span class="grid size-[3.25rem] shrink-0 place-items-center border-2 border-r-0 border-ink bg-[#ffcf3f]" aria-hidden="true">
                 <Search :size="19" stroke-width="2.5" />
@@ -298,7 +298,7 @@ useHead(() => ({
               <input
                 :value="search"
                 type="search"
-                class="cinema-search min-w-0 flex-1"
+                class="h-[3.25rem] min-w-0 flex-1 rounded-none border-2 border-ink bg-surface px-[0.9rem] text-[0.95rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_3px_var(--color-highlight)]"
                 autocomplete="off"
                 placeholder="Nom du cinéma ou ville"
                 @input="updateSearch"
@@ -308,16 +308,16 @@ useHead(() => ({
           <button
             v-if="!isNearbyMode"
             type="button"
-            class="location-action"
+            class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
             :disabled="locationStatus === 'requesting'"
             :aria-busy="locationStatus === 'requesting'"
             @click="useCurrentPosition"
           >
-            <LoaderCircle v-if="locationStatus === 'requesting'" :size="18" class="cinema-spinner animate-spin" aria-hidden="true" />
+            <LoaderCircle v-if="locationStatus === 'requesting'" :size="18" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
             <LocateFixed v-else :size="18" aria-hidden="true" />
             {{ locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position' }}
           </button>
-          <button v-else type="button" class="location-action location-action--secondary" @click="showByCity">
+          <button v-else type="button" class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="showByCity">
             Afficher par ville
           </button>
         </div>
@@ -333,44 +333,44 @@ useHead(() => ({
           >Position utilisée : latitude {{ formatPositionCoordinate(userPosition.latitude) }} · longitude {{ formatPositionCoordinate(userPosition.longitude) }} <span aria-hidden="true">↗</span><span class="sr-only"> (ouvre OpenStreetMap dans un nouvel onglet)</span></a>
           <span> · {{ formatPositionAccuracy(locationAccuracyMeters) }}</span>
         </p>
-        <p v-if="locationError" class="validation-alert mt-5" role="alert">
+        <p v-if="locationError" class="mt-5 flex items-center gap-[0.65rem] border-2 border-primary bg-primary-soft px-4 py-[0.9rem] text-sm font-extrabold text-primary-hover shadow-[4px_4px_0_#991b1b]" role="alert">
           <AlertTriangle :size="19" aria-hidden="true" />
           {{ locationError }}
         </p>
 
-        <div v-if="directoryTheaters.length > 0 && !directoryError" class="selection-toolbar mt-7">
-          <div class="view-switch" role="group" aria-label="Mode d’affichage des cinémas">
-            <button type="button" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'"><List :size="16" aria-hidden="true" /> Liste</button>
-            <button type="button" :aria-pressed="viewMode === 'map'" @click="viewMode = 'map'"><MapIcon :size="16" aria-hidden="true" /> Carte</button>
+        <div v-if="directoryTheaters.length > 0 && !directoryError" class="selection-toolbar mt-7 flex flex-wrap items-center justify-between gap-3 border-y-2 border-ink py-4 max-sm:items-stretch">
+          <div class="view-switch inline-grid h-11 grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface max-sm:w-full" role="group" aria-label="Mode d’affichage des cinémas">
+            <button type="button" class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'"><List :size="16" aria-hidden="true" /> Liste</button>
+            <button type="button" class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]" :aria-pressed="viewMode === 'map'" @click="viewMode = 'map'"><MapIcon :size="16" aria-hidden="true" /> Carte</button>
           </div>
-          <div class="selection-controls">
+          <div class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full">
             <button
               type="button"
-              class="filter-action"
+              class="inline-flex h-11 min-h-11 items-center justify-center gap-[0.55rem] border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-highlight aria-pressed:text-ink aria-pressed:shadow-[4px_4px_0_#27272a] max-sm:w-full"
               :aria-pressed="selectedOnly"
               @click="selectedOnly = !selectedOnly"
             >
               <ListFilter :size="17" aria-hidden="true" />
               <span>Sélectionnés uniquement</span>
-              <span class="filter-action__state" aria-hidden="true"><Check v-if="selectedOnly" :size="14" stroke-width="3" /></span>
+              <span class="grid size-5 shrink-0 place-items-center border-2 border-current bg-surface" aria-hidden="true"><Check v-if="selectedOnly" :size="14" stroke-width="3" /></span>
             </button>
-            <div class="bulk-actions" role="group" aria-label="Modifier les cinémas affichés">
+            <div class="bulk-actions inline-grid h-11 max-w-full grid-cols-2 gap-[0.35rem] border-2 border-dashed border-ink bg-[#f1efe8] p-[0.15rem] max-sm:w-full" role="group" aria-label="Modifier les cinémas affichés">
               <ClientOnly>
                 <button
                   type="button"
-                  class="group-action"
+                  class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
                   :disabled="!preferencesReady || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
                   @click="updateDisplayedSelection(true)"
                 ><CheckCheck :size="16" aria-hidden="true" /> Tout sélectionner</button>
                 <button
                   type="button"
-                  class="group-action group-action--secondary"
+                  class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
                   :disabled="!preferencesReady || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
                   @click="updateDisplayedSelection(false)"
                 ><X :size="16" aria-hidden="true" /> Désélectionner</button>
                 <template #fallback>
-                  <button type="button" class="group-action" disabled><CheckCheck :size="16" aria-hidden="true" /> Tout sélectionner</button>
-                  <button type="button" class="group-action group-action--secondary" disabled><X :size="16" aria-hidden="true" /> Désélectionner</button>
+                  <button type="button" class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2" disabled><CheckCheck :size="16" aria-hidden="true" /> Tout sélectionner</button>
+                  <button type="button" class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2" disabled><X :size="16" aria-hidden="true" /> Désélectionner</button>
                 </template>
               </ClientOnly>
             </div>
@@ -380,14 +380,14 @@ useHead(() => ({
         <p class="sr-only" aria-live="polite">{{ statusMessage }}</p>
 
         <EditorialStatePanel v-if="directoryTheaters.length === 0 && isLoading" semantic="status" live="polite" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
-          <template #icon><LoaderCircle :size="34" class="cinema-spinner animate-spin" aria-hidden="true" /></template>
+          <template #icon><LoaderCircle :size="34" class="animate-spin motion-reduce:animate-none" aria-hidden="true" /></template>
           <p>Chargement des cinémas…</p>
         </EditorialStatePanel>
 
         <EditorialStatePanel v-else-if="directoryError" semantic="alert" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
           <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
           <p class="max-w-lg">{{ directoryError }}</p>
-          <template #actions><button type="button" class="state-button" @click="retryDirectory"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+          <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="retryDirectory"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
         </EditorialStatePanel>
 
         <EditorialStatePanel v-else-if="directoryTheaters.length === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
@@ -403,17 +403,17 @@ useHead(() => ({
         <EditorialStatePanel v-else-if="selectedOnly && visibleTheaterCount === 0" size="tall" shadow="large" class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
           <template #icon><Building2 :size="36" aria-hidden="true" /></template>
           <p>Aucun cinéma sélectionné parmi les résultats affichés.</p>
-          <template #actions><button type="button" class="state-button" @click="selectedOnly = false">Afficher tous les cinémas</button></template>
+          <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="selectedOnly = false">Afficher tous les cinémas</button></template>
         </EditorialStatePanel>
 
         <div v-else class="mt-10">
-          <p v-if="error" class="validation-alert mb-7" role="alert">
+          <p v-if="error" class="mb-7 flex items-center gap-[0.65rem] border-2 border-primary bg-primary-soft px-4 py-[0.9rem] text-sm font-extrabold text-primary-hover shadow-[4px_4px_0_#991b1b]" role="alert">
             <AlertTriangle :size="19" aria-hidden="true" />
             {{ error }}
           </p>
           <div class="mb-7 flex flex-col gap-2 border-b-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
             <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">{{ isNearbyMode ? 'Cinémas à proximité' : 'Cinémas disponibles' }}</h2>
-            <p class="utility-label">{{ visibleTheaterCount }} cinéma{{ visibleTheaterCount > 1 ? 's' : '' }}</p>
+            <p class="font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]">{{ visibleTheaterCount }} cinéma{{ visibleTheaterCount > 1 ? 's' : '' }}</p>
           </div>
 
           <template v-if="viewMode === 'list'">
@@ -421,16 +421,16 @@ useHead(() => ({
             <div
               v-for="row in nearbyRows"
               :key="row.theater.id"
-              class="theater-option border-b-2 border-ink p-4 sm:p-5"
-              :class="selectedIds.has(row.theater.id) ? 'theater-option--selected' : 'bg-surface'"
+              class="border-b-2 border-ink p-4 odd:border-r-2 last:border-b-0 [&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:p-5 max-sm:odd:border-r-0 max-sm:[&:nth-last-child(2):nth-child(odd)]:border-b-2"
+              :class="selectedIds.has(row.theater.id) ? 'bg-[#f1efe8] shadow-[inset_5px_0_0_var(--color-highlight)] [&_.theater-check]:bg-ink [&_.theater-check]:text-white [&_.theater-check]:shadow-[3px_3px_0_var(--color-highlight)]' : 'bg-surface'"
             >
               <div v-if="row.distanceKm !== null" class="mb-3 flex min-h-6 flex-wrap items-center gap-2 font-mono text-[11px] font-black uppercase">
                 <span v-if="row.distanceKm !== null">{{ formatTheaterDistance(row.distanceKm) }}</span>
-                <span v-if="row.isNearest" class="nearest-marker">Le plus proche</span>
+                <span v-if="row.isNearest" class="border-2 border-ink bg-highlight px-[0.4rem] py-[0.15rem]">Le plus proche</span>
               </div>
               <label class="group flex cursor-pointer items-start gap-4">
                 <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(row.theater.id)" @change="toggleTheater(row.theater.id)" />
-                <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
+                <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
                 <span class="min-w-0"><BrandedText :text="row.theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
               </label>
               <NuxtLink :to="`/cinema/${encodeURIComponent(row.theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
@@ -444,13 +444,13 @@ useHead(() => ({
                   <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">
                     <NuxtLink :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ group.city }}</NuxtLink>
                   </h3>
-                  <p class="utility-label mt-1">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
+                  <p class="mt-1 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
                 <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier les favoris à ${group.city}`">
                   <ClientOnly>
                     <button
                       type="button"
-                      class="group-action"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
                       :disabled="!preferencesReady || group.theaters.every((theater) => selectedIds.has(theater.id))"
                       @click="updateGroup(group.theaters, true)"
                     >
@@ -458,15 +458,15 @@ useHead(() => ({
                     </button>
                     <button
                       type="button"
-                      class="group-action group-action--secondary"
+                      class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
                       :disabled="!preferencesReady || group.theaters.every((theater) => !selectedIds.has(theater.id))"
                       @click="updateGroup(group.theaters, false)"
                     >
                       Désélectionner
                     </button>
                     <template #fallback>
-                      <button type="button" class="group-action" disabled>Tout sélectionner</button>
-                      <button type="button" class="group-action group-action--secondary" disabled>Désélectionner</button>
+                      <button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white disabled:cursor-not-allowed disabled:opacity-40" disabled>Tout sélectionner</button>
+                      <button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40" disabled>Désélectionner</button>
                     </template>
                   </ClientOnly>
                 </div>
@@ -476,15 +476,15 @@ useHead(() => ({
                 <div
                   v-for="theater in group.theaters"
                   :key="theater.id"
-                  class="theater-option border-b-2 border-ink p-4 sm:p-5"
+                  class="border-b-2 border-ink p-4 odd:border-r-2 last:border-b-0 [&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:p-5 max-sm:odd:border-r-0 max-sm:[&:nth-last-child(2):nth-child(odd)]:border-b-2"
                   :class="[
-                    selectedIds.has(theater.id) ? 'theater-option--selected' : 'bg-surface',
-                    group.theaters.length === 1 ? 'theater-option--full sm:col-span-2' : ''
+                    selectedIds.has(theater.id) ? 'bg-[#f1efe8] shadow-[inset_5px_0_0_var(--color-highlight)] [&_.theater-check]:bg-ink [&_.theater-check]:text-white [&_.theater-check]:shadow-[3px_3px_0_var(--color-highlight)]' : 'bg-surface',
+                    group.theaters.length === 1 ? '!border-r-0 sm:col-span-2' : ''
                   ]"
                 >
                   <label class="group flex cursor-pointer items-start gap-4">
                     <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
-                    <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
+                    <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
                     <span class="min-w-0"><BrandedText :text="theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
                   </label>
                   <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
@@ -503,9 +503,9 @@ useHead(() => ({
               @toggle-favorite="toggleTheater"
             />
             <template #error="{ clearError }">
-              <div class="map-boundary-failure" role="alert">
+              <div class="flex flex-wrap items-center justify-between gap-4 border-2 border-primary bg-primary-soft p-4 text-primary-hover shadow-[4px_4px_0_#991b1b]" role="alert">
                 <strong>La carte ne peut pas être affichée.</strong>
-                <button type="button" class="state-button" @click="recoverMapBoundary(clearError)">Afficher la liste</button>
+                <button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="recoverMapBoundary(clearError)">Afficher la liste</button>
               </div>
             </template>
           </NuxtErrorBoundary>
@@ -514,375 +514,3 @@ useHead(() => ({
     </section>
   </main>
 </template>
-
-<style scoped>
-.cinemas-canvas {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.07) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.utility-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-}
-
-.cinemas-title {
-  font-family: "Noto Sans Variable", sans-serif;
-}
-
-.cinemas-title span:first-of-type {
-  -webkit-text-stroke: 2px #27272a;
-  color: transparent;
-}
-
-.title-mark {
-  position: absolute;
-  right: 8%;
-  bottom: 22%;
-  width: clamp(2.5rem, 5vw, 4.75rem);
-  aspect-ratio: 1;
-  transform: rotate(8deg);
-  border: 2px solid #27272a;
-  background: var(--color-highlight);
-  box-shadow: 5px 5px 0 #27272a;
-}
-
-.selection-counter {
-  position: absolute;
-  right: 15%;
-  bottom: 14%;
-  display: flex;
-  max-width: 11rem;
-  align-items: center;
-  gap: 0.65rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.65rem 0.75rem;
-  box-shadow: 4px 4px 0 #27272a;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.6rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  line-height: 1.25;
-  text-transform: uppercase;
-}
-
-.selection-counter strong {
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 1.75rem;
-  line-height: 1;
-}
-
-.cinema-search {
-  height: 3.25rem;
-  border: 2px solid #27272a;
-  border-radius: 0;
-  background: #fff;
-  padding: 0 0.9rem;
-  color: #27272a;
-  font-size: 0.95rem;
-  font-weight: 700;
-  outline: none;
-}
-
-.cinema-search:focus {
-  box-shadow: inset 0 0 0 3px var(--color-highlight);
-}
-
-.state-button:focus-visible,
-.filter-action:focus-visible,
-.group-action:focus-visible,
-.location-action:focus-visible,
-.view-switch button:focus-visible {
-  outline: 3px solid #27272a;
-  outline-offset: 3px;
-}
-
-.selection-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  border-block: 2px solid #27272a;
-  padding-block: 1rem;
-}
-
-.view-switch,
-.filter-action,
-.bulk-actions {
-  box-sizing: border-box;
-  height: 2.75rem;
-}
-
-.selection-controls {
-  display: inline-flex;
-  max-width: 100%;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 0.75rem;
-}
-
-.filter-action {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.6rem 0.8rem;
-  color: #27272a;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.filter-action:hover,
-.filter-action[aria-pressed="true"] {
-  background: var(--color-highlight);
-  color: #27272a;
-}
-
-.filter-action[aria-pressed="true"] {
-  box-shadow: 4px 4px 0 #27272a;
-}
-
-.filter-action__state {
-  display: grid;
-  width: 1.25rem;
-  height: 1.25rem;
-  flex: none;
-  place-items: center;
-  border: 2px solid currentColor;
-  background: #fff;
-}
-
-.validation-alert {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  border: 2px solid #991b1b;
-  background: #fef2f2;
-  padding: 0.9rem 1rem;
-  color: #7f1d1d;
-  font-size: 0.875rem;
-  font-weight: 800;
-  box-shadow: 4px 4px 0 #991b1b;
-}
-
-.state-button,
-.group-action,
-.location-action {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 2px solid #27272a;
-  background: #27272a;
-  padding: 0.6rem 0.8rem;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.state-button:hover,
-.group-action:hover:not(:disabled),
-.location-action:hover:not(:disabled) {
-  background: #991b1b;
-}
-
-.group-action--secondary {
-  background: #fff;
-  color: #27272a;
-}
-
-.location-action {
-  min-height: 3.25rem;
-  padding-inline: 1rem;
-}
-
-.location-action--secondary {
-  background: #fff;
-  color: #27272a;
-}
-
-.location-action--secondary:hover:not(:disabled) {
-  background: #e8e6de;
-}
-
-.group-action--secondary:hover:not(:disabled) {
-  background: #e8e6de;
-}
-
-.group-action:disabled,
-.location-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.4;
-}
-
-.bulk-actions {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.35rem;
-  max-width: 100%;
-  border: 2px dashed #27272a;
-  background: #f1efe8;
-  padding: 0.15rem;
-}
-
-.bulk-actions .group-action {
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  border-width: 0;
-  background: transparent;
-  color: #27272a;
-}
-
-.bulk-actions .group-action:hover:not(:disabled),
-.bulk-actions .group-action--secondary:hover:not(:disabled) {
-  background: #27272a;
-  color: #fff;
-}
-
-.nearest-marker {
-  border: 2px solid #27272a;
-  background: var(--color-highlight);
-  padding: 0.15rem 0.4rem;
-}
-
-.view-switch {
-  display: inline-grid;
-  grid-template-columns: repeat(2, minmax(5.5rem, 1fr));
-  border: 2px solid #27272a;
-  background: #fff;
-}
-
-.view-switch button {
-  display: inline-flex;
-  height: 100%;
-  min-height: 0;
-  align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  padding: 0.55rem 0.9rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.view-switch button + button {
-  border-left: 2px solid #27272a;
-}
-
-.view-switch button[aria-pressed="true"] {
-  background: #27272a;
-  color: #fff;
-  box-shadow: inset 0 -4px 0 var(--color-highlight);
-}
-
-.map-boundary-failure {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border: 2px solid #991b1b;
-  background: #fef2f2;
-  padding: 1rem;
-  color: #7f1d1d;
-  box-shadow: 4px 4px 0 #991b1b;
-}
-
-.theater-option:nth-child(odd) {
-  border-right: 2px solid #27272a;
-}
-
-.theater-option:last-child,
-.theater-option:nth-last-child(2):nth-child(odd) {
-  border-bottom: 0;
-}
-
-.theater-option--full {
-  border-right: 0 !important;
-}
-
-.theater-option--selected {
-  background: #f1efe8;
-  box-shadow: inset 5px 0 0 var(--color-highlight);
-}
-
-.theater-option input:focus-visible + .theater-check {
-  outline: 3px solid #1f6f78;
-  outline-offset: 3px;
-}
-
-.theater-option--selected .theater-check {
-  background: #27272a;
-  color: #fff;
-  box-shadow: 3px 3px 0 var(--color-highlight);
-}
-
-@media (max-width: 639px) {
-  .title-mark {
-    right: 1.25rem;
-    bottom: 1.5rem;
-  }
-
-  .selection-counter {
-    position: relative;
-    right: auto;
-    bottom: auto;
-    margin-top: 2rem;
-    max-width: 13rem;
-  }
-
-  .selection-toolbar {
-    align-items: stretch;
-  }
-
-  .selection-controls {
-    width: 100%;
-  }
-
-  .view-switch,
-  .filter-action,
-  .bulk-actions {
-    width: 100%;
-  }
-
-  .bulk-actions .group-action {
-    padding-inline: 0.5rem;
-  }
-
-  .theater-option:nth-child(odd) {
-    border-right: 0;
-  }
-
-  .theater-option:nth-last-child(2):nth-child(odd) {
-    border-bottom: 2px solid #27272a;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cinema-spinner {
-    animation: none;
-  }
-}
-</style>

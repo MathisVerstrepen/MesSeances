@@ -40,6 +40,12 @@ const normalizedSizes = computed(() => {
 const imageVisible = computed(() => Boolean(normalizedSource.value) && failedSource.value !== normalizedSource.value)
 const imageKey = computed(() => `${normalizedSource.value ?? ''}:${String(props.resetKey ?? '')}`)
 
+const fallbackVariantClasses = {
+  labelled: 'flex-col',
+  compact: 'flex-col',
+  'icon-only': ''
+} satisfies Record<NonNullable<typeof props.fallbackVariant>, string>
+
 const protectedImageAttrs = new Set([
   'src',
   'srcset',
@@ -79,7 +85,7 @@ onMounted(() => nextTick(detectCachedFailure))
 </script>
 
 <template>
-  <span class="poster-image" :class="$attrs.class" :style="$attrs.style">
+  <span class="block" :class="$attrs.class" :style="$attrs.style">
     <img
       v-if="imageVisible"
       :key="imageKey"
@@ -99,30 +105,11 @@ onMounted(() => nextTick(detectCachedFailure))
     <span
       v-else
       :data-poster-fallback="fallbackMarker"
-      class="poster-fallback"
-      :class="[`poster-fallback--${fallbackVariant}`, fallbackClass]"
+      class="flex size-full items-center justify-center"
+      :class="[fallbackVariantClasses[fallbackVariant], fallbackClass]"
     >
       <Film :size="fallbackIconSize" aria-hidden="true" />
       <span v-if="fallbackVariant !== 'icon-only' && fallbackText !== null">{{ fallbackText }}</span>
     </span>
   </span>
 </template>
-
-<style scoped>
-.poster-image {
-  display: block;
-}
-
-.poster-fallback {
-  display: flex;
-  height: 100%;
-  width: 100%;
-  align-items: center;
-  justify-content: center;
-}
-
-.poster-fallback--labelled,
-.poster-fallback--compact {
-  flex-direction: column;
-}
-</style>

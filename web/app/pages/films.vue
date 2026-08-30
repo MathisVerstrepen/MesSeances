@@ -499,29 +499,29 @@ useHead(() => ({
     <section class="border-b-2 border-ink bg-surface" aria-labelledby="catalog-title">
       <div class="relative mx-auto max-w-[1440px] overflow-hidden px-4 pb-10 pt-12 sm:px-6 sm:pb-14 sm:pt-16 lg:px-10 lg:pb-16 lg:pt-20">
         <p class="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Catalogue · En salle</p>
-        <h1 id="catalog-title" class="catalog-title mt-5 max-w-6xl text-[clamp(4rem,11.7vw,10.5rem)] font-black uppercase leading-[0.75] tracking-[-0.085em]">
+        <h1 id="catalog-title" class="mt-5 max-w-6xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(4rem,11.7vw,10.5rem)] font-black uppercase leading-[0.75] tracking-[-0.085em] [&>span:first-of-type]:text-transparent [&>span:first-of-type]:[-webkit-text-stroke:2px_#27272a]">
           Films<br /><span>à l’affiche</span><span class="text-primary">.</span>
         </h1>
-        <span class="title-accent" aria-hidden="true"></span>
+        <span class="absolute right-[8%] bottom-[20%] aspect-square w-[clamp(2.25rem,5vw,4.5rem)] rotate-[8deg] border-2 border-ink bg-highlight shadow-[5px_5px_0_#27272a] max-sm:right-5 max-sm:bottom-6" aria-hidden="true"></span>
       </div>
     </section>
 
-    <section class="catalog-canvas border-b-2 border-ink">
+    <section class="border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.075)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.075)_1px,transparent_1px)] bg-[size:28px_28px]">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12">
         <div class="search-workspace border-2 border-ink bg-[#ffcf3f] p-4 shadow-[7px_7px_0_#27272a] sm:p-6">
           <div class="grid grid-cols-[minmax(0,1fr)_3.25rem] items-end gap-4 lg:grid-cols-[minmax(0,1fr)_14rem_3.25rem] lg:gap-5">
             <form class="col-span-2 min-w-0 lg:col-span-1" role="search" @submit.prevent="submitSearch">
-              <label class="control-label" for="film-search">Rechercher un film</label>
+              <label class="block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]" for="film-search">Rechercher un film</label>
               <div class="mt-2 flex min-w-0">
                 <input
                   id="film-search"
                   v-model="searchInput"
                   type="search"
-                  class="catalog-field min-w-0 flex-1 border-r-0"
+                  class="h-[3.25rem] min-w-0 flex-1 rounded-none border-2 border-r-0 border-ink bg-surface px-[0.9rem] text-[0.9rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-55"
                   autocomplete="off"
                   placeholder="Titre du film"
                 />
-                <button type="submit" class="search-button shrink-0" :disabled="pending">
+                <button type="submit" class="inline-flex min-h-[3.25rem] shrink-0 items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink px-4 font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.08em] text-white transition-[background-color] duration-150 enabled:hover:bg-primary disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transition-none" :disabled="pending">
                   <Search :size="19" stroke-width="2.5" aria-hidden="true" />
                   <span class="hidden sm:inline">Rechercher</span>
                   <span class="sr-only sm:hidden">Rechercher</span>
@@ -530,8 +530,8 @@ useHead(() => ({
             </form>
 
             <label class="block min-w-0">
-              <span class="control-label">Trier par</span>
-              <select :value="sort" class="catalog-field mt-2 w-full" :disabled="pending" @change="changeSort">
+              <span class="block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Trier par</span>
+              <select :value="sort" class="mt-2 h-[3.25rem] w-full rounded-none border-2 border-ink bg-surface px-[0.9rem] text-[0.9rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending" @change="changeSort">
                 <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </label>
@@ -539,8 +539,8 @@ useHead(() => ({
             <button
               ref="advancedFiltersTrigger"
               type="button"
-              class="advanced-trigger"
-              :class="{ 'advanced-trigger--active': advancedFilterCount > 0 }"
+              class="relative inline-flex size-[3.25rem] items-center justify-center border-2 border-ink bg-surface text-ink transition-[background-color,color,box-shadow] duration-150 hover:bg-ink hover:text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink aria-expanded:bg-ink aria-expanded:text-white motion-reduce:transition-none [&>svg]:motion-reduce:transition-none"
+              :class="{ 'not-aria-expanded:shadow-[inset_0_-4px_0_var(--color-highlight)]': advancedFilterCount > 0 }"
               :aria-label="advancedFiltersButtonLabel"
               aria-controls="advanced-film-filters"
               :aria-expanded="isAdvancedFiltersOpen"
@@ -548,23 +548,23 @@ useHead(() => ({
               @keydown.esc.stop.prevent="closeAdvancedFilters"
             >
               <SlidersHorizontal :size="20" stroke-width="2.5" aria-hidden="true" />
-              <span v-if="advancedFilterCount" class="advanced-trigger-count" aria-hidden="true">{{ advancedFilterCount }}</span>
+              <span v-if="advancedFilterCount" class="absolute -top-[0.6rem] -right-[0.6rem] inline-flex h-[1.4rem] min-w-[1.4rem] items-center justify-center border-2 border-ink bg-highlight px-[0.2rem] font-mono text-[0.65rem] leading-none font-black text-ink" aria-hidden="true">{{ advancedFilterCount }}</span>
             </button>
           </div>
 
           <form
             v-show="isAdvancedFiltersOpen"
             id="advanced-film-filters"
-            class="advanced-panel"
+            class="mt-6 border-t-2 border-ink pt-6"
             aria-label="Filtres avancés des films"
             @submit.prevent="applyAdvancedFilters"
             @keydown.esc.stop.prevent="closeAdvancedFilters"
           >
               <div class="grid gap-7 lg:grid-cols-3">
                 <fieldset class="min-w-0">
-                  <legend class="control-label mb-3">Genres</legend>
+                  <legend class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Genres</legend>
                   <div v-if="availableGenres.length" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                    <label v-for="genre in availableGenres" :key="genre" class="filter-choice">
+                    <label v-for="genre in availableGenres" :key="genre" class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]">
                       <input v-model="draftFilters.genres" type="checkbox" :value="genre" class="size-4 shrink-0 accent-primary" />
                       <span>{{ genre }}</span>
                     </label>
@@ -574,21 +574,21 @@ useHead(() => ({
 
                 <div>
                   <fieldset>
-                    <legend class="control-label mb-3">Durée</legend>
+                    <legend class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Durée</legend>
                     <div class="grid gap-2">
-                      <label class="filter-choice">
+                      <label class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]">
                         <input v-model="draftFilters.duration" type="radio" name="film-duration" value="" class="size-4 shrink-0 accent-primary" />
                         <span>Toutes les durées</span>
                       </label>
-                      <label v-for="option in DURATION_OPTIONS" :key="option.value" class="filter-choice">
+                      <label v-for="option in DURATION_OPTIONS" :key="option.value" class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]">
                         <input v-model="draftFilters.duration" type="radio" name="film-duration" :value="option.value" class="size-4 shrink-0 accent-primary" />
                         <span>{{ option.label }}</span>
                       </label>
                     </div>
                   </fieldset>
                   <fieldset class="mt-6">
-                    <legend class="control-label mb-3">Cinémas</legend>
-                    <label class="filter-choice">
+                    <legend class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Cinémas</legend>
+                    <label class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]">
                       <input v-model="draftFilters.allTheaters" type="checkbox" class="size-4 shrink-0 accent-primary" />
                       <span>Tous les cinémas</span>
                     </label>
@@ -596,9 +596,9 @@ useHead(() => ({
                 </div>
 
                 <fieldset class="min-w-0" :aria-invalid="draftError ? 'true' : undefined" :aria-describedby="draftError ? 'film-date-error' : undefined">
-                  <legend class="control-label mb-3">Date de séance</legend>
+                  <legend class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Date de séance</legend>
                   <div class="grid grid-cols-2 gap-2">
-                    <label v-for="option in DATE_OPTIONS" :key="option.value" class="filter-choice">
+                    <label v-for="option in DATE_OPTIONS" :key="option.value" class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]">
                       <input
                         type="radio"
                         name="film-date-mode"
@@ -612,10 +612,10 @@ useHead(() => ({
                   </div>
 
                   <div v-if="draftFilters.dateMode === 'custom'" class="mt-3">
-                    <label for="film-custom-date" class="control-label mb-2">Date (dd-MM-yy)</label>
+                    <label for="film-custom-date" class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Date (dd-MM-yy)</label>
                     <VueDatePicker
                       v-model="singlePickerDate"
-                      class="catalog-datepicker"
+                      class="catalog-datepicker [--dp-background-color:#fff] [--dp-border-color-focus:#27272a] [--dp-border-color-hover:#27272a] [--dp-border-color:#27272a] [--dp-border-radius:0] [--dp-cell-border-radius:0] [--dp-font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] [--dp-font-size:0.82rem] [--dp-icon-color:#27272a] [--dp-primary-color:#27272a] [--dp-primary-text-color:#fff] [--dp-text-color:#27272a]"
                       :aria-labels="calendarAriaLabels"
                       :formats="datePickerFormats"
                       :input-attrs="{ id: 'film-custom-date', autocomplete: 'off', clearable: true }"
@@ -638,10 +638,10 @@ useHead(() => ({
                   </div>
 
                   <div v-else-if="draftFilters.dateMode === 'range'" class="mt-3">
-                    <label for="film-custom-range" class="control-label mb-2">Période (dd-MM-yy)</label>
+                    <label for="film-custom-range" class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Période (dd-MM-yy)</label>
                     <VueDatePicker
                       v-model="rangePickerDates"
-                      class="catalog-datepicker"
+                      class="catalog-datepicker [--dp-background-color:#fff] [--dp-border-color-focus:#27272a] [--dp-border-color-hover:#27272a] [--dp-border-color:#27272a] [--dp-border-radius:0] [--dp-cell-border-radius:0] [--dp-font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] [--dp-font-size:0.82rem] [--dp-icon-color:#27272a] [--dp-primary-color:#27272a] [--dp-primary-text-color:#fff] [--dp-text-color:#27272a]"
                       :aria-labels="calendarAriaLabels"
                       :formats="datePickerFormats"
                       :input-attrs="{ id: 'film-custom-range', autocomplete: 'off', clearable: true }"
@@ -668,8 +668,8 @@ useHead(() => ({
               </div>
 
               <div class="mt-7 flex flex-col-reverse gap-3 border-t-2 border-ink pt-5 sm:flex-row sm:justify-end">
-                <button type="button" class="filter-reset-button" @click="clearAdvancedFilters">Effacer les filtres</button>
-                <button type="submit" class="filter-apply-button" :disabled="Boolean(draftError)">Appliquer</button>
+                <button type="button" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-surface px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] hover:bg-primary hover:text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink motion-reduce:transition-none" @click="clearAdvancedFilters">Effacer les filtres</button>
+                <button type="submit" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transition-none" :disabled="Boolean(draftError)">Appliquer</button>
               </div>
           </form>
         </div>
@@ -694,7 +694,7 @@ useHead(() => ({
         <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
           <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
           <p class="max-w-lg">{{ errorMessage }}</p>
-          <template #actions><button type="button" class="state-button" @click="retryMovies"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+          <template #actions><button type="button" class="inline-flex min-h-[3.25rem] items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink px-4 font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.08em] text-white transition-[background-color] duration-150 hover:bg-primary motion-reduce:transition-none" @click="retryMovies"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
         </EditorialStatePanel>
 
         <EditorialStatePanel v-else-if="!appliedFilters.allTheaters && preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0" size="tall" shadow="large" class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10">
@@ -706,20 +706,20 @@ useHead(() => ({
           <template #icon><Film :size="36" aria-hidden="true" /></template>
           <p v-if="hasAppliedAdvancedFilters">Aucun film ne correspond à ces filtres : {{ appliedFilterSummary.join(' · ') }}.</p>
           <p v-else>{{ appliedSearch ? 'Aucun film ne correspond à cette recherche.' : 'Aucun film à l’affiche actuellement.' }}</p>
-          <template v-if="hasAppliedAdvancedFilters" #actions><button type="button" class="state-button" @click="clearAdvancedFilters">Effacer les filtres</button></template>
+          <template v-if="hasAppliedAdvancedFilters" #actions><button type="button" class="inline-flex min-h-[3.25rem] items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink px-4 font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.08em] text-white transition-[background-color] duration-150 hover:bg-primary motion-reduce:transition-none" @click="clearAdvancedFilters">Effacer les filtres</button></template>
         </EditorialStatePanel>
 
         <template v-else>
           <ul class="catalog-grid mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" aria-label="Films à l’affiche">
             <li v-for="movie in catalog.items" :key="movie.slug" class="min-w-0">
-              <NuxtLink :to="`/film/${movie.slug}`" class="catalog-card group block focus-visible:ring-offset-4">
-                <div class="poster-frame">
+              <NuxtLink :to="`/film/${movie.slug}`" class="group block text-ink transition-transform hover:-translate-y-1 focus-visible:ring-offset-4 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+                <div class="relative aspect-[2/3] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
                   <PosterImage
                     :src="movie.poster_url"
                     :alt="`Affiche de ${movie.title}`"
                     sizes="(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)"
                     class="h-full w-full"
-                    image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025]"
+                    image-class="h-full w-full object-cover"
                     fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
                     :fallback-icon-size="32"
                   />
@@ -733,17 +733,17 @@ useHead(() => ({
           </ul>
 
           <nav v-if="totalPages > 1" class="pagination mt-14 flex flex-col items-stretch justify-between gap-4 border-2 border-ink bg-surface p-3 shadow-[6px_6px_0_#27272a] sm:flex-row sm:items-center" aria-label="Pagination des films">
-            <span v-if="page <= 1" class="page-button page-button--disabled" aria-disabled="true">
+            <span v-if="page <= 1" class="inline-flex min-h-11 cursor-not-allowed items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] opacity-55 transition-[background-color,color] duration-150 motion-reduce:transition-none" aria-disabled="true">
               ← Précédent
             </span>
-            <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) }" class="page-button" :aria-disabled="pending || undefined" @click="followPageLink($event, page - 1)">
+            <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) }" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] transition-[background-color,color] duration-150 not-aria-disabled:hover:bg-ink not-aria-disabled:hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-55 motion-reduce:transition-none" :aria-disabled="pending || undefined" @click="followPageLink($event, page - 1)">
               ← Précédent
             </NuxtLink>
             <span class="order-first text-center font-mono text-[11px] font-bold uppercase tracking-[0.14em] sm:order-none" aria-live="polite">Page {{ page }} / {{ totalPages }}</span>
-            <span v-if="page >= totalPages" class="page-button page-button--disabled" aria-disabled="true">
+            <span v-if="page >= totalPages" class="inline-flex min-h-11 cursor-not-allowed items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] opacity-55 transition-[background-color,color] duration-150 motion-reduce:transition-none" aria-disabled="true">
               Suivant →
             </span>
-            <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page + 1, sort, filters: appliedFilters }) }" class="page-button" :aria-disabled="pending || undefined" @click="followPageLink($event, page + 1)">
+            <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page + 1, sort, filters: appliedFilters }) }" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] transition-[background-color,color] duration-150 not-aria-disabled:hover:bg-ink not-aria-disabled:hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-55 motion-reduce:transition-none" :aria-disabled="pending || undefined" @click="followPageLink($event, page + 1)">
               Suivant →
             </NuxtLink>
           </nav>
@@ -754,192 +754,6 @@ useHead(() => ({
 </template>
 
 <style scoped>
-.catalog-title {
-  font-family: "Noto Sans Variable", sans-serif;
-}
-
-.catalog-title span:first-of-type {
-  -webkit-text-stroke: 2px #27272a;
-  color: transparent;
-}
-
-.title-accent {
-  position: absolute;
-  right: 8%;
-  bottom: 20%;
-  width: clamp(2.25rem, 5vw, 4.5rem);
-  aspect-ratio: 1;
-  transform: rotate(8deg);
-  border: 2px solid #27272a;
-  background: var(--color-highlight);
-  box-shadow: 5px 5px 0 #27272a;
-}
-
-.catalog-canvas {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.075) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.control-label {
-  display: block;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.catalog-field {
-  height: 3.25rem;
-  border: 2px solid #27272a;
-  border-radius: 0;
-  background: #fff;
-  padding: 0 0.9rem;
-  color: #27272a;
-  font-size: 0.9rem;
-  font-weight: 700;
-  outline: none;
-}
-
-.catalog-field:focus {
-  box-shadow: inset 0 0 0 2px var(--color-highlight);
-}
-
-.catalog-field:disabled,
-.search-button:disabled,
-.filter-apply-button:disabled,
-.page-button--disabled,
-.page-button[aria-disabled="true"] {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.advanced-trigger {
-  position: relative;
-  display: inline-flex;
-  width: 3.25rem;
-  height: 3.25rem;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #27272a;
-  background: #fff;
-  color: #27272a;
-  transition: background-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
-}
-
-.advanced-trigger:hover,
-.advanced-trigger[aria-expanded="true"] {
-  background: #27272a;
-  color: #fff;
-}
-
-.advanced-trigger--active:not([aria-expanded="true"]) {
-  box-shadow: inset 0 -4px 0 var(--color-highlight);
-}
-
-.advanced-trigger-count {
-  position: absolute;
-  top: -0.6rem;
-  right: -0.6rem;
-  display: inline-flex;
-  min-width: 1.4rem;
-  height: 1.4rem;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #27272a;
-  background: var(--color-highlight);
-  padding: 0 0.2rem;
-  color: #27272a;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  line-height: 1;
-}
-
-.advanced-trigger:focus-visible,
-.filter-choice:focus-within,
-.filter-reset-button:focus-visible,
-.filter-apply-button:focus-visible {
-  outline: 2px solid #27272a;
-  outline-offset: 3px;
-}
-
-.advanced-panel {
-  margin-top: 1.5rem;
-  border-top: 2px solid #27272a;
-  padding-top: 1.5rem;
-}
-
-.filter-choice {
-  display: flex;
-  min-height: 2.75rem;
-  cursor: pointer;
-  align-items: center;
-  gap: 0.65rem;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.55rem 0.7rem;
-  font-size: 0.82rem;
-  font-weight: 750;
-}
-
-.filter-choice:hover {
-  background: #f8f7f2;
-}
-
-.filter-choice:has(input:checked) {
-  background: var(--color-highlight);
-  box-shadow: inset 0 -3px 0 #27272a;
-}
-
-.filter-reset-button,
-.filter-apply-button {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #27272a;
-  padding: 0.65rem 1rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.filter-reset-button {
-  background: #fff;
-}
-
-.filter-apply-button {
-  background: #27272a;
-  color: #fff;
-}
-
-.filter-reset-button:hover,
-.filter-apply-button:hover:not(:disabled) {
-  background: #991b1b;
-  color: #fff;
-}
-
-.catalog-datepicker {
-  --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --dp-border-radius: 0;
-  --dp-cell-border-radius: 0;
-  --dp-background-color: #fff;
-  --dp-text-color: #27272a;
-  --dp-border-color: #27272a;
-  --dp-border-color-hover: #27272a;
-  --dp-border-color-focus: #27272a;
-  --dp-primary-color: #27272a;
-  --dp-primary-text-color: #fff;
-  --dp-icon-color: #27272a;
-  --dp-font-size: 0.82rem;
-}
-
 .catalog-datepicker :deep(.dp__input) {
   min-height: 3.25rem;
   border-width: 2px;
@@ -996,92 +810,4 @@ useHead(() => ({
   border: 2px solid #991b1b;
 }
 
-.search-button,
-.state-button {
-  display: inline-flex;
-  min-height: 3.25rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  border: 2px solid #27272a;
-  background: #27272a;
-  padding: 0 1rem;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition: background-color 150ms ease;
-}
-
-.search-button:hover:not(:disabled),
-.state-button:hover {
-  background: #991b1b;
-}
-
-.catalog-card {
-  color: #27272a;
-  transition: transform 170ms ease;
-}
-
-.catalog-card:hover {
-  transform: translateY(-4px);
-}
-
-.poster-frame {
-  position: relative;
-  aspect-ratio: 2 / 3;
-  overflow: hidden;
-  border: 2px solid #27272a;
-  background: #e8e6de;
-  box-shadow: 5px 5px 0 #27272a;
-}
-
-.page-button {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #27272a;
-  background: #ffcf3f;
-  padding: 0.65rem 1rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-.page-button:hover:not(.page-button--disabled, [aria-disabled="true"]) {
-  background: #27272a;
-  color: #fff;
-}
-
-@media (max-width: 639px) {
-  .title-accent {
-    right: 1.25rem;
-    bottom: 1.5rem;
-  }
-
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .catalog-card,
-  .catalog-card :deep(img),
-  .search-button,
-  .state-button,
-  .advanced-trigger,
-  .advanced-trigger svg,
-  .filter-reset-button,
-  .filter-apply-button,
-  .page-button {
-    transition: none;
-  }
-
-  .catalog-card:hover {
-    transform: none;
-  }
-}
 </style>

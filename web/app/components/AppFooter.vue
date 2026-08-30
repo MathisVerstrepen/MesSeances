@@ -20,7 +20,7 @@ function scrollToTop() {
 
 <template>
   <footer class="editorial-footer relative overflow-hidden border-t-2 border-ink bg-[#f8f7f2] text-ink">
-    <div class="footer-grid">
+    <div class="[background-image:linear-gradient(rgba(39,39,42,0.075)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.075)_1px,transparent_1px)] [background-size:32px_32px]">
       <div class="mx-auto grid max-w-[1440px] gap-12 px-4 py-12 sm:px-6 sm:py-16 md:grid-cols-[1.1fr_2fr] lg:gap-20 lg:px-10 lg:py-20">
         <div class="flex items-start">
           <NuxtLink to="/" class="inline-flex w-fit items-center gap-2 font-black tracking-[-0.04em]" aria-label="MesSeances, accueil">
@@ -31,24 +31,24 @@ function scrollToTop() {
 
         <nav aria-label="Navigation de pied de page" class="grid grid-cols-2 gap-x-8 gap-y-10 sm:grid-cols-3">
           <div>
-            <h2 class="footer-heading">Explorer</h2>
+            <h2 class="font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.16em]">Explorer</h2>
             <ul class="mt-5 space-y-3">
               <li v-for="link in explorerLinks" :key="link.to">
-                <NuxtLink :to="link.to" class="footer-link">{{ link.label }}</NuxtLink>
+                <NuxtLink :to="link.to" class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary">{{ link.label }}</NuxtLink>
               </li>
             </ul>
           </div>
 
           <div>
-            <h2 class="footer-heading">À propos</h2>
+            <h2 class="font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.16em]">À propos</h2>
             <ul class="mt-5 space-y-3">
-              <li><NuxtLink to="/credits" class="footer-link">Crédits &amp; sources</NuxtLink></li>
-              <li><NuxtLink to="/mentions-legales" class="footer-link">Mentions légales</NuxtLink></li>
-              <li><NuxtLink to="/confidentialite" class="footer-link">Confidentialité</NuxtLink></li>
+              <li><NuxtLink to="/credits" class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary">Crédits &amp; sources</NuxtLink></li>
+              <li><NuxtLink to="/mentions-legales" class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary">Mentions légales</NuxtLink></li>
+              <li><NuxtLink to="/confidentialite" class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary">Confidentialité</NuxtLink></li>
               <li>
                 <a
                   href="https://github.com/MathisVerstrepen/MesSeances"
-                  class="footer-link"
+                  class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary"
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="Voir le projet MesSeances sur GitHub (nouvel onglet)"
@@ -58,9 +58,9 @@ function scrollToTop() {
           </div>
 
           <div>
-            <h2 class="footer-heading">Administration</h2>
+            <h2 class="font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.16em]">Administration</h2>
             <ul class="mt-5 space-y-3">
-              <li><NuxtLink to="/admin" class="footer-link">Espace admin</NuxtLink></li>
+              <li><NuxtLink to="/admin" class="inline-block border-b-2 border-transparent text-[0.95rem] font-extrabold leading-[1.35] [transition:border-color_150ms_ease,color_150ms_ease] hover:border-current hover:text-primary">Espace admin</NuxtLink></li>
             </ul>
           </div>
         </nav>
@@ -76,105 +76,23 @@ function scrollToTop() {
             Made with ❤️ by
             <a
               href="https://github.com/MathisVerstrepen"
-              class="meta-link"
+              class="border-b border-current [transition:color_150ms_ease] hover:text-primary"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="Profil GitHub de Mathis Verstrepen (nouvel onglet)"
             >Mathis Verstrepen</a>
           </p>
         </div>
-        <button type="button" class="return-top group inline-flex w-fit items-center gap-2 border-b-2 border-ink pb-1" aria-label="Retourner en haut de la page" @click="scrollToTop">
+        <button type="button" class="group inline-flex w-fit items-center gap-2 border-b-2 border-ink pb-1 [transition:color_150ms_ease] hover:text-primary" aria-label="Retourner en haut de la page" @click="scrollToTop">
           Retour en haut
-          <ArrowUp :size="15" class="transition-transform group-hover:-translate-y-0.5" aria-hidden="true" />
+          <ArrowUp :size="15" class="transition-transform group-hover:-translate-y-0.5 motion-reduce:transition-none" aria-hidden="true" />
         </button>
       </div>
     </div>
 
-    <div class="wordmark-wrap relative mx-auto max-w-[1440px] px-4 pt-10 sm:px-6 sm:pt-14 lg:px-10">
-      <span class="accent-shape" aria-hidden="true"></span>
-      <p class="closing-wordmark" aria-hidden="true">MES SÉANCES</p>
+    <div class="relative mx-auto h-[clamp(6rem,13vw,11rem)] max-w-[1440px] overflow-hidden px-4 pt-10 sm:px-6 sm:pt-14 lg:px-10">
+      <span class="absolute top-[1.2rem] right-[12%] z-[2] aspect-square w-[clamp(2.5rem,5vw,4.5rem)] rotate-[8deg] border-2 border-ink bg-highlight shadow-[5px_5px_0_#27272a]" aria-hidden="true"></span>
+      <p class="relative z-[1] whitespace-nowrap text-[clamp(4.2rem,14.2vw,12.75rem)] leading-[0.7] font-[950] tracking-[-0.085em]" aria-hidden="true">MES SÉANCES</p>
     </div>
   </footer>
 </template>
-
-<style scoped>
-.footer-grid {
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.075) 1px, transparent 1px);
-  background-size: 32px 32px;
-}
-
-.footer-heading {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.footer-link {
-  display: inline-block;
-  border-bottom: 2px solid transparent;
-  font-size: 0.95rem;
-  font-weight: 800;
-  line-height: 1.35;
-  transition: border-color 150ms ease, color 150ms ease;
-}
-
-.footer-link:hover {
-  border-color: currentColor;
-  color: #991b1b;
-}
-
-.meta-link {
-  border-bottom: 1px solid currentColor;
-  transition: color 150ms ease;
-}
-
-.meta-link:hover {
-  color: #991b1b;
-}
-
-.return-top {
-  transition: color 150ms ease;
-}
-
-.return-top:hover {
-  color: #991b1b;
-}
-
-.wordmark-wrap {
-  height: clamp(6rem, 13vw, 11rem);
-  overflow: hidden;
-}
-
-.closing-wordmark {
-  position: relative;
-  z-index: 1;
-  white-space: nowrap;
-  font-size: clamp(4.2rem, 14.2vw, 12.75rem);
-  font-weight: 950;
-  line-height: 0.7;
-  letter-spacing: -0.085em;
-}
-
-.accent-shape {
-  position: absolute;
-  z-index: 2;
-  top: 1.2rem;
-  right: 12%;
-  width: clamp(2.5rem, 5vw, 4.5rem);
-  aspect-ratio: 1;
-  transform: rotate(8deg);
-  border: 2px solid #27272a;
-  background: var(--color-highlight);
-  box-shadow: 5px 5px 0 #27272a;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .return-top svg {
-    transition: none;
-  }
-}
-</style>

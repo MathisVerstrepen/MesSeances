@@ -412,50 +412,50 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="cinema-map-component">
-    <div v-if="runtimeFailed" class="map-failure" role="alert">
+  <div class="border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
+    <div v-if="runtimeFailed" class="flex flex-wrap items-center justify-between gap-4 border-2 border-primary bg-primary-soft p-4 text-[#7f1d1d]" role="alert">
       <strong>La carte ne peut pas être affichée.</strong>
-      <button type="button" class="map-action" @click="emit('show-list')">Afficher la liste</button>
+      <button type="button" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.65rem] font-black tracking-[0.06em] text-surface uppercase enabled:hover:bg-primary focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" @click="emit('show-list')">Afficher la liste</button>
     </div>
 
     <template v-else>
-      <div class="map-tools">
-        <p class="map-summary" role="status" aria-live="polite">{{ mapTheaterSummary }}</p>
+      <div class="border-b-2 border-ink bg-[#f1efe8] p-[0.9rem]">
+        <p class="text-[0.82rem] font-[750]" role="status" aria-live="polite">{{ mapTheaterSummary }}</p>
       </div>
 
-      <div ref="mapLayout" class="map-layout" :class="{ 'map-layout--details': selectedTheater }">
-        <div class="map-panel">
-          <div ref="mapContainer" class="map-canvas" role="region" aria-label="Carte interactive des cinémas"></div>
-          <div v-if="mappedTheaters.length === 0" class="map-empty" role="status">
+      <div ref="mapLayout" class="map-layout grid min-w-0" :class="selectedTheater ? 'min-[900px]:grid-cols-[minmax(0,1fr)_minmax(17rem,22rem)]' : ''">
+        <div class="map-panel relative min-w-0">
+          <div ref="mapContainer" class="map-canvas h-[clamp(25rem,62vh,43rem)] w-full max-[520px]:h-[26rem]" role="region" aria-label="Carte interactive des cinémas"></div>
+          <div v-if="mappedTheaters.length === 0" class="absolute top-4 left-4 z-[2] max-w-[min(22rem,calc(100%_-_5rem))] border-2 border-ink bg-surface p-3 font-extrabold shadow-[3px_3px_0_#27272a]" role="status">
             <p>Aucun cinéma de cette sélection ne peut être placé sur la carte.</p>
-            <button type="button" class="map-action" @click="emit('show-list')">Afficher la liste</button>
+            <button type="button" class="mt-3 inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.65rem] font-black tracking-[0.06em] text-surface uppercase enabled:hover:bg-primary focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" @click="emit('show-list')">Afficher la liste</button>
           </div>
-          <div class="map-legend" aria-label="Légende des exploitants">
-            <span v-for="(label, provider) in THEATER_PROVIDER_LABELS" :key="provider"><i :style="{ backgroundColor: THEATER_PROVIDER_COLORS[provider] }" aria-hidden="true"></i>{{ label }}</span>
-            <span><i class="favorite-symbol" aria-hidden="true"></i>Favori</span>
+          <div class="flex flex-wrap gap-x-[0.9rem] gap-y-2 border-t-2 border-ink bg-[#f8f7f2] px-[0.8rem] py-[0.65rem] text-xs font-extrabold" aria-label="Légende des exploitants">
+            <span v-for="(label, provider) in THEATER_PROVIDER_LABELS" :key="provider" class="inline-flex items-center gap-[0.35rem]"><i class="inline-block size-[0.8rem] rounded-full border-2 border-ink" :style="{ backgroundColor: THEATER_PROVIDER_COLORS[provider] }" aria-hidden="true"></i>{{ label }}</span>
+            <span class="inline-flex items-center gap-[0.35rem]"><i class="inline-block size-4 rounded-full border-3 border-double border-ink bg-transparent" aria-hidden="true"></i>Favori</span>
           </div>
-          <p class="map-attribution">
-            Carte <a href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">OpenFreeMap</a>
-            · © <a href="https://openmaptiles.org" target="_blank" rel="noopener noreferrer">OpenMapTiles</a>
-            · © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">contributeurs OpenStreetMap</a>
+          <p class="border-t border-ink bg-surface px-[0.8rem] py-[0.4rem] text-[0.7rem] leading-[1.4]">
+            Carte <a class="font-[850] underline decoration-2 underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">OpenFreeMap</a>
+            · © <a class="font-[850] underline decoration-2 underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" href="https://openmaptiles.org" target="_blank" rel="noopener noreferrer">OpenMapTiles</a>
+            · © <a class="font-[850] underline decoration-2 underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">contributeurs OpenStreetMap</a>
           </p>
         </div>
 
-        <article v-if="selectedTheater" class="theater-details" aria-labelledby="selected-theater-heading">
-          <div class="details-heading-row">
+        <article v-if="selectedTheater" class="theater-details border-t-2 border-ink bg-[#f1efe8] p-4 min-[900px]:border-t-0 min-[900px]:border-l-2" aria-labelledby="selected-theater-heading">
+          <div class="flex items-start justify-between gap-4">
             <div>
-              <p class="details-provider">{{ THEATER_PROVIDER_LABELS[selectedTheater.provider] }}</p>
-              <h3 id="selected-theater-heading" ref="detailHeading" tabindex="-1">{{ selectedTheater.name }}</h3>
+              <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.09em]">{{ THEATER_PROVIDER_LABELS[selectedTheater.provider] }}</p>
+              <h3 id="selected-theater-heading" ref="detailHeading" tabindex="-1" class="mt-[0.35rem] text-[clamp(1.35rem,3vw,2rem)] leading-none font-black tracking-[-0.04em] focus-visible:outline-[3px] focus-visible:outline-offset-4 focus-visible:outline-accent">{{ selectedTheater.name }}</h3>
             </div>
-            <button type="button" class="close-action" aria-label="Fermer les détails du cinéma" @click="closeDetails">Fermer</button>
+            <button type="button" class="min-h-11 p-[0.4rem] font-mono text-[0.65rem] font-black uppercase underline underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" aria-label="Fermer les détails du cinéma" @click="closeDetails">Fermer</button>
           </div>
-          <p class="details-address"><template v-if="selectedTheater.address">{{ selectedTheater.address }}, </template>{{ selectedTheater.postal_code }} {{ selectedTheater.city }}</p>
-          <p class="favorite-status">{{ favoriteIds.has(selectedTheater.id) ? 'Dans vos favoris' : 'Pas dans vos favoris' }}</p>
-          <div class="details-actions">
-            <button type="button" class="map-action" @click="emit('toggle-favorite', selectedTheater.id)">
+          <p class="mt-4 leading-[1.55] font-[650]"><template v-if="selectedTheater.address">{{ selectedTheater.address }}, </template>{{ selectedTheater.postal_code }} {{ selectedTheater.city }}</p>
+          <p class="mt-4 font-mono text-[0.68rem] font-black uppercase tracking-[0.09em]">{{ favoriteIds.has(selectedTheater.id) ? 'Dans vos favoris' : 'Pas dans vos favoris' }}</p>
+          <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
+            <button type="button" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.65rem] font-black tracking-[0.06em] text-surface uppercase enabled:hover:bg-primary focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" @click="emit('toggle-favorite', selectedTheater.id)">
               {{ favoriteIds.has(selectedTheater.id) ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
             </button>
-            <NuxtLink :to="`/cinema/${encodeURIComponent(selectedTheater.slug)}`">Voir les séances</NuxtLink>
+            <NuxtLink :to="`/cinema/${encodeURIComponent(selectedTheater.slug)}`" class="font-[850] underline decoration-2 underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent">Voir les séances</NuxtLink>
           </div>
         </article>
       </div>
@@ -464,47 +464,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.cinema-map-component {
-  border: 2px solid #27272a;
-  background: #fff;
-  box-shadow: 6px 6px 0 #27272a;
-}
-
-.map-tools {
-  border-bottom: 2px solid #27272a;
-  background: #f1efe8;
-  padding: 0.9rem;
-}
-
-.details-provider,
-.favorite-status {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.map-summary {
-  font-size: 0.82rem;
-  font-weight: 750;
-}
-
-.map-layout {
-  display: grid;
-  min-width: 0;
-}
-
-.map-panel {
-  position: relative;
-  min-width: 0;
-}
-
-.map-canvas {
-  width: 100%;
-  height: clamp(25rem, 62vh, 43rem);
-}
-
 .map-layout:fullscreen,
 .map-layout.maplibregl-pseudo-fullscreen {
   width: 100vw;
@@ -530,185 +489,4 @@ onBeforeUnmount(() => {
   overflow: auto;
 }
 
-.map-empty {
-  position: absolute;
-  top: 1rem;
-  left: 1rem;
-  z-index: 2;
-  max-width: min(22rem, calc(100% - 5rem));
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.75rem;
-  font-weight: 800;
-  box-shadow: 3px 3px 0 #27272a;
-}
-
-.map-empty .map-action {
-  margin-top: 0.75rem;
-}
-
-.map-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.9rem;
-  border-top: 2px solid #27272a;
-  background: #f8f7f2;
-  padding: 0.65rem 0.8rem;
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-
-.map-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.map-legend i {
-  display: inline-block;
-  width: 0.8rem;
-  height: 0.8rem;
-  border: 2px solid #27272a;
-  border-radius: 50%;
-}
-
-.map-legend .favorite-symbol {
-  width: 1rem;
-  height: 1rem;
-  border: 3px double #27272a;
-  background: transparent;
-}
-
-.map-attribution {
-  border-top: 1px solid #27272a;
-  background: #fff;
-  padding: 0.4rem 0.8rem;
-  font-size: 0.7rem;
-  line-height: 1.4;
-}
-
-.map-attribution a,
-.details-actions a {
-  font-weight: 850;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-}
-
-.theater-details {
-  border-top: 2px solid #27272a;
-  background: #f1efe8;
-  padding: 1rem;
-}
-
-.details-heading-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.details-heading-row h3 {
-  margin-top: 0.35rem;
-  font-size: clamp(1.35rem, 3vw, 2rem);
-  font-weight: 900;
-  line-height: 1;
-  letter-spacing: -0.04em;
-}
-
-.details-heading-row h3:focus-visible {
-  outline: 3px solid #1f6f78;
-  outline-offset: 4px;
-}
-
-.close-action {
-  min-height: 2.75rem;
-  padding: 0.4rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-transform: uppercase;
-}
-
-.details-address {
-  margin-top: 1rem;
-  font-weight: 650;
-  line-height: 1.55;
-}
-
-.favorite-status {
-  margin-top: 1rem;
-}
-
-.details-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem 1rem;
-  margin-top: 1rem;
-}
-
-.map-action {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #27272a;
-  background: #27272a;
-  padding: 0.6rem 0.8rem;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.map-action:hover:not(:disabled) {
-  background: #991b1b;
-}
-
-.map-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.map-action:focus-visible,
-.close-action:focus-visible,
-.map-attribution a:focus-visible,
-.details-actions a:focus-visible {
-  outline: 3px solid #1f6f78;
-  outline-offset: 3px;
-}
-
-.map-failure {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border: 2px solid #991b1b;
-  background: #fef2f2;
-  padding: 1rem;
-  color: #7f1d1d;
-}
-
-@media (min-width: 900px) {
-  .map-layout--details {
-    grid-template-columns: minmax(0, 1fr) minmax(17rem, 22rem);
-  }
-
-  .map-layout--details .theater-details {
-    border-top: 0;
-    border-left: 2px solid #27272a;
-  }
-}
-
-@media (max-width: 520px) {
-  .map-canvas {
-    height: 26rem;
-  }
-}
 </style>

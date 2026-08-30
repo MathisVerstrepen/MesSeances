@@ -297,7 +297,7 @@ useHead(() => ({
 </script>
 
 <template>
-  <main class="discovery-page mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
+  <main class="mx-auto min-h-[70vh] max-w-[1440px] bg-[#f8f7f2] px-4 py-8 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-10 lg:px-10 lg:py-14">
     <EditorialStatePanel v-if="pending && !response" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto max-w-3xl font-bold">
       <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
       <p>Chargement du cinéma…</p>
@@ -306,13 +306,13 @@ useHead(() => ({
       <template #icon><Building2 :size="36" aria-hidden="true" /></template>
       <template #heading><h1 class="text-2xl font-black">Cinéma introuvable</h1></template>
       <p>Ce cinéma n’est pas disponible dans la programmation actuelle.</p>
-      <template #actions><NuxtLink to="/cinemas" class="discovery-action">Voir les cinémas</NuxtLink></template>
+      <template #actions><NuxtLink to="/cinemas" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase">Voir les cinémas</NuxtLink></template>
     </EditorialStatePanel>
     <EditorialStatePanel v-else-if="errorMessage && !response" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto max-w-3xl font-bold">
       <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
       <template #heading><h1 class="text-2xl font-black">Impossible de charger ce cinéma</h1></template>
       <p>{{ errorMessage }}</p>
-      <template #actions><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+      <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
     </EditorialStatePanel>
 
     <template v-else-if="response">
@@ -326,20 +326,20 @@ useHead(() => ({
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
           <div class="min-w-0 p-5 sm:p-8 lg:p-10">
-            <p class="utility-label flex items-center gap-2"><MapPin :size="16" aria-hidden="true" /> {{ response.theater.city }}</p>
+            <p class="flex items-center gap-2 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]"><MapPin :size="16" aria-hidden="true" /> {{ response.theater.city }}</p>
             <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ response.theater.name }}</h1>
           </div>
 
           <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
             <div class="min-w-0 p-5 sm:p-6">
-              <dt class="utility-label flex items-center gap-3 text-muted"><MapPin :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Adresse</dt>
+              <dt class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"><MapPin :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Adresse</dt>
               <dd class="mt-2 break-words pl-8 text-sm font-bold leading-6">
                 <span v-if="displayLocation.address" class="block">{{ displayLocation.address }}</span>
                 <span v-if="displayLocation.locality" class="block">{{ displayLocation.locality }}</span>
               </dd>
             </div>
             <div class="min-w-0 border-t-2 border-ink p-5 sm:border-l-2 sm:border-t-0 sm:p-6 lg:border-l-0 lg:border-t-2">
-              <dt class="utility-label flex items-center gap-3 text-muted"><CalendarDays :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Programmation</dt>
+              <dt class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"><CalendarDays :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Programmation</dt>
               <dd class="mt-2 pl-8 text-sm font-bold leading-6">{{ response.theater.available_dates.length }} date{{ response.theater.available_dates.length > 1 ? 's' : '' }} disponible{{ response.theater.available_dates.length > 1 ? 's' : '' }}</dd>
             </div>
           </dl>
@@ -353,7 +353,7 @@ useHead(() => ({
       <section class="mt-12" :aria-labelledby="currentView === 'films' ? 'cinema-films-heading' : 'cinema-showtimes-heading'">
         <div class="flex flex-col gap-5 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p class="utility-label">Programmation</p>
+            <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">Programmation</p>
             <h2 v-if="currentView === 'showtimes'" id="cinema-showtimes-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Séances</h2>
             <h2 v-else id="cinema-films-heading" class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl">Films</h2>
             <p v-if="currentView === 'showtimes' && response.date" class="mt-2 font-mono text-xs font-bold uppercase capitalize text-muted"><time :datetime="response.date">{{ formatLongDate(response.date) }}</time></p>
@@ -362,16 +362,16 @@ useHead(() => ({
             <nav class="grid flex-1 grid-cols-2 border-2 border-ink bg-surface sm:flex-none" aria-label="Vue de la programmation">
               <NuxtLink
                 :to="{ query: viewQuery('showtimes') }"
-                class="view-switch"
-                :class="{ 'view-switch--active': currentView === 'showtimes' }"
+                class="inline-flex min-h-11 items-center justify-center px-[0.9rem] py-[0.6rem] font-mono text-[0.7rem] font-black uppercase tracking-[0.08em] [transition:background-color_150ms_ease,color_150ms_ease] hover:bg-ink hover:text-surface focus-visible:relative focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+                :class="currentView === 'showtimes' ? 'bg-ink text-surface' : ''"
                 :aria-current="currentView === 'showtimes' ? 'page' : undefined"
               >
                 Séances
               </NuxtLink>
               <NuxtLink
                 :to="{ query: viewQuery('films') }"
-                class="view-switch border-l-2 border-ink"
-                :class="{ 'view-switch--active': currentView === 'films' }"
+                class="inline-flex min-h-11 items-center justify-center border-l-2 border-ink px-[0.9rem] py-[0.6rem] font-mono text-[0.7rem] font-black uppercase tracking-[0.08em] [transition:background-color_150ms_ease,color_150ms_ease] hover:bg-ink hover:text-surface focus-visible:relative focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+                :class="currentView === 'films' ? 'bg-ink text-surface' : ''"
                 :aria-current="currentView === 'films' ? 'page' : undefined"
               >
                 Films
@@ -395,27 +395,27 @@ useHead(() => ({
           </div>
 
           <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des séances…</p></EditorialStatePanel>
-          <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces séances</h3></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="discovery-action" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces séances</h3></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="loadCinema"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
           <EditorialStatePanel v-else-if="normalizedResults.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><CalendarDays :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucune séance à cette date</h3></template><p>Choisissez une autre date pour consulter la programmation.</p></EditorialStatePanel>
           <ShowtimeResults v-else :results="normalizedResults" :grouping="resultGrouping" :layout="resultLayout" scope="single-theater" />
         </template>
 
         <template v-else>
           <EditorialStatePanel v-if="moviesPending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des films…</p></EditorialStatePanel>
-          <EditorialStatePanel v-else-if="moviesErrorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces films</h3></template><p>{{ moviesErrorMessage }}</p><template #actions><button type="button" class="discovery-action" @click="loadMovies(response.theater.id, true)"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="moviesErrorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces films</h3></template><p>{{ moviesErrorMessage }}</p><template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="loadMovies(response.theater.id, true)"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
           <EditorialStatePanel v-else-if="cinemaMovies.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun film à l’affiche</h3></template><p>Ce cinéma ne propose aucun film actuellement.</p></EditorialStatePanel>
           <template v-else>
             <p class="mt-5 border-y-2 border-ink py-4 text-right font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ cinemaMovies.length }} film{{ cinemaMovies.length > 1 ? 's' : '' }}</p>
             <ul class="catalog-grid mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" :aria-label="`Films à l’affiche au cinéma ${response.theater.name}`">
               <li v-for="movie in cinemaMovies" :key="movie.slug" class="min-w-0">
-                <NuxtLink :to="cinemaMovieTarget(movie.slug, response.theater.id)" class="catalog-card group block focus-visible:ring-offset-4">
-                  <div class="poster-frame">
+                <NuxtLink :to="cinemaMovieTarget(movie.slug, response.theater.id)" class="group block text-ink [transition:transform_170ms_ease] hover:-translate-y-1 focus-visible:ring-offset-4 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+                  <div class="relative aspect-[2/3] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
                     <PosterImage
                       :src="movie.poster_url"
                       :alt="`Affiche de ${movie.title}`"
                       sizes="(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)"
                       class="h-full w-full"
-                      image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025]"
+                      image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025] motion-reduce:transition-none"
                       fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
                       :fallback-icon-size="32"
                     />
@@ -433,19 +433,3 @@ useHead(() => ({
     </template>
   </main>
 </template>
-
-<style scoped>
-.discovery-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
-.discovery-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
-.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.view-switch { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; padding: .6rem .9rem; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; transition: background-color 150ms ease,color 150ms ease; }
-.view-switch:hover,.view-switch--active { background: #27272a; color: #fff; }
-.view-switch:focus-visible { position: relative; z-index: 1; outline: 3px solid #1f6f78; outline-offset: 2px; }
-.catalog-card { color: #27272a; transition: transform 170ms ease; }
-.catalog-card:hover { transform: translateY(-4px); }
-.poster-frame { position: relative; aspect-ratio: 2 / 3; overflow: hidden; border: 2px solid #27272a; background: #e8e6de; box-shadow: 5px 5px 0 #27272a; }
-@media (prefers-reduced-motion: reduce) {
-  .view-switch,.catalog-card,.catalog-card :deep(img) { transition: none; }
-  .catalog-card:hover { transform: none; }
-}
-</style>
