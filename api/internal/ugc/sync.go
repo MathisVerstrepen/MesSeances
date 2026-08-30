@@ -330,14 +330,3 @@ func parseFinalURL(raw string) (*url.URL, error) {
 	}
 	return parsed, nil
 }
-
-func ValidateCinemaID(value string) error {
-	if value == "" {
-		return nil
-	}
-	number, err := strconv.ParseUint(value, 10, 64)
-	if err != nil || number == 0 {
-		return fmt.Errorf("cinema-id must be a positive integer")
-	}
-	return nil
-}

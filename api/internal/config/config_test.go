@@ -7,18 +7,15 @@ import (
 	"time"
 )
 
-func environment(values map[string]string, reads *[]string) func(string) string {
+func environment(values map[string]string) func(string) string {
 	return func(name string) string {
-		if reads != nil {
-			*reads = append(*reads, name)
-		}
 		return values[name]
 	}
 }
 
 func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 	base := map[string]string{"DATABASE_URL": "postgres://secret", "ADMIN_PASSWORD": "password", "ADMIN_SESSION_SECRET": "secret"}
-	config, err := Load(APIBase, environment(base, nil), nil)
+	config, err := Load(APIBase, environment(base))
 	if err != nil || config.Server.Port != 8080 || config.Server.Origin != "http://localhost:3000" || config.Server.TrustedProxyCIDRs != nil || config.Database.URL != base["DATABASE_URL"] {
 		t.Fatalf("config=%+v err=%v", config, err)
 	}
@@ -51,7 +48,7 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 				values[key] = value
 			}
 			values[test.key] = test.value
-			_, err := Load(APIBase, environment(values, nil), nil)
+			_, err := Load(APIBase, environment(values))
 			if err == nil || strings.Contains(err.Error(), values["DATABASE_URL"]+values["ADMIN_PASSWORD"]+values["ADMIN_SESSION_SECRET"]) {
 				t.Fatalf("err=%v", err)
 			}
@@ -59,7 +56,7 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 	}
 	for _, origin := range []string{"http://localhost:3000", "https://example.com", "https://example.com:8443", "http://127.0.0.1:8080", "http://[::1]:8080", "https://[2001:db8::1]"} {
 		values := map[string]string{"DATABASE_URL": "postgres://configured", "WEB_ORIGIN": origin}
-		loaded, err := Load(APIBase, environment(values, nil), nil)
+		loaded, err := Load(APIBase, environment(values))
 		if err != nil || loaded.Server.Origin != origin {
 			t.Fatalf("valid origin %q config=%+v err=%v", origin, loaded, err)
 		}
@@ -71,7 +68,7 @@ func TestLoadAPIBaseParsesAndNormalizesTrustedProxyCIDRs(t *testing.T) {
 		"DATABASE_URL":        "postgres://configured",
 		"TRUSTED_PROXY_CIDRS": " 10.1.2.3/8, 2001:db8:1::12/48 , ::ffff:192.0.2.1/120 ",
 	}
-	loaded, err := Load(APIBase, environment(values, nil), nil)
+	loaded, err := Load(APIBase, environment(values))
 	want := []netip.Prefix{
 		netip.MustParsePrefix("10.0.0.0/8"),
 		netip.MustParsePrefix("2001:db8:1::/48"),
@@ -87,8 +84,8 @@ func TestLoadAPIBaseParsesAndNormalizesTrustedProxyCIDRs(t *testing.T) {
 	}
 }
 
-func TestLoadTimingDefaultsBoundsAndOverrides(t *testing.T) {
-	config, err := Load(APISync, environment(nil, nil), nil)
+func TestLoadAPISyncTimingDefaultsAndBounds(t *testing.T) {
+	config, err := Load(APISync, environment(nil))
 	if err != nil || config.Sync.RequestTimeout != 20*time.Second || config.Sync.KinepolisRequestInterval != 2*time.Second || config.Sync.OperationTimeout != 2*time.Minute {
 		t.Fatalf("config=%+v err=%v", config, err)
 	}
@@ -99,45 +96,8 @@ func TestLoadTimingDefaultsBoundsAndOverrides(t *testing.T) {
 		{"SYNC_OPERATION_TIMEOUT": "0s"},
 		{"SYNC_OPERATION_TIMEOUT": "secret-duration"},
 	} {
-		if _, err := Load(APISync, environment(values, nil), nil); err == nil {
+		if _, err := Load(APISync, environment(values)); err == nil {
 			t.Fatalf("values=%v accepted", values)
 		}
-	}
-	request, interval := 5*time.Second, time.Second
-	values := map[string]string{"SYNC_REQUEST_TIMEOUT": "invalid-secret", "SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid-secret"}
-	config, err = Load(KinepolisTiming, environment(values, nil), &Overrides{RequestTimeout: &request, KinepolisRequestInterval: &interval})
-	if err != nil || config.Sync.RequestTimeout != request || config.Sync.KinepolisRequestInterval != interval {
-		t.Fatalf("config=%+v err=%v", config, err)
-	}
-	config, err = Load(PatheTiming, environment(map[string]string{"SYNC_REQUEST_TIMEOUT": "invalid-secret"}, nil), &Overrides{RequestTimeout: &request})
-	if err != nil || config.Sync.RequestTimeout != request || config.Sync.KinepolisRequestInterval != 0 {
-		t.Fatalf("Pathé config=%+v err=%v", config, err)
-	}
-	config, err = Load(CGRTiming, environment(map[string]string{"SYNC_REQUEST_TIMEOUT": "invalid-secret"}, nil), &Overrides{RequestTimeout: &request})
-	if err != nil || config.Sync.RequestTimeout != request || config.Sync.KinepolisRequestInterval != 0 {
-		t.Fatalf("CGR config=%+v err=%v", config, err)
-	}
-}
-
-func TestLoadProfilesReadOnlyOwnedVariables(t *testing.T) {
-	var reads []string
-	_, err := Load(UGCTiming, environment(map[string]string{"SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid", "SYNC_OPERATION_TIMEOUT": "invalid"}, &reads), nil)
-	if err != nil || len(reads) != 1 || reads[0] != "SYNC_REQUEST_TIMEOUT" {
-		t.Fatalf("reads=%v err=%v", reads, err)
-	}
-	reads = nil
-	_, err = Load(PatheTiming, environment(map[string]string{"SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid", "SYNC_OPERATION_TIMEOUT": "invalid"}, &reads), nil)
-	if err != nil || len(reads) != 1 || reads[0] != "SYNC_REQUEST_TIMEOUT" {
-		t.Fatalf("Pathé reads=%v err=%v", reads, err)
-	}
-	reads = nil
-	_, err = Load(CGRTiming, environment(map[string]string{"SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid", "SYNC_OPERATION_TIMEOUT": "invalid"}, &reads), nil)
-	if err != nil || len(reads) != 1 || reads[0] != "SYNC_REQUEST_TIMEOUT" {
-		t.Fatalf("CGR reads=%v err=%v", reads, err)
-	}
-	reads = nil
-	_, err = Load(SyncFull, environment(map[string]string{"DATABASE_URL": "postgres://configured", "SYNC_REQUEST_TIMEOUT": "invalid", "SYNC_KINEPOLIS_REQUEST_INTERVAL": "invalid"}, &reads), nil)
-	if err != nil || strings.Join(reads, ",") != "DATABASE_URL,TMDB_API_READ_ACCESS_TOKEN,SYNC_OPERATION_TIMEOUT" {
-		t.Fatalf("reads=%v err=%v", reads, err)
 	}
 }

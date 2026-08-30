@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check install lint prod screenshot sync test web-vitals
+.PHONY: build check dev fmt-check install lint prod screenshot test web-vitals
 
 SHELL := /bin/bash
 
@@ -95,27 +95,3 @@ web-vitals: export RUNS := $(RUNS)
 web-vitals: export CHROME_BIN := $(CHROME_BIN)
 web-vitals:
 	npm --prefix web run web-vitals
-
-sync:
-	@printf '%s\n' '[sync] starting'
-	@printf '%s\n' '[sync] validating proxy file'; \
-	if [ -z "$${PROXY_FILE:-}" ]; then \
-		printf '%s\n' 'Usage: make sync PROXY_FILE=/path/to/proxies.txt' >&2; \
-		printf '%s\n' '[sync] failed' >&2; \
-		exit 2; \
-	fi
-	@printf '%s\n' '[sync] starting PostgreSQL'; \
-	docker compose --project-name "$(DEV_COMPOSE_PROJECT_NAME)" --project-directory . --env-file deploy/.env -f deploy/compose.yaml up -d --wait postgres || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
-	@printf '%s\n' '[sync] starting UGC'; \
-	cd api && go run ./cmd/sync-ugc -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
-	@printf '%s\n' '[sync] UGC finished'
-	@printf '%s\n' '[sync] starting Kinepolis'; \
-	cd api && go run ./cmd/sync-kinepolis -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
-	@printf '%s\n' '[sync] Kinepolis finished'
-	@printf '%s\n' '[sync] starting Pathé'; \
-	cd api && go run ./cmd/sync-pathe -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
-	@printf '%s\n' '[sync] Pathé finished'
-	@printf '%s\n' '[sync] starting CGR'; \
-	cd api && go run ./cmd/sync-cgr -proxy-file "$$PROXY_FILE" || { status=$$?; printf '%s\n' '[sync] failed' >&2; exit "$$status"; }
-	@printf '%s\n' '[sync] CGR finished'
-	@printf '%s\n' '[sync] complete'
