@@ -175,16 +175,18 @@ Run the failure mode with Nuxt configured against an intentionally unavailable A
 
 ### Core Web Vitals benchmark
 
-With API and Nuxt already running and publicly reachable by Chrome, run three Lighthouse CI mobile lab measurements against `http://localhost:3000/`:
+Use one unchanged production-like API/Nuxt runtime with populated current data. Command measures one URL per invocation and does not start or stop services. Before measuring, open running instance's `/sitemap.xml` and select one successful current film, cinema, and city URL that renders expected poster content. Do not use crawlability fixture slugs or empty/error routes.
+
+Run five independent three-run mobile measurements with same absolute Chrome executable, preserving generated report filenames after each invocation:
 
 ```sh
-make web-vitals
+make web-vitals URL="http://localhost:3000/" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/films" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/film/<current-film-slug>" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/cinema/<current-cinema-slug>" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/ville/<current-city-slug>/cinemas" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
 ```
 
-Override target URL, run count, or Chrome executable when needed:
+Local HTML and JSON reports are written under `web/.lighthouseci/reports/` and ignored by Git. Record exact URL, report filenames, and median LCP, CLS, and TBT for each template separately. Do not average templates together, and report threshold failures unchanged.
 
-```sh
-make web-vitals URL=https://messeances.fr/ RUNS=5 CHROME_BIN=/path/to/chrome
-```
-
-Command does not start or stop API or Nuxt. It fails when representative median run exceeds LCP 2500 ms, CLS 0.1, or TBT 200 ms. Local HTML and JSON reports are written under `web/.lighthouseci/reports/` and ignored by Git. LCP and CLS are direct page-load lab metrics; TBT is responsiveness proxy because page-load Lighthouse cannot provide representative INP.
+Each invocation fails unless median LCP is at most 2500 ms, median CLS is strictly below 0.1, and median TBT is at most 200 ms. LCP and CLS are direct page-load lab metrics. TBT is only an INP proxy because page-load Lighthouse does not measure representative INP; report INP as unconfirmed unless independent field evidence establishes it.

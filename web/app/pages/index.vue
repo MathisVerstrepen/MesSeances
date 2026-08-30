@@ -10,6 +10,9 @@ const pending = ref(true)
 const errorMessage = ref('')
 let requestId = 0
 
+const homepagePosterSizes = ['10.5rem', '8.5rem', '13rem', '8rem', '10rem', '7rem']
+  .map((desktopWidth) => `(max-width: 639px) calc((100vw - 3.25rem) / 2), (max-width: 767px) calc((100vw - 4.25rem) / 2), ${desktopWidth}`)
+
 const shortcuts = [
   {
     to: '/recherche',
@@ -168,10 +171,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 <PosterImage
                   :src="movie.poster_url"
                   :alt="`Affiche de ${movie.title}`"
+                  :sizes="homepagePosterSizes[index]!"
                   class="h-full w-full"
                   image-class="h-full w-full object-cover grayscale-[15%] transition duration-300 group-hover:grayscale-0"
                   fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
-                  :loading="index < 3 ? 'eager' : 'lazy'"
                 />
               </div>
               <span class="poster-label">

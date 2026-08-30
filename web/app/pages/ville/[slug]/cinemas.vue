@@ -178,7 +178,7 @@ useHead(() => ({
           <li v-for="movie in detail.movies" :key="movie.slug" class="min-w-0">
             <NuxtLink :to="`/film/${encodeURIComponent(movie.slug)}`" class="group block h-full border-2 border-ink bg-surface shadow-[5px_5px_0_#27272a] transition-transform hover:-translate-y-1">
               <div class="aspect-[2/3] overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
-                 <PosterImage :src="movie.poster_url" :alt="`Affiche de ${movie.title}`" :reset-key="posterVersion" :data-poster-slug="movie.slug" class="size-full" image-class="size-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="32" :fallback-text="null" />
+                 <PosterImage :src="movie.poster_url" :alt="`Affiche de ${movie.title}`" sizes="(min-width: 1024px) calc((min(100vw, 1440px) - 9rem) / 5), (min-width: 640px) calc((100vw - 5rem) / 3), calc((100vw - 3rem) / 2)" :reset-key="posterVersion" :data-poster-slug="movie.slug" class="size-full" image-class="size-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="32" :fallback-text="null" />
               </div>
               <div class="p-3"><h3 class="break-words text-sm font-black leading-tight group-hover:text-primary sm:text-base">{{ movie.title }}</h3><p class="utility-label mt-2">{{ movie.runtime_minutes }} min</p></div>
             </NuxtLink>

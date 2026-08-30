@@ -38,14 +38,99 @@ import (
 func main() {
 	logger := observability.NewLogger(os.Stderr)
 	if err := runtimeconfig.LoadDotEnv(); err != nil {
-		logger.Error("process_start_failed", "component", "api", "error_code", "configuration_error")
+		logDotEnvFailure(logger)
 		os.Exit(1)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := run(ctx); err != nil {
-		logger.Error("process_stopped", "component", "api", "error_code", "process_failure")
+		logProcessFailure(logger, err)
 		os.Exit(1)
+	}
+}
+
+type processFailureDetail struct {
+	stage  string
+	reason string
+}
+
+type processFailureError struct {
+	detail processFailureDetail
+}
+
+func (err *processFailureError) Error() string {
+	return err.detail.reason
+}
+
+var migrationHistoryIncompatibleProcessFailure = &processFailureError{detail: processFailureDetail{
+	stage:  "migration",
+	reason: "database migration history is incompatible",
+}}
+
+func logDotEnvFailure(logger *slog.Logger) {
+	logger.Error(
+		"process_start_failed",
+		"component", "api",
+		"error_code", "configuration_error",
+		"failure_stage", "configuration",
+		"failure_reason", "dotenv load failed",
+	)
+}
+
+func logProcessFailure(logger *slog.Logger, err error) {
+	detail := safeProcessFailureDetail(err)
+	logger.Error(
+		"process_stopped",
+		"component", "api",
+		"error_code", "process_failure",
+		"failure_stage", detail.stage,
+		"failure_reason", detail.reason,
+	)
+}
+
+func safeProcessFailureDetail(err error) processFailureDetail {
+	if err == nil {
+		return processFailureDetail{stage: "unknown", reason: "process failure"}
+	}
+	//nolint:errorlint // Exact identity intentionally rejects wrapped errors at the logging boundary.
+	if err == migrationHistoryIncompatibleProcessFailure {
+		return migrationHistoryIncompatibleProcessFailure.detail
+	}
+
+	// Known direct process failure values and exact fixed messages are the
+	// logging trust boundary. Do not unwrap or log unrecognized errors because
+	// either may contain sensitive runtime values.
+	switch err.Error() {
+	case "configuration error":
+		return processFailureDetail{stage: "configuration", reason: "configuration error"}
+	case "sync configuration is invalid":
+		return processFailureDetail{stage: "configuration", reason: "sync configuration is invalid"}
+	case "database startup failed":
+		return processFailureDetail{stage: "database", reason: "database startup failed"}
+	case "database migration failed":
+		return processFailureDetail{stage: "migration", reason: "database migration failed"}
+	case "shortlink retention startup failed":
+		return processFailureDetail{stage: "retention", reason: "shortlink retention startup failed"}
+	case "sync run retention startup failed":
+		return processFailureDetail{stage: "retention", reason: "sync run retention startup failed"}
+	case "schedule snapshot startup failed":
+		return processFailureDetail{stage: "schedule", reason: "schedule snapshot startup failed"}
+	case "schedule service startup failed":
+		return processFailureDetail{stage: "schedule", reason: "schedule service startup failed"}
+	case "TMDB configuration is invalid":
+		return processFailureDetail{stage: "configuration", reason: "TMDB configuration is invalid"}
+	case "TMDB metadata refresh configuration is invalid":
+		return processFailureDetail{stage: "configuration", reason: "TMDB metadata refresh configuration is invalid"}
+	case "geocoding configuration is invalid":
+		return processFailureDetail{stage: "configuration", reason: "geocoding configuration is invalid"}
+	case "sync schedule configuration is invalid":
+		return processFailureDetail{stage: "configuration", reason: "sync schedule configuration is invalid"}
+	case "API server failed":
+		return processFailureDetail{stage: "server", reason: "API server failed"}
+	case "API server shutdown failed":
+		return processFailureDetail{stage: "server", reason: "API server shutdown failed"}
+	default:
+		return processFailureDetail{stage: "unknown", reason: "process failure"}
 	}
 }
 
@@ -82,6 +167,9 @@ func run(ctx context.Context) error {
 	}
 	defer pool.Close()
 	if err := database.RunMigrations(startupCtx, pool); err != nil {
+		if errors.Is(err, database.ErrMigrationHistoryIncompatible) {
+			return migrationHistoryIncompatibleProcessFailure
+		}
 		return fmt.Errorf("database migration failed")
 	}
 	shortlinkStore := shortlink.NewPostgresStore(pool)

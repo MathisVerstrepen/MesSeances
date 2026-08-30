@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"sort"
@@ -18,6 +19,10 @@ import (
 var migrationFiles embed.FS
 
 const migrationLockID int64 = 6211428337968314
+
+// ErrMigrationHistoryIncompatible identifies recorded migration history that
+// cannot be reconciled with the embedded migrations.
+var ErrMigrationHistoryIncompatible = errors.New("database migration history is incompatible")
 
 type migration struct {
 	version int64
@@ -69,13 +74,9 @@ applied_at timestamptz NOT NULL DEFAULT now()
 	if err != nil {
 		return fmt.Errorf("database migration bookkeeping read failed")
 	}
-	type applied struct {
-		version int64
-		name    string
-	}
-	var recorded []applied
+	var recorded []migration
 	for rows.Next() {
-		var item applied
+		var item migration
 		if err := rows.Scan(&item.version, &item.name); err != nil {
 			rows.Close()
 			return fmt.Errorf("database migration bookkeeping read failed")
@@ -87,13 +88,8 @@ applied_at timestamptz NOT NULL DEFAULT now()
 		return fmt.Errorf("database migration bookkeeping read failed")
 	}
 	rows.Close()
-	if len(recorded) > len(migrations) {
-		return fmt.Errorf("database migration history is incompatible")
-	}
-	for i, item := range recorded {
-		if item.version != migrations[i].version || item.name != migrations[i].name {
-			return fmt.Errorf("database migration history is incompatible")
-		}
+	if err := validateMigrationHistory(recorded, migrations); err != nil {
+		return err
 	}
 	for _, item := range migrations[len(recorded):] {
 		if _, err := tx.Exec(ctx, item.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
@@ -105,6 +101,18 @@ applied_at timestamptz NOT NULL DEFAULT now()
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("database migration commit failed")
+	}
+	return nil
+}
+
+func validateMigrationHistory(recorded, available []migration) error {
+	if len(recorded) > len(available) {
+		return ErrMigrationHistoryIncompatible
+	}
+	for i, item := range recorded {
+		if item.version != available[i].version || item.name != available[i].name {
+			return ErrMigrationHistoryIncompatible
+		}
 	}
 	return nil
 }

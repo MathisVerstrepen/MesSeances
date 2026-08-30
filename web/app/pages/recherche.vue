@@ -647,7 +647,7 @@ const pageDescription = 'Trouvez les séances qui tiennent entièrement dans vot
 useSeoMeta({
   title: pageTitle,
   description: pageDescription,
-  robots: computed(() => Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+  robots: 'noindex,follow'
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>

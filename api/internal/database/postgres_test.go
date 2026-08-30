@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -16,6 +17,37 @@ func TestOpenPoolRejectsBlankAndRedactsInvalidURL(t *testing.T) {
 	_, err := OpenPool(context.Background(), "postgres://user:"+secret+"@[")
 	if err == nil || err.Error() != "database configuration is invalid" || strings.Contains(err.Error(), secret) {
 		t.Fatalf("invalid URL error=%q", err)
+	}
+}
+
+func TestValidateMigrationHistoryReturnsBoundedIncompatibilitySentinel(t *testing.T) {
+	available := []migration{
+		{version: 1, name: "001_initial.sql"},
+		{version: 2, name: "002_movie_enrichment.sql"},
+	}
+	tests := []struct {
+		name     string
+		recorded []migration
+		wantErr  bool
+	}{
+		{name: "matching prefix", recorded: available[:1]},
+		{name: "ahead of checkout", recorded: append(append([]migration{}, available...), migration{version: 3, name: "003_future.sql"}), wantErr: true},
+		{name: "changed history", recorded: []migration{{version: 1, name: "001_rewritten.sql"}}, wantErr: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMigrationHistory(test.recorded, available)
+			if test.wantErr {
+				if !errors.Is(err, ErrMigrationHistoryIncompatible) || err.Error() != "database migration history is incompatible" {
+					t.Fatalf("incompatibility error=%v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compatible history error=%v", err)
+			}
+		})
 	}
 }
 

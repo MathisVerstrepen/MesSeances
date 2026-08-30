@@ -202,7 +202,7 @@ const pageDescription = 'Visualisez les séances de vos cinémas sur une frise e
 useSeoMeta({
   title: pageTitle,
   description: pageDescription,
-  robots: computed(() => Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+  robots: 'noindex,follow'
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
