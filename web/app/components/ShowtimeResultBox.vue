@@ -2,7 +2,7 @@
 import { Film, MapPin } from '@lucide/vue'
 import type { ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
-import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
+import { posterImageSources, safeBackdropUrl } from '~/utils/safeImageUrl'
 
 const props = withDefaults(defineProps<{
   result: ShowtimeResultViewModel
@@ -22,7 +22,8 @@ const backdropFailed = ref(false)
 const posterFailed = ref(false)
 const mediaImage = ref<HTMLImageElement | null>(null)
 const backdropUrl = computed(() => safeBackdropUrl(props.result.backdropUrl))
-const posterUrl = computed(() => safePosterUrl(props.result.posterUrl))
+const posterSources = computed(() => posterImageSources(props.result.posterUrl))
+const posterUrl = computed(() => posterSources.value.src)
 const hasDelayedStart = computed(() => Date.parse(props.result.effectiveStartTime) !== Date.parse(props.result.advertisedStartTime))
 const displayedStartTime = computed(() => hasDelayedStart.value ? props.result.effectiveStartTime : props.result.advertisedStartTime)
 const mediaKind = computed<'backdrop' | 'poster' | null>(() => {
@@ -101,6 +102,8 @@ function formatRoom(room: string) {
         v-else-if="mediaKind === 'poster' && mediaUrl"
         ref="mediaImage"
         :src="mediaUrl"
+        :srcset="posterSources.srcset ?? undefined"
+        sizes="auto, 100vw"
         alt=""
         width="320"
         height="96"
@@ -146,9 +149,9 @@ function formatRoom(room: string) {
     <div v-if="showMovie" class="pointer-events-none relative -mx-3 -mt-3 mb-3 flex h-24 items-center justify-center overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
       <img v-if="mediaKind === 'backdrop' && mediaUrl" ref="mediaImage" :src="mediaUrl" alt="" width="320" height="96" loading="lazy" decoding="async" class="size-full object-cover" aria-hidden="true" @error="handleMediaError">
       <template v-else-if="mediaKind === 'poster' && mediaUrl">
-        <img :src="mediaUrl" alt="" width="320" height="96" loading="lazy" decoding="async" class="absolute inset-0 size-full scale-110 object-cover blur-lg" aria-hidden="true">
+        <img :src="mediaUrl" :srcset="posterSources.srcset ?? undefined" sizes="auto, 100vw" alt="" width="320" height="96" loading="lazy" decoding="async" class="absolute inset-0 size-full scale-110 object-cover blur-lg" aria-hidden="true">
         <div class="absolute inset-0 bg-black/15" aria-hidden="true" />
-        <img ref="mediaImage" :src="mediaUrl" alt="" width="320" height="96" loading="lazy" decoding="async" class="relative z-10 size-full object-contain" aria-hidden="true" @error="handleMediaError">
+        <img ref="mediaImage" :src="mediaUrl" :srcset="posterSources.srcset ?? undefined" sizes="auto, 100vw" alt="" width="320" height="96" loading="lazy" decoding="async" class="relative z-10 size-full object-contain" aria-hidden="true" @error="handleMediaError">
       </template>
       <span v-else class="flex size-11 items-center justify-center border-2 border-muted text-muted" aria-hidden="true"><Film :size="24" /></span>
     </div>

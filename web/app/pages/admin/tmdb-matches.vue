@@ -724,7 +724,7 @@ useHead({ title: 'Identités des films - MesSeances' })
               <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
               <div class="flex min-w-0 gap-3">
                 <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24 lg:w-20">
-                  <PosterImage :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
+                  <PosterImage :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" sizes="(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" />
                 </div>
                 <div class="min-w-0 flex-1">
                   <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
@@ -741,7 +741,7 @@ useHead({ title: 'Identités des films - MesSeances' })
                   <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
                     <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-accent" />
                     <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
-                      <PosterImage :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
+                      <PosterImage :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" sizes="(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" />
                     </span>
                     <span class="min-w-0 flex-1"><span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ candidate.title }}</span><span class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ candidate.original_title || 'non renseigné' }}</span><span class="mt-2 block space-y-1 text-xs text-muted"><span class="block">ID TMDB : {{ candidate.id }}</span><span class="block">{{ candidateRuntime(candidate) }}</span><span class="block">Score : {{ candidateScore(candidate) }}</span></span></span>
                   </label>
@@ -824,7 +824,7 @@ useHead({ title: 'Identités des films - MesSeances' })
           <ul class="divide-y divide-line border-t border-line" :aria-label="`Membres de ${group.local_movie_id}`">
             <li v-for="member in group.members" :key="sourceKey(member)" class="flex min-w-0 items-center gap-2 px-3 py-2" :class="member.available ? '' : 'bg-subtle text-muted'">
               <div class="aspect-[2/3] w-8 shrink-0 overflow-hidden rounded-sm bg-subtle">
-                <PosterImage :src="member.source_poster_url" :alt="`Affiche de ${member.source_title ?? member.source_movie_id}`" :reset-key="groupsPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="15" :fallback-text="null" loading="lazy" decoding="async" />
+                <PosterImage :src="member.source_poster_url" :alt="`Affiche de ${member.source_title ?? member.source_movie_id}`" sizes="32px" :reset-key="groupsPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="15" :fallback-text="null" />
               </div>
               <div class="min-w-0 flex-1 text-xs leading-tight">
                 <p class="truncate font-semibold text-ink">{{ member.source_title ?? 'Source indisponible' }}</p>

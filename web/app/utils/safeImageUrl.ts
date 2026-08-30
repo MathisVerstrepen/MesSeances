@@ -55,6 +55,27 @@ export function safePosterUrl(url: string | null | undefined) {
   }
 }
 
+const TMDB_POSTER_PREFIX = 'https://image.tmdb.org/t/p/w500/'
+const TMDB_POSTER_WIDTHS = [92, 154, 185, 342, 500, 780] as const
+
+export interface PosterImageSources {
+  src: string | null
+  srcset: string | null
+}
+
+export function posterImageSources(url: string | null | undefined): PosterImageSources {
+  const src = safePosterUrl(url)
+  if (!src?.startsWith(TMDB_POSTER_PREFIX)) return { src, srcset: null }
+
+  const suffix = src.slice(TMDB_POSTER_PREFIX.length)
+  return {
+    src,
+    srcset: TMDB_POSTER_WIDTHS
+      .map((width) => `https://image.tmdb.org/t/p/w${width}/${suffix} ${width}w`)
+      .join(', ')
+  }
+}
+
 export function safeBackdropUrl(url: string | null | undefined) {
   const prefix = 'https://image.tmdb.org/t/p/w780/'
   if (!url?.startsWith(prefix) || url.includes('\\')) return null

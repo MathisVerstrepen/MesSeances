@@ -1,6 +1,33 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { safePosterUrl } from '../app/utils/safeImageUrl.ts'
+import { posterImageSources, safePosterUrl } from '../app/utils/safeImageUrl.ts'
+
+test('builds the six responsive TMDB poster candidates from a validated canonical source', () => {
+  assert.deepEqual(
+    posterImageSources('https://image.tmdb.org/t/p/w500/path/poster.jpg'),
+    {
+      src: 'https://image.tmdb.org/t/p/w500/path/poster.jpg',
+      srcset: [
+        'https://image.tmdb.org/t/p/w92/path/poster.jpg 92w',
+        'https://image.tmdb.org/t/p/w154/path/poster.jpg 154w',
+        'https://image.tmdb.org/t/p/w185/path/poster.jpg 185w',
+        'https://image.tmdb.org/t/p/w342/path/poster.jpg 342w',
+        'https://image.tmdb.org/t/p/w500/path/poster.jpg 500w',
+        'https://image.tmdb.org/t/p/w780/path/poster.jpg 780w'
+      ].join(', ')
+    }
+  )
+})
+
+test('never synthesizes candidates for absent, unsafe, or non-TMDB poster sources', () => {
+  assert.deepEqual(posterImageSources(null), { src: null, srcset: null })
+  assert.deepEqual(posterImageSources('https://image.tmdb.org.evil.test/t/p/w500/poster.jpg'), { src: null, srcset: null })
+  assert.deepEqual(posterImageSources('https://image.tmdb.org/t/p/w500/%2e%2e/secret.jpg'), { src: null, srcset: null })
+  assert.deepEqual(
+    posterImageSources('https://www.ugc.fr/posters/film.jpg'),
+    { src: 'https://www.ugc.fr/posters/film.jpg', srcset: null }
+  )
+})
 
 test('accepts canonical Pathé poster URLs on the apex host and subdomains', () => {
   assert.equal(safePosterUrl('https://www.pathe.fr/media/posters/film.webp'), 'https://www.pathe.fr/media/posters/film.webp')

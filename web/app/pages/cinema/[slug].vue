@@ -413,11 +413,11 @@ useHead(() => ({
                     <PosterImage
                       :src="movie.poster_url"
                       :alt="`Affiche de ${movie.title}`"
+                      sizes="(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)"
                       class="h-full w-full"
                       image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025]"
                       fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
                       :fallback-icon-size="32"
-                      loading="lazy"
                     />
                   </div>
                   <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
