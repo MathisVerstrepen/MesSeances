@@ -18,13 +18,16 @@ type PendingMatchFilter string
 const (
 	PendingMatchFilterUnresolved PendingMatchFilter = "unresolved"
 	PendingMatchFilterRejected   PendingMatchFilter = "rejected"
+	PendingMatchFilterMatched    PendingMatchFilter = "matched"
 )
 
 type ReviewStore interface {
-	PendingMatches(context.Context, PendingMatchFilter, int, int) ([]PendingMatch, error)
+	PendingMatches(context.Context, PendingMatchFilter, string, int, int) ([]PendingMatch, error)
 	ReviewCandidate(context.Context, string, string, int64) (Candidate, int, error)
 	ApproveReview(context.Context, string, string, int64, Metadata, int, time.Time) error
 	RejectReview(context.Context, string, string, time.Time) error
+	CorrectionSource(context.Context, string, string, int64, time.Time) (int, error)
+	CorrectReview(context.Context, string, string, int64, time.Time, Metadata, int, time.Time) error
 }
 
 type ReviewService struct {
@@ -44,11 +47,11 @@ func NewReviewService(store ReviewStore, provider interface {
 	return &ReviewService{store: store, provider: provider, now: now}
 }
 
-func (s *ReviewService) Pending(ctx context.Context, filter PendingMatchFilter, limit, offset int) ([]PendingMatch, error) {
+func (s *ReviewService) Pending(ctx context.Context, filter PendingMatchFilter, search string, limit, offset int) ([]PendingMatch, error) {
 	if s == nil || s.store == nil {
 		return nil, fmt.Errorf("review service unavailable")
 	}
-	items, err := s.store.PendingMatches(ctx, filter, limit, offset)
+	items, err := s.store.PendingMatches(ctx, filter, search, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +70,12 @@ func (s *ReviewService) Pending(ctx context.Context, filter PendingMatchFilter, 
 			candidate.DetailURL = tmdbDetailURL(candidate.ID)
 			if !validTMDBPosterURL(candidate.PosterURL) {
 				candidate.PosterURL = ""
+			}
+		}
+		if item.CurrentMatch != nil {
+			item.CurrentMatch.DetailURL = tmdbDetailURL(item.CurrentMatch.ID)
+			if !validTMDBPosterURL(item.CurrentMatch.PosterURL) {
+				item.CurrentMatch.PosterURL = ""
 			}
 		}
 	}
@@ -206,4 +215,33 @@ func (s *ReviewService) Reject(ctx context.Context, sourceProvider, sourceMovieI
 		return fmt.Errorf("review service unavailable")
 	}
 	return s.store.RejectReview(ctx, sourceProvider, sourceMovieID, s.now().UTC())
+}
+
+func (s *ReviewService) Correct(ctx context.Context, sourceProvider, sourceMovieID string, replacementID int64, expectedUpdatedAt time.Time) error {
+	if s == nil || s.store == nil || replacementID <= 0 || expectedUpdatedAt.IsZero() {
+		return fmt.Errorf("review service unavailable")
+	}
+	if s.provider == nil {
+		return ErrReviewUnavailable
+	}
+	sourceRuntime, err := s.store.CorrectionSource(ctx, sourceProvider, sourceMovieID, replacementID, expectedUpdatedAt)
+	if err != nil {
+		return err
+	}
+	details, err := s.provider.Details(ctx, replacementID)
+	if err != nil {
+		return fmt.Errorf("fetch corrected movie metadata failed")
+	}
+	if details.ID != replacementID {
+		return fmt.Errorf("corrected movie metadata is invalid")
+	}
+	now := s.now().UTC()
+	metadata := metadataFromDetails(details, 0, now)
+	fallbackRuntime := 0
+	if metadata.RuntimeMinutes == 0 {
+		metadata.RuntimeMinutes = sourceRuntime
+		fallbackRuntime = sourceRuntime
+	}
+	metadata.RefreshAfter = now.Add(reviewMetadataTTL)
+	return s.store.CorrectReview(ctx, sourceProvider, sourceMovieID, replacementID, expectedUpdatedAt, metadata, fallbackRuntime, now)
 }

@@ -5,6 +5,7 @@ import type {
   AdminLocalMovieGroupsResponse,
   AdminLocalMovieSource,
   AdminPendingMatch,
+  AdminPendingMatchesFilter,
   AdminPendingMatchesResponse,
   AdminTMDBCandidate,
   AdminTMDBMetadataRefreshResponse,
@@ -13,8 +14,12 @@ import type {
   Provider
 } from '~/types/api'
 import {
+  ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS,
   adminPendingMatchesForFilter,
+  adminReplacementTMDBId,
+  adminTMDBMatchedSearch,
   adminTMDBMetadataRefreshPresentation,
+  adminTMDBMatchesTab,
   shouldRefreshAdminTMDBMatchLists
 } from '~/utils/adminTmdbMatches'
 import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
@@ -23,22 +28,31 @@ definePageMeta({ middleware: 'admin-auth' })
 
 const PAGE_SIZE = 20
 const METADATA_REFRESH_POLL_DELAY = 2000
-const OWNED_QUERY_KEYS = ['page', 'rejected_page', 'groups_page'] as const
+const OWNED_QUERY_KEYS = ['tab', 'q', 'page', 'rejected_page', 'matched_page', 'groups_page'] as const
+const MATCH_TABS = [
+  { value: 'unresolved', label: 'Non résolus', title: 'Films sans identité TMDB résolue' },
+  { value: 'rejected', label: 'Non-TMDB', title: 'Films marqués Non-TMDB' },
+  { value: 'matched', label: 'Associés TMDB', title: 'Films associés à TMDB' }
+] as const satisfies ReadonlyArray<{ value: AdminPendingMatchesFilter, label: string, title: string }>
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 
 const result = ref<AdminPendingMatchesResponse | null>(null)
 const rejectedResult = ref<AdminPendingMatchesResponse | null>(null)
+const matchedResult = ref<AdminPendingMatchesResponse | null>(null)
 const groupsResult = ref<AdminLocalMovieGroupsResponse | null>(null)
 const offset = ref(0)
 const rejectedOffset = ref(0)
+const matchedOffset = ref(0)
 const groupsOffset = ref(0)
 const pending = ref(true)
 const rejectedPending = ref(true)
+const matchedPending = ref(true)
 const groupsPending = ref(true)
 const matchesError = ref('')
 const rejectedError = ref('')
+const matchedError = ref('')
 const groupsError = ref('')
 const errorMessage = ref('')
 const rerunError = ref('')
@@ -49,38 +63,49 @@ const metadataRefreshStatus = ref<AdminTMDBMetadataRefreshResponse | null>(null)
 const metadataRefreshStatusPending = ref(false)
 const selectedCandidates = ref<Record<string, number>>({})
 const manualTmdbIds = ref<Record<string, string | number>>({})
+const replacementTmdbIds = ref<Record<string, string | number>>({})
+const matchedSearchInput = ref('')
+const matchedSearch = ref('')
 const selectedSources = ref<Record<string, AdminPendingMatch>>({})
 const primarySourceKey = ref('')
 const activeMutation = ref('')
-const activeMutationKind = ref<'candidate' | 'manual' | 'reject' | ''>('')
+const activeMutationKind = ref<'candidate' | 'manual' | 'reject' | 'correction' | ''>('')
 const mergePending = ref(false)
 const addMembersPending = ref('')
 const unmergePending = ref('')
 const rerunPending = ref(false)
 const metadataRefreshPending = ref(false)
 const rejectConfirmation = ref('')
+const correctionConfirmation = ref('')
 const unmergeConfirmation = ref('')
 const loggingOut = ref(false)
 const matchesPosterVersion = ref(0)
 const groupsPosterVersion = ref(0)
 let matchesRequestId = 0
 let rejectedRequestId = 0
+let matchedRequestId = 0
 let groupsRequestId = 0
 let isMounted = false
 let scrollAfterLoad = false
 let scrollRejectedAfterLoad = false
+let scrollMatchedAfterLoad = false
 let lastLoadPage = 0
 let lastLoadRejectedPage = 0
+let lastLoadMatchedPage = 0
+let lastLoadMatchedSearch: string | undefined
 let lastLoadGroupsPage = 0
 let metadataRefreshPollTimer: ReturnType<typeof setTimeout> | undefined
+let matchedSearchTimer: ReturnType<typeof setTimeout> | undefined
 let observedRunningMetadataRefreshStartedAt: string | null = null
 const refreshedMetadataRefreshStartedAts = new Set<string>()
 
 const page = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
 const rejectedPage = computed(() => Math.floor(rejectedOffset.value / PAGE_SIZE) + 1)
+const matchedPage = computed(() => Math.floor(matchedOffset.value / PAGE_SIZE) + 1)
 const groupsPage = computed(() => Math.floor(groupsOffset.value / PAGE_SIZE) + 1)
 const canGoNext = computed(() => (result.value?.items.length ?? 0) === PAGE_SIZE)
 const canRejectedGoNext = computed(() => (rejectedResult.value?.items.length ?? 0) === PAGE_SIZE)
+const canMatchedGoNext = computed(() => (matchedResult.value?.items.length ?? 0) === PAGE_SIZE)
 const canGroupsGoNext = computed(() => (groupsResult.value?.items.length ?? 0) === PAGE_SIZE)
 const selectedSourceList = computed(() => Object.values(selectedSources.value))
 const canMerge = computed(() => selectedSourceList.value.length >= 2 && Boolean(primarySourceKey.value && selectedSources.value[primarySourceKey.value]))
@@ -88,10 +113,38 @@ const metadataRefreshJob = computed(() => metadataRefreshStatus.value?.job ?? nu
 const metadataRefreshRunning = computed(() => metadataRefreshJob.value?.state === 'running')
 const metadataRefreshLoading = computed(() => metadataRefreshPending.value || metadataRefreshRunning.value)
 const anyMutation = computed(() => Boolean(activeMutation.value || mergePending.value || addMembersPending.value || unmergePending.value || rerunPending.value || metadataRefreshPending.value || metadataRefreshStatusPending.value || metadataRefreshRunning.value))
-const matchSections = computed(() => [
-  {
-    id: 'pending-matches-title',
-    title: 'Films sans identité TMDB résolue',
+const activeTab = ref<AdminPendingMatchesFilter>('unresolved')
+const activeMatchSection = computed(() => {
+  if (activeTab.value === 'rejected') {
+    return {
+      title: MATCH_TABS[1].title,
+      items: adminPendingMatchesForFilter(rejectedResult.value?.items ?? [], 'rejected'),
+      result: rejectedResult.value,
+      pending: rejectedPending.value,
+      error: rejectedError.value,
+      offset: rejectedOffset.value,
+      page: rejectedPage.value,
+      canGoNext: canRejectedGoNext.value,
+      load: loadRejectedMatches,
+      changePage: changeRejectedPage
+    }
+  }
+  if (activeTab.value === 'matched') {
+    return {
+      title: MATCH_TABS[2].title,
+      items: adminPendingMatchesForFilter(matchedResult.value?.items ?? [], 'matched'),
+      result: matchedResult.value,
+      pending: matchedPending.value,
+      error: matchedError.value,
+      offset: matchedOffset.value,
+      page: matchedPage.value,
+      canGoNext: canMatchedGoNext.value,
+      load: loadMatchedMatches,
+      changePage: changeMatchedPage
+    }
+  }
+  return {
+    title: MATCH_TABS[0].title,
     items: adminPendingMatchesForFilter(result.value?.items ?? [], 'unresolved'),
     result: result.value,
     pending: pending.value,
@@ -101,21 +154,8 @@ const matchSections = computed(() => [
     canGoNext: canGoNext.value,
     load: loadMatches,
     changePage
-  },
-  {
-    id: 'rejected-matches-title',
-    title: 'Films marqués Non-TMDB',
-    items: adminPendingMatchesForFilter(rejectedResult.value?.items ?? [], 'rejected'),
-    result: rejectedResult.value,
-    pending: rejectedPending.value,
-    error: rejectedError.value,
-    offset: rejectedOffset.value,
-    page: rejectedPage.value,
-    canGoNext: canRejectedGoNext.value,
-    load: loadRejectedMatches,
-    changePage: changeRejectedPage
   }
-])
+})
 
 function sourceKey(source: AdminLocalMovieSource): string {
   return `${source.source_provider}:${source.source_movie_id}`
@@ -188,6 +228,31 @@ async function loadRejectedMatches(background = false) {
   }
 }
 
+async function loadMatchedMatches(background = false) {
+  const currentRequest = ++matchedRequestId
+  if (!background) matchedPending.value = true
+  matchedError.value = ''
+  correctionConfirmation.value = ''
+  replacementTmdbIds.value = {}
+  try {
+    const response = await api.adminPendingMatches('matched', PAGE_SIZE, matchedOffset.value, matchedSearch.value || undefined)
+    if (currentRequest !== matchedRequestId) return
+    matchesPosterVersion.value += 1
+    matchedResult.value = response
+    if (scrollMatchedAfterLoad) {
+      scrollMatchedAfterLoad = false
+      document.getElementById('tmdb-match-tabs')?.scrollIntoView({ behavior: 'smooth' })
+    }
+  } catch (error) {
+    if (currentRequest === matchedRequestId) {
+      if (!background) matchedResult.value = null
+      matchedError.value = getFrenchAdminApiError(error)
+    }
+  } finally {
+    if (!background && currentRequest === matchedRequestId) matchedPending.value = false
+  }
+}
+
 async function loadGroups() {
   const currentRequest = ++groupsRequestId
   groupsPending.value = true
@@ -208,28 +273,48 @@ async function loadGroups() {
   }
 }
 
-function adminQuery(nextPage = page.value, nextRejectedPage = rejectedPage.value, nextGroupsPage = groupsPage.value) {
+function adminQuery(
+  nextPage = page.value,
+  nextRejectedPage = rejectedPage.value,
+  nextMatchedPage = matchedPage.value,
+  nextGroupsPage = groupsPage.value,
+  nextTab = activeTab.value,
+  nextSearch = matchedSearch.value
+) {
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    tab: nextTab === 'unresolved' ? undefined : nextTab,
+    q: nextSearch || undefined,
     page: nextPage === 1 ? undefined : String(nextPage),
     rejected_page: nextRejectedPage === 1 ? undefined : String(nextRejectedPage),
+    matched_page: nextMatchedPage === 1 ? undefined : String(nextMatchedPage),
     groups_page: nextGroupsPage === 1 ? undefined : String(nextGroupsPage)
   })
 }
 
 function hydrateRoute() {
+  const requestedTab = adminTMDBMatchesTab(singularQueryValue(route.query.tab))
+  const requestedSearch = adminTMDBMatchedSearch(singularQueryValue(route.query.q))
   const requestedPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
   const requestedRejectedPage = positiveSafeInteger(singularQueryValue(route.query.rejected_page)) ?? 1
+  const requestedMatchedPage = positiveSafeInteger(singularQueryValue(route.query.matched_page)) ?? 1
   const requestedGroupsPage = positiveSafeInteger(singularQueryValue(route.query.groups_page)) ?? 1
   const nextOffset = (requestedPage - 1) * PAGE_SIZE
   const nextRejectedOffset = (requestedRejectedPage - 1) * PAGE_SIZE
+  const nextMatchedOffset = (requestedMatchedPage - 1) * PAGE_SIZE
   const nextGroupsOffset = (requestedGroupsPage - 1) * PAGE_SIZE
   const safePage = Number.isSafeInteger(nextOffset) ? requestedPage : 1
   const safeRejectedPage = Number.isSafeInteger(nextRejectedOffset) ? requestedRejectedPage : 1
+  const safeMatchedPage = Number.isSafeInteger(nextMatchedOffset) ? requestedMatchedPage : 1
   const safeGroupsPage = Number.isSafeInteger(nextGroupsOffset) ? requestedGroupsPage : 1
+  clearMatchedSearchTimer()
+  matchedSearchInput.value = requestedSearch
+  activeTab.value = requestedTab
+  matchedSearch.value = requestedSearch
   offset.value = (safePage - 1) * PAGE_SIZE
   rejectedOffset.value = (safeRejectedPage - 1) * PAGE_SIZE
+  matchedOffset.value = (safeMatchedPage - 1) * PAGE_SIZE
   groupsOffset.value = (safeGroupsPage - 1) * PAGE_SIZE
-  return adminQuery(safePage, safeRejectedPage, safeGroupsPage)
+  return adminQuery(safePage, safeRejectedPage, safeMatchedPage, safeGroupsPage, requestedTab, requestedSearch)
 }
 
 async function applyRoute() {
@@ -247,6 +332,11 @@ async function applyRoute() {
     lastLoadRejectedPage = rejectedPage.value
     loads.push(loadRejectedMatches())
   }
+  if (matchedPage.value !== lastLoadMatchedPage || matchedSearch.value !== lastLoadMatchedSearch) {
+    lastLoadMatchedPage = matchedPage.value
+    lastLoadMatchedSearch = matchedSearch.value
+    loads.push(loadMatchedMatches())
+  }
   if (groupsPage.value !== lastLoadGroupsPage) {
     lastLoadGroupsPage = groupsPage.value
     loads.push(loadGroups())
@@ -255,21 +345,23 @@ async function applyRoute() {
 }
 
 async function refreshResources() {
-  await Promise.all([loadMatches(), loadRejectedMatches(), loadGroups()])
+  await Promise.all([loadMatches(), loadRejectedMatches(), loadMatchedMatches(), loadGroups()])
   const nextPage = !matchesError.value && offset.value > 0 && result.value?.items.length === 0 ? page.value - 1 : page.value
   const nextRejectedPage = !rejectedError.value && rejectedOffset.value > 0 && rejectedResult.value?.items.length === 0 ? rejectedPage.value - 1 : rejectedPage.value
+  const nextMatchedPage = !matchedError.value && matchedOffset.value > 0 && matchedResult.value?.items.length === 0 ? matchedPage.value - 1 : matchedPage.value
   const nextGroupsPage = !groupsError.value && groupsOffset.value > 0 && groupsResult.value?.items.length === 0 ? groupsPage.value - 1 : groupsPage.value
-  if (nextPage !== page.value || nextRejectedPage !== rejectedPage.value || nextGroupsPage !== groupsPage.value) {
-    await router.replace({ query: adminQuery(nextPage, nextRejectedPage, nextGroupsPage) })
+  if (nextPage !== page.value || nextRejectedPage !== rejectedPage.value || nextMatchedPage !== matchedPage.value || nextGroupsPage !== groupsPage.value) {
+    await router.replace({ query: adminQuery(nextPage, nextRejectedPage, nextMatchedPage, nextGroupsPage) })
   }
 }
 
 async function refreshAfterDecision() {
-  await Promise.all([loadMatches(true), loadRejectedMatches(true)])
+  await Promise.all([loadMatches(true), loadRejectedMatches(true), loadMatchedMatches(true)])
   const nextPage = !matchesError.value && offset.value > 0 && result.value?.items.length === 0 ? page.value - 1 : page.value
   const nextRejectedPage = !rejectedError.value && rejectedOffset.value > 0 && rejectedResult.value?.items.length === 0 ? rejectedPage.value - 1 : rejectedPage.value
-  if (nextPage !== page.value || nextRejectedPage !== rejectedPage.value) {
-    await router.replace({ query: adminQuery(nextPage, nextRejectedPage) })
+  const nextMatchedPage = !matchedError.value && matchedOffset.value > 0 && matchedResult.value?.items.length === 0 ? matchedPage.value - 1 : matchedPage.value
+  if (nextPage !== page.value || nextRejectedPage !== rejectedPage.value || nextMatchedPage !== matchedPage.value) {
+    await router.replace({ query: adminQuery(nextPage, nextRejectedPage, nextMatchedPage) })
   }
 }
 
@@ -277,9 +369,9 @@ async function refreshMatchesAfterRerun() {
   clearMergeSelection()
   offset.value = 0
   lastLoadPage = 1
-  const canonicalQuery = adminQuery(1, rejectedPage.value)
+  const canonicalQuery = adminQuery(1, rejectedPage.value, matchedPage.value)
   if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
-  await Promise.all([loadMatches(), loadRejectedMatches(true)])
+  await Promise.all([loadMatches(), loadRejectedMatches(true), loadMatchedMatches(true)])
 }
 
 async function rerunTMDBMatches() {
@@ -332,7 +424,7 @@ function applyTMDBMetadataRefreshStatus(response: AdminTMDBMetadataRefreshRespon
 
   if (shouldRefreshLists && nextJob) {
     refreshedMetadataRefreshStartedAts.add(nextJob.started_at)
-    void Promise.all([loadMatches(true), loadRejectedMatches(true)])
+    void Promise.all([loadMatches(true), loadRejectedMatches(true), loadMatchedMatches(true)])
   }
 }
 
@@ -388,6 +480,7 @@ function clearMergeSelection() {
 }
 
 function toggleMergeSelection(match: AdminPendingMatch) {
+  if (match.status === 'matched') return
   const key = sourceKey(match)
   if (selectedSources.value[key]) {
     const next = { ...selectedSources.value }
@@ -445,6 +538,45 @@ function manualTmdbId(match: AdminPendingMatch): number | null {
 async function assignManual(match: AdminPendingMatch) {
   const tmdbId = manualTmdbId(match)
   if (tmdbId !== null) await approveWithTmdbId(match, tmdbId, 'manual')
+}
+
+function replacementTmdbId(match: AdminPendingMatch): number | null {
+  if (!match.current_match) return null
+  return adminReplacementTMDBId(replacementTmdbIds.value[sourceKey(match)], match.current_match.id)
+}
+
+function requestCorrection(match: AdminPendingMatch) {
+  if (anyMutation.value || match.status !== 'matched' || replacementTmdbId(match) === null) return
+  correctionConfirmation.value = sourceKey(match)
+}
+
+function clearCorrection(match: AdminPendingMatch) {
+  const key = sourceKey(match)
+  delete replacementTmdbIds.value[key]
+  if (correctionConfirmation.value === key) correctionConfirmation.value = ''
+}
+
+async function correctMatch(match: AdminPendingMatch) {
+  const tmdbId = replacementTmdbId(match)
+  if (anyMutation.value || match.status !== 'matched' || tmdbId === null || !match.updated_at) return
+  const key = sourceKey(match)
+  activeMutation.value = key
+  activeMutationKind.value = 'correction'
+  errorMessage.value = ''
+  try {
+    await api.adminCorrectMatch(match.source_provider, match.source_movie_id, {
+      tmdb_id: tmdbId,
+      expected_updated_at: match.updated_at
+    })
+    clearCorrection(match)
+    await loadMatchedMatches(true)
+  } catch (error) {
+    if (getApiErrorStatus(error) === 409) clearCorrection(match)
+    await handleMutationError(error)
+  } finally {
+    activeMutation.value = ''
+    activeMutationKind.value = ''
+  }
 }
 
 async function reject(match: AdminPendingMatch) {
@@ -526,10 +658,29 @@ async function unmerge(group: AdminLocalMovieGroup) {
   }
 }
 
+function clearMatchedSearchTimer() {
+  if (matchedSearchTimer !== undefined) {
+    clearTimeout(matchedSearchTimer)
+    matchedSearchTimer = undefined
+  }
+}
+
+function updateMatchedSearch() {
+  clearMatchedSearchTimer()
+  matchedSearchTimer = setTimeout(() => {
+    matchedSearchTimer = undefined
+    const search = adminTMDBMatchedSearch(matchedSearchInput.value)
+    if (search === matchedSearch.value) return
+    void router.push({
+      query: adminQuery(page.value, rejectedPage.value, 1, groupsPage.value, activeTab.value, search)
+    })
+  }, ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS)
+}
+
 function changePage(nextOffset: number) {
   if (pending.value || anyMutation.value || nextOffset < 0 || nextOffset === offset.value) return
   scrollAfterLoad = true
-  router.push({ query: adminQuery(Math.floor(nextOffset / PAGE_SIZE) + 1, rejectedPage.value) })
+  router.push({ query: adminQuery(Math.floor(nextOffset / PAGE_SIZE) + 1) })
 }
 
 function changeRejectedPage(nextOffset: number) {
@@ -538,9 +689,37 @@ function changeRejectedPage(nextOffset: number) {
   router.push({ query: adminQuery(page.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
 }
 
+function changeMatchedPage(nextOffset: number) {
+  if (matchedPending.value || anyMutation.value || nextOffset < 0 || nextOffset === matchedOffset.value) return
+  scrollMatchedAfterLoad = true
+  router.push({ query: adminQuery(page.value, rejectedPage.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
+}
+
 function changeGroupsPage(nextOffset: number) {
   if (groupsPending.value || anyMutation.value || nextOffset < 0 || nextOffset === groupsOffset.value) return
-  router.push({ query: adminQuery(page.value, rejectedPage.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
+  router.push({ query: adminQuery(page.value, rejectedPage.value, matchedPage.value, Math.floor(nextOffset / PAGE_SIZE) + 1) })
+}
+
+function selectTab(tab: AdminPendingMatchesFilter) {
+  if (tab === activeTab.value) return
+  router.push({ query: adminQuery(page.value, rejectedPage.value, matchedPage.value, groupsPage.value, tab) })
+}
+
+function selectAdjacentTab(event: KeyboardEvent, index: number) {
+  let nextIndex: number | undefined
+  if (event.key === 'ArrowRight') nextIndex = (index + 1) % MATCH_TABS.length
+  else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + MATCH_TABS.length) % MATCH_TABS.length
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = MATCH_TABS.length - 1
+  if (nextIndex === undefined) return
+  const tab = MATCH_TABS[nextIndex]
+  if (!tab) return
+  event.preventDefault()
+  selectTab(tab.value)
+  const currentTarget = event.currentTarget
+  if (!(currentTarget instanceof HTMLElement)) return
+  const tabs = currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  nextTick(() => tabs?.[nextIndex]?.focus())
 }
 
 async function logout() {
@@ -578,6 +757,7 @@ function providerLabel(provider: Provider): string {
 function statusLabel(match: AdminPendingMatch): string {
   if (match.status === 'review_required') return 'À vérifier'
   if (match.status === 'rejected') return 'Non-TMDB'
+  if (match.status === 'matched') return 'Associé TMDB'
   return 'Sans correspondance'
 }
 
@@ -591,6 +771,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   isMounted = false
+  clearMatchedSearchTimer()
   clearMetadataRefreshPolling()
 })
 useHead({ title: 'Identités des films - MesSeances' })
@@ -641,134 +822,189 @@ useHead({ title: 'Identités des films - MesSeances' })
     </section>
 
     <div class="mt-7">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="pending-matches-title" class="text-xl font-semibold text-ink">Films sans identité TMDB résolue</h2>
-        <div class="flex flex-wrap items-center gap-3">
-          <button type="button" class="button-primary" :disabled="pending || anyMutation" @click="rerunTMDBMatches">
-            <LoaderCircle v-if="rerunPending" :size="17" class="animate-spin" aria-hidden="true" />
-            <RefreshCw v-else :size="17" aria-hidden="true" />
-            {{ rerunPending ? 'Relance en cours…' : 'Relancer les films non résolus' }}
-          </button>
-          <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="pending || anyMutation" @click="loadMatches()">
-            <RefreshCw :size="16" :class="pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
-          </button>
-        </div>
+      <div id="tmdb-match-tabs" class="flex gap-1 overflow-x-auto border-b border-line" role="tablist" aria-label="État des correspondances TMDB">
+        <button
+          v-for="(tab, index) in MATCH_TABS"
+          :id="`tmdb-matches-tab-${tab.value}`"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === tab.value"
+          aria-controls="tmdb-matches-panel"
+          :tabindex="activeTab === tab.value ? 0 : -1"
+          class="shrink-0 border-b-2 px-4 py-3 text-sm font-semibold transition"
+          :class="activeTab === tab.value ? 'border-accent text-accent' : 'border-transparent text-muted hover:border-line-hover hover:text-ink'"
+          @click="selectTab(tab.value)"
+          @keydown="selectAdjacentTab($event, index)"
+        >
+          {{ tab.label }}
+        </button>
       </div>
 
-      <p class="sr-only" role="status" aria-live="polite">{{ rerunPending ? 'Relance TMDB en cours pour tous les films non résolus.' : '' }}</p>
-      <div v-if="rerunError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-        <p class="flex-1">{{ rerunError }}</p>
-        <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="rerunError = ''">Fermer</button>
-      </div>
-      <div v-if="rerunSummary" class="mt-4 rounded-md border p-4 text-sm" :class="rerunSummary.failed > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'" role="status" aria-live="polite">
-        <p class="font-semibold">{{ rerunSummary.failed > 0 ? 'Relance terminée avec des erreurs.' : 'Relance terminée.' }}</p>
-        <p class="mt-1">{{ rerunSummary.processed }} traité(s), {{ rerunSummary.matched }} associé(s), {{ rerunSummary.review_required }} à vérifier, {{ rerunSummary.unmatched }} sans correspondance, {{ rerunSummary.reused }} réutilisé(s), {{ rerunSummary.failed }} en erreur.</p>
-      </div>
-
-      <div v-if="selectedSourceList.length" class="mt-4 rounded-lg border border-accent-line bg-accent-soft p-4" aria-labelledby="merge-selection-title">
+      <section
+        id="tmdb-matches-panel"
+        class="pt-6"
+        role="tabpanel"
+        tabindex="0"
+        :aria-labelledby="`tmdb-matches-tab-${activeTab}`"
+      >
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h3 id="merge-selection-title" class="font-semibold text-ink">Sélection pour regroupement ({{ selectedSourceList.length }})</h3>
-          <button type="button" class="text-sm font-semibold text-muted underline" :disabled="anyMutation" @click="clearMergeSelection">Effacer</button>
+          <h2 class="text-xl font-semibold text-ink">{{ activeMatchSection.title }}</h2>
+          <div class="flex flex-wrap items-center gap-3">
+            <button v-if="activeTab === 'unresolved'" type="button" class="button-primary" :disabled="pending || anyMutation" @click="rerunTMDBMatches">
+              <LoaderCircle v-if="rerunPending" :size="17" class="animate-spin" aria-hidden="true" />
+              <RefreshCw v-else :size="17" aria-hidden="true" />
+              {{ rerunPending ? 'Relance en cours…' : 'Relancer les films non résolus' }}
+            </button>
+            <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="activeMatchSection.pending || anyMutation" @click="activeMatchSection.load()">
+              <RefreshCw :size="16" :class="activeMatchSection.pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
+            </button>
+          </div>
         </div>
-        <fieldset class="mt-3" :disabled="anyMutation">
-          <legend class="sr-only">Choisir la source principale du nouveau regroupement</legend>
-          <ul class="flex flex-wrap gap-2">
-            <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-accent-line bg-surface px-3 py-2 text-sm">
-              <label class="flex cursor-pointer items-center gap-2">
-                <input v-model="primarySourceKey" type="radio" name="local-primary" :value="sourceKey(match)" class="accent-accent" />
-                <span><span class="font-semibold">{{ match.source_title }}</span> · {{ providerLabel(match.source_provider) }}</span>
-              </label>
-              <button type="button" class="text-muted hover:text-red-700" :aria-label="`Retirer ${match.source_title}`" @click="removeMergeSelection(match)"><X :size="16" aria-hidden="true" /></button>
-            </li>
-          </ul>
-        </fieldset>
-        <div class="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" class="button-primary" :disabled="!canMerge || anyMutation" @click="mergeSelectedSources">
-            <LoaderCircle v-if="mergePending" :size="17" class="animate-spin" aria-hidden="true" /><Layers3 v-else :size="17" aria-hidden="true" /> Créer le regroupement
-          </button>
-          <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">Sélectionnez au moins deux films pour créer un regroupement.</p>
-          <p v-else-if="!primarySourceKey" class="text-sm text-muted">Choisissez la source principale du nouveau regroupement.</p>
-        </div>
-      </div>
 
-      <section v-for="matchSection in matchSections" :key="matchSection.id" :class="matchSection.id === 'rejected-matches-title' ? 'mt-8 border-t border-line pt-7' : ''" :aria-labelledby="matchSection.id">
-        <div v-if="matchSection.id === 'rejected-matches-title'" class="flex flex-wrap items-center justify-between gap-3">
-          <h2 :id="matchSection.id" class="text-xl font-semibold text-ink">{{ matchSection.title }}</h2>
-          <button type="button" class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50" :disabled="matchSection.pending || anyMutation" @click="matchSection.load()">
-            <RefreshCw :size="16" :class="matchSection.pending ? 'animate-spin' : ''" aria-hidden="true" /> Actualiser
-          </button>
+        <label v-if="activeTab === 'matched'" for="matched-search" class="mt-4 block max-w-xl text-sm font-semibold text-ink">
+          Rechercher un film associé
+          <input id="matched-search" v-model="matchedSearchInput" class="field mt-1.5" type="search" maxlength="1024" autocomplete="off" @input="updateMatchedSearch">
+        </label>
+
+        <template v-if="activeTab === 'unresolved'">
+          <p class="sr-only" role="status" aria-live="polite">{{ rerunPending ? 'Relance TMDB en cours pour tous les films non résolus.' : '' }}</p>
+          <div v-if="rerunError" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+            <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+            <p class="flex-1">{{ rerunError }}</p>
+            <button type="button" class="font-semibold underline underline-offset-2" :disabled="anyMutation" @click="rerunError = ''">Fermer</button>
+          </div>
+          <div v-if="rerunSummary" class="mt-4 rounded-md border p-4 text-sm" :class="rerunSummary.failed > 0 ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'" role="status" aria-live="polite">
+            <p class="font-semibold">{{ rerunSummary.failed > 0 ? 'Relance terminée avec des erreurs.' : 'Relance terminée.' }}</p>
+            <p class="mt-1">{{ rerunSummary.processed }} traité(s), {{ rerunSummary.matched }} associé(s), {{ rerunSummary.review_required }} à vérifier, {{ rerunSummary.unmatched }} sans correspondance, {{ rerunSummary.reused }} réutilisé(s), {{ rerunSummary.failed }} en erreur.</p>
+          </div>
+        </template>
+
+        <div v-if="selectedSourceList.length" class="mt-4 rounded-lg border border-accent-line bg-accent-soft p-4" aria-labelledby="merge-selection-title">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 id="merge-selection-title" class="font-semibold text-ink">Sélection pour regroupement ({{ selectedSourceList.length }})</h3>
+            <button type="button" class="text-sm font-semibold text-muted underline" :disabled="anyMutation" @click="clearMergeSelection">Effacer</button>
+          </div>
+          <fieldset class="mt-3" :disabled="anyMutation">
+            <legend class="sr-only">Choisir la source principale du nouveau regroupement</legend>
+            <ul class="flex flex-wrap gap-2">
+              <li v-for="match in selectedSourceList" :key="sourceKey(match)" class="flex items-center gap-2 rounded-md border border-accent-line bg-surface px-3 py-2 text-sm">
+                <label class="flex cursor-pointer items-center gap-2">
+                  <input v-model="primarySourceKey" type="radio" name="local-primary" :value="sourceKey(match)" class="accent-accent" />
+                  <span><span class="font-semibold">{{ match.source_title }}</span> · {{ providerLabel(match.source_provider) }}</span>
+                </label>
+                <button type="button" class="text-muted hover:text-red-700" :aria-label="`Retirer ${match.source_title}`" @click="removeMergeSelection(match)"><X :size="16" aria-hidden="true" /></button>
+              </li>
+            </ul>
+          </fieldset>
+          <div class="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" class="button-primary" :disabled="!canMerge || anyMutation" @click="mergeSelectedSources">
+              <LoaderCircle v-if="mergePending" :size="17" class="animate-spin" aria-hidden="true" /><Layers3 v-else :size="17" aria-hidden="true" /> Créer le regroupement
+            </button>
+            <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">Sélectionnez au moins deux films pour créer un regroupement.</p>
+            <p v-else-if="!primarySourceKey" class="text-sm text-muted">Choisissez la source principale du nouveau regroupement.</p>
+          </div>
         </div>
-        <div v-if="matchSection.error" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+
+        <div v-if="activeMatchSection.error" class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
           <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-          <div><p>{{ matchSection.error }}</p><button type="button" class="mt-2 font-semibold underline" @click="matchSection.load()">Réessayer</button></div>
+          <div><p>{{ activeMatchSection.error }}</p><button type="button" class="mt-2 font-semibold underline" @click="activeMatchSection.load()">Réessayer</button></div>
         </div>
-        <div v-else-if="matchSection.pending" class="state-panel mt-4" role="status" aria-live="polite">
+        <div v-else-if="activeMatchSection.pending" class="state-panel mt-4" role="status" aria-live="polite">
           <LoaderCircle :size="28" class="animate-spin text-accent" aria-hidden="true" /><p>Chargement des films…</p>
         </div>
-        <template v-else-if="matchSection.result">
-          <div v-if="!matchSection.items.length" class="state-panel mt-4">
-             <Check :size="30" class="text-accent" aria-hidden="true" /><p>Aucun film à traiter.</p>
-           </div>
-          <ul v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" :aria-label="matchSection.title">
-            <li v-for="match in matchSection.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
-          <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
-            <label class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
-              <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-accent" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="anyMutation" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
-            </label>
-            <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-amber-100 text-amber-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : 'bg-subtle text-muted'">{{ statusLabel(match) }}</span>
+        <template v-else-if="activeMatchSection.result">
+          <div v-if="!activeMatchSection.items.length" class="state-panel mt-4">
+            <Check :size="30" class="text-accent" aria-hidden="true" /><p>{{ activeTab === 'matched' && matchedSearch ? 'Aucun film associé ne correspond à cette recherche.' : 'Aucun film à traiter.' }}</p>
           </div>
+          <ul v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" :aria-label="activeMatchSection.title">
+            <li v-for="match in activeMatchSection.items" :key="sourceKey(match)" class="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5" :class="match.status === 'rejected' ? '' : 'lg:col-span-2'">
+              <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-3">
+                <label v-if="match.status !== 'matched'" class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink" :for="`merge-${domKey(match)}`">
+                  <input :id="`merge-${domKey(match)}`" type="checkbox" class="size-4 accent-accent" :checked="Boolean(selectedSources[sourceKey(match)])" :disabled="anyMutation" @change="toggleMergeSelection(match)" /> Sélectionner pour un regroupement local
+                </label>
+                <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="match.status === 'review_required' ? 'bg-amber-100 text-amber-800' : match.status === 'rejected' ? 'bg-violet-100 text-violet-800' : match.status === 'matched' ? 'bg-emerald-100 text-emerald-800' : 'bg-subtle text-muted'">{{ statusLabel(match) }}</span>
+              </div>
 
-          <div class="grid min-w-0 gap-5" :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'">
-            <section class="min-w-0" :aria-labelledby="`source-title-${domKey(match)}`">
-              <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
-              <div class="flex min-w-0 gap-3">
-                <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24 lg:w-20">
-                  <PosterImage :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
-                </div>
-                <div class="min-w-0 flex-1">
-                  <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
-                  <dl class="mt-2 space-y-1 text-xs text-muted"><div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div><div class="break-all"><dt class="inline"><BrandedText :text="`ID ${providerLabel(match.source_provider)} :`" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div></dl>
-                  <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"><BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /><ExternalLink :size="13" aria-hidden="true" /></a>
+              <div class="grid min-w-0 gap-5" :class="match.status === 'rejected' ? '' : 'lg:grid-cols-[14rem_minmax(0,1fr)] lg:gap-6'">
+                <section class="min-w-0" :aria-labelledby="`source-title-${domKey(match)}`">
+                  <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted"><BrandedText :text="`Source ${providerLabel(match.source_provider)}`" /></p>
+                  <div class="flex min-w-0 gap-3">
+                    <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24 lg:w-20">
+                      <PosterImage :src="match.source_poster_url" :alt="`Affiche ${providerLabel(match.source_provider)} de ${match.source_title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
+                      <dl class="mt-2 space-y-1 text-xs text-muted"><div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div><div class="break-all"><dt class="inline"><BrandedText :text="`ID ${providerLabel(match.source_provider)} :`" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div></dl>
+                      <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"><BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /><ExternalLink :size="13" aria-hidden="true" /></a>
+                    </div>
+                  </div>
+                </section>
+
+                <section v-if="match.status === 'matched' && match.current_match" class="min-w-0" :aria-labelledby="`current-tmdb-title-${domKey(match)}`">
+                  <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">TMDB actuel</p>
+                  <div class="flex min-w-0 gap-3">
+                    <div class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-md border border-line bg-subtle sm:w-24">
+                      <PosterImage :src="match.current_match.poster_url" :alt="`Affiche TMDB de ${match.current_match.title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <h3 :id="`current-tmdb-title-${domKey(match)}`" class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ match.current_match.title }}</h3>
+                      <p class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ match.current_match.original_title || 'non renseigné' }}</p>
+                      <dl class="mt-2 space-y-1 text-xs text-muted"><div><dt class="inline">ID TMDB :</dt> <dd class="inline">{{ match.current_match.id }}</dd></div><div><dt class="sr-only">Durée TMDB</dt><dd>{{ candidateRuntime(match.current_match) }}</dd></div><div><dt class="inline">Score :</dt> <dd class="inline">{{ candidateScore(match.current_match) }}</dd></div></dl>
+                      <a v-if="match.current_match.detail_url" :href="match.current_match.detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline">Voir sur TMDB <ExternalLink :size="13" aria-hidden="true" /></a>
+                    </div>
+                  </div>
+                </section>
+
+                <fieldset v-else-if="match.status !== 'rejected'" class="min-w-0" :disabled="anyMutation">
+                  <legend class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Candidats TMDB</legend>
+                  <div v-if="match.candidates.length" class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
+                    <div v-for="candidate in match.candidates" :key="candidate.id" class="min-w-0 rounded-md border p-3 transition focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2" :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:border-line-hover'">
+                      <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
+                        <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-accent" />
+                        <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
+                          <PosterImage :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
+                        </span>
+                        <span class="min-w-0 flex-1"><span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ candidate.title }}</span><span class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ candidate.original_title || 'non renseigné' }}</span><span class="mt-2 block space-y-1 text-xs text-muted"><span class="block">ID TMDB : {{ candidate.id }}</span><span class="block">{{ candidateRuntime(candidate) }}</span><span class="block">Score : {{ candidateScore(candidate) }}</span></span></span>
+                      </label>
+                      <a v-if="candidate.detail_url" :href="candidate.detail_url" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline">Voir sur TMDB <ExternalLink :size="13" aria-hidden="true" /></a>
+                    </div>
+                  </div>
+                  <p v-else class="rounded-md border border-dashed border-line p-4 text-sm text-muted">Aucun candidat enregistré.</p>
+                </fieldset>
+              </div>
+
+              <div v-if="match.status !== 'rejected' && match.status !== 'matched'" class="mt-4 grid gap-4 border-t border-line pt-4 lg:grid-cols-[auto_minmax(18rem,1fr)_auto] lg:items-end">
+                <button type="button" class="button-primary" :disabled="!selectedCandidates[sourceKey(match)] || anyMutation" @click="approve(match)"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'candidate'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Valider le candidat</button>
+                <form class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end" @submit.prevent="assignManual(match)">
+                  <div class="min-w-0 flex-1"><label :for="`manual-tmdb-${domKey(match)}`" class="mb-1.5 block text-sm font-semibold text-ink">Identifiant TMDB</label><input :id="`manual-tmdb-${domKey(match)}`" v-model="manualTmdbIds[sourceKey(match)]" class="field" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" :disabled="anyMutation" /></div>
+                  <button type="submit" class="button-primary shrink-0" :disabled="manualTmdbId(match) === null || anyMutation"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'manual'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Associer cet identifiant TMDB</button>
+                </form>
+                <div v-if="rejectConfirmation === sourceKey(match)" class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"><span class="text-sm font-semibold text-red-800">Marquer ce film comme Non-TMDB ?</span><button type="button" class="h-9 rounded-md bg-red-700 px-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="anyMutation" @click="reject(match)">Confirmer</button><button type="button" class="h-9 rounded-md border border-line px-3 text-sm font-semibold text-ink" :disabled="anyMutation" @click="rejectConfirmation = ''">Annuler</button></div>
+                <button v-else type="button" class="inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 lg:justify-self-end" :disabled="anyMutation" @click="rejectConfirmation = sourceKey(match)"><X :size="16" aria-hidden="true" /> Aucun résultat TMDB</button>
+              </div>
+
+              <div v-else-if="match.status === 'matched' && match.current_match" class="mt-4 border-t border-line pt-4">
+                <form v-if="correctionConfirmation !== sourceKey(match)" class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end" @submit.prevent="requestCorrection(match)">
+                  <div class="min-w-0 flex-1"><label :for="`replacement-tmdb-${domKey(match)}`" class="mb-1.5 block text-sm font-semibold text-ink">Nouvel identifiant TMDB</label><input :id="`replacement-tmdb-${domKey(match)}`" v-model="replacementTmdbIds[sourceKey(match)]" class="field" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" :disabled="anyMutation" /></div>
+                  <button type="submit" class="button-primary shrink-0" :disabled="replacementTmdbId(match) === null || !match.updated_at || anyMutation">Remplacer l’identifiant TMDB</button>
+                </form>
+                <div v-else class="flex flex-col gap-3 rounded-md border border-amber-200 bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between" role="group" :aria-label="`Confirmer le remplacement TMDB pour ${match.source_title}`">
+                  <p class="text-sm font-semibold text-amber-950">Remplacer l’ID TMDB {{ match.current_match.id }} par {{ replacementTmdbId(match) }} ?</p>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="button-primary" :disabled="anyMutation" @click="correctMatch(match)"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'correction'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Confirmer</button>
+                    <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="anyMutation" @click="clearCorrection(match)">Annuler</button>
+                  </div>
                 </div>
               </div>
-            </section>
-
-            <fieldset v-if="match.status !== 'rejected'" class="min-w-0" :disabled="anyMutation">
-              <legend class="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Candidats TMDB</legend>
-              <div v-if="match.candidates.length" class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
-                <div v-for="candidate in match.candidates" :key="candidate.id" class="min-w-0 rounded-md border p-3 transition focus-within:ring-2 focus-within:ring-accent focus-within:ring-offset-2" :class="selectedCandidates[sourceKey(match)] === candidate.id ? 'border-accent bg-accent-soft' : 'border-line bg-surface hover:border-line-hover'">
-                  <label :for="`candidate-${domKey(match)}-${candidate.id}`" class="flex min-w-0 cursor-pointer items-start gap-2.5">
-                    <input :id="`candidate-${domKey(match)}-${candidate.id}`" v-model="selectedCandidates[sourceKey(match)]" type="radio" :name="`candidate-${domKey(match)}`" :value="candidate.id" class="mt-1 shrink-0 accent-accent" />
-                    <span class="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded border border-line bg-subtle sm:w-24 lg:w-20">
-                      <PosterImage :src="candidate.poster_url" :alt="`Affiche TMDB de ${candidate.title}`" :reset-key="matchesPosterVersion" class="h-full w-full" image-class="h-full w-full object-cover" fallback-class="gap-1 px-2 text-center text-[11px] font-medium leading-tight text-muted" :fallback-icon-size="24" loading="lazy" decoding="async" />
-                    </span>
-                    <span class="min-w-0 flex-1"><span class="line-clamp-2 text-sm font-semibold leading-snug text-ink">{{ candidate.title }}</span><span class="mt-1 line-clamp-2 text-xs leading-snug text-muted">Titre original : {{ candidate.original_title || 'non renseigné' }}</span><span class="mt-2 block space-y-1 text-xs text-muted"><span class="block">ID TMDB : {{ candidate.id }}</span><span class="block">{{ candidateRuntime(candidate) }}</span><span class="block">Score : {{ candidateScore(candidate) }}</span></span></span>
-                  </label>
-                  <a v-if="candidate.detail_url" :href="candidate.detail_url" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline">Voir sur TMDB <ExternalLink :size="13" aria-hidden="true" /></a>
-                </div>
-              </div>
-              <p v-else class="rounded-md border border-dashed border-line p-4 text-sm text-muted">Aucun candidat enregistré.</p>
-            </fieldset>
-          </div>
-
-          <div v-if="match.status !== 'rejected'" class="mt-4 grid gap-4 border-t border-line pt-4 lg:grid-cols-[auto_minmax(18rem,1fr)_auto] lg:items-end">
-            <button type="button" class="button-primary" :disabled="!selectedCandidates[sourceKey(match)] || anyMutation" @click="approve(match)"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'candidate'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Valider le candidat</button>
-            <form class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end" @submit.prevent="assignManual(match)">
-              <div class="min-w-0 flex-1"><label :for="`manual-tmdb-${domKey(match)}`" class="mb-1.5 block text-sm font-semibold text-ink">Identifiant TMDB</label><input :id="`manual-tmdb-${domKey(match)}`" v-model="manualTmdbIds[sourceKey(match)]" class="field" type="number" min="1" max="9007199254740991" step="1" inputmode="numeric" :disabled="anyMutation" /></div>
-              <button type="submit" class="button-primary shrink-0" :disabled="manualTmdbId(match) === null || anyMutation"><LoaderCircle v-if="activeMutation === sourceKey(match) && activeMutationKind === 'manual'" :size="17" class="animate-spin" aria-hidden="true" /><Check v-else :size="17" aria-hidden="true" />Associer cet identifiant TMDB</button>
-            </form>
-            <div v-if="rejectConfirmation === sourceKey(match)" class="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end"><span class="text-sm font-semibold text-red-800">Marquer ce film comme Non-TMDB ?</span><button type="button" class="h-9 rounded-md bg-red-700 px-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="anyMutation" @click="reject(match)">Confirmer</button><button type="button" class="h-9 rounded-md border border-line px-3 text-sm font-semibold text-ink" :disabled="anyMutation" @click="rejectConfirmation = ''">Annuler</button></div>
-            <button v-else type="button" class="inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50 lg:justify-self-end" :disabled="anyMutation" @click="rejectConfirmation = sourceKey(match)"><X :size="16" aria-hidden="true" /> Aucun résultat TMDB</button>
-          </div>
             </li>
           </ul>
         </template>
 
-        <nav v-if="!matchSection.pending && !matchSection.error && (matchSection.offset > 0 || matchSection.canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" :aria-label="`Pagination de ${matchSection.title.toLocaleLowerCase('fr')}`">
-          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="matchSection.offset === 0 || anyMutation" @click="matchSection.changePage(matchSection.offset - PAGE_SIZE)">Précédent</button>
-          <span class="text-sm text-muted" aria-live="polite">Page {{ matchSection.page }}</span>
-          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!matchSection.canGoNext || anyMutation" @click="matchSection.changePage(matchSection.offset + PAGE_SIZE)">Suivant</button>
+        <nav v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`">
+          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="activeMatchSection.offset === 0 || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)">Précédent</button>
+          <span class="text-sm text-muted" aria-live="polite">Page {{ activeMatchSection.page }}</span>
+          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!activeMatchSection.canGoNext || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)">Suivant</button>
         </nav>
       </section>
     </div>
