@@ -12,10 +12,11 @@ const siteUrl = origin(process.env.SITE_URL ?? 'http://localhost:3000', 'SITE_UR
 const expectUpstreamFailure = process.env.EXPECT_UPSTREAM_FAILURE === '1'
 const expectSeoOnlyFailure = process.env.EXPECT_SEO_ONLY_FAILURE === '1'
 const expectSsrSuccess = process.env.EXPECT_SSR_SUCCESS === '1'
+const expectSitemapFixture = process.env.EXPECT_SITEMAP_FIXTURE === '1'
 const API_PAGE_SIZE = 100
 const CATALOG_PAGE_SIZE = 24
 
-assert([expectUpstreamFailure, expectSeoOnlyFailure, expectSsrSuccess].filter(Boolean).length <= 1, 'EXPECT_UPSTREAM_FAILURE, EXPECT_SEO_ONLY_FAILURE, and EXPECT_SSR_SUCCESS are mutually exclusive')
+assert([expectUpstreamFailure, expectSeoOnlyFailure, expectSsrSuccess, expectSitemapFixture].filter(Boolean).length <= 1, 'EXPECT_UPSTREAM_FAILURE, EXPECT_SEO_ONLY_FAILURE, EXPECT_SSR_SUCCESS, and EXPECT_SITEMAP_FIXTURE are mutually exclusive')
 
 function origin(value, name) {
   const parsed = new URL(value)
@@ -337,34 +338,90 @@ function sitemapEntries(xml) {
     .map((match) => ({ loc: decodeHtml(match[1]), lastmod: match[2] ? decodeHtml(match[2]) : null }))
 }
 
+function sitemapIndexLocations(xml) {
+  return [...xml.matchAll(/<sitemap>\s*<loc>(.*?)<\/loc>\s*<\/sitemap>/gs)].map((match) => decodeHtml(match[1]))
+}
+
+function hasSubstantialEvergreenMovieMetadata(movie) {
+  const nonblank = (value) => value?.constructor === String && value.trim().length > 0
+  const hasIdentity = nonblank(movie.poster_url)
+    || (Number.isSafeInteger(movie.tmdb_id) && movie.tmdb_id > 0)
+    || nonblank(movie.imdb_id)
+  return nonblank(movie.overview)
+    && calendarDate(String(movie.release_date ?? '').trim()) !== null
+    && Array.isArray(movie.genres)
+    && movie.genres.some(nonblank)
+    && hasIdentity
+}
+
+function laterTimestamp(...values) {
+  assert(values.length > 0 && values.every((value) => value?.constructor === String && Number.isFinite(Date.parse(value))), 'lastmod source timestamp is invalid')
+  return values.reduce((latest, value) => Date.parse(value) > Date.parse(latest) ? value : latest)
+}
+
+async function fetchCurrentLandingCatalog(pageSize) {
+  const result = await get(`${apiUrl}/api/v1/movies?currently_screened=true&sort=showtimes_desc&page=1&page_size=${pageSize}`)
+  assert(result.response.status === 200, `API landing catalog page_size=${pageSize}: expected 200, received ${result.response.status}`)
+  const payload = JSON.parse(result.body)
+  assert(payload.page === 1 && payload.page_size === pageSize && Array.isArray(payload.items), `API landing catalog page_size=${pageSize}: malformed page`)
+  assert(Number.isFinite(Date.parse(payload.generated_at)) && String(payload.catalog_revision ?? '').trim(), `API landing catalog page_size=${pageSize}: malformed snapshot`)
+  assert(payload.items.every((movie) => Number.isFinite(Date.parse(movie.updated_at))), `API landing catalog page_size=${pageSize}: invalid movie updated_at`)
+  return payload
+}
+
 async function verifyDiscovery(allCatalog, inventory) {
-  const sitemap = await get(`${webUrl}/sitemap.xml`, 'application/xml')
-  assert(sitemap.response.status === 200, `/sitemap.xml: expected 200, received ${sitemap.response.status}`)
-  assert(sitemap.response.headers.get('content-type')?.toLowerCase() === 'application/xml; charset=utf-8', '/sitemap.xml: unexpected content type')
-  assert(sitemap.response.headers.get('cache-control') === 'no-store', '/sitemap.xml: expected Cache-Control no-store')
-  assert(sitemap.body.endsWith('\n'), '/sitemap.xml: missing trailing newline')
-  const entries = sitemapEntries(sitemap.body)
-  const expectedLocations = [
-    `${siteUrl}/`,
-    `${siteUrl}/films`,
-    `${siteUrl}/cinemas`,
-    `${siteUrl}/planning`,
-    `${siteUrl}/recherche`,
-    ...[...inventory.citySlugs].sort().map((slug) => `${siteUrl}/ville/${encodeURIComponent(slug)}/cinemas`),
-    ...[...inventory.theaterSlugs].sort().map((slug) => `${siteUrl}/cinema/${encodeURIComponent(slug)}`),
-    ...[...allCatalog.slugs].sort().map((slug) => `${siteUrl}/film/${encodeURIComponent(slug)}`)
+  const [homepageCatalog, filmsCatalog] = await Promise.all([fetchCurrentLandingCatalog(6), fetchCurrentLandingCatalog(24)])
+  assert(homepageCatalog.generated_at === allCatalog.generatedAt && filmsCatalog.generated_at === allCatalog.generatedAt, 'Landing and sitemap catalog generations differ')
+  assert(homepageCatalog.catalog_revision === allCatalog.catalogRevision && filmsCatalog.catalog_revision === allCatalog.catalogRevision, 'Landing and sitemap catalog revisions differ')
+
+  const index = await get(`${webUrl}/sitemap.xml`, 'application/xml')
+  assert(index.response.status === 200, `/sitemap.xml: expected 200, received ${index.response.status}`)
+  assert(index.response.headers.get('content-type')?.toLowerCase() === 'application/xml; charset=utf-8', '/sitemap.xml: unexpected content type')
+  assert(index.response.headers.get('cache-control') === 'max-age=300', '/sitemap.xml: expected Cache-Control max-age=300')
+  assert(index.body.endsWith('\n') && index.body.includes('<sitemapindex'), '/sitemap.xml: invalid sitemap index')
+  const expectedChildren = ['/sitemaps/films.xml', '/sitemaps/cinemas.xml', '/sitemaps/cities.xml'].map((path) => `${siteUrl}${path}`)
+  assert(JSON.stringify(sitemapIndexLocations(index.body)) === JSON.stringify(expectedChildren), '/sitemap.xml: child sitemap order or set mismatch')
+  assert(!index.body.includes('<lastmod>'), '/sitemap.xml: static child references must omit lastmod')
+
+  const childResults = await Promise.all(expectedChildren.map((location) => get(location.replace(siteUrl, webUrl), 'application/xml')))
+  for (const [childIndex, child] of childResults.entries()) {
+    const path = new URL(expectedChildren[childIndex]).pathname
+    assert(child.response.status === 200, `${path}: expected 200, received ${child.response.status}`)
+    assert(child.response.headers.get('content-type')?.toLowerCase() === 'application/xml; charset=utf-8', `${path}: unexpected content type`)
+    assert(child.response.headers.get('cache-control') === 'max-age=300', `${path}: expected Cache-Control max-age=300`)
+    assert(child.body.endsWith('\n') && child.body.includes('<urlset'), `${path}: invalid URL set`)
+  }
+  const [filmEntries, cinemaEntries, cityEntries] = childResults.map((child) => sitemapEntries(child.body))
+  const expectedFilmEntries = [
+    { loc: `${siteUrl}/`, lastmod: laterTimestamp(allCatalog.generatedAt, ...homepageCatalog.items.map((movie) => movie.updated_at)) },
+    { loc: `${siteUrl}/films`, lastmod: laterTimestamp(allCatalog.generatedAt, ...allCatalog.items.filter((movie) => (movie.showtime_count ?? 0) > 0).map((movie) => movie.updated_at)) },
+    ...allCatalog.items
+      .filter((movie) => (movie.showtime_count ?? 0) > 0 || hasSubstantialEvergreenMovieMetadata(movie))
+      .map((movie) => ({
+        loc: `${siteUrl}/film/${encodeURIComponent(movie.slug)}`,
+        lastmod: (movie.showtime_count ?? 0) > 0 ? laterTimestamp(movie.updated_at, allCatalog.generatedAt) : movie.updated_at
+      }))
+      .sort((left, right) => left.loc.localeCompare(right.loc))
   ]
-  assert(entries.length === expectedLocations.length, `/sitemap.xml: expected ${expectedLocations.length} URLs, received ${entries.length}`)
-  assert(new Set(entries.map((entry) => entry.loc)).size === entries.length, '/sitemap.xml: duplicate URL')
-  assert(entries.every((entry, index) => entry.loc === expectedLocations[index]), '/sitemap.xml: URL order or set mismatch')
-  assert(entries.every((entry) => entry.lastmod === null), '/sitemap.xml: lastmod must be omitted from every URL')
-  assert(!sitemap.body.includes('<lastmod>'), '/sitemap.xml: lastmod element present')
+  const expectedCinemaEntries = [
+    { loc: `${siteUrl}/cinemas`, lastmod: inventory.generated_at },
+    ...[...inventory.theaterSlugs].sort().map((slug) => ({ loc: `${siteUrl}/cinema/${encodeURIComponent(slug)}`, lastmod: inventory.generated_at }))
+  ]
+  const expectedCityEntries = [...inventory.citySlugs].sort().map((slug) => ({ loc: `${siteUrl}/ville/${encodeURIComponent(slug)}/cinemas`, lastmod: inventory.generated_at }))
+  assert(JSON.stringify(filmEntries) === JSON.stringify(expectedFilmEntries), '/sitemaps/films.xml: URL inventory or lastmod mismatch')
+  assert(JSON.stringify(cinemaEntries) === JSON.stringify(expectedCinemaEntries), '/sitemaps/cinemas.xml: URL inventory or lastmod mismatch')
+  assert(JSON.stringify(cityEntries) === JSON.stringify(expectedCityEntries), '/sitemaps/cities.xml: URL inventory or lastmod mismatch')
+  const union = [...filmEntries, ...cinemaEntries, ...cityEntries]
+  assert(new Set(union.map((entry) => entry.loc)).size === union.length, 'Child sitemaps contain duplicate URLs')
+  assert(union.every((entry) => entry.lastmod !== null), 'Child sitemap URL lacks lastmod')
+  assert(!union.some((entry) => ['/planning', '/recherche'].includes(new URL(entry.loc).pathname)), 'Utility route present in child sitemap union')
 
   const robots = await get(`${webUrl}/robots.txt`, 'text/plain')
   assert(robots.response.status === 200, `/robots.txt: expected 200, received ${robots.response.status}`)
   assert(robots.response.headers.get('content-type')?.toLowerCase() === 'text/plain; charset=utf-8', '/robots.txt: unexpected content type')
   assert(robots.body === `User-agent: *\nAllow: /\nSitemap: ${siteUrl}/sitemap.xml\n`, '/robots.txt: body mismatch')
   assert(!robots.body.toLowerCase().includes('disallow'), '/robots.txt: noindex routes must not be disallowed')
+  return { filmLocations: new Set(filmEntries.map((entry) => new URL(entry.loc).pathname)) }
 }
 
 async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
@@ -373,14 +430,15 @@ async function verifyIndexMatrix(catalog, movie, city, theater, defaultDate) {
     ['/', `${siteUrl}/`],
     ['/films', `${siteUrl}/films`],
     ['/cinemas', `${siteUrl}/cinemas`],
-    ['/planning', `${siteUrl}/planning`],
-    ['/recherche', `${siteUrl}/recherche`],
     [`/film/${encodedSlug}`, `${siteUrl}/film/${encodedSlug}`],
     [`/ville/${encodeURIComponent(city.slug)}/cinemas`, `${siteUrl}/ville/${encodeURIComponent(city.slug)}/cinemas`],
     [`/cinema/${encodeURIComponent(theater.slug)}`, `${siteUrl}/cinema/${encodeURIComponent(theater.slug)}`]
   ]
   for (const [path, expectedCanonical] of queryless) {
     verifyPolicy(await get(`${webUrl}${path}`), path, 'index,follow', expectedCanonical)
+  }
+  for (const path of ['/planning', '/recherche']) {
+    verifyPolicy(await get(`${webUrl}${path}`), path, 'noindex,follow', `${siteUrl}${path}`)
   }
 
   const noindexCanonicalCases = [
@@ -752,10 +810,19 @@ async function discoverTodayEmptyFixture(theaters, today) {
   return null
 }
 
-async function verifyEndedFilm(allCatalog, currentCatalog, today) {
+async function verifyEndedFilm(allCatalog, currentCatalog, today, filmLocations) {
   const currentSlugs = new Set(currentCatalog.slugs)
-  let ended = null
-  for (const movie of allCatalog.items.filter((item) => !currentSlugs.has(item.slug))) {
+  const endedCandidates = allCatalog.items.filter((item) => !currentSlugs.has(item.slug))
+  const representatives = [
+    endedCandidates.find(hasSubstantialEvergreenMovieMetadata),
+    endedCandidates.find((movie) => !hasSubstantialEvergreenMovieMetadata(movie))
+  ].filter(Boolean)
+  if (representatives.length === 0) {
+    console.log('Unconfirmed coverage: no ended canonical film fixture was available.')
+    return false
+  }
+
+  for (const movie of representatives) {
     const encodedSlug = encodeURIComponent(movie.slug)
     const apiResult = await get(`${apiUrl}/api/v1/movies/${encodedSlug}/showtimes?date=${today}`)
     assert(apiResult.response.status === 200, `Ended-film candidate API ${movie.slug}: expected 200, received ${apiResult.response.status}`)
@@ -766,24 +833,20 @@ async function verifyEndedFilm(allCatalog, currentCatalog, today) {
       assert(Array.isArray(theater.showtimes), `Ended-film candidate API ${movie.slug}: malformed theater showtimes`)
       return count + theater.showtimes.length
     }, 0)
-    if (schedule.available_dates.length === 0 && schedule.theaters.length === 0 && showtimeCount === 0) {
-      ended = { movie, schedule }
-      break
-    }
-  }
-  if (!ended) {
-    console.log('Unconfirmed coverage: no ended canonical film fixture was available.')
-    return false
-  }
+    assert(schedule.currently_screened === false && schedule.available_dates.length === 0 && schedule.theaters.length === 0 && showtimeCount === 0, `Ended-film candidate API ${movie.slug}: candidate is not ended`)
 
-  const encodedSlug = encodeURIComponent(ended.movie.slug)
-  const path = `/film/${encodedSlug}`
-  const page = await get(`${webUrl}${path}`)
-  verifyPolicy(page, path, 'index,follow', `${siteUrl}${path}`)
-  assert(visibleText(page.body).includes('Aucune séance programmée pour le moment.'), `${path}: ended-film state missing`)
-  verifyFilmJsonLd(page.body, ended.schedule.movie, ended.schedule, path)
-  assert(nodesOfType(graphNodes(page.body), 'ScreeningEvent').length === 0, `${path}: ended film emitted ScreeningEvent JSON-LD`)
-  console.log(`Ended-film fixture: ${ended.movie.slug}; indexable 200 with no-screenings state and no ScreeningEvent.`)
+    const path = `/film/${encodedSlug}`
+    const indexable = hasSubstantialEvergreenMovieMetadata(movie)
+    const page = await get(`${webUrl}${path}`)
+    verifyPolicy(page, path, indexable ? 'index,follow' : 'noindex,follow', `${siteUrl}${path}`)
+    assert(filmLocations.has(path) === indexable, `${path}: page robots and film sitemap qualification diverge`)
+    assert(visibleText(page.body).includes('Aucune séance programmée pour le moment.'), `${path}: ended-film state missing`)
+    verifyFilmJsonLd(page.body, schedule.movie, schedule, path)
+    assert(nodesOfType(graphNodes(page.body), 'ScreeningEvent').length === 0, `${path}: ended film emitted ScreeningEvent JSON-LD`)
+    console.log(`Ended-film fixture: ${movie.slug}; indexable=${indexable}; sitemap parity and no-screenings state verified.`)
+  }
+  if (!representatives.some(hasSubstantialEvergreenMovieMetadata)) console.log('Unconfirmed coverage: no rich ended-film fixture was available.')
+  if (!representatives.some((movie) => !hasSubstantialEvergreenMovieMetadata(movie))) console.log('Unconfirmed coverage: no thin ended-film fixture was available.')
   return true
 }
 
@@ -946,11 +1009,15 @@ async function verifyFailureMode() {
     assert(nodesOfType(graphNodes(result.body), 'BreadcrumbList').length === 0, `${path}: upstream failure emitted BreadcrumbList`)
     assertNoItemList(result.body, path)
   }
-  const sitemap = await get(`${webUrl}/sitemap.xml`, 'application/xml')
-  assert(sitemap.response.status === 503, `/sitemap.xml: expected 503, received ${sitemap.response.status}`)
-  assert(!sitemap.body.includes('<urlset'), '/sitemap.xml: partial or stale sitemap returned on upstream failure')
-  assert(sitemap.response.headers.get('x-robots-tag') === 'noindex,follow', '/sitemap.xml: missing error X-Robots-Tag')
-  console.log('Crawlability upstream-failure checks passed (6 rendered 502 routes, global graph, and non-partial sitemap 503).')
+  const index = await get(`${webUrl}/sitemap.xml`, 'application/xml')
+  assert(index.response.status === 200 && index.body.includes('<sitemapindex'), `/sitemap.xml: static index must remain available during upstream failure`)
+  for (const path of ['/sitemaps/films.xml', '/sitemaps/cinemas.xml', '/sitemaps/cities.xml']) {
+    const child = await get(`${webUrl}${path}`, 'application/xml')
+    assert(child.response.status === 503, `${path}: expected 503, received ${child.response.status}`)
+    assert(!child.body.includes('<urlset'), `${path}: partial URL set returned on upstream failure`)
+    assert(child.response.headers.get('x-robots-tag') === 'noindex,follow', `${path}: missing error X-Robots-Tag`)
+  }
+  console.log('Crawlability upstream-failure checks passed (6 rendered 502 routes, static sitemap index 200, and three non-partial child sitemap 503 responses).')
 }
 
 function listen(server, port = 0) {
@@ -1115,6 +1182,276 @@ function successfulFixtureSchedules(requestedDate) {
     nationwide,
     discardedMarkers: ['discarded-theater-success-990002', 'discarded-showtime-success-990002'],
     nationwideEventMarkers: [lyonTheater.showtimes[0].start_time, lyonTheater.showtimes[1].start_time]
+  }
+}
+
+function sitemapFixtureData(date) {
+  const generatedAt = `${date}T10:00:00Z`
+  const catalogRevision = 'sitemap-fixture-revision-1'
+  const baseMovie = {
+    runtime_minutes: 100,
+    poster_url: null,
+    tmdb_id: null,
+    imdb_id: null,
+    overview: null,
+    release_date: null,
+    genres: []
+  }
+  const current = {
+    ...baseMovie,
+    slug: 'film-991001',
+    title: 'Film fixture actuel',
+    updated_at: `${date}T12:00:00Z`,
+    showtime_count: 2
+  }
+  const pageOneFillers = Array.from({ length: 23 }, (_, index) => ({
+    ...baseMovie,
+    slug: `film-${992001 + index}`,
+    title: `Film fixture actuel page un ${index + 1}`,
+    updated_at: `${date}T09:00:00Z`,
+    genres: ['Drame'],
+    showtime_count: 1
+  }))
+  const offPageCurrent = {
+    ...baseMovie,
+    slug: 'film-992024',
+    title: 'Film fixture actuel hors page',
+    updated_at: `${date}T14:00:00Z`,
+    genres: ['Genre hors première page'],
+    showtime_count: 1
+  }
+  const currentMovies = [current, ...pageOneFillers, offPageCurrent]
+  const richEnded = {
+    ...baseMovie,
+    slug: 'film-991002',
+    title: 'Film fixture terminé riche',
+    updated_at: `${date}T08:00:00Z`,
+    poster_url: 'https://image.tmdb.org/t/p/w500/sitemap-rich-ended.jpg',
+    overview: 'Film terminé avec des informations éditoriales durables.',
+    release_date: date,
+    genres: ['Drame']
+  }
+  const thinEnded = {
+    ...baseMovie,
+    slug: 'film-991003',
+    title: 'Film fixture terminé mince',
+    updated_at: `${date}T07:00:00Z`,
+    overview: 'Résumé sans identité externe.',
+    release_date: date,
+    genres: ['Drame']
+  }
+  const cityInventory = {
+    generated_at: generatedAt,
+    items: [{
+      name: 'Paris',
+      slug: 'paris',
+      theaters: [{ provider: 'ugc', id: 'ugc-sitemap-fixture', slug: 'ugc-sitemap-fixture', name: 'UGC Sitemap Fixture' }]
+    }]
+  }
+  const catalogPage = (items, pageSize, total = items.length) => ({
+    items,
+    available_genres: ['Drame'],
+    page: 1,
+    page_size: pageSize,
+    total,
+    generated_at: generatedAt,
+    catalog_revision: catalogRevision
+  })
+  const endedSchedule = (movie) => ({
+    movie,
+    backdrop_url: null,
+    date,
+    currently_screened: false,
+    available_dates: [],
+    theaters: []
+  })
+  return {
+    generatedAt,
+    catalogRevision,
+    current,
+    currentMovies,
+    offPageCurrent,
+    richEnded,
+    thinEnded,
+    allCatalog: catalogPage([...currentMovies, richEnded, thinEnded], API_PAGE_SIZE),
+    homepageCatalog: catalogPage(currentMovies.slice(0, 6), 6, currentMovies.length),
+    filmsCatalog: {
+      ...catalogPage(currentMovies.slice(0, 24), 24, currentMovies.length),
+      available_genres: ['Drame', 'Genre hors première page']
+    },
+    cityInventory,
+    schedules: new Map([
+      [richEnded.slug, endedSchedule(richEnded)],
+      [thinEnded.slug, endedSchedule(thinEnded)]
+    ])
+  }
+}
+
+async function verifySitemapFixtureMode() {
+  const builtServerPath = fileURLToPath(new URL('../.output/server/index.mjs', import.meta.url))
+  try {
+    await access(builtServerPath)
+  } catch {
+    throw new Error(`Sitemap fixture mode requires current Nuxt build at ${builtServerPath}; run npm --prefix web run build first`)
+  }
+
+  const fixture = sitemapFixtureData(todayInParis())
+  let healthy = false
+  let requestCount = 0
+  const requests = []
+  const mockApi = createServer((request, response) => {
+    const target = new URL(request.url ?? '/', 'http://127.0.0.1')
+    requestCount++
+    requests.push({ pathname: target.pathname, search: target.search })
+    response.setHeader('content-type', 'application/json; charset=utf-8')
+    if (!healthy) {
+      response.statusCode = 503
+      response.end(JSON.stringify({ error: { code: 'fixture_unavailable' } }))
+      return
+    }
+    if (request.method !== 'GET') {
+      response.statusCode = 405
+      response.end(JSON.stringify({ error: { code: 'method_not_allowed' } }))
+      return
+    }
+    if (target.pathname === '/api/v1/movies') {
+      let payload
+      if (target.searchParams.get('include_ended') === 'true'
+        && target.searchParams.get('sort') === 'title_asc'
+        && target.searchParams.get('page') === '1'
+        && target.searchParams.get('page_size') === String(API_PAGE_SIZE)) payload = fixture.allCatalog
+      else if (target.searchParams.get('currently_screened') === 'true'
+        && target.searchParams.get('sort') === 'showtimes_desc'
+        && target.searchParams.get('page') === '1'
+        && target.searchParams.get('page_size') === '6') payload = fixture.homepageCatalog
+      else if (target.searchParams.get('currently_screened') === 'true'
+        && target.searchParams.get('sort') === 'showtimes_desc'
+        && target.searchParams.get('page') === '1'
+        && target.searchParams.get('page_size') === '24') payload = fixture.filmsCatalog
+      if (payload) {
+        response.statusCode = 200
+        response.end(JSON.stringify(payload))
+        return
+      }
+    }
+    if (target.pathname === '/api/v1/cities' && !target.search) {
+      response.statusCode = 200
+      response.end(JSON.stringify(fixture.cityInventory))
+      return
+    }
+    const scheduleMatch = /^\/api\/v1\/movies\/(film-99100[23])\/showtimes$/.exec(target.pathname)
+    if (scheduleMatch && target.searchParams.get('date') === fixture.richEnded.release_date && !target.searchParams.has('theaters')) {
+      const schedule = fixture.schedules.get(scheduleMatch[1])
+      response.statusCode = 200
+      response.end(JSON.stringify(schedule))
+      return
+    }
+    response.statusCode = 404
+    response.end(JSON.stringify({ error: { code: 'not_found' } }))
+  })
+
+  let child
+  try {
+    const apiAddress = await listen(mockApi)
+    const privateApiOrigin = `http://127.0.0.1:${apiAddress.port}`
+    const port = await availablePort()
+    const fixtureWebOrigin = `http://127.0.0.1:${port}`
+    let stdout = ''
+    let stderr = ''
+    child = spawn(process.execPath, [builtServerPath], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      env: {
+        ...process.env,
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        NITRO_HOST: '127.0.0.1',
+        NITRO_PORT: String(port),
+        NUXT_API_BASE: privateApiOrigin,
+        NUXT_PUBLIC_API_BASE: privateApiOrigin,
+        NUXT_PUBLIC_SITE_URL: siteUrl
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    const output = () => `${stdout}${stderr}`.trim().slice(-4000)
+    const index = await waitForBuiltPage(`${fixtureWebOrigin}/sitemap.xml`, child, output)
+    assert(index.response.status === 200, 'Sitemap fixture: static index failed while API unavailable')
+    assert(index.response.headers.get('cache-control') === 'max-age=300', 'Sitemap fixture: index cache header mismatch')
+    assert(JSON.stringify(sitemapIndexLocations(index.body)) === JSON.stringify([
+      `${siteUrl}/sitemaps/films.xml`,
+      `${siteUrl}/sitemaps/cinemas.xml`,
+      `${siteUrl}/sitemaps/cities.xml`
+    ]), 'Sitemap fixture: index children mismatch')
+    assert(requestCount === 0, 'Sitemap fixture: static index contacted API')
+
+    const childPaths = ['/sitemaps/films.xml', '/sitemaps/cinemas.xml', '/sitemaps/cities.xml']
+    for (const path of childPaths) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const before = requestCount
+        const failed = await get(`${fixtureWebOrigin}${path}`, 'application/xml')
+        assert(failed.response.status === 503, `Sitemap fixture: ${path} failure attempt ${attempt} returned ${failed.response.status}`)
+        assert(!failed.body.includes('<urlset'), `Sitemap fixture: ${path} failure returned partial URL set`)
+        assert(requestCount > before, `Sitemap fixture: ${path} failure attempt ${attempt} was cached`)
+      }
+    }
+
+    healthy = true
+    const successfulChildren = []
+    for (const path of childPaths) {
+      const result = await get(`${fixtureWebOrigin}${path}`, 'application/xml')
+      assert(result.response.status === 200, `Sitemap fixture: ${path} expected 200, received ${result.response.status}`)
+      assert(result.response.headers.get('cache-control') === 'max-age=300', `Sitemap fixture: ${path} cache header mismatch`)
+      successfulChildren.push(result)
+    }
+    const [films, cinemas, cities] = successfulChildren.map((result) => sitemapEntries(result.body))
+    const expectedFilmEntries = [
+      { loc: `${siteUrl}/`, lastmod: fixture.current.updated_at },
+      { loc: `${siteUrl}/films`, lastmod: fixture.offPageCurrent.updated_at },
+      ...[...fixture.currentMovies, fixture.richEnded]
+        .map((movie) => ({
+          loc: `${siteUrl}/film/${movie.slug}`,
+          lastmod: movie.showtime_count > 0 ? laterTimestamp(movie.updated_at, fixture.generatedAt) : movie.updated_at
+        }))
+        .sort((left, right) => left.loc.localeCompare(right.loc))
+    ]
+    assert(JSON.stringify(films) === JSON.stringify(expectedFilmEntries), 'Sitemap fixture: film inventory or source timestamps mismatch')
+    assert(fixture.filmsCatalog.items.length === 24 && !fixture.filmsCatalog.items.some((movie) => movie.slug === fixture.offPageCurrent.slug), 'Sitemap fixture: updated current movie must remain off page one')
+    assert(fixture.filmsCatalog.available_genres.includes('Genre hors première page'), 'Sitemap fixture: off-page genre must affect rendered catalog metadata')
+    assert(films.find((entry) => entry.loc === `${siteUrl}/films`)?.lastmod === fixture.offPageCurrent.updated_at, 'Sitemap fixture: off-page current metadata update did not advance /films lastmod')
+    assert(JSON.stringify(cinemas) === JSON.stringify([
+      { loc: `${siteUrl}/cinemas`, lastmod: fixture.generatedAt },
+      { loc: `${siteUrl}/cinema/ugc-sitemap-fixture`, lastmod: fixture.generatedAt }
+    ]), 'Sitemap fixture: cinema inventory or source timestamps mismatch')
+    assert(JSON.stringify(cities) === JSON.stringify([
+      { loc: `${siteUrl}/ville/paris/cinemas`, lastmod: fixture.generatedAt }
+    ]), 'Sitemap fixture: city inventory or source timestamps mismatch')
+
+    const afterMisses = requestCount
+    await get(`${fixtureWebOrigin}/sitemap.xml`, 'application/xml')
+    for (const path of childPaths) await get(`${fixtureWebOrigin}${path}`, 'application/xml')
+    assert(requestCount === afterMisses, 'Sitemap fixture: cached sitemap success contacted API')
+
+    for (const path of ['/planning', '/planning?date=2026-01-01', '/recherche', '/recherche?grouping=chronological']) {
+      const page = await get(`${fixtureWebOrigin}${path}`)
+      const canonicalPath = path.split('?')[0]
+      verifyPolicy(page, path, 'noindex,follow', `${siteUrl}${canonicalPath}`)
+    }
+    for (const [movie, expectedRobots, expectedMembership] of [
+      [fixture.richEnded, 'index,follow', true],
+      [fixture.thinEnded, 'noindex,follow', false]
+    ]) {
+      const path = `/film/${movie.slug}`
+      const page = await get(`${fixtureWebOrigin}${path}`)
+      verifyPolicy(page, path, expectedRobots, `${siteUrl}${path}`)
+      assert(films.some((entry) => new URL(entry.loc).pathname === path) === expectedMembership, `Sitemap fixture: ${movie.slug} robots/sitemap parity mismatch`)
+    }
+    assert(!films.some((entry) => ['/planning', '/recherche', `/film/${fixture.thinEnded.slug}`].includes(new URL(entry.loc).pathname)), 'Sitemap fixture: excluded utility or thin-film URL present')
+    assert(requests.some((request) => request.pathname === '/api/v1/movies') && requests.some((request) => request.pathname === '/api/v1/cities'), 'Sitemap fixture: production API routes were not exercised')
+    console.log(`Crawlability sitemap-fixture checks passed (static index, 3 uncached failure pairs, 3 cached child successes, off-page current-film lastmod, utility noindex, and rich/thin ended-film parity; ${requestCount} API requests).`)
+  } finally {
+    if (child) await stopChild(child)
+    if (mockApi.listening) await closeServer(mockApi)
   }
 }
 
@@ -1381,7 +1718,7 @@ async function verifyNormalMode() {
   const theaterResponse = JSON.parse(theaterApi.body)
   assert(theaterResponse.generated_at === currentCatalog.generatedAt, 'Representative theater generation mismatch')
 
-  await verifyDiscovery(allCatalog, inventory)
+  const discoveryEvidence = await verifyDiscovery(allCatalog, inventory)
   await verifyIndexMatrix(currentCatalog, movie, city, theater, today)
   await verifyCatalogLinks(currentCatalog)
   await verifyCinemaDirectory(inventory)
@@ -1498,7 +1835,7 @@ async function verifyNormalMode() {
     console.log('Unconfirmed coverage: no cinema without sessions today was available.')
   }
 
-  await verifyEndedFilm(allCatalog, currentCatalog, today)
+  await verifyEndedFilm(allCatalog, currentCatalog, today, discoveryEvidence.filmLocations)
   await verifyHistoricalAlias(allCatalog, today)
 
   const missingPath = '/film/__crawlability-missing-film__'
@@ -1518,4 +1855,12 @@ async function verifyNormalMode() {
   console.log(`Crawlability checks passed (${currentCatalog.total} current films, ${allCatalog.total} canonical films, ${inventory.citySlugs.length} cities, ${inventory.theaterSlugs.length} cinemas, exact sitemap, descriptions, JSON-LD, indexing, links, redirects, and errors).`)
 }
 
-await (expectSsrSuccess ? verifySsrSuccessMode() : expectSeoOnlyFailure ? verifySeoOnlyFailureMode() : expectUpstreamFailure ? verifyFailureMode() : verifyNormalMode())
+await (expectSitemapFixture
+  ? verifySitemapFixtureMode()
+  : expectSsrSuccess
+    ? verifySsrSuccessMode()
+    : expectSeoOnlyFailure
+      ? verifySeoOnlyFailureMode()
+      : expectUpstreamFailure
+        ? verifyFailureMode()
+        : verifyNormalMode())

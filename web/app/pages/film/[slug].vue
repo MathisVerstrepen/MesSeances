@@ -6,6 +6,7 @@ import { formatLabel, isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
 import { serializeJsonLd } from '~/utils/jsonLd'
+import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -495,7 +496,7 @@ const seoDescription = computed(() => {
   return movie.overview?.trim() || `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
 })
 const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url) ?? safePosterUrl(schedule.value?.movie.poster_url) ?? fallbackImageUrl)
-const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
+const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value && isIndexableMovie(schedule.value.movie, schedule.value.currently_screened)
   ? 'index,follow'
   : 'noindex,follow')
 useSeoMeta({
