@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
-import '@vuepic/vue-datepicker/dist/main.css'
 import { calendarDateFromDate, dateFromCalendarDate, formatLongDate } from '~/utils/date'
 
 const props = withDefaults(defineProps<{
@@ -47,7 +45,7 @@ const calendarAriaLabels = {
 </script>
 
 <template>
-  <VueDatePicker
+  <DeferredVueDatePicker
     v-model="pickerDate"
     class="min-w-0 shrink-0"
     :allowed-dates="allowedDateValues"
@@ -68,11 +66,11 @@ const calendarAriaLabels = {
     <template #trigger>
       <slot name="trigger" :is-open="isOpen" :trigger-label="triggerLabel" :disabled="disabled" />
     </template>
-  </VueDatePicker>
+  </DeferredVueDatePicker>
 </template>
 
 <style scoped>
-:global(.editorial-calendar-menu) {
+:global(.dp--menu.editorial-calendar-menu) {
   --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;
   --dp-cell-border-radius: 0;
@@ -99,19 +97,19 @@ const calendarAriaLabels = {
   box-shadow: 6px 6px 0 #27272a;
 }
 
-:global(.editorial-calendar-menu .dp__calendar_header_item),
-:global(.editorial-calendar-menu .dp__month_year_select) {
+:global(.editorial-calendar-menu .dp--calendar-header-item),
+:global(.editorial-calendar-menu .dp--month-year-select) {
   font-size: 0.65rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-:global(.editorial-calendar-menu .dp__active_date) {
+:global(.editorial-calendar-menu .dp--active) {
   box-shadow: inset 0 -3px 0 var(--color-highlight);
 }
 
-:global(.editorial-calendar-menu .dp__today) {
+:global(.editorial-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
 }
 </style>

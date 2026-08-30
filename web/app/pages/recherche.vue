@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, CalendarDays, CalendarSearch, LoaderCircle, Search, SlidersHorizontal, X } from '@lucide/vue'
-import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
-import '@vuepic/vue-datepicker/dist/main.css'
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
@@ -711,7 +709,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               >
                 Demain
               </button>
-              <VueDatePicker
+              <DeferredVueDatePicker
                 :key="isCenteredCalendar ? 'centered' : 'anchored'"
                 v-model="datePickerDate"
                 class="min-w-0"
@@ -746,7 +744,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                     <CalendarDays :size="19" aria-hidden="true" />
                   </button>
                 </template>
-              </VueDatePicker>
+              </DeferredVueDatePicker>
             </div>
             <p v-if="isInitialized && !hasAvailableDates" class="mt-2 text-sm font-semibold text-ink" role="status">Aucune date de séance disponible pour ces cinémas.</p>
           </fieldset>
@@ -866,7 +864,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </template>
 
 <style scoped>
-:global(.editorial-calendar-menu) {
+:global(.dp--menu.editorial-calendar-menu) {
   --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;
   --dp-cell-border-radius: 0;
@@ -893,19 +891,19 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
   box-shadow: 6px 6px 0 #27272a;
 }
 
-:global(.editorial-calendar-menu .dp__calendar_header_item),
-:global(.editorial-calendar-menu .dp__month_year_select) {
+:global(.editorial-calendar-menu .dp--calendar-header-item),
+:global(.editorial-calendar-menu .dp--month-year-select) {
   font-size: 0.65rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-:global(.editorial-calendar-menu .dp__active_date) {
+:global(.editorial-calendar-menu .dp--active) {
   box-shadow: inset 0 -3px 0 var(--color-highlight);
 }
 
-:global(.editorial-calendar-menu .dp__today) {
+:global(.editorial-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
 }
 
