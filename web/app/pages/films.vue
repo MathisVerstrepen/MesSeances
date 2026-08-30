@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { AlertTriangle, CalendarDays, Film, LoaderCircle, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
-import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
-import '@vuepic/vue-datepicker/dist/main.css'
 import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
 import { addCalendarDays, calendarDateFromDate, dateFromCalendarDate, formatShortCalendarDate, todayInParis } from '~/utils/date'
 import {
@@ -599,8 +597,9 @@ useHead(() => ({
 
                   <div v-if="draftFilters.dateMode === 'custom'" class="mt-3">
                     <label for="film-custom-date" class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Date (dd-MM-yy)</label>
-                    <VueDatePicker
+                    <DeferredVueDatePicker
                       v-model="singlePickerDate"
+                      active
                       class="catalog-datepicker [--dp-background-color:#fff] [--dp-border-color-focus:#27272a] [--dp-border-color-hover:#27272a] [--dp-border-color:#27272a] [--dp-border-radius:0] [--dp-cell-border-radius:0] [--dp-font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] [--dp-font-size:0.82rem] [--dp-icon-color:#27272a] [--dp-primary-color:#27272a] [--dp-primary-text-color:#fff] [--dp-text-color:#27272a]"
                       :aria-labels="calendarAriaLabels"
                       :formats="datePickerFormats"
@@ -620,13 +619,14 @@ useHead(() => ({
                       @cleared="draftFilters.customDate = ''"
                     >
                       <template #input-icon><CalendarDays :size="18" aria-hidden="true" /></template>
-                    </VueDatePicker>
+                    </DeferredVueDatePicker>
                   </div>
 
                   <div v-else-if="draftFilters.dateMode === 'range'" class="mt-3">
                     <label for="film-custom-range" class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Période (dd-MM-yy)</label>
-                    <VueDatePicker
+                    <DeferredVueDatePicker
                       v-model="rangePickerDates"
+                      active
                       class="catalog-datepicker [--dp-background-color:#fff] [--dp-border-color-focus:#27272a] [--dp-border-color-hover:#27272a] [--dp-border-color:#27272a] [--dp-border-radius:0] [--dp-cell-border-radius:0] [--dp-font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] [--dp-font-size:0.82rem] [--dp-icon-color:#27272a] [--dp-primary-color:#27272a] [--dp-primary-text-color:#fff] [--dp-text-color:#27272a]"
                       :aria-labels="calendarAriaLabels"
                       :formats="datePickerFormats"
@@ -647,7 +647,7 @@ useHead(() => ({
                       @cleared="draftFilters.rangeStart = ''; draftFilters.rangeEnd = ''"
                     >
                       <template #input-icon><CalendarDays :size="18" aria-hidden="true" /></template>
-                    </VueDatePicker>
+                    </DeferredVueDatePicker>
                   </div>
                   <p v-if="draftError" id="film-date-error" class="mt-2 text-sm font-bold text-red-800" role="alert">{{ draftError }}</p>
                 </fieldset>
@@ -740,18 +740,18 @@ useHead(() => ({
 </template>
 
 <style scoped>
-.catalog-datepicker :deep(.dp__input) {
+.catalog-datepicker :deep(.dp--input) {
   min-height: 3.25rem;
   border-width: 2px;
   border-radius: 0;
   font-weight: 800;
 }
 
-.catalog-datepicker :deep(.dp__input_focus) {
+.catalog-datepicker :deep(.dp--input-focus) {
   box-shadow: inset 0 0 0 2px var(--color-highlight);
 }
 
-:global(.catalog-calendar-menu) {
+:global(.dp--menu.catalog-calendar-menu) {
   --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;
   --dp-cell-border-radius: 0;
@@ -777,22 +777,22 @@ useHead(() => ({
   box-shadow: 6px 6px 0 #27272a;
 }
 
-:global(.catalog-calendar-menu .dp__calendar_header_item),
-:global(.catalog-calendar-menu .dp__month_year_select) {
+:global(.catalog-calendar-menu .dp--calendar-header-item),
+:global(.catalog-calendar-menu .dp--month-year-select) {
   font-size: 0.65rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-:global(.catalog-calendar-menu .dp__active_date),
-:global(.catalog-calendar-menu .dp__range_between),
-:global(.catalog-calendar-menu .dp__range_start),
-:global(.catalog-calendar-menu .dp__range_end) {
+:global(.catalog-calendar-menu .dp--active),
+:global(.catalog-calendar-menu .dp--range-between),
+:global(.catalog-calendar-menu .dp--range-border-start),
+:global(.catalog-calendar-menu .dp--range-border-end) {
   box-shadow: inset 0 -3px 0 var(--color-highlight);
 }
 
-:global(.catalog-calendar-menu .dp__today) {
+:global(.catalog-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
 }
 
