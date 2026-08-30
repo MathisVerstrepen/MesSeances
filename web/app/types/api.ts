@@ -99,6 +99,73 @@ export interface AdminSessionResponse {
   authenticated: boolean
 }
 
+export const adminMovieFields = [
+  'title',
+  'runtime_minutes',
+  'release_date',
+  'genres',
+  'overview',
+  'poster_url',
+  'backdrop_url',
+  'trailer_vf_youtube_key',
+  'trailer_vo_youtube_key'
+] as const
+
+export type AdminMovieField = typeof adminMovieFields[number]
+export type AdminMovieOverrideStatus = 'all' | 'overridden' | 'automatic'
+export type AdminMovieSort = 'title' | 'runtime_minutes' | 'release_date' | 'updated_at' | 'id'
+export type AdminMovieSortDirection = 'asc' | 'desc'
+
+export interface AdminMovieMetadata {
+  title: string
+  runtime_minutes: number
+  release_date: string | null
+  genres: string[]
+  overview: string | null
+  poster_url: string | null
+  backdrop_url: string | null
+  trailer_vf_youtube_key: string | null
+  trailer_vo_youtube_key: string | null
+}
+
+export interface AdminMovieItem {
+  id: string
+  updated_at: string
+  automatic: AdminMovieMetadata
+  values: AdminMovieMetadata
+  overridden_fields: AdminMovieField[]
+}
+
+export interface AdminMoviesResponse {
+  items: AdminMovieItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AdminMoviesQuery {
+  limit: number
+  offset: number
+  search?: string
+  runtime_min?: number
+  runtime_max?: number
+  release_date_from?: string
+  release_date_to?: string
+  genre?: string
+  override_status: AdminMovieOverrideStatus
+  override_field?: AdminMovieField
+  sort: AdminMovieSort
+  direction: AdminMovieSortDirection
+}
+
+export type AdminMovieOverrideValues = Partial<AdminMovieMetadata>
+
+export interface AdminMoviePatchRequest {
+  expected_updated_at: string
+  overrides?: AdminMovieOverrideValues
+  restore?: AdminMovieField[]
+}
+
 export type AdminTheaterLocationStatus = 'ambiguous' | 'not_found'
 
 export interface AdminTheaterLocationSuggestion {

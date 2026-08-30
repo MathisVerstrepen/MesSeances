@@ -50,6 +50,13 @@ useHead({ title: 'Administration - MesSeances' })
           <span class="min-w-0 flex-1 text-base font-semibold text-ink">Correspondances TMDB</span>
           <ArrowRight :size="20" class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" aria-hidden="true" />
         </NuxtLink>
+        <NuxtLink to="/admin/movies" class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover">
+          <span class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent">
+            <Film :size="22" aria-hidden="true" />
+          </span>
+          <span class="min-w-0 flex-1 text-base font-semibold text-ink">Métadonnées des films</span>
+          <ArrowRight :size="20" class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" aria-hidden="true" />
+        </NuxtLink>
         <NuxtLink to="/admin/sync" class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover">
           <span class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent">
             <RefreshCw :size="22" aria-hidden="true" />

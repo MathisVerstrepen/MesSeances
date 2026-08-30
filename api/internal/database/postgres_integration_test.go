@@ -361,6 +361,59 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 		t.Fatal("legacy public trailer column still exists")
 	}
 
+	var overrideMovieID int64
+	if err := pool.QueryRow(ctx, "SELECT id FROM public_movies WHERE identity_anchor_provider='ugc' AND identity_anchor_source_movie_id='10'").Scan(&overrideMovieID); err != nil {
+		t.Fatal("load override migration fixture failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (
+    public_movie_id,title,title_overridden,runtime_minutes,runtime_minutes_overridden,
+    release_date,release_date_overridden,genres,genres_overridden,overview,overview_overridden,
+    poster_url,poster_url_overridden,backdrop_url,backdrop_url_overridden,
+    trailer_vf_youtube_key,trailer_vf_youtube_key_overridden,trailer_vo_youtube_key,trailer_vo_youtube_key_overridden
+) VALUES ($1,'Titre',true,0,true,NULL,true,'{}',true,NULL,true,NULL,true,NULL,true,NULL,true,NULL,true)`, overrideMovieID); err != nil {
+		t.Fatalf("valid explicit-null and empty override rejected: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "DELETE FROM public_movie_metadata_overrides WHERE public_movie_id=$1", overrideMovieID); err != nil {
+		t.Fatal("reset override migration fixture failed")
+	}
+	invalidOverrides := []string{
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id) VALUES ($1)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,title,title_overridden) VALUES ($1,'value',false)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,title_overridden) VALUES ($1,true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,title,title_overridden) VALUES ($1,'   ',true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,runtime_minutes,runtime_minutes_overridden) VALUES ($1,-1,true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,genres,genres_overridden) VALUES ($1,NULL,true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,genres,genres_overridden) VALUES ($1,ARRAY[''],true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,poster_url,poster_url_overridden) VALUES ($1,'http://example.com/a.jpg',true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,backdrop_url,backdrop_url_overridden) VALUES ($1,'relative.jpg',true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,trailer_vf_youtube_key,trailer_vf_youtube_key_overridden) VALUES ($1,'short',true)`,
+		`INSERT INTO public_movie_metadata_overrides (public_movie_id,trailer_vf_youtube_key,trailer_vf_youtube_key_overridden,trailer_vo_youtube_key,trailer_vo_youtube_key_overridden) VALUES ($1,'samekey1234',true,'samekey1234',true)`,
+	}
+	for _, statement := range invalidOverrides {
+		if _, err := pool.Exec(ctx, statement, overrideMovieID); err == nil {
+			t.Fatalf("invalid metadata override accepted: %s", statement)
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (public_movie_id,title,title_overridden) VALUES (9223372036854775807,'Missing',true)`); err == nil {
+		t.Fatal("override with missing public movie accepted")
+	}
+	var cascadeMovieID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO public_movies
+    (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,genres)
+VALUES ('kinepolis','override-cascade-test','Cascade',1,'{}') RETURNING id`).Scan(&cascadeMovieID); err != nil {
+		t.Fatal("insert override cascade movie failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (public_movie_id,title,title_overridden) VALUES ($1,'Manual',true)`, cascadeMovieID); err != nil {
+		t.Fatal("insert override cascade row failed")
+	}
+	if _, err := pool.Exec(ctx, "DELETE FROM public_movies WHERE id=$1", cascadeMovieID); err != nil {
+		t.Fatal("delete override cascade movie failed")
+	}
+	var cascadeCount int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM public_movie_metadata_overrides WHERE public_movie_id=$1", cascadeMovieID).Scan(&cascadeCount); err != nil || cascadeCount != 0 {
+		t.Fatalf("cascade override count=%d err=%v", cascadeCount, err)
+	}
+
 	if err := RunMigrations(ctx, pool); err != nil {
 		t.Fatal("repeat migration run failed")
 	}
@@ -368,6 +421,123 @@ VALUES ('ugc','10','tmdb','unmatched','marathon',600,'[]',$1,$1,$1)`, databaseNo
 	assertCompleteMigrationHistory(t, ctx, pool, migrations)
 	if err := pool.QueryRow(ctx, "SELECT refresh_after FROM movie_metadata_cache WHERE provider_movie_id=42").Scan(&repeatedRefresh); err != nil || !repeatedRefresh.Equal(staleRefresh) {
 		t.Fatalf("repeat run changed stale refresh=%s err=%v", repeatedRefresh, err)
+	}
+}
+
+func TestMetadataOverridesMigrationWithoutHistoricalGenreHelperIntegration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate schema nonce failed")
+	}
+	schema := "movieflow_override_compat_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "movieflow_override_compat_test_") {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
+			t.Error("drop integration schema failed")
+		}
+	})
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool configuration failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+
+	migrations := mustEmbeddedMigrations(t)
+	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal("create migration history failed")
+	}
+	for _, migration := range requireMigrationPrefix(t, migrations, 29, "029_multi_sync_schedules.sql") {
+		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
+		}
+		if _, err := pool.Exec(ctx, "INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)", migration.version, migration.name); err != nil {
+			t.Fatal("record fixture migration failed")
+		}
+	}
+	for _, table := range []string{"public_movies", "public_movie_sources"} {
+		var constraint string
+		if err := pool.QueryRow(ctx, `SELECT constraint_name
+FROM information_schema.check_constraints
+WHERE constraint_schema=current_schema()
+  AND constraint_name IN (
+      SELECT constraint_name FROM information_schema.constraint_column_usage
+      WHERE table_schema=current_schema() AND table_name=$1 AND column_name='genres'
+  )
+  AND check_clause LIKE '%public_movie_genres_valid%'`, table).Scan(&constraint); err != nil {
+			t.Fatalf("find %s genre constraint failed: %v", table, err)
+		}
+		statement := "ALTER TABLE " + pgx.Identifier{table}.Sanitize() + " DROP CONSTRAINT " + pgx.Identifier{constraint}.Sanitize() +
+			", ADD CONSTRAINT " + pgx.Identifier{constraint}.Sanitize() + " CHECK (cardinality(genres) <= 32)"
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			t.Fatalf("replace %s genre constraint failed: %v", table, err)
+		}
+	}
+	if _, err := pool.Exec(ctx, "DROP FUNCTION public_movie_genres_valid(text[])"); err != nil {
+		t.Fatal("drop historical genre helper failed")
+	}
+	var helperMissing bool
+	if err := pool.QueryRow(ctx, "SELECT to_regprocedure('public_movie_genres_valid(text[])') IS NULL").Scan(&helperMissing); err != nil || !helperMissing {
+		t.Fatalf("historical genre helper missing=%t err=%v", helperMissing, err)
+	}
+
+	if err := RunMigrations(ctx, pool); err != nil {
+		t.Fatalf("run migration 030 without historical genre helper failed: %v", err)
+	}
+	var migrationCount int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM movieflow_schema_migrations WHERE version=30 AND name='030_public_movie_metadata_overrides.sql'").Scan(&migrationCount); err != nil || migrationCount != 1 {
+		t.Fatalf("migration 030 count=%d err=%v", migrationCount, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT to_regprocedure('public_movie_genres_valid(text[])') IS NULL").Scan(&helperMissing); err != nil || !helperMissing {
+		t.Fatalf("migration unexpectedly required historical helper missing=%t err=%v", helperMissing, err)
+	}
+	var movieID int64
+	if err := pool.QueryRow(ctx, `INSERT INTO public_movies
+    (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,genres)
+VALUES ('kinepolis','override-compatibility','Compatibility',90,'{}') RETURNING id`).Scan(&movieID); err != nil {
+		t.Fatal("insert compatibility public movie failed")
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (public_movie_id,genres,genres_overridden)
+VALUES ($1,ARRAY(SELECT 'Genre' FROM generate_series(1,32)),true)`, movieID); err != nil {
+		t.Fatalf("valid compatibility genres rejected: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "DELETE FROM public_movie_metadata_overrides WHERE public_movie_id=$1", movieID); err != nil {
+		t.Fatal("reset compatibility override failed")
+	}
+	for _, genres := range []string{
+		"ARRAY(SELECT 'Genre' FROM generate_series(1,33))",
+		"ARRAY[NULL]::text[]",
+		"ARRAY['   ']",
+		"ARRAY[repeat('x',257)]",
+	} {
+		statement := "INSERT INTO public_movie_metadata_overrides (public_movie_id,genres,genres_overridden) VALUES ($1," + genres + ",true)"
+		if _, err := pool.Exec(ctx, statement, movieID); err == nil {
+			t.Fatalf("invalid compatibility genres accepted: %s", genres)
+		}
 	}
 }
 

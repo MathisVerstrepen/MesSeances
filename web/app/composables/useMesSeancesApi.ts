@@ -6,6 +6,10 @@ import type {
   AdminLocalMovieGroup,
   AdminLocalMovieGroupsResponse,
   AdminMatchDecisionResponse,
+  AdminMovieItem,
+  AdminMoviePatchRequest,
+  AdminMoviesQuery,
+  AdminMoviesResponse,
   AdminPendingMatchesFilter,
   AdminPendingMatchesResponse,
   AdminSaveSyncScheduleRequest,
@@ -94,6 +98,20 @@ export function useMesSeancesApi() {
     },
     adminSession() {
       return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, { credentials: 'include' })
+    },
+    adminMovies(query: AdminMoviesQuery, signal?: AbortSignal) {
+      return withAdminRedirect($fetch<AdminMoviesResponse>(`${apiBase}/api/v1/admin/movies`, {
+        credentials: 'include',
+        query: queryValues(query),
+        signal
+      }))
+    },
+    adminUpdateMovie(id: string, input: AdminMoviePatchRequest) {
+      return withAdminRedirect($fetch<AdminMovieItem>(`${apiBase}/api/v1/admin/movies/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        body: input
+      }))
     },
     adminLogin(password: string) {
       return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/login`, {
@@ -281,6 +299,13 @@ export function getFrenchShortLinkPreparationError(cause: unknown): string {
 export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
+  if (code === 'invalid_admin_movie_query') return 'Filtres de films invalides.'
+  if (code === 'invalid_admin_movie_id') return 'Identifiant de film invalide.'
+  if (code === 'invalid_admin_movie_update') return 'Modifications de film invalides.'
+  if (code === 'admin_movie_not_found') return 'Film introuvable.'
+  if (code === 'admin_movie_conflict') return 'Ce film a changé. La liste a été actualisée.'
+  if (code === 'admin_movie_list_failed') return 'Impossible de charger les films.'
+  if (code === 'admin_movie_update_failed') return 'Impossible d’enregistrer le film.'
   if (code === 'review_unavailable') return 'Le service de validation TMDB est temporairement indisponible.'
   if (code === 'tmdb_rerun_in_progress') return 'Une relance TMDB est déjà en cours.'
   if (code === 'tmdb_rerun_unavailable') return 'Le service de relance TMDB est temporairement indisponible.'

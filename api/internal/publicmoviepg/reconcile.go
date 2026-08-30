@@ -75,6 +75,17 @@ type component struct {
 	anchor       sourceKey
 	metadata     metadata
 	publicID     int64
+	allocated    bool
+}
+
+type metadataOverride struct {
+	title, overview, poster, backdrop, trailerVF, trailerVO *string
+	runtime                                                 *int
+	releaseDate                                             *time.Time
+	genres                                                  []string
+	titleSet, runtimeSet, releaseDateSet, genresSet         bool
+	overviewSet, posterSet, backdropSet                     bool
+	trailerVFSet, trailerVOSet                              bool
 }
 
 // Reconcile updates durable public identities using only strict persisted evidence.
@@ -131,6 +142,13 @@ func Reconcile(ctx context.Context, tx pgx.Tx) error {
 	}
 	retainedOrphans, err := assignPublicIDs(ctx, tx, components, movies)
 	if err != nil {
+		return err
+	}
+	overrides, err := loadMetadataOverrides(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if err := inheritMetadataOverrides(ctx, tx, components, movies, overrides); err != nil {
 		return err
 	}
 	if err := persistAssignments(ctx, tx, components, movies, retainedOrphans); err != nil {
@@ -498,9 +516,161 @@ func assignPublicIDs(ctx context.Context, tx pgx.Tx, components []*component, mo
 			component.metadata.overview, component.metadata.releaseDate, component.metadata.genres).Scan(&component.publicID); err != nil {
 			return nil, fmt.Errorf("allocate reconciled public movie failed")
 		}
+		component.allocated = true
 		claimed[component.publicID] = true
 	}
 	return retainedOrphans, nil
+}
+
+func loadMetadataOverrides(ctx context.Context, tx pgx.Tx) (map[int64]metadataOverride, error) {
+	rows, err := tx.Query(ctx, `SELECT public_movie_id,
+    title, title_overridden, runtime_minutes, runtime_minutes_overridden,
+    release_date, release_date_overridden, genres, genres_overridden,
+    overview, overview_overridden, poster_url, poster_url_overridden,
+    backdrop_url, backdrop_url_overridden,
+    trailer_vf_youtube_key, trailer_vf_youtube_key_overridden,
+    trailer_vo_youtube_key, trailer_vo_youtube_key_overridden
+FROM public_movie_metadata_overrides ORDER BY public_movie_id FOR UPDATE`)
+	if err != nil {
+		return nil, fmt.Errorf("lock public movie metadata overrides failed")
+	}
+	defer rows.Close()
+	result := make(map[int64]metadataOverride)
+	for rows.Next() {
+		var id int64
+		var item metadataOverride
+		if err := rows.Scan(
+			&id, &item.title, &item.titleSet, &item.runtime, &item.runtimeSet,
+			&item.releaseDate, &item.releaseDateSet, &item.genres, &item.genresSet,
+			&item.overview, &item.overviewSet, &item.poster, &item.posterSet,
+			&item.backdrop, &item.backdropSet, &item.trailerVF, &item.trailerVFSet,
+			&item.trailerVO, &item.trailerVOSet,
+		); err != nil {
+			return nil, fmt.Errorf("lock public movie metadata overrides failed")
+		}
+		result[id] = item
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("lock public movie metadata overrides failed")
+	}
+	return result, nil
+}
+
+func inheritMetadataOverrides(ctx context.Context, tx pgx.Tx, components []*component, movies map[int64]publicMovie, overrides map[int64]metadataOverride) error {
+	for _, item := range components {
+		sourceIDs := make([]int64, 0)
+		if item.allocated {
+			for id, movie := range movies {
+				if movie.redirectTo != 0 && containsSource(item, movie.anchor) {
+					sourceIDs = append(sourceIDs, id)
+				}
+			}
+		} else {
+			for _, id := range componentPublicIDs(item) {
+				if id != item.publicID {
+					sourceIDs = append(sourceIDs, id)
+				}
+			}
+		}
+		sort.Slice(sourceIDs, func(i, j int) bool { return sourceIDs[i] < sourceIDs[j] })
+		target := overrides[item.publicID]
+		changed := false
+		for _, id := range sourceIDs {
+			sourceState, ok := overrides[id]
+			if !ok {
+				continue
+			}
+			changed = target.inherit(sourceState) || changed
+		}
+		if !changed {
+			continue
+		}
+		if err := persistMetadataOverride(ctx, tx, item.publicID, target); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, "UPDATE public_movies SET updated_at=CURRENT_TIMESTAMP WHERE id=$1", item.publicID); err != nil {
+			return fmt.Errorf("touch inherited public movie metadata overrides failed")
+		}
+		overrides[item.publicID] = target
+	}
+	return nil
+}
+
+func (target *metadataOverride) inherit(source metadataOverride) bool {
+	changed := false
+	if !target.titleSet && source.titleSet {
+		target.title, target.titleSet, changed = clone(source.title), true, true
+	}
+	if !target.runtimeSet && source.runtimeSet {
+		target.runtime, target.runtimeSet, changed = clone(source.runtime), true, true
+	}
+	if !target.releaseDateSet && source.releaseDateSet {
+		target.releaseDate, target.releaseDateSet, changed = clone(source.releaseDate), true, true
+	}
+	if !target.genresSet && source.genresSet {
+		target.genres, target.genresSet, changed = append(make([]string, 0, len(source.genres)), source.genres...), true, true
+	}
+	if !target.overviewSet && source.overviewSet {
+		target.overview, target.overviewSet, changed = clone(source.overview), true, true
+	}
+	if !target.posterSet && source.posterSet {
+		target.poster, target.posterSet, changed = clone(source.poster), true, true
+	}
+	if !target.backdropSet && source.backdropSet {
+		target.backdrop, target.backdropSet, changed = clone(source.backdrop), true, true
+	}
+	if !target.trailerVFSet && source.trailerVFSet {
+		target.trailerVF, target.trailerVFSet, changed = clone(source.trailerVF), true, true
+	}
+	if !target.trailerVOSet && source.trailerVOSet {
+		target.trailerVO, target.trailerVOSet, changed = clone(source.trailerVO), true, true
+	}
+	return changed
+}
+
+func persistMetadataOverride(ctx context.Context, tx pgx.Tx, id int64, item metadataOverride) error {
+	_, err := tx.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (
+    public_movie_id, title, title_overridden, runtime_minutes, runtime_minutes_overridden,
+    release_date, release_date_overridden, genres, genres_overridden,
+    overview, overview_overridden, poster_url, poster_url_overridden,
+    backdrop_url, backdrop_url_overridden,
+    trailer_vf_youtube_key, trailer_vf_youtube_key_overridden,
+    trailer_vo_youtube_key, trailer_vo_youtube_key_overridden
+) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+ON CONFLICT (public_movie_id) DO UPDATE SET
+    title=EXCLUDED.title, title_overridden=EXCLUDED.title_overridden,
+    runtime_minutes=EXCLUDED.runtime_minutes, runtime_minutes_overridden=EXCLUDED.runtime_minutes_overridden,
+    release_date=EXCLUDED.release_date, release_date_overridden=EXCLUDED.release_date_overridden,
+    genres=EXCLUDED.genres, genres_overridden=EXCLUDED.genres_overridden,
+    overview=EXCLUDED.overview, overview_overridden=EXCLUDED.overview_overridden,
+    poster_url=EXCLUDED.poster_url, poster_url_overridden=EXCLUDED.poster_url_overridden,
+    backdrop_url=EXCLUDED.backdrop_url, backdrop_url_overridden=EXCLUDED.backdrop_url_overridden,
+    trailer_vf_youtube_key=EXCLUDED.trailer_vf_youtube_key, trailer_vf_youtube_key_overridden=EXCLUDED.trailer_vf_youtube_key_overridden,
+    trailer_vo_youtube_key=EXCLUDED.trailer_vo_youtube_key, trailer_vo_youtube_key_overridden=EXCLUDED.trailer_vo_youtube_key_overridden`,
+		id, item.title, item.titleSet, item.runtime, item.runtimeSet,
+		item.releaseDate, item.releaseDateSet, nullableGenres(item), item.genresSet,
+		item.overview, item.overviewSet, item.poster, item.posterSet,
+		item.backdrop, item.backdropSet, item.trailerVF, item.trailerVFSet,
+		item.trailerVO, item.trailerVOSet)
+	if err != nil {
+		return fmt.Errorf("write inherited public movie metadata overrides failed")
+	}
+	return nil
+}
+
+func nullableGenres(item metadataOverride) any {
+	if !item.genresSet {
+		return nil
+	}
+	return item.genres
+}
+
+func clone[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func persistAssignments(ctx context.Context, tx pgx.Tx, components []*component, movies map[int64]publicMovie, retainedOrphans map[int64]bool) error {

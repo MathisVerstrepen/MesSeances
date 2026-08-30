@@ -450,6 +450,7 @@ func newAdminOptions(ctx context.Context, password, sessionSecret string, store 
 		SessionSecret: sessionSecret,
 		Reviews:       enrichment.NewReviewService(store, provider, nil),
 		LocalMovies:   enrichment.NewLocalMovieService(store),
+		Movies:        enrichment.NewAdminMovieService(store),
 	}
 	if provider != nil {
 		gate := enrichment.NewTMDBRunGate()
