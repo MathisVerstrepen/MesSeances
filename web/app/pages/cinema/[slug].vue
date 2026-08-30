@@ -5,6 +5,7 @@ import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { formatLongDate, todayInParis } from '~/utils/date'
 import { cinemaDescription } from '~/utils/entityDescriptions'
+import { formatRuntime, formatShowtimeCount } from '~/utils/formats'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { calendarDate, mergeOwnedQuery, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -57,10 +58,6 @@ const displayLocation = computed(() => {
 
   return { address, locality }
 })
-
-function isNotFoundError(cause: unknown): boolean {
-  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
-}
 
 async function fetchCinema() {
   try {
@@ -139,17 +136,6 @@ function viewQuery(view: 'showtimes' | 'films') {
   return mergeOwnedQuery(route.query, ['view'], {
     view: view === 'films' ? 'films' : undefined
   })
-}
-
-function formatRuntime(runtimeMinutes: number): string {
-  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0) return 'Durée non renseignée'
-  const hours = Math.floor(runtimeMinutes / 60)
-  const minutes = runtimeMinutes % 60
-  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
-}
-
-function formatShowtimeCount(showtimeCount: number): string {
-  return `${showtimeCount} séance${showtimeCount === 1 ? '' : 's'}`
 }
 
 function selectDate(date: string) {

@@ -19,10 +19,6 @@ const slug = computed(() => {
   return Array.isArray(value) ? value[0] ?? '' : value ?? ''
 })
 
-function isNotFoundError(cause: unknown): boolean {
-  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
-}
-
 async function fetchCity() {
   try {
     return { kind: 'success' as const, detail: await api.city(slug.value), errorMessage: '' }

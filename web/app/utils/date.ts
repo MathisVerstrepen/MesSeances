@@ -41,6 +41,30 @@ export function addCalendarDays(date: string, days: number): string {
   return [nextDate.getUTCFullYear(), String(nextDate.getUTCMonth() + 1).padStart(2, '0'), String(nextDate.getUTCDate()).padStart(2, '0')].join('-')
 }
 
+export function isCalendarDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year = Number.NaN, month = Number.NaN, day = Number.NaN] = value.split('-').map(Number)
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12))
+  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+}
+
+export function dateFromCalendarDate(value: string): Date | null {
+  if (!isCalendarDate(value)) return null
+  const [year = 0, month = 0, day = 0] = value.split('-').map(Number)
+  return new Date(year, month - 1, day, 12)
+}
+
+export function calendarDateFromDate(value: Date): string {
+  if (Number.isNaN(value.getTime())) return ''
+  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
+}
+
+export function formatShortCalendarDate(value: string): string {
+  if (!isCalendarDate(value)) return value
+  const [year = '', month = '', day = ''] = value.split('-')
+  return `${day}-${month}-${year.slice(-2)}`
+}
+
 export function formatDateLabel(date: string, referenceDate = todayInParis()): string {
   if (date === referenceDate) return 'Aujourd’hui'
   if (date === addCalendarDays(referenceDate, 1)) return 'Demain'

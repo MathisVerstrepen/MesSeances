@@ -299,6 +299,10 @@ export function getApiErrorCode(cause: unknown): string | undefined {
   return parseApiFailure(cause)?.data?.error?.code
 }
 
+export function isNotFoundError(cause: unknown): boolean {
+  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
+}
+
 export function getFrenchApiError(cause: unknown): string {
   const message = parseApiFailure(cause)?.data?.error?.message
   if (message !== undefined) return message
