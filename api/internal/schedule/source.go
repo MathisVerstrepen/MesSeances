@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -38,8 +39,12 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 	if options.Logger == nil {
 		options.Logger = slog.New(slog.DiscardHandler)
 	}
+	source := &PostgresSource{reader: reader, logger: options.Logger, observer: options.Observer}
 	data, revision, err := reader.Load(ctx)
 	if err != nil {
+		if errors.Is(err, ErrNoCompleteSnapshot) {
+			return source, nil
+		}
 		return nil, fmt.Errorf("load initial schedule snapshot: %w", err)
 	}
 	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
@@ -48,7 +53,7 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 	if err := ValidateDataset(data, true); err != nil {
 		return nil, fmt.Errorf("invalid initial schedule snapshot: %w", err)
 	}
-	source := &PostgresSource{reader: reader, revision: revision, logger: options.Logger, observer: options.Observer}
+	source.revision = revision
 	source.view.Store(NewSnapshotView(data, revision))
 	source.setRevisionMetrics(revision)
 	source.setFreshnessMetrics(data)
@@ -88,7 +93,7 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 				s.observer.SetScheduleRefreshLastSuccess(time.Now())
 			}
 		}
-		if result != "unchanged" {
+		if result != "unchanged" && result != "pending" {
 			level := slog.LevelWarn
 			if result == "reloaded" {
 				level = slog.LevelInfo
@@ -101,7 +106,10 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 	cancel()
 	if err != nil {
 		stage = "revision_check"
-		if ctx.Err() != nil {
+		if errors.Is(err, ErrNoCompleteSnapshot) {
+			result = "pending"
+			reason = "no_complete_snapshot"
+		} else if ctx.Err() != nil {
 			result = "canceled"
 			reason = "canceled"
 		} else {

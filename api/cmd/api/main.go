@@ -404,14 +404,14 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {
-	cfg, err := runtimeconfig.Load(runtimeconfig.APIBase, getenv, nil)
+	cfg, err := runtimeconfig.Load(runtimeconfig.APIBase, getenv)
 	if err != nil {
 		return runtimeconfig.Config{}, runtimeconfig.Config{}, err
 	}
 	if cfg.Proxy.Path == "" {
 		return cfg, runtimeconfig.Config{}, nil
 	}
-	syncConfig, err := runtimeconfig.Load(runtimeconfig.APISync, getenv, nil)
+	syncConfig, err := runtimeconfig.Load(runtimeconfig.APISync, getenv)
 	if err != nil {
 		return runtimeconfig.Config{}, runtimeconfig.Config{}, err
 	}

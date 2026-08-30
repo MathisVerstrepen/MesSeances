@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"messeances/api/internal/schedule"
 	"messeances/api/internal/shortlink"
 )
 
@@ -230,9 +231,15 @@ func TestProtectedRouteMatrixSharesExpensiveReadQuota(t *testing.T) {
 }
 
 func TestPublicHandlerConstructorsEnableBothLimitersByDefault(t *testing.T) {
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(fixtureDataset(t))}, schedule.ServiceOptions{
+		Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	constructors := map[string]func() http.Handler{
-		"NewHandler":          func() http.Handler { return NewHandler(nil, "http://localhost:3000") },
-		"NewHandlerWithAdmin": func() http.Handler { return NewHandlerWithAdmin(nil, "http://localhost:3000", AdminOptions{}) },
+		"NewHandler":          func() http.Handler { return NewHandler(service, "http://localhost:3000") },
+		"NewHandlerWithAdmin": func() http.Handler { return NewHandlerWithAdmin(service, "http://localhost:3000", AdminOptions{}) },
 	}
 	for name, construct := range constructors {
 		t.Run(name, func(t *testing.T) {

@@ -15,11 +15,6 @@ type Profile int
 const (
 	APIBase Profile = iota
 	APISync
-	UGCTiming
-	KinepolisTiming
-	PatheTiming
-	CGRTiming
-	SyncFull
 )
 
 const (
@@ -27,11 +22,6 @@ const (
 	DefaultKinepolisRequestInterval = 2 * time.Second
 	DefaultOperationTimeout         = 2 * time.Minute
 )
-
-type Overrides struct {
-	RequestTimeout           *time.Duration
-	KinepolisRequestInterval *time.Duration
-}
 
 type Config struct {
 	Database struct{ URL string }
@@ -53,7 +43,7 @@ type Config struct {
 	}
 }
 
-func Load(profile Profile, getenv func(string) string, overrides *Overrides) (Config, error) {
+func Load(profile Profile, getenv func(string) string) (Config, error) {
 	if getenv == nil {
 		return Config{}, configurationError()
 	}
@@ -91,35 +81,12 @@ func Load(profile Profile, getenv func(string) string, overrides *Overrides) (Co
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		result.Proxy.Path = strings.TrimSpace(getenv("PROXY_FILE"))
 	case APISync:
-		if err := loadRequestTimeout(&result, getenv, overrides); err != nil {
+		if err := loadRequestTimeout(&result, getenv); err != nil {
 			return Config{}, err
 		}
-		if err := loadKinepolisInterval(&result, getenv, overrides); err != nil {
+		if err := loadKinepolisInterval(&result, getenv); err != nil {
 			return Config{}, err
 		}
-		if err := loadOperationTimeout(&result, getenv); err != nil {
-			return Config{}, err
-		}
-	case UGCTiming:
-		if err := loadRequestTimeout(&result, getenv, overrides); err != nil {
-			return Config{}, err
-		}
-	case KinepolisTiming:
-		if err := loadRequestTimeout(&result, getenv, overrides); err != nil {
-			return Config{}, err
-		}
-		if err := loadKinepolisInterval(&result, getenv, overrides); err != nil {
-			return Config{}, err
-		}
-	case PatheTiming, CGRTiming:
-		if err := loadRequestTimeout(&result, getenv, overrides); err != nil {
-			return Config{}, err
-		}
-	case SyncFull:
-		if err := loadDatabase(&result, getenv); err != nil {
-			return Config{}, err
-		}
-		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		if err := loadOperationTimeout(&result, getenv); err != nil {
 			return Config{}, err
 		}
@@ -163,10 +130,8 @@ func parseTrustedProxyCIDRs(raw string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-func loadRequestTimeout(result *Config, getenv func(string) string, overrides *Overrides) error {
-	if overrides != nil && overrides.RequestTimeout != nil {
-		result.Sync.RequestTimeout = *overrides.RequestTimeout
-	} else if err := parseDuration(getenv("SYNC_REQUEST_TIMEOUT"), DefaultRequestTimeout, &result.Sync.RequestTimeout); err != nil {
+func loadRequestTimeout(result *Config, getenv func(string) string) error {
+	if err := parseDuration(getenv("SYNC_REQUEST_TIMEOUT"), DefaultRequestTimeout, &result.Sync.RequestTimeout); err != nil {
 		return err
 	}
 	if result.Sync.RequestTimeout < 5*time.Second || result.Sync.RequestTimeout > 60*time.Second {
@@ -175,10 +140,8 @@ func loadRequestTimeout(result *Config, getenv func(string) string, overrides *O
 	return nil
 }
 
-func loadKinepolisInterval(result *Config, getenv func(string) string, overrides *Overrides) error {
-	if overrides != nil && overrides.KinepolisRequestInterval != nil {
-		result.Sync.KinepolisRequestInterval = *overrides.KinepolisRequestInterval
-	} else if err := parseDuration(getenv("SYNC_KINEPOLIS_REQUEST_INTERVAL"), DefaultKinepolisRequestInterval, &result.Sync.KinepolisRequestInterval); err != nil {
+func loadKinepolisInterval(result *Config, getenv func(string) string) error {
+	if err := parseDuration(getenv("SYNC_KINEPOLIS_REQUEST_INTERVAL"), DefaultKinepolisRequestInterval, &result.Sync.KinepolisRequestInterval); err != nil {
 		return err
 	}
 	if result.Sync.KinepolisRequestInterval < time.Second {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -17,10 +18,15 @@ type captureRefreshObserver struct {
 	freshness [][3]time.Time
 	successes []time.Time
 	revisions []SnapshotRevision
+	completed chan refreshObservation
 }
 
 func (o *captureRefreshObserver) ObserveScheduleRefresh(result, stage, reason string, _ time.Duration) {
-	o.refreshes = append(o.refreshes, refreshObservation{result, stage, reason})
+	observation := refreshObservation{result, stage, reason}
+	o.refreshes = append(o.refreshes, observation)
+	if o.completed != nil && result != "unchanged" && result != "reloaded" {
+		o.completed <- observation
+	}
 }
 func (o *captureRefreshObserver) SetScheduleRevision(schedule, enrichment int64) {
 	o.revisions = append(o.revisions, SnapshotRevision{ScheduleVersion: schedule, EnrichmentVersion: enrichment})
@@ -30,6 +36,9 @@ func (o *captureRefreshObserver) SetScheduleFreshness(generatedAt, windowStart, 
 }
 func (o *captureRefreshObserver) SetScheduleRefreshLastSuccess(at time.Time) {
 	o.successes = append(o.successes, at)
+	if o.completed != nil {
+		o.completed <- o.refreshes[len(o.refreshes)-1]
+	}
 }
 
 type fakeSnapshotReader struct {
@@ -382,9 +391,68 @@ func TestPostgresSourceBlockedPollDoesNotBlockSnapshotAndCancellationStopsWorker
 	}
 }
 
-func TestPostgresSourceInitialLoadFailure(t *testing.T) {
-	reader := &fakeSnapshotReader{loadErr: errors.New("missing")}
-	if _, err := NewPostgresSource(context.Background(), reader); err == nil {
-		t.Fatal("initial failure accepted")
+func TestPostgresSourcePendingSnapshotTransitionsOnTick(t *testing.T) {
+	observer := &captureRefreshObserver{completed: make(chan refreshObservation, 2)}
+	var logs bytes.Buffer
+	reader := &fakeSnapshotReader{loadErr: fmt.Errorf("load pending: %w", ErrNoCompleteSnapshot), versionErr: ErrNoCompleteSnapshot}
+	source, err := NewPostgresSource(context.Background(), reader, SourceOptions{Observer: observer, Logger: slog.New(slog.NewJSONHandler(&logs, nil))})
+	if err != nil || source == nil {
+		t.Fatalf("source=%v error=%v", source != nil, err)
+	}
+	if source.Snapshot() != nil {
+		t.Fatalf("initial snapshot=%v", source.Snapshot())
+	}
+	if len(observer.revisions) != 0 || len(observer.freshness) != 0 || len(observer.successes) != 0 {
+		t.Fatalf("pending metrics revisions=%v freshness=%v successes=%v", observer.revisions, observer.freshness, observer.successes)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ticks := make(chan time.Time)
+	done := make(chan struct{})
+	go func() {
+		source.runTicks(ctx, ticks)
+		close(done)
+	}()
+	ticks <- time.Time{}
+	if got := <-observer.completed; got != (refreshObservation{"pending", "revision_check", "no_complete_snapshot"}) {
+		t.Fatalf("pending observation=%+v", got)
+	}
+	if source.Snapshot() != nil || len(observer.revisions) != 0 || len(observer.freshness) != 0 || len(observer.successes) != 0 || logs.Len() != 0 {
+		t.Fatalf("pending snapshot=%v revisions=%v freshness=%v successes=%v logs=%q", source.Snapshot(), observer.revisions, observer.freshness, observer.successes, logs.String())
+	}
+
+	reader.mu.Lock()
+	reader.version = 1
+	reader.data = testDataset()
+	reader.versionErr = nil
+	reader.loadErr = nil
+	reader.mu.Unlock()
+	ticks <- time.Time{}
+	if got := <-observer.completed; got != (refreshObservation{"reloaded", "none", "none"}) {
+		t.Fatalf("reload observation=%+v", got)
+	}
+	if source.Snapshot() == nil || len(observer.revisions) != 1 || len(observer.freshness) != 1 || len(observer.successes) != 1 {
+		t.Fatalf("loaded snapshot=%v revisions=%v freshness=%v successes=%v", source.Snapshot() != nil, observer.revisions, observer.freshness, observer.successes)
+	}
+	cancel()
+	<-done
+}
+
+func TestPostgresSourceInitialLoadRejectsNonPendingFailures(t *testing.T) {
+	invalid := testDataset()
+	invalid.GeneratedAt = time.Time{}
+	for _, test := range []struct {
+		name   string
+		reader *fakeSnapshotReader
+	}{
+		{name: "read failure", reader: &fakeSnapshotReader{loadErr: errors.New("missing")}},
+		{name: "invalid revision", reader: &fakeSnapshotReader{data: testDataset()}},
+		{name: "invalid dataset", reader: &fakeSnapshotReader{version: 1, data: invalid}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewPostgresSource(context.Background(), test.reader); err == nil {
+				t.Fatal("initial failure accepted")
+			}
+		})
 	}
 }
