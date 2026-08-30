@@ -25,3 +25,14 @@ export function formatBrand(format: string): FormatBrand | undefined {
 export function isShowtimeFormat(format: string): format is ShowtimeFormat {
   return formatOptions.some((option) => option.value !== 'ALL' && option.value === format)
 }
+
+export function formatRuntime(runtimeMinutes: number): string {
+  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0) return 'Durée non renseignée'
+  const hours = Math.floor(runtimeMinutes / 60)
+  const minutes = runtimeMinutes % 60
+  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
+}
+
+export function formatShowtimeCount(showtimeCount: number): string {
+  return `${showtimeCount} séance${showtimeCount === 1 ? '' : 's'}`
+}

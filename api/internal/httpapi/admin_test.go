@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ import (
 
 type adminReviewStore struct{}
 
-func (adminReviewStore) PendingMatches(context.Context, enrichment.PendingMatchFilter, int, int) ([]enrichment.PendingMatch, error) {
+func (adminReviewStore) PendingMatches(context.Context, enrichment.PendingMatchFilter, string, int, int) ([]enrichment.PendingMatch, error) {
 	return []enrichment.PendingMatch{{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", SourceRuntimeMinutes: 100, SourcePosterURL: "https://static.ugc.fr/posters/200.jpg", SourceDetailURL: "https://evil.example/source", Status: enrichment.StatusUnmatched, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", PosterURL: "https://image.tmdb.org/t/p/w500/42.jpg", DetailURL: "https://evil.example/candidate"}}}}, nil
 }
 func (adminReviewStore) ReviewCandidate(context.Context, string, string, int64) (enrichment.Candidate, int, error) {
@@ -29,25 +30,39 @@ func (adminReviewStore) ApproveReview(context.Context, string, string, int64, en
 	return nil
 }
 func (adminReviewStore) RejectReview(context.Context, string, string, time.Time) error { return nil }
+func (adminReviewStore) CorrectionSource(context.Context, string, string, int64, time.Time) (int, error) {
+	return 100, nil
+}
+func (adminReviewStore) CorrectReview(context.Context, string, string, int64, time.Time, enrichment.Metadata, int, time.Time) error {
+	return nil
+}
 
 type adminProvider struct{}
 
 type adminReviewFilterStore struct {
 	adminReviewStore
 	filter enrichment.PendingMatchFilter
+	search string
 	limit  int
 	offset int
 	calls  int
 }
 
-func (s *adminReviewFilterStore) PendingMatches(_ context.Context, filter enrichment.PendingMatchFilter, limit, offset int) ([]enrichment.PendingMatch, error) {
-	s.filter, s.limit, s.offset = filter, limit, offset
+func (s *adminReviewFilterStore) PendingMatches(_ context.Context, filter enrichment.PendingMatchFilter, search string, limit, offset int) ([]enrichment.PendingMatch, error) {
+	s.filter, s.search, s.limit, s.offset = filter, search, limit, offset
 	s.calls++
 	status := enrichment.StatusUnmatched
 	if filter == enrichment.PendingMatchFilterRejected {
 		status = enrichment.StatusRejected
 	}
-	return []enrichment.PendingMatch{{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", Status: status}}, nil
+	item := enrichment.PendingMatch{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", SourceTitle: "Film A", Status: status}
+	if filter == enrichment.PendingMatchFilterMatched {
+		status = enrichment.StatusMatched
+		updated := time.Date(2026, 8, 16, 12, 0, 0, 123456789, time.UTC)
+		item.Status, item.UpdatedAt = status, &updated
+		item.CurrentMatch = &enrichment.Candidate{ID: 42, Title: "Film TMDB", OriginalTitle: "TMDB Film", Runtime: 101, Score: .95, PosterURL: "https://image.tmdb.org/t/p/w500/42.jpg"}
+	}
+	return []enrichment.PendingMatch{item}, nil
 }
 
 func (adminProvider) Details(_ context.Context, movieID int64) (tmdb.Details, error) {
@@ -65,6 +80,12 @@ func (s adminReviewErrorStore) ReviewCandidate(context.Context, string, string, 
 }
 
 func (s adminReviewErrorStore) ApproveReview(context.Context, string, string, int64, enrichment.Metadata, int, time.Time) error {
+	return s.approvalErr
+}
+func (s adminReviewErrorStore) CorrectionSource(context.Context, string, string, int64, time.Time) (int, error) {
+	return 100, s.preflightErr
+}
+func (s adminReviewErrorStore) CorrectReview(context.Context, string, string, int64, time.Time, enrichment.Metadata, int, time.Time) error {
 	return s.approvalErr
 }
 
@@ -156,23 +177,25 @@ func TestAdminPendingMatchesStatusFilter(t *testing.T) {
 		name       string
 		target     string
 		wantFilter enrichment.PendingMatchFilter
+		wantSearch string
 		wantStatus string
 	}{
 		{name: "omitted defaults unresolved", target: "/api/v1/admin/tmdb-matches?limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterUnresolved, wantStatus: enrichment.StatusUnmatched},
 		{name: "explicit unresolved", target: "/api/v1/admin/tmdb-matches?status=unresolved&limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterUnresolved, wantStatus: enrichment.StatusUnmatched},
 		{name: "rejected", target: "/api/v1/admin/tmdb-matches?status=rejected&limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterRejected, wantStatus: enrichment.StatusRejected},
+		{name: "matched", target: "/api/v1/admin/tmdb-matches?status=matched&limit=20&offset=40", wantFilter: enrichment.PendingMatchFilterMatched, wantStatus: enrichment.StatusMatched},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			response := adminRequest(handler, http.MethodGet, test.target, "", "", cookie)
-			if response.Code != http.StatusOK || store.filter != test.wantFilter || store.limit != 20 || store.offset != 40 || !strings.Contains(response.Body.String(), `"status":"`+test.wantStatus+`"`) {
-				t.Fatalf("status=%d filter=%q pagination=%d/%d body=%s", response.Code, store.filter, store.limit, store.offset, response.Body.String())
+			if response.Code != http.StatusOK || store.filter != test.wantFilter || store.search != test.wantSearch || store.limit != 20 || store.offset != 40 || !strings.Contains(response.Body.String(), `"status":"`+test.wantStatus+`"`) {
+				t.Fatalf("status=%d filter=%q search=%q pagination=%d/%d body=%s", response.Code, store.filter, store.search, store.limit, store.offset, response.Body.String())
 			}
 		})
 	}
 
 	for _, target := range []string{
-		"/api/v1/admin/tmdb-matches?status=matched",
+		"/api/v1/admin/tmdb-matches?status=unknown",
 		"/api/v1/admin/tmdb-matches?status=",
 		"/api/v1/admin/tmdb-matches?status=unresolved&status=rejected",
 	} {
@@ -181,6 +204,59 @@ func TestAdminPendingMatchesStatusFilter(t *testing.T) {
 		assertAPIError(t, response, http.StatusBadRequest, "invalid_query", "Filtre de statut invalide.")
 		if store.calls != calls {
 			t.Fatalf("invalid filter reached store: target=%s calls=%d", target, store.calls)
+		}
+	}
+}
+
+func TestAdminMatchedSearchValidationAndForwarding(t *testing.T) {
+	store := &adminReviewFilterStore{}
+	reviews := enrichment.NewReviewService(store, nil, nil)
+	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
+	cookie := loginAdmin(t, handler, "password")
+
+	for _, test := range []struct {
+		name, raw, want string
+	}{
+		{name: "trimmed Unicode whitespace", raw: "\u3000Alien Étranger\u00a0", want: "Alien Étranger"},
+		{name: "maximum Unicode code points", raw: strings.Repeat("é", 1024), want: strings.Repeat("é", 1024)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := adminRequest(handler, http.MethodGet, "/api/v1/admin/tmdb-matches?status=matched&search="+url.QueryEscape(test.raw), "", "", cookie)
+			if response.Code != http.StatusOK || store.search != test.want {
+				t.Fatalf("status=%d search runes=%d want=%d body=%s", response.Code, len([]rune(store.search)), len([]rune(test.want)), response.Body.String())
+			}
+		})
+	}
+
+	invalidTargets := []string{
+		"/api/v1/admin/tmdb-matches?status=matched&search=",
+		"/api/v1/admin/tmdb-matches?status=matched&search=%20%E3%80%80",
+		"/api/v1/admin/tmdb-matches?status=matched&search=a&search=b",
+		"/api/v1/admin/tmdb-matches?status=matched&search=" + url.QueryEscape(strings.Repeat("é", 1025)),
+		"/api/v1/admin/tmdb-matches?search=alien",
+		"/api/v1/admin/tmdb-matches?status=unresolved&search=alien",
+		"/api/v1/admin/tmdb-matches?status=rejected&search=alien",
+	}
+	for _, target := range invalidTargets {
+		calls := store.calls
+		response := adminRequest(handler, http.MethodGet, target, "", "", cookie)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_query", "Recherche invalide.")
+		if store.calls != calls {
+			t.Fatalf("invalid search reached store: target=%s calls=%d", target, store.calls)
+		}
+	}
+}
+
+func TestAdminMatchedCollectionContract(t *testing.T) {
+	store := &adminReviewFilterStore{}
+	reviews := enrichment.NewReviewService(store, nil, nil)
+	handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
+	cookie := loginAdmin(t, handler, "password")
+	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/tmdb-matches?status=matched&limit=20&offset=0", "", "", cookie)
+	body := response.Body.String()
+	for _, expected := range []string{`"updated_at":"2026-08-16T12:00:00.123456789Z"`, `"current_match":{"id":42`, `"title":"Film TMDB"`, `"original_title":"TMDB Film"`, `"runtime_minutes":101`, `"score":0.95`, `"poster_url":"https://image.tmdb.org/t/p/w500/42.jpg"`, `"detail_url":"https://www.themoviedb.org/movie/42?language=fr-FR"`} {
+		if response.Code != http.StatusOK || !strings.Contains(body, expected) {
+			t.Fatalf("status=%d missing=%s body=%s", response.Code, expected, body)
 		}
 	}
 }
@@ -222,6 +298,68 @@ func TestAdminApproveRejectAndLogoutSuccess(t *testing.T) {
 	logout := adminRequest(handler, http.MethodPost, "/api/v1/admin/logout", "", "http://localhost:3000", cookie)
 	if logout.Code != http.StatusOK || strings.TrimSpace(logout.Body.String()) != `{"authenticated":false}` || len(logout.Result().Cookies()) != 1 || logout.Result().Cookies()[0].MaxAge != -1 {
 		t.Fatalf("logout status=%d body=%s cookies=%v", logout.Code, logout.Body.String(), logout.Result().Cookies())
+	}
+}
+
+func TestAdminCorrectMatchedIdentityContract(t *testing.T) {
+	handler := configuredAdminHandler(t, "password", time.Now)
+	cookie := loginAdmin(t, handler, "password")
+	body := `{"tmdb_id":99,"expected_updated_at":"2026-08-16T12:00:00.123456789Z"}`
+	response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/correct", body, "http://localhost:3000", cookie)
+	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != `{"status":"matched"}` || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+	}
+	unauthorized := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/correct", body, "http://localhost:3000", nil)
+	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/correct", body, "https://evil.example", cookie)
+	assertAPIError(t, wrongOrigin, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
+}
+
+func TestAdminCorrectionRejectsInvalidBodies(t *testing.T) {
+	handler := configuredAdminHandler(t, "password", time.Now)
+	cookie := loginAdmin(t, handler, "password")
+	for _, body := range []string{
+		`{"tmdb_id":0,"expected_updated_at":"2026-08-16T12:00:00Z"}`,
+		`{"tmdb_id":-1,"expected_updated_at":"2026-08-16T12:00:00Z"}`,
+		`{"tmdb_id":9223372036854775808,"expected_updated_at":"2026-08-16T12:00:00Z"}`,
+		`{"tmdb_id":"99","expected_updated_at":"2026-08-16T12:00:00Z"}`,
+		`{"tmdb_id":99,"expected_updated_at":""}`,
+		`{"tmdb_id":99,"expected_updated_at":"not-a-time"}`,
+		`{"tmdb_id":99,"expected_updated_at":"2026-08-16T12:00:00Z","unknown":true}`,
+		`{"tmdb_id":99,"expected_updated_at":"2026-08-16T12:00:00Z"} {}`,
+		`{"tmdb_id":99`,
+	} {
+		response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/correct", body, "http://localhost:3000", cookie)
+		assertAPIError(t, response, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+	}
+}
+
+func TestAdminCorrectionErrorMappings(t *testing.T) {
+	tests := []struct {
+		name     string
+		store    enrichment.ReviewStore
+		provider interface {
+			Details(context.Context, int64) (tmdb.Details, error)
+		}
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "missing", store: adminReviewErrorStore{preflightErr: enrichment.ErrReviewNotFound}, provider: adminProvider{}, wantStatus: http.StatusNotFound, wantCode: "not_found"},
+		{name: "conflict", store: adminReviewErrorStore{preflightErr: enrichment.ErrReviewConflict}, provider: adminProvider{}, wantStatus: http.StatusConflict, wantCode: "review_conflict"},
+		{name: "unavailable", store: adminReviewStore{}, provider: nil, wantStatus: http.StatusServiceUnavailable, wantCode: "review_unavailable"},
+		{name: "provider mismatch", store: adminReviewStore{}, provider: adminMismatchedProvider{}, wantStatus: http.StatusBadGateway, wantCode: "review_failed"},
+		{name: "persistence", store: adminReviewErrorStore{approvalErr: errors.New("database failed")}, provider: adminProvider{}, wantStatus: http.StatusBadGateway, wantCode: "review_failed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			reviews := enrichment.NewReviewService(test.store, test.provider, time.Now)
+			handler := testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews})
+			cookie := loginAdmin(t, handler, "password")
+			response := adminRequest(handler, http.MethodPost, "/api/v1/admin/tmdb-matches/ugc/200/correct", `{"tmdb_id":99,"expected_updated_at":"2026-08-16T12:00:00Z"}`, "http://localhost:3000", cookie)
+			if response.Code != test.wantStatus || !strings.Contains(response.Body.String(), `"code":"`+test.wantCode+`"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
 	}
 }
 

@@ -59,6 +59,23 @@ func TestSourceOrderingKeepsUGCFirstThenLexicalProviders(t *testing.T) {
 	}
 }
 
+func TestMetadataOverrideInheritancePrecedence(t *testing.T) {
+	targetTitle := "survivor"
+	losingTitle := "loser"
+	lowRuntime, highRuntime := 80, 90
+	highOverview := "higher losing ID"
+	highPoster := "https://example.com/poster.jpg"
+	target := metadataOverride{title: &targetTitle, titleSet: true}
+	low := metadataOverride{title: &losingTitle, titleSet: true, runtime: &lowRuntime, runtimeSet: true, overviewSet: true}
+	high := metadataOverride{runtime: &highRuntime, runtimeSet: true, overview: &highOverview, overviewSet: true, poster: &highPoster, posterSet: true}
+	if !target.inherit(low) || !target.inherit(high) {
+		t.Fatal("expected inheritance changes")
+	}
+	if target.title == nil || *target.title != targetTitle || target.runtime == nil || *target.runtime != lowRuntime || !target.overviewSet || target.overview != nil || target.poster == nil || *target.poster != highPoster {
+		t.Fatalf("inherited target=%+v", target)
+	}
+}
+
 func TestReconcileMergeSplitIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
@@ -129,6 +146,16 @@ INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minute
 FROM public_movie_sources`).Scan(&ugcID, &kinepolisID); err != nil || ugcID <= 0 || kinepolisID <= 0 || ugcID == kinepolisID {
 		t.Fatalf("strict singleton IDs ugc=%d kinepolis=%d err=%v", ugcID, kinepolisID, err)
 	}
+	survivor := ugcID
+	loser := kinepolisID
+	if kinepolisID < ugcID {
+		survivor, loser = kinepolisID, ugcID
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides
+    (public_movie_id,title,title_overridden,overview,overview_overridden)
+VALUES ($1,'Survivor title',true,NULL,false),($2,'Loser title',true,'Inherited overview',true)`, survivor, loser); err != nil {
+		t.Fatal("insert merge override fixtures failed")
+	}
 	if _, err := pool.Exec(ctx, `INSERT INTO movie_metadata_cache
 	    (provider,provider_movie_id,imdb_id,locale,provider_title,localized_title,overview,trailer_vf_youtube_key,trailer_vo_youtube_key,runtime_minutes,genres,fetched_at,refresh_after)
 VALUES ('tmdb',42,'tt1234567','fr-FR','Original','Canonique TMDB','Résumé TMDB','FRoff123456','ENoff123456',91,ARRAY['Action'],$1,$2);
@@ -140,11 +167,6 @@ VALUES
 		t.Fatal("insert confirmed TMDB evidence failed")
 	}
 	reconcile()
-	survivor := ugcID
-	loser := kinepolisID
-	if kinepolisID < ugcID {
-		survivor, loser = kinepolisID, ugcID
-	}
 	var mergedUGC, mergedKinepolis, redirect int64
 	var canonicalTitle, canonicalIMDBID, canonicalTrailerVFKey, canonicalTrailerVOKey string
 	if err := pool.QueryRow(ctx, `SELECT
@@ -155,6 +177,14 @@ FROM public_movie_sources`).Scan(&mergedUGC, &mergedKinepolis); err != nil || me
 	}
 	if err := pool.QueryRow(ctx, "SELECT redirect_to_id FROM public_movies WHERE id=$1", loser).Scan(&redirect); err != nil || redirect != survivor {
 		t.Fatalf("loser redirect=%d survivor=%d err=%v", redirect, survivor, err)
+	}
+	var overrideTitle string
+	var overrideOverview *string
+	if err := pool.QueryRow(ctx, "SELECT title,overview FROM public_movie_metadata_overrides WHERE public_movie_id=$1", survivor).Scan(&overrideTitle, &overrideOverview); err != nil || overrideTitle != "Survivor title" || overrideOverview == nil || *overrideOverview != "Inherited overview" {
+		t.Fatalf("merged survivor overrides title=%q overview=%v err=%v", overrideTitle, overrideOverview, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT title FROM public_movie_metadata_overrides WHERE public_movie_id=$1", loser).Scan(&overrideTitle); err != nil || overrideTitle != "Loser title" {
+		t.Fatalf("retained loser override title=%q err=%v", overrideTitle, err)
 	}
 	if err := pool.QueryRow(ctx, "SELECT title FROM public_movies WHERE id=$1", survivor).Scan(&canonicalTitle); err != nil || canonicalTitle != "Canonique TMDB" {
 		t.Fatalf("canonical title=%q err=%v", canonicalTitle, err)
@@ -169,6 +199,9 @@ FROM public_movie_sources`).Scan(&mergedUGC, &mergedKinepolis); err != nil || me
 	if err := pool.QueryRow(ctx, "SELECT trailer_vf_youtube_key, trailer_vo_youtube_key FROM public_movies WHERE id=$1", survivor).Scan(&canonicalTrailerVFKey, &canonicalTrailerVOKey); err != nil || canonicalTrailerVFKey != "FRoff123456" || canonicalTrailerVOKey != "ENoff123456" {
 		t.Fatalf("canonical trailer keys VF=%q VO=%q err=%v", canonicalTrailerVFKey, canonicalTrailerVOKey, err)
 	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movie_metadata_overrides SET overview=NULL,overview_overridden=false WHERE public_movie_id=$1", survivor); err != nil {
+		t.Fatal("restore inherited overview fixture failed")
+	}
 	oldUpdatedAt := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx, "UPDATE public_movies SET updated_at=$2 WHERE id=$1; UPDATE movie_metadata_cache SET imdb_id='tt2345678' WHERE provider_movie_id=42", pgx.QueryExecModeSimpleProtocol, survivor, oldUpdatedAt); err != nil {
 		t.Fatal("prepare IMDb-only canonical change failed")
@@ -177,6 +210,10 @@ FROM public_movie_sources`).Scan(&mergedUGC, &mergedKinepolis); err != nil || me
 	var imdbOnlyUpdatedAt time.Time
 	if err := pool.QueryRow(ctx, "SELECT imdb_id, updated_at FROM public_movies WHERE id=$1", survivor).Scan(&canonicalIMDBID, &imdbOnlyUpdatedAt); err != nil || canonicalIMDBID != "tt2345678" || !imdbOnlyUpdatedAt.After(oldUpdatedAt) {
 		t.Fatalf("IMDb-only canonical update ID=%q updated_at=%v err=%v", canonicalIMDBID, imdbOnlyUpdatedAt, err)
+	}
+	var overviewOverridden bool
+	if err := pool.QueryRow(ctx, "SELECT overview_overridden FROM public_movie_metadata_overrides WHERE public_movie_id=$1", survivor).Scan(&overviewOverridden); err != nil || overviewOverridden {
+		t.Fatalf("restored overview reapplied=%t err=%v", overviewOverridden, err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO movie_metadata_cache
 	    (provider,provider_movie_id,imdb_id,locale,provider_title,localized_title,runtime_minutes,genres,fetched_at,refresh_after)
@@ -193,6 +230,16 @@ UPDATE movie_matches SET metadata_movie_id=2 WHERE source_provider='kinepolis' A
 	}
 	if err := pool.QueryRow(ctx, "SELECT public_movie_id FROM public_movie_sources WHERE source_provider='ugc' AND source_movie_id='1'").Scan(&mergedUGC); err != nil || mergedUGC == survivor || mergedUGC == loser {
 		t.Fatalf("non-anchor split ID=%d survivor=%d loser=%d err=%v", mergedUGC, survivor, loser, err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT title,overview FROM public_movie_metadata_overrides WHERE public_movie_id=$1", mergedUGC).Scan(&overrideTitle, &overrideOverview); err != nil || overrideTitle != "Loser title" || overrideOverview == nil || *overrideOverview != "Inherited overview" {
+		t.Fatalf("seeded split overrides title=%q overview=%v err=%v", overrideTitle, overrideOverview, err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE public_movie_metadata_overrides SET title='Changed loser title' WHERE public_movie_id=$1", loser); err != nil {
+		t.Fatal("change retained loser override failed")
+	}
+	reconcile()
+	if err := pool.QueryRow(ctx, "SELECT title FROM public_movie_metadata_overrides WHERE public_movie_id=$1", mergedUGC).Scan(&overrideTitle); err != nil || overrideTitle != "Loser title" {
+		t.Fatalf("split override was reseeded title=%q err=%v", overrideTitle, err)
 	}
 	var splitIMDBID *string
 	if err := pool.QueryRow(ctx, "SELECT imdb_id FROM public_movies WHERE id=$1", mergedUGC).Scan(&splitIMDBID); err != nil || splitIMDBID == nil || *splitIMDBID != "tt7654321" {

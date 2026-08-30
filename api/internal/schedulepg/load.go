@@ -251,10 +251,21 @@ ORDER BY m.provider, m.provider_id`, version)
 
 func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMovieRecord, []schedule.PublicMovieSourceRecord, []schedule.MovieSlugAliasRecord, error) {
 	movies := []schedule.PublicMovieRecord{}
-	rows, err := tx.Query(ctx, `SELECT id, COALESCE(redirect_to_id,0), identity_anchor_provider, identity_anchor_source_movie_id,
-	       title, runtime_minutes, COALESCE(poster_url,''), COALESCE(backdrop_url,''), COALESCE(overview,''),
-	       COALESCE(release_date::text,''), genres, COALESCE(confirmed_tmdb_id,0), COALESCE(imdb_id,''), COALESCE(trailer_vf_youtube_key,''), COALESCE(trailer_vo_youtube_key,''), updated_at
-FROM public_movies ORDER BY id`)
+	rows, err := tx.Query(ctx, `SELECT movie.id, COALESCE(movie.redirect_to_id,0), movie.identity_anchor_provider, movie.identity_anchor_source_movie_id,
+	       CASE WHEN override.title_overridden THEN override.title ELSE movie.title END,
+	       CASE WHEN override.runtime_minutes_overridden THEN override.runtime_minutes ELSE movie.runtime_minutes END,
+	       COALESCE(CASE WHEN override.poster_url_overridden THEN override.poster_url ELSE movie.poster_url END,''),
+	       COALESCE(CASE WHEN override.backdrop_url_overridden THEN override.backdrop_url ELSE movie.backdrop_url END,''),
+	       COALESCE(CASE WHEN override.overview_overridden THEN override.overview ELSE movie.overview END,''),
+	       COALESCE((CASE WHEN override.release_date_overridden THEN override.release_date ELSE movie.release_date END)::text,''),
+	       CASE WHEN override.genres_overridden THEN override.genres ELSE movie.genres END,
+	       COALESCE(movie.confirmed_tmdb_id,0), COALESCE(movie.imdb_id,''),
+	       COALESCE(CASE WHEN override.trailer_vf_youtube_key_overridden THEN override.trailer_vf_youtube_key ELSE movie.trailer_vf_youtube_key END,''),
+	       COALESCE(CASE WHEN override.trailer_vo_youtube_key_overridden THEN override.trailer_vo_youtube_key ELSE movie.trailer_vo_youtube_key END,''),
+	       movie.updated_at
+FROM public_movies movie
+LEFT JOIN public_movie_metadata_overrides override ON override.public_movie_id=movie.id
+ORDER BY movie.id`)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("read public movies failed")
 	}

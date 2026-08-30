@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -187,6 +188,164 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 	if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 1 {
 		t.Fatalf("published version=%d error=%v", version, err)
 	}
+	t.Run("admin movie metadata overrides", func(t *testing.T) {
+		service := NewAdminMovieService(store)
+		baseQuery := AdminMovieQuery{Limit: 50, OverrideStatus: "all", Sort: "id", Direction: "asc"}
+		list, err := service.List(ctx, baseQuery)
+		if err != nil || len(list.Items) != 1 || list.Items[0].Automatic.Title != "Film" || list.Items[0].Values.Title != "Film" || list.Items[0].ID == "" {
+			t.Fatalf("initial admin list=%+v err=%v", list, err)
+		}
+		id, err := strconv.ParseInt(list.Items[0].ID, 10, 64)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, err := time.Parse(time.RFC3339Nano, list.Items[0].UpdatedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		title := "Film manuel"
+		emptyGenres := []string{}
+		patch := AdminMoviePatch{ExpectedUpdatedAt: expected, Overrides: AdminMovieOverrides{
+			Title:    AdminMovieOverrideValue[string]{Present: true, Value: &title},
+			Genres:   AdminMovieOverrideValue[[]string]{Present: true, Value: &emptyGenres},
+			Overview: AdminMovieOverrideValue[string]{Present: true, Value: nil},
+		}}
+		collidingTrailer := metadata.TrailerVOYouTubeKey
+		if _, err := service.Update(ctx, id, AdminMoviePatch{ExpectedUpdatedAt: expected, Overrides: AdminMovieOverrides{
+			TrailerVFYouTubeKey: AdminMovieOverrideValue[string]{Present: true, Value: &collidingTrailer},
+		}}); !errors.Is(err, ErrAdminMovieInvalid) {
+			t.Fatalf("effective trailer collision err=%v", err)
+		}
+		updated, err := service.Update(ctx, id, patch)
+		if err != nil || updated.Automatic.Title != "Film" || updated.Values.Title != title || updated.Values.Overview != nil || len(updated.Values.Genres) != 0 || len(updated.OverriddenFields) != 3 || updated.UpdatedAt == list.Items[0].UpdatedAt {
+			t.Fatalf("updated movie=%+v err=%v", updated, err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 2 {
+			t.Fatalf("updated version=%d err=%v", version, err)
+		}
+		filtered := baseQuery
+		filtered.Search = "manuel"
+		filtered.OverrideStatus = "overridden"
+		filtered.OverrideField = AdminMovieFieldTitle
+		list, err = service.List(ctx, filtered)
+		if err != nil || len(list.Items) != 1 || list.Total != 1 || list.Items[0].Values.Title != title {
+			t.Fatalf("filtered list=%+v err=%v", list, err)
+		}
+		filtered.Search = "%"
+		list, err = service.List(ctx, filtered)
+		if err != nil || list.Total != 0 {
+			t.Fatalf("literal wildcard list=%+v err=%v", list, err)
+		}
+		filtered = baseQuery
+		filtered.Genre = "Drame"
+		list, err = service.List(ctx, filtered)
+		if err != nil || list.Total != 0 {
+			t.Fatalf("effective genre filter list=%+v err=%v", list, err)
+		}
+		runtimeMin, runtimeMax := 721, 721
+		filtered = baseQuery
+		filtered.RuntimeMin, filtered.RuntimeMax = &runtimeMin, &runtimeMax
+		filtered.ReleaseDateFrom, filtered.ReleaseDateTo = stringPointer("2026-01-02"), stringPointer("2026-01-02")
+		list, err = service.List(ctx, filtered)
+		if err != nil || list.Total != 1 {
+			t.Fatalf("runtime/date filters list=%+v err=%v", list, err)
+		}
+		filtered.Offset = 1
+		list, err = service.List(ctx, filtered)
+		if err != nil || list.Total != 1 || len(list.Items) != 0 {
+			t.Fatalf("paged total list=%+v err=%v", list, err)
+		}
+		var alphaID, zuluID int64
+		if err := pool.QueryRow(ctx, `INSERT INTO public_movies
+    (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,release_date,genres)
+VALUES ('kinepolis','admin-alpha','Alpha',50,NULL,ARRAY['Action']) RETURNING id`).Scan(&alphaID); err != nil {
+			t.Fatal("insert alpha admin list fixture failed")
+		}
+		if err := pool.QueryRow(ctx, `INSERT INTO public_movies
+    (identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,release_date,genres)
+VALUES ('kinepolis','admin-zulu','Zulu',900,'2027-01-01',ARRAY['Comédie']) RETURNING id`).Scan(&zuluID); err != nil {
+			t.Fatal("insert zulu admin list fixture failed")
+		}
+		for _, sortCase := range []struct {
+			sort, direction, firstTitle, lastTitle string
+		}{
+			{sort: "title", direction: "asc", firstTitle: "Alpha", lastTitle: "Zulu"},
+			{sort: "runtime_minutes", direction: "desc", firstTitle: "Zulu", lastTitle: "Alpha"},
+			{sort: "release_date", direction: "asc", firstTitle: "Film manuel", lastTitle: "Alpha"},
+			{sort: "release_date", direction: "desc", firstTitle: "Zulu", lastTitle: "Alpha"},
+			{sort: "updated_at", direction: "asc"},
+			{sort: "id", direction: "desc"},
+		} {
+			query := baseQuery
+			query.Sort, query.Direction = sortCase.sort, sortCase.direction
+			list, err = service.List(ctx, query)
+			if err != nil || len(list.Items) != 3 || list.Total != 3 {
+				t.Fatalf("sort %s/%s list=%+v err=%v", sortCase.sort, sortCase.direction, list, err)
+			}
+			if sortCase.firstTitle != "" && (list.Items[0].Values.Title != sortCase.firstTitle || list.Items[2].Values.Title != sortCase.lastTitle) {
+				t.Fatalf("sort %s/%s titles=%q,%q", sortCase.sort, sortCase.direction, list.Items[0].Values.Title, list.Items[2].Values.Title)
+			}
+		}
+		for genre, wantTitle := range map[string]string{"act": "Alpha", "comé": "Zulu"} {
+			query := baseQuery
+			query.Genre = genre
+			list, err = service.List(ctx, query)
+			if err != nil || list.Total != 1 || list.Items[0].Values.Title != wantTitle {
+				t.Fatalf("genre %q list=%+v err=%v", genre, list, err)
+			}
+		}
+		if _, err := pool.Exec(ctx, "DELETE FROM public_movies WHERE id=ANY($1)", []int64{alphaID, zuluID}); err != nil {
+			t.Fatal("delete admin list fixtures failed")
+		}
+
+		current, err := time.Parse(time.RFC3339Nano, updated.UpdatedAt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		patch.ExpectedUpdatedAt = current
+		unchanged, err := service.Update(ctx, id, patch)
+		if err != nil || unchanged.UpdatedAt != updated.UpdatedAt {
+			t.Fatalf("unchanged movie=%+v err=%v", unchanged, err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 2 {
+			t.Fatalf("unchanged version=%d err=%v", version, err)
+		}
+		patch.ExpectedUpdatedAt = expected
+		if _, err := service.Update(ctx, id, patch); !errors.Is(err, ErrAdminMovieConflict) {
+			t.Fatalf("stale update err=%v", err)
+		}
+		restored, err := service.Update(ctx, id, AdminMoviePatch{ExpectedUpdatedAt: current, Restore: []AdminMovieField{AdminMovieFieldTitle, AdminMovieFieldGenres, AdminMovieFieldOverview}})
+		if err != nil || restored.Values.Title != restored.Automatic.Title || len(restored.OverriddenFields) != 0 {
+			t.Fatalf("restored movie=%+v err=%v", restored, err)
+		}
+		var overrideCount int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM public_movie_metadata_overrides WHERE public_movie_id=$1", id).Scan(&overrideCount); err != nil || overrideCount != 0 {
+			t.Fatalf("override rows=%d err=%v", overrideCount, err)
+		}
+		if err := pool.QueryRow(ctx, "SELECT version FROM movie_enrichment_state WHERE singleton=true").Scan(&version); err != nil || version != 3 {
+			t.Fatalf("restored version=%d err=%v", version, err)
+		}
+
+		var redirectID int64
+		var redirectUpdated time.Time
+		if err := pool.QueryRow(ctx, `INSERT INTO public_movies
+    (redirect_to_id,identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,genres)
+VALUES ($1,'kinepolis','redirect-admin-test','Redirect',1,'{}') RETURNING id,updated_at`, id).Scan(&redirectID, &redirectUpdated); err != nil {
+			t.Fatal("insert redirect admin fixture failed")
+		}
+		if _, err := service.Update(ctx, redirectID, AdminMoviePatch{ExpectedUpdatedAt: redirectUpdated, Restore: []AdminMovieField{AdminMovieFieldOverview}}); !errors.Is(err, ErrAdminMovieConflict) {
+			t.Fatalf("redirect update err=%v", err)
+		}
+		if _, err := service.Update(ctx, 9223372036854775807, AdminMoviePatch{ExpectedUpdatedAt: redirectUpdated, Restore: []AdminMovieField{AdminMovieFieldOverview}}); !errors.Is(err, ErrAdminMovieNotFound) {
+			t.Fatalf("missing update err=%v", err)
+		}
+		if _, err := pool.Exec(ctx, "DELETE FROM public_movies WHERE id=$1", redirectID); err != nil {
+			t.Fatal("delete redirect admin fixture failed")
+		}
+		if _, err := pool.Exec(ctx, "UPDATE movie_enrichment_state SET version=1 WHERE singleton=true"); err != nil {
+			t.Fatal("restore enrichment version fixture failed")
+		}
+	})
 	for index, runtime := range []int{719, 723, 718} {
 		donor := matched
 		donor.SourceProvider = SourceKinepolis
@@ -236,7 +395,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider_id, slug, title, runtime_minutes) VALUES (2,'201','ugc-film-201','Inactive poison',1)`); err != nil {
 		t.Fatal("insert inactive duplicate movie failed")
 	}
-	pendingActive, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, 100, 0)
+	pendingActive, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, "", 100, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +440,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 	if err := store.SaveDecision(ctx, alreadyRejected); err != nil {
 		t.Fatal(err)
 	}
-	items, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, 50, 0)
+	items, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, "", 50, 0)
 	if err != nil || len(items) != 13 {
 		t.Fatalf("pending=%+v err=%v", items, err)
 	}
@@ -314,11 +473,11 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 	if _, exists := pendingByID[SourceUGC+"/208"]; exists {
 		t.Fatalf("rejected match leaked into unresolved results: %+v", pendingByID[SourceUGC+"/208"])
 	}
-	rejectedItems, err := store.PendingMatches(ctx, PendingMatchFilterRejected, 50, 0)
+	rejectedItems, err := store.PendingMatches(ctx, PendingMatchFilterRejected, "", 50, 0)
 	if err != nil || len(rejectedItems) != 1 || rejectedItems[0].SourceProvider != SourceUGC || rejectedItems[0].SourceMovieID != "208" || rejectedItems[0].Status != StatusRejected {
 		t.Fatalf("rejected=%+v err=%v", rejectedItems, err)
 	}
-	paged, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, 2, 1)
+	paged, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, "", 2, 1)
 	if err != nil || len(paged) != 2 || paged[0].SourceProvider != SourceUGC || paged[0].SourceMovieID != "50" || paged[1].SourceProvider != SourceUGC || paged[1].SourceMovieID != "51" {
 		t.Fatalf("paged pending=%+v err=%v", paged, err)
 	}
@@ -579,7 +738,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 		if err != nil || len(paged) != 1 || paged[0].ID != rejectedGroup.ID {
 			t.Fatalf("paged groups=%+v error=%v", paged, err)
 		}
-		pending, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, 100, 0)
+		pending, err := store.PendingMatches(ctx, PendingMatchFilterUnresolved, "", 100, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -724,7 +883,7 @@ VALUES (1,'kinepolis',$1,'kinepolis-film-HO00016253',$2,104)`, movieID, title); 
 		if err := store.RejectReview(ctx, SourceKinepolis, movieID, now.Add(4*time.Hour)); !errors.Is(err, ErrReviewConflict) {
 			t.Fatalf("second Kinepolis rejection error=%v", err)
 		}
-		pending, err := store.PendingMatches(ctx, PendingMatchFilterRejected, 100, 0)
+		pending, err := store.PendingMatches(ctx, PendingMatchFilterRejected, "", 100, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -3,10 +3,16 @@ import type {
   AdminAddLocalMovieMembersRequest,
   AdminAddLocalMovieMembersResponse,
   AdminCreateLocalMovieGroupRequest,
+  AdminCorrectMatchRequest,
   AdminLocalMovieGroup,
   AdminLocalMovieGroupsResponse,
   AdminMatchDecisionResponse,
+  AdminMovieItem,
+  AdminMoviePatchRequest,
+  AdminMoviesQuery,
+  AdminMoviesResponse,
   AdminPendingMatchesFilter,
+  AdminPendingMatchesQuery,
   AdminPendingMatchesResponse,
   AdminSaveSyncScheduleRequest,
   AdminSessionResponse,
@@ -95,6 +101,20 @@ export function useMesSeancesApi() {
     adminSession() {
       return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, { credentials: 'include' })
     },
+    adminMovies(query: AdminMoviesQuery, signal?: AbortSignal) {
+      return withAdminRedirect($fetch<AdminMoviesResponse>(`${apiBase}/api/v1/admin/movies`, {
+        credentials: 'include',
+        query: queryValues(query),
+        signal
+      }))
+    },
+    adminUpdateMovie(id: string, input: AdminMoviePatchRequest) {
+      return withAdminRedirect($fetch<AdminMovieItem>(`${apiBase}/api/v1/admin/movies/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        body: input
+      }))
+    },
     adminLogin(password: string) {
       return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/login`, {
         method: 'POST',
@@ -108,10 +128,17 @@ export function useMesSeancesApi() {
         credentials: 'include'
       }))
     },
-    adminPendingMatches(status: AdminPendingMatchesFilter, limit: number, offset: number) {
+    adminPendingMatches(status: AdminPendingMatchesFilter, limit: number, offset: number, search?: string) {
+      const normalizedSearch = search?.trim()
+      const query: AdminPendingMatchesQuery = {
+        status,
+        limit,
+        offset
+      }
+      if (status === 'matched' && normalizedSearch) query.search = normalizedSearch
       return withAdminRedirect($fetch<AdminPendingMatchesResponse>(`${apiBase}/api/v1/admin/tmdb-matches`, {
         credentials: 'include',
-        query: { status, limit, offset }
+        query
       }))
     },
     adminApproveMatch(sourceProvider: Provider, sourceMovieId: string, tmdbId: number) {
@@ -125,6 +152,13 @@ export function useMesSeancesApi() {
       return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/reject`, {
         method: 'POST',
         credentials: 'include'
+      }))
+    },
+    adminCorrectMatch(sourceProvider: Provider, sourceMovieId: string, input: AdminCorrectMatchRequest) {
+      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/correct`, {
+        method: 'POST',
+        credentials: 'include',
+        body: input
       }))
     },
     adminRerunTMDBMatches() {
@@ -265,6 +299,10 @@ export function getApiErrorCode(cause: unknown): string | undefined {
   return parseApiFailure(cause)?.data?.error?.code
 }
 
+export function isNotFoundError(cause: unknown): boolean {
+  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
+}
+
 export function getFrenchApiError(cause: unknown): string {
   const message = parseApiFailure(cause)?.data?.error?.message
   if (message !== undefined) return message
@@ -281,7 +319,15 @@ export function getFrenchShortLinkPreparationError(cause: unknown): string {
 export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
+  if (code === 'invalid_admin_movie_query') return 'Filtres de films invalides.'
+  if (code === 'invalid_admin_movie_id') return 'Identifiant de film invalide.'
+  if (code === 'invalid_admin_movie_update') return 'Modifications de film invalides.'
+  if (code === 'admin_movie_not_found') return 'Film introuvable.'
+  if (code === 'admin_movie_conflict') return 'Ce film a changé. La liste a été actualisée.'
+  if (code === 'admin_movie_list_failed') return 'Impossible de charger les films.'
+  if (code === 'admin_movie_update_failed') return 'Impossible d’enregistrer le film.'
   if (code === 'review_unavailable') return 'Le service de validation TMDB est temporairement indisponible.'
+  if (code === 'review_conflict') return 'Cette correspondance a changé. Les listes ont été actualisées.'
   if (code === 'tmdb_rerun_in_progress') return 'Une relance TMDB est déjà en cours.'
   if (code === 'tmdb_rerun_unavailable') return 'Le service de relance TMDB est temporairement indisponible.'
   if (code === 'tmdb_rerun_failed') return 'La relance TMDB a échoué. La liste a été actualisée, car certains films ont peut-être déjà été traités.'

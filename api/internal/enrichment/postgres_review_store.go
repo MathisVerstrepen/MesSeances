@@ -5,24 +5,37 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
-
-	"messeances/api/internal/publicmoviepg"
 )
 
-func (s *PostgresStore) PendingMatches(ctx context.Context, filter PendingMatchFilter, limit, offset int) ([]PendingMatch, error) {
-	if (filter != PendingMatchFilterUnresolved && filter != PendingMatchFilterRejected) || limit < 1 || limit > 100 || offset < 0 {
+func (s *PostgresStore) PendingMatches(ctx context.Context, filter PendingMatchFilter, search string, limit, offset int) ([]PendingMatch, error) {
+	if (filter != PendingMatchFilterUnresolved && filter != PendingMatchFilterRejected && filter != PendingMatchFilterMatched) || limit < 1 || limit > 100 || offset < 0 || search != "" && (filter != PendingMatchFilterMatched || strings.TrimSpace(search) != search || !utf8.ValidString(search) || utf8.RuneCountInString(search) > 1024) {
 		return nil, fmt.Errorf("invalid review pagination")
 	}
-	rows, err := s.pool.Query(ctx, `SELECT m.provider, m.provider_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(mm.status, 'review_required'), COALESCE(mm.candidates, '[]'::jsonb), COALESCE(mm.evaluated_at, CURRENT_TIMESTAMP)
+	var exactTMDBID *int64
+	if id, ok := exactTMDBSearchID(search); ok {
+		exactTMDBID = &id
+	}
+	rows, err := s.pool.Query(ctx, `SELECT m.provider, m.provider_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(mm.status, 'review_required'), COALESCE(mm.candidates, '[]'::jsonb), COALESCE(mm.evaluated_at, CURRENT_TIMESTAMP),
+       mm.updated_at, mm.metadata_movie_id, mm.score, cache.localized_title, cache.provider_title, cache.runtime_minutes, cache.poster_url
 FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
 LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb'
+LEFT JOIN movie_metadata_cache cache ON cache.provider='tmdb' AND cache.provider_movie_id=mm.metadata_movie_id AND cache.locale='fr-FR'
 WHERE (($1='unresolved' AND (mm.status IS NULL OR mm.status IN ('review_required', 'unmatched')))
-    OR ($1='rejected' AND mm.status='rejected'))
+    OR ($1='rejected' AND mm.status='rejected')
+    OR ($1='matched' AND mm.status='matched'))
   AND NOT EXISTS (SELECT 1 FROM local_movie_group_members lmgm WHERE lmgm.source_provider=m.provider AND lmgm.source_movie_id=m.provider_id)
-ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $2 OFFSET $3`, string(filter), limit, offset)
+  AND ($4::text='' OR strpos(lower(m.title), lower($4)) > 0
+       OR strpos(lower(COALESCE(cache.localized_title, '')), lower($4)) > 0
+       OR strpos(lower(COALESCE(cache.provider_title, '')), lower($4)) > 0
+       OR strpos(lower(m.provider_id), lower($4)) > 0
+       OR ($5::bigint IS NOT NULL AND mm.metadata_movie_id=$5))
+ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $2 OFFSET $3`, string(filter), limit, offset, search, exactTMDBID)
 	if err != nil {
 		return nil, fmt.Errorf("read pending movie matches failed")
 	}
@@ -31,8 +44,35 @@ ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $2 OFFSET $3`, string(f
 	for rows.Next() {
 		var item PendingMatch
 		var candidates []byte
-		if err := rows.Scan(&item.SourceProvider, &item.SourceMovieID, &item.SourceTitle, &item.SourceRuntimeMinutes, &item.SourcePosterURL, &item.Status, &candidates, &item.EvaluatedAt); err != nil || json.Unmarshal(candidates, &item.Candidates) != nil {
+		var updatedAt *time.Time
+		var metadataMovieID *int64
+		var score *float64
+		var localizedTitle, providerTitle, posterURL *string
+		var runtime *int
+		if err := rows.Scan(&item.SourceProvider, &item.SourceMovieID, &item.SourceTitle, &item.SourceRuntimeMinutes, &item.SourcePosterURL, &item.Status, &candidates, &item.EvaluatedAt, &updatedAt, &metadataMovieID, &score, &localizedTitle, &providerTitle, &runtime, &posterURL); err != nil || json.Unmarshal(candidates, &item.Candidates) != nil {
 			return nil, fmt.Errorf("read pending movie matches failed")
+		}
+		if item.Status == StatusMatched {
+			if updatedAt == nil || metadataMovieID == nil || score == nil {
+				return nil, fmt.Errorf("read pending movie matches failed")
+			}
+			utc := updatedAt.UTC()
+			item.UpdatedAt = &utc
+			current := Candidate{ID: *metadataMovieID, Title: fmt.Sprintf("TMDB #%d", *metadataMovieID)}
+			current.Score = *score
+			if localizedTitle != nil {
+				current.Title = *localizedTitle
+			}
+			if providerTitle != nil {
+				current.OriginalTitle = *providerTitle
+			}
+			if runtime != nil {
+				current.Runtime = *runtime
+			}
+			if posterURL != nil {
+				current.PosterURL = *posterURL
+			}
+			item.CurrentMatch = &current
 		}
 		items = append(items, item)
 	}
@@ -40,6 +80,93 @@ ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $2 OFFSET $3`, string(f
 		return nil, fmt.Errorf("read pending movie matches failed")
 	}
 	return items, nil
+}
+
+func exactTMDBSearchID(search string) (int64, bool) {
+	if search == "" || search[0] < '1' || search[0] > '9' {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(search, 10, 64)
+	if err != nil || strconv.FormatInt(id, 10) != search {
+		return 0, false
+	}
+	return id, true
+}
+
+func (s *PostgresStore) CorrectionSource(ctx context.Context, sourceProvider, sourceMovieID string, replacementID int64, expectedUpdatedAt time.Time) (int, error) {
+	if replacementID <= 0 || expectedUpdatedAt.IsZero() {
+		return 0, ErrReviewConflict
+	}
+	merged, err := isLocallyMerged(ctx, s.pool, sourceProvider, sourceMovieID)
+	if err != nil {
+		return 0, err
+	}
+	if merged {
+		return 0, ErrReviewConflict
+	}
+	var status, normalizedTitle, currentTitle string
+	var metadataMovieID int64
+	var sourceRuntime, currentRuntime int
+	var updatedAt time.Time
+	err = s.pool.QueryRow(ctx, `SELECT mm.status, mm.metadata_movie_id, mm.normalized_source_title, mm.source_runtime_minutes, mm.updated_at, m.title, m.runtime_minutes
+FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
+WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb'`, sourceProvider, sourceMovieID).Scan(&status, &metadataMovieID, &normalizedTitle, &sourceRuntime, &updatedAt, &currentTitle, &currentRuntime)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrReviewNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read correction source failed")
+	}
+	if status != StatusMatched || metadataMovieID == replacementID || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime || !updatedAt.Equal(expectedUpdatedAt) {
+		return 0, ErrReviewConflict
+	}
+	return sourceRuntime, nil
+}
+
+func (s *PostgresStore) CorrectReview(ctx context.Context, sourceProvider, sourceMovieID string, replacementID int64, expectedUpdatedAt time.Time, metadata Metadata, fallbackRuntime int, now time.Time) error {
+	if replacementID <= 0 || expectedUpdatedAt.IsZero() || metadata.ProviderMovieID != replacementID || fallbackRuntime < 0 || fallbackRuntime != 0 && (!validRuntimeMinutes(fallbackRuntime) || metadata.RuntimeMinutes != fallbackRuntime) || now.IsZero() {
+		return fmt.Errorf("invalid review correction")
+	}
+	if err := validateMetadata(metadata); err != nil {
+		return fmt.Errorf("invalid review correction")
+	}
+	return s.withWriteTransaction(ctx, "begin review correction failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		if merged, err := isLocallyMerged(ctx, tx, sourceProvider, sourceMovieID); err != nil {
+			return nil, err
+		} else if merged {
+			return nil, ErrReviewConflict
+		}
+		var status, normalizedTitle, currentTitle string
+		var metadataMovieID int64
+		var sourceRuntime, currentRuntime int
+		var updatedAt time.Time
+		err := tx.QueryRow(ctx, `SELECT mm.status, mm.metadata_movie_id, mm.normalized_source_title, mm.source_runtime_minutes, mm.updated_at, m.title, m.runtime_minutes
+FROM movie_matches mm JOIN movies m ON m.provider=mm.source_provider AND m.provider_id=mm.source_movie_id
+JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
+WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='tmdb' FOR UPDATE OF mm, m`, sourceProvider, sourceMovieID).Scan(&status, &metadataMovieID, &normalizedTitle, &sourceRuntime, &updatedAt, &currentTitle, &currentRuntime)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrReviewNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock correction source failed")
+		}
+		if status != StatusMatched || metadataMovieID == replacementID || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime || !updatedAt.Equal(expectedUpdatedAt) || fallbackRuntime != 0 && sourceRuntime != fallbackRuntime {
+			return nil, ErrReviewConflict
+		}
+		if err := writeMetadata(ctx, tx, metadata); err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE movie_matches SET metadata_movie_id=$3, score=1, evaluated_at=$4, retry_after=$5, updated_at=$4
+WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, replacementID, now, metadata.RefreshAfter); err != nil {
+			return nil, fmt.Errorf("write corrected match failed")
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after review correction",
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit reviewed match failed") },
+		}, nil
+	})
 }
 
 func (s *PostgresStore) ReviewCandidate(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64) (Candidate, int, error) {
@@ -85,105 +212,87 @@ func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourc
 	if err := validateMetadata(metadata); err != nil {
 		return fmt.Errorf("invalid review approval")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin review approval failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if merged, err := isLocallyMerged(ctx, tx, sourceProvider, sourceMovieID); err != nil {
-		return err
-	} else if merged {
-		return ErrReviewConflict
-	}
-	status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, persisted, err := lockReview(ctx, tx, sourceProvider, sourceMovieID)
-	if err != nil {
-		return err
-	}
-	candidate, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, candidateID)
-	if !ok {
-		return ErrReviewConflict
-	}
-	if fallbackRuntime != 0 && sourceRuntime != fallbackRuntime {
-		return ErrReviewConflict
-	}
-	if err := writeMetadata(ctx, tx, metadata); err != nil {
-		return err
-	}
-	if persisted {
-		if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='matched', metadata_movie_id=$3, score=$4, evaluated_at=$5, retry_after=$6, updated_at=$5
-WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, candidateID, candidate.Score, now, metadata.RefreshAfter); err != nil {
-			return fmt.Errorf("write reviewed match failed")
+	return s.withWriteTransaction(ctx, "begin review approval failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		if merged, err := isLocallyMerged(ctx, tx, sourceProvider, sourceMovieID); err != nil {
+			return nil, err
+		} else if merged {
+			return nil, ErrReviewConflict
 		}
-	} else {
-		command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
-VALUES ($1,$2,'tmdb','matched',$3,$4,$5,$6,$7,$8,$9,$8) ON CONFLICT DO NOTHING`, sourceProvider, sourceMovieID, candidateID, candidate.Score, normalizedTitle, sourceRuntime, raw, now, metadata.RefreshAfter)
+		status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, persisted, err := lockReview(ctx, tx, sourceProvider, sourceMovieID)
 		if err != nil {
-			return fmt.Errorf("write reviewed match failed")
+			return nil, err
 		}
-		if command.RowsAffected() == 0 {
-			return ErrReviewConflict
+		candidate, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, candidateID)
+		if !ok {
+			return nil, ErrReviewConflict
 		}
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return fmt.Errorf("reconcile public movies after review approval: %w", err)
-	}
-	return commitReview(ctx, tx, version)
+		if fallbackRuntime != 0 && sourceRuntime != fallbackRuntime {
+			return nil, ErrReviewConflict
+		}
+		if err := writeMetadata(ctx, tx, metadata); err != nil {
+			return nil, err
+		}
+		if persisted {
+			if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='matched', metadata_movie_id=$3, score=$4, evaluated_at=$5, retry_after=$6, updated_at=$5
+WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, candidateID, candidate.Score, now, metadata.RefreshAfter); err != nil {
+				return nil, fmt.Errorf("write reviewed match failed")
+			}
+		} else {
+			command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
+VALUES ($1,$2,'tmdb','matched',$3,$4,$5,$6,$7,$8,$9,$8) ON CONFLICT DO NOTHING`, sourceProvider, sourceMovieID, candidateID, candidate.Score, normalizedTitle, sourceRuntime, raw, now, metadata.RefreshAfter)
+			if err != nil {
+				return nil, fmt.Errorf("write reviewed match failed")
+			}
+			if command.RowsAffected() == 0 {
+				return nil, ErrReviewConflict
+			}
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after review approval",
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit reviewed match failed") },
+		}, nil
+	})
 }
 
 func (s *PostgresStore) RejectReview(ctx context.Context, sourceProvider, sourceMovieID string, now time.Time) error {
 	if now.IsZero() {
 		return fmt.Errorf("invalid review rejection")
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin review rejection failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if merged, err := isLocallyMerged(ctx, tx, sourceProvider, sourceMovieID); err != nil {
-		return err
-	} else if merged {
-		return ErrReviewConflict
-	}
-	status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, persisted, err := lockReview(ctx, tx, sourceProvider, sourceMovieID)
-	if err != nil {
-		return err
-	}
-	if _, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, 0); !ok {
-		return ErrReviewConflict
-	}
-	if persisted {
-		if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='rejected', metadata_movie_id=NULL, score=NULL, evaluated_at=$3, retry_after=$3, updated_at=$3
-WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, now); err != nil {
-			return fmt.Errorf("write rejected match failed")
+	return s.withWriteTransaction(ctx, "begin review rejection failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		if merged, err := isLocallyMerged(ctx, tx, sourceProvider, sourceMovieID); err != nil {
+			return nil, err
+		} else if merged {
+			return nil, ErrReviewConflict
 		}
-	} else {
-		command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
-VALUES ($1,$2,'tmdb','rejected',NULL,NULL,$3,$4,$5,$6,$6,$6) ON CONFLICT DO NOTHING`, sourceProvider, sourceMovieID, normalizedTitle, sourceRuntime, raw, now)
+		status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, persisted, err := lockReview(ctx, tx, sourceProvider, sourceMovieID)
 		if err != nil {
-			return fmt.Errorf("write rejected match failed")
+			return nil, err
 		}
-		if command.RowsAffected() == 0 {
-			return ErrReviewConflict
+		if _, ok := validReviewCandidate(status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, 0); !ok {
+			return nil, ErrReviewConflict
 		}
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return fmt.Errorf("reconcile public movies after review rejection: %w", err)
-	}
-	return commitReview(ctx, tx, version)
+		if persisted {
+			if _, err := tx.Exec(ctx, `UPDATE movie_matches SET status='rejected', metadata_movie_id=NULL, score=NULL, evaluated_at=$3, retry_after=$3, updated_at=$3
+WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider='tmdb'`, sourceProvider, sourceMovieID, now); err != nil {
+				return nil, fmt.Errorf("write rejected match failed")
+			}
+		} else {
+			command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
+VALUES ($1,$2,'tmdb','rejected',NULL,NULL,$3,$4,$5,$6,$6,$6) ON CONFLICT DO NOTHING`, sourceProvider, sourceMovieID, normalizedTitle, sourceRuntime, raw, now)
+			if err != nil {
+				return nil, fmt.Errorf("write rejected match failed")
+			}
+			if command.RowsAffected() == 0 {
+				return nil, ErrReviewConflict
+			}
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after review rejection",
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit reviewed match failed") },
+		}, nil
+	})
 }
 
 func validReviewCandidate(status, normalizedTitle string, sourceRuntime int, raw []byte, currentTitle string, currentRuntime int, candidateID int64) (Candidate, bool) {
@@ -229,14 +338,4 @@ WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='
 		return "", "", 0, nil, "", 0, false, fmt.Errorf("lock reviewed match failed")
 	}
 	return status, normalizedTitle, sourceRuntime, raw, currentTitle, currentRuntime, true, nil
-}
-
-func commitReview(ctx context.Context, tx pgx.Tx, version int64) error {
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit reviewed match failed")
-	}
-	return nil
 }

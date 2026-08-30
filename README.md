@@ -30,7 +30,8 @@ The application interface is in French.
 - Go 1.25.13
 - Node.js 22.23.1 and npm 10.9.8 (verified versions)
 - Docker with Docker Compose
-- A valid proxy file for the initial provider synchronization
+- PostgreSQL 18
+- A valid proxy file to enable provider synchronization from the admin area
 
 Install dependencies from the repository root:
 
@@ -41,25 +42,11 @@ npm --prefix web install
 cp deploy/.env.example deploy/.env
 ```
 
-MesSeances does not start with an empty database. Populate PostgreSQL with a complete schedule snapshot first:
+MesSeances can start after migrations without a complete schedule snapshot. In this pending state, `/healthz` returns `200`, `/readyz` returns `503`, and public schedule reads return `503 schedule_unavailable`. Configure `ADMIN_PASSWORD`, an independently generated `ADMIN_SESSION_SECRET`, and `PROXY_FILE`, then trigger the first provider synchronization from the authenticated admin area. Its atomic snapshot publication becomes visible to the running API during the next five-second source poll; no restart is required.
 
-```sh
-make sync PROXY_FILE=/path/to/proxies.txt
-```
+Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like other provider ingestion, it requires configured proxies and the built-in Chrome-compatible TLS fingerprint transport, and always publishes a complete national Pathé snapshot.
 
-`make sync` runs UGC, Kinepolis, Pathé, then CGR with the same required proxy file. Provider-specific full synchronizations are also available:
-
-```sh
-cd api
-go run ./cmd/sync-ugc -proxy-file /path/to/proxies.txt
-go run ./cmd/sync-kinepolis -proxy-file /path/to/proxies.txt
-go run ./cmd/sync-pathe -proxy-file /path/to/proxies.txt
-go run ./cmd/sync-cgr
-```
-
-Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like other provider ingestion, it requires configured proxies and the built-in Chrome-compatible TLS fingerprint transport. `sync-pathe` supports optional `-from` and `-timeout` flags and always publishes a complete national Pathé snapshot.
-
-CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. `sync-cgr` supports optional `-from`, `-timeout`, and `-proxy-file` flags, works with a direct bounded HTTP client when no proxy file is supplied, and always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
+CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. It always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
 
 ### Theater geocoding
 
@@ -79,7 +66,7 @@ Open [http://localhost:3000](http://localhost:3000). The API runs at `http://loc
 
 When admin access is enabled, configure both `ADMIN_PASSWORD` and an independently generated `ADMIN_SESSION_SECRET`. Password rotation changes login credentials without invalidating active sessions; session-secret rotation invalidates all active sessions. Leaving both blank disables admin access locally.
 
-Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, and CGR and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive. Explicit `-timeout` flags override request timeout; Kinepolis also supports `-request-interval`.
+Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, and CGR and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive.
 
 `PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
 
@@ -175,16 +162,18 @@ Run the failure mode with Nuxt configured against an intentionally unavailable A
 
 ### Core Web Vitals benchmark
 
-With API and Nuxt already running and publicly reachable by Chrome, run three Lighthouse CI mobile lab measurements against `http://localhost:3000/`:
+Use one unchanged production-like API/Nuxt runtime with populated current data. Command measures one URL per invocation and does not start or stop services. Before measuring, open running instance's `/sitemap.xml` and select one successful current film, cinema, and city URL that renders expected poster content. Do not use crawlability fixture slugs or empty/error routes.
+
+Run five independent three-run mobile measurements with same absolute Chrome executable, preserving generated report filenames after each invocation:
 
 ```sh
-make web-vitals
+make web-vitals URL="http://localhost:3000/" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/films" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/film/<current-film-slug>" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/cinema/<current-cinema-slug>" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
+make web-vitals URL="http://localhost:3000/ville/<current-city-slug>/cinemas" RUNS=3 CHROME_BIN="/absolute/path/to/chrome"
 ```
 
-Override target URL, run count, or Chrome executable when needed:
+Local HTML and JSON reports are written under `web/.lighthouseci/reports/` and ignored by Git. Record exact URL, report filenames, and median LCP, CLS, and TBT for each template separately. Do not average templates together, and report threshold failures unchanged.
 
-```sh
-make web-vitals URL=https://messeances.fr/ RUNS=5 CHROME_BIN=/path/to/chrome
-```
-
-Command does not start or stop API or Nuxt. It fails when representative median run exceeds LCP 2500 ms, CLS 0.1, or TBT 200 ms. Local HTML and JSON reports are written under `web/.lighthouseci/reports/` and ignored by Git. LCP and CLS are direct page-load lab metrics; TBT is responsiveness proxy because page-load Lighthouse cannot provide representative INP.
+Each invocation fails unless median LCP is at most 2500 ms, median CLS is strictly below 0.1, and median TBT is at most 200 ms. LCP and CLS are direct page-load lab metrics. TBT is only an INP proxy because page-load Lighthouse does not measure representative INP; report INP as unconfirmed unless independent field evidence establishes it.

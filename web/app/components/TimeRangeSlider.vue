@@ -180,35 +180,16 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
     <div class="mt-1 grid grid-cols-2 gap-3">
       <label class="block">
         <span class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink">À partir de</span>
-        <select v-model="startModel" class="time-field">
+        <select v-model="startModel" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink">
           <option v-for="option in options" :key="`start-${option.value}`" :value="option.value">{{ option.label }}</option>
         </select>
       </label>
       <label class="block">
         <span class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink">Terminé avant</span>
-        <select v-model="endModel" class="time-field">
+        <select v-model="endModel" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink">
           <option v-for="option in options" :key="`end-${option.value}`" :value="option.value">{{ option.label }}</option>
         </select>
       </label>
     </div>
   </fieldset>
 </template>
-
-<style scoped>
-.time-field {
-  height: 3rem;
-  width: 100%;
-  border: 2px solid #27272a;
-  border-radius: 0;
-  background: #fff;
-  padding: 0 0.65rem;
-  color: #27272a;
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.time-field:focus-visible {
-  outline: 3px solid #27272a;
-  outline-offset: 3px;
-}
-</style>

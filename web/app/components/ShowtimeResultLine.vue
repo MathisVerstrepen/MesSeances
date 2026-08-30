@@ -79,10 +79,7 @@ function formatRoom(room: string) {
         <PosterImage
           :src="posterUrl"
           :alt="`Affiche de ${result.movieTitle}`"
-          width="52"
-          height="78"
-          loading="lazy"
-          decoding="async"
+          sizes="(min-width: 640px) 52px, 48px"
           class="h-full w-full"
           image-class="h-full w-full object-cover"
           fallback-variant="icon-only"

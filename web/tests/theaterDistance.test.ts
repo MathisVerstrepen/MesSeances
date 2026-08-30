@@ -182,13 +182,19 @@ test('cinemas page lazy-loads client-only map mode while preserving list fallbac
 
 test('cinemas page keeps favorite group controls deterministic until preferences finish loading', async () => {
   const page = await readFile(new URL('../app/pages/cinemas.vue', import.meta.url), 'utf8')
+  const fallbackBlocks = [...page.matchAll(/<template #fallback>([\s\S]*?)<\/template>/g)].map((match) => match[1]!)
 
   assert.match(page, /const preferencesReady = ref\(false\)/)
   assert.match(page, /await loadPreferences\(\)\s*if \(!isUnmounted\) preferencesReady\.value = true/)
-  assert.match(page, /<ClientOnly>[\s\S]*<template #fallback>/)
   assert.equal(page.match(/<ClientOnly>/g)?.length, 2)
   assert.equal(page.match(/:disabled="!preferencesReady \|\| group\.theaters\.every/g)?.length, 2)
-  assert.equal(page.match(/class="group-action(?: group-action--secondary)?" disabled/g)?.length, 4)
+  assert.equal(fallbackBlocks.length, 2)
+  for (const fallback of fallbackBlocks) {
+    const fallbackButtons = [...fallback.matchAll(/<button type="button"[^>]* disabled>([\s\S]*?)<\/button>/g)]
+    assert.equal(fallbackButtons.length, 2)
+    assert.match(fallbackButtons[0]![1]!, /Tout sélectionner/)
+    assert.match(fallbackButtons[1]![1]!, /Désélectionner/)
+  }
   assert.equal(page.match(/preferencesReady\.value = true/g)?.length, 1)
 })
 
@@ -217,11 +223,11 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
 
 test('cinemas page scopes city and global actions to displayed draft results', async () => {
   const page = await readFile(new URL('../app/pages/cinemas.vue', import.meta.url), 'utf8')
-  const toolbarStart = page.indexOf('class="selection-toolbar mt-7"')
+  const toolbarStart = page.indexOf('class="selection-toolbar mt-7 ')
   const toolbarEnd = page.indexOf('<p class="sr-only" aria-live="polite">', toolbarStart)
-  const selectionControlsStart = page.indexOf('class="selection-controls"', toolbarStart)
-  const filterActionStart = page.indexOf('class="filter-action"', selectionControlsStart)
-  const bulkActionsStart = page.indexOf('class="bulk-actions"', selectionControlsStart)
+  const selectionControlsStart = page.indexOf('class="selection-controls ', toolbarStart)
+  const filterActionStart = page.indexOf('aria-pressed:bg-highlight', selectionControlsStart)
+  const bulkActionsStart = page.indexOf('class="bulk-actions ', selectionControlsStart)
 
   assert.match(page, /function updateGroup\(groupTheaters: readonly Theater\[], select: boolean\)/)
   assert.match(page, /function updateDisplayedSelection\(select: boolean\)/)
@@ -232,28 +238,29 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   assert.match(page, /\{\{ draftFavoriteTheaterIds\.length \}\}/)
   assert.ok(toolbarStart >= 0)
   assert.ok(toolbarEnd > toolbarStart)
-  assert.ok(page.indexOf('class="view-switch"', toolbarStart) < toolbarEnd)
-  assert.ok(selectionControlsStart > page.indexOf('class="view-switch"', toolbarStart))
+  assert.ok(page.indexOf('class="view-switch ', toolbarStart) < toolbarEnd)
+  assert.ok(selectionControlsStart > page.indexOf('class="view-switch ', toolbarStart))
   assert.ok(filterActionStart > selectionControlsStart)
   assert.ok(bulkActionsStart > filterActionStart)
   assert.ok(page.indexOf('<span>Sélectionnés uniquement</span>', selectionControlsStart) < toolbarEnd)
   assert.ok(page.indexOf('aria-label="Modifier les cinémas affichés"', selectionControlsStart) < toolbarEnd)
   assert.doesNotMatch(page, /class="view-switch mb-7"/)
-  assert.match(page, /\.selection-toolbar \{[\s\S]*?display: flex;[\s\S]*?flex-wrap: wrap;/)
+  assert.match(page, /class="selection-toolbar mt-7 flex flex-wrap /)
   assert.match(page, /<List :size="16" aria-hidden="true" \/> Liste/)
   assert.match(page, /<MapIcon :size="16" aria-hidden="true" \/> Carte/)
   assert.match(page, /<ListFilter :size="17" aria-hidden="true" \/>/)
-  assert.match(page, /class="filter-action__state" aria-hidden="true"><Check v-if="selectedOnly"/)
-  assert.match(page, /\.filter-action\[aria-pressed="true"\] \{[\s\S]*?box-shadow: 4px 4px 0 #27272a;/)
-  assert.match(page, /class="bulk-actions" role="group" aria-label="Modifier les cinémas affichés"/)
+  assert.match(page, /aria-hidden="true"><Check v-if="selectedOnly"/)
+  assert.match(page, /aria-pressed:shadow-\[4px_4px_0_#27272a\]/)
+  assert.match(page, /class="bulk-actions [^"]*" role="group" aria-label="Modifier les cinémas affichés"/)
   assert.equal(page.match(/<CheckCheck :size="16" aria-hidden="true" \/> Tout sélectionner/g)?.length, 2)
   assert.equal(page.match(/<X :size="16" aria-hidden="true" \/> Désélectionner/g)?.length, 2)
-  assert.match(page, /\.bulk-actions \{[\s\S]*?border: 2px dashed #27272a;/)
-  assert.match(page, /\.view-switch,\s*\.filter-action,\s*\.bulk-actions \{[\s\S]*?box-sizing: border-box;[\s\S]*?height: 2\.75rem;/)
-  assert.match(page, /\.selection-controls \{[\s\S]*?display: inline-flex;[\s\S]*?flex-wrap: wrap;[\s\S]*?justify-content: flex-end;[\s\S]*?gap: 0\.75rem;/)
-  assert.match(page, /\.bulk-actions \.group-action \{[\s\S]*?height: 100%;[\s\S]*?min-height: 0;/)
-  assert.match(page, /\.view-switch button \{[\s\S]*?height: 100%;[\s\S]*?min-height: 0;/)
-  assert.match(page, /@media \(max-width: 639px\) \{[\s\S]*?\.selection-controls \{[\s\S]*?width: 100%;[\s\S]*?\.view-switch,[\s\S]*?\.filter-action,[\s\S]*?\.bulk-actions \{[\s\S]*?width: 100%;/)
+  assert.match(page, /class="bulk-actions [^"]*h-11[^"]*border-2 border-dashed border-ink/)
+  assert.match(page, /class="view-switch [^"]*h-11/)
+  assert.match(page, /aria-pressed:shadow-\[4px_4px_0_#27272a\][^"]*max-sm:w-full/)
+  assert.match(page, /class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"/)
+  assert.match(page, /class="bulk-actions [\s\S]*?class="inline-flex h-full min-h-0 min-w-0/)
+  assert.equal(page.match(/class="inline-flex h-full min-h-0 items-center justify-center/g)?.length, 2)
+  assert.match(page, /class="view-switch [^"]*max-sm:w-full/)
 })
 
 test('client map source contract covers clustering, accessible Vue details, privacy, and cleanup', async () => {
@@ -302,7 +309,7 @@ test('client map removes theater selector and uses accessible fullscreen lifecyc
   assert.match(component, /fullscreenControl\?\.off\('fullscreenend', resizeMapAfterFullscreenChange\)/)
   assert.match(component, /requestAnimationFrame\(\(\) => \{[\s\S]*map\.resize\(\)/)
   assert.match(component, /cancelAnimationFrame\(fullscreenResizeFrame\)/)
-  assert.match(component, /\.map-layout:fullscreen[\s\S]*\.map-attribution/)
+  assert.match(component, /\.map-layout:fullscreen[\s\S]*\.theater-details/)
 })
 
 test('client map uses supported cluster glyphs and reports localized theater coverage', async () => {
@@ -315,5 +322,5 @@ test('client map uses supported cluster glyphs and reports localized theater cov
   assert.match(component, /mappedCount === 1 \? '' : 's'/)
   assert.match(component, /resultCount === 1 \? '' : 's'/)
   assert.match(component, /`\$\{mappedCount\} cinéma\$\{mappedPlural\} localisé\$\{mappedPlural\} sur \$\{resultCount\} résultat\$\{resultPlural\}`/)
-  assert.match(component, /<p class="map-summary" role="status" aria-live="polite">\{\{ mapTheaterSummary \}\}<\/p>/)
+  assert.match(component, /<p class="[^"]+" role="status" aria-live="polite">\{\{ mapTheaterSummary \}\}<\/p>/)
 })

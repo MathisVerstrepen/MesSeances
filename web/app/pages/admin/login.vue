@@ -40,7 +40,7 @@ useHead({ title: 'Connexion administrateur - MesSeances' })
 </script>
 
 <template>
-  <main class="admin-login-page flex min-h-[calc(100vh-7rem)] items-center px-4 py-12 sm:px-6 sm:py-16 lg:px-10 lg:py-20">
+  <main class="flex min-h-[calc(100vh-7rem)] items-center bg-[#f8f7f2] px-4 py-12 [background-image:linear-gradient(rgba(39,39,42,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.08)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-16 lg:px-10 lg:py-20">
     <section class="mx-auto w-full max-w-2xl border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] sm:shadow-[9px_9px_0_#27272a]" aria-labelledby="admin-login-title">
       <header class="border-b-2 border-ink bg-[#ffcf3f] p-5 sm:p-7">
         <div class="mb-8 flex items-center justify-between gap-4 sm:mb-10">
@@ -91,13 +91,3 @@ useHead({ title: 'Connexion administrateur - MesSeances' })
     </section>
   </main>
 </template>
-
-<style scoped>
-.admin-login-page {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.08) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-</style>

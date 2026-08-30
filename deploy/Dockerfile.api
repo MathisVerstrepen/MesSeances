@@ -7,10 +7,7 @@ RUN go mod download
 
 COPY api/ ./
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/messeances-api ./cmd/api \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sync-ugc ./cmd/sync-ugc \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sync-kinepolis ./cmd/sync-kinepolis \
-    && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sync-pathe ./cmd/sync-pathe
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/messeances-api ./cmd/api
 
 FROM alpine:3.22
 
@@ -18,7 +15,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 messeances \
     && adduser -S -D -H -u 10001 -G messeances messeances
 
-COPY --from=build /out/messeances-api /out/sync-ugc /out/sync-kinepolis /out/sync-pathe /usr/local/bin/
+COPY --from=build /out/messeances-api /usr/local/bin/
 
 USER 10001:10001
 EXPOSE 8080

@@ -116,7 +116,7 @@ async function applyRoute() {
 
 function updateTimelineQuery(values: Partial<Record<'date' | 'language' | 'format' | 'mode' | 'zoom', string>>) {
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
-  if (!queriesEqual(route.query, query)) router.push({ query })
+  if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
 function updateLanguage(event: Event) {
@@ -202,38 +202,38 @@ const pageDescription = 'Visualisez les séances de vos cinémas sur une frise e
 useSeoMeta({
   title: pageTitle,
   description: pageDescription,
-  robots: computed(() => Object.keys(route.query).length === 0 ? 'index,follow' : 'noindex,follow')
+  robots: 'noindex,follow'
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <main class="planning-page min-h-[calc(100vh-4.5rem)] px-2 py-3 text-ink sm:px-4 sm:py-4 lg:px-6">
+  <main class="min-h-[calc(100vh-4.5rem)] bg-[#f8f7f2] px-2 py-3 text-ink [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-4 sm:py-4 lg:px-6">
     <h1 class="sr-only">Planning des séances</h1>
 
-    <section class="control-dock sticky top-[4.5rem] z-20 border-2 border-ink bg-[#f1efe8]/95 shadow-[6px_6px_0_#27272a] backdrop-blur" aria-label="Filtres du planning">
+    <section class="sticky top-[4.5rem] z-20 border-2 border-ink bg-[#f1efe8]/95 shadow-[6px_6px_0_#27272a] backdrop-blur max-xl:relative max-xl:top-auto" aria-label="Filtres du planning">
       <div class="flex flex-wrap items-center gap-2 border-b-2 border-ink p-2 sm:flex-nowrap sm:gap-3 sm:p-3">
         <ShowtimeDateBar :selected-date="date" :available-dates="dateOptions" :today="today" @select="selectPlanningDate" />
-        <NuxtLink to="/cinemas" class="personalize-button ml-auto shrink-0 sm:ml-0">
+        <NuxtLink to="/cinemas" class="ml-auto inline-flex min-h-10 shrink-0 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.7rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent sm:ml-0">
           <Settings2 :size="17" aria-hidden="true" />
           <span class="hidden sm:inline">Cinémas</span>
-          <strong>{{ preferences.activeTheaterIds.value.length }}</strong>
+          <strong class="grid h-6 min-w-6 place-items-center bg-highlight text-ink">{{ preferences.activeTheaterIds.value.length }}</strong>
         </NuxtLink>
         <ShareButton class="shrink-0" />
       </div>
 
-      <div class="grid gap-3 p-2 sm:p-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-end">
+      <div class="grid grid-cols-1 gap-3 p-2 sm:grid-cols-2 sm:p-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-end">
         <fieldset>
-          <legend class="utility-label mb-1.5">Affichage</legend>
-          <div class="control-group">
-            <button v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]" :key="option.value" type="button" class="control-button" :class="mode === option.value ? 'control-button--active' : ''" :aria-pressed="mode === option.value" @click="updateTimelineQuery({ mode: option.value === 'theater' ? undefined : option.value })">{{ option.label }}</button>
+          <legend class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Affichage</legend>
+          <div class="flex w-max max-w-full border-2 border-ink bg-surface p-[0.2rem]">
+            <button v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]" :key="option.value" type="button" class="min-h-9 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" :class="mode === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'" :aria-pressed="mode === option.value" @click="updateTimelineQuery({ mode: option.value === 'theater' ? undefined : option.value })">{{ option.label }}</button>
           </div>
         </fieldset>
 
         <fieldset class="min-w-0">
-          <legend class="utility-label mb-1.5">Format</legend>
-          <div class="control-group max-w-full overflow-x-auto [scrollbar-width:thin]">
-            <button v-for="option in formatOptions" :key="option.value" type="button" class="control-button shrink-0" :class="formatFilter === option.value ? 'control-button--active' : ''" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
+          <legend class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Format</legend>
+          <div class="flex w-max max-w-full overflow-x-auto border-2 border-ink bg-surface p-[0.2rem] [scrollbar-width:thin]">
+            <button v-for="option in formatOptions" :key="option.value" type="button" class="min-h-9 shrink-0 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" :class="formatFilter === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
               <BrandLogo v-if="option.brand" :brand="option.brand" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
               <span v-else>{{ option.label }}</span>
             </button>
@@ -241,8 +241,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </fieldset>
 
         <label class="block">
-          <span class="utility-label mb-1.5 block">Langue</span>
-          <select :value="language" class="editorial-select" @change="updateLanguage">
+          <span class="mb-1.5 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Langue</span>
+          <select :value="language" class="h-11 min-w-32 rounded-none border-2 border-ink bg-surface pr-8 pl-[0.7rem] text-[0.8rem] font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" @change="updateLanguage">
             <option value="ALL">Toutes</option>
             <option value="VOSTFR">VOSTFR</option>
             <option value="VF">VF</option>
@@ -250,9 +250,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </label>
 
         <fieldset>
-          <legend class="utility-label mb-1.5">Zoom</legend>
-          <div class="control-group">
-            <button v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]" :key="option.value" type="button" class="control-button" :class="zoom === option.value ? 'control-button--active' : ''" :aria-pressed="zoom === option.value" @click="updateTimelineQuery({ zoom: option.value === 30 ? undefined : String(option.value) })">{{ option.label }}</button>
+          <legend class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Zoom</legend>
+          <div class="flex w-max max-w-full border-2 border-ink bg-surface p-[0.2rem]">
+            <button v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]" :key="option.value" type="button" class="min-h-9 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" :class="zoom === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'" :aria-pressed="zoom === option.value" @click="updateTimelineQuery({ zoom: option.value === 30 ? undefined : String(option.value) })">{{ option.label }}</button>
           </div>
         </fieldset>
       </div>
@@ -263,21 +263,21 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     <section class="mt-4 min-w-0" aria-labelledby="planning-date-title">
       <div class="mb-2 flex items-end justify-between gap-4 border-b-2 border-ink px-1 pb-2">
         <div>
-          <p class="utility-label">Séances</p>
+          <p class="font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Séances</p>
           <h2 id="planning-date-title" class="mt-1 text-xl font-black capitalize tracking-[-0.035em] sm:text-2xl">{{ formatLongDate(date) }}</h2>
         </div>
-        <p v-if="timeline && !pending" class="utility-label text-right">{{ showtimeCount }} séance{{ showtimeCount > 1 ? 's' : '' }}</p>
+        <p v-if="timeline && !pending" class="text-right font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">{{ showtimeCount }} séance{{ showtimeCount > 1 ? 's' : '' }}</p>
       </div>
 
       <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="viewport" shadow="small" class="planning-state font-extrabold">
-        <template #icon><LoaderCircle :size="30" class="planning-spinner animate-spin" aria-hidden="true" /></template>
+        <template #icon><LoaderCircle :size="30" class="animate-spin motion-reduce:animate-none" aria-hidden="true" /></template>
         <p>Chargement des séances…</p>
       </EditorialStatePanel>
 
       <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="viewport" shadow="small" class="planning-state font-extrabold">
         <template #icon><AlertTriangle :size="32" class="text-primary" aria-hidden="true" /></template>
         <p class="max-w-lg">{{ errorMessage }}</p>
-        <template #actions><button type="button" class="state-button" @click="retryTimeline"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+        <template #actions><button type="button" class="inline-flex min-h-10 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.7rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" @click="retryTimeline"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
       </EditorialStatePanel>
 
       <EditorialStatePanel v-else-if="!timeline || rawShowtimeCount === 0" size="viewport" shadow="small" class="planning-state font-extrabold">
@@ -289,129 +289,3 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </section>
   </main>
 </template>
-
-<style scoped>
-.planning-page {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.07) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.utility-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.control-button--active {
-  background: #27272a;
-  color: #fff;
-  box-shadow: inset 0 -3px 0 var(--color-highlight);
-}
-
-.control-button:focus-visible,
-.personalize-button:focus-visible,
-.editorial-select:focus-visible,
-.state-button:focus-visible {
-  z-index: 1;
-  outline: 3px solid #1f6f78;
-  outline-offset: 2px;
-}
-
-.personalize-button,
-.state-button {
-  display: inline-flex;
-  min-height: 2.5rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 2px solid #27272a;
-  background: #27272a;
-  padding: 0 0.7rem;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.personalize-button:hover,
-.state-button:hover {
-  background: #991b1b;
-}
-
-.personalize-button strong {
-  display: grid;
-  min-width: 1.5rem;
-  height: 1.5rem;
-  place-items: center;
-  background: var(--color-highlight);
-  color: #27272a;
-}
-
-.control-group {
-  display: flex;
-  width: max-content;
-  max-width: 100%;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.2rem;
-}
-
-.control-button {
-  min-height: 2.25rem;
-  padding: 0 0.7rem;
-  color: #27272a;
-  font-size: 0.75rem;
-  font-weight: 800;
-}
-
-.control-button.control-button--active {
-  color: #fff;
-}
-
-.control-button:hover:not(.control-button--active) {
-  background: #e8e6de;
-}
-
-.editorial-select {
-  height: 2.75rem;
-  min-width: 8rem;
-  border: 2px solid #27272a;
-  border-radius: 0;
-  background: #fff;
-  padding: 0 2rem 0 0.7rem;
-  color: #27272a;
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-@media (max-width: 1279px) {
-  .control-dock {
-    position: relative;
-    top: auto;
-  }
-
-  .control-dock > div:last-child {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 639px) {
-  .control-dock > div:last-child {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .planning-spinner {
-    animation: none;
-  }
-}
-</style>

@@ -19,10 +19,6 @@ const slug = computed(() => {
   return Array.isArray(value) ? value[0] ?? '' : value ?? ''
 })
 
-function isNotFoundError(cause: unknown): boolean {
-  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
-}
-
 async function fetchCity() {
   try {
     return { kind: 'success' as const, detail: await api.city(slug.value), errorMessage: '' }
@@ -120,10 +116,10 @@ useHead(() => ({
 </script>
 
 <template>
-  <main class="city-page mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
+  <main class="mx-auto min-h-[70vh] max-w-[1440px] bg-[#f8f7f2] px-4 py-8 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-10 lg:px-10 lg:py-14">
     <EditorialStatePanel v-if="pending && !detail" semantic="status" live="polite" size="standard" shadow="large" class="city-state mx-auto max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement de la ville…</p></EditorialStatePanel>
-    <EditorialStatePanel v-else-if="notFound" semantic="alert" size="standard" shadow="large" class="city-state mx-auto max-w-3xl font-bold"><template #icon><MapPin :size="36" aria-hidden="true" /></template><template #heading><h1 class="text-2xl font-black">Ville introuvable</h1></template><p>Cette ville n’est pas disponible dans la programmation actuelle.</p><template #actions><NuxtLink to="/cinemas" class="city-action">Voir les cinémas</NuxtLink></template></EditorialStatePanel>
-    <EditorialStatePanel v-else-if="errorMessage && !detail" semantic="alert" size="standard" shadow="large" class="city-state mx-auto max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h1 class="text-2xl font-black">Impossible de charger cette ville</h1></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="city-action" @click="loadCity"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+    <EditorialStatePanel v-else-if="notFound" semantic="alert" size="standard" shadow="large" class="city-state mx-auto max-w-3xl font-bold"><template #icon><MapPin :size="36" aria-hidden="true" /></template><template #heading><h1 class="text-2xl font-black">Ville introuvable</h1></template><p>Cette ville n’est pas disponible dans la programmation actuelle.</p><template #actions><NuxtLink to="/cinemas" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase">Voir les cinémas</NuxtLink></template></EditorialStatePanel>
+    <EditorialStatePanel v-else-if="errorMessage && !detail" semantic="alert" size="standard" shadow="large" class="city-state mx-auto max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h1 class="text-2xl font-black">Impossible de charger cette ville</h1></template><p>{{ errorMessage }}</p><template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="loadCity"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
 
     <template v-else-if="detail">
       <Breadcrumbs
@@ -136,17 +132,17 @@ useHead(() => ({
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
           <div class="min-w-0 p-5 sm:p-8 lg:p-10">
-            <p class="utility-label">Cinémas · ville</p>
+            <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">Cinémas · ville</p>
             <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
           </div>
 
           <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
             <div class="min-w-0 p-5 sm:p-6">
-              <dt class="utility-label flex items-center gap-3 text-muted"><Building2 :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Cinémas</dt>
+              <dt class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"><Building2 :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Cinémas</dt>
               <dd class="mt-2 pl-8 text-2xl font-black leading-none">{{ detail.theaters.length }}</dd>
             </div>
             <div class="min-w-0 border-t-2 border-ink p-5 sm:border-l-2 sm:border-t-0 sm:p-6 lg:border-l-0 lg:border-t-2">
-              <dt class="utility-label flex items-center gap-3 text-muted"><Film :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Films</dt>
+              <dt class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"><Film :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Films</dt>
               <dd class="mt-2 pl-8 text-2xl font-black leading-none">{{ detail.movies.length }}</dd>
             </div>
           </dl>
@@ -178,9 +174,9 @@ useHead(() => ({
           <li v-for="movie in detail.movies" :key="movie.slug" class="min-w-0">
             <NuxtLink :to="`/film/${encodeURIComponent(movie.slug)}`" class="group block h-full border-2 border-ink bg-surface shadow-[5px_5px_0_#27272a] transition-transform hover:-translate-y-1">
               <div class="aspect-[2/3] overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
-                 <PosterImage :src="movie.poster_url" :alt="`Affiche de ${movie.title}`" :reset-key="posterVersion" :data-poster-slug="movie.slug" class="size-full" image-class="size-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="32" :fallback-text="null" />
+                 <PosterImage :src="movie.poster_url" :alt="`Affiche de ${movie.title}`" sizes="(min-width: 1024px) calc((min(100vw, 1440px) - 9rem) / 5), (min-width: 640px) calc((100vw - 5rem) / 3), calc((100vw - 3rem) / 2)" :reset-key="posterVersion" :data-poster-slug="movie.slug" class="size-full" image-class="size-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="32" :fallback-text="null" />
               </div>
-              <div class="p-3"><h3 class="break-words text-sm font-black leading-tight group-hover:text-primary sm:text-base">{{ movie.title }}</h3><p class="utility-label mt-2">{{ movie.runtime_minutes }} min</p></div>
+              <div class="p-3"><h3 class="break-words text-sm font-black leading-tight group-hover:text-primary sm:text-base">{{ movie.title }}</h3><p class="mt-2 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">{{ movie.runtime_minutes }} min</p></div>
             </NuxtLink>
           </li>
         </ul>
@@ -188,9 +184,3 @@ useHead(() => ({
     </template>
   </main>
 </template>
-
-<style scoped>
-.city-page { min-height: 70vh; background-color: #f8f7f2; background-image: linear-gradient(rgba(39,39,42,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(39,39,42,.07) 1px,transparent 1px); background-size: 28px 28px; }
-.city-action { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 2px solid #27272a; background: #27272a; padding: .65rem .9rem; color: #fff; font-family: ui-monospace,monospace; font-size: .7rem; font-weight: 900; text-transform: uppercase; }
-.utility-label { font-family: ui-monospace,monospace; font-size: .68rem; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-</style>

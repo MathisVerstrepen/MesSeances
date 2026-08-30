@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
-import '@vuepic/vue-datepicker/dist/main.css'
-import { formatLongDate } from '~/utils/date'
+import { calendarDateFromDate, dateFromCalendarDate, formatLongDate } from '~/utils/date'
 
 const props = withDefaults(defineProps<{
   selectedDate: string
@@ -17,16 +15,6 @@ const emit = defineEmits<{
 }>()
 
 const isOpen = ref(false)
-
-function dateFromCalendarDate(value: string): Date | null {
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  return new Date(year, month - 1, day, 12)
-}
-
-function calendarDateFromDate(value: Date): string {
-  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
-}
 
 const allowedDateValues = computed(() => props.allowedDates.map(dateFromCalendarDate).filter((value): value is Date => value !== null))
 const pickerDate = computed<Date | null>({
@@ -57,9 +45,9 @@ const calendarAriaLabels = {
 </script>
 
 <template>
-  <VueDatePicker
+  <DeferredVueDatePicker
     v-model="pickerDate"
-    class="editorial-datepicker shrink-0"
+    class="min-w-0 shrink-0"
     :allowed-dates="allowedDateValues"
     :aria-labels="calendarAriaLabels"
     :disabled="disabled"
@@ -78,15 +66,11 @@ const calendarAriaLabels = {
     <template #trigger>
       <slot name="trigger" :is-open="isOpen" :trigger-label="triggerLabel" :disabled="disabled" />
     </template>
-  </VueDatePicker>
+  </DeferredVueDatePicker>
 </template>
 
 <style scoped>
-.editorial-datepicker {
-  min-width: 0;
-}
-
-:global(.editorial-calendar-menu) {
+:global(.dp--menu.editorial-calendar-menu) {
   --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;
   --dp-cell-border-radius: 0;
@@ -113,19 +97,19 @@ const calendarAriaLabels = {
   box-shadow: 6px 6px 0 #27272a;
 }
 
-:global(.editorial-calendar-menu .dp__calendar_header_item),
-:global(.editorial-calendar-menu .dp__month_year_select) {
+:global(.editorial-calendar-menu .dp--calendar-header-item),
+:global(.editorial-calendar-menu .dp--month-year-select) {
   font-size: 0.65rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-:global(.editorial-calendar-menu .dp__active_date) {
+:global(.editorial-calendar-menu .dp--active) {
   box-shadow: inset 0 -3px 0 var(--color-highlight);
 }
 
-:global(.editorial-calendar-menu .dp__today) {
+:global(.editorial-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
 }
 </style>

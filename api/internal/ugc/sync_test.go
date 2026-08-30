@@ -8,7 +8,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -450,128 +449,6 @@ func TestSyncValidatesLowerBoundBeforeRequests(t *testing.T) {
 	_, _, err = Sync(context.Background(), getter, SyncOptions{From: "invalid", Now: time.Now()})
 	if err == nil || err.Error() != "invalid from date" || getter.calls != 0 {
 		t.Fatalf("error=%v calls=%d", err, getter.calls)
-	}
-}
-
-func TestRunIndexedPhaseUsesTenWorkersAndPreservesOrder(t *testing.T) {
-	jobs := make([]int, ugcWorkerCount+1)
-	for index := range jobs {
-		jobs[index] = index
-	}
-	started := make(chan int, len(jobs))
-	gates := make([]chan struct{}, len(jobs))
-	for index := range gates {
-		gates[index] = make(chan struct{})
-	}
-	var active atomic.Int32
-	var maximum atomic.Int32
-	done := make(chan struct {
-		results []int
-		err     error
-	}, 1)
-	go func() {
-		results, err := runIndexedPhase(context.Background(), jobs, func(_ context.Context, job int) (int, error) {
-			current := active.Add(1)
-			for {
-				previous := maximum.Load()
-				if current <= previous || maximum.CompareAndSwap(previous, current) {
-					break
-				}
-			}
-			started <- job
-			<-gates[job]
-			active.Add(-1)
-			return job * 10, nil
-		})
-		done <- struct {
-			results []int
-			err     error
-		}{results: results, err: err}
-	}()
-	firstWave := make([]int, 0, ugcWorkerCount)
-	seen := make(map[int]bool, ugcWorkerCount)
-	for range ugcWorkerCount {
-		job := <-started
-		if seen[job] {
-			t.Fatalf("job %d started twice", job)
-		}
-		seen[job] = true
-		firstWave = append(firstWave, job)
-	}
-	if maximum.Load() != ugcWorkerCount {
-		t.Fatalf("maximum=%d", maximum.Load())
-	}
-	select {
-	case extra := <-started:
-		t.Fatalf("job %d started while ten active", extra)
-	default:
-	}
-	close(gates[firstWave[0]])
-	last := <-started
-	for _, job := range firstWave[1:] {
-		close(gates[job])
-	}
-	close(gates[last])
-	outcome := <-done
-	if outcome.err != nil {
-		t.Fatal(outcome.err)
-	}
-	for index := range jobs {
-		if outcome.results[index] != index*10 {
-			t.Fatalf("results=%v", outcome.results)
-		}
-	}
-	if maximum.Load() != ugcWorkerCount {
-		t.Fatalf("maximum=%d", maximum.Load())
-	}
-}
-
-func TestRunIndexedPhaseFirstErrorCancelsSiblingAndQueuedJobs(t *testing.T) {
-	original := errors.New("original phase failure")
-	started := make(chan int, ugcWorkerCount)
-	releaseFailure := make(chan struct{})
-	siblingExited := make(chan struct{}, ugcWorkerCount-1)
-	var queuedStarted atomic.Bool
-	type phaseOutcome struct {
-		results []int
-		err     error
-	}
-	done := make(chan phaseOutcome, 1)
-	go func() {
-		jobs := make([]int, ugcWorkerCount+1)
-		for index := range jobs {
-			jobs[index] = index
-		}
-		results, err := runIndexedPhase(context.Background(), jobs, func(ctx context.Context, job int) (int, error) {
-			if job == ugcWorkerCount {
-				queuedStarted.Store(true)
-				return job, nil
-			}
-			started <- job
-			if job == 0 {
-				<-releaseFailure
-				return 0, original
-			}
-			<-ctx.Done()
-			siblingExited <- struct{}{}
-			return 0, ctx.Err()
-		})
-		done <- phaseOutcome{results: results, err: err}
-	}()
-	for range ugcWorkerCount {
-		<-started
-	}
-	close(releaseFailure)
-	outcome := <-done
-	if !errors.Is(outcome.err, original) || outcome.results != nil || queuedStarted.Load() {
-		t.Fatalf("results=%v error=%v queued_started=%v", outcome.results, outcome.err, queuedStarted.Load())
-	}
-	for range ugcWorkerCount - 1 {
-		select {
-		case <-siblingExited:
-		default:
-			t.Fatal("phase returned before in-flight sibling exited")
-		}
 	}
 }
 

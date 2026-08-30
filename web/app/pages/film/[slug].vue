@@ -6,6 +6,7 @@ import { formatLabel, isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
 import { serializeJsonLd } from '~/utils/jsonLd'
+import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -192,7 +193,7 @@ function filmQuery() {
 
 function updateFilmQuery(values: Partial<Record<'date' | 'language' | 'format' | 'sort', string | undefined>>) {
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
-  if (!queriesEqual(route.query, query)) router.push({ query })
+  if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
 function hydrateRoute() {
@@ -247,10 +248,6 @@ function bookingLabel(showtime: Showtime, theater: MovieShowtimesTheater, timing
 function formatRoom(room: string): string {
   const roomName = room.trim().replace(/^salle\b\s*/i, '')
   return roomName ? `Salle ${roomName}` : 'Salle'
-}
-
-function isNotFoundError(cause: unknown): boolean {
-  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
 }
 
 type NationwideScheduleResult =
@@ -495,7 +492,7 @@ const seoDescription = computed(() => {
   return movie.overview?.trim() || `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
 })
 const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url) ?? safePosterUrl(schedule.value?.movie.poster_url) ?? fallbackImageUrl)
-const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value
+const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value && isIndexableMovie(schedule.value.movie, schedule.value.currently_screened)
   ? 'index,follow'
   : 'noindex,follow')
 useSeoMeta({
@@ -528,7 +525,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
 </script>
 
 <template>
-  <main class="film-page mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-14">
+  <main class="mx-auto max-w-[1440px] bg-[#f8f7f2] px-4 py-8 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-10 lg:px-10 lg:py-14">
     <EditorialStatePanel v-if="pending && !schedule" semantic="status" live="polite" size="detail" shadow="large" class="film-state font-extrabold">
       <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
       <p>Chargement des séances…</p>
@@ -540,17 +537,17 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
         <p class="text-2xl font-black tracking-[-0.04em] text-ink">Film introuvable</p>
         <p class="mt-1 text-sm">Ce film n’est pas disponible dans le catalogue actuel.</p>
       </div></template>
-      <template #actions><NuxtLink to="/films" class="brutal-action">Voir les films</NuxtLink></template>
+      <template #actions><NuxtLink to="/films" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary">Voir les films</NuxtLink></template>
     </EditorialStatePanel>
 
     <EditorialStatePanel v-else-if="errorMessage && !schedule" semantic="alert" size="detail" shadow="large" class="film-state font-extrabold">
       <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
       <p class="max-w-lg">{{ errorMessage }}</p>
       <template #actions><div class="flex flex-wrap justify-center gap-3">
-        <button v-if="!preferences.isInitialized.value || preferences.activeTheaterIds.value.length" type="button" class="brutal-action" @click="retryLoad">
+        <button v-if="!preferences.isInitialized.value || preferences.activeTheaterIds.value.length" type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary" @click="retryLoad">
           <RefreshCw :size="17" aria-hidden="true" /> Réessayer
         </button>
-        <NuxtLink to="/cinemas" class="brutal-action brutal-action--light">
+        <NuxtLink to="/cinemas" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-ink uppercase hover:bg-highlight">
           Mes cinémas
         </NuxtLink>
       </div></template>
@@ -574,6 +571,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           :src="backdropUrl ?? undefined"
           alt=""
           aria-hidden="true"
+          fetchpriority="high"
           class="absolute inset-0 -z-20 size-full object-cover"
           @error="backdropFailed = true"
         />
@@ -585,6 +583,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           <PosterImage
             :src="schedule.movie.poster_url"
             :alt="`Affiche de ${schedule.movie.title}`"
+            sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px"
             :reset-key="slug"
             class="h-full w-full"
             image-class="h-full w-full object-cover"
@@ -593,18 +592,18 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           />
         </div>
         <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-16' : undefined]">
-          <h1 class="movie-title text-[clamp(3rem,7vw,7rem)] font-black uppercase leading-[0.82] tracking-[-0.075em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
+          <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase max-sm:[overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
           <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
-            <span class="meta-chip">{{ schedule.movie.runtime_minutes }} min</span>
+            <span class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ schedule.movie.runtime_minutes }} min</span>
             <template v-if="releaseDateLabel">
-              <time :datetime="schedule.movie.release_date!" class="meta-chip">{{ releaseDateLabel }}</time>
+              <time :datetime="schedule.movie.release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ releaseDateLabel }}</time>
             </template>
           </div>
           <ul v-if="schedule.movie.genres.length" class="mt-3 flex flex-wrap gap-2" aria-label="Genres">
             <li
               v-for="genre in schedule.movie.genres"
               :key="genre"
-              class="genre-chip"
+              class="border-2 border-ink bg-surface px-[0.55rem] py-[0.35rem] text-[0.7rem] leading-none font-extrabold text-ink"
             >
               {{ genre }}
             </li>
@@ -639,7 +638,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               <div class="flex shrink-0 flex-col items-end gap-1" aria-live="polite">
                 <button
                   type="button"
-                  class="editorial-link"
+                  class="inline-block border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase disabled:cursor-wait disabled:opacity-[0.65]"
                   :disabled="restorePending"
                   :aria-busy="restorePending"
                   @click="restoreSavedTheaters"
@@ -649,7 +648,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                 <span v-if="restoreError" class="max-w-72 text-right text-xs font-bold text-red-800" role="alert">{{ restoreError }}</span>
               </div>
             </SharedTheaterAction>
-            <NuxtLink v-else to="/cinemas" class="editorial-link shrink-0">Modifier mes cinémas</NuxtLink>
+            <NuxtLink v-else to="/cinemas" class="inline-block shrink-0 border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase">Modifier mes cinémas</NuxtLink>
             <ShareButton />
           </div>
         </div>
@@ -660,38 +659,38 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               id="mobile-date-trigger"
               ref="mobileDateTrigger"
               type="button"
-              class="compact-control"
+              class="flex min-h-12 min-w-0 items-center justify-center gap-[0.4rem] p-2 font-mono text-[0.65rem] font-black uppercase hover:bg-[#e8e6de]"
               aria-controls="mobile-date-panel"
               :aria-expanded="openMobilePanel === 'date'"
               :aria-label="`Choisir une date, sélection actuelle : ${formatDateLabel(selectedDate)}`"
               @click="toggleMobilePanel('date')"
             >
               <CalendarDays :size="17" aria-hidden="true" />
-              <span class="compact-control__text">
+              <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Date</span>
-                <span class="truncate">{{ formatDateLabel(selectedDate) }}</span>
+                <span class="truncate text-[0.58rem] text-muted">{{ formatDateLabel(selectedDate) }}</span>
               </span>
             </button>
             <button
               id="mobile-filter-trigger"
               ref="mobileFilterTrigger"
               type="button"
-              class="compact-control"
+              class="flex min-h-12 min-w-0 items-center justify-center gap-[0.4rem] p-2 font-mono text-[0.65rem] font-black uppercase hover:bg-[#e8e6de]"
               aria-controls="mobile-filter-panel"
               :aria-expanded="openMobilePanel === 'filters'"
               :aria-label="`Filtres, sélection actuelle : ${activeFilterSummary}`"
               @click="toggleMobilePanel('filters')"
             >
               <SlidersHorizontal :size="17" aria-hidden="true" />
-              <span class="compact-control__text">
+              <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Filtres</span>
-                <span class="truncate">{{ activeFilterSummary }}</span>
+                <span class="truncate text-[0.58rem] text-muted">{{ activeFilterSummary }}</span>
               </span>
             </button>
             <button
               type="button"
-              class="compact-control"
-              :class="sortByNextShowtime ? 'compact-control--active' : undefined"
+              class="flex min-h-12 min-w-0 items-center justify-center gap-[0.4rem] p-2 font-mono text-[0.65rem] font-black uppercase hover:bg-[#e8e6de]"
+              :class="sortByNextShowtime ? 'bg-ink text-surface hover:bg-ink' : undefined"
               :aria-pressed="sortByNextShowtime"
               aria-label="Trier les cinémas par prochain horaire"
               @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
@@ -736,8 +735,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                   :aria-selected="selectedDate === date"
                   aria-controls="showtime-panel"
                   :tabindex="selectedDate === date ? 0 : -1"
-                  class="date-tab"
-                  :class="selectedDate === date ? 'date-tab--active' : undefined"
+                  class="min-h-11 shrink-0 border-2 border-ink px-[0.8rem] py-[0.65rem] font-mono text-[0.65rem] font-extrabold uppercase"
+                  :class="selectedDate === date ? 'bg-ink text-surface shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
                   @click="selectMobileDate(date)"
                   @keydown="selectAdjacentDate($event, index)"
                 >
@@ -755,14 +754,14 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             @keydown.esc.stop="closeMobilePanel($event)"
           >
             <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="mobile-language-filter-label" class="filter-label">Langue</span>
+              <span id="mobile-language-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Langue</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-language-filter-label">
                 <button
                   v-for="option in languageOptions"
                   :key="option.value"
                   type="button"
-                  class="filter-button"
-                  :class="activeLanguage === option.value ? 'filter-button--active' : undefined"
+                  class="inline-flex min-h-8 shrink-0 items-center gap-[0.3rem] border-[1.5px] border-ink px-[0.55rem] py-[0.35rem] text-[0.72rem] font-extrabold"
+                  :class="activeLanguage === option.value ? 'bg-ink text-surface' : 'bg-transparent hover:bg-[#e8e6de]'"
                   :aria-pressed="activeLanguage === option.value"
                   @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
@@ -771,14 +770,14 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </div>
             </div>
             <div v-if="technologyFormats.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="mobile-technology-filter-label" class="filter-label">Technologie</span>
+              <span id="mobile-technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Technologie</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-technology-filter-label">
                 <button
                   v-for="option in technologyOptions"
                   :key="option.value"
                   type="button"
-                  class="filter-button"
-                  :class="activeTechnology === option.value ? 'filter-button--active' : undefined"
+                  class="inline-flex min-h-8 shrink-0 items-center gap-[0.3rem] border-[1.5px] border-ink px-[0.55rem] py-[0.35rem] text-[0.72rem] font-extrabold"
+                  :class="activeTechnology === option.value ? 'bg-ink text-surface' : 'bg-transparent hover:bg-[#e8e6de]'"
                   :aria-pressed="activeTechnology === option.value"
                   @click="updateFilmQuery({ format: option.value === 'ALL' ? undefined : option.value })"
                 >
@@ -820,8 +819,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                 :aria-selected="selectedDate === date"
                 aria-controls="showtime-panel"
                 :tabindex="selectedDate === date ? 0 : -1"
-                class="date-tab"
-                :class="selectedDate === date ? 'date-tab--active' : undefined"
+                class="min-h-11 shrink-0 border-2 border-ink px-[0.8rem] py-[0.65rem] font-mono text-[0.65rem] font-extrabold uppercase"
+                :class="selectedDate === date ? 'bg-ink text-surface shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
                 @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
                 @keydown="selectAdjacentDate($event, index)"
               >
@@ -833,14 +832,14 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
             <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="language-filter-label" class="filter-label">Langue</span>
+              <span id="language-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Langue</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="language-filter-label">
                 <button
                   v-for="option in languageOptions"
                   :key="option.value"
                   type="button"
-                  class="filter-button"
-                  :class="activeLanguage === option.value ? 'filter-button--active' : undefined"
+                  class="inline-flex min-h-8 shrink-0 items-center gap-[0.3rem] border-[1.5px] border-ink px-[0.55rem] py-[0.35rem] text-[0.72rem] font-extrabold"
+                  :class="activeLanguage === option.value ? 'bg-ink text-surface' : 'bg-transparent hover:bg-[#e8e6de]'"
                   :aria-pressed="activeLanguage === option.value"
                   @click="updateFilmQuery({ language: option.value === 'ALL' ? undefined : option.value })"
                 >
@@ -850,14 +849,14 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             </div>
             <div class="flex min-w-0 items-center gap-2">
               <template v-if="technologyFormats.length > 1">
-                <span id="technology-filter-label" class="filter-label">Technologie</span>
+                <span id="technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Technologie</span>
                 <div class="flex min-w-0 gap-1 overflow-x-auto" role="group" aria-labelledby="technology-filter-label">
                   <button
                     v-for="option in technologyOptions"
                     :key="option.value"
                     type="button"
-                    class="filter-button"
-                    :class="activeTechnology === option.value ? 'filter-button--active' : undefined"
+                    class="inline-flex min-h-8 shrink-0 items-center gap-[0.3rem] border-[1.5px] border-ink px-[0.55rem] py-[0.35rem] text-[0.72rem] font-extrabold"
+                    :class="activeTechnology === option.value ? 'bg-ink text-surface' : 'bg-transparent hover:bg-[#e8e6de]'"
                     :aria-pressed="activeTechnology === option.value"
                     @click="updateFilmQuery({ format: option.value === 'ALL' ? undefined : option.value })"
                   >
@@ -867,8 +866,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </template>
               <button
                 type="button"
-                class="sort-button ml-auto"
-                :class="sortByNextShowtime ? 'filter-button--active' : undefined"
+                class="ml-auto inline-flex min-h-8 shrink-0 items-center gap-[0.3rem] border-[1.5px] border-ink px-[0.55rem] py-[0.35rem] text-[0.72rem] font-extrabold"
+                :class="sortByNextShowtime ? 'bg-ink text-surface' : 'bg-transparent hover:bg-[#e8e6de]'"
                 :aria-pressed="sortByNextShowtime"
                 aria-label="Trier les cinémas par prochain horaire"
                 @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
@@ -889,7 +888,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
             <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
             <p class="max-w-lg">{{ errorMessage }}</p>
-            <template #actions><button type="button" class="brutal-action" @click="loadSchedule"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+            <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary" @click="loadSchedule"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
           </EditorialStatePanel>
 
           <EditorialStatePanel v-else-if="isEndedFilm" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
@@ -910,7 +909,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           <EditorialStatePanel v-else-if="visibleTheaters.length === 0" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
             <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
             <p>Aucune séance ne correspond à ces filtres.</p>
-            <template #actions><button type="button" class="brutal-action" @click="resetFilters">Voir toutes les séances</button></template>
+            <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary" @click="resetFilters">Voir toutes les séances</button></template>
           </EditorialStatePanel>
 
           <div v-else class="mt-10 space-y-10">
@@ -933,7 +932,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
                     class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between overflow-hidden border-2 p-3 text-left lg:scroll-mt-52"
-                    :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'showtime-card--warning' : undefined"
+                    :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'outline-[3px] outline-offset-2 outline-[#f59e0b]' : undefined"
                     :available-class="showtime.timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]'"
                     unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
                   >
@@ -975,181 +974,3 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
     </template>
   </main>
 </template>
-
-<style scoped>
-.film-page {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.07) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.meta-chip,
-.genre-chip {
-  border: 2px solid #27272a;
-  background: #ffcf3f;
-  padding: 0.35rem 0.55rem;
-  color: #27272a;
-  line-height: 1;
-}
-
-.genre-chip {
-  background: #fff;
-  font-size: 0.7rem;
-  font-weight: 800;
-}
-
-.editorial-link {
-  display: inline-block;
-  border-bottom: 2px solid currentColor;
-  padding-bottom: 0.2rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.editorial-link:disabled {
-  cursor: wait;
-  opacity: 0.65;
-}
-
-.compact-control {
-  display: flex;
-  min-width: 0;
-  min-height: 3rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  padding: 0.5rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-.compact-control:hover {
-  background: #e8e6de;
-}
-
-.compact-control--active {
-  background: #27272a;
-  color: #fff;
-}
-
-.compact-control__text {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  line-height: 1.1;
-}
-
-.compact-control__text > :last-child {
-  color: var(--color-muted);
-  font-size: 0.58rem;
-}
-
-.compact-control--active .compact-control__text > :last-child {
-  color: inherit;
-}
-
-.date-tab {
-  min-height: 2.75rem;
-  flex-shrink: 0;
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.65rem 0.8rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.date-tab:hover {
-  background: #e8e6de;
-}
-
-.date-tab--active {
-  background: #27272a;
-  color: #fff;
-  box-shadow: inset 0 -4px 0 var(--color-highlight);
-}
-
-.filter-label {
-  flex-shrink: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.58rem;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.filter-button,
-.sort-button {
-  display: inline-flex;
-  min-height: 2rem;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 0.3rem;
-  border: 1.5px solid #27272a;
-  background: transparent;
-  padding: 0.35rem 0.55rem;
-  font-size: 0.72rem;
-  font-weight: 800;
-}
-
-.filter-button:hover,
-.sort-button:hover {
-  background: #e8e6de;
-}
-
-.filter-button--active {
-  background: #27272a;
-  color: #fff;
-}
-
-.showtime-card--warning {
-  outline: 3px solid #f59e0b;
-  outline-offset: 2px;
-}
-
-.brutal-action {
-  display: inline-flex;
-  min-height: 2.75rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 2px solid #27272a;
-  background: #27272a;
-  padding: 0.65rem 1rem;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.brutal-action:hover {
-  background: #991b1b;
-}
-
-.brutal-action--light {
-  background: #fff;
-  color: #27272a;
-}
-
-.brutal-action--light:hover {
-  background: var(--color-highlight);
-}
-
-@media (max-width: 639px) {
-  .movie-title {
-    overflow-wrap: anywhere;
-  }
-
-}
-
-</style>

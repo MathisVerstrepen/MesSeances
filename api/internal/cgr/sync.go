@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
-	"sync"
 	"time"
 
+	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
 )
 
@@ -48,15 +48,6 @@ type programResult struct {
 	program map[string][]string
 }
 
-type indexedJob[T any] struct {
-	index int
-	value T
-}
-type indexedResult[T any] struct {
-	index int
-	value T
-}
-
 func Sync(ctx context.Context, getter Getter, options SyncOptions) (result schedule.Dataset, summary SyncSummary, resultErr error) {
 	result, summary, resultErr = syncSnapshot(ctx, getter, options)
 	if errors.Is(resultErr, errProviderSnapshotChanged) {
@@ -85,7 +76,7 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 		return schedule.Dataset{}, summary, fmt.Errorf("parse CGR cinemas: %w", err)
 	}
 	summary.Cinemas = len(cinemas)
-	programs, err := runJobs(ctx, cinemas, func(phaseCtx context.Context, theater cinema) (programResult, error) {
+	programs, err := parallel.MapOrdered(ctx, cinemas, parallel.Options{Workers: min(WorkerCount, len(cinemas))}, func(phaseCtx context.Context, theater cinema) (programResult, error) {
 		body, fetchErr := getter.Get(phaseCtx, OperationProgram, programURL(theater.id))
 		if fetchErr != nil {
 			return programResult{}, fetchErr
@@ -111,7 +102,7 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 	}
 	sort.Strings(movieIDs)
 	batches := batchMovieIDs(movieIDs)
-	movieGroups, err := runJobs(ctx, batches, func(phaseCtx context.Context, ids []string) (map[string]movie, error) {
+	movieGroups, err := parallel.MapOrdered(ctx, batches, parallel.Options{Workers: min(WorkerCount, len(batches))}, func(phaseCtx context.Context, ids []string) (map[string]movie, error) {
 		body, fetchErr := getter.Get(phaseCtx, OperationMovies, moviesURL(ids))
 		if fetchErr != nil {
 			return nil, fetchErr
@@ -182,7 +173,7 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 	}
 	summary.Jobs = len(jobs)
 	allowMissingDate := expiringServiceDate(options.Now, location, options.From)
-	groups, err := runJobs(ctx, jobs, func(phaseCtx context.Context, job scheduleJob) (scheduleResult, error) {
+	groups, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: min(WorkerCount, len(jobs))}, func(phaseCtx context.Context, job scheduleJob) (scheduleResult, error) {
 		currentProgram := job.program
 		through := job.through
 		records, fetchErr := fetchCompleteSchedule(phaseCtx, getter, job.theater, currentProgram, movies, location, options.From, through, allowMissingDate)
@@ -419,63 +410,4 @@ func batchMovieIDs(ids []string) [][]string {
 		result = append(result, append([]string(nil), ids[start:end]...))
 	}
 	return result
-}
-
-func runJobs[J, R any](ctx context.Context, jobs []J, work func(context.Context, J) (R, error)) ([]R, error) {
-	if len(jobs) == 0 {
-		return []R{}, nil
-	}
-	phaseCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	queue := make(chan indexedJob[J])
-	results := make(chan indexedResult[R], len(jobs))
-	var workers sync.WaitGroup
-	var firstError error
-	var capture sync.Once
-	count := min(WorkerCount, len(jobs))
-	workers.Add(count)
-	for range count {
-		go func() {
-			defer workers.Done()
-			for job := range queue {
-				if phaseCtx.Err() != nil {
-					return
-				}
-				value, err := work(phaseCtx, job.value)
-				if err != nil {
-					capture.Do(func() { firstError = err; cancel() })
-					return
-				}
-				results <- indexedResult[R]{index: job.index, value: value}
-			}
-		}()
-	}
-	for index, job := range jobs {
-		select {
-		case <-phaseCtx.Done():
-		case queue <- indexedJob[J]{index: index, value: job}:
-		}
-		if phaseCtx.Err() != nil {
-			break
-		}
-	}
-	close(queue)
-	workers.Wait()
-	close(results)
-	if firstError != nil {
-		return nil, firstError
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	ordered := make([]R, len(jobs))
-	received := 0
-	for result := range results {
-		ordered[result.index] = result.value
-		received++
-	}
-	if received != len(jobs) {
-		return nil, errors.New("CGR phase canceled")
-	}
-	return ordered, nil
 }

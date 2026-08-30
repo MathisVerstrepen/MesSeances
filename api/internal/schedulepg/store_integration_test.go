@@ -205,6 +205,13 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if _, _, err := store.Load(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
 		t.Fatalf("missing load error=%v", err)
 	}
+	pendingSource, err := NewPostgresSource(ctx, store)
+	if err != nil || pendingSource == nil {
+		t.Fatalf("pending source=%v error=%v", pendingSource != nil, err)
+	}
+	if pendingSource.Snapshot() != nil {
+		t.Fatalf("pending snapshot=%v", pendingSource.Snapshot())
+	}
 
 	t.Run("initial insert and load", func(t *testing.T) {
 		version, err := store.Replace(ctx, []Dataset{testDataset()})
@@ -298,6 +305,24 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		loaded, revision, err := store.Load(ctx)
 		if err != nil || revision.EnrichmentVersion != 1 || len(loaded.PublicMovies) != 4 || loaded.PublicMovies[0].TMDBID != 42 || loaded.PublicMovies[0].IMDBID != metadata.IMDBID || loaded.PublicMovies[0].BackdropURL != metadata.BackdropURL || loaded.PublicMovies[0].TrailerVFYouTubeKey != metadata.TrailerVFYouTubeKey || loaded.PublicMovies[0].TrailerVOYouTubeKey != metadata.TrailerVOYouTubeKey {
 			t.Fatalf("revision=%+v movie=%+v err=%v", revision, loaded.Showtimes[0].Movie, err)
+		}
+		publicID := loaded.PublicMovies[0].ID
+		if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (
+    public_movie_id,title,title_overridden,runtime_minutes,runtime_minutes_overridden,
+    release_date,release_date_overridden,genres,genres_overridden,overview,overview_overridden,
+    poster_url,poster_url_overridden,backdrop_url,backdrop_url_overridden,
+    trailer_vf_youtube_key,trailer_vf_youtube_key_overridden,trailer_vo_youtube_key,trailer_vo_youtube_key_overridden
+) VALUES ($1,'Titre manuel',true,111,true,NULL,true,'{}',true,NULL,true,
+    'https://example.com/poster.jpg',true,'https://example.com/backdrop.jpg',true,NULL,true,'VOmanual123',true)`, publicID); err != nil {
+			t.Fatal("insert effective metadata fixture failed")
+		}
+		loaded, _, err = store.Load(ctx)
+		effective := loaded.PublicMovies[0]
+		if err != nil || effective.Title != "Titre manuel" || effective.RuntimeMinutes != 111 || effective.ReleaseDate != "" || len(effective.Genres) != 0 || effective.Overview != "" || effective.PosterURL != "https://example.com/poster.jpg" || effective.BackdropURL != "https://example.com/backdrop.jpg" || effective.TrailerVFYouTubeKey != "" || effective.TrailerVOYouTubeKey != "VOmanual123" {
+			t.Fatalf("effective movie=%+v err=%v", effective, err)
+		}
+		if _, err := pool.Exec(ctx, "DELETE FROM public_movie_metadata_overrides WHERE public_movie_id=$1", publicID); err != nil {
+			t.Fatal("delete effective metadata fixture failed")
 		}
 	})
 

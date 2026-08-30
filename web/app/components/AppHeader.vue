@@ -70,7 +70,7 @@ onMounted(() => {
           v-for="link in links"
           :key="link.to"
           :to="link.to"
-          class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 border-r border-ink/20 px-1 text-center text-[9px] font-extrabold uppercase leading-tight tracking-[-0.01em] transition-colors last:border-r-0 sm:px-3 sm:text-[10px] lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:border-r-0 lg:px-4 lg:text-xs"
+          class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 border-r border-ink/20 px-1 text-center text-[9px] font-extrabold uppercase leading-tight tracking-[-0.01em] transition-colors last:border-r-0 sm:px-3 sm:text-[10px] lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:border-r-0 lg:px-4 lg:text-xs lg:aria-[current=page]:after:absolute lg:aria-[current=page]:after:right-4 lg:aria-[current=page]:after:bottom-[0.55rem] lg:aria-[current=page]:after:left-4 lg:aria-[current=page]:after:h-[3px] lg:aria-[current=page]:after:bg-highlight lg:aria-[current=page]:after:content-['']"
           :class="isActive(link.to) ? 'bg-ink text-white' : 'text-ink hover:bg-highlight'"
           :aria-current="isActive(link.to) ? 'page' : undefined"
         >
@@ -81,17 +81,3 @@ onMounted(() => {
     </div>
   </header>
 </template>
-
-<style scoped>
-@media (min-width: 1024px) {
-  .nav-link[aria-current='page']::after {
-    position: absolute;
-    right: 1rem;
-    bottom: 0.55rem;
-    left: 1rem;
-    height: 3px;
-    background: var(--color-highlight);
-    content: '';
-  }
-}
-</style>

@@ -4,6 +4,9 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 
@@ -22,8 +25,22 @@ func (a *adminAPI) pendingMatches(w http.ResponseWriter, r *http.Request) {
 			filter = enrichment.PendingMatchFilterUnresolved
 		case string(enrichment.PendingMatchFilterRejected):
 			filter = enrichment.PendingMatchFilterRejected
+		case string(enrichment.PendingMatchFilterMatched):
+			filter = enrichment.PendingMatchFilterMatched
 		default:
 			writeError(w, http.StatusBadRequest, "invalid_query", "Filtre de statut invalide.")
+			return
+		}
+	}
+	search := ""
+	if values, exists := r.URL.Query()["search"]; exists {
+		if filter != enrichment.PendingMatchFilterMatched || len(values) != 1 {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Recherche invalide.")
+			return
+		}
+		search = strings.TrimSpace(values[0])
+		if search == "" || !utf8.ValidString(search) || utf8.RuneCountInString(search) > 1024 {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Recherche invalide.")
 			return
 		}
 	}
@@ -41,7 +58,7 @@ func (a *adminAPI) pendingMatches(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_query", "Pagination invalide.")
 		return
 	}
-	items, err := a.reviews.Pending(r.Context(), filter, limit, offset)
+	items, err := a.reviews.Pending(r.Context(), filter, search, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", "Une erreur interne est survenue.")
 		return
@@ -80,6 +97,28 @@ func (a *adminAPI) rejectMatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": enrichment.StatusRejected})
+}
+
+func (a *adminAPI) correctMatch(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		TMDBID            int64  `json:"tmdb_id"`
+		ExpectedUpdatedAt string `json:"expected_updated_at"`
+	}
+	if err := decodeAdminJSON(w, r, &input); err != nil || input.TMDBID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+		return
+	}
+	expectedUpdatedAt, err := time.Parse(time.RFC3339Nano, input.ExpectedUpdatedAt)
+	if err != nil || expectedUpdatedAt.IsZero() {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Requête invalide.")
+		return
+	}
+	err = a.reviews.Correct(r.Context(), chi.URLParam(r, "sourceProvider"), chi.URLParam(r, "sourceMovieID"), input.TMDBID, expectedUpdatedAt)
+	if err != nil {
+		a.writeReviewError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": enrichment.StatusMatched})
 }
 
 func (a *adminAPI) writeReviewError(w http.ResponseWriter, err error) {

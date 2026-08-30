@@ -70,6 +70,7 @@ type AdminOptions struct {
 	SyncSchedules    SyncScheduleController
 	TheaterLocations TheaterLocationController
 	TheaterGeocoding TheaterGeocodingController
+	Movies           *enrichment.AdminMovieService
 	Now              func() time.Time
 	Logger           *slog.Logger
 	Metrics          *observability.Metrics
@@ -160,7 +161,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.Use(recoverJSON(options.Admin.Logger))
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{webOrigin},
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -177,14 +178,14 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ready"})
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
-	router.With(expensiveReads).Get("/api/v1/timeline", api.timeline)
-	router.Get("/api/v1/theaters", api.theaters)
-	router.With(expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
-	router.Get("/api/v1/cities", api.cities)
-	router.Get("/api/v1/cities/{slug}", api.city)
-	router.With(expensiveReads).Get("/api/v1/movies", api.movies)
-	router.With(expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
-	router.With(expensiveReads).Get("/api/v1/search/slot", api.searchSlot)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/timeline", api.timeline)
+	router.With(api.requireSchedule).Get("/api/v1/theaters", api.theaters)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
+	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)
+	router.With(api.requireSchedule).Get("/api/v1/cities/{slug}", api.city)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/movies", api.movies)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/search/slot", api.searchSlot)
 	router.With(api.noStoreShortlink, api.requireShortlinkOrigin, shortlinkCreations).Post("/api/v1/shortlinks", api.createShortlink)
 	router.Get("/api/v1/shortlinks/{code}", api.resolveShortlink)
 	router.Route("/api/v1/admin", func(router chi.Router) {
@@ -199,6 +200,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
+			router.Get("/movies", api.admin.adminMovies)
+			router.With(api.admin.requireOrigin).Patch("/movies/{id}", api.admin.updateAdminMovie)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/members", api.admin.addLocalMovieMembers)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
@@ -215,6 +218,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/theater-locations/{provider}/{providerTheaterID}/manual", api.admin.setManualTheaterLocation)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/approve", api.admin.approveMatch)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/reject", api.admin.rejectMatch)
+			router.With(api.admin.requireOrigin).Post("/tmdb-matches/{sourceProvider}/{sourceMovieID}/correct", api.admin.correctMatch)
 		})
 	})
 	router.NotFound(func(w http.ResponseWriter, _ *http.Request) {
@@ -225,6 +229,17 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	})
 
 	return router
+}
+
+func (api *API) requireSchedule(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if api.schedule == nil || !api.schedule.HasSnapshot() {
+			w.Header().Set("Cache-Control", "no-store")
+			writeError(w, http.StatusServiceUnavailable, "schedule_unavailable", "Les horaires ne sont pas encore disponibles.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func newReadinessChecker(options ReadinessOptions) readinessChecker {

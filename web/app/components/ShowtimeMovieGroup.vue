@@ -67,6 +67,7 @@ onMounted(() => nextTick(() => {
         <PosterImage
           :src="posterUrl"
           :alt="`Affiche de ${movie.movieTitle}`"
+          sizes="(min-width: 640px) 120px, 96px"
           :data-media-url="posterUrl"
           :data-movie-slug="movie.movieSlug"
           data-media-kind="poster"
@@ -88,7 +89,7 @@ onMounted(() => nextTick(() => {
       <div class="absolute inset-0 bg-black/80" aria-hidden="true" />
       <div class="relative flex items-center gap-4">
         <div class="flex aspect-[2/3] w-16 shrink-0 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[4px_4px_0_#27272a] sm:w-[4.5rem]">
-          <PosterImage :src="posterUrl" :alt="`Affiche de ${movie.movieTitle}`" width="96" height="144" loading="lazy" decoding="async" class="h-full w-full" image-class="h-full w-full object-cover" fallback-variant="icon-only" fallback-class="text-muted/60" :fallback-icon-size="24" :fallback-text="null" />
+          <PosterImage :src="posterUrl" :alt="`Affiche de ${movie.movieTitle}`" sizes="(min-width: 640px) 72px, 64px" class="h-full w-full" image-class="h-full w-full object-cover" fallback-variant="icon-only" fallback-class="text-muted/60" :fallback-icon-size="24" :fallback-text="null" />
         </div>
         <div class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div class="min-w-0">
