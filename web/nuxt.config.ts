@@ -5,6 +5,16 @@ declare const process: { env: Record<string, string | undefined> }
 export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: false },
+  experimental: {
+    defaults: {
+      nuxtLink: {
+        prefetchOn: {
+          visibility: false,
+          interaction: true
+        }
+      }
+    }
+  },
   modules: ['@vite-pwa/nuxt'],
   build: {
     transpile: ['@vuepic/vue-datepicker']
