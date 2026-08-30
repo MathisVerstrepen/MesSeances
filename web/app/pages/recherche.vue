@@ -290,7 +290,7 @@ async function setShowtimeSelection(keys: readonly string[]) {
   const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, {
     selected: serializeShowtimeSelection(keys)
   })
-  if (!queriesEqual(route.query, query)) await router.push({ query })
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
 async function toggleShowtimeSelection(key: string) {
@@ -635,7 +635,7 @@ async function submitSearch() {
     await searchRequest
     return
   }
-  await router.push({ query })
+  await router.replace({ query })
   await consumeResultScrollIntent()
 }
 

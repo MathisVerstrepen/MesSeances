@@ -671,7 +671,7 @@ function updateMatchedSearch() {
     matchedSearchTimer = undefined
     const search = adminTMDBMatchedSearch(matchedSearchInput.value)
     if (search === matchedSearch.value) return
-    void router.push({
+    void router.replace({
       query: adminQuery(page.value, rejectedPage.value, 1, groupsPage.value, activeTab.value, search)
     })
   }, ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS)
