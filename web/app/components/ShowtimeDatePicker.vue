@@ -2,7 +2,7 @@
 import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
 import '@vuepic/vue-datepicker/dist/main.css'
-import { formatLongDate } from '~/utils/date'
+import { calendarDateFromDate, dateFromCalendarDate, formatLongDate } from '~/utils/date'
 
 const props = withDefaults(defineProps<{
   selectedDate: string
@@ -17,16 +17,6 @@ const emit = defineEmits<{
 }>()
 
 const isOpen = ref(false)
-
-function dateFromCalendarDate(value: string): Date | null {
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  return new Date(year, month - 1, day, 12)
-}
-
-function calendarDateFromDate(value: Date): string {
-  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
-}
 
 const allowedDateValues = computed(() => props.allowedDates.map(dateFromCalendarDate).filter((value): value is Date => value !== null))
 const pickerDate = computed<Date | null>({

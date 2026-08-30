@@ -6,7 +6,7 @@ import '@vuepic/vue-datepicker/dist/main.css'
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
-import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
+import { addCalendarDays, calendarDateFromDate, createServiceTimeOptions, dateFromCalendarDate, formatLongDate, todayInParis } from '~/utils/date'
 import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
@@ -110,13 +110,6 @@ const compactFilterSummary = computed(() => {
   if (!search) return ''
   return `${formatCompactDate(search.date)} · ${formatCompactTime(search.startAfter)}–${formatCompactTime(search.finishBefore)} · ${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
 })
-function addCalendarDays(date: string, offset: number) {
-  const [year, month, day] = date.split('-').map(Number)
-  if (!year || !month || !day) return date
-  const value = new Date(Date.UTC(year, month - 1, day + offset, 12))
-  return [value.getUTCFullYear(), String(value.getUTCMonth() + 1).padStart(2, '0'), String(value.getUTCDate()).padStart(2, '0')].join('-')
-}
-
 const availableDateOptions = computed(() => {
   const available = new Set(activeTheaters.value.flatMap((theater) => theater.available_dates ?? []))
   return [...available].sort()
@@ -168,16 +161,6 @@ interface AppliedSearch {
   format: QueryFormat
   includeAds: boolean
   bufferAds: number
-}
-
-function dateFromCalendarDate(value: string): Date | null {
-  const [year, month, day] = value.split('-').map(Number)
-  if (!year || !month || !day) return null
-  return new Date(year, month - 1, day, 12)
-}
-
-function calendarDateFromDate(value: Date): string {
-  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
 }
 
 function isDateAvailable(date: string) {

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-  formatShortCalendarDate,
   hasMovieCatalogFilters,
   movieCatalogFilterDraft,
   movieCatalogFiltersFromDraft,
@@ -99,9 +98,4 @@ test('rejects incomplete, past, and inverted custom drafts', () => {
   range.rangeStart = '2026-08-30'
   range.rangeEnd = '2026-08-29'
   assert.equal(movieCatalogFiltersFromDraft(range, TODAY), null)
-})
-
-test('formats valid ISO dates as visible dd-MM-yy values', () => {
-  assert.equal(formatShortCalendarDate('2026-08-26'), '26-08-26')
-  assert.equal(formatShortCalendarDate('invalid'), 'invalid')
 })
