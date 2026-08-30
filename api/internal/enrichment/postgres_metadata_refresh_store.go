@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-
-	"messeances/api/internal/publicmoviepg"
 )
 
 func (s *PostgresStore) MatchedTMDBIDs(ctx context.Context) ([]int64, error) {
@@ -41,31 +39,16 @@ func (s *PostgresStore) RefreshMetadata(ctx context.Context, metadata []Metadata
 			return err
 		}
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin metadata refresh failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	for _, item := range metadata {
-		if err := writeMetadata(ctx, tx, item); err != nil {
-			return err
+	return s.withWriteTransaction(ctx, "begin metadata refresh failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		for _, item := range metadata {
+			if err := writeMetadata(ctx, tx, item); err != nil {
+				return nil, err
+			}
 		}
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return fmt.Errorf("reconcile public movies after metadata refresh: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit metadata refresh failed")
-	}
-	return nil
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after metadata refresh",
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit metadata refresh failed") },
+		}, nil
+	})
 }

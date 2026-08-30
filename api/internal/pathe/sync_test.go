@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -314,115 +313,5 @@ func TestSyncRejectsInvalidFromBeforeRequests(t *testing.T) {
 	getter := &fakeGetter{responses: completeResponses(t)}
 	if _, _, err := Sync(context.Background(), getter, SyncOptions{From: "15-08-2026", Now: time.Now()}); err == nil || getter.RequestCount() != 0 {
 		t.Fatalf("requests=%d err=%v", getter.RequestCount(), err)
-	}
-}
-
-func TestRunJobsUsesTwentyFourWorkersAndPreservesOrder(t *testing.T) {
-	jobs := make([]int, WorkerCount+1)
-	for index := range jobs {
-		jobs[index] = index
-	}
-	started := make(chan int, len(jobs))
-	gates := make([]chan struct{}, len(jobs))
-	for index := range gates {
-		gates[index] = make(chan struct{})
-	}
-	var active atomic.Int32
-	var maximum atomic.Int32
-	type outcome struct {
-		results []int
-		err     error
-	}
-	done := make(chan outcome, 1)
-	go func() {
-		results, err := runJobs(context.Background(), jobs, func(_ context.Context, job int) (int, error) {
-			current := active.Add(1)
-			for {
-				previous := maximum.Load()
-				if current <= previous || maximum.CompareAndSwap(previous, current) {
-					break
-				}
-			}
-			started <- job
-			<-gates[job]
-			active.Add(-1)
-			return job * 10, nil
-		})
-		done <- outcome{results: results, err: err}
-	}()
-	firstWave := make([]int, 0, WorkerCount)
-	for range WorkerCount {
-		firstWave = append(firstWave, <-started)
-	}
-	if maximum.Load() != WorkerCount {
-		t.Fatalf("maximum=%d", maximum.Load())
-	}
-	select {
-	case extra := <-started:
-		t.Fatalf("job %d started above bound", extra)
-	default:
-	}
-	close(gates[firstWave[0]])
-	last := <-started
-	for _, job := range firstWave[1:] {
-		close(gates[job])
-	}
-	close(gates[last])
-	result := <-done
-	if result.err != nil {
-		t.Fatal(result.err)
-	}
-	for index := range jobs {
-		if result.results[index] != index*10 {
-			t.Fatalf("results=%v", result.results)
-		}
-	}
-}
-
-func TestRunJobsCancellationStopsQueuedWorkAndWaitsForWorkers(t *testing.T) {
-	started := make(chan int, WorkerCount)
-	exited := make(chan struct{}, WorkerCount-1)
-	releaseFailure := make(chan struct{})
-	var queuedStarted atomic.Bool
-	original := errors.New("synthetic first failure")
-	type outcome struct {
-		err error
-	}
-	done := make(chan outcome, 1)
-	go func() {
-		jobs := make([]int, WorkerCount+1)
-		for index := range jobs {
-			jobs[index] = index
-		}
-		_, err := runJobs(context.Background(), jobs, func(ctx context.Context, job int) (int, error) {
-			if job == WorkerCount {
-				queuedStarted.Store(true)
-				return 0, nil
-			}
-			started <- job
-			if job == 0 {
-				<-releaseFailure
-				return 0, original
-			}
-			<-ctx.Done()
-			exited <- struct{}{}
-			return 0, ctx.Err()
-		})
-		done <- outcome{err: err}
-	}()
-	for range WorkerCount {
-		<-started
-	}
-	close(releaseFailure)
-	result := <-done
-	if !errors.Is(result.err, original) || queuedStarted.Load() {
-		t.Fatalf("queued=%v err=%v", queuedStarted.Load(), result.err)
-	}
-	for range WorkerCount - 1 {
-		select {
-		case <-exited:
-		default:
-			t.Fatal("runJobs returned before worker exit")
-		}
 	}
 }

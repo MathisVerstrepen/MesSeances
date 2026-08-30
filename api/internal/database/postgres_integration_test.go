@@ -38,6 +38,69 @@ func requireMigrationPrefix(t *testing.T, migrations []migration, throughVersion
 	return prefix
 }
 
+func newMigrationTestPool(t *testing.T, ctx context.Context, schemaPrefix string) (*pgxpool.Pool, string) {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if strings.TrimSpace(databaseURL) == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+
+	nonce := make([]byte, 8)
+	if _, err := rand.Read(nonce); err != nil {
+		t.Fatal("generate test schema nonce failed")
+	}
+	schema := schemaPrefix + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
+	bootstrap, err := pgx.Connect(ctx, databaseURL)
+	if err != nil {
+		t.Fatal("connect integration bootstrap failed")
+	}
+	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
+		t.Fatal("create integration schema failed")
+	}
+	t.Cleanup(func() {
+		if schemaPrefix == "" || !strings.HasPrefix(schema, schemaPrefix) {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE"); err != nil {
+			t.Error("drop integration schema failed")
+		}
+	})
+
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal("parse integration pool configuration failed")
+	}
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal("create integration pool failed")
+	}
+	t.Cleanup(pool.Close)
+	return pool, schema
+}
+
+func installMigrationPrefix(t *testing.T, ctx context.Context, pool *pgxpool.Pool, throughVersion int64, throughName string) []migration {
+	t.Helper()
+	migrations := mustEmbeddedMigrations(t)
+	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal("create migration history failed")
+	}
+	for _, migration := range requireMigrationPrefix(t, migrations, throughVersion, throughName) {
+		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
+			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
+		}
+		if _, err := pool.Exec(ctx, "INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)", migration.version, migration.name); err != nil {
+			t.Fatal("record fixture migration failed")
+		}
+	}
+	return migrations
+}
+
 func assertCompleteMigrationHistory(t *testing.T, ctx context.Context, pool *pgxpool.Pool, want []migration) {
 	t.Helper()
 	rows, err := pool.Query(ctx, "SELECT version, name FROM movieflow_schema_migrations ORDER BY version")
@@ -74,64 +137,15 @@ func assertCompleteMigrationHistory(t *testing.T, ctx context.Context, pool *pgx
 }
 
 func TestMigrationsIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate test schema nonce failed")
-	}
-	schema := "movieflow_migration_test_" + hex.EncodeToString(nonce)
-	identifier := pgx.Identifier{schema}.Sanitize()
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		if !strings.HasPrefix(schema, "movieflow_migration_test_") {
-			t.Error("unsafe integration schema cleanup rejected")
-			return
-		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE"); err != nil {
-			t.Error("drop integration schema failed")
-		}
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool configuration failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
+	pool, schema := newMigrationTestPool(t, ctx, "movieflow_migration_test_")
 	var currentSchema string
 	if err := pool.QueryRow(ctx, "SELECT current_schema()").Scan(&currentSchema); err != nil || currentSchema != schema {
 		t.Fatalf("isolated schema assertion failed: schema=%q err=%v", currentSchema, err)
 	}
 
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 3, "003_admin_match_review.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, "INSERT INTO movieflow_schema_migrations (version, name) VALUES ($1, $2)", migration.version, migration.name); err != nil {
-			t.Fatal("record fixture migration failed")
-		}
-	}
+	migrations := installMigrationPrefix(t, ctx, pool, 3, "003_admin_match_review.sql")
 
 	var databaseNow time.Time
 	if err := pool.QueryRow(ctx, "SELECT CURRENT_TIMESTAMP").Scan(&databaseNow); err != nil {
@@ -425,60 +439,10 @@ VALUES ('kinepolis','override-cascade-test','Cascade',1,'{}') RETURNING id`).Sca
 }
 
 func TestMetadataOverridesMigrationWithoutHistoricalGenreHelperIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate schema nonce failed")
-	}
-	schema := "movieflow_override_compat_test_" + hex.EncodeToString(nonce)
-	identifier := pgx.Identifier{schema}.Sanitize()
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		if !strings.HasPrefix(schema, "movieflow_override_compat_test_") {
-			t.Error("unsafe integration schema cleanup rejected")
-			return
-		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
-			t.Error("drop integration schema failed")
-		}
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool configuration failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
-
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 29, "029_multi_sync_schedules.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, "INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)", migration.version, migration.name); err != nil {
-			t.Fatal("record fixture migration failed")
-		}
-	}
+	pool, _ := newMigrationTestPool(t, ctx, "movieflow_override_compat_test_")
+	installMigrationPrefix(t, ctx, pool, 29, "029_multi_sync_schedules.sql")
 	for _, table := range []string{"public_movies", "public_movie_sources"} {
 		var constraint string
 		if err := pool.QueryRow(ctx, `SELECT constraint_name
@@ -542,53 +506,10 @@ VALUES ($1,ARRAY(SELECT 'Genre' FROM generate_series(1,32)),true)`, movieID); er
 }
 
 func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate schema nonce failed")
-	}
-	schema := "movieflow_orphan_migration_test_" + hex.EncodeToString(nonce)
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	identifier := pgx.Identifier{schema}.Sanitize()
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 9, "009_widen_runtime_minutes.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
-			t.Fatal("record migration failed")
-		}
-	}
+	pool, _ := newMigrationTestPool(t, ctx, "movieflow_orphan_migration_test_")
+	installMigrationPrefix(t, ctx, pool, 9, "009_widen_runtime_minutes.sql")
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (provider_id,slug,title,runtime_minutes,provider) VALUES ('10','ugc-film-10','Orphan',90,'ugc')`); err != nil {
 		t.Fatal("insert orphan schedule row failed")
 	}
@@ -605,53 +526,10 @@ func TestScheduleGenerationMigrationRejectsOrphanRowsIntegration(t *testing.T) {
 }
 
 func TestPublicMovieCatalogBackfillIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate schema nonce failed")
-	}
-	schema := "movieflow_catalog_migration_test_" + hex.EncodeToString(nonce)
-	identifier := pgx.Identifier{schema}.Sanitize()
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 13, "013_unbounded_schedule_windows.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, "INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)", migration.version, migration.name); err != nil {
-			t.Fatal("record fixture migration failed")
-		}
-	}
+	pool, _ := newMigrationTestPool(t, ctx, "movieflow_catalog_migration_test_")
+	installMigrationPrefix(t, ctx, pool, 13, "013_unbounded_schedule_windows.sql")
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx, `INSERT INTO schedule_snapshot
     (version,schema_version,provider,scope,generated_at,timezone,window_from,window_through)
@@ -779,53 +657,10 @@ VALUES (1,'kinepolis','D','kinepolis-film-D','Principal revenu',97)`); err != ni
 }
 
 func TestSyncSchedulesMigrationIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate schema nonce failed")
-	}
-	schema := "movieflow_sync_schedule_migration_test_" + hex.EncodeToString(nonce)
-	identifier := pgx.Identifier{schema}.Sanitize()
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 14, "014_public_movie_catalog.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
-			t.Fatal("record fixture migration failed")
-		}
-	}
+	pool, _ := newMigrationTestPool(t, ctx, "movieflow_sync_schedule_migration_test_")
+	migrations := installMigrationPrefix(t, ctx, pool, 14, "014_public_movie_catalog.sql")
 	var oldRunID int64
 	if err := pool.QueryRow(ctx, `INSERT INTO sync_runs
         (target,state,started_at,finished_at,window_from,window_through,providers)
@@ -929,53 +764,10 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
 }
 
 func TestPatheProviderMigrationIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate schema nonce failed")
-	}
-	schema := "movieflow_pathe_migration_test_" + hex.EncodeToString(nonce)
-	identifier := pgx.Identifier{schema}.Sanitize()
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 15, "015_sync_schedules.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, `INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)`, migration.version, migration.name); err != nil {
-			t.Fatal("record fixture migration failed")
-		}
-	}
+	pool, _ := newMigrationTestPool(t, ctx, "movieflow_pathe_migration_test_")
+	migrations := installMigrationPrefix(t, ctx, pool, 15, "015_sync_schedules.sql")
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	if _, err := pool.Exec(ctx, `
 INSERT INTO schedule_snapshot (version,schema_version,provider,scope,generated_at,timezone,window_from,window_through) VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-24','2026-08-24');

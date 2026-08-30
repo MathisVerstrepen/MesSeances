@@ -2,37 +2,16 @@ package database
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
-	"os"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestTheaterLocationSuggestionsMigrationIntegration(t *testing.T) {
-	databaseURL := os.Getenv("TEST_DATABASE_URL")
-	if strings.TrimSpace(databaseURL) == "" {
-		t.Skip("TEST_DATABASE_URL is not set")
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	pool := newSuggestionMigrationPool(t, ctx, databaseURL)
-	migrations := mustEmbeddedMigrations(t)
-	if _, err := pool.Exec(ctx, `CREATE TABLE movieflow_schema_migrations (version bigint PRIMARY KEY, name text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal("create migration history failed")
-	}
-	for _, migration := range requireMigrationPrefix(t, migrations, 20, "020_theater_locations.sql") {
-		if _, err := pool.Exec(ctx, migration.sql, pgx.QueryExecModeSimpleProtocol); err != nil {
-			t.Fatalf("apply fixture migration %d failed: %v", migration.version, err)
-		}
-		if _, err := pool.Exec(ctx, "INSERT INTO movieflow_schema_migrations (version,name) VALUES ($1,$2)", migration.version, migration.name); err != nil {
-			t.Fatal("record fixture migration failed")
-		}
-	}
+	pool, _ := newMigrationTestPool(t, ctx, "movieflow_suggestion_migration_test_")
+	migrations := installMigrationPrefix(t, ctx, pool, 20, "020_theater_locations.sql")
 	updatedAt := time.Date(2026, 8, 26, 12, 0, 0, 123000000, time.UTC)
 	hash := strings.Repeat("a", 64)
 	if _, err := pool.Exec(ctx, `INSERT INTO theater_locations (provider,provider_theater_id,source,matched_label,match_score,address_hash,status,updated_at)
@@ -71,40 +50,4 @@ func TestTheaterLocationSuggestionsMigrationIntegration(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE theater_locations SET status='not_found',matched_label=NULL,match_score=NULL WHERE provider='ugc' AND provider_theater_id='25'`); err == nil {
 		t.Fatal("candidate metadata accepted outside ambiguous status")
 	}
-}
-
-func newSuggestionMigrationPool(t *testing.T, ctx context.Context, databaseURL string) *pgxpool.Pool {
-	t.Helper()
-	nonce := make([]byte, 8)
-	if _, err := rand.Read(nonce); err != nil {
-		t.Fatal("generate schema nonce failed")
-	}
-	schema := "movieflow_suggestion_migration_test_" + hex.EncodeToString(nonce)
-	identifier := pgx.Identifier{schema}.Sanitize()
-	bootstrap, err := pgx.Connect(ctx, databaseURL)
-	if err != nil {
-		t.Fatal("connect integration bootstrap failed")
-	}
-	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
-		t.Fatal("create integration schema failed")
-	}
-	t.Cleanup(func() {
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cleanupCancel()
-		if strings.HasPrefix(schema, "movieflow_suggestion_migration_test_") {
-			_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
-		}
-	})
-	config, err := pgxpool.ParseConfig(databaseURL)
-	if err != nil {
-		t.Fatal("parse integration pool failed")
-	}
-	config.ConnConfig.RuntimeParams["search_path"] = identifier
-	pool, err := pgxpool.NewWithConfig(ctx, config)
-	if err != nil {
-		t.Fatal("create integration pool failed")
-	}
-	t.Cleanup(pool.Close)
-	return pool
 }

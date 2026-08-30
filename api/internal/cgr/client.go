@@ -1,18 +1,12 @@
 package cgr
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"mime"
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"messeances/api/internal/syncproxy"
@@ -23,7 +17,6 @@ const (
 	CinemasURL         = APIBaseURL + "/page-data/sq/d/2506275789.json"
 	MaxResponseBytes   = 16 << 20
 	MaxRequestURLBytes = 8 << 10
-	maxRequestAttempts = 4
 
 	chromeUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
@@ -70,25 +63,13 @@ func (e *RequestError) Error() string {
 
 func (e *RequestError) Unwrap() error { return e.cause }
 
-var (
-	errRedirectAuthority = errors.New("redirect authority rejected")
-	errRedirectLimit     = errors.New("redirect limit exceeded")
-	errResponseTooLarge  = errors.New("response too large")
-)
-
 type ClientConfig struct {
 	Proxies []syncproxy.Proxy
 	Timeout time.Duration
 }
 
 type Client struct {
-	mu          sync.Mutex
-	clients     []*http.Client
-	unavailable []bool
-	proxyBacked bool
-	next        int
-	requests    atomic.Int64
-	sleep       func(context.Context, time.Duration) error
+	executor *syncproxy.Executor
 }
 
 func NewClient(config ClientConfig) (*Client, error) {
@@ -107,103 +88,91 @@ func NewClient(config ClientConfig) (*Client, error) {
 			return nil, fmt.Errorf("invalid proxy transport")
 		}
 	}
-	return &Client{clients: clients, unavailable: make([]bool, len(clients)), proxyBacked: len(config.Proxies) > 0, sleep: sleepContext}, nil
+	return newClientWithHTTPClients(clients, len(config.Proxies) > 0, nil)
 }
 
-func (c *Client) RequestCount() int { return int(c.requests.Load()) }
+func newClientWithHTTPClients(clients []*http.Client, proxyBacked bool, sleep func(context.Context, time.Duration) error) (*Client, error) {
+	executor, err := syncproxy.NewExecutor(syncproxy.ExecutorConfig{
+		Clients:                       clients,
+		ProxyBacked:                   proxyBacked,
+		Headers:                       browserHeaders(),
+		MaxResponseBytes:              MaxResponseBytes,
+		ValidURL:                      allowedURL,
+		AllowNonApplicationJSONSuffix: true,
+		AdvanceNextOnRetry:            true,
+		Retry: syncproxy.RetryPolicy{
+			Sleep:                    sleep,
+			PreserveFailureAfterWait: true,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("invalid request executor")
+	}
+	return &Client{executor: executor}, nil
+}
+
+func (c *Client) RequestCount() int { return c.executor.RequestCount() }
 
 func (c *Client) Get(ctx context.Context, operation Operation, rawURL string) ([]byte, error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || !operationMatchesURL(operation, parsed) {
 		return nil, requestError(operation, CategoryInvalidURL, 0, nil)
 	}
-	if len(c.clients) == 0 {
-		return nil, requestError(operation, CategoryNoClient, 0, nil)
-	}
-	attempted := make([]bool, len(c.clients))
-	var last *RequestError
-	for attempt := 0; attempt < maxRequestAttempts; attempt++ {
-		if err := ctx.Err(); err != nil {
-			return nil, requestError(operation, CategoryCanceled, 0, err)
-		}
-		ordinal := c.acquire(attempted)
-		if ordinal < 0 {
-			if last != nil {
-				return nil, last
+	body, failure := c.executor.Get(ctx, parsed.String(), syncproxy.ResponsePolicy{
+		AfterRead: func(status int, _ []byte) (*syncproxy.Failure, bool) {
+			if status >= 500 {
+				return &syncproxy.Failure{Kind: syncproxy.FailureServer, StatusCode: status}, true
 			}
-			return nil, requestError(operation, CategoryNoClient, 0, nil)
-		}
-		attempted[ordinal] = true
-		body, retry, requestErr := c.attempt(ctx, ordinal, operation, parsed)
-		if requestErr == nil {
-			return body, nil
-		}
-		last = requestErr
-		if !retry || attempt == maxRequestAttempts-1 {
-			return nil, requestErr
-		}
-		c.disable(ordinal)
-		if !c.hasCandidate(attempted) {
-			return nil, requestErr
-		}
-		if err := c.sleep(ctx, 500*time.Millisecond<<attempt); err != nil {
-			return nil, requestError(operation, CategoryCanceled, 0, err)
-		}
+			if (operation == OperationCinemas || operation == OperationProgram) && status == http.StatusNotFound {
+				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, true
+			}
+			if status < 200 || status >= 300 {
+				return &syncproxy.Failure{Kind: syncproxy.FailureStatus, StatusCode: status}, false
+			}
+			return nil, false
+		},
+	})
+	if failure != nil {
+		return nil, mapFailure(operation, failure)
 	}
-	return nil, last
+	return body, nil
 }
 
-func (c *Client) attempt(ctx context.Context, ordinal int, operation Operation, parsed *url.URL) ([]byte, bool, *RequestError) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
-	if err != nil {
-		return nil, false, requestError(operation, CategoryInvalidURL, 0, nil)
+func mapFailure(operation Operation, failure *syncproxy.Failure) *RequestError {
+	category := CategoryTransport
+	switch failure.Kind {
+	case syncproxy.FailureCanceled:
+		category = CategoryCanceled
+	case syncproxy.FailureNoClient:
+		category = CategoryNoClient
+	case syncproxy.FailureInvalidURL:
+		category = CategoryInvalidURL
+	case syncproxy.FailureTransport:
+		category = CategoryTransport
+	case syncproxy.FailureRedirect:
+		category = CategoryRedirect
+	case syncproxy.FailureResponseRead:
+		category = CategoryResponseRead
+	case syncproxy.FailureResponseLarge:
+		category = CategoryResponseLarge
+	case syncproxy.FailureChallenge:
+		category = CategoryTransport
+	case syncproxy.FailureServer:
+		category = CategoryServer
+	case syncproxy.FailureStatus:
+		category = CategoryStatus
+	case syncproxy.FailureContentType:
+		category = CategoryContentType
+	case syncproxy.FailureEmptyResponse:
+		category = CategoryEmptyResponse
+	case syncproxy.FailureInvalidJSON:
+		category = CategoryInvalidJSON
 	}
-	setBrowserHeaders(req)
-	c.requests.Add(1)
-	response, err := c.clients[ordinal].Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, false, requestError(operation, CategoryCanceled, 0, ctx.Err())
-		}
-		if errors.Is(err, errRedirectAuthority) || errors.Is(err, errRedirectLimit) {
-			return nil, false, requestError(operation, CategoryRedirect, 0, nil)
-		}
-		return nil, true, requestError(operation, CategoryTransport, 0, nil)
+	cause := error(nil)
+	if failure.Kind == syncproxy.FailureCanceled {
+		cause = failure.Cause
 	}
-	if response.Body == nil {
-		return nil, true, requestError(operation, CategoryResponseRead, 0, nil)
-	}
-	body, readErr := readResponse(response.Body, response.ContentLength)
-	_ = response.Body.Close()
-	if readErr != nil {
-		if errors.Is(readErr, errResponseTooLarge) {
-			return nil, false, requestError(operation, CategoryResponseLarge, 0, nil)
-		}
-		return nil, true, requestError(operation, CategoryResponseRead, 0, nil)
-	}
-	if response.StatusCode >= 500 {
-		return nil, true, requestError(operation, CategoryServer, response.StatusCode, nil)
-	}
-	if (operation == OperationCinemas || operation == OperationProgram) && response.StatusCode == http.StatusNotFound {
-		return nil, true, requestError(operation, CategoryStatus, response.StatusCode, nil)
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, false, requestError(operation, CategoryStatus, response.StatusCode, nil)
-	}
-	if response.Request == nil || response.Request.URL.String() != parsed.String() || !allowedURL(response.Request.URL) {
-		return nil, false, requestError(operation, CategoryRedirect, 0, nil)
-	}
-	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/json" && !strings.HasSuffix(strings.ToLower(mediaType), "+json") {
-		return nil, false, requestError(operation, CategoryContentType, 0, nil)
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, false, requestError(operation, CategoryEmptyResponse, 0, nil)
-	}
-	if !json.Valid(body) {
-		return nil, false, requestError(operation, CategoryInvalidJSON, 0, nil)
-	}
-	return body, false, nil
+	return requestError(operation, category, failure.StatusCode, cause)
 }
 
 func requestError(operation Operation, category ErrorCategory, status int, cause error) *RequestError {
@@ -278,24 +247,18 @@ func allowedURL(parsed *url.URL) bool {
 	return parsed.Host == "www.cgrcinemas.fr"
 }
 
-func setBrowserHeaders(req *http.Request) {
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Referer", APIBaseURL+"/")
-	req.Header.Set("User-Agent", chromeUserAgent)
-	req.Header.Set("Sec-CH-UA", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
-	req.Header.Set("Sec-CH-UA-Mobile", "?0")
-	req.Header.Set("Sec-CH-UA-Platform", `"Linux"`)
+func browserHeaders() http.Header {
+	return http.Header{
+		"Accept":             {"application/json"},
+		"Referer":            {APIBaseURL + "/"},
+		"User-Agent":         {chromeUserAgent},
+		"Sec-Ch-Ua":          {`"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`},
+		"Sec-Ch-Ua-Mobile":   {"?0"},
+		"Sec-Ch-Ua-Platform": {`"Linux"`},
+	}
 }
 
-func checkRedirect(request *http.Request, via []*http.Request) error {
-	if len(via) > 3 {
-		return errRedirectLimit
-	}
-	if request == nil || !allowedURL(request.URL) {
-		return errRedirectAuthority
-	}
-	return nil
-}
+var checkRedirect = syncproxy.NewRedirectChecker(allowedURL)
 
 func hasTraversal(path string) bool {
 	for _, part := range strings.Split(path, "/") {
@@ -304,63 +267,4 @@ func hasTraversal(path string) bool {
 		}
 	}
 	return false
-}
-
-func readResponse(reader io.Reader, contentLength int64) ([]byte, error) {
-	if contentLength > MaxResponseBytes {
-		return nil, errResponseTooLarge
-	}
-	body, err := io.ReadAll(io.LimitReader(reader, MaxResponseBytes+1))
-	if len(body) > MaxResponseBytes {
-		return nil, errResponseTooLarge
-	}
-	return body, err
-}
-
-func (c *Client) acquire(attempted []bool) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for offset := range len(c.clients) {
-		ordinal := (c.next + offset) % len(c.clients)
-		if c.proxyBacked && attempted[ordinal] || c.unavailable[ordinal] {
-			continue
-		}
-		c.next = (ordinal + 1) % len(c.clients)
-		return ordinal
-	}
-	return -1
-}
-
-func (c *Client) disable(ordinal int) {
-	if !c.proxyBacked {
-		return
-	}
-	c.mu.Lock()
-	c.unavailable[ordinal] = true
-	c.mu.Unlock()
-}
-
-func (c *Client) hasCandidate(attempted []bool) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.proxyBacked {
-		return len(c.clients) > 0
-	}
-	for ordinal := range c.clients {
-		if !attempted[ordinal] && !c.unavailable[ordinal] {
-			return true
-		}
-	}
-	return false
-}
-
-func sleepContext(ctx context.Context, delay time.Duration) error {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
 }
