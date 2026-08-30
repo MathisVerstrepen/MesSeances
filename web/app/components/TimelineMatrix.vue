@@ -395,6 +395,7 @@ onBeforeUnmount(() => {
             <PosterImage
               :src="selected.showtime.poster_url"
               :alt="`Affiche de ${selected.showtime.movie.title}`"
+              sizes="108px"
               :reset-key="`${selected.theater.id}:${selected.showtime.id}`"
               class="h-full w-full"
               image-class="h-full w-full object-cover"

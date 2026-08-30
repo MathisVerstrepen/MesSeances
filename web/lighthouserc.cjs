@@ -42,7 +42,7 @@ module.exports = {
         ],
         "cumulative-layout-shift": [
           "error",
-          { aggregationMethod: "median-run", maxNumericValue: 0.1 },
+          { aggregationMethod: "median-run", maxNumericValue: 0.09999999999999999 },
         ],
         "total-blocking-time": [
           "error",

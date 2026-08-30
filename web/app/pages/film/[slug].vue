@@ -575,6 +575,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           :src="backdropUrl ?? undefined"
           alt=""
           aria-hidden="true"
+          fetchpriority="high"
           class="absolute inset-0 -z-20 size-full object-cover"
           @error="backdropFailed = true"
         />
@@ -586,6 +587,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           <PosterImage
             :src="schedule.movie.poster_url"
             :alt="`Affiche de ${schedule.movie.title}`"
+            sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px"
             :reset-key="slug"
             class="h-full w-full"
             image-class="h-full w-full object-cover"
