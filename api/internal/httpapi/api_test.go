@@ -23,6 +23,12 @@ type fixtureSource struct {
 
 func (s fixtureSource) Snapshot() *schedule.SnapshotView { return s.view }
 
+type mutableFixtureSource struct {
+	view *schedule.SnapshotView
+}
+
+func (s *mutableFixtureSource) Snapshot() *schedule.SnapshotView { return s.view }
+
 type readinessDependencies struct {
 	ping            func(context.Context) error
 	currentRevision func(context.Context) (schedule.SnapshotRevision, error)
@@ -178,6 +184,86 @@ func TestProbeContracts(t *testing.T) {
 				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestPublicScheduleReadsRequireSnapshot(t *testing.T) {
+	source := &mutableFixtureSource{}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{Now: func() time.Time {
+		return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(service, "http://localhost:3000")
+	wantBody := "{\"error\":{\"code\":\"schedule_unavailable\",\"message\":\"Les horaires ne sont pas encore disponibles.\"}}\n"
+	for _, target := range []string{
+		"/api/v1/timeline?date=invalid",
+		"/api/v1/theaters",
+		"/api/v1/theaters/unknown/showtimes?date=invalid",
+		"/api/v1/cities",
+		"/api/v1/cities/unknown",
+		"/api/v1/movies?page=invalid",
+		"/api/v1/movies/unknown/showtimes?date=invalid",
+		"/api/v1/search/slot?date=invalid",
+	} {
+		t.Run(target, func(t *testing.T) {
+			response := performRequest(t, handler, target)
+			if response.Code != http.StatusServiceUnavailable || response.Body.String() != wantBody || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d cache=%q body=%q", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
+			}
+		})
+	}
+	health := performRequest(t, handler, "/healthz")
+	if health.Code != http.StatusOK || health.Body.String() != "{\"status\":\"ok\"}\n" {
+		t.Fatalf("health status=%d body=%q", health.Code, health.Body.String())
+	}
+}
+
+func TestScheduleAvailabilityPrecedesRateLimitAndTransitionsInProcess(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	source := &mutableFixtureSource{}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{
+		DefaultCity: "Lille",
+		CityAliases: map[string][]string{"Lille": {"Lille", "Villeneuve d'Ascq"}},
+		Now:         func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{RateLimitClock: func() time.Time { return now }})
+	for request := 0; request < expensiveReadBurst+1; request++ {
+		response := requestFrom(t, handler, http.MethodGet, "/api/v1/timeline?date=2026-08-15", "192.0.2.1:1234", nil)
+		if response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("pending request=%d status=%d body=%q", request, response.Code, response.Body.String())
+		}
+	}
+	source.view = schedule.NewSnapshotView(fixtureDataset(t))
+	response := requestFrom(t, handler, http.MethodGet, "/api/v1/timeline?date=2026-08-15", "192.0.2.1:1234", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("post-publication status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestPendingSnapshotReadinessSkipsDatabaseChecks(t *testing.T) {
+	source := &mutableFixtureSource{}
+	checks := 0
+	dependencies := &readinessDependencies{
+		ping: func(context.Context) error {
+			checks++
+			return nil
+		},
+		currentRevision: func(context.Context) (schedule.SnapshotRevision, error) {
+			checks++
+			return schedule.SnapshotRevision{ScheduleVersion: 1}, nil
+		},
+	}
+	handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{Readiness: ReadinessOptions{
+		Schedule: source, Database: dependencies, Revisions: dependencies, Now: time.Now,
+	}})
+	response := performRequest(t, handler, "/readyz")
+	if response.Code != http.StatusServiceUnavailable || response.Body.String() != "{\"status\":\"not_ready\"}\n" || checks != 0 {
+		t.Fatalf("status=%d checks=%d body=%q", response.Code, checks, response.Body.String())
 	}
 }
 

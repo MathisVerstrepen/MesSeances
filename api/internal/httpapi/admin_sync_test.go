@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/schedule"
 	"messeances/api/internal/synccontrol"
 )
 
@@ -48,9 +49,19 @@ func syncAdminHandler(t *testing.T, controller SyncController) http.Handler {
 	return testHandlerWithAdmin(t, AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews, Syncs: controller})
 }
 
+func pendingSyncAdminHandler(t *testing.T, controller SyncController) http.Handler {
+	t.Helper()
+	service, err := schedule.NewService(fixtureSource{}, schedule.ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, time.Now)
+	return NewHandlerWithAdmin(service, "http://localhost:3000", AdminOptions{Password: "password", SessionSecret: "test-session-secret", Reviews: reviews, Syncs: controller})
+}
+
 func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 	controller := &fakeSyncController{}
-	handler := syncAdminHandler(t, controller)
+	handler := pendingSyncAdminHandler(t, controller)
 	unauthorized := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs", "", "", nil)
 	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
 	cookie := loginAdmin(t, handler, "password")
@@ -71,7 +82,7 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 func TestAdminStartSyncContract(t *testing.T) {
 	started := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
 	controller := &fakeSyncController{status: synccontrol.Status{ID: "1", Target: synccontrol.TargetAll, State: synccontrol.StateRunning, Trigger: synccontrol.TriggerManual, StartedAt: started, From: "2026-08-17", Through: "2026-08-17", Providers: map[string]synccontrol.ProviderStatus{"ugc": {State: synccontrol.ProviderPending, Log: []string{"sensitive-start-log"}}, "kinepolis": {State: synccontrol.ProviderPending}, "pathe": {State: synccontrol.ProviderPending}, "cgr": {State: synccontrol.ProviderPending}}}}
-	handler := syncAdminHandler(t, controller)
+	handler := pendingSyncAdminHandler(t, controller)
 	cookie := loginAdmin(t, handler, "password")
 	wrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/all", "", "https://evil.example", cookie)
 	assertAPIError(t, wrongOrigin, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")

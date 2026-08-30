@@ -40,3 +40,7 @@ func NewService(source Source, options ServiceOptions) (*Service, error) {
 	options.DefaultCity = strings.TrimSpace(options.DefaultCity)
 	return &Service{location: location, source: source, options: options, now: options.Now}, nil
 }
+
+func (s *Service) HasSnapshot() bool {
+	return s != nil && s.source.Snapshot() != nil
+}

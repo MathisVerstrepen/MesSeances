@@ -30,7 +30,7 @@ The application interface is in French.
 - Go 1.25.13
 - Node.js 22.23.1 and npm 10.9.8 (verified versions)
 - Docker with Docker Compose
-- An existing PostgreSQL database containing a complete schedule snapshot
+- PostgreSQL 18
 - A valid proxy file to enable provider synchronization from the admin area
 
 Install dependencies from the repository root:
@@ -42,7 +42,7 @@ npm --prefix web install
 cp deploy/.env.example deploy/.env
 ```
 
-MesSeances does not start with an empty database. Local startup requires PostgreSQL to already contain a complete schedule snapshot. Blank-database initialization is unsupported.
+MesSeances can start after migrations without a complete schedule snapshot. In this pending state, `/healthz` returns `200`, `/readyz` returns `503`, and public schedule reads return `503 schedule_unavailable`. Configure `ADMIN_PASSWORD`, an independently generated `ADMIN_SESSION_SECRET`, and `PROXY_FILE`, then trigger the first provider synchronization from the authenticated admin area. Its atomic snapshot publication becomes visible to the running API during the next five-second source poll; no restart is required.
 
 Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like other provider ingestion, it requires configured proxies and the built-in Chrome-compatible TLS fingerprint transport, and always publishes a complete national Pathé snapshot.
 

@@ -205,6 +205,13 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	if _, _, err := store.Load(ctx); !errors.Is(err, ErrNoCompleteSnapshot) {
 		t.Fatalf("missing load error=%v", err)
 	}
+	pendingSource, err := NewPostgresSource(ctx, store)
+	if err != nil || pendingSource == nil {
+		t.Fatalf("pending source=%v error=%v", pendingSource != nil, err)
+	}
+	if pendingSource.Snapshot() != nil {
+		t.Fatalf("pending snapshot=%v", pendingSource.Snapshot())
+	}
 
 	t.Run("initial insert and load", func(t *testing.T) {
 		version, err := store.Replace(ctx, []Dataset{testDataset()})
