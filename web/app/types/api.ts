@@ -248,8 +248,8 @@ export interface AdminTMDBCandidate {
   detail_url: string
 }
 
-export type AdminPendingMatchStatus = 'review_required' | 'unmatched' | 'rejected'
-export type AdminPendingMatchesFilter = 'unresolved' | 'rejected'
+export type AdminPendingMatchStatus = 'review_required' | 'unmatched' | 'rejected' | 'matched'
+export type AdminPendingMatchesFilter = 'unresolved' | 'rejected' | 'matched'
 
 export interface AdminPendingMatch {
   source_provider: Provider
@@ -261,6 +261,8 @@ export interface AdminPendingMatch {
   status: AdminPendingMatchStatus
   candidates: AdminTMDBCandidate[]
   evaluated_at: string
+  updated_at?: string
+  current_match?: AdminTMDBCandidate
 }
 
 export interface AdminPendingMatchesResponse {
@@ -269,8 +271,20 @@ export interface AdminPendingMatchesResponse {
   offset: number
 }
 
+export interface AdminPendingMatchesQuery {
+  status: AdminPendingMatchesFilter
+  limit: number
+  offset: number
+  search?: string
+}
+
 export interface AdminMatchDecisionResponse {
   status: 'matched' | 'rejected'
+}
+
+export interface AdminCorrectMatchRequest {
+  tmdb_id: number
+  expected_updated_at: string
 }
 
 export interface AdminTMDBRerunSummary {

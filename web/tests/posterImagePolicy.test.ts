@@ -6,6 +6,7 @@ const appRoot = new URL('../app/', import.meta.url)
 const posterImageSource = await readFile(new URL('../app/components/PosterImage.vue', import.meta.url), 'utf8')
 const resultBoxSource = await readFile(new URL('../app/components/ShowtimeResultBox.vue', import.meta.url), 'utf8')
 const filmPagePath = '/pages/film/[slug].vue'
+const adminTMDBMatchesPagePath = '/pages/admin/tmdb-matches.vue'
 
 async function readVueSources(directory: URL): Promise<Array<{ path: string, source: string }>> {
   const entries = await readdir(directory, { withFileTypes: true })
@@ -40,8 +41,14 @@ test('PosterImage centrally owns responsive lazy image policy and protects it fr
 
 test('every PosterImage consumer supplies an explicit layout size', () => {
   const tags = vueSources.flatMap(({ path, source }) => [...source.matchAll(/<PosterImage\b[\s\S]*?\/>/g)].map((match) => ({ path, tag: match[0] })))
-  assert.equal(tags.length, 12)
+  assert.equal(tags.length, 13)
   for (const { path, tag } of tags) assert.match(tag, /\s:?sizes=/, path)
+
+  const adminTMDBMatchPosters = tags.filter(({ path }) => path.endsWith(adminTMDBMatchesPagePath))
+  assert.equal(adminTMDBMatchPosters.length, 4)
+  const currentTMDBPoster = adminTMDBMatchPosters.find(({ tag }) => tag.includes('match.current_match.poster_url'))
+  assert.ok(currentTMDBPoster)
+  assert.match(currentTMDBPoster.tag, /sizes="\(min-width: 640px\) 96px, 80px"/)
 
   const requiredSizes = [
     '(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)',

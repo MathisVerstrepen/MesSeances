@@ -12,6 +12,7 @@ import (
 type reviewStoreStub struct {
 	items           []PendingMatch
 	filter          PendingMatchFilter
+	search          string
 	limit           int
 	offset          int
 	candidate       Candidate
@@ -23,10 +24,18 @@ type reviewStoreStub struct {
 	fallbackRuntime int
 	approvedAt      time.Time
 	rejectedAt      time.Time
+	correctionID    int64
+	correctionToken time.Time
+	correctionErr   error
+	corrected       Metadata
+	correctedID     int64
+	correctedToken  time.Time
+	correctedAt     time.Time
+	correctedError  error
 }
 
-func (s *reviewStoreStub) PendingMatches(_ context.Context, filter PendingMatchFilter, limit, offset int) ([]PendingMatch, error) {
-	s.filter, s.limit, s.offset = filter, limit, offset
+func (s *reviewStoreStub) PendingMatches(_ context.Context, filter PendingMatchFilter, search string, limit, offset int) ([]PendingMatch, error) {
+	s.filter, s.search, s.limit, s.offset = filter, search, limit, offset
 	return s.items, nil
 }
 func (s *reviewStoreStub) ReviewCandidate(_ context.Context, _, _ string, candidateID int64) (Candidate, int, error) {
@@ -40,6 +49,14 @@ func (s *reviewStoreStub) ApproveReview(_ context.Context, _, _ string, candidat
 func (s *reviewStoreStub) RejectReview(_ context.Context, _, _ string, now time.Time) error {
 	s.rejectedAt = now
 	return nil
+}
+func (s *reviewStoreStub) CorrectionSource(_ context.Context, _, _ string, replacementID int64, expectedUpdatedAt time.Time) (int, error) {
+	s.correctionID, s.correctionToken = replacementID, expectedUpdatedAt
+	return s.sourceRuntime, s.correctionErr
+}
+func (s *reviewStoreStub) CorrectReview(_ context.Context, _, _ string, replacementID int64, expectedUpdatedAt time.Time, metadata Metadata, fallbackRuntime int, now time.Time) error {
+	s.correctedID, s.correctedToken, s.corrected, s.fallbackRuntime, s.correctedAt = replacementID, expectedUpdatedAt, metadata, fallbackRuntime, now
+	return s.correctedError
 }
 
 type reviewProviderStub struct {
@@ -134,6 +151,49 @@ func TestReviewServiceFailsClosedWithoutProvider(t *testing.T) {
 	}
 }
 
+func TestReviewServiceCorrectsMatchedIdentityUsingFreshMetadata(t *testing.T) {
+	now := time.Date(2026, 8, 16, 13, 0, 0, 123456789, time.UTC)
+	expected := now.Add(-time.Hour)
+	store := &reviewStoreStub{sourceRuntime: 98}
+	provider := &reviewProviderStub{details: tmdb.Details{ID: 99, Title: "Film corrigé", OriginalTitle: "Corrected Film", Runtime: 101, PosterURL: "https://image.tmdb.org/t/p/w500/99.jpg", Genres: []string{"Drame"}}}
+	err := NewReviewService(store, provider, func() time.Time { return now }).Correct(context.Background(), SourceUGC, "200", 99, expected)
+	if err != nil || provider.calls != 1 || provider.lastID != 99 || store.correctionID != 99 || !store.correctionToken.Equal(expected) || store.correctedID != 99 || !store.correctedToken.Equal(expected) || store.corrected.LocalizedTitle != "Film corrigé" || store.corrected.ProviderTitle != "Corrected Film" || store.corrected.RuntimeMinutes != 101 || store.fallbackRuntime != 0 || !store.correctedAt.Equal(now) || !store.corrected.RefreshAfter.Equal(now.Add(reviewMetadataTTL)) {
+		t.Fatalf("corrected=%+v preflight=%d/%s stored=%d/%s calls=%d err=%v", store.corrected, store.correctionID, store.correctionToken, store.correctedID, store.correctedToken, provider.calls, err)
+	}
+}
+
+func TestReviewServiceCorrectionUsesRuntimeFallback(t *testing.T) {
+	now := time.Date(2026, 8, 16, 13, 0, 0, 0, time.UTC)
+	store := &reviewStoreStub{sourceRuntime: 98}
+	provider := &reviewProviderStub{details: tmdb.Details{ID: 99, Title: "Film corrigé", OriginalTitle: "Corrected Film", Genres: []string{}}}
+	err := NewReviewService(store, provider, func() time.Time { return now }).Correct(context.Background(), SourceUGC, "200", 99, now.Add(-time.Hour))
+	if err != nil || store.corrected.RuntimeMinutes != 98 || store.fallbackRuntime != 98 {
+		t.Fatalf("corrected=%+v fallback=%d err=%v", store.corrected, store.fallbackRuntime, err)
+	}
+}
+
+func TestReviewServiceCorrectionStopsBeforeProviderOnConflict(t *testing.T) {
+	store := &reviewStoreStub{correctionErr: ErrReviewConflict}
+	provider := &reviewProviderStub{}
+	err := NewReviewService(store, provider, nil).Correct(context.Background(), SourceUGC, "200", 99, time.Now())
+	if !errors.Is(err, ErrReviewConflict) || provider.calls != 0 || store.correctedID != 0 {
+		t.Fatalf("calls=%d corrected=%d err=%v", provider.calls, store.correctedID, err)
+	}
+}
+
+func TestReviewServiceCorrectionFailsClosedAndRejectsProviderMismatch(t *testing.T) {
+	expected := time.Now()
+	store := &reviewStoreStub{}
+	if err := NewReviewService(store, nil, nil).Correct(context.Background(), SourceUGC, "200", 99, expected); !errors.Is(err, ErrReviewUnavailable) || store.correctionID != 0 {
+		t.Fatalf("nil provider preflight=%d err=%v", store.correctionID, err)
+	}
+	provider := &reviewProviderStub{details: tmdb.Details{ID: 100, Title: "Wrong", OriginalTitle: "Wrong"}}
+	err := NewReviewService(store, provider, nil).Correct(context.Background(), SourceUGC, "200", 99, expected)
+	if err == nil || provider.calls != 1 || store.correctedID != 0 {
+		t.Fatalf("calls=%d corrected=%d err=%v", provider.calls, store.correctedID, err)
+	}
+}
+
 func TestValidReviewCandidateAssignmentAndRejectionRules(t *testing.T) {
 	raw := []byte(`[{"id":42,"title":"Film","score":0.91}]`)
 	tests := []struct {
@@ -184,9 +244,13 @@ func TestReviewServiceDecoratesAndSanitizesPendingWithoutProviderCalls(t *testin
 			SourceProvider: SourceUGC, SourceMovieID: "201", SourceTitle: "Autre", SourcePosterURL: "https://evil.example/poster.jpg", Status: StatusUnmatched,
 			Candidates: []Candidate{{ID: 43, Title: "Autre", PosterURL: "http://image.tmdb.org/t/p/w500/poster.jpg"}},
 		},
+		{
+			SourceProvider: SourceKinepolis, SourceMovieID: "K200", SourceTitle: "Associé", Status: StatusMatched,
+			CurrentMatch: &Candidate{ID: 99, Title: "Associé TMDB", PosterURL: "https://image.tmdb.org/t/p/w500/99.jpg", DetailURL: "https://evil.example/current"},
+		},
 	}}
 	provider := &reviewProviderStub{}
-	items, err := NewReviewService(store, provider, nil).Pending(context.Background(), PendingMatchFilterRejected, 20, 40)
+	items, err := NewReviewService(store, provider, nil).Pending(context.Background(), PendingMatchFilterRejected, "", 20, 40)
 	if err != nil || provider.calls != 0 {
 		t.Fatalf("items=%+v calls=%d err=%v", items, provider.calls, err)
 	}
@@ -199,8 +263,47 @@ func TestReviewServiceDecoratesAndSanitizesPendingWithoutProviderCalls(t *testin
 	if items[1].SourcePosterURL != "" || items[1].Candidates[0].PosterURL != "" {
 		t.Fatalf("unsafe posters retained: %+v", items[1])
 	}
+	if items[2].CurrentMatch == nil || items[2].CurrentMatch.DetailURL != "https://www.themoviedb.org/movie/99?language=fr-FR" || items[2].CurrentMatch.PosterURL != "https://image.tmdb.org/t/p/w500/99.jpg" {
+		t.Fatalf("decorated current match=%+v", items[2].CurrentMatch)
+	}
 	if items[0].Status != StatusReviewRequired || items[1].Status != StatusUnmatched {
 		t.Fatalf("statuses changed: %+v", items)
+	}
+}
+
+func TestReviewServiceForwardsMatchedSearch(t *testing.T) {
+	store := &reviewStoreStub{}
+	items, err := NewReviewService(store, nil, nil).Pending(context.Background(), PendingMatchFilterMatched, "Alien", 20, 40)
+	if err != nil || len(items) != 0 || store.filter != PendingMatchFilterMatched || store.search != "Alien" || store.limit != 20 || store.offset != 40 {
+		t.Fatalf("items=%+v filter=%q search=%q pagination=%d/%d err=%v", items, store.filter, store.search, store.limit, store.offset, err)
+	}
+}
+
+func TestExactTMDBSearchID(t *testing.T) {
+	tests := []struct {
+		search string
+		want   int64
+		ok     bool
+	}{
+		{search: "1", want: 1, ok: true},
+		{search: "9223372036854775807", want: 9223372036854775807, ok: true},
+		{search: ""},
+		{search: "0"},
+		{search: "00"},
+		{search: "01"},
+		{search: "+1"},
+		{search: "-1"},
+		{search: "9223372036854775808"},
+		{search: "１２"},
+		{search: "1a"},
+	}
+	for _, test := range tests {
+		t.Run(test.search, func(t *testing.T) {
+			got, ok := exactTMDBSearchID(test.search)
+			if got != test.want || ok != test.ok {
+				t.Fatalf("exactTMDBSearchID(%q)=(%d,%v) want=(%d,%v)", test.search, got, ok, test.want, test.ok)
+			}
+		})
 	}
 }
 
