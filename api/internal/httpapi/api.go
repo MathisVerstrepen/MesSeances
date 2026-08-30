@@ -70,6 +70,7 @@ type AdminOptions struct {
 	SyncSchedules    SyncScheduleController
 	TheaterLocations TheaterLocationController
 	TheaterGeocoding TheaterGeocodingController
+	Movies           *enrichment.AdminMovieService
 	Now              func() time.Time
 	Logger           *slog.Logger
 	Metrics          *observability.Metrics
@@ -160,7 +161,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.Use(recoverJSON(options.Admin.Logger))
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{webOrigin},
-		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
@@ -199,6 +200,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
+			router.Get("/movies", api.admin.adminMovies)
+			router.With(api.admin.requireOrigin).Patch("/movies/{id}", api.admin.updateAdminMovie)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/members", api.admin.addLocalMovieMembers)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/unmerge", api.admin.unmergeLocalMovie)
