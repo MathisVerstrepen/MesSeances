@@ -30,7 +30,8 @@ The application interface is in French.
 - Go 1.25.13
 - Node.js 22.23.1 and npm 10.9.8 (verified versions)
 - Docker with Docker Compose
-- A valid proxy file for the initial provider synchronization
+- An existing PostgreSQL database containing a complete schedule snapshot
+- A valid proxy file to enable provider synchronization from the admin area
 
 Install dependencies from the repository root:
 
@@ -41,25 +42,11 @@ npm --prefix web install
 cp deploy/.env.example deploy/.env
 ```
 
-MesSeances does not start with an empty database. Populate PostgreSQL with a complete schedule snapshot first:
+MesSeances does not start with an empty database. Local startup requires PostgreSQL to already contain a complete schedule snapshot. Blank-database initialization is unsupported.
 
-```sh
-make sync PROXY_FILE=/path/to/proxies.txt
-```
+Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like other provider ingestion, it requires configured proxies and the built-in Chrome-compatible TLS fingerprint transport, and always publishes a complete national Pathé snapshot.
 
-`make sync` runs UGC, Kinepolis, Pathé, then CGR with the same required proxy file. Provider-specific full synchronizations are also available:
-
-```sh
-cd api
-go run ./cmd/sync-ugc -proxy-file /path/to/proxies.txt
-go run ./cmd/sync-kinepolis -proxy-file /path/to/proxies.txt
-go run ./cmd/sync-pathe -proxy-file /path/to/proxies.txt
-go run ./cmd/sync-cgr
-```
-
-Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like other provider ingestion, it requires configured proxies and the built-in Chrome-compatible TLS fingerprint transport. `sync-pathe` supports optional `-from` and `-timeout` flags and always publishes a complete national Pathé snapshot.
-
-CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. `sync-cgr` supports optional `-from`, `-timeout`, and `-proxy-file` flags, works with a direct bounded HTTP client when no proxy file is supplied, and always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
+CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. It always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
 
 ### Theater geocoding
 
@@ -79,7 +66,7 @@ Open [http://localhost:3000](http://localhost:3000). The API runs at `http://loc
 
 When admin access is enabled, configure both `ADMIN_PASSWORD` and an independently generated `ADMIN_SESSION_SECRET`. Password rotation changes login credentials without invalidating active sessions; session-secret rotation invalidates all active sessions. Leaving both blank disables admin access locally.
 
-Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, and CGR and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive. Explicit `-timeout` flags override request timeout; Kinepolis also supports `-request-interval`.
+Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, and CGR and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive.
 
 `PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
 
