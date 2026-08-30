@@ -8,8 +8,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-
-	"messeances/api/internal/publicmoviepg"
 )
 
 func (s *PostgresStore) IsLocallyMerged(ctx context.Context, sourceProvider, sourceMovieID string) (bool, error) {
@@ -88,39 +86,31 @@ func (s *PostgresStore) MergeLocalMovies(ctx context.Context, members []LocalMov
 	}
 	members = append([]LocalMovieSource(nil), members...)
 	sort.Slice(members, func(i, j int) bool { return localMovieSourceKey(members[i]) < localMovieSourceKey(members[j]) })
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return LocalMovieGroup{}, fmt.Errorf("begin local movie merge failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return LocalMovieGroup{}, err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return LocalMovieGroup{}, err
-	}
-	lockedMembers, err := lockLocalMovieMembers(ctx, tx, members)
-	if err != nil {
-		return LocalMovieGroup{}, err
-	}
-	group := LocalMovieGroup{Primary: primary, Members: lockedMembers}
-	if err := tx.QueryRow(ctx, `INSERT INTO local_movie_groups (primary_source_provider, primary_source_movie_id) VALUES ($1,$2) RETURNING id`, primary.SourceProvider, primary.SourceMovieID).Scan(&group.ID); err != nil {
-		return LocalMovieGroup{}, localMovieWriteError("create local movie group failed", err)
-	}
-	for _, source := range members {
-		if _, err := tx.Exec(ctx, `INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,$2,$3)`, group.ID, source.SourceProvider, source.SourceMovieID); err != nil {
-			return LocalMovieGroup{}, localMovieWriteError("write local movie member failed", err)
+	var group LocalMovieGroup
+	err := s.withWriteTransaction(ctx, "begin local movie merge failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		lockedMembers, err := lockLocalMovieMembers(ctx, tx, members)
+		if err != nil {
+			return nil, err
 		}
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return LocalMovieGroup{}, fmt.Errorf("reconcile public movies after local merge: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return LocalMovieGroup{}, fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return LocalMovieGroup{}, localMovieWriteError("commit local movie merge failed", err)
+		group = LocalMovieGroup{Primary: primary, Members: lockedMembers}
+		if err := tx.QueryRow(ctx, `INSERT INTO local_movie_groups (primary_source_provider, primary_source_movie_id) VALUES ($1,$2) RETURNING id`, primary.SourceProvider, primary.SourceMovieID).Scan(&group.ID); err != nil {
+			return nil, localMovieWriteError("create local movie group failed", err)
+		}
+		for _, source := range members {
+			if _, err := tx.Exec(ctx, `INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,$2,$3)`, group.ID, source.SourceProvider, source.SourceMovieID); err != nil {
+				return nil, localMovieWriteError("write local movie member failed", err)
+			}
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after local merge",
+			advanceVersion: true,
+			mapCommitError: func(err error) error {
+				return localMovieWriteError("commit local movie merge failed", err)
+			},
+		}, nil
+	})
+	if err != nil {
+		return LocalMovieGroup{}, err
 	}
 	prepareLocalMovieGroup(&group)
 	return group, nil
@@ -161,77 +151,49 @@ func (s *PostgresStore) AddLocalMovieMembers(ctx context.Context, id int64, memb
 	}
 	members = append([]LocalMovieSource(nil), members...)
 	sort.Slice(members, func(i, j int) bool { return localMovieSourceKey(members[i]) < localMovieSourceKey(members[j]) })
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin local movie member append failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	var lockedID int64
-	if err := tx.QueryRow(ctx, "SELECT id FROM local_movie_groups WHERE id=$1 FOR UPDATE", id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
-		return ErrLocalMovieNotFound
-	} else if err != nil {
-		return fmt.Errorf("lock local movie group failed")
-	}
-	if _, err := lockLocalMovieMembers(ctx, tx, members); err != nil {
-		return err
-	}
-	for _, source := range members {
-		if _, err := tx.Exec(ctx, `INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,$2,$3)`, lockedID, source.SourceProvider, source.SourceMovieID); err != nil {
-			return localMovieWriteError("write local movie member failed", err)
+	return s.withWriteTransaction(ctx, "begin local movie member append failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		var lockedID int64
+		if err := tx.QueryRow(ctx, "SELECT id FROM local_movie_groups WHERE id=$1 FOR UPDATE", id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrLocalMovieNotFound
+		} else if err != nil {
+			return nil, fmt.Errorf("lock local movie group failed")
 		}
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return fmt.Errorf("reconcile public movies after local member append: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return localMovieWriteError("commit local movie member append failed", err)
-	}
-	return nil
+		if _, err := lockLocalMovieMembers(ctx, tx, members); err != nil {
+			return nil, err
+		}
+		for _, source := range members {
+			if _, err := tx.Exec(ctx, `INSERT INTO local_movie_group_members (local_movie_id, source_provider, source_movie_id) VALUES ($1,$2,$3)`, lockedID, source.SourceProvider, source.SourceMovieID); err != nil {
+				return nil, localMovieWriteError("write local movie member failed", err)
+			}
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after local member append",
+			advanceVersion: true,
+			mapCommitError: func(err error) error {
+				return localMovieWriteError("commit local movie member append failed", err)
+			},
+		}, nil
+	})
 }
 
 func (s *PostgresStore) UnmergeLocalMovie(ctx context.Context, id int64) error {
 	if id <= 0 {
 		return ErrLocalMovieInvalid
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin local movie unmerge failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	var lockedID int64
-	if err := tx.QueryRow(ctx, "SELECT id FROM local_movie_groups WHERE id=$1 FOR UPDATE", id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
-		return ErrLocalMovieNotFound
-	} else if err != nil {
-		return fmt.Errorf("lock local movie group failed")
-	}
-	if _, err := tx.Exec(ctx, "DELETE FROM local_movie_groups WHERE id=$1", lockedID); err != nil {
-		return fmt.Errorf("delete local movie group failed")
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return fmt.Errorf("reconcile public movies after local unmerge: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit local movie unmerge failed")
-	}
-	return nil
+	return s.withWriteTransaction(ctx, "begin local movie unmerge failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		var lockedID int64
+		if err := tx.QueryRow(ctx, "SELECT id FROM local_movie_groups WHERE id=$1 FOR UPDATE", id).Scan(&lockedID); errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrLocalMovieNotFound
+		} else if err != nil {
+			return nil, fmt.Errorf("lock local movie group failed")
+		}
+		if _, err := tx.Exec(ctx, "DELETE FROM local_movie_groups WHERE id=$1", lockedID); err != nil {
+			return nil, fmt.Errorf("delete local movie group failed")
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after local unmerge",
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit local movie unmerge failed") },
+		}, nil
+	})
 }

@@ -2,13 +2,12 @@ package pathe
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"sort"
-	"sync"
 	"time"
 
+	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
 )
 
@@ -54,16 +53,6 @@ type showtimeJob struct {
 	dates          []string
 }
 
-type indexedJob[T any] struct {
-	index int
-	value T
-}
-
-type indexedResult[T any] struct {
-	index int
-	value T
-}
-
 func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dataset, SyncSummary, error) {
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {
@@ -94,7 +83,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse Pathé shows: %w", err)
 	}
 
-	programs, err := runJobs(ctx, cinemas, func(phaseCtx context.Context, theater cinema) (map[string][]string, error) {
+	programs, err := parallel.MapOrdered(ctx, cinemas, parallel.Options{Workers: WorkerCount}, func(phaseCtx context.Context, theater cinema) (map[string][]string, error) {
 		body, fetchErr := getter.Get(phaseCtx, OperationCinemaProgram, cinemaProgramURL(theater.slug))
 		if fetchErr != nil {
 			return nil, fetchErr
@@ -167,7 +156,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 	}
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].rawURL < jobs[j].rawURL })
 
-	showtimeGroups, err := runJobs(ctx, jobs, func(phaseCtx context.Context, job showtimeJob) ([]schedule.ShowtimeRecord, error) {
+	showtimeGroups, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: WorkerCount}, func(phaseCtx context.Context, job showtimeJob) ([]schedule.ShowtimeRecord, error) {
 		body, fetchErr := getter.Get(phaseCtx, job.operation, job.rawURL)
 		if fetchErr != nil {
 			return nil, fetchErr
@@ -271,81 +260,4 @@ func movieShowtimesURL(showSlug, cinemaSlug string) string {
 
 func eventShowtimesURL(showSlug, cinemaSlug, date string) string {
 	return movieShowtimesURL(showSlug, cinemaSlug) + "/" + url.PathEscape(date)
-}
-
-func runJobs[J, R any](ctx context.Context, jobs []J, work func(context.Context, J) (R, error)) ([]R, error) {
-	if len(jobs) == 0 {
-		return []R{}, nil
-	}
-	phaseCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	queue := make(chan indexedJob[J])
-	results := make(chan indexedResult[R], len(jobs))
-	var workers sync.WaitGroup
-	var firstError error
-	var captureError sync.Once
-	workers.Add(WorkerCount)
-	for range WorkerCount {
-		go func() {
-			defer workers.Done()
-			for {
-				if phaseCtx.Err() != nil {
-					return
-				}
-				select {
-				case <-phaseCtx.Done():
-					return
-				case job, ok := <-queue:
-					if !ok {
-						return
-					}
-					if phaseCtx.Err() != nil {
-						return
-					}
-					value, err := work(phaseCtx, job.value)
-					if err != nil {
-						captureError.Do(func() {
-							firstError = err
-							cancel()
-						})
-						return
-					}
-					results <- indexedResult[R]{index: job.index, value: value}
-				}
-			}
-		}()
-	}
-	queueCanceled := false
-	for index, job := range jobs {
-		if phaseCtx.Err() != nil {
-			break
-		}
-		select {
-		case <-phaseCtx.Done():
-			queueCanceled = true
-		case queue <- indexedJob[J]{index: index, value: job}:
-		}
-		if queueCanceled {
-			break
-		}
-	}
-	close(queue)
-	workers.Wait()
-	close(results)
-	if firstError != nil {
-		return nil, firstError
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	ordered := make([]R, len(jobs))
-	count := 0
-	for result := range results {
-		ordered[result.index] = result.value
-		count++
-	}
-	if count != len(jobs) {
-		return nil, errors.New("Pathé phase canceled")
-	}
-	return ordered, nil
 }

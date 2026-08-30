@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 
+	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
 )
 
@@ -47,80 +47,6 @@ func (e datasetValidationError) Is(target error) bool {
 
 func newDatasetValidationError(message string, cause error) error {
 	return datasetValidationError{message: message, cause: cause}
-}
-
-type indexedJob[T any] struct {
-	index int
-	value T
-}
-
-type indexedResult[T any] struct {
-	index int
-	value T
-}
-
-func runIndexedPhase[J, R any](ctx context.Context, jobs []J, work func(context.Context, J) (R, error)) ([]R, error) {
-	if len(jobs) == 0 {
-		return []R{}, nil
-	}
-	phaseCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	jobQueue := make(chan indexedJob[J], len(jobs))
-	results := make(chan indexedResult[R], len(jobs))
-	for index, job := range jobs {
-		jobQueue <- indexedJob[J]{index: index, value: job}
-	}
-	close(jobQueue)
-
-	var workers sync.WaitGroup
-	var firstError error
-	var captureError sync.Once
-	workers.Add(ugcWorkerCount)
-	for range ugcWorkerCount {
-		go func() {
-			defer workers.Done()
-			for {
-				select {
-				case <-phaseCtx.Done():
-					return
-				case job, ok := <-jobQueue:
-					if !ok {
-						return
-					}
-					if phaseCtx.Err() != nil {
-						return
-					}
-					result, err := work(phaseCtx, job.value)
-					if err != nil {
-						captureError.Do(func() {
-							firstError = err
-							cancel()
-						})
-						return
-					}
-					results <- indexedResult[R]{index: job.index, value: result}
-				}
-			}
-		}()
-	}
-	workers.Wait()
-	close(results)
-	if firstError != nil {
-		return nil, firstError
-	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	ordered := make([]R, len(jobs))
-	count := 0
-	for result := range results {
-		ordered[result.index] = result.value
-		count++
-	}
-	if count != len(jobs) {
-		return nil, fmt.Errorf("UGC phase canceled")
-	}
-	return ordered, nil
 }
 
 type cinemaFetchJob struct {
@@ -185,7 +111,7 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 	for index, id := range selected {
 		cinemaJobs[index] = cinemaFetchJob{requestedID: id}
 	}
-	cinemaResults, err := runIndexedPhase(ctx, cinemaJobs, func(phaseCtx context.Context, job cinemaFetchJob) (cinemaFetchResult, error) {
+	cinemaResults, err := parallel.MapOrdered(ctx, cinemaJobs, parallel.Options{Workers: ugcWorkerCount}, func(phaseCtx context.Context, job cinemaFetchJob) (cinemaFetchResult, error) {
 		cinemaURL := "https://www.ugc.fr/cinema.html?id=" + url.QueryEscape(job.requestedID)
 		page, requestErr := client.Get(phaseCtx, OperationCinema, cinemaURL)
 		if requestErr != nil {
@@ -240,7 +166,7 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 			showingsJobs = append(showingsJobs, showingsFetchJob{requestedID: result.requestedID, cinema: cinema, serviceDate: serviceDate, rawURL: showingURL})
 		}
 	}
-	showingsResults, err := runIndexedPhase(ctx, showingsJobs, func(phaseCtx context.Context, job showingsFetchJob) ([]schedule.ShowtimeRecord, error) {
+	showingsResults, err := parallel.MapOrdered(ctx, showingsJobs, parallel.Options{Workers: ugcWorkerCount}, func(phaseCtx context.Context, job showingsFetchJob) ([]schedule.ShowtimeRecord, error) {
 		showingPage, requestErr := client.Get(phaseCtx, OperationShowings, job.rawURL)
 		if requestErr != nil {
 			return nil, requestErr

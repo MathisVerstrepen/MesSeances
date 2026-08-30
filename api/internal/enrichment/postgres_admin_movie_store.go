@@ -206,74 +206,67 @@ func (s *PostgresStore) UpdateAdminMovie(ctx context.Context, id int64, patch Ad
 	if id <= 0 || !normalizeAdminMoviePatch(&patch) {
 		return AdminMovieItem{}, ErrAdminMovieInvalid
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return AdminMovieItem{}, fmt.Errorf("begin admin movie update failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return AdminMovieItem{}, err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return AdminMovieItem{}, err
-	}
-	var redirectTo *int64
-	var updatedAt time.Time
-	var automatic AdminMovieMetadata
-	var automaticRelease *time.Time
-	err = tx.QueryRow(ctx, `SELECT redirect_to_id, updated_at, title, runtime_minutes, release_date, genres, overview,
+	var item AdminMovieItem
+	err := s.withWriteTransaction(ctx, "begin admin movie update failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		var redirectTo *int64
+		var updatedAt time.Time
+		var automatic AdminMovieMetadata
+		var automaticRelease *time.Time
+		err := tx.QueryRow(ctx, `SELECT redirect_to_id, updated_at, title, runtime_minutes, release_date, genres, overview,
     poster_url, backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key
 FROM public_movies WHERE id=$1 FOR UPDATE`, id).Scan(
-		&redirectTo, &updatedAt, &automatic.Title, &automatic.RuntimeMinutes, &automaticRelease, &automatic.Genres,
-		&automatic.Overview, &automatic.PosterURL, &automatic.BackdropURL, &automatic.TrailerVFYouTubeKey, &automatic.TrailerVOYouTubeKey,
-	)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return AdminMovieItem{}, ErrAdminMovieNotFound
-	}
-	if err != nil {
-		return AdminMovieItem{}, fmt.Errorf("lock admin movie failed")
-	}
-	if redirectTo != nil || !updatedAt.Equal(patch.ExpectedUpdatedAt) {
-		return AdminMovieItem{}, ErrAdminMovieConflict
-	}
-	automatic.ReleaseDate = adminMovieDateString(automaticRelease)
-	if automatic.Genres == nil {
-		automatic.Genres = []string{}
-	}
-	state, err := loadAdminMovieOverrideState(ctx, tx, id)
+			&redirectTo, &updatedAt, &automatic.Title, &automatic.RuntimeMinutes, &automaticRelease, &automatic.Genres,
+			&automatic.Overview, &automatic.PosterURL, &automatic.BackdropURL, &automatic.TrailerVFYouTubeKey, &automatic.TrailerVOYouTubeKey,
+		)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrAdminMovieNotFound
+		}
+		if err != nil {
+			return nil, fmt.Errorf("lock admin movie failed")
+		}
+		if redirectTo != nil || !updatedAt.Equal(patch.ExpectedUpdatedAt) {
+			return nil, ErrAdminMovieConflict
+		}
+		automatic.ReleaseDate = adminMovieDateString(automaticRelease)
+		if automatic.Genres == nil {
+			automatic.Genres = []string{}
+		}
+		state, err := loadAdminMovieOverrideState(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		next := state
+		applyAdminMoviePatch(&next, patch)
+		effective := effectiveAdminMovieMetadata(automatic, next)
+		if effective.TrailerVFYouTubeKey != nil && effective.TrailerVOYouTubeKey != nil && *effective.TrailerVFYouTubeKey == *effective.TrailerVOYouTubeKey {
+			return nil, ErrAdminMovieInvalid
+		}
+		if reflect.DeepEqual(state, next) {
+			item = makeAdminMovieItem(id, updatedAt, automatic, next)
+			return &writeFinalization{
+				mapCommitError: func(error) error { return fmt.Errorf("commit unchanged admin movie update failed") },
+			}, nil
+		}
+		if next.any() {
+			if err := upsertAdminMovieOverrideState(ctx, tx, id, next); err != nil {
+				return nil, err
+			}
+		} else if _, err := tx.Exec(ctx, "DELETE FROM public_movie_metadata_overrides WHERE public_movie_id=$1", id); err != nil {
+			return nil, fmt.Errorf("delete admin movie overrides failed")
+		}
+		if err := tx.QueryRow(ctx, "UPDATE public_movies SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING updated_at", id).Scan(&updatedAt); err != nil {
+			return nil, fmt.Errorf("touch admin movie failed")
+		}
+		item = makeAdminMovieItem(id, updatedAt, automatic, next)
+		return &writeFinalization{
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit admin movie update failed") },
+		}, nil
+	})
 	if err != nil {
 		return AdminMovieItem{}, err
 	}
-	next := state
-	applyAdminMoviePatch(&next, patch)
-	effective := effectiveAdminMovieMetadata(automatic, next)
-	if effective.TrailerVFYouTubeKey != nil && effective.TrailerVOYouTubeKey != nil && *effective.TrailerVFYouTubeKey == *effective.TrailerVOYouTubeKey {
-		return AdminMovieItem{}, ErrAdminMovieInvalid
-	}
-	if reflect.DeepEqual(state, next) {
-		if err := tx.Commit(ctx); err != nil {
-			return AdminMovieItem{}, fmt.Errorf("commit unchanged admin movie update failed")
-		}
-		return makeAdminMovieItem(id, updatedAt, automatic, next), nil
-	}
-	if next.any() {
-		if err := upsertAdminMovieOverrideState(ctx, tx, id, next); err != nil {
-			return AdminMovieItem{}, err
-		}
-	} else if _, err := tx.Exec(ctx, "DELETE FROM public_movie_metadata_overrides WHERE public_movie_id=$1", id); err != nil {
-		return AdminMovieItem{}, fmt.Errorf("delete admin movie overrides failed")
-	}
-	if err := tx.QueryRow(ctx, "UPDATE public_movies SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING updated_at", id).Scan(&updatedAt); err != nil {
-		return AdminMovieItem{}, fmt.Errorf("touch admin movie failed")
-	}
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return AdminMovieItem{}, fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return AdminMovieItem{}, fmt.Errorf("commit admin movie update failed")
-	}
-	return makeAdminMovieItem(id, updatedAt, automatic, next), nil
+	return item, nil
 }
 
 func loadAdminMovieOverrideState(ctx context.Context, tx pgx.Tx, id int64) (adminMovieOverrideState, error) {

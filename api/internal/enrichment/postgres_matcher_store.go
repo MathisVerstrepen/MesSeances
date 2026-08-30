@@ -7,8 +7,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-
-	"messeances/api/internal/publicmoviepg"
 )
 
 func (s *PostgresStore) Match(ctx context.Context, sourceProvider, sourceMovieID, metadataProvider string) (Match, bool, error) {
@@ -107,51 +105,37 @@ func (s *PostgresStore) SaveDecision(ctx context.Context, match Match) error {
 	if match.Status == StatusMatched {
 		metadataID, score = match.MetadataMovieID, match.Score
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin movie decision failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if merged, err := isLocallyMerged(ctx, tx, match.SourceProvider, match.SourceMovieID); err != nil {
-		return err
-	} else if merged {
-		return ErrLocalMovieConflict
-	}
-	var priorStatus string
-	priorErr := tx.QueryRow(ctx, `SELECT status FROM movie_matches
+	return s.withWriteTransaction(ctx, "begin movie decision failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		if merged, err := isLocallyMerged(ctx, tx, match.SourceProvider, match.SourceMovieID); err != nil {
+			return nil, err
+		} else if merged {
+			return nil, ErrLocalMovieConflict
+		}
+		var priorStatus string
+		priorErr := tx.QueryRow(ctx, `SELECT status FROM movie_matches
 WHERE source_provider=$1 AND source_movie_id=$2 AND metadata_provider=$3 FOR UPDATE`, match.SourceProvider, match.SourceMovieID, match.MetadataProvider).Scan(&priorStatus)
-	if priorErr != nil && !errors.Is(priorErr, pgx.ErrNoRows) {
-		return fmt.Errorf("lock prior movie decision failed")
-	}
-	command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
+		if priorErr != nil && !errors.Is(priorErr, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("lock prior movie decision failed")
+		}
+		command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10)
 ON CONFLICT (source_provider, source_movie_id, metadata_provider) DO UPDATE SET status=EXCLUDED.status, metadata_movie_id=EXCLUDED.metadata_movie_id, score=EXCLUDED.score, normalized_source_title=EXCLUDED.normalized_source_title, source_runtime_minutes=EXCLUDED.source_runtime_minutes, candidates=EXCLUDED.candidates, evaluated_at=EXCLUDED.evaluated_at, retry_after=EXCLUDED.retry_after, updated_at=EXCLUDED.updated_at
 WHERE NOT (movie_matches.status='rejected' AND movie_matches.normalized_source_title=EXCLUDED.normalized_source_title AND movie_matches.source_runtime_minutes=EXCLUDED.source_runtime_minutes)`, match.SourceProvider, match.SourceMovieID, match.MetadataProvider, match.Status, metadataID, score, match.NormalizedSourceTitle, match.SourceRuntimeMinutes, candidates, match.EvaluatedAt, match.RetryAfter)
-	if err != nil {
-		return fmt.Errorf("write movie decision failed")
-	}
-	if command.RowsAffected() == 0 {
-		return nil
-	}
-	if priorStatus == StatusMatched {
-		if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-			return fmt.Errorf("reconcile public movies after matched decision change: %w", err)
+		if err != nil {
+			return nil, fmt.Errorf("write movie decision failed")
 		}
-		if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-			return fmt.Errorf("publish enrichment version failed")
+		if command.RowsAffected() == 0 {
+			return nil, nil
 		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit movie decision failed")
-	}
-	return nil
+		finalization := &writeFinalization{
+			mapCommitError: func(error) error { return fmt.Errorf("commit movie decision failed") },
+		}
+		if priorStatus == StatusMatched {
+			finalization.reconcileError = "reconcile public movies after matched decision change"
+			finalization.advanceVersion = true
+		}
+		return finalization, nil
+	})
 }
 
 func (s *PostgresStore) Publish(ctx context.Context, match Match, metadata Metadata) error {
@@ -164,45 +148,30 @@ func (s *PostgresStore) Publish(ctx context.Context, match Match, metadata Metad
 	if err := validateMetadata(metadata); err != nil {
 		return err
 	}
-	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("begin enrichment publication failed")
-	}
-	defer rollback(tx)
-	if err := lockScheduleGeneration(ctx, tx); err != nil {
-		return err
-	}
-	version, err := lockEnrichmentVersion(ctx, tx)
-	if err != nil {
-		return err
-	}
-	if merged, err := isLocallyMerged(ctx, tx, match.SourceProvider, match.SourceMovieID); err != nil {
-		return err
-	} else if merged {
-		return ErrLocalMovieConflict
-	}
-	candidates, _ := json.Marshal(match.Candidates)
-	command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
+	return s.withWriteTransaction(ctx, "begin enrichment publication failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
+		if merged, err := isLocallyMerged(ctx, tx, match.SourceProvider, match.SourceMovieID); err != nil {
+			return nil, err
+		} else if merged {
+			return nil, ErrLocalMovieConflict
+		}
+		candidates, _ := json.Marshal(match.Candidates)
+		command, err := tx.Exec(ctx, `INSERT INTO movie_matches (source_provider, source_movie_id, metadata_provider, status, metadata_movie_id, score, normalized_source_title, source_runtime_minutes, candidates, evaluated_at, retry_after, updated_at)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$10)
 ON CONFLICT (source_provider, source_movie_id, metadata_provider) DO UPDATE SET status=EXCLUDED.status, metadata_movie_id=EXCLUDED.metadata_movie_id, score=EXCLUDED.score, normalized_source_title=EXCLUDED.normalized_source_title, source_runtime_minutes=EXCLUDED.source_runtime_minutes, candidates=EXCLUDED.candidates, evaluated_at=EXCLUDED.evaluated_at, retry_after=EXCLUDED.retry_after, updated_at=EXCLUDED.updated_at
 WHERE NOT (movie_matches.status='rejected' AND movie_matches.normalized_source_title=EXCLUDED.normalized_source_title AND movie_matches.source_runtime_minutes=EXCLUDED.source_runtime_minutes)`, match.SourceProvider, match.SourceMovieID, match.MetadataProvider, match.Status, match.MetadataMovieID, match.Score, match.NormalizedSourceTitle, match.SourceRuntimeMinutes, candidates, match.EvaluatedAt, match.RetryAfter)
-	if err != nil {
-		return fmt.Errorf("write matched decision failed")
-	}
-	if command.RowsAffected() == 0 {
-		return nil
-	}
-	if err := writeMetadata(ctx, tx, metadata); err != nil {
-		return err
-	}
-	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
-		return fmt.Errorf("reconcile public movies after enrichment publication: %w", err)
-	}
-	if _, err := tx.Exec(ctx, "UPDATE movie_enrichment_state SET version=$1 WHERE singleton=true", version+1); err != nil {
-		return fmt.Errorf("publish enrichment version failed")
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit enrichment publication failed")
-	}
-	return nil
+		if err != nil {
+			return nil, fmt.Errorf("write matched decision failed")
+		}
+		if command.RowsAffected() == 0 {
+			return nil, nil
+		}
+		if err := writeMetadata(ctx, tx, metadata); err != nil {
+			return nil, err
+		}
+		return &writeFinalization{
+			reconcileError: "reconcile public movies after enrichment publication",
+			advanceVersion: true,
+			mapCommitError: func(error) error { return fmt.Errorf("commit enrichment publication failed") },
+		}, nil
+	})
 }
