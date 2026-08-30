@@ -250,10 +250,6 @@ function formatRoom(room: string): string {
   return roomName ? `Salle ${roomName}` : 'Salle'
 }
 
-function isNotFoundError(cause: unknown): boolean {
-  return getApiErrorStatus(cause) === 404 || getApiErrorCode(cause) === 'not_found'
-}
-
 type NationwideScheduleResult =
   | { kind: 'success'; schedule: MovieShowtimesResponse }
   | { kind: 'error'; error: unknown }

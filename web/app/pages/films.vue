@@ -4,12 +4,8 @@ import { VueDatePicker } from '@vuepic/vue-datepicker'
 import { fr } from 'date-fns/locale/fr'
 import '@vuepic/vue-datepicker/dist/main.css'
 import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
-import { todayInParis } from '~/utils/date'
+import { addCalendarDays, calendarDateFromDate, dateFromCalendarDate, formatShortCalendarDate, todayInParis } from '~/utils/date'
 import {
-  addMovieCatalogDays,
-  calendarDateFromDate,
-  dateFromCalendarDate,
-  formatShortCalendarDate,
   hasMovieCatalogFilters,
   movieCatalogDraftError,
   movieCatalogFilterDraft,
@@ -20,6 +16,7 @@ import {
   serializeMovieCatalogFilters
 } from '~/utils/movieCatalogFilters'
 import type { MovieCatalogFilterDraft, MovieCatalogFilters, MovieDateMode } from '~/utils/movieCatalogFilters'
+import { formatRuntime, formatShowtimeCount } from '~/utils/formats'
 import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -322,7 +319,7 @@ function selectDateMode(mode: MovieDateMode) {
   if (mode === 'range') {
     if (!draftFilters.value.rangeStart || draftFilters.value.rangeStart < todayDate.value) draftFilters.value.rangeStart = todayDate.value
     if (!draftFilters.value.rangeEnd || draftFilters.value.rangeEnd < draftFilters.value.rangeStart) {
-      draftFilters.value.rangeEnd = addMovieCatalogDays(draftFilters.value.rangeStart, 1)
+      draftFilters.value.rangeEnd = addCalendarDays(draftFilters.value.rangeStart, 1)
     }
   }
 }
@@ -367,17 +364,6 @@ function followPageLink(event: MouseEvent, nextPage: number) {
   }
   if (nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) return
   scrollAfterLoad = true
-}
-
-function formatRuntime(runtimeMinutes: number): string {
-  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0) return 'Durée non renseignée'
-  const hours = Math.floor(runtimeMinutes / 60)
-  const minutes = runtimeMinutes % 60
-  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
-}
-
-function formatShowtimeCount(showtimeCount: number): string {
-  return `${showtimeCount} séance${showtimeCount === 1 ? '' : 's'}`
 }
 
 hydrateRoute()
