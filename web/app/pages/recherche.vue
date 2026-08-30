@@ -653,7 +653,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <main class="search-page mx-auto max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
+  <main class="mx-auto max-w-[1440px] bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
     <h1 class="sr-only">Trouver une séance</h1>
 
     <SharedTheaterNotice v-if="isInitialized && isSharedSelectionDifferent" class="mb-8" />
@@ -691,7 +691,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
         <div class="space-y-5">
           <fieldset :aria-invalid="theaterValidationMessage || preferencesError ? 'true' : undefined" :aria-describedby="theaterValidationMessage || preferencesError ? 'theater-selection-message' : undefined">
-            <legend class="utility-label float-left mb-2">Cinémas</legend>
+            <legend class="float-left mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Cinémas</legend>
             <NuxtLink to="/cinemas" class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">Gérer mes favoris</NuxtLink>
             <div v-if="preferencesError && !isInitialized" id="theater-selection-message" class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
               <p>{{ preferencesError }}</p>
@@ -706,12 +706,12 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </fieldset>
 
           <fieldset class="min-w-0">
-            <legend class="utility-label mb-2">Date de la séance</legend>
+            <legend class="mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Date de la séance</legend>
             <div class="grid grid-cols-[1fr_1fr_3rem] gap-2" role="group" aria-label="Choisir la date de la séance">
               <button
                 type="button"
-                class="date-choice h-12 border-2 border-ink bg-surface px-2 font-mono text-[10px] font-bold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                :class="form.date === todayDate ? 'date-choice--active' : 'hover:bg-[#e8e6de]'"
+                class="h-12 border-2 border-ink px-2 font-mono text-[10px] font-bold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-55"
+                :class="form.date === todayDate ? 'bg-ink text-white shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
                 :disabled="!isDateAvailable(todayDate)"
                 :aria-pressed="form.date === todayDate"
                 @click="selectQuickDate(todayDate)"
@@ -720,8 +720,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               </button>
               <button
                 type="button"
-                class="date-choice h-12 border-2 border-ink bg-surface px-2 font-mono text-[10px] font-bold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                :class="form.date === tomorrowDate ? 'date-choice--active' : 'hover:bg-[#e8e6de]'"
+                class="h-12 border-2 border-ink px-2 font-mono text-[10px] font-bold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-55"
+                :class="form.date === tomorrowDate ? 'bg-ink text-white shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
                 :disabled="!isDateAvailable(tomorrowDate)"
                 :aria-pressed="form.date === tomorrowDate"
                 @click="selectQuickDate(tomorrowDate)"
@@ -731,7 +731,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               <VueDatePicker
                 :key="isCenteredCalendar ? 'centered' : 'anchored'"
                 v-model="datePickerDate"
-                class="editorial-datepicker"
+                class="min-w-0"
                 :allowed-dates="allowedDateValues"
                 :aria-labels="calendarAriaLabels"
                 :disabled="!hasAvailableDates"
@@ -754,8 +754,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                   <button
                     ref="calendarTrigger"
                     type="button"
-                    class="date-choice flex size-12 items-center justify-center border-2 border-ink bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-                    :class="form.date && form.date !== todayDate && form.date !== tomorrowDate ? 'date-choice--active' : 'hover:bg-[#e8e6de]'"
+                    class="flex size-12 items-center justify-center border-2 border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-55"
+                    :class="form.date && form.date !== todayDate && form.date !== tomorrowDate ? 'bg-ink text-white shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
                     :disabled="!hasAvailableDates"
                     :aria-label="form.date ? `Choisir une autre date. Date actuelle : ${formatLongDate(form.date)}` : 'Choisir une autre date. Aucune date disponible.'"
                     :aria-expanded="isCalendarOpen"
@@ -769,8 +769,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </fieldset>
 
           <label class="block">
-            <span class="utility-label mb-2 block">Technologie</span>
-            <select v-model="form.format" class="editorial-field">
+            <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Technologie</span>
+            <select v-model="form.format" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">
               <option v-for="option in formatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
@@ -778,8 +778,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <TimeRangeSlider v-model:start="form.startAfter" v-model:end="form.finishBefore" :options="timeOptions" />
 
           <label class="block">
-            <span class="utility-label mb-2 block">Langue</span>
-            <select v-model="form.language" class="editorial-field">
+            <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Langue</span>
+            <select v-model="form.language" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">
               <option value="ALL">Toutes</option>
               <option value="VOSTFR">VOSTFR</option>
               <option value="VF">VF</option>
@@ -791,7 +791,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
           </label>
 
-          <button type="submit" class="search-submit w-full" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasAvailableDates">
+          <button type="submit" class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasAvailableDates">
             <LoaderCircle v-if="pending" :size="18" class="animate-spin" aria-hidden="true" />
             <Search v-else :size="18" aria-hidden="true" />
             {{ pending ? 'Recherche…' : 'Trouver une séance' }}
@@ -802,7 +802,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       <section ref="resultsRegion" class="min-w-0 scroll-mt-28 outline-none" aria-live="polite" aria-label="Résultats de recherche" tabindex="-1">
         <div class="mb-5 flex items-end justify-between gap-4 border-b-2 border-ink pb-5">
           <div>
-            <p class="utility-label">Résultats</p>
+            <p class="font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Résultats</p>
             <h2 class="mt-2 text-3xl font-black capitalize tracking-[-0.045em] text-ink sm:text-4xl">{{ searchedDate ? formatLongDate(searchedDate) : 'Lancez votre recherche' }}</h2>
           </div>
           <ShareButton v-if="appliedSearch && shareTarget" class="shrink-0" :target="shareTarget" :theater-ids="appliedSearch.theaterIds" />
@@ -883,56 +883,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </template>
 
 <style scoped>
-.search-page {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.07) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.utility-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.editorial-field {
-  height: 3rem;
-  width: 100%;
-  border: 2px solid #27272a;
-  border-radius: 0;
-  background: #fff;
-  padding: 0 0.75rem;
-  color: #27272a;
-  font-size: 0.85rem;
-  font-weight: 700;
-}
-
-.editorial-field:focus-visible,
-.search-submit:focus-visible {
-  outline: 3px solid #27272a;
-  outline-offset: 3px;
-}
-
-.date-choice--active {
-  background: #27272a;
-  color: #fff;
-  box-shadow: inset 0 -4px 0 var(--color-highlight);
-}
-
-.date-choice:disabled {
-  cursor: not-allowed;
-  color: #71717a;
-  opacity: 0.55;
-}
-
-.editorial-datepicker {
-  min-width: 0;
-}
-
 :global(.editorial-calendar-menu) {
   --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;
@@ -974,31 +924,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 :global(.editorial-calendar-menu .dp__today) {
   border: 2px solid #991b1b;
-}
-
-.search-submit {
-  display: inline-flex;
-  min-height: 3.25rem;
-  align-items: center;
-  justify-content: center;
-  gap: 0.55rem;
-  border: 2px solid #27272a;
-  background: #27272a;
-  color: #fff;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.search-submit:hover:not(:disabled) {
-  background: #991b1b;
-}
-
-.search-submit:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
 }
 
 </style>

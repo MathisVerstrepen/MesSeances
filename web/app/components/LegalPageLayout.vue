@@ -6,14 +6,14 @@ defineProps<{
 </script>
 
 <template>
-  <main class="legal-page">
-    <header class="legal-hero mx-auto max-w-[1440px] px-4 py-12 sm:px-6 sm:py-16 lg:px-10 lg:py-20">
-      <p class="utility-label mb-5">{{ eyebrow }}</p>
-      <h1 class="legal-title max-w-6xl text-ink">{{ title }}</h1>
+  <main class="bg-canvas">
+    <header class="relative mx-auto max-w-[1440px] overflow-hidden px-4 py-12 after:absolute after:top-8 after:right-[clamp(1.5rem,8vw,8rem)] after:aspect-square after:w-[clamp(3rem,6vw,5rem)] after:rotate-[7deg] after:border-2 after:border-ink after:bg-highlight after:shadow-[5px_5px_0_#27272a] after:content-[''] max-sm:after:top-6 max-sm:after:right-5 max-sm:after:w-10 max-sm:after:shadow-[3px_3px_0_#27272a] sm:px-6 sm:py-16 lg:px-10 lg:py-20">
+      <p class="mb-5 font-mono text-[0.65rem] font-black uppercase tracking-[0.16em]">{{ eyebrow }}</p>
+      <h1 class="relative z-[1] max-w-6xl text-[clamp(3.25rem,9vw,8.5rem)] leading-[0.82] font-black tracking-[-0.075em] text-ink uppercase [overflow-wrap:anywhere] max-sm:text-[clamp(3rem,17vw,5rem)]">{{ title }}</h1>
     </header>
 
-    <div class="legal-canvas border-y-2 border-ink">
-      <article class="legal-document mx-auto max-w-5xl px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16">
+    <div class="border-y-2 border-ink bg-[#f8f7f2] [background-image:linear-gradient(rgba(39,39,42,0.075)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.075)_1px,transparent_1px)] [background-size:28px_28px]">
+      <article class="legal-document mx-auto grid max-w-5xl gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16">
         <slot />
       </article>
     </div>
@@ -21,60 +21,6 @@ defineProps<{
 </template>
 
 <style scoped>
-.legal-page {
-  background: #fcfaf8;
-}
-
-.legal-hero {
-  position: relative;
-  overflow: hidden;
-}
-
-.legal-hero::after {
-  position: absolute;
-  right: clamp(1.5rem, 8vw, 8rem);
-  top: 2rem;
-  width: clamp(3rem, 6vw, 5rem);
-  aspect-ratio: 1;
-  border: 2px solid #27272a;
-  background: var(--color-highlight);
-  box-shadow: 5px 5px 0 #27272a;
-  content: '';
-  transform: rotate(7deg);
-}
-
-.utility-label {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.legal-title {
-  position: relative;
-  z-index: 1;
-  overflow-wrap: anywhere;
-  font-size: clamp(3.25rem, 9vw, 8.5rem);
-  font-weight: 900;
-  letter-spacing: -0.075em;
-  line-height: 0.82;
-  text-transform: uppercase;
-}
-
-.legal-canvas {
-  background-color: #f8f7f2;
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.075) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-.legal-document {
-  display: grid;
-  gap: 2.5rem;
-}
-
 .legal-document :deep(.legal-draft) {
   border: 2px solid #27272a;
   background: #fff3a3;
@@ -198,16 +144,4 @@ defineProps<{
   font-size: 0.85em;
 }
 
-@media (max-width: 639px) {
-  .legal-hero::after {
-    right: 1.25rem;
-    top: 1.5rem;
-    width: 2.5rem;
-    box-shadow: 3px 3px 0 #27272a;
-  }
-
-  .legal-title {
-    font-size: clamp(3rem, 17vw, 5rem);
-  }
-}
 </style>

@@ -14,8 +14,8 @@ withDefaults(defineProps<{
 
 <template>
   <nav
-    class="breadcrumbs"
-    :class="variant === 'film' ? 'breadcrumbs--film' : undefined"
+    class="mb-6 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted [&_a:hover]:text-primary"
+    :class="variant === 'film' ? 'text-xs font-bold tracking-[0.08em] [&_[aria-current=page]]:text-ink' : undefined"
     aria-label="Fil d’Ariane"
   >
     <ol class="flex flex-wrap items-center gap-2">
@@ -30,30 +30,3 @@ withDefaults(defineProps<{
     </ol>
   </nav>
 </template>
-
-<style scoped>
-.breadcrumbs {
-  margin-bottom: 1.5rem;
-  color: var(--color-muted);
-  font-family: ui-monospace, monospace;
-  font-size: 0.68rem;
-  font-weight: 900;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.breadcrumbs a:hover {
-  color: var(--color-primary);
-}
-
-.breadcrumbs--film {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.breadcrumbs--film [aria-current="page"] {
-  color: #27272a;
-}
-</style>

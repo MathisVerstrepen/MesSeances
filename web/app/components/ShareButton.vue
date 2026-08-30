@@ -198,11 +198,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="share-control" :class="`share-control--${props.appearance}`">
+  <div ref="root" class="share-control relative z-20 inline-block size-11 shrink-0 basis-11" :class="props.appearance === 'hero' ? 'size-12 basis-12' : ''">
     <button
       ref="trigger"
       type="button"
-      class="share-control__trigger"
+      class="share-control__trigger inline-flex size-full items-center justify-center border-2 border-ink bg-surface p-0 text-ink [transition:background-color_150ms_ease,color_150ms_ease] hover:bg-[#ffcf3f] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+      :class="props.appearance === 'hero' ? 'rounded-[0.35rem]' : ''"
       aria-label="Partager cette page"
       aria-haspopup="dialog"
       :aria-controls="popupId"
@@ -217,28 +218,28 @@ onBeforeUnmount(() => {
         v-if="isOpen"
         :id="popupId"
         ref="popup"
-        class="share-popup"
+        class="share-popup fixed z-50 w-80 max-w-[calc(100vw-2rem)] border-2 border-ink bg-surface p-3 text-ink shadow-[5px_5px_0_#27272a] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
         :style="popupStyle"
         role="dialog"
         aria-label="Partager cette page"
         tabindex="-1"
       >
-        <div v-if="preparationState === 'pending'" class="share-popup__status" role="status" aria-live="polite">
-          <LoaderCircle :size="18" class="share-popup__spinner animate-spin" aria-hidden="true" />
+        <div v-if="preparationState === 'pending'" class="flex min-h-11 items-center gap-[0.65rem] text-[0.8rem] font-extrabold" role="status" aria-live="polite">
+          <LoaderCircle :size="18" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
           <span>Préparation du lien…</span>
         </div>
 
-        <div v-else-if="preparationState === 'error'" class="share-popup__error-state">
+        <div v-else-if="preparationState === 'error'" class="grid gap-3 text-[0.78rem] leading-[1.35] font-extrabold text-primary">
           <p role="alert">{{ preparationError }}</p>
-          <button type="button" class="share-popup__retry" @click="prepareLink">Réessayer</button>
+          <button type="button" class="min-h-11 w-fit border-2 border-ink bg-surface px-[0.8rem] py-[0.55rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-ink uppercase hover:bg-[#ffcf3f] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" @click="prepareLink">Réessayer</button>
         </div>
 
         <template v-else-if="preparationState === 'ready'">
-          <div class="share-popup__url-row">
-            <span class="share-popup__url" :title="displayUrl">{{ displayUrl }}</span>
+          <div class="flex min-w-0 items-stretch">
+            <span class="block min-w-0 flex-auto overflow-hidden border-2 border-r-0 border-ink bg-[#f1efe8] px-[0.7rem] font-mono text-[0.72rem] leading-10 font-extrabold text-ellipsis whitespace-nowrap" :title="displayUrl">{{ displayUrl }}</span>
             <button
               type="button"
-              class="share-popup__copy"
+              class="inline-flex size-11 shrink-0 basis-11 items-center justify-center border-2 border-ink bg-surface p-0 text-ink hover:bg-[#ffcf3f] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
               :aria-label="copied ? 'Lien copié' : 'Copier le lien'"
               @click="copyLink"
             >
@@ -246,7 +247,7 @@ onBeforeUnmount(() => {
               <Copy v-else :size="18" aria-hidden="true" />
             </button>
           </div>
-          <p v-if="copyError" class="share-popup__copy-error" role="alert">{{ copyError }}</p>
+          <p v-if="copyError" class="mt-[0.65rem] text-xs leading-[1.35] font-extrabold text-primary" role="alert">{{ copyError }}</p>
         </template>
 
         <p class="sr-only" aria-live="polite">{{ liveMessage }}</p>
@@ -254,145 +255,3 @@ onBeforeUnmount(() => {
     </Teleport>
   </div>
 </template>
-
-<style scoped>
-.share-control {
-  position: relative;
-  z-index: 20;
-  display: inline-block;
-  width: 2.75rem;
-  height: 2.75rem;
-  flex: 0 0 2.75rem;
-}
-
-.share-control__trigger,
-.share-popup__copy,
-.share-popup__retry {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #27272a;
-  background: #fff;
-  color: #27272a;
-}
-
-.share-control__trigger {
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  transition: background-color 150ms ease, color 150ms ease;
-}
-
-.share-control__trigger:hover,
-.share-popup__copy:hover,
-.share-popup__retry:hover {
-  background: #ffcf3f;
-}
-
-.share-control__trigger:focus-visible,
-.share-popup:focus-visible,
-.share-popup__copy:focus-visible,
-.share-popup__retry:focus-visible {
-  outline: 3px solid #1f6f78;
-  outline-offset: 2px;
-}
-
-.share-control--hero {
-  width: 3rem;
-  height: 3rem;
-  flex-basis: 3rem;
-}
-
-.share-control--hero .share-control__trigger {
-  border-radius: 0.35rem;
-}
-
-.share-popup {
-  position: fixed;
-  z-index: 50;
-  width: 20rem;
-  max-width: calc(100vw - 2rem);
-  border: 2px solid #27272a;
-  background: #fff;
-  padding: 0.75rem;
-  color: #27272a;
-  box-shadow: 5px 5px 0 #27272a;
-}
-
-.share-popup__status {
-  display: flex;
-  min-height: 2.75rem;
-  align-items: center;
-  gap: 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-.share-popup__url-row {
-  display: flex;
-  min-width: 0;
-  align-items: stretch;
-}
-
-.share-popup__url {
-  display: block;
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  border: 2px solid #27272a;
-  border-right: 0;
-  background: #f1efe8;
-  padding: 0 0.7rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.72rem;
-  font-weight: 800;
-  line-height: 2.5rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.share-popup__copy {
-  width: 2.75rem;
-  height: 2.75rem;
-  flex: 0 0 2.75rem;
-  padding: 0;
-}
-
-.share-popup__error-state {
-  display: grid;
-  gap: 0.75rem;
-  color: #991b1b;
-  font-size: 0.78rem;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.share-popup__retry {
-  min-height: 2.75rem;
-  width: fit-content;
-  padding: 0.55rem 0.8rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.share-popup__copy-error {
-  margin-top: 0.65rem;
-  color: #991b1b;
-  font-size: 0.75rem;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .share-control__trigger {
-    transition: none;
-  }
-
-  .share-popup__spinner {
-    animation: none;
-  }
-}
-</style>

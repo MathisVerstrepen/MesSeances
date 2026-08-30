@@ -80,7 +80,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
       v-if="isOpen && embedUrl"
       :id="`${dialogTitleId}-dialog`"
       ref="dialog"
-      class="trailer-dialog"
+      class="m-0 box-border h-dvh max-h-none w-screen max-w-none overflow-auto border-0 bg-black/85 p-3 backdrop:bg-transparent sm:p-6"
       :aria-labelledby="dialogTitleId"
       @cancel.prevent="closeModal()"
       @click.self="closeModal()"
@@ -128,28 +128,3 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
     </dialog>
   </div>
 </template>
-
-<style scoped>
-.trailer-dialog {
-  box-sizing: border-box;
-  width: 100vw;
-  max-width: none;
-  height: 100dvh;
-  max-height: none;
-  margin: 0;
-  border: 0;
-  background: rgb(0 0 0 / 85%);
-  overflow: auto;
-  padding: 0.75rem;
-}
-
-.trailer-dialog::backdrop {
-  background: transparent;
-}
-
-@media (min-width: 640px) {
-  .trailer-dialog {
-    padding: 1.5rem;
-  }
-}
-</style>

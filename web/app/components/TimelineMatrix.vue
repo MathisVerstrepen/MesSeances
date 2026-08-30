@@ -269,7 +269,7 @@ onBeforeUnmount(() => {
     <div
       v-else
       ref="scroller"
-      class="timeline-scroller relative z-0 isolate cursor-grab select-none overflow-x-auto border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] active:cursor-grabbing [--timeline-label-width:132px] [scrollbar-color:#27272a_#e8e6de] max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:184px]"
+      class="timeline-scroller relative z-0 isolate min-h-[max(24rem,calc(100vh-20rem))] cursor-grab select-none overflow-x-auto border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] active:cursor-grabbing [--timeline-label-width:132px] [scrollbar-color:#27272a_#e8e6de] max-sm:min-h-96 max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:184px]"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerEnd"
@@ -315,11 +315,11 @@ onBeforeUnmount(() => {
             v-for="item in row.showtimes"
             :key="`${item.theater.id}-${item.showtime.id}`"
             type="button"
-            class="showtime-block absolute h-[72px] overflow-hidden border-2 border-ink px-2.5 py-2 text-left focus:z-30"
+            class="absolute h-[72px] overflow-hidden border-2 border-ink px-2.5 py-2 text-left shadow-[3px_3px_0_rgba(39,39,42,0.72)] hover:shadow-[3px_3px_0_var(--color-highlight)] focus:z-30 focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
             :class="[
               item.showtime.language === 'VOSTFR' ? 'bg-primary-soft text-primary' : 'bg-[#e8e6de] text-ink',
-              selected?.showtime.id === item.showtime.id ? 'showtime-block--selected' : '',
-              isShowtimeUnavailable(item.showtime.start_time) ? 'showtime-block--unavailable' : ''
+              selected?.showtime.id === item.showtime.id ? 'border-ink shadow-[4px_4px_0_var(--color-highlight),inset_0_-3px_0_var(--color-highlight)]' : '',
+              isShowtimeUnavailable(item.showtime.start_time) ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
             :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
@@ -365,7 +365,7 @@ onBeforeUnmount(() => {
         v-if="selected"
         ref="inspector"
         id="timeline-showtime-inspector"
-        class="inspector fixed inset-y-0 right-0 z-50 flex w-full max-w-[29rem] flex-col overflow-y-auto border-l-2 border-ink bg-[#f8f7f2] shadow-[-8px_0_0_#27272a]"
+        class="fixed inset-y-0 right-0 z-50 flex w-full max-w-[29rem] flex-col overflow-y-auto border-l-2 border-ink bg-[#f8f7f2] shadow-[-8px_0_0_#27272a] [background-image:linear-gradient(rgba(39,39,42,0.055)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.055)_1px,transparent_1px)] [background-size:28px_28px]"
         aria-labelledby="timeline-showtime-inspector-title"
       >
         <div class="relative h-48 shrink-0 overflow-hidden bg-ink sm:h-56">
@@ -382,7 +382,7 @@ onBeforeUnmount(() => {
           <button
             ref="inspectorCloseButton"
             type="button"
-            class="inspector-close absolute right-4 top-4 inline-flex size-10 items-center justify-center border-2 border-white bg-ink text-white hover:bg-primary"
+            class="absolute top-4 right-4 inline-flex size-10 items-center justify-center border-2 border-white bg-ink text-white hover:bg-primary focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
             aria-label="Fermer les détails de la séance"
             @click="closeInspector()"
           >
@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
             <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
-              class="film-link inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de]"
+              class="inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               Voir le film
             </NuxtLink>
@@ -442,53 +442,3 @@ onBeforeUnmount(() => {
     </Transition>
   </section>
 </template>
-
-<style scoped>
-.timeline-scroller {
-  min-height: max(24rem, calc(100vh - 20rem));
-}
-
-.showtime-block {
-  box-shadow: 3px 3px 0 rgba(39, 39, 42, 0.72);
-}
-
-.showtime-block:hover {
-  box-shadow: 3px 3px 0 var(--color-highlight);
-}
-
-.showtime-block--unavailable {
-  opacity: 0.72;
-  filter: grayscale(0.8) saturate(0.25);
-}
-
-.showtime-block:focus-visible,
-.inspector-close:focus-visible,
-.film-link:focus-visible {
-  outline: 3px solid #1f6f78;
-  outline-offset: 2px;
-}
-
-.showtime-block--selected {
-  border-color: #27272a;
-  box-shadow: 4px 4px 0 var(--color-highlight), inset 0 -3px 0 var(--color-highlight);
-}
-
-.inspector {
-  background-image:
-    linear-gradient(rgba(39, 39, 42, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(39, 39, 42, 0.055) 1px, transparent 1px);
-  background-size: 28px 28px;
-}
-
-@media (max-width: 639px) {
-  .timeline-scroller {
-    min-height: 24rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .showtime-block {
-    transition: none;
-  }
-}
-</style>
