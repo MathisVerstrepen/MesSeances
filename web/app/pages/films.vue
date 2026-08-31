@@ -662,11 +662,11 @@ useHead(() => ({
 
         <div ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
 
-        <div v-if="catalog && !pending" class="results-bar mt-10 flex flex-col gap-2 border-y-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-          <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
+        <div v-if="catalog && !pending" class="results-bar mt-10 flex items-center justify-between gap-3 border-y-2 border-ink py-4 sm:items-end sm:gap-6">
+          <h2 class="min-w-0 flex-1 text-xl font-black tracking-[-0.035em] max-sm:truncate sm:text-2xl">
             {{ appliedSearch ? `Résultats pour « ${appliedSearch} »` : 'Tous les films' }}
           </h2>
-          <div class="flex flex-wrap items-center gap-3 sm:justify-end">
+          <div class="flex shrink-0 items-center gap-3 sm:justify-end">
             <p class="font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
             <ShareButton />
           </div>
@@ -718,14 +718,14 @@ useHead(() => ({
             </li>
           </ul>
 
-          <nav v-if="totalPages > 1" class="pagination mt-14 flex flex-col items-stretch justify-between gap-4 border-2 border-ink bg-surface p-3 shadow-[6px_6px_0_#27272a] sm:flex-row sm:items-center" aria-label="Pagination des films">
+          <nav v-if="totalPages > 1" class="pagination mt-14 grid grid-cols-2 items-stretch justify-between gap-4 border-2 border-ink bg-surface p-3 shadow-[6px_6px_0_#27272a] sm:flex sm:flex-row sm:items-center" aria-label="Pagination des films">
             <span v-if="page <= 1" class="inline-flex min-h-11 cursor-not-allowed items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] opacity-55 transition-[background-color,color] duration-150 motion-reduce:transition-none" aria-disabled="true">
               ← Précédent
             </span>
             <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) }" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] transition-[background-color,color] duration-150 not-aria-disabled:hover:bg-ink not-aria-disabled:hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-55 motion-reduce:transition-none" :aria-disabled="pending || undefined" @click="followPageLink($event, page - 1)">
               ← Précédent
             </NuxtLink>
-            <span class="order-first text-center font-mono text-[11px] font-bold uppercase tracking-[0.14em] sm:order-none" aria-live="polite">Page {{ page }} / {{ totalPages }}</span>
+            <span class="order-first col-span-2 text-center font-mono text-[11px] font-bold uppercase tracking-[0.14em] sm:order-none" aria-live="polite">Page {{ page }} / {{ totalPages }}</span>
             <span v-if="page >= totalPages" class="inline-flex min-h-11 cursor-not-allowed items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] opacity-55 transition-[background-color,color] duration-150 motion-reduce:transition-none" aria-disabled="true">
               Suivant →
             </span>
