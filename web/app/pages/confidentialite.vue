@@ -119,7 +119,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       <h2 id="trackers-heading">Résumé des traceurs et stockages</h2>
       <dl class="legal-list">
         <div>
-          <dt>Stockage local des cinémas favoris</dt>
+          <dt>Stockage local « Mes cinémas »</dt>
           <dd>Présent pour mémoriser la sélection de l’utilisateur. Qualification et régime applicables à confirmer avant publication.</dd>
         </div>
         <div>

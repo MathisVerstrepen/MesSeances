@@ -2,7 +2,7 @@
 import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
-import { formatLabel, isShowtimeFormat } from '~/utils/formats'
+import { isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
 import { serializeJsonLd } from '~/utils/jsonLd'
@@ -10,6 +10,7 @@ import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { availableFormatOptions, availableLanguageOptions, showtimeFilterSummary, showtimeLanguageValues } from '~/utils/showtimeFilters'
 
 type LanguageFilter = 'ALL' | Showtime['language']
 type TechnologyFilter = 'ALL' | ShowtimeFormat
@@ -18,7 +19,6 @@ type MobileControlPanel = 'date' | 'filters'
 
 const SHOWTIME_WARNING_DURATION_MS = 20 * 60 * 1000
 const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'sort'] as const
-const SHOWTIME_LANGUAGES: readonly Showtime['language'][] = ['VOSTFR', 'VF', 'VO', 'VF_SME']
 
 const route = useRoute()
 const router = useRouter()
@@ -90,23 +90,16 @@ const languages = computed<Array<Showtime['language']>>(() => {
   return [...new Set(values)]
 })
 const languageOptions = computed<Array<{ value: LanguageFilter; label: string }>>(() => [
-  { value: 'ALL', label: 'Tous' },
-  ...languages.value.map((language) => ({ value: language, label: language }))
+  ...availableLanguageOptions(languages.value)
 ])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
   const formats = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.format)) ?? []
   return [...new Set(formats)]
 })
 const technologyOptions = computed<Array<{ value: TechnologyFilter; label: string }>>(() => [
-  { value: 'ALL', label: 'Tous' },
-  ...technologyFormats.value.map((format) => ({ value: format, label: formatLabel(format) }))
+  ...availableFormatOptions(technologyFormats.value)
 ])
-const activeFilterSummary = computed(() => {
-  const values: string[] = []
-  if (activeLanguage.value !== 'ALL') values.push(activeLanguage.value)
-  if (activeTechnology.value !== 'ALL') values.push(formatLabel(activeTechnology.value))
-  return values.length ? values.join(' · ') : 'Tous'
-})
+const activeFilterSummary = computed(() => showtimeFilterSummary(activeLanguage.value, activeTechnology.value))
 
 function toggleMobilePanel(panel: MobileControlPanel) {
   openMobilePanel.value = openMobilePanel.value === panel ? null : panel
@@ -121,8 +114,6 @@ function closeMobilePanel(event?: KeyboardEvent) {
 
 function selectMobileDate(date: string) {
   updateFilmQuery({ date: date === fallbackDate() ? undefined : date })
-  openMobilePanel.value = null
-  nextTick(() => mobileDateTrigger.value?.focus())
 }
 
 function matchesFilter(showtime: Showtime): boolean {
@@ -203,7 +194,7 @@ function hydrateRoute() {
   const requestedLanguage = singularQueryValue(route.query.language)
   activeLanguage.value = requestedLanguage === 'ALL'
     ? 'ALL'
-    : enumQueryValue(requestedLanguage, SHOWTIME_LANGUAGES) ?? 'ALL'
+    : enumQueryValue(requestedLanguage, showtimeLanguageValues) ?? 'ALL'
 
   const requestedFormat = singularQueryValue(route.query.format)
   activeTechnology.value = requestedFormat === 'ALL'
@@ -220,24 +211,6 @@ async function normalizeDynamicFilters() {
   if (Object.keys(values).length === 0) return
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
   if (!queriesEqual(route.query, query)) await router.replace({ query })
-}
-
-function selectAdjacentDate(event: KeyboardEvent, index: number) {
-  let nextIndex: number | undefined
-  if (event.key === 'ArrowRight') nextIndex = (index + 1) % availableDates.value.length
-  else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + availableDates.value.length) % availableDates.value.length
-  else if (event.key === 'Home') nextIndex = 0
-  else if (event.key === 'End') nextIndex = availableDates.value.length - 1
-  if (nextIndex === undefined) return
-
-  event.preventDefault()
-  const nextDate = availableDates.value[nextIndex]
-  if (!nextDate) return
-  updateFilmQuery({ date: nextDate === fallbackDate() ? undefined : nextDate })
-  const currentTarget = event.currentTarget
-  if (!(currentTarget instanceof HTMLElement)) return
-  const tabs = currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-  nextTick(() => tabs?.[nextIndex]?.focus())
 }
 
 function bookingLabel(showtime: Showtime, theater: MovieShowtimesTheater, timingState: ShowtimeTimingState): string {
@@ -269,7 +242,7 @@ async function loadSchedule() {
   if (!preferences.isInitialized.value) {
     pending.value = false
     schedule.value = null
-    errorMessage.value = preferences.error.value || 'Impossible de charger vos cinémas favoris.'
+    errorMessage.value = preferences.error.value || 'Impossible de charger vos cinémas.'
     return
   }
   if (!slug.value || !selectedDate.value) return
@@ -357,7 +330,7 @@ async function initializePreferencesAndLoad() {
   await preferences.initialize()
   if (!preferences.isInitialized.value) {
     pending.value = false
-    errorMessage.value = preferences.error.value || 'Impossible de charger vos cinémas favoris.'
+    errorMessage.value = preferences.error.value || 'Impossible de charger vos cinémas.'
     return
   }
 
@@ -649,7 +622,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </div>
             </SharedTheaterAction>
             <NuxtLink v-else to="/cinemas" class="inline-block shrink-0 border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase">Modifier mes cinémas</NuxtLink>
-            <ShareButton />
+            <ShareButton class="shrink-0" />
           </div>
         </div>
 
@@ -706,45 +679,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             class="border-t-2 border-ink px-4 py-3 sm:px-6"
             @keydown.esc.stop="closeMobilePanel($event)"
           >
-            <div class="flex items-start gap-2">
-              <ShowtimeDatePicker
-                :selected-date="selectedDate"
-                :allowed-dates="availableDates"
-                :disabled="!hasAvailableDates"
-                @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
-              >
-                <template #trigger="{ isOpen, triggerLabel, disabled }">
-                  <button
-                    type="button"
-                    class="calendar-trigger grid size-11 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight disabled:cursor-not-allowed disabled:bg-[#e8e6de] disabled:text-muted"
-                    :disabled="disabled"
-                    :aria-label="triggerLabel"
-                    :aria-expanded="isOpen"
-                  >
-                    <CalendarDays :size="18" aria-hidden="true" />
-                  </button>
-                </template>
-              </ShowtimeDatePicker>
-              <div class="flex min-w-0 gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
-                <button
-                  v-for="(date, index) in availableDates"
-                  :id="`mobile-date-tab-${date}`"
-                  :key="date"
-                  type="button"
-                  role="tab"
-                  :aria-selected="selectedDate === date"
-                  aria-controls="showtime-panel"
-                  :tabindex="selectedDate === date ? 0 : -1"
-                  class="min-h-11 shrink-0 border-2 border-ink px-[0.8rem] py-[0.65rem] font-mono text-[0.65rem] font-extrabold uppercase"
-                  :class="selectedDate === date ? 'bg-ink text-surface shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
-                  @click="selectMobileDate(date)"
-                  @keydown="selectAdjacentDate($event, index)"
-                >
-                  {{ formatDateLabel(date) }}
-                </button>
-                <span v-if="!hasAvailableDates" class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
-              </div>
-            </div>
+            <ShowtimeDateBar v-if="hasAvailableDates" :selected-date="selectedDate" :available-dates="availableDates" :today="today" mobile-tabs="all" @select="selectMobileDate" />
+            <span v-else class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
           </div>
 
           <div
@@ -770,7 +706,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </div>
             </div>
             <div v-if="technologyFormats.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="mobile-technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Technologie</span>
+              <span id="mobile-technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Format</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-technology-filter-label">
                 <button
                   v-for="option in technologyOptions"
@@ -790,45 +726,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
         </div>
 
         <div class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block">
-          <div class="flex items-start gap-2">
-            <ShowtimeDatePicker
-              :selected-date="selectedDate"
-              :allowed-dates="availableDates"
-              :disabled="!hasAvailableDates"
-              @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
-            >
-              <template #trigger="{ isOpen, triggerLabel, disabled }">
-                <button
-                  type="button"
-                  class="calendar-trigger grid size-11 shrink-0 place-items-center border-2 border-ink bg-[#ffcf3f] hover:bg-highlight disabled:cursor-not-allowed disabled:bg-[#e8e6de] disabled:text-muted"
-                  :disabled="disabled"
-                  :aria-label="triggerLabel"
-                  :aria-expanded="isOpen"
-                >
-                  <CalendarDays :size="18" aria-hidden="true" />
-                </button>
-              </template>
-            </ShowtimeDatePicker>
-            <div class="flex min-w-0 gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Choisir une date">
-              <button
-                v-for="(date, index) in availableDates"
-                :id="`desktop-date-tab-${date}`"
-                :key="date"
-                type="button"
-                role="tab"
-                :aria-selected="selectedDate === date"
-                aria-controls="showtime-panel"
-                :tabindex="selectedDate === date ? 0 : -1"
-                class="min-h-11 shrink-0 border-2 border-ink px-[0.8rem] py-[0.65rem] font-mono text-[0.65rem] font-extrabold uppercase"
-                :class="selectedDate === date ? 'bg-ink text-surface shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
-                @click="updateFilmQuery({ date: date === fallbackDate() ? undefined : date })"
-                @keydown="selectAdjacentDate($event, index)"
-              >
-                {{ formatDateLabel(date) }}
-              </button>
-              <span v-if="!hasAvailableDates" class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
-            </div>
-          </div>
+          <ShowtimeDateBar v-if="hasAvailableDates" :selected-date="selectedDate" :available-dates="availableDates" :today="today" @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })" />
+          <span v-else class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
             <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
@@ -849,7 +748,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             </div>
             <div class="flex min-w-0 items-center gap-2">
               <template v-if="technologyFormats.length > 1">
-                <span id="technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Technologie</span>
+              <span id="technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Format</span>
                 <div class="flex min-w-0 gap-1 overflow-x-auto" role="group" aria-labelledby="technology-filter-label">
                   <button
                     v-for="option in technologyOptions"

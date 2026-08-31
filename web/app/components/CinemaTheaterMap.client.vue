@@ -432,7 +432,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="flex flex-wrap gap-x-[0.9rem] gap-y-2 border-t-2 border-ink bg-[#f8f7f2] px-[0.8rem] py-[0.65rem] text-xs font-extrabold" aria-label="Légende des exploitants">
             <span v-for="(label, provider) in THEATER_PROVIDER_LABELS" :key="provider" class="inline-flex items-center gap-[0.35rem]"><i class="inline-block size-[0.8rem] rounded-full border-2 border-ink" :style="{ backgroundColor: THEATER_PROVIDER_COLORS[provider] }" aria-hidden="true"></i>{{ label }}</span>
-            <span class="inline-flex items-center gap-[0.35rem]"><i class="inline-block size-4 rounded-full border-3 border-double border-ink bg-transparent" aria-hidden="true"></i>Favori</span>
+            <span class="inline-flex items-center gap-[0.35rem]"><i class="inline-block size-4 rounded-full border-3 border-double border-ink bg-transparent" aria-hidden="true"></i>Mes cinémas</span>
           </div>
           <p class="border-t border-ink bg-surface px-[0.8rem] py-[0.4rem] text-[0.7rem] leading-[1.4]">
             Carte <a class="font-[850] underline decoration-2 underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" href="https://openfreemap.org" target="_blank" rel="noopener noreferrer">OpenFreeMap</a>
@@ -450,10 +450,10 @@ onBeforeUnmount(() => {
             <button type="button" class="min-h-11 p-[0.4rem] font-mono text-[0.65rem] font-black uppercase underline underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" aria-label="Fermer les détails du cinéma" @click="closeDetails">Fermer</button>
           </div>
           <p class="mt-4 leading-[1.55] font-[650]"><template v-if="selectedTheater.address">{{ selectedTheater.address }}, </template>{{ selectedTheater.postal_code }} {{ selectedTheater.city }}</p>
-          <p class="mt-4 font-mono text-[0.68rem] font-black uppercase tracking-[0.09em]">{{ favoriteIds.has(selectedTheater.id) ? 'Dans vos favoris' : 'Pas dans vos favoris' }}</p>
+          <p class="mt-4 font-mono text-[0.68rem] font-black uppercase tracking-[0.09em]">{{ favoriteIds.has(selectedTheater.id) ? 'Dans mes cinémas' : 'Hors de mes cinémas' }}</p>
           <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
             <button type="button" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.65rem] font-black tracking-[0.06em] text-surface uppercase enabled:hover:bg-primary focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50" @click="emit('toggle-favorite', selectedTheater.id)">
-              {{ favoriteIds.has(selectedTheater.id) ? 'Retirer des favoris' : 'Ajouter aux favoris' }}
+              {{ favoriteIds.has(selectedTheater.id) ? 'Retirer de mes cinémas' : 'Ajouter à mes cinémas' }}
             </button>
             <NuxtLink :to="`/cinema/${encodeURIComponent(selectedTheater.slug)}`" class="font-[850] underline decoration-2 underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent">Voir les séances</NuxtLink>
           </div>
