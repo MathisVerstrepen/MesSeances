@@ -37,12 +37,16 @@ const sortByNextShowtime = ref(false)
 const openMobilePanel = ref<MobileControlPanel | null>(null)
 const mobileDateTrigger = ref<HTMLButtonElement | null>(null)
 const mobileFilterTrigger = ref<HTMLButtonElement | null>(null)
+const synopsisText = ref<HTMLButtonElement | null>(null)
+const synopsisExpanded = ref(false)
+const synopsisOverflows = ref(false)
 const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
 const isEndedFilm = ref(false)
 let requestId = 0
 let currentTimeTimer: number | undefined
 let dayCheckTimer: number | undefined
+let synopsisResizeObserver: ResizeObserver | null = null
 let isReady = false
 let lastScheduleKey = ''
 
@@ -117,6 +121,29 @@ function closeMobilePanel(event?: KeyboardEvent) {
   openMobilePanel.value = null
   if (!event || !panel) return
   nextTick(() => (panel === 'date' ? mobileDateTrigger.value : mobileFilterTrigger.value)?.focus())
+}
+
+function updateSynopsisOverflow() {
+  const element = synopsisText.value
+  if (!element || synopsisExpanded.value) return
+  synopsisOverflows.value = element.scrollHeight > element.clientHeight + 1
+}
+
+function observeSynopsis() {
+  synopsisResizeObserver?.disconnect()
+  synopsisResizeObserver = null
+  updateSynopsisOverflow()
+
+  const element = synopsisText.value
+  if (!element) return
+  synopsisResizeObserver = new ResizeObserver(updateSynopsisOverflow)
+  synopsisResizeObserver.observe(element)
+}
+
+function toggleSynopsis() {
+  if (!synopsisOverflows.value) return
+  synopsisExpanded.value = !synopsisExpanded.value
+  if (!synopsisExpanded.value) nextTick(updateSynopsisOverflow)
 }
 
 function selectMobileDate(date: string) {
@@ -457,11 +484,18 @@ watch(
 watch(() => route.query, () => {
   if (isReady) applyRoute()
 })
+watch(() => schedule.value?.movie.overview, async () => {
+  synopsisExpanded.value = false
+  synopsisOverflows.value = false
+  await nextTick()
+  observeSynopsis()
+})
 watch(slug, () => {
   schedule.value = null
   isEndedFilm.value = false
   isPersonalizedSchedule.value = false
   backdropFailed.value = false
+  synopsisExpanded.value = false
   lastScheduleKey = ''
   if (isReady) applyRoute()
 })
@@ -473,11 +507,13 @@ onMounted(() => {
   }, 30_000)
   scheduleDayCheck()
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  nextTick(observeSynopsis)
   initializePreferencesAndLoad()
 })
 onBeforeUnmount(() => {
   if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
+  synopsisResizeObserver?.disconnect()
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
@@ -615,7 +651,19 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           />
           <div v-if="schedule.movie.overview?.trim()" class="mt-7 max-w-3xl border-l-2 pl-4" :class="backdropAvailable ? 'border-white' : 'border-ink'">
             <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.18em]" :class="backdropAvailable ? 'text-white/70' : 'text-muted'">Synopsis</h2>
-            <p class="mt-2 text-sm font-medium leading-6 sm:text-base" :class="backdropAvailable ? 'text-white/90' : 'text-ink'">{{ schedule.movie.overview }}</p>
+            <button
+              ref="synopsisText"
+              type="button"
+              class="mt-2 w-full appearance-none border-0 bg-transparent p-0 text-left text-sm font-medium leading-6 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current sm:text-base"
+              :class="[
+                backdropAvailable ? 'text-white/90' : 'text-ink',
+                synopsisExpanded ? 'block' : 'line-clamp-3',
+                synopsisOverflows ? 'cursor-pointer' : 'cursor-text'
+              ]"
+              :disabled="!synopsisOverflows"
+              :aria-expanded="synopsisOverflows ? synopsisExpanded : undefined"
+              @click="toggleSynopsis"
+            >{{ schedule.movie.overview }}</button>
           </div>
         </div>
       </header>
