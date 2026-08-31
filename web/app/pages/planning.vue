@@ -212,9 +212,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     <h1 class="sr-only">Planning des séances</h1>
 
     <section class="sticky top-[4.5rem] z-20 border-2 border-ink bg-[#f1efe8]/95 shadow-[6px_6px_0_#27272a] backdrop-blur max-xl:relative max-xl:top-auto" aria-label="Filtres du planning">
-      <div class="flex flex-wrap items-center gap-2 border-b-2 border-ink p-2 sm:flex-nowrap sm:gap-3 sm:p-3">
-        <ShowtimeDateBar :selected-date="date" :available-dates="dateOptions" :today="today" @select="selectPlanningDate" />
-        <NuxtLink to="/cinemas" class="ml-auto inline-flex min-h-10 shrink-0 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.7rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent sm:ml-0">
+      <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b-2 border-ink p-2 min-[384px]:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-3 sm:p-3">
+        <ShowtimeDateBar class="col-span-2 min-w-0 min-[384px]:col-span-1 [&_.calendar-trigger]:size-11 [&_.date-button]:h-11" :selected-date="date" :available-dates="dateOptions" :today="today" @select="selectPlanningDate" />
+        <NuxtLink to="/cinemas" class="ml-auto inline-flex h-11 shrink-0 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.7rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent sm:ml-0">
           <Settings2 :size="17" aria-hidden="true" />
           <span class="hidden sm:inline">Cinémas</span>
           <strong class="grid h-6 min-w-6 place-items-center bg-highlight text-ink">{{ preferences.activeTheaterIds.value.length }}</strong>
@@ -222,7 +222,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <ShareButton class="shrink-0" />
       </div>
 
-      <div class="grid grid-cols-1 gap-3 p-2 sm:grid-cols-2 sm:p-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-end">
+      <div class="grid grid-cols-1 gap-2 p-2 min-[384px]:grid-cols-2 sm:gap-3 sm:p-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-end">
         <fieldset>
           <legend class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Affichage</legend>
           <div class="flex w-max max-w-full border-2 border-ink bg-surface p-[0.2rem]">
