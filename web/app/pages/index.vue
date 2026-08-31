@@ -41,7 +41,7 @@ const shortcuts = [
     to: '/cinemas',
     eyebrow: '03 / Cinémas',
     title: 'Choisir mes salles',
-    description: 'Gardez vos cinémas favoris au centre de chaque recherche.',
+    description: 'Gardez vos cinémas au centre de chaque recherche.',
     icon: Building2
   }
 ]

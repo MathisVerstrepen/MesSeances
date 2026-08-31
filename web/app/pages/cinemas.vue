@@ -286,7 +286,7 @@ useHead(() => ({
       </div>
     </section>
 
-    <section class="border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px]" aria-label="Sélection des cinémas favoris">
+    <section class="border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px]" aria-label="Sélection de mes cinémas">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12">
         <div class="search-workspace grid gap-4 border-2 border-ink bg-[#f1efe8] p-4 shadow-[7px_7px_0_#27272a] sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <label class="block w-full text-ink">
@@ -446,7 +446,7 @@ useHead(() => ({
                   </h3>
                   <p class="mt-1 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
-                <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier les favoris à ${group.city}`">
+                <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier mes cinémas à ${group.city}`">
                   <ClientOnly>
                     <button
                       type="button"
