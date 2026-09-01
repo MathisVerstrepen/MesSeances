@@ -32,7 +32,7 @@ const emit = defineEmits<{
 
 const tomorrowDate = computed(() => addCalendarDays(props.today, 1))
 const calendarTrigger = ref<HTMLButtonElement | null>(null)
-const todayAndTomorrowDates = computed(() => props.availableDates.filter(date => date === props.today || date === tomorrowDate.value))
+const todayAndTomorrowDates = computed(() => [props.today, tomorrowDate.value])
 const layoutOrder = computed<Array<'calendar' | 'tabs'>>(() => props.calendarPosition === 'end' ? ['tabs', 'calendar'] : ['calendar', 'tabs'])
 
 function datesForMode(mode: DateTabsMode) {

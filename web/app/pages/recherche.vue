@@ -3,7 +3,7 @@ import { AlertTriangle, CalendarSearch, LoaderCircle, Search, SlidersHorizontal,
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
-import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
+import { addCalendarDays, createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
@@ -112,6 +112,8 @@ const availableDateOptions = computed(() => {
   return [...available].sort()
 })
 const hasAvailableDates = computed(() => availableDateOptions.value.length > 0)
+const quickDateOptions = computed(() => [todayDate.value, addCalendarDays(todayDate.value, 1)])
+const hasValidSelectedDate = computed(() => Boolean(calendarDate(form.date)))
 const favoriteSummary = computed(() => {
   const count = activeTheaterIds.value.length
   return `${count} cinéma${count > 1 ? 's' : ''} inclus`
@@ -421,7 +423,7 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   const date = calendarDate(singularQueryValue(route.query.date))
   const startAfter = singularQueryValue(route.query.start_after)
   const finishBefore = singularQueryValue(route.query.finish_before)
-  if (!theaterValue || !date || !availableDateOptions.value.includes(date) || !startAfter || !finishBefore || !validTimes.has(startAfter) || !validTimes.has(finishBefore)) return null
+  if (!theaterValue || !date || (!availableDateOptions.value.includes(date) && !quickDateOptions.value.includes(date)) || !startAfter || !finishBefore || !validTimes.has(startAfter) || !validTimes.has(finishBefore)) return null
 
   if (activeTheaterIds.value.length === 0) return null
   const theaterIds = [...activeTheaterIds.value]
@@ -697,7 +699,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
           </label>
 
-          <button type="submit" class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasAvailableDates">
+          <button type="submit" class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasValidSelectedDate">
             <LoaderCircle v-if="pending" :size="18" class="animate-spin" aria-hidden="true" />
             <Search v-else :size="18" aria-hidden="true" />
             {{ pending ? 'Recherche…' : 'Trouver une séance' }}
