@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { absoluteSiteUrl } from '~/utils/siteUrl'
+
 type CreditBrand = 'UGC' | 'CGR' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
 interface Credit {
@@ -43,21 +45,27 @@ const cartographyCredits: CartographyCredit[] = [
   { name: 'OpenStreetMap contributors', role: 'Données cartographiques', url: 'https://www.openstreetmap.org/copyright' }
 ]
 
-useHead({ title: 'Crédits - MesSeances' })
+const config = useRuntimeConfig()
+const pageTitle = 'Crédits - MesSeances'
+const pageDescription = 'Consultez les sources, technologies, marques et données cartographiques utilisées par MesSeances.'
+const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/credits')
+
+useSeoMeta({
+  title: pageTitle,
+  description: pageDescription,
+  robots: 'noindex,follow',
+  ogTitle: pageTitle,
+  ogDescription: pageDescription,
+  ogUrl: canonicalUrl,
+  ogType: 'website'
+})
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <main class="bg-canvas">
-    <header class="relative mx-auto grid max-w-[1440px] gap-8 overflow-hidden px-4 py-12 after:absolute after:top-8 after:right-[clamp(1.5rem,8vw,8rem)] after:aspect-square after:w-[clamp(3rem,6vw,5rem)] after:rotate-[7deg] after:border-2 after:border-ink after:bg-highlight after:shadow-[5px_5px_0_#27272a] after:content-[''] max-lg:after:top-9 max-lg:after:right-8 max-sm:after:top-6 max-sm:after:right-5 max-sm:after:w-10 max-sm:after:shadow-[3px_3px_0_#27272a] sm:px-6 sm:py-16 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-end lg:px-10 lg:py-20">
-      <div>
-        <p class="mb-5 font-mono text-[0.65rem] font-black uppercase tracking-[0.16em]">Attributions · Sources</p>
-        <h1 class="text-[clamp(4.8rem,14vw,12rem)] leading-[0.72] font-black tracking-[-0.085em] text-ink uppercase max-sm:text-[clamp(4.4rem,25vw,6rem)]">Crédits</h1>
-      </div>
-      <ShareButton class="relative z-10 lg:justify-self-end" />
-    </header>
-
-    <div class="border-y-2 border-ink bg-[#f8f7f2] [background-image:linear-gradient(rgba(39,39,42,0.075)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.075)_1px,transparent_1px)] [background-size:28px_28px]">
-      <div class="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16">
+  <StaticPageLayout eyebrow="Attributions · Sources" title="Crédits">
+    <template #header-actions><ShareButton class="shrink-0" /></template>
+    <div class="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16">
         <section class="tmdb-panel grid border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a] lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)]" aria-labelledby="tmdb-heading">
           <a
             href="https://www.themoviedb.org"
@@ -126,9 +134,8 @@ useHead({ title: 'Crédits - MesSeances' })
             </a>
           </div>
         </section>
-      </div>
     </div>
-  </main>
+  </StaticPageLayout>
 </template>
 
 <style scoped>

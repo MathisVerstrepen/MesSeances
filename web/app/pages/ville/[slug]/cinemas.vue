@@ -1,18 +1,33 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
-import type { CityDetailResponse } from '~/types/api'
+import type { CityDetailResponse, MoviesResponse, MovieSort } from '~/types/api'
 import { cityDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
+import { movieCatalogSortValues } from '~/utils/movieCatalogPresentation'
+import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
+const PAGE_SIZE = 24
+const DEFAULT_SORT: MovieSort = 'title_asc'
+const OWNED_QUERY_KEYS = ['q', 'sort', 'page'] as const
+
 const route = useRoute()
+const router = useRouter()
 const api = useMesSeancesApi()
 const detail = ref<CityDetailResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
 const notFound = ref(false)
 const posterVersion = ref(0)
-let requestId = 0
+const catalog = ref<MoviesResponse | null>(null)
+const catalogPending = ref(true)
+const catalogErrorMessage = ref('')
+const appliedSearch = ref('')
+const sort = ref<MovieSort>(DEFAULT_SORT)
+const page = ref(1)
+let cityRequestId = 0
+let catalogRequestId = 0
+let isMounted = false
 
 const slug = computed(() => {
   const value = route.params.slug
@@ -28,32 +43,146 @@ async function fetchCity() {
   }
 }
 
-const initial = await useAsyncData(`city:${slug.value}`, fetchCity)
+function cityCatalogQuery(search: string, nextSort: MovieSort, nextPage: number) {
+  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
+    q: search || undefined,
+    sort: nextSort === DEFAULT_SORT ? undefined : nextSort,
+    page: nextPage === 1 ? undefined : String(nextPage)
+  })
+}
+
+function hydrateCatalogRoute() {
+  const search = singularQueryValue(route.query.q)?.trim() ?? ''
+  const nextSort = enumQueryValue(singularQueryValue(route.query.sort), movieCatalogSortValues) ?? DEFAULT_SORT
+  const nextPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
+  appliedSearch.value = search
+  sort.value = nextSort
+  page.value = nextPage
+  return cityCatalogQuery(search, nextSort, nextPage)
+}
+
+async function fetchCatalog(currentDetail: CityDetailResponse) {
+  if (currentDetail.theaters.length === 0) return { catalog: null, errorMessage: '' }
+  try {
+    return {
+      catalog: await api.movies({
+        currently_screened: true,
+        theaters: currentDetail.theaters.map((theater) => theater.id).join(','),
+        search: appliedSearch.value || undefined,
+        sort: sort.value,
+        page: page.value,
+        page_size: PAGE_SIZE
+      }),
+      errorMessage: ''
+    }
+  } catch (error) {
+    return { catalog: null, errorMessage: getFrenchApiError(error) }
+  }
+}
+
+hydrateCatalogRoute()
+const initial = await useAsyncData(`city:${slug.value}:${appliedSearch.value}:${sort.value}:${page.value}`, async () => {
+  const city = await fetchCity()
+  if (city.kind !== 'success' || !city.detail) return { city, catalog: null, catalogErrorMessage: '' }
+  const movieCatalog = await fetchCatalog(city.detail)
+  return { city, catalog: movieCatalog.catalog, catalogErrorMessage: movieCatalog.errorMessage }
+})
 const initialState = initial.data.value
-detail.value = initialState?.detail ?? null
-notFound.value = initialState?.kind === 'not-found'
-errorMessage.value = initialState?.errorMessage ?? ''
+detail.value = initialState?.city.detail ?? null
+notFound.value = initialState?.city.kind === 'not-found'
+errorMessage.value = initialState?.city.errorMessage ?? ''
+catalog.value = initialState?.catalog ?? null
+catalogErrorMessage.value = initialState?.catalogErrorMessage ?? ''
 pending.value = false
-if (import.meta.server && initialState?.kind !== 'success') {
+catalogPending.value = false
+if (import.meta.server && initialState?.city.kind !== 'success') {
   const event = useRequestEvent()
-  if (event) setResponseStatus(event, initialState?.kind === 'not-found' ? 404 : 502)
+  if (event) setResponseStatus(event, initialState?.city.kind === 'not-found' ? 404 : 502)
+}
+
+const totalPages = computed(() => Math.max(1, Math.ceil((catalog.value?.total ?? 0) / PAGE_SIZE)))
+
+async function loadCatalog() {
+  const currentDetail = detail.value
+  const currentRequest = ++catalogRequestId
+  catalogPending.value = true
+  catalogErrorMessage.value = ''
+  if (!currentDetail || currentDetail.theaters.length === 0) {
+    catalog.value = null
+    catalogPending.value = false
+    return
+  }
+  const state = await fetchCatalog(currentDetail)
+  if (currentRequest !== catalogRequestId) return
+  if (state.catalog) {
+    const lastPage = Math.max(1, Math.ceil(state.catalog.total / PAGE_SIZE))
+    if (page.value > lastPage) {
+      catalogPending.value = false
+      const query = cityCatalogQuery(appliedSearch.value, sort.value, lastPage)
+      if (!queriesEqual(route.query, query)) await router.replace({ query })
+      return
+    }
+  }
+  catalog.value = state.catalog
+  catalogErrorMessage.value = state.errorMessage
+  catalogPending.value = false
 }
 
 async function loadCity() {
-  const currentRequest = ++requestId
+  const currentRequest = ++cityRequestId
+  catalogRequestId += 1
   pending.value = true
   errorMessage.value = ''
   notFound.value = false
   const state = await fetchCity()
-  if (currentRequest !== requestId) return
+  if (currentRequest !== cityRequestId) return
   if (state.kind === 'success') posterVersion.value += 1
   detail.value = state.detail
   notFound.value = state.kind === 'not-found'
   errorMessage.value = state.errorMessage
   pending.value = false
+  catalog.value = null
+  if (state.detail) await loadCatalog()
+  else catalogPending.value = false
+}
+
+async function applyCatalogRoute() {
+  const canonicalQuery = hydrateCatalogRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) {
+    await router.replace({ query: canonicalQuery })
+    return
+  }
+  await loadCatalog()
+}
+
+function submitSearch(search: string) {
+  const query = cityCatalogQuery(search, sort.value, 1)
+  if (queriesEqual(route.query, query)) {
+    if (catalogErrorMessage.value) void loadCatalog()
+    return
+  }
+  void router.replace({ query })
+}
+
+function changeSort(nextSort: MovieSort) {
+  if (nextSort === sort.value) return
+  void router.replace({ query: cityCatalogQuery(appliedSearch.value, nextSort, 1) })
+}
+
+function followPageLink(event: MouseEvent, nextPage: number) {
+  if (catalogPending.value || nextPage < 1 || nextPage > totalPages.value || nextPage === page.value) event.preventDefault()
 }
 
 watch(slug, () => void loadCity())
+watch(() => route.query, () => {
+  if (isMounted) void applyCatalogRoute()
+})
+onMounted(async () => {
+  isMounted = true
+  const canonicalQuery = hydrateCatalogRoute()
+  if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
+  else if (catalog.value && page.value > totalPages.value) await router.replace({ query: cityCatalogQuery(appliedSearch.value, sort.value, totalPages.value) })
+})
 
 const config = useRuntimeConfig()
 const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/ville/${encodeURIComponent(slug.value)}/cinemas`))
@@ -131,9 +260,12 @@ useHead(() => ({
       />
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
-          <div class="min-w-0 p-5 sm:p-8 lg:p-10">
-            <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">Cinémas · ville</p>
-            <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
+          <div class="flex min-w-0 items-end justify-between gap-4 p-5 sm:p-8 lg:p-10">
+            <div class="min-w-0">
+              <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">Cinémas · ville</p>
+              <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
+            </div>
+            <ShareButton class="shrink-0" />
           </div>
 
           <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
@@ -154,10 +286,7 @@ useHead(() => ({
       </header>
 
       <section class="mt-12" aria-labelledby="city-cinemas-heading">
-        <div class="flex items-end justify-between gap-4 border-b-2 border-ink pb-5">
-          <h2 id="city-cinemas-heading" class="text-4xl font-black tracking-[-0.05em] sm:text-5xl">Cinémas</h2>
-          <ShareButton class="shrink-0" />
-        </div>
+        <div class="border-b-2 border-ink pb-5"><h2 id="city-cinemas-heading" class="text-4xl font-black tracking-[-0.05em] sm:text-5xl">Cinémas</h2></div>
         <EditorialStatePanel v-if="detail.theaters.length === 0" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Building2 :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun cinéma disponible</h3></template><p>La programmation actuelle ne contient aucun cinéma dans cette ville.</p></EditorialStatePanel>
         <ul v-else class="mt-8 grid gap-5 md:grid-cols-2">
           <li v-for="theater in detail.theaters" :key="theater.id" class="border-2 border-ink bg-surface p-5 shadow-[6px_6px_0_#27272a]">
@@ -169,17 +298,31 @@ useHead(() => ({
 
       <section class="mt-14" aria-labelledby="city-films-heading">
         <div class="border-b-2 border-ink pb-4"><h2 id="city-films-heading" class="text-4xl font-black tracking-[-0.05em] sm:text-5xl">Films à l’affiche</h2></div>
-        <EditorialStatePanel v-if="detail.movies.length === 0" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun film disponible</h3></template><p>Aucun film n’est programmé dans cette ville sur la période actuelle.</p></EditorialStatePanel>
-        <ul v-else class="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <li v-for="movie in detail.movies" :key="movie.slug" class="min-w-0">
-            <NuxtLink :to="`/film/${encodeURIComponent(movie.slug)}`" class="group block h-full border-2 border-ink bg-surface shadow-[5px_5px_0_#27272a] transition-transform hover:-translate-y-1">
-              <div class="aspect-[2/3] overflow-hidden border-b-2 border-ink bg-[#e8e6de]">
-                 <PosterImage :src="movie.poster_url" :alt="`Affiche de ${movie.title}`" sizes="(min-width: 1024px) calc((min(100vw, 1440px) - 9rem) / 5), (min-width: 640px) calc((100vw - 5rem) / 3), calc((100vw - 3rem) / 2)" :reset-key="posterVersion" :data-poster-slug="movie.slug" class="size-full" image-class="size-full object-cover" fallback-variant="icon-only" fallback-class="text-muted" :fallback-icon-size="32" :fallback-text="null" />
-              </div>
-              <div class="p-3"><h3 class="break-words text-sm font-black leading-tight group-hover:text-primary sm:text-base">{{ movie.title }}</h3><p class="mt-2 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">{{ movie.runtime_minutes }} min</p></div>
-            </NuxtLink>
-          </li>
-        </ul>
+        <MovieCatalogControls v-if="detail.theaters.length" class="mt-8 border-2 border-ink bg-[#ffcf3f] p-4 shadow-[7px_7px_0_#27272a] sm:p-6" :search="appliedSearch" :sort="sort" :pending="catalogPending" input-id="city-film-search" @search="submitSearch" @sort="changeSort" />
+
+        <EditorialStatePanel v-if="detail.theaters.length === 0" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun film disponible</h3></template><p>Aucun film n’est programmé dans cette ville sur la période actuelle.</p></EditorialStatePanel>
+        <EditorialStatePanel v-else-if="catalogPending" semantic="status" live="polite" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des films…</p></EditorialStatePanel>
+        <EditorialStatePanel v-else-if="catalogErrorMessage" semantic="alert" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><p>{{ catalogErrorMessage }}</p><template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="loadCatalog"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
+        <EditorialStatePanel v-else-if="!catalog?.items.length" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun film disponible</h3></template><p>{{ appliedSearch ? 'Aucun film ne correspond à cette recherche.' : 'Aucun film n’est programmé dans cette ville sur la période actuelle.' }}</p><template v-if="appliedSearch" #actions><button type="button" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="submitSearch('')">Effacer la recherche</button></template></EditorialStatePanel>
+        <template v-else>
+          <div class="mt-8 flex items-end justify-between gap-4 border-b-2 border-ink pb-4">
+            <h3 class="text-2xl font-black tracking-[-0.04em]">{{ appliedSearch ? `Résultats pour « ${appliedSearch} »` : 'Tous les films' }}</h3>
+            <p class="shrink-0 font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
+          </div>
+          <ul class="mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" aria-label="Films à l’affiche">
+            <li v-for="movie in catalog.items" :key="movie.slug" class="min-w-0">
+              <MovieCatalogCard :movie="movie" :to="`/film/${encodeURIComponent(movie.slug)}`" :poster-reset-key="posterVersion" />
+            </li>
+          </ul>
+          <MovieCatalogPagination
+            :page="page"
+            :total-pages="totalPages"
+            :previous-to="page > 1 ? { query: cityCatalogQuery(appliedSearch, sort, page - 1) } : null"
+            :next-to="page < totalPages ? { query: cityCatalogQuery(appliedSearch, sort, page + 1) } : null"
+            :pending="catalogPending"
+            @navigate="followPageLink"
+          />
+        </template>
       </section>
     </template>
   </main>

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
-import type { CatalogMovie, TheaterShowtimesResponse } from '~/types/api'
+import type { CatalogMovie, MovieSort, TheaterShowtimesResponse } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { formatLongDate, todayInParis } from '~/utils/date'
 import { cinemaDescription } from '~/utils/entityDescriptions'
-import { formatRuntime, formatShowtimeCount } from '~/utils/formats'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
-import { calendarDate, mergeOwnedQuery, singularQueryValue } from '~/utils/routeQuery'
+import { filterAndSortCatalogMovies, movieCatalogSortValues } from '~/utils/movieCatalogPresentation'
+import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { groupShowtimeResults, resultGroupingOptions, resultLayoutOptions, sortShowtimeResults, toTheaterShowtimeResults } from '~/utils/showtimeResults'
 
@@ -26,6 +26,8 @@ let moviesRequestId = 0
 let loadedMoviesTheaterId = ''
 const CATALOG_PAGE_SIZE = 100
 const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
+const FILMS_DEFAULT_SORT: MovieSort = 'showtimes_desc'
+const FILMS_QUERY_KEYS = ['view', 'q', 'sort'] as const
 
 const slug = computed(() => {
   const value = route.params.slug
@@ -34,6 +36,11 @@ const slug = computed(() => {
 const requestedDate = computed(() => calendarDate(singularQueryValue(route.query.date)))
 const selectedDate = computed(() => requestedDate.value ?? todayInParis())
 const currentView = computed(() => singularQueryValue(route.query.view) === 'films' ? 'films' : 'showtimes')
+const filmSearch = computed(() => currentView.value === 'films' ? singularQueryValue(route.query.q)?.trim() ?? '' : '')
+const filmSort = computed<MovieSort>(() => currentView.value === 'films'
+  ? enumQueryValue(singularQueryValue(route.query.sort), movieCatalogSortValues) ?? FILMS_DEFAULT_SORT
+  : FILMS_DEFAULT_SORT)
+const displayedCinemaMovies = computed(() => filterAndSortCatalogMovies(cinemaMovies.value, filmSearch.value, filmSort.value))
 const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
 const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
 const groupingOptions = resultGroupingOptions
@@ -133,9 +140,39 @@ async function loadMovies(theaterId: string, force = false) {
 }
 
 function viewQuery(view: 'showtimes' | 'films') {
-  return mergeOwnedQuery(route.query, ['view'], {
-    view: view === 'films' ? 'films' : undefined
+  return mergeOwnedQuery(route.query, FILMS_QUERY_KEYS, {
+    view: view === 'films' ? 'films' : undefined,
+    q: undefined,
+    sort: undefined
   })
+}
+
+function cinemaFilmsQuery(search: string, nextSort: MovieSort) {
+  return mergeOwnedQuery(route.query, FILMS_QUERY_KEYS, {
+    view: 'films',
+    q: search || undefined,
+    sort: nextSort === FILMS_DEFAULT_SORT ? undefined : nextSort
+  })
+}
+
+async function applyFilmsRoute() {
+  if (currentView.value !== 'films') return
+  const query = cinemaFilmsQuery(filmSearch.value, filmSort.value)
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
+}
+
+function submitFilmSearch(search: string) {
+  const query = cinemaFilmsQuery(search, filmSort.value)
+  if (!queriesEqual(route.query, query)) void router.replace({ query })
+}
+
+function changeFilmSort(sort: MovieSort) {
+  const query = cinemaFilmsQuery(filmSearch.value, sort)
+  if (!queriesEqual(route.query, query)) void router.replace({ query })
+}
+
+function clearFilmSearch() {
+  submitFilmSearch('')
 }
 
 function selectDate(date: string) {
@@ -199,6 +236,8 @@ watch(currentView, (view) => {
   const theaterId = response.value?.theater.id
   if (view === 'films' && theaterId) void loadMovies(theaterId)
 })
+watch(() => route.query, () => void applyFilmsRoute())
+onMounted(() => void applyFilmsRoute())
 
 const normalizedResults = computed(() => response.value ? toTheaterShowtimeResults(response.value) : [])
 const movieGroups = computed(() => groupShowtimeResults(sortShowtimeResults(normalizedResults.value)))
@@ -368,8 +407,8 @@ useHead(() => ({
         </div>
 
         <template v-if="currentView === 'showtimes'">
-          <div v-if="availableDates.length || (!pending && !errorMessage && normalizedResults.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <ShowtimeDateBar v-if="availableDates.length" :selected-date="response.date ?? selectedDate" :available-dates="availableDates" :today="todayInParis()" @select="selectDate" />
+          <div class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <ShowtimeDateBar :selected-date="selectedDate" :available-dates="availableDates" :today="todayInParis()" :disabled="availableDates.length === 0" @select="selectDate" />
             <div v-if="!pending && !errorMessage && normalizedResults.length" class="grid grid-cols-2 border-2 border-ink bg-surface divide-x-2 divide-ink lg:hidden" role="group" aria-label="Réglages d’affichage des séances">
               <ResultSettingMenu id="cinema-mobile-result-grouping" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
               <ResultSettingMenu id="cinema-mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
@@ -387,30 +426,16 @@ useHead(() => ({
         </template>
 
         <template v-else>
+          <MovieCatalogControls v-if="cinemaMovies.length && !moviesPending && !moviesErrorMessage" class="mt-5 border-2 border-ink bg-[#ffcf3f] p-4 shadow-[6px_6px_0_#27272a]" compact :search="filmSearch" :sort="filmSort" :pending="moviesPending" input-id="cinema-film-search" @search="submitFilmSearch" @sort="changeFilmSort" />
           <EditorialStatePanel v-if="moviesPending" semantic="status" live="polite" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template><p>Chargement des films…</p></EditorialStatePanel>
           <EditorialStatePanel v-else-if="moviesErrorMessage" semantic="alert" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Impossible de charger ces films</h3></template><p>{{ moviesErrorMessage }}</p><template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="loadMovies(response.theater.id, true)"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template></EditorialStatePanel>
           <EditorialStatePanel v-else-if="cinemaMovies.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun film à l’affiche</h3></template><p>Ce cinéma ne propose aucun film actuellement.</p></EditorialStatePanel>
+          <EditorialStatePanel v-else-if="displayedCinemaMovies.length === 0" size="standard" shadow="large" class="discovery-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Film :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun résultat</h3></template><p>Aucun film ne correspond à la recherche « {{ filmSearch }} ».</p><template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.9rem] py-[0.65rem] font-mono text-[0.7rem] font-black text-surface uppercase" @click="clearFilmSearch">Effacer la recherche</button></template></EditorialStatePanel>
           <template v-else>
-            <p class="mt-5 border-y-2 border-ink py-4 text-right font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ cinemaMovies.length }} film{{ cinemaMovies.length > 1 ? 's' : '' }}</p>
+            <p class="mt-5 border-y-2 border-ink py-4 text-right font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ displayedCinemaMovies.length }} film{{ displayedCinemaMovies.length > 1 ? 's' : '' }}</p>
             <ul class="catalog-grid mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" :aria-label="`Films à l’affiche au cinéma ${response.theater.name}`">
-              <li v-for="movie in cinemaMovies" :key="movie.slug" class="min-w-0">
-                <NuxtLink :to="cinemaMovieTarget(movie.slug, response.theater.id)" class="group block text-ink [transition:transform_170ms_ease] hover:-translate-y-1 focus-visible:ring-offset-4 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
-                  <div class="relative aspect-[2/3] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
-                    <PosterImage
-                      :src="movie.poster_url"
-                      :alt="`Affiche de ${movie.title}`"
-                      sizes="(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)"
-                      class="h-full w-full"
-                      image-class="h-full w-full object-cover transition duration-200 group-hover:scale-[1.025] motion-reduce:transition-none"
-                      fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
-                      :fallback-icon-size="32"
-                    />
-                  </div>
-                  <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
-                    <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
-                    <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">{{ formatRuntime(movie.runtime_minutes) }} · {{ formatShowtimeCount(movie.showtime_count ?? 0) }}</span>
-                  </div>
-                </NuxtLink>
+              <li v-for="movie in displayedCinemaMovies" :key="movie.slug" class="min-w-0">
+                <MovieCatalogCard :movie="movie" :to="cinemaMovieTarget(movie.slug, response.theater.id)" />
               </li>
             </ul>
           </template>
