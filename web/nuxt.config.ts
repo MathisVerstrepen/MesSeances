@@ -74,6 +74,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     apiBase: 'http://localhost:8080',
+    internalApiSharedSecret: '',
     public: {
       appVersion: process.env.NUXT_PUBLIC_APP_VERSION || 'dev',
       apiBase: 'http://localhost:8080',

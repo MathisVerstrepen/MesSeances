@@ -41,6 +41,11 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 		{"proxy address without prefix", "TRUSTED_PROXY_CIDRS", "10.0.0.1"},
 		{"proxy invalid prefix", "TRUSTED_PROXY_CIDRS", "synthetic-secret"},
 		{"proxy broad mapped prefix", "TRUSTED_PROXY_CIDRS", "::ffff:0:0/95"},
+		{"internal secret short", "INTERNAL_API_SHARED_SECRET", strings.Repeat("a", 63)},
+		{"internal secret long", "INTERNAL_API_SHARED_SECRET", strings.Repeat("a", 65)},
+		{"internal secret uppercase", "INTERNAL_API_SHARED_SECRET", strings.Repeat("A", 64)},
+		{"internal secret nonhex", "INTERNAL_API_SHARED_SECRET", strings.Repeat("g", 64)},
+		{"internal secret whitespace", "INTERNAL_API_SHARED_SECRET", " " + strings.Repeat("a", 64)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			values := map[string]string{}
@@ -59,6 +64,19 @@ func TestLoadAPIBaseDefaultsAndStrictValidation(t *testing.T) {
 		loaded, err := Load(APIBase, environment(values))
 		if err != nil || loaded.Server.Origin != origin {
 			t.Fatalf("valid origin %q config=%+v err=%v", origin, loaded, err)
+		}
+	}
+}
+
+func TestLoadAPIBaseOptionalInternalSharedSecret(t *testing.T) {
+	valid := strings.Repeat("0123456789abcdef", 4)
+	for _, secret := range []string{"", valid} {
+		loaded, err := Load(APIBase, environment(map[string]string{
+			"DATABASE_URL":               "postgres://configured",
+			"INTERNAL_API_SHARED_SECRET": secret,
+		}))
+		if err != nil || loaded.Internal.SharedSecret != secret {
+			t.Fatalf("secret configured=%t stored=%q err=%v", secret != "", loaded.Internal.SharedSecret, err)
 		}
 	}
 }

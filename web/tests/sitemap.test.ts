@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { CatalogMovie, CitiesResponse, MoviesResponse } from '../app/types/api.ts'
 import {
+  API_SITEMAP_CACHE_POLICY,
   buildCinemaSitemapEntries,
   buildCitySitemapEntries,
   buildFilmSitemapEntries,
@@ -13,6 +14,11 @@ import {
 
 const GENERATED_AT = '2026-08-30T10:00:00Z'
 const REVISION = 'revision-1'
+
+test('uses one immutable five-minute SWR policy for API-backed child sitemaps', () => {
+  assert.deepEqual(API_SITEMAP_CACHE_POLICY, { maxAge: 300, swr: true })
+  assert(Object.isFrozen(API_SITEMAP_CACHE_POLICY))
+})
 
 function movie(slug: string, overrides: Partial<CatalogMovie> = {}): CatalogMovie {
   return {

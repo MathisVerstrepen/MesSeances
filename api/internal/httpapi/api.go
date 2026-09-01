@@ -37,11 +37,12 @@ type ShortlinkService interface {
 }
 
 type HandlerOptions struct {
-	Admin             AdminOptions
-	Readiness         ReadinessOptions
-	Shortlinks        ShortlinkService
-	TrustedProxyCIDRs []netip.Prefix
-	RateLimitClock    func() time.Time
+	Admin                AdminOptions
+	Readiness            ReadinessOptions
+	Shortlinks           ShortlinkService
+	TrustedProxyCIDRs    []netip.Prefix
+	InternalSharedSecret string
+	RateLimitClock       func() time.Time
 }
 
 type ReadinessOptions struct {
@@ -153,9 +154,15 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	}
 	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, origin: webOrigin}
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
-	expensiveReads := rateLimit(newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock), clients)
-	shortlinkCreations := rateLimit(newTokenBucketLimiter(shortlinkCreationBurst, shortlinkCreationRefillRate, shortlinkCreationIdleHorizon, maxRateLimitClients, options.RateLimitClock), clients)
+	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
+	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
+	internalExpensiveReads := newTokenBucketLimiter(internalExpensiveReadBurst, internalExpensiveReadRefillRate, internalExpensiveReadIdleHorizon, internalRateLimitClients, options.RateLimitClock)
+	expensiveReads := expensiveReadRateLimit(publicExpensiveReads, internalExpensiveReads)
+	shortlinkCreations := rateLimit(newTokenBucketLimiter(shortlinkCreationBurst, shortlinkCreationRefillRate, shortlinkCreationIdleHorizon, maxRateLimitClients, options.RateLimitClock), func(r *http.Request) string {
+		return requestIdentityFromContext(r.Context()).publicKey
+	})
 	router := chi.NewRouter()
+	router.Use(requestMetadata(clients, authenticator))
 	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
 	router.Use(jsonContentType)
 	router.Use(recoverJSON(options.Admin.Logger))
@@ -185,6 +192,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.With(api.requireSchedule).Get("/api/v1/cities/{slug}", api.city)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/movies", api.movies)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
+	router.With(api.requireInternalService, api.requireSchedule, expensiveReads).Get("/api/v1/internal/movies/{slug}/showtimes-bundle", api.movieShowtimesBundle)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/search/slot", api.searchSlot)
 	router.With(api.noStoreShortlink, api.requireShortlinkOrigin, shortlinkCreations).Post("/api/v1/shortlinks", api.createShortlink)
 	router.Get("/api/v1/shortlinks/{code}", api.resolveShortlink)

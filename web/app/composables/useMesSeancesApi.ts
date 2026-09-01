@@ -33,6 +33,7 @@ import type {
   CityDetailResponse,
   MoviesQuery,
   MoviesResponse,
+  MovieShowtimesBundleResponse,
   MovieShowtimesQuery,
   MovieShowtimesResponse,
   Provider,
@@ -53,6 +54,19 @@ function queryValues<T extends object>(query: T) {
 export function useMesSeancesApi() {
   const config = useRuntimeConfig()
   const apiBase = (import.meta.server ? config.apiBase : config.public.apiBase).replace(/\/$/, '')
+  const requestEvent = import.meta.server ? useRequestEvent() : undefined
+  const hasInternalApiIdentity = import.meta.server && config.internalApiSharedSecret !== ''
+  const apiFetch = import.meta.server
+    ? $fetch.create({
+        async onRequest({ options }) {
+          if (!requestEvent) return
+          const { internalApiHeaders } = await import('~~/server/utils/internalApi')
+          const headers = new Headers(options.headers)
+          for (const [name, value] of Object.entries(internalApiHeaders(requestEvent, config.internalApiSharedSecret))) headers.set(name, value)
+          options.headers = headers
+        }
+      })
+    : $fetch
 
   async function withAdminRedirect<T>(request: Promise<T>): Promise<T> {
     try {
@@ -66,64 +80,72 @@ export function useMesSeancesApi() {
   }
 
   return {
+    hasInternalApiIdentity,
     timeline(query: TimelineQuery) {
-      return $fetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, { query: queryValues(query) })
+      return apiFetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, { query: queryValues(query) })
     },
     searchSlot(query: SlotQuery) {
-      return $fetch<SlotResult[]>(`${apiBase}/api/v1/search/slot`, { query: queryValues(query) })
+      return apiFetch<SlotResult[]>(`${apiBase}/api/v1/search/slot`, { query: queryValues(query) })
     },
     theaters(query: TheaterQuery = {}) {
-      return $fetch<Theater[]>(`${apiBase}/api/v1/theaters`, { query: queryValues(query) })
+      return apiFetch<Theater[]>(`${apiBase}/api/v1/theaters`, { query: queryValues(query) })
     },
     cities() {
-      return $fetch<CitiesResponse>(`${apiBase}/api/v1/cities`)
+      return apiFetch<CitiesResponse>(`${apiBase}/api/v1/cities`)
     },
     city(slug: string) {
-      return $fetch<CityDetailResponse>(`${apiBase}/api/v1/cities/${encodeURIComponent(slug)}`)
+      return apiFetch<CityDetailResponse>(`${apiBase}/api/v1/cities/${encodeURIComponent(slug)}`)
     },
     theaterShowtimes(slug: string, date?: string) {
-      return $fetch<TheaterShowtimesResponse>(`${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/showtimes`, {
+      return apiFetch<TheaterShowtimesResponse>(`${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/showtimes`, {
         query: date ? { date } : undefined
       })
     },
     movies(query: MoviesQuery = {}) {
-      return $fetch<MoviesResponse>(`${apiBase}/api/v1/movies`, { query: queryValues(query) })
+      return apiFetch<MoviesResponse>(`${apiBase}/api/v1/movies`, { query: queryValues(query) })
     },
     movieShowtimes(slug: string, query: MovieShowtimesQuery) {
-      return $fetch<MovieShowtimesResponse>(`${apiBase}/api/v1/movies/${encodeURIComponent(slug)}/showtimes`, { query: queryValues(query) })
+      return apiFetch<MovieShowtimesResponse>(`${apiBase}/api/v1/movies/${encodeURIComponent(slug)}/showtimes`, { query: queryValues(query) })
+    },
+    movieShowtimesBundle(slug: string, date: string) {
+      if (!hasInternalApiIdentity) throw new Error('Internal API identity unavailable')
+      return apiFetch<MovieShowtimesBundleResponse>(`${apiBase}/api/v1/internal/movies/${encodeURIComponent(slug)}/showtimes-bundle`, {
+        query: { date, city: 'Paris' },
+        retry: false
+      })
     },
     createShortLink(target: string) {
-      return $fetch<ShortLinkResponse>(`${apiBase}/api/v1/shortlinks`, {
+      return apiFetch<ShortLinkResponse>(`${apiBase}/api/v1/shortlinks`, {
         method: 'POST',
         body: { target }
       })
     },
     adminSession() {
-      return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, { credentials: 'include' })
+      return apiFetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, { credentials: 'include' })
     },
     adminMovies(query: AdminMoviesQuery, signal?: AbortSignal) {
-      return withAdminRedirect($fetch<AdminMoviesResponse>(`${apiBase}/api/v1/admin/movies`, {
+      return withAdminRedirect(apiFetch<AdminMoviesResponse>(`${apiBase}/api/v1/admin/movies`, {
         credentials: 'include',
         query: queryValues(query),
         signal
       }))
     },
     adminUpdateMovie(id: string, input: AdminMoviePatchRequest) {
-      return withAdminRedirect($fetch<AdminMovieItem>(`${apiBase}/api/v1/admin/movies/${encodeURIComponent(id)}`, {
+      return withAdminRedirect(apiFetch<AdminMovieItem>(`${apiBase}/api/v1/admin/movies/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         credentials: 'include',
         body: input
       }))
     },
     adminLogin(password: string) {
-      return $fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/login`, {
+      return apiFetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/login`, {
         method: 'POST',
         credentials: 'include',
         body: { password }
       })
     },
     adminLogout() {
-      return withAdminRedirect($fetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/logout`, {
+      return withAdminRedirect(apiFetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/logout`, {
         method: 'POST',
         credentials: 'include'
       }))
@@ -136,137 +158,137 @@ export function useMesSeancesApi() {
         offset
       }
       if (status === 'matched' && normalizedSearch) query.search = normalizedSearch
-      return withAdminRedirect($fetch<AdminPendingMatchesResponse>(`${apiBase}/api/v1/admin/tmdb-matches`, {
+      return withAdminRedirect(apiFetch<AdminPendingMatchesResponse>(`${apiBase}/api/v1/admin/tmdb-matches`, {
         credentials: 'include',
         query
       }))
     },
     adminApproveMatch(sourceProvider: Provider, sourceMovieId: string, tmdbId: number) {
-      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/approve`, {
+      return withAdminRedirect(apiFetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/approve`, {
         method: 'POST',
         credentials: 'include',
         body: { tmdb_id: tmdbId }
       }))
     },
     adminRejectMatch(sourceProvider: Provider, sourceMovieId: string) {
-      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/reject`, {
+      return withAdminRedirect(apiFetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/reject`, {
         method: 'POST',
         credentials: 'include'
       }))
     },
     adminCorrectMatch(sourceProvider: Provider, sourceMovieId: string, input: AdminCorrectMatchRequest) {
-      return withAdminRedirect($fetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/correct`, {
+      return withAdminRedirect(apiFetch<AdminMatchDecisionResponse>(`${apiBase}/api/v1/admin/tmdb-matches/${encodeURIComponent(sourceProvider)}/${encodeURIComponent(sourceMovieId)}/correct`, {
         method: 'POST',
         credentials: 'include',
         body: input
       }))
     },
     adminRerunTMDBMatches() {
-      return withAdminRedirect($fetch<AdminTMDBRerunSummary>(`${apiBase}/api/v1/admin/tmdb-matches/rerun`, {
+      return withAdminRedirect(apiFetch<AdminTMDBRerunSummary>(`${apiBase}/api/v1/admin/tmdb-matches/rerun`, {
         method: 'POST',
         credentials: 'include'
       }))
     },
     adminRefreshTMDBMetadata() {
-      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
+      return withAdminRedirect(apiFetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
         method: 'POST',
         credentials: 'include'
       }))
     },
     adminTMDBMetadataRefreshStatus() {
-      return withAdminRedirect($fetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
+      return withAdminRedirect(apiFetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
         credentials: 'include'
       }))
     },
     adminLocalMovieGroups(limit: number, offset: number) {
-      return withAdminRedirect($fetch<AdminLocalMovieGroupsResponse>(`${apiBase}/api/v1/admin/local-movie-groups`, {
+      return withAdminRedirect(apiFetch<AdminLocalMovieGroupsResponse>(`${apiBase}/api/v1/admin/local-movie-groups`, {
         credentials: 'include',
         query: { limit, offset }
       }))
     },
     adminCreateLocalMovieGroup(input: AdminCreateLocalMovieGroupRequest) {
-      return withAdminRedirect($fetch<AdminLocalMovieGroup>(`${apiBase}/api/v1/admin/local-movie-groups`, {
+      return withAdminRedirect(apiFetch<AdminLocalMovieGroup>(`${apiBase}/api/v1/admin/local-movie-groups`, {
         method: 'POST',
         credentials: 'include',
         body: input
       }))
     },
     adminAddLocalMovieMembers(localMovieId: string, input: AdminAddLocalMovieMembersRequest) {
-      return withAdminRedirect($fetch<AdminAddLocalMovieMembersResponse>(`${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/members`, {
+      return withAdminRedirect(apiFetch<AdminAddLocalMovieMembersResponse>(`${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/members`, {
         method: 'POST',
         credentials: 'include',
         body: input
       }))
     },
     adminUnmergeLocalMovie(localMovieId: string) {
-      return withAdminRedirect($fetch<AdminUnmergeLocalMovieResponse>(`${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/unmerge`, {
+      return withAdminRedirect(apiFetch<AdminUnmergeLocalMovieResponse>(`${apiBase}/api/v1/admin/local-movie-groups/${encodeURIComponent(localMovieId)}/unmerge`, {
         method: 'POST',
         credentials: 'include'
       }))
     },
     adminTheaterLocations(limit: number, offset: number) {
-      return withAdminRedirect($fetch<AdminTheaterLocationsResponse>(`${apiBase}/api/v1/admin/theater-locations`, {
+      return withAdminRedirect(apiFetch<AdminTheaterLocationsResponse>(`${apiBase}/api/v1/admin/theater-locations`, {
         credentials: 'include',
         query: { limit, offset }
       }))
     },
     adminAcceptTheaterLocationSuggestion(provider: Provider, providerTheaterId: string, input: AdminAcceptTheaterLocationSuggestionRequest) {
-      return withAdminRedirect($fetch<AdminTheaterLocationResolutionResponse>(`${apiBase}/api/v1/admin/theater-locations/${encodeURIComponent(provider)}/${encodeURIComponent(providerTheaterId)}/accept-suggestion`, {
+      return withAdminRedirect(apiFetch<AdminTheaterLocationResolutionResponse>(`${apiBase}/api/v1/admin/theater-locations/${encodeURIComponent(provider)}/${encodeURIComponent(providerTheaterId)}/accept-suggestion`, {
         method: 'POST',
         credentials: 'include',
         body: input
       }))
     },
     adminSetManualTheaterLocation(provider: Provider, providerTheaterId: string, input: AdminSetManualTheaterLocationRequest) {
-      return withAdminRedirect($fetch<AdminTheaterLocationResolutionResponse>(`${apiBase}/api/v1/admin/theater-locations/${encodeURIComponent(provider)}/${encodeURIComponent(providerTheaterId)}/manual`, {
+      return withAdminRedirect(apiFetch<AdminTheaterLocationResolutionResponse>(`${apiBase}/api/v1/admin/theater-locations/${encodeURIComponent(provider)}/${encodeURIComponent(providerTheaterId)}/manual`, {
         method: 'POST',
         credentials: 'include',
         body: input
       }))
     },
     adminTheaterGeocodingStatus() {
-      return withAdminRedirect($fetch<AdminTheaterGeocodingResponse>(`${apiBase}/api/v1/admin/theater-locations/geocoding-runs`, {
+      return withAdminRedirect(apiFetch<AdminTheaterGeocodingResponse>(`${apiBase}/api/v1/admin/theater-locations/geocoding-runs`, {
         credentials: 'include'
       }))
     },
     adminStartTheaterGeocoding() {
-      return withAdminRedirect($fetch<AdminTheaterGeocodingResponse>(`${apiBase}/api/v1/admin/theater-locations/geocoding-runs`, {
+      return withAdminRedirect(apiFetch<AdminTheaterGeocodingResponse>(`${apiBase}/api/v1/admin/theater-locations/geocoding-runs`, {
         method: 'POST',
         credentials: 'include'
       }))
     },
     adminSyncStatus() {
-      return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs`, {
+      return withAdminRedirect(apiFetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs`, {
         credentials: 'include'
       }))
     },
     adminSyncSchedules() {
-      return withAdminRedirect($fetch<AdminSyncSchedulesResponse>(`${apiBase}/api/v1/admin/sync-schedules`, {
+      return withAdminRedirect(apiFetch<AdminSyncSchedulesResponse>(`${apiBase}/api/v1/admin/sync-schedules`, {
         credentials: 'include'
       }))
     },
     adminCreateSyncSchedule(target: AdminSyncScheduleTarget, input: AdminSaveSyncScheduleRequest) {
-      return withAdminRedirect($fetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}`, {
+      return withAdminRedirect(apiFetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}`, {
         method: 'POST',
         credentials: 'include',
         body: input
       }))
     },
     adminUpdateSyncSchedule(target: AdminSyncScheduleTarget, id: string, input: AdminSaveSyncScheduleRequest) {
-      return withAdminRedirect($fetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}/${encodeURIComponent(id)}`, {
+      return withAdminRedirect(apiFetch<AdminSyncScheduleItem>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}/${encodeURIComponent(id)}`, {
         method: 'PUT',
         credentials: 'include',
         body: input
       }))
     },
     adminDeleteSyncSchedule(target: AdminSyncScheduleTarget, id: string) {
-      return withAdminRedirect($fetch<void>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}/${encodeURIComponent(id)}`, {
+      return withAdminRedirect(apiFetch<void>(`${apiBase}/api/v1/admin/sync-schedules/${encodeURIComponent(target)}/${encodeURIComponent(id)}`, {
         method: 'DELETE',
         credentials: 'include'
       }))
     },
     adminStartSync(target: AdminSyncTarget) {
-      return withAdminRedirect($fetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs/${encodeURIComponent(target)}`, {
+      return withAdminRedirect(apiFetch<AdminSyncResponse>(`${apiBase}/api/v1/admin/syncs/${encodeURIComponent(target)}`, {
         method: 'POST',
         credentials: 'include'
       }))
