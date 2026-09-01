@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { AlertTriangle, CalendarDays, CalendarSearch, LoaderCircle, Search, SlidersHorizontal, X } from '@lucide/vue'
-import { fr } from 'date-fns/locale/fr'
+import { AlertTriangle, CalendarSearch, LoaderCircle, Search, SlidersHorizontal, X } from '@lucide/vue'
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
-import { addCalendarDays, calendarDateFromDate, createServiceTimeOptions, dateFromCalendarDate, formatLongDate, todayInParis } from '~/utils/date'
-import { formatOptions } from '~/utils/formats'
+import { createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
+import { formatLabel } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { languageLabel, queryFormatOptions, queryFormatValues, queryLanguageOptions, queryLanguageValues } from '~/utils/showtimeFilters'
 import { filterCompatibleShowtimeResults, parseShowtimeSelection, resultGroupingOptions, resultLayoutOptions, serializeShowtimeSelection, toSlotShowtimeResults, validShowtimeSelectionKeys } from '~/utils/showtimeResults'
 import type { LocationQuery } from 'vue-router'
 
@@ -16,7 +16,6 @@ const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'l
 const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
 const SELECTION_QUERY_KEYS = ['selected'] as const
 const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before'] as const
-const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
 const ADS_BUFFER_MINUTES = 15
@@ -63,7 +62,7 @@ const isFilterSheetOpen = ref(false)
 const filterForm = ref<HTMLFormElement | null>(null)
 const sheetCloseButton = ref<HTMLButtonElement | null>(null)
 const modifierButton = ref<HTMLButtonElement | null>(null)
-const calendarTrigger = ref<HTMLButtonElement | null>(null)
+const dateBar = ref<{ getTriggerElement: () => HTMLButtonElement | null } | null>(null)
 const calendarMenu = ref<HTMLElement | null>(null)
 const resultsRegion = ref<HTMLElement | null>(null)
 const isCalendarOpen = ref(false)
@@ -99,8 +98,8 @@ const activeFilterSummary = computed(() => {
     `${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`,
     search.includeAds ? 'Publicités incluses' : `Publicités exclues · arrivée +${search.bufferAds} min`
   ]
-  if (search.language !== 'ALL') items.push(search.language)
-  if (search.format !== 'ALL') items.push(search.format.replace('_', ' '))
+  if (search.language !== 'ALL') items.push(languageLabel(search.language))
+  if (search.format !== 'ALL') items.push(formatLabel(search.format))
   return items
 })
 const compactFilterSummary = computed(() => {
@@ -113,34 +112,10 @@ const availableDateOptions = computed(() => {
   return [...available].sort()
 })
 const hasAvailableDates = computed(() => availableDateOptions.value.length > 0)
-const tomorrowDate = computed(() => addCalendarDays(todayDate.value, 1))
-const allowedDateValues = computed(() => availableDateOptions.value.map(dateFromCalendarDate).filter((date): date is Date => date !== null))
-const datePickerDate = computed<Date | null>({
-  get: () => dateFromCalendarDate(form.date),
-  set: (value) => {
-    if (!value) return
-    const date = calendarDateFromDate(value)
-    if (availableDateOptions.value.includes(date)) form.date = date
-  }
-})
 const favoriteSummary = computed(() => {
   const count = activeTheaterIds.value.length
   return `${count} cinéma${count > 1 ? 's' : ''} inclus`
 })
-const calendarAriaLabels = {
-  menu: 'Calendrier des dates disponibles',
-  input: 'Choisir une autre date',
-  calendarIcon: 'Ouvrir le calendrier',
-  prevMonth: 'Mois précédent',
-  nextMonth: 'Mois suivant',
-  prevYear: 'Année précédente',
-  nextYear: 'Année suivante',
-  openMonthsOverlay: 'Choisir un mois',
-  openYearsOverlay: 'Choisir une année',
-  monthPicker: (overlay: boolean) => overlay ? 'Fermer le choix du mois' : 'Ouvrir le choix du mois',
-  yearPicker: (overlay: boolean) => overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
-  day: ({ value }: { value: Date }) => `Choisir ${formatLongDate(calendarDateFromDate(value))}`
-}
 let isReady = false
 let lastSearchKey = ''
 let requestId = 0
@@ -159,14 +134,6 @@ interface AppliedSearch {
   format: QueryFormat
   includeAds: boolean
   bufferAds: number
-}
-
-function isDateAvailable(date: string) {
-  return availableDateOptions.value.includes(date)
-}
-
-function selectQuickDate(date: string) {
-  if (isDateAvailable(date)) form.date = date
 }
 
 function parisWallMinutes(now: Date): number {
@@ -347,7 +314,8 @@ function sheetFocusableElements() {
   if (!isCalendarOpen.value || !calendarMenu.value) return formElements
 
   const menuElements = focusableElementsWithin(calendarMenu.value)
-  const triggerIndex = calendarTrigger.value ? formElements.indexOf(calendarTrigger.value) : -1
+  const calendarTrigger = dateBar.value?.getTriggerElement() ?? null
+  const triggerIndex = calendarTrigger ? formElements.indexOf(calendarTrigger) : -1
   if (triggerIndex < 0) return [...formElements, ...menuElements]
   return [...formElements.slice(0, triggerIndex + 1), ...menuElements, ...formElements.slice(triggerIndex + 1)]
 }
@@ -467,8 +435,8 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
     date,
     startAfter,
     finishBefore,
-    language: enumQueryValue(languageValue, LANGUAGES) ?? 'ALL',
-    format: enumQueryValue(formatValue, formatOptions.map((option) => option.value)) ?? 'ALL',
+    language: enumQueryValue(languageValue, queryLanguageValues) ?? 'ALL',
+    format: enumQueryValue(formatValue, queryFormatValues) ?? 'ALL',
     includeAds: includeAdsValue !== '0',
     bufferAds
   }
@@ -673,7 +641,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div class="space-y-5">
           <fieldset :aria-invalid="theaterValidationMessage || preferencesError ? 'true' : undefined" :aria-describedby="theaterValidationMessage || preferencesError ? 'theater-selection-message' : undefined">
             <legend class="float-left mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Cinémas</legend>
-            <NuxtLink to="/cinemas" class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">Gérer mes favoris</NuxtLink>
+             <NuxtLink to="/cinemas" class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">Gérer mes cinémas</NuxtLink>
             <div v-if="preferencesError && !isInitialized" id="theater-selection-message" class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
               <p>{{ preferencesError }}</p>
               <button type="button" class="mt-3 font-semibold underline underline-offset-4" @click="initializePreferences">Réessayer</button>
@@ -688,71 +656,30 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
           <fieldset class="min-w-0">
             <legend class="mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Date de la séance</legend>
-            <div class="grid grid-cols-[1fr_1fr_3rem] gap-2" role="group" aria-label="Choisir la date de la séance">
-              <button
-                type="button"
-                class="h-12 border-2 border-ink px-2 font-mono text-[10px] font-bold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-55"
-                :class="form.date === todayDate ? 'bg-ink text-white shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
-                :disabled="!isDateAvailable(todayDate)"
-                :aria-pressed="form.date === todayDate"
-                @click="selectQuickDate(todayDate)"
-              >
-                Aujourd’hui
-              </button>
-              <button
-                type="button"
-                class="h-12 border-2 border-ink px-2 font-mono text-[10px] font-bold uppercase focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-55"
-                :class="form.date === tomorrowDate ? 'bg-ink text-white shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
-                :disabled="!isDateAvailable(tomorrowDate)"
-                :aria-pressed="form.date === tomorrowDate"
-                @click="selectQuickDate(tomorrowDate)"
-              >
-                Demain
-              </button>
-              <DeferredVueDatePicker
-                :key="isCenteredCalendar ? 'centered' : 'anchored'"
-                v-model="datePickerDate"
-                class="min-w-0"
-                :allowed-dates="allowedDateValues"
-                :aria-labels="calendarAriaLabels"
-                :disabled="!hasAvailableDates"
-                :locale="fr"
-                :time-config="{ enableTimePicker: false }"
-                :transitions="false"
-                :floating="{ arrow: false, offset: 6 }"
-                :ui="{ menu: 'editorial-calendar-menu' }"
-                :centered="isCenteredCalendar"
-                teleport="body"
-                auto-apply
-                arrow-navigation
-                prevent-min-max-navigation
-                @open="isCalendarOpen = true"
-                @closed="isCalendarOpen = false"
-                @menu-mounted="handleCalendarMounted"
-                @menu-unmounted="handleCalendarUnmounted"
-              >
-                <template #trigger>
-                  <button
-                    ref="calendarTrigger"
-                    type="button"
-                    class="flex size-12 items-center justify-center border-2 border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:text-muted disabled:opacity-55"
-                    :class="form.date && form.date !== todayDate && form.date !== tomorrowDate ? 'bg-ink text-white shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
-                    :disabled="!hasAvailableDates"
-                    :aria-label="form.date ? `Choisir une autre date. Date actuelle : ${formatLongDate(form.date)}` : 'Choisir une autre date. Aucune date disponible.'"
-                    :aria-expanded="isCalendarOpen"
-                  >
-                    <CalendarDays :size="19" aria-hidden="true" />
-                  </button>
-                </template>
-              </DeferredVueDatePicker>
-            </div>
+            <ShowtimeDateBar
+              :key="isCenteredCalendar ? 'centered' : 'anchored'"
+              ref="dateBar"
+              :selected-date="form.date"
+              :available-dates="availableDateOptions"
+              :today="todayDate"
+              :disabled="!hasAvailableDates"
+              :centered="isCenteredCalendar"
+              desktop-tabs="today-tomorrow"
+              calendar-position="end"
+              stretch-tabs
+              @select="form.date = $event"
+              @picker-open="isCalendarOpen = true"
+              @picker-closed="isCalendarOpen = false"
+              @menu-mounted="handleCalendarMounted"
+              @menu-unmounted="handleCalendarUnmounted"
+            />
             <p v-if="isInitialized && !hasAvailableDates" class="mt-2 text-sm font-semibold text-ink" role="status">Aucune date de séance disponible pour ces cinémas.</p>
           </fieldset>
 
           <label class="block">
-            <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Technologie</span>
+            <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Format</span>
             <select v-model="form.format" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">
-              <option v-for="option in formatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              <option v-for="option in queryFormatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
 
@@ -761,9 +688,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <label class="block">
             <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Langue</span>
             <select v-model="form.language" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">
-              <option value="ALL">Toutes</option>
-              <option value="VOSTFR">VOSTFR</option>
-              <option value="VF">VF</option>
+              <option v-for="option in queryLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
 
@@ -862,49 +787,3 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
   </main>
 </template>
-
-<style scoped>
-:global(.dp--menu.editorial-calendar-menu) {
-  --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --dp-border-radius: 0;
-  --dp-cell-border-radius: 0;
-  --dp-background-color: #f8f7f2;
-  --dp-text-color: #27272a;
-  --dp-hover-color: #e8e6de;
-  --dp-hover-text-color: #27272a;
-  --dp-hover-icon-color: #27272a;
-  --dp-primary-color: #27272a;
-  --dp-primary-text-color: #fff;
-  --dp-secondary-color: #71717a;
-  --dp-border-color: #27272a;
-  --dp-menu-border-color: #27272a;
-  --dp-border-color-hover: #27272a;
-  --dp-border-color-focus: #27272a;
-  --dp-disabled-color: #e8e6de;
-  --dp-disabled-color-text: #71717a;
-  --dp-icon-color: #27272a;
-  --dp-menu-min-width: 19rem;
-  --dp-font-size: 0.78rem;
-  --dp-common-transition: none;
-  --dp-animation-duration: 0s;
-  border-width: 2px;
-  box-shadow: 6px 6px 0 #27272a;
-}
-
-:global(.editorial-calendar-menu .dp--calendar-header-item),
-:global(.editorial-calendar-menu .dp--month-year-select) {
-  font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-:global(.editorial-calendar-menu .dp--active) {
-  box-shadow: inset 0 -3px 0 var(--color-highlight);
-}
-
-:global(.editorial-calendar-menu .dp--today) {
-  border: 2px solid #991b1b;
-}
-
-</style>

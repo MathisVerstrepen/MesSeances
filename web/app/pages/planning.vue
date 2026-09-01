@@ -2,15 +2,14 @@
 import { AlertTriangle, CalendarDays, LoaderCircle, RefreshCw, Settings2 } from '@lucide/vue'
 import type { Language, QueryFormat, TimelineResponse } from '~/types/api'
 import { formatLongDate, todayInParis } from '~/utils/date'
-import { formatOptions } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { queryFormatOptions, queryFormatValues, queryLanguageOptions, queryLanguageValues } from '~/utils/showtimeFilters'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
 
 const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'mode', 'zoom'] as const
-const LANGUAGES: readonly Language[] = ['ALL', 'VOSTFR', 'VF']
 const MODES: readonly TimelineMode[] = ['theater', 'movie']
 const ZOOMS: readonly string[] = ['15', '30', '60']
 
@@ -93,8 +92,8 @@ function timelineQuery() {
 function hydrateRoute() {
   const queryDate = calendarDate(singularQueryValue(route.query.date))
   date.value = queryDate && queryDate >= today.value ? queryDate : today.value
-  language.value = enumQueryValue(singularQueryValue(route.query.language), LANGUAGES) ?? 'ALL'
-  formatFilter.value = enumQueryValue(singularQueryValue(route.query.format), formatOptions.map((option) => option.value)) ?? 'ALL'
+  language.value = enumQueryValue(singularQueryValue(route.query.language), queryLanguageValues) ?? 'ALL'
+  formatFilter.value = enumQueryValue(singularQueryValue(route.query.format), queryFormatValues) ?? 'ALL'
   mode.value = enumQueryValue(singularQueryValue(route.query.mode), MODES) ?? 'theater'
   const queryZoom = enumQueryValue(singularQueryValue(route.query.zoom), ZOOMS)
   zoom.value = queryZoom === '15' ? 15 : queryZoom === '60' ? 60 : 30
@@ -233,7 +232,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <fieldset class="min-w-0">
           <legend class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Format</legend>
           <div class="flex w-max max-w-full overflow-x-auto border-2 border-ink bg-surface p-[0.2rem] [scrollbar-width:thin]">
-            <button v-for="option in formatOptions" :key="option.value" type="button" class="min-h-9 shrink-0 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" :class="formatFilter === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
+            <button v-for="option in queryFormatOptions" :key="option.value" type="button" class="min-h-9 shrink-0 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" :class="formatFilter === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'" :aria-label="option.label" :aria-pressed="formatFilter === option.value" @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })">
               <BrandLogo v-if="option.brand" :brand="option.brand" decorative :class="formatFilter === option.value ? 'brightness-0 invert' : ''" />
               <span v-else>{{ option.label }}</span>
             </button>
@@ -243,9 +242,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <label class="block">
           <span class="mb-1.5 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Langue</span>
           <select :value="language" class="h-11 min-w-32 rounded-none border-2 border-ink bg-surface pr-8 pl-[0.7rem] text-[0.8rem] font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" @change="updateLanguage">
-            <option value="ALL">Toutes</option>
-            <option value="VOSTFR">VOSTFR</option>
-            <option value="VF">VF</option>
+            <option v-for="option in queryLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
         </label>
 

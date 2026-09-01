@@ -6,12 +6,20 @@ const props = withDefaults(defineProps<{
   selectedDate: string
   allowedDates: string[]
   disabled?: boolean
+  centered?: boolean
+  menuClass?: string
 }>(), {
-  disabled: false
+  disabled: false,
+  centered: false,
+  menuClass: 'editorial-calendar-menu'
 })
 
 const emit = defineEmits<{
   select: [date: string]
+  open: []
+  closed: []
+  menuMounted: [menu: HTMLElement]
+  menuUnmounted: [menu: HTMLElement]
 }>()
 
 const isOpen = ref(false)
@@ -42,6 +50,16 @@ const calendarAriaLabels = {
   yearPicker: (overlay: boolean) => overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
   day: ({ value }: { value: Date }) => `Choisir ${formatLongDate(calendarDateFromDate(value))}`
 }
+
+function handleOpen() {
+  isOpen.value = true
+  emit('open')
+}
+
+function handleClosed() {
+  isOpen.value = false
+  emit('closed')
+}
 </script>
 
 <template>
@@ -55,13 +73,16 @@ const calendarAriaLabels = {
     :time-config="{ enableTimePicker: false }"
     :transitions="false"
     :floating="{ arrow: false, offset: 6 }"
-    :ui="{ menu: 'editorial-calendar-menu' }"
+    :ui="{ menu: menuClass }"
+    :centered="centered"
     teleport="body"
     auto-apply
     arrow-navigation
     prevent-min-max-navigation
-    @open="isOpen = true"
-    @closed="isOpen = false"
+    @open="handleOpen"
+    @closed="handleClosed"
+    @menu-mounted="emit('menuMounted', $event)"
+    @menu-unmounted="emit('menuUnmounted', $event)"
   >
     <template #trigger>
       <slot name="trigger" :is-open="isOpen" :trigger-label="triggerLabel" :disabled="disabled" />

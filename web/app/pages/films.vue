@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { AlertTriangle, CalendarDays, Film, LoaderCircle, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
+import { AlertTriangle, CalendarDays, Film, LoaderCircle, RefreshCw, SlidersHorizontal } from '@lucide/vue'
 import { fr } from 'date-fns/locale/fr'
-import type { CatalogMovie, MoviesResponse, MovieSort } from '~/types/api'
+import type { MoviesResponse, MovieSort } from '~/types/api'
 import { addCalendarDays, calendarDateFromDate, dateFromCalendarDate, formatShortCalendarDate, todayInParis } from '~/utils/date'
 import {
   hasMovieCatalogFilters,
@@ -14,7 +14,7 @@ import {
   serializeMovieCatalogFilters
 } from '~/utils/movieCatalogFilters'
 import type { MovieCatalogFilterDraft, MovieCatalogFilters, MovieDateMode } from '~/utils/movieCatalogFilters'
-import { formatRuntime, formatShowtimeCount } from '~/utils/formats'
+import { movieCatalogSortValues } from '~/utils/movieCatalogPresentation'
 import { enumQueryValue, mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
@@ -22,15 +22,6 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 const PAGE_SIZE = 24
 const DEFAULT_SORT: MovieSort = 'showtimes_desc'
 const LG_MEDIA_QUERY = '(min-width: 1024px)'
-const SORT_OPTIONS = [
-  { value: 'title_asc', label: 'Titre A–Z' },
-  { value: 'title_desc', label: 'Titre Z–A' },
-  { value: 'release_date_desc', label: 'Sorties récentes' },
-  { value: 'runtime_asc', label: 'Durée croissante' },
-  { value: 'runtime_desc', label: 'Durée décroissante' },
-  { value: 'showtimes_desc', label: 'Plus de séances' }
-] as const satisfies readonly { value: MovieSort, label: string }[]
-const SORT_VALUES = SORT_OPTIONS.map((option) => option.value)
 const OWNED_QUERY_KEYS = ['q', 'sort', 'page', 'genres', 'duration', 'date', 'date_to', 'all_theaters'] as const
 const EMPTY_FILTERS: MovieCatalogFilters = { genres: [] }
 const DURATION_OPTIONS = [
@@ -51,7 +42,6 @@ const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const preferences = useCinemaPreferences()
-const searchInput = ref('')
 const appliedSearch = ref('')
 const sort = ref<MovieSort>(DEFAULT_SORT)
 const page = ref(1)
@@ -257,10 +247,9 @@ function hydrateRoute() {
   todayDate.value = todayInParis()
   const rawSearch = singularQueryValue(route.query.q)
   const nextSearch = rawSearch?.trim() ?? ''
-  const nextSort = enumQueryValue(singularQueryValue(route.query.sort), SORT_VALUES) ?? DEFAULT_SORT
+  const nextSort = enumQueryValue(singularQueryValue(route.query.sort), movieCatalogSortValues) ?? DEFAULT_SORT
   const nextPage = positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
   const nextFilters = parseMovieCatalogFilters(route.query, todayDate.value)
-  searchInput.value = nextSearch
   appliedSearch.value = nextSearch
   sort.value = nextSort
   page.value = nextPage
@@ -282,8 +271,7 @@ async function applyRoute() {
   await loadMovies()
 }
 
-function submitSearch() {
-  const nextSearch = searchInput.value.trim()
+function submitSearch(nextSearch: string) {
   const query = filmQuery({ search: nextSearch, page: 1, sort: sort.value, filters: appliedFilters.value })
   if (queriesEqual(route.query, query)) {
     if (errorMessage.value) loadMovies()
@@ -292,9 +280,8 @@ function submitSearch() {
   router.replace({ query })
 }
 
-function changeSort(event: Event) {
-  if (!(event.currentTarget instanceof HTMLSelectElement)) return
-  const nextSort = enumQueryValue(event.currentTarget.value, SORT_VALUES)
+function changeSort(value: MovieSort) {
+  const nextSort = enumQueryValue(value, movieCatalogSortValues)
   if (!nextSort || nextSort === sort.value) return
   router.replace({ query: filmQuery({ search: appliedSearch.value, page: 1, sort: nextSort, filters: appliedFilters.value }) })
 }
@@ -493,33 +480,8 @@ useHead(() => ({
     <section class="border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.075)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.075)_1px,transparent_1px)] bg-[size:28px_28px]">
       <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12">
         <div class="search-workspace border-2 border-ink bg-[#ffcf3f] p-4 shadow-[7px_7px_0_#27272a] sm:p-6">
-          <div class="grid grid-cols-[minmax(0,1fr)_3.25rem] items-end gap-4 lg:grid-cols-[minmax(0,1fr)_14rem_3.25rem] lg:gap-5">
-            <form class="col-span-2 min-w-0 lg:col-span-1" role="search" @submit.prevent="submitSearch">
-              <label class="block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]" for="film-search">Rechercher un film</label>
-              <div class="mt-2 flex min-w-0">
-                <input
-                  id="film-search"
-                  v-model="searchInput"
-                  type="search"
-                  class="h-[3.25rem] min-w-0 flex-1 rounded-none border-2 border-r-0 border-ink bg-surface px-[0.9rem] text-[0.9rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-55"
-                  autocomplete="off"
-                  placeholder="Titre du film"
-                />
-                <button type="submit" class="inline-flex min-h-[3.25rem] shrink-0 items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink px-4 font-mono text-[0.68rem] font-extrabold uppercase tracking-[0.08em] text-white transition-[background-color] duration-150 enabled:hover:bg-primary disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transition-none" :disabled="pending">
-                  <Search :size="19" stroke-width="2.5" aria-hidden="true" />
-                  <span class="hidden sm:inline">Rechercher</span>
-                  <span class="sr-only sm:hidden">Rechercher</span>
-                </button>
-              </div>
-            </form>
-
-            <label class="block min-w-0">
-              <span class="block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]">Trier par</span>
-              <select :value="sort" class="mt-2 h-[3.25rem] w-full rounded-none border-2 border-ink bg-surface px-[0.9rem] text-[0.9rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending" @change="changeSort">
-                <option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-            </label>
-
+          <MovieCatalogControls :search="appliedSearch" :sort="sort" :pending="pending" input-id="film-search" @search="submitSearch" @sort="changeSort">
+            <template #actions>
             <button
               ref="advancedFiltersTrigger"
               type="button"
@@ -534,7 +496,8 @@ useHead(() => ({
               <SlidersHorizontal :size="20" stroke-width="2.5" aria-hidden="true" />
               <span v-if="advancedFilterCount" class="absolute -top-[0.6rem] -right-[0.6rem] inline-flex h-[1.4rem] min-w-[1.4rem] items-center justify-center border-2 border-ink bg-highlight px-[0.2rem] font-mono text-[0.65rem] leading-none font-black text-ink" aria-hidden="true">{{ advancedFilterCount }}</span>
             </button>
-          </div>
+            </template>
+          </MovieCatalogControls>
 
           <form
             v-show="isAdvancedFiltersOpen"
@@ -668,7 +631,7 @@ useHead(() => ({
           </h2>
           <div class="flex shrink-0 items-center gap-3 sm:justify-end">
             <p class="font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
-            <ShareButton />
+            <ShareButton class="shrink-0" />
           </div>
         </div>
 
@@ -698,41 +661,19 @@ useHead(() => ({
         <template v-else>
           <ul class="catalog-grid mt-8 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6" aria-label="Films à l’affiche">
             <li v-for="movie in catalog.items" :key="movie.slug" class="min-w-0">
-              <NuxtLink :to="`/film/${movie.slug}`" class="group block text-ink transition-transform hover:-translate-y-1 focus-visible:ring-offset-4 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
-                <div class="relative aspect-[2/3] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
-                  <PosterImage
-                    :src="movie.poster_url"
-                    :alt="`Affiche de ${movie.title}`"
-                    sizes="(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)"
-                    class="h-full w-full"
-                    image-class="h-full w-full object-cover"
-                    fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
-                    :fallback-icon-size="32"
-                  />
-                </div>
-                <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
-                  <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
-                  <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">{{ formatRuntime(movie.runtime_minutes) }} · {{ formatShowtimeCount(movie.showtime_count ?? 0) }}</span>
-                </div>
-              </NuxtLink>
+              <MovieCatalogCard :movie="movie" :to="`/film/${encodeURIComponent(movie.slug)}`" />
             </li>
           </ul>
 
-          <nav v-if="totalPages > 1" class="pagination mt-14 grid grid-cols-2 items-stretch justify-between gap-4 border-2 border-ink bg-surface p-3 shadow-[6px_6px_0_#27272a] sm:flex sm:flex-row sm:items-center" aria-label="Pagination des films">
-            <span v-if="page <= 1" class="inline-flex min-h-11 cursor-not-allowed items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] opacity-55 transition-[background-color,color] duration-150 motion-reduce:transition-none" aria-disabled="true">
-              ← Précédent
-            </span>
-            <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) }" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] transition-[background-color,color] duration-150 not-aria-disabled:hover:bg-ink not-aria-disabled:hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-55 motion-reduce:transition-none" :aria-disabled="pending || undefined" @click="followPageLink($event, page - 1)">
-              ← Précédent
-            </NuxtLink>
-            <span class="order-first col-span-2 text-center font-mono text-[11px] font-bold uppercase tracking-[0.14em] sm:order-none" aria-live="polite">Page {{ page }} / {{ totalPages }}</span>
-            <span v-if="page >= totalPages" class="inline-flex min-h-11 cursor-not-allowed items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] opacity-55 transition-[background-color,color] duration-150 motion-reduce:transition-none" aria-disabled="true">
-              Suivant →
-            </span>
-            <NuxtLink v-else :to="{ query: filmQuery({ search: appliedSearch, page: page + 1, sort, filters: appliedFilters }) }" class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-[#ffcf3f] px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] transition-[background-color,color] duration-150 not-aria-disabled:hover:bg-ink not-aria-disabled:hover:text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-55 motion-reduce:transition-none" :aria-disabled="pending || undefined" @click="followPageLink($event, page + 1)">
-              Suivant →
-            </NuxtLink>
-          </nav>
+          <MovieCatalogPagination
+            class="films-pagination"
+            :page="page"
+            :total-pages="totalPages"
+            :previous-to="page > 1 ? { query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) } : null"
+            :next-to="page < totalPages ? { query: filmQuery({ search: appliedSearch, page: page + 1, sort, filters: appliedFilters }) } : null"
+            :pending="pending"
+            @navigate="followPageLink"
+          />
         </template>
       </div>
     </section>
@@ -794,6 +735,17 @@ useHead(() => ({
 
 :global(.catalog-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
+}
+
+@media (max-width: 639px) {
+  .films-pagination {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .films-pagination :deep([aria-live='polite']) {
+    grid-column: 1 / -1;
+  }
 }
 
 </style>

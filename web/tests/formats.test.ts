@@ -9,6 +9,10 @@ test('exposes ICE as a text-only showtime and query format', () => {
   assert.equal(isShowtimeFormat('ICE'), true)
 })
 
+test('labels the unfiltered format option explicitly', () => {
+  assert.equal(formatLabel('ALL'), 'Tous les formats')
+})
+
 test('formats movie runtime without changing missing-duration copy', () => {
   assert.equal(formatRuntime(125), '2h 5min')
   assert.equal(formatRuntime(120), '2h')
