@@ -625,11 +625,11 @@ useHead(() => ({
 
         <div ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
 
-        <div v-if="catalog && !pending" class="results-bar mt-10 flex flex-col gap-2 border-y-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-          <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
+        <div v-if="catalog && !pending" class="results-bar mt-10 flex items-center justify-between gap-3 border-y-2 border-ink py-4 sm:items-end sm:gap-6">
+          <h2 class="min-w-0 flex-1 text-xl font-black tracking-[-0.035em] max-sm:truncate sm:text-2xl">
             {{ appliedSearch ? `Résultats pour « ${appliedSearch} »` : 'Tous les films' }}
           </h2>
-          <div class="flex flex-wrap items-center gap-3 sm:justify-end">
+          <div class="flex shrink-0 items-center gap-3 sm:justify-end">
             <p class="font-mono text-[11px] font-bold uppercase tracking-[0.14em]">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
             <ShareButton class="shrink-0" />
           </div>
@@ -666,6 +666,7 @@ useHead(() => ({
           </ul>
 
           <MovieCatalogPagination
+            class="films-pagination"
             :page="page"
             :total-pages="totalPages"
             :previous-to="page > 1 ? { query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) } : null"
@@ -734,6 +735,17 @@ useHead(() => ({
 
 :global(.catalog-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
+}
+
+@media (max-width: 639px) {
+  .films-pagination {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .films-pagination :deep([aria-live='polite']) {
+    grid-column: 1 / -1;
+  }
 }
 
 </style>

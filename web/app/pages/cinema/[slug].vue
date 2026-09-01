@@ -407,8 +407,8 @@ useHead(() => ({
         </div>
 
         <template v-if="currentView === 'showtimes'">
-          <div v-if="availableDates.length || (!pending && !errorMessage && normalizedResults.length)" class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <ShowtimeDateBar v-if="availableDates.length" :selected-date="response.date ?? selectedDate" :available-dates="availableDates" :today="todayInParis()" @select="selectDate" />
+          <div class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <ShowtimeDateBar :selected-date="selectedDate" :available-dates="availableDates" :today="todayInParis()" :disabled="availableDates.length === 0" @select="selectDate" />
             <div v-if="!pending && !errorMessage && normalizedResults.length" class="grid grid-cols-2 border-2 border-ink bg-surface divide-x-2 divide-ink lg:hidden" role="group" aria-label="Réglages d’affichage des séances">
               <ResultSettingMenu id="cinema-mobile-result-grouping" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
               <ResultSettingMenu id="cinema-mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />

@@ -70,6 +70,56 @@ test('date bar limits navigation and roving tabindex to each explicit responsive
   assert.match(dateBarSource, /:allowed-dates="availableDates"/)
 })
 
+test('today and tomorrow tabs stay selectable independently from screening availability', () => {
+  assert.match(dateBarSource, /const tomorrowDate = computed\(\(\) => addCalendarDays\(props\.today, 1\)\)/)
+  assert.match(dateBarSource, /const todayAndTomorrowDates = computed\(\(\) => \[props\.today, tomorrowDate\.value\]\)/)
+  assert.match(dateBarSource, /return mode === 'all' \? props\.availableDates : todayAndTomorrowDates\.value/)
+  assert.doesNotMatch(dateBarSource, /props\.availableDates\.filter\(date => date === props\.today \|\| date === tomorrowDate\.value\)/)
+  assert.doesNotMatch(dateBarSource, /:disabled="[^"]*(?:option|group\.dates)/)
+  assert.doesNotMatch(dateBarSource, /aria-disabled/)
+  assert.match(dateBarSource, /:aria-pressed="selectedDate === option"/)
+  assert.match(dateBarSource, /:aria-selected="selectedDate === option"/)
+  assert.match(dateBarSource, /:tabindex="group\.rovingDate === option \? 0 : -1"/)
+  assert.match(dateBarSource, /@click="emit\('select', option\)"/)
+})
+
+test('date bar preserves two-tab keyboard wrapping and post-selection focus', () => {
+  assert.match(dateBarSource, /event\.key === 'ArrowRight'\) nextIndex = \(index \+ 1\) % dates\.length/)
+  assert.match(dateBarSource, /event\.key === 'ArrowLeft'\) nextIndex = \(index - 1 \+ dates\.length\) % dates\.length/)
+  assert.match(dateBarSource, /event\.key === 'Home'\) nextIndex = 0/)
+  assert.match(dateBarSource, /event\.key === 'End'\) nextIndex = dates\.length - 1/)
+  assert.match(dateBarSource, /emit\('select', nextDate\)[\s\S]*?nextTick\(\(\) => tabs\?\.\[nextIndex\]\?\.focus\(\)\)/)
+})
+
+test('search accepts unavailable quick dates without broadening calendar-date availability', () => {
+  assert.match(searchSource, /addCalendarDays, createServiceTimeOptions, formatLongDate, todayInParis/)
+  assert.match(searchSource, /const quickDateOptions = computed\(\(\) => \[todayDate\.value, addCalendarDays\(todayDate\.value, 1\)\]\)/)
+  assert.match(searchSource, /\(!availableDateOptions\.value\.includes\(date\) && !quickDateOptions\.value\.includes\(date\)\)/)
+  assert.match(searchSource, /const hasValidSelectedDate = computed\(\(\) => Boolean\(calendarDate\(form\.date\)\)\)/)
+  assert.match(searchSource, /:disabled="pending \|\| isLoading \|\| !isInitialized \|\| activeTheaterIds\.length === 0 \|\| !hasValidSelectedDate"/)
+  assert.match(searchSource, /const query = submittedQuery\(search, preserveSelection\)[\s\S]*?await router\.replace\(\{ query \}\)/)
+  assert.match(searchSource, /v-else-if="results\?\.length === 0"[\s\S]*?Aucune séance ne tient entièrement dans ce créneau\./)
+  assert.match(searchSource, /:disabled="!hasAvailableDates"[\s\S]*?desktop-tabs="today-tomorrow"/)
+})
+
+test('cinema keeps route-selected quick tabs visible with empty availability', () => {
+  assert.match(cinemaSource, /const selectedDate = computed\(\(\) => requestedDate\.value \?\? todayInParis\(\)\)/)
+  assert.match(cinemaSource, /<ShowtimeDateBar :selected-date="selectedDate" :available-dates="availableDates" :today="todayInParis\(\)" :disabled="availableDates\.length === 0" @select="selectDate" \/>/)
+  assert.doesNotMatch(cinemaSource, /<ShowtimeDateBar v-if="availableDates\.length"/)
+  assert.match(cinemaSource, /date: date === todayInParis\(\) \? undefined : date/)
+  assert.match(cinemaSource, /v-else-if="normalizedResults\.length === 0"[\s\S]*?Aucune séance à cette date/)
+})
+
+test('planning empty states and film all-date controls remain isolated', () => {
+  assert.match(planningSource, /date\.value = queryDate && queryDate >= today\.value \? queryDate : today\.value/)
+  assert.match(planningSource, /date: selectedDate === today\.value \? undefined : selectedDate/)
+  assert.match(planningSource, /date: date\.value,[\s\S]*?api\.timeline|api\.timeline\(\{[\s\S]*?date: date\.value/)
+  assert.match(planningSource, /Aucune séance pour cette date et cette langue\./)
+  assert.match(filmSource, /<ShowtimeDateBar[^>]*mobile-tabs="all"/)
+  assert.match(filmSource, /<ShowtimeDateBar v-if="hasAvailableDates"[^>]*:available-dates="availableDates"/)
+  assert.equal((filmSource.match(/mobile-tabs="all"/g) ?? []).length, 1)
+})
+
 test('search compacts desktop date tabs while film expands its mobile date tabs', () => {
   assert.match(searchSource, /<ShowtimeDateBar[\s\S]*?desktop-tabs="today-tomorrow"[\s\S]*?calendar-position="end"[\s\S]*?stretch-tabs[\s\S]*?@select="form\.date = \$event"/)
   assert.match(filmSource, /<ShowtimeDateBar[^>]*mobile-tabs="all"[^>]*@select="selectMobileDate"/)
