@@ -15,6 +15,8 @@ const expectSsrSuccess = process.env.EXPECT_SSR_SUCCESS === '1'
 const expectSitemapFixture = process.env.EXPECT_SITEMAP_FIXTURE === '1'
 const API_PAGE_SIZE = 100
 const CATALOG_PAGE_SIZE = 24
+const FIXTURE_INTERNAL_SECRET = 'a'.repeat(64)
+const REQUEST_ID_PATTERN = /^[0-9a-f]{32}$/
 
 assert([expectUpstreamFailure, expectSeoOnlyFailure, expectSsrSuccess, expectSitemapFixture].filter(Boolean).length <= 1, 'EXPECT_UPSTREAM_FAILURE, EXPECT_SEO_ONLY_FAILURE, EXPECT_SSR_SUCCESS, and EXPECT_SITEMAP_FIXTURE are mutually exclusive')
 
@@ -232,8 +234,8 @@ function reservationUrl(showtime) {
   }
 }
 
-async function get(url, accept = 'text/html,application/json') {
-  const response = await fetch(url, { headers: { accept }, redirect: 'manual' })
+async function get(url, accept = 'text/html,application/json', headers = {}) {
+  const response = await fetch(url, { headers: { accept, ...headers }, redirect: 'manual' })
   return { response, body: await response.text() }
 }
 
@@ -388,7 +390,7 @@ async function verifyDiscovery(allCatalog, inventory) {
     const path = new URL(expectedChildren[childIndex]).pathname
     assert(child.response.status === 200, `${path}: expected 200, received ${child.response.status}`)
     assert(child.response.headers.get('content-type')?.toLowerCase() === 'application/xml; charset=utf-8', `${path}: unexpected content type`)
-    assert(child.response.headers.get('cache-control') === 'max-age=300', `${path}: expected Cache-Control max-age=300`)
+    assert(child.response.headers.get('cache-control') === 's-maxage=300, stale-while-revalidate', `${path}: unexpected SWR Cache-Control policy`)
     assert(child.body.endsWith('\n') && child.body.includes('<urlset'), `${path}: invalid URL set`)
   }
   const [filmEntries, cinemaEntries, cityEntries] = childResults.map((child) => sitemapEntries(child.body))
@@ -1301,12 +1303,25 @@ async function verifySitemapFixtureMode() {
   const requests = []
   const mockApi = createServer((request, response) => {
     const target = new URL(request.url ?? '/', 'http://127.0.0.1')
+    const requestId = String(request.headers['x-request-id'] ?? '')
     requestCount++
-    requests.push({ pathname: target.pathname, search: target.search })
+    requests.push({
+      pathname: target.pathname,
+      search: target.search,
+      requestId,
+      authenticated: request.headers['x-messeances-internal-token'] === FIXTURE_INTERNAL_SECRET
+    })
     response.setHeader('content-type', 'application/json; charset=utf-8')
+    if (request.headers['x-messeances-internal-token'] !== FIXTURE_INTERNAL_SECRET || !REQUEST_ID_PATTERN.test(requestId)) {
+      response.statusCode = 401
+      response.end(JSON.stringify({ error: { code: 'unauthorized' } }))
+      return
+    }
     if (!healthy) {
-      response.statusCode = 503
-      response.end(JSON.stringify({ error: { code: 'fixture_unavailable' } }))
+      setTimeout(() => {
+        response.statusCode = 503
+        response.end(JSON.stringify({ error: { code: 'fixture_unavailable' } }))
+      }, 25)
       return
     }
     if (request.method !== 'GET') {
@@ -1346,6 +1361,13 @@ async function verifySitemapFixtureMode() {
       response.end(JSON.stringify(schedule))
       return
     }
+    const bundleMatch = /^\/api\/v1\/internal\/movies\/(film-99100[23])\/showtimes-bundle$/.exec(target.pathname)
+    if (bundleMatch && target.searchParams.get('date') === fixture.richEnded.release_date && target.searchParams.get('city') === 'Paris') {
+      const schedule = fixture.schedules.get(bundleMatch[1])
+      response.statusCode = 200
+      response.end(JSON.stringify({ scoped: schedule, nationwide: schedule }))
+      return
+    }
     response.statusCode = 404
     response.end(JSON.stringify({ error: { code: 'not_found' } }))
   })
@@ -1367,6 +1389,7 @@ async function verifySitemapFixtureMode() {
         NITRO_HOST: '127.0.0.1',
         NITRO_PORT: String(port),
         NUXT_API_BASE: privateApiOrigin,
+        NUXT_INTERNAL_API_SHARED_SECRET: FIXTURE_INTERNAL_SECRET,
         NUXT_PUBLIC_API_BASE: privateApiOrigin,
         NUXT_PUBLIC_SITE_URL: siteUrl
       },
@@ -1386,22 +1409,44 @@ async function verifySitemapFixtureMode() {
     assert(requestCount === 0, 'Sitemap fixture: static index contacted API')
 
     const childPaths = ['/sitemaps/films.xml', '/sitemaps/cinemas.xml', '/sitemaps/cities.xml']
+    const coldRequestCounts = new Map([
+      ['/sitemaps/films.xml', 3],
+      ['/sitemaps/cinemas.xml', 1],
+      ['/sitemaps/cities.xml', 1]
+    ])
+    const successfulRequestCounts = new Map([
+      ['/sitemaps/films.xml', 3],
+      ['/sitemaps/cinemas.xml', 1],
+      ['/sitemaps/cities.xml', 1]
+    ])
     for (const path of childPaths) {
       for (let attempt = 1; attempt <= 2; attempt++) {
         const before = requestCount
-        const failed = await get(`${fixtureWebOrigin}${path}`, 'application/xml')
-        assert(failed.response.status === 503, `Sitemap fixture: ${path} failure attempt ${attempt} returned ${failed.response.status}`)
-        assert(!failed.body.includes('<urlset'), `Sitemap fixture: ${path} failure returned partial URL set`)
-        assert(requestCount > before, `Sitemap fixture: ${path} failure attempt ${attempt} was cached`)
+        const failedPair = await Promise.all([
+          get(`${fixtureWebOrigin}${path}?attempt=${attempt}&variant=one`, 'application/xml'),
+          get(`${fixtureWebOrigin}${path}?attempt=${attempt}&variant=two`, 'application/xml')
+        ])
+        assert(failedPair.every((failed) => failed.response.status === 503), `Sitemap fixture: ${path} failure pair ${attempt} did not return 503`)
+        assert(failedPair.every((failed) => !failed.body.includes('<urlset')), `Sitemap fixture: ${path} failure returned partial URL set`)
+        assert(requestCount - before === coldRequestCounts.get(path), `Sitemap fixture: ${path} cold failure pair ${attempt} was not exactly coalesced`)
+        const responseIds = failedPair.map((failed) => failed.response.headers.get('x-request-id'))
+        assert(responseIds.every((id) => id && REQUEST_ID_PATTERN.test(id)) && new Set(responseIds).size === 2, `Sitemap fixture: ${path} failure response IDs invalid`)
+        const upstreamIds = new Set(requests.slice(before).map((request) => request.requestId))
+        assert(upstreamIds.size === 1 && responseIds.includes([...upstreamIds][0]), `Sitemap fixture: ${path} coalesced upstream request ID not propagated`)
       }
     }
 
     healthy = true
     const successfulChildren = []
     for (const path of childPaths) {
-      const result = await get(`${fixtureWebOrigin}${path}`, 'application/xml')
+      const before = requestCount
+      const result = await get(`${fixtureWebOrigin}${path}?variant=seed`, 'application/xml')
       assert(result.response.status === 200, `Sitemap fixture: ${path} expected 200, received ${result.response.status}`)
-      assert(result.response.headers.get('cache-control') === 'max-age=300', `Sitemap fixture: ${path} cache header mismatch`)
+      assert(result.response.headers.get('cache-control') === 's-maxage=300, stale-while-revalidate', `Sitemap fixture: ${path} cache header mismatch`)
+      const responseId = result.response.headers.get('x-request-id')
+      assert(responseId && REQUEST_ID_PATTERN.test(responseId), `Sitemap fixture: ${path} response request ID invalid`)
+      assert(requestCount - before === successfulRequestCounts.get(path), `Sitemap fixture: ${path} success request count mismatch`)
+      assert(requests.slice(before).every((request) => request.requestId === responseId), `Sitemap fixture: ${path} did not correlate all API calls`)
       successfulChildren.push(result)
     }
     const [films, cinemas, cities] = successfulChildren.map((result) => sitemapEntries(result.body))
@@ -1429,8 +1474,8 @@ async function verifySitemapFixtureMode() {
 
     const afterMisses = requestCount
     await get(`${fixtureWebOrigin}/sitemap.xml`, 'application/xml')
-    for (const path of childPaths) await get(`${fixtureWebOrigin}${path}`, 'application/xml')
-    assert(requestCount === afterMisses, 'Sitemap fixture: cached sitemap success contacted API')
+    for (const path of childPaths) await get(`${fixtureWebOrigin}${path}?variant=cached-query`, 'application/xml')
+    assert(requestCount === afterMisses, 'Sitemap fixture: query variant bypassed cached sitemap success')
 
     for (const path of ['/planning', '/planning?date=2026-01-01', '/recherche', '/recherche?grouping=chronological']) {
       const page = await get(`${fixtureWebOrigin}${path}`)
@@ -1448,7 +1493,9 @@ async function verifySitemapFixtureMode() {
     }
     assert(!films.some((entry) => ['/planning', '/recherche', `/film/${fixture.thinEnded.slug}`].includes(new URL(entry.loc).pathname)), 'Sitemap fixture: excluded utility or thin-film URL present')
     assert(requests.some((request) => request.pathname === '/api/v1/movies') && requests.some((request) => request.pathname === '/api/v1/cities'), 'Sitemap fixture: production API routes were not exercised')
-    console.log(`Crawlability sitemap-fixture checks passed (static index, 3 uncached failure pairs, 3 cached child successes, off-page current-film lastmod, utility noindex, and rich/thin ended-film parity; ${requestCount} API requests).`)
+    assert(requests.every((request) => request.authenticated && REQUEST_ID_PATTERN.test(request.requestId)), 'Sitemap fixture: unauthenticated or uncorrelated API request observed')
+    assert(!JSON.stringify(requests).includes(FIXTURE_INTERNAL_SECRET), 'Sitemap fixture: secret entered captured fixture output')
+    console.log(`Crawlability sitemap-fixture checks passed (static index, 6 coalesced cold-failure pairs, 3 cached SWR child successes, authenticated request correlation, off-page current-film lastmod, utility noindex, and rich/thin ended-film parity; ${requestCount} API requests).`)
   } finally {
     if (child) await stopChild(child)
     if (mockApi.listening) await closeServer(mockApi)
@@ -1468,12 +1515,12 @@ async function stopChild(child) {
   }
 }
 
-async function waitForBuiltPage(url, child, output) {
+async function waitForBuiltPage(url, child, output, headers = {}) {
   let lastError
   for (let attempt = 0; attempt < 100; attempt++) {
     if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Built Nuxt server exited before readiness.\n${output()}`)
     try {
-      return await get(url)
+      return await get(url, 'text/html,application/json', headers)
     } catch (error) {
       lastError = error
       await delay(100)
@@ -1496,9 +1543,20 @@ async function verifySeoOnlyFailureMode() {
   const failureMarker = 'nationwide-seo-only-failure-990001'
   const mockApi = createServer((request, response) => {
     const target = new URL(request.url ?? '/', 'http://127.0.0.1')
-    requests.push({ pathname: target.pathname, query: Object.fromEntries(target.searchParams) })
+    const requestId = String(request.headers['x-request-id'] ?? '')
+    requests.push({
+      pathname: target.pathname,
+      query: Object.fromEntries(target.searchParams),
+      requestId,
+      authenticated: request.headers['x-messeances-internal-token'] === FIXTURE_INTERNAL_SECRET
+    })
     response.setHeader('content-type', 'application/json; charset=utf-8')
-    if (request.method !== 'GET' || target.pathname !== `/api/v1/movies/${schedule.movie.slug}/showtimes`) {
+    if (request.headers['x-messeances-internal-token'] !== FIXTURE_INTERNAL_SECRET || !REQUEST_ID_PATTERN.test(requestId)) {
+      response.statusCode = 401
+      response.end(JSON.stringify({ error: { code: 'unauthorized' } }))
+      return
+    }
+    if (request.method !== 'GET' || target.pathname !== `/api/v1/internal/movies/${schedule.movie.slug}/showtimes-bundle`) {
       response.statusCode = 404
       response.end(JSON.stringify({ error: { code: 'not_found' } }))
       return
@@ -1509,11 +1567,6 @@ async function verifySeoOnlyFailureMode() {
       return
     }
     if (target.searchParams.get('city') === 'Paris' && !target.searchParams.has('theaters')) {
-      response.statusCode = 200
-      response.end(JSON.stringify(schedule))
-      return
-    }
-    if (!target.searchParams.has('city') && !target.searchParams.has('theaters')) {
       response.statusCode = 502
       response.end(JSON.stringify({ error: { code: 'seo_fixture_failure' }, marker: failureMarker }))
       return
@@ -1539,6 +1592,7 @@ async function verifySeoOnlyFailureMode() {
         NITRO_HOST: '127.0.0.1',
         NITRO_PORT: String(port),
         NUXT_API_BASE: privateApiOrigin,
+        NUXT_INTERNAL_API_SHARED_SECRET: FIXTURE_INTERNAL_SECRET,
         NUXT_PUBLIC_API_BASE: privateApiOrigin,
         NUXT_PUBLIC_SITE_URL: siteUrl
       },
@@ -1571,13 +1625,13 @@ async function verifySeoOnlyFailureMode() {
     }
     for (const marker of ['available_dates', 'theaters']) assert(!serializedState.includes(marker), `${path}: schedule structure leaked into failure hydration: ${marker}`)
 
-    const fixtureRequests = requests.filter((request) => request.pathname === `/api/v1/movies/${schedule.movie.slug}/showtimes`)
-    const parisRequests = fixtureRequests.filter((request) => request.query.date === fixtureDate && request.query.city === 'Paris' && request.query.theaters === undefined)
-    const nationwideRequests = fixtureRequests.filter((request) => request.query.date === fixtureDate && request.query.city === undefined && request.query.theaters === undefined)
-    assert(parisRequests.length > 0, 'SEO-only mode did not observe Paris-scoped success request')
-    assert(nationwideRequests.length > 0, 'SEO-only mode did not observe blank-scope nationwide failure request')
-    assert(parisRequests.length + nationwideRequests.length === fixtureRequests.length, 'SEO-only mode observed unexpected movie schedule scope')
-    console.log(`Crawlability SEO-only failure checks passed (Paris 200 x${parisRequests.length} + nationwide 502 x${nationwideRequests.length} -> film HTTP 502; payload ${payloadBytes} bytes; no film graph or schedule payload).`)
+    const fixtureRequests = requests.filter((request) => request.pathname === `/api/v1/internal/movies/${schedule.movie.slug}/showtimes-bundle`)
+    assert(fixtureRequests.length === 1, `SEO-only mode expected one bundle request, received ${fixtureRequests.length}`)
+    assert(fixtureRequests[0].query.date === fixtureDate && fixtureRequests[0].query.city === 'Paris' && fixtureRequests[0].query.theaters === undefined, 'SEO-only mode observed unexpected bundle query')
+    assert(fixtureRequests[0].authenticated && REQUEST_ID_PATTERN.test(fixtureRequests[0].requestId), 'SEO-only mode bundle auth or request ID missing')
+    assert(page.response.headers.get('x-request-id') === fixtureRequests[0].requestId, 'SEO-only mode response/API request ID mismatch')
+    assert(!page.body.includes(FIXTURE_INTERNAL_SECRET) && !JSON.stringify(requests).includes(FIXTURE_INTERNAL_SECRET), 'SEO-only mode exposed fixture secret')
+    console.log(`Crawlability SEO-only failure checks passed (one authenticated bundle 502 -> film HTTP 502; payload ${payloadBytes} bytes; correlated request ID; no film graph, schedule payload, or secret exposure).`)
   } finally {
     if (child) await stopChild(child)
     if (mockApi.listening) await closeServer(mockApi)
@@ -1598,9 +1652,20 @@ async function verifySsrSuccessMode() {
   const requests = []
   const mockApi = createServer((request, response) => {
     const target = new URL(request.url ?? '/', 'http://127.0.0.1')
-    requests.push({ pathname: target.pathname, query: Object.fromEntries(target.searchParams) })
+    const requestId = String(request.headers['x-request-id'] ?? '')
+    requests.push({
+      pathname: target.pathname,
+      query: Object.fromEntries(target.searchParams),
+      requestId,
+      authenticated: request.headers['x-messeances-internal-token'] === FIXTURE_INTERNAL_SECRET
+    })
     response.setHeader('content-type', 'application/json; charset=utf-8')
-    if (request.method !== 'GET' || target.pathname !== `/api/v1/movies/${fixture.movie.slug}/showtimes` || target.searchParams.has('theaters')) {
+    if (request.headers['x-messeances-internal-token'] !== FIXTURE_INTERNAL_SECRET || !REQUEST_ID_PATTERN.test(requestId)) {
+      response.statusCode = 401
+      response.end(JSON.stringify({ error: { code: 'unauthorized' } }))
+      return
+    }
+    if (request.method !== 'GET' || target.pathname !== `/api/v1/internal/movies/${fixture.movie.slug}/showtimes-bundle` || target.searchParams.has('theaters')) {
       response.statusCode = 404
       response.end(JSON.stringify({ error: { code: 'not_found' } }))
       return
@@ -1608,18 +1673,16 @@ async function verifySsrSuccessMode() {
 
     const date = target.searchParams.get('date')
     const city = target.searchParams.get('city')
-    let schedule
-    if (city === 'Paris' && date === fixture.requestedDate) schedule = fixture.initialParis
-    else if (city === 'Paris' && date === fixture.resolvedDate) schedule = fixture.paris
-    else if (city === null && date === fixture.requestedDate) schedule = fixture.initialNationwide
-    else if (city === null && date === fixture.resolvedDate) schedule = fixture.nationwide
-    if (!schedule) {
+    let bundle
+    if (city === 'Paris' && date === fixture.requestedDate) bundle = { scoped: fixture.initialParis, nationwide: fixture.initialNationwide }
+    else if (city === 'Paris' && date === fixture.resolvedDate) bundle = { scoped: fixture.paris, nationwide: fixture.nationwide }
+    if (!bundle) {
       response.statusCode = 400
       response.end(JSON.stringify({ error: { code: 'unexpected_scope_or_date' } }))
       return
     }
     response.statusCode = 200
-    response.end(JSON.stringify(schedule))
+    response.end(JSON.stringify(bundle))
   })
 
   let child
@@ -1639,6 +1702,7 @@ async function verifySsrSuccessMode() {
         NITRO_HOST: '127.0.0.1',
         NITRO_PORT: String(port),
         NUXT_API_BASE: privateApiOrigin,
+        NUXT_INTERNAL_API_SHARED_SECRET: FIXTURE_INTERNAL_SECRET,
         NUXT_PUBLIC_API_BASE: privateApiOrigin,
         NUXT_PUBLIC_SITE_URL: siteUrl
       },
@@ -1648,7 +1712,8 @@ async function verifySsrSuccessMode() {
     child.stderr.on('data', (chunk) => { stderr += chunk })
     const output = () => `${stdout}${stderr}`.trim().slice(-4000)
     const path = `/film/${fixture.movie.slug}`
-    const page = await waitForBuiltPage(`${fixtureWebOrigin}${path}`, child, output)
+    const visitorRequestId = 'f'.repeat(32)
+    const page = await waitForBuiltPage(`${fixtureWebOrigin}${path}`, child, output, { 'X-Request-ID': visitorRequestId })
 
     verifyPolicy(page, path, 'index,follow', `${siteUrl}${path}`)
     const graphEvidence = verifyFilmJsonLd(page.body, fixture.movie, fixture.nationwide, path)
@@ -1670,18 +1735,20 @@ async function verifySsrSuccessMode() {
       assert(!serializedState.includes(marker), `${path}: nationwide-only showtime fact leaked into hydration: ${marker}`)
     }
 
-    const fixtureRequests = requests.filter((request) => request.pathname === `/api/v1/movies/${fixture.movie.slug}/showtimes`)
+    const fixtureRequests = requests.filter((request) => request.pathname === `/api/v1/internal/movies/${fixture.movie.slug}/showtimes-bundle`)
     const expectedRequests = [
       { date: fixture.requestedDate, city: 'Paris' },
-      { date: fixture.requestedDate, city: undefined },
-      { date: fixture.resolvedDate, city: 'Paris' },
-      { date: fixture.resolvedDate, city: undefined }
+      { date: fixture.resolvedDate, city: 'Paris' }
     ]
     for (const expected of expectedRequests) {
-      assert(fixtureRequests.some((request) => request.query.date === expected.date && request.query.city === expected.city && request.query.theaters === undefined), `${path}: missing ${expected.city ?? 'nationwide'} request for ${expected.date}`)
+      assert(fixtureRequests.some((request) => request.query.date === expected.date && request.query.city === expected.city && request.query.theaters === undefined), `${path}: missing bundle request for ${expected.date}`)
     }
-    assert(fixtureRequests.length === expectedRequests.length, `${path}: expected ${expectedRequests.length} scoped/date requests, received ${fixtureRequests.length}`)
-    console.log(`Crawlability SSR-success checks passed (${fixture.requestedDate} -> Paris fallback ${fixture.resolvedDate}; HTTP 200; Paris UI/hydration ${runtimeEvidence.parisTheaters} theater(s)/${runtimeEvidence.parisEvents} event(s); nationwide JSON-LD ${graphEvidence.theaterCount} theater(s)/${graphEvidence.eventCount} event(s), ${graphEvidence.jsonLdBytes} UTF-8 bytes; Nuxt payload ${runtimeEvidence.payloadBytes} bytes; ${runtimeEvidence.nationwideMarkers} nationwide-only identity marker(s) and ${fixture.nationwideEventMarkers.length} showtime fact marker(s) isolated).`)
+    assert(fixtureRequests.length === expectedRequests.length, `${path}: expected ${expectedRequests.length} distinct-date bundle requests, received ${fixtureRequests.length}`)
+    const responseRequestId = page.response.headers.get('x-request-id')
+    assert(responseRequestId && REQUEST_ID_PATTERN.test(responseRequestId) && responseRequestId !== visitorRequestId, `${path}: visitor request ID was trusted or response ID invalid`)
+    assert(fixtureRequests.every((request) => request.authenticated && request.requestId === responseRequestId), `${path}: bundle auth or correlated request ID missing`)
+    assert(!page.body.includes(FIXTURE_INTERNAL_SECRET) && !JSON.stringify(requests).includes(FIXTURE_INTERNAL_SECRET), `${path}: internal secret leaked into response, hydration, or fixture output`)
+    console.log(`Crawlability SSR-success checks passed (${fixture.requestedDate} -> Paris fallback ${fixture.resolvedDate}; 2 authenticated distinct-date bundle requests; fresh correlated request ID; HTTP 200; Paris UI/hydration ${runtimeEvidence.parisTheaters} theater(s)/${runtimeEvidence.parisEvents} event(s); nationwide JSON-LD ${graphEvidence.theaterCount} theater(s)/${graphEvidence.eventCount} event(s), ${graphEvidence.jsonLdBytes} UTF-8 bytes; Nuxt payload ${runtimeEvidence.payloadBytes} bytes; ${runtimeEvidence.nationwideMarkers} nationwide-only identity marker(s) and ${fixture.nationwideEventMarkers.length} showtime fact marker(s) isolated; no secret exposure).`)
   } finally {
     if (child) await stopChild(child)
     if (mockApi.listening) await closeServer(mockApi)

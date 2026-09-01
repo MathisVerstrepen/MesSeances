@@ -223,6 +223,30 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	}
 }
 
+func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
+	secret := strings.Repeat("a", 64)
+	var cfg runtimeconfig.Config
+	cfg.Server.Origin = "http://localhost:3000"
+	cfg.Internal.SharedSecret = secret
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, httpapi.ReadinessOptions{})
+	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Paris"
+
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	request.Header.Set("X-Messeances-Internal-Token", secret)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || !strings.Contains(response.Body.String(), `"code":"schedule_unavailable"`) {
+		t.Fatalf("configured status=%d body=%q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), `"code":"unauthorized"`) {
+		t.Fatalf("missing credential status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
 	options, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil)

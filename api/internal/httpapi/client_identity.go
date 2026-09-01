@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+
+	"messeances/api/internal/observability"
 )
 
 const (
@@ -17,29 +19,38 @@ type clientIdentifier struct {
 	trustedProxyCIDRs []netip.Prefix
 }
 
+type resolvedClientIdentity struct {
+	key      string
+	keyClass observability.RateLimitKeyClass
+}
+
 func newClientIdentifier(trustedProxyCIDRs []netip.Prefix) clientIdentifier {
 	return clientIdentifier{trustedProxyCIDRs: append([]netip.Prefix(nil), trustedProxyCIDRs...)}
 }
 
 func (i clientIdentifier) key(r *http.Request) string {
+	return i.resolve(r).key
+}
+
+func (i clientIdentifier) resolve(r *http.Request) resolvedClientIdentity {
 	peer, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
-		return unknownClientKey
+		return resolvedClientIdentity{key: unknownClientKey, keyClass: observability.RateLimitKeyUnknownPeer}
 	}
 	peerAddr := peer.Addr().Unmap()
 	if !i.trusted(peerAddr) {
-		return peerAddr.String()
+		return resolvedClientIdentity{key: peerAddr.String(), keyClass: observability.RateLimitKeyDirectClient}
 	}
 
 	forwarded, ok := forwardedForAddresses(r.Header.Values("X-Forwarded-For"))
 	if !ok || len(forwarded) == 0 {
-		return peerAddr.String()
+		return resolvedClientIdentity{key: peerAddr.String(), keyClass: observability.RateLimitKeyTrustedPeerFallback}
 	}
 	current := peerAddr
 	for index := len(forwarded) - 1; index >= 0 && i.trusted(current); index-- {
 		current = forwarded[index]
 	}
-	return current.String()
+	return resolvedClientIdentity{key: current.String(), keyClass: observability.RateLimitKeyForwardedClient}
 }
 
 func (i clientIdentifier) trusted(addr netip.Addr) bool {

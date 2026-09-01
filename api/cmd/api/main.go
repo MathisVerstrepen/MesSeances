@@ -396,10 +396,11 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 
 func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, readiness httpapi.ReadinessOptions) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
-		Admin:             adminOptions,
-		Readiness:         readiness,
-		Shortlinks:        shortlinks,
-		TrustedProxyCIDRs: cfg.Server.TrustedProxyCIDRs,
+		Admin:                adminOptions,
+		Readiness:            readiness,
+		Shortlinks:           shortlinks,
+		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
+		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})
 }
 
