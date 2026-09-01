@@ -1,15 +1,21 @@
 import type { MoviesResponse } from '../../../app/types/api'
-import { buildFilmSitemapEntries, renderSitemap, SITEMAP_CACHE_SECONDS, SITEMAP_CATALOG_PAGE_SIZE, validateCatalogPage } from '../../utils/sitemap'
+import { internalApiHeaders } from '../../utils/internalApi'
+import { API_SITEMAP_CACHE_POLICIES, buildFilmSitemapEntries, renderSitemap, SITEMAP_CATALOG_PAGE_SIZE, validateCatalogPage } from '../../utils/sitemap'
 
 export default defineCachedEventHandler(async (event) => {
   const config = useRuntimeConfig(event)
   const apiBase = config.apiBase.replace(/\/$/, '')
+  const headers = internalApiHeaders(event, config.internalApiSharedSecret)
 
   try {
     const fetchAllPage = (page: number) => $fetch<MoviesResponse>(`${apiBase}/api/v1/movies`, {
+      headers,
+      retry: false,
       query: { include_ended: true, sort: 'title_asc', page, page_size: SITEMAP_CATALOG_PAGE_SIZE }
     })
     const fetchCurrentPage = (pageSize: number) => $fetch<MoviesResponse>(`${apiBase}/api/v1/movies`, {
+      headers,
+      retry: false,
       query: { currently_screened: true, sort: 'showtimes_desc', page: 1, page_size: pageSize }
     })
 
@@ -40,4 +46,4 @@ export default defineCachedEventHandler(async (event) => {
   } catch {
     throw createError({ statusCode: 503, statusMessage: 'Sitemap unavailable', message: 'Sitemap unavailable' })
   }
-}, { maxAge: SITEMAP_CACHE_SECONDS, swr: false })
+}, API_SITEMAP_CACHE_POLICIES.films)

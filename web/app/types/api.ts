@@ -612,3 +612,8 @@ export interface MovieShowtimesResponse {
   available_dates: string[]
   theaters: MovieShowtimesTheater[]
 }
+
+export interface MovieShowtimesBundleResponse {
+  scoped: MovieShowtimesResponse
+  nationwide: MovieShowtimesResponse
+}

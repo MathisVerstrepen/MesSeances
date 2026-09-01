@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"reflect"
 	"slices"
 	"strings"
@@ -184,6 +185,105 @@ func TestProbeContracts(t *testing.T) {
 				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestRequestIDValidationGenerationAndResponsePropagation(t *testing.T) {
+	handler := testHandler(t)
+	valid := strings.Repeat("0123456789abcdef", 2)
+	tests := []struct {
+		name    string
+		values  []string
+		want    string
+		replace bool
+	}{
+		{name: "valid", values: []string{valid}, want: valid},
+		{name: "missing", replace: true},
+		{name: "short", values: []string{"abc"}, replace: true},
+		{name: "uppercase", values: []string{strings.ToUpper(valid)}, replace: true},
+		{name: "whitespace", values: []string{" " + valid}, replace: true},
+		{name: "duplicate", values: []string{valid, valid}, replace: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
+			for _, value := range test.values {
+				request.Header.Add(requestIDHeader, value)
+			}
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			got := response.Header().Get(requestIDHeader)
+			if response.Code != http.StatusOK || !lowerHexString(got, 32) || (!test.replace && got != test.want) || (test.replace && got == test.want && test.want != "") {
+				t.Fatalf("status=%d request ID=%q", response.Code, got)
+			}
+		})
+	}
+}
+
+func TestRequestMetadataFlowsToBoundedCompletionLogs(t *testing.T) {
+	requestID := "0123456789abcdef0123456789abcdef"
+	clientAddress := "198.51.100.44"
+	var logs bytes.Buffer
+	handler := testHandlerWithOptions(t, HandlerOptions{
+		Admin:             AdminOptions{Logger: observability.NewLogger(&logs)},
+		TrustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")},
+	})
+	headers := make(http.Header)
+	headers.Set(requestIDHeader, requestID)
+	headers.Set("X-Forwarded-For", clientAddress)
+	headers.Set("Authorization", "Bearer synthetic-authorization")
+	headers.Set("X-Synthetic-Secret", "synthetic-header-value")
+	response := requestFrom(t, handler, http.MethodGet, "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15", "127.0.0.1:4000", headers)
+	output := logs.String()
+	if response.Code != http.StatusOK || response.Header().Get(requestIDHeader) != requestID || !strings.Contains(output, `"request_id":"`+requestID+`"`) || !strings.Contains(output, `"rate_limit_key_class":"forwarded_client"`) {
+		t.Fatalf("status=%d response ID=%q logs=%q", response.Code, response.Header().Get(requestIDHeader), output)
+	}
+	for _, forbidden := range []string{clientAddress, "synthetic-authorization", "synthetic-header-value", "tmdb-film-42", "2026-08-15"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("logs contain forbidden marker %q: %q", forbidden, output)
+		}
+	}
+}
+
+func TestInternalServiceHeaderIsNotBrowserCORSAllowed(t *testing.T) {
+	handler := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: strings.Repeat("a", 64)})
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "/api/v1/movies", nil)
+	request.Header.Set("Origin", "http://localhost:3000")
+	request.Header.Set("Access-Control-Request-Method", http.MethodGet)
+	request.Header.Set("Access-Control-Request-Headers", internalServiceTokenHeader)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if strings.Contains(strings.ToLower(response.Header().Get("Access-Control-Allow-Headers")), strings.ToLower(internalServiceTokenHeader)) || response.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("status=%d allowed headers=%q", response.Code, response.Header().Get("Access-Control-Allow-Headers"))
+	}
+}
+
+func TestInternalMovieShowtimesBundleAuthenticationAndTransport(t *testing.T) {
+	secret := strings.Repeat("a", 64)
+	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Lille"
+	configured := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: secret})
+
+	unauthorized := requestFrom(t, configured, http.MethodGet, target, "192.0.2.10:1234", nil)
+	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Non autorisé.")
+
+	unconfigured := requestFrom(t, testHandler(t), http.MethodGet, target, "192.0.2.10:1234", http.Header{internalServiceTokenHeader: {secret}})
+	assertAPIError(t, unconfigured, http.StatusServiceUnavailable, "internal_service_unavailable", "Service interne indisponible.")
+
+	response := requestFrom(t, configured, http.MethodGet, target, "192.0.2.10:1234", http.Header{internalServiceTokenHeader: {secret}})
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	var payload movieShowtimesBundle
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Scoped.Movie.Slug != "tmdb-film-42" || payload.Nationwide.Movie.Slug != "tmdb-film-42" || len(payload.Scoped.Theaters) != 2 || len(payload.Nationwide.Theaters) != 2 {
+		t.Fatalf("payload=%+v", payload)
+	}
+
+	invalidDate := requestFrom(t, configured, http.MethodGet, "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=invalid&city=Lille", "192.0.2.10:1234", http.Header{internalServiceTokenHeader: {secret}})
+	if invalidDate.Code != http.StatusBadRequest || !strings.Contains(invalidDate.Body.String(), `"code":"invalid_query"`) {
+		t.Fatalf("invalid date status=%d body=%q", invalidDate.Code, invalidDate.Body.String())
 	}
 }
 

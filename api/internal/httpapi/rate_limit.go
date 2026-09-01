@@ -15,6 +15,12 @@ const (
 	expensiveReadRefillRate  = 1.0
 	expensiveReadIdleHorizon = 20 * time.Second
 
+	internalExpensiveReadBurst       = 40
+	internalExpensiveReadRefillRate  = 5.0
+	internalExpensiveReadIdleHorizon = 8 * time.Second
+	internalRateLimitClients         = 1
+	internalRateLimitKey             = "internal-service"
+
 	shortlinkCreationBurst       = 5
 	shortlinkCreationRefillRate  = 1.0 / 144.0
 	shortlinkCreationIdleHorizon = 12 * time.Minute
@@ -97,10 +103,30 @@ func retryAfterSeconds(seconds float64) int {
 	return int(math.Ceil(seconds))
 }
 
-func rateLimit(limiter *tokenBucketLimiter, clients clientIdentifier) func(http.Handler) http.Handler {
+func rateLimit(limiter *tokenBucketLimiter, key func(*http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			allowed, retryAfter := limiter.allow(clients.key(r))
+			allowed, retryAfter := limiter.allow(key(r))
+			if !allowed {
+				w.Header().Set("Cache-Control", "no-store")
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				writeError(w, http.StatusTooManyRequests, "rate_limited", "Trop de requêtes. Réessayez plus tard.")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func expensiveReadRateLimit(public, internal *tokenBucketLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			identity := requestIdentityFromContext(r.Context())
+			limiter, key := public, identity.publicKey
+			if identity.internalService {
+				limiter, key = internal, internalRateLimitKey
+			}
+			allowed, retryAfter := limiter.allow(key)
 			if !allowed {
 				w.Header().Set("Cache-Control", "no-store")
 				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))

@@ -54,6 +54,15 @@ func TestShortlinkCreationProductionPolicy(t *testing.T) {
 	}
 }
 
+func TestInternalExpensiveReadProductionPolicy(t *testing.T) {
+	if internalExpensiveReadBurst != 40 || internalExpensiveReadRefillRate != 5 || internalExpensiveReadIdleHorizon != 8*time.Second || internalRateLimitClients != 1 {
+		t.Fatalf("internal policy burst=%d refill=%f idle=%s clients=%d", internalExpensiveReadBurst, internalExpensiveReadRefillRate, internalExpensiveReadIdleHorizon, internalRateLimitClients)
+	}
+	if refilled := internalExpensiveReadIdleHorizon.Seconds() * internalExpensiveReadRefillRate; refilled != internalExpensiveReadBurst {
+		t.Fatalf("tokens refilled over idle horizon=%f", refilled)
+	}
+}
+
 func TestTokenBucketEvictsIdleEntriesAndRejectsUnseenAtHardCap(t *testing.T) {
 	now := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
 	limiter := newTokenBucketLimiter(1, 1, 2*time.Second, 2, func() time.Time { return now })
@@ -151,6 +160,37 @@ func TestClientIdentifierTrustAndForwardedChain(t *testing.T) {
 	}
 }
 
+func TestClientIdentifierExactTrustedLoopbackClassification(t *testing.T) {
+	identifier := newClientIdentifier([]netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")})
+	tests := []struct {
+		name       string
+		remoteAddr string
+		forwarded  string
+		wantKey    string
+		wantClass  string
+	}{
+		{name: "forwarded client", remoteAddr: "127.0.0.1:4000", forwarded: "198.51.100.20", wantKey: "198.51.100.20", wantClass: "forwarded_client"},
+		{name: "missing forwarded fallback", remoteAddr: "127.0.0.1:4000", wantKey: "127.0.0.1", wantClass: "trusted_peer_fallback"},
+		{name: "malformed forwarded fallback", remoteAddr: "127.0.0.1:4000", forwarded: "not-an-address", wantKey: "127.0.0.1", wantClass: "trusted_peer_fallback"},
+		{name: "other loopback not trusted", remoteAddr: "127.0.0.2:4000", forwarded: "198.51.100.20", wantKey: "127.0.0.2", wantClass: "direct_client"},
+		{name: "IPv6 loopback not trusted", remoteAddr: "[::1]:4000", forwarded: "198.51.100.20", wantKey: "::1", wantClass: "direct_client"},
+		{name: "unknown peer", remoteAddr: "invalid-peer", forwarded: "198.51.100.20", wantKey: unknownClientKey, wantClass: "unknown_peer"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
+			request.RemoteAddr = test.remoteAddr
+			if test.forwarded != "" {
+				request.Header.Set("X-Forwarded-For", test.forwarded)
+			}
+			identity := identifier.resolve(request)
+			if identity.key != test.wantKey || string(identity.keyClass) != test.wantClass {
+				t.Fatalf("identity=%+v want key=%q class=%q", identity, test.wantKey, test.wantClass)
+			}
+		})
+	}
+}
+
 func TestForwardedForParserEnforcesAggregateBytesBeforeBoundedMemberScan(t *testing.T) {
 	address := "198.51.100.1"
 	exactLimit := address + strings.Repeat(" ", maxForwardedForBytes-len(address))
@@ -228,6 +268,79 @@ func TestProtectedRouteMatrixSharesExpensiveReadQuota(t *testing.T) {
 	if created := postShortlinkFrom(t, handler, "http://localhost:3000", `{"target":"/"}`); created.Code != http.StatusCreated {
 		t.Fatalf("creation quota coupled to expensive reads: status=%d body=%q", created.Code, created.Body.String())
 	}
+}
+
+func TestPublicAndInternalExpensiveReadBucketsAreIsolated(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	secret := strings.Repeat("a", 64)
+	handler := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: secret, RateLimitClock: func() time.Time { return now }})
+	publicTarget := "/api/v1/movies?page_size=1"
+	internalTarget := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Lille"
+
+	for request := 0; request < expensiveReadBurst; request++ {
+		if response := requestFrom(t, handler, http.MethodGet, publicTarget, "192.0.2.1:1234", nil); response.Code != http.StatusOK {
+			t.Fatalf("public request=%d status=%d body=%q", request, response.Code, response.Body.String())
+		}
+	}
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, publicTarget, "192.0.2.1:1234", nil), "1")
+
+	internalHeaders := http.Header{internalServiceTokenHeader: {secret}}
+	for request := 0; request < internalExpensiveReadBurst; request++ {
+		if response := requestFrom(t, handler, http.MethodGet, internalTarget, "172.18.0.2:1234", internalHeaders); response.Code != http.StatusOK {
+			t.Fatalf("internal request=%d status=%d body=%q", request, response.Code, response.Body.String())
+		}
+	}
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, internalTarget, "172.18.0.3:1234", internalHeaders), "1")
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, publicTarget, "172.18.0.4:1234", internalHeaders), "1")
+
+	if response := requestFrom(t, handler, http.MethodGet, publicTarget, "192.0.2.2:1234", nil); response.Code != http.StatusOK {
+		t.Fatalf("fresh public client status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
+func TestInvalidInternalCredentialsNeverUseInternalCapacity(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	secret := strings.Repeat("a", 64)
+	handler := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: secret, RateLimitClock: func() time.Time { return now }})
+	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Lille"
+	tests := []struct {
+		name    string
+		headers http.Header
+	}{
+		{name: "missing"},
+		{name: "wrong", headers: http.Header{internalServiceTokenHeader: {strings.Repeat("b", 64)}}},
+		{name: "short", headers: http.Header{internalServiceTokenHeader: {"abc"}}},
+		{name: "whitespace", headers: http.Header{internalServiceTokenHeader: {" " + secret}}},
+		{name: "duplicate", headers: http.Header{internalServiceTokenHeader: {secret, secret}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := requestFrom(t, handler, http.MethodGet, target, "192.0.2.10:1234", test.headers)
+			if response.Code != http.StatusUnauthorized || response.Body.String() != "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Non autorisé.\"}}\n" || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d cache=%q body=%q", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
+			}
+		})
+	}
+
+	validHeaders := http.Header{internalServiceTokenHeader: {secret}}
+	for request := 0; request < internalExpensiveReadBurst; request++ {
+		if response := requestFrom(t, handler, http.MethodGet, target, "192.0.2.10:1234", validHeaders); response.Code != http.StatusOK {
+			t.Fatalf("valid request=%d status=%d", request, response.Code)
+		}
+	}
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, target, "192.0.2.10:1234", validHeaders), "1")
+}
+
+func TestInvalidInternalCredentialOnPublicRouteUsesPublicCapacity(t *testing.T) {
+	now := time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC)
+	handler := testHandlerWithOptions(t, HandlerOptions{InternalSharedSecret: strings.Repeat("a", 64), RateLimitClock: func() time.Time { return now }})
+	headers := http.Header{internalServiceTokenHeader: {strings.Repeat("b", 64)}}
+	for request := 0; request < expensiveReadBurst; request++ {
+		if response := requestFrom(t, handler, http.MethodGet, "/api/v1/movies?page_size=1", "192.0.2.10:1234", headers); response.Code != http.StatusOK {
+			t.Fatalf("request=%d status=%d", request, response.Code)
+		}
+	}
+	assertRateLimited(t, requestFrom(t, handler, http.MethodGet, "/api/v1/movies?page_size=1", "192.0.2.10:1234", headers), "1")
 }
 
 func TestPublicHandlerConstructorsEnableBothLimitersByDefault(t *testing.T) {

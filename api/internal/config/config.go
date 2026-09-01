@@ -34,9 +34,10 @@ type Config struct {
 		Password      string
 		SessionSecret string
 	}
-	TMDB  struct{ Token string }
-	Proxy struct{ Path string }
-	Sync  struct {
+	Internal struct{ SharedSecret string }
+	TMDB     struct{ Token string }
+	Proxy    struct{ Path string }
+	Sync     struct {
 		RequestTimeout           time.Duration
 		KinepolisRequestInterval time.Duration
 		OperationTimeout         time.Duration
@@ -76,8 +77,13 @@ func Load(profile Profile, getenv func(string) string) (Config, error) {
 		if (strings.TrimSpace(password) == "") != (strings.TrimSpace(secret) == "") {
 			return Config{}, configurationError()
 		}
+		internalSharedSecret := getenv("INTERNAL_API_SHARED_SECRET")
+		if internalSharedSecret != "" && !lowerHex(internalSharedSecret, 64) {
+			return Config{}, configurationError()
+		}
 		result.Server.Port, result.Server.Origin, result.Server.TrustedProxyCIDRs = parsedPort, origin, trustedProxyCIDRs
 		result.Admin.Password, result.Admin.SessionSecret = password, secret
+		result.Internal.SharedSecret = internalSharedSecret
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		result.Proxy.Path = strings.TrimSpace(getenv("PROXY_FILE"))
 	case APISync:
@@ -243,6 +249,18 @@ func decimal(value string) bool {
 	}
 	for _, character := range value {
 		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerHex(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
 			return false
 		}
 	}

@@ -5,6 +5,7 @@ import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '
 import { isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
+import { loadInitialFilmSchedule, NationwideInitialScheduleError } from '~/utils/filmInitialSchedule'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
@@ -250,19 +251,8 @@ function formatRoom(room: string): string {
   return roomName ? `Salle ${roomName}` : 'Salle'
 }
 
-type NationwideScheduleResult =
-  | { kind: 'success'; schedule: MovieShowtimesResponse }
-  | { kind: 'error'; error: unknown }
-
 interface NationwideSeoState {
   schedule: MovieShowtimesResponse | null
-}
-
-function normalizeNationwideRequest(request: Promise<MovieShowtimesResponse>): Promise<NationwideScheduleResult> {
-  return request.then(
-    (response) => ({ kind: 'success' as const, schedule: response }),
-    (cause: unknown) => ({ kind: 'error' as const, error: cause })
-  )
 }
 
 async function loadSchedule() {
@@ -397,34 +387,23 @@ hydrateRoute()
 const initialScheduleKey = `${slug.value}|${selectedDate.value}`
 const initialRequestedDate = selectedDate.value
 const nationwideSeo: NationwideSeoState = { schedule: null }
-const initialNationwideResult = import.meta.server
-  ? normalizeNationwideRequest(api.movieShowtimes(slug.value, { date: initialRequestedDate }))
-  : null
 const initialResult = await useAsyncData(`film-schedule:${initialScheduleKey}`, async () => {
   try {
-    let resolvedDate = selectedDate.value
-    let response = await api.movieShowtimes(slug.value, { date: resolvedDate, city: 'Paris' })
-    const responseDates = nonPastAvailableDates(response)
-    const fallback = resolvedAvailableDate(responseDates, resolvedDate)
-    if (!responseDates.includes(resolvedDate) && responseDates.length > 0) {
-      resolvedDate = fallback
-      response = await api.movieShowtimes(slug.value, { date: resolvedDate, city: 'Paris' })
-    } else if (responseDates.length === 0) {
-      resolvedDate = today.value
-    }
-
-    if (import.meta.server) {
-      const nationwideResult = resolvedDate === initialRequestedDate
-        ? await initialNationwideResult!
-        : await normalizeNationwideRequest(api.movieShowtimes(slug.value, { date: resolvedDate }))
-      if (nationwideResult.kind === 'error') {
-        return { kind: 'upstream-error' as const, schedule: null, selectedDate: resolvedDate, errorMessage: getFrenchApiError(nationwideResult.error) }
-      }
-      nationwideSeo.schedule = nationwideResult.schedule
-    }
-
-    return { kind: 'success' as const, schedule: response, selectedDate: resolvedDate, errorMessage: '' }
+    const result = await loadInitialFilmSchedule({
+      requestedDate: initialRequestedDate,
+      today: today.value,
+      fetchScoped: (date) => api.movieShowtimes(slug.value, { date, city: 'Paris' }),
+      fetchNationwide: (date) => api.movieShowtimes(slug.value, { date }),
+      fetchBundle: import.meta.server && api.hasInternalApiIdentity
+        ? (date) => api.movieShowtimesBundle(slug.value, date)
+        : undefined
+    })
+    if (import.meta.server) nationwideSeo.schedule = result.nationwide
+    return { kind: 'success' as const, schedule: result.scoped, selectedDate: result.selectedDate, errorMessage: '' }
   } catch (error) {
+    if (error instanceof NationwideInitialScheduleError) {
+      return { kind: 'upstream-error' as const, schedule: null, selectedDate: error.selectedDate, errorMessage: getFrenchApiError(error.upstreamCause) }
+    }
     if (isNotFoundError(error)) {
       return { kind: 'not-found' as const, schedule: null, selectedDate: selectedDate.value, errorMessage: '' }
     }

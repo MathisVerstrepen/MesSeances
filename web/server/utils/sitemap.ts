@@ -7,6 +7,16 @@ export interface SitemapEntry {
   lastmod: string
 }
 
+interface SitemapCacheKeyInput {
+  path: string
+}
+
+export interface ApiSitemapCachePolicy {
+  readonly maxAge: number
+  readonly swr: true
+  readonly getKey: (event: SitemapCacheKeyInput) => string
+}
+
 interface CatalogPageExpectation {
   page: number
   pageSize: number
@@ -21,6 +31,15 @@ interface ValidatedCityInventory {
 }
 
 export const SITEMAP_CACHE_SECONDS = 300
+export const API_SITEMAP_CACHE_POLICY = Object.freeze({ maxAge: SITEMAP_CACHE_SECONDS, swr: true as const })
+function staticApiSitemapCachePolicy(cacheKey: string): Readonly<ApiSitemapCachePolicy> {
+  return Object.freeze({ ...API_SITEMAP_CACHE_POLICY, getKey: (_event: SitemapCacheKeyInput) => cacheKey })
+}
+export const API_SITEMAP_CACHE_POLICIES = Object.freeze({
+  films: staticApiSitemapCachePolicy('/sitemaps/films.xml'),
+  cinemas: staticApiSitemapCachePolicy('/sitemaps/cinemas.xml'),
+  cities: staticApiSitemapCachePolicy('/sitemaps/cities.xml')
+})
 export const SITEMAP_CATALOG_PAGE_SIZE = 100
 
 function nonblank(value: string | null | undefined): boolean {
