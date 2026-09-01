@@ -179,6 +179,17 @@ func TestParseShowings(t *testing.T) {
 	}
 }
 
+func TestParseShowingsAcceptsEnglishSubtitles(t *testing.T) {
+	body := `<article id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="SUBENG" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></article>`
+	records, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Language != schedule.LanguageVO || records[0].ProviderVersion != "SUBENG" {
+		t.Fatalf("records=%+v", records)
+	}
+}
+
 func TestParseShowingsFailureReasons(t *testing.T) {
 	legacyHeading := `<a data-film="1" title="Film">Film</a>`
 	canonicalHeading := func(href, title string) string {
