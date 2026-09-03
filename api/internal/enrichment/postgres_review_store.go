@@ -118,17 +118,14 @@ WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='
 	if err != nil {
 		return 0, fmt.Errorf("read correction source failed")
 	}
-	if status != StatusMatched || metadataMovieID == replacementID || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime || !updatedAt.Equal(expectedUpdatedAt) {
+	if !validCorrectionSource(status, metadataMovieID, replacementID, normalizedTitle, sourceRuntime, updatedAt, currentTitle, currentRuntime, expectedUpdatedAt, 0) {
 		return 0, ErrReviewConflict
 	}
 	return sourceRuntime, nil
 }
 
 func (s *PostgresStore) CorrectReview(ctx context.Context, sourceProvider, sourceMovieID string, replacementID int64, expectedUpdatedAt time.Time, metadata Metadata, fallbackRuntime int, now time.Time) error {
-	if replacementID <= 0 || expectedUpdatedAt.IsZero() || metadata.ProviderMovieID != replacementID || fallbackRuntime < 0 || fallbackRuntime != 0 && (!validRuntimeMinutes(fallbackRuntime) || metadata.RuntimeMinutes != fallbackRuntime) || now.IsZero() {
-		return fmt.Errorf("invalid review correction")
-	}
-	if err := validateMetadata(metadata); err != nil {
+	if !validCorrectionRequest(replacementID, expectedUpdatedAt, metadata, fallbackRuntime, now) {
 		return fmt.Errorf("invalid review correction")
 	}
 	return s.withWriteTransaction(ctx, "begin review correction failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
@@ -151,7 +148,7 @@ WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='
 		if err != nil {
 			return nil, fmt.Errorf("lock correction source failed")
 		}
-		if status != StatusMatched || metadataMovieID == replacementID || NormalizeTitle(currentTitle) != normalizedTitle || currentRuntime != sourceRuntime || !updatedAt.Equal(expectedUpdatedAt) || fallbackRuntime != 0 && sourceRuntime != fallbackRuntime {
+		if !validCorrectionSource(status, metadataMovieID, replacementID, normalizedTitle, sourceRuntime, updatedAt, currentTitle, currentRuntime, expectedUpdatedAt, fallbackRuntime) {
 			return nil, ErrReviewConflict
 		}
 		if err := writeMetadata(ctx, tx, metadata); err != nil {
@@ -206,10 +203,7 @@ WHERE mm.source_provider=$1 AND mm.source_movie_id=$2 AND mm.metadata_provider='
 }
 
 func (s *PostgresStore) ApproveReview(ctx context.Context, sourceProvider, sourceMovieID string, candidateID int64, metadata Metadata, fallbackRuntime int, now time.Time) error {
-	if metadata.ProviderMovieID != candidateID || fallbackRuntime < 0 || fallbackRuntime != 0 && (!validRuntimeMinutes(fallbackRuntime) || metadata.RuntimeMinutes != fallbackRuntime) || now.IsZero() {
-		return fmt.Errorf("invalid review approval")
-	}
-	if err := validateMetadata(metadata); err != nil {
+	if !validApprovalRequest(candidateID, metadata, fallbackRuntime, now) {
 		return fmt.Errorf("invalid review approval")
 	}
 	return s.withWriteTransaction(ctx, "begin review approval failed", func(ctx context.Context, tx pgx.Tx, _ int64) (*writeFinalization, error) {
@@ -253,6 +247,36 @@ VALUES ($1,$2,'tmdb','matched',$3,$4,$5,$6,$7,$8,$9,$8) ON CONFLICT DO NOTHING`,
 			mapCommitError: func(error) error { return fmt.Errorf("commit reviewed match failed") },
 		}, nil
 	})
+}
+
+func validCorrectionRequest(replacementID int64, expectedUpdatedAt time.Time, metadata Metadata, fallbackRuntime int, now time.Time) bool {
+	return replacementID > 0 &&
+		!expectedUpdatedAt.IsZero() &&
+		metadata.ProviderMovieID == replacementID &&
+		validReviewRuntime(metadata.RuntimeMinutes, fallbackRuntime) &&
+		!now.IsZero() &&
+		validateMetadata(metadata) == nil
+}
+
+func validApprovalRequest(candidateID int64, metadata Metadata, fallbackRuntime int, now time.Time) bool {
+	return metadata.ProviderMovieID == candidateID &&
+		validReviewRuntime(metadata.RuntimeMinutes, fallbackRuntime) &&
+		!now.IsZero() &&
+		validateMetadata(metadata) == nil
+}
+
+func validReviewRuntime(metadataRuntime, fallbackRuntime int) bool {
+	return fallbackRuntime >= 0 &&
+		(fallbackRuntime == 0 || validRuntimeMinutes(fallbackRuntime) && metadataRuntime == fallbackRuntime)
+}
+
+func validCorrectionSource(status string, metadataMovieID, replacementID int64, normalizedTitle string, sourceRuntime int, updatedAt time.Time, currentTitle string, currentRuntime int, expectedUpdatedAt time.Time, fallbackRuntime int) bool {
+	return status == StatusMatched &&
+		metadataMovieID != replacementID &&
+		NormalizeTitle(currentTitle) == normalizedTitle &&
+		currentRuntime == sourceRuntime &&
+		updatedAt.Equal(expectedUpdatedAt) &&
+		(fallbackRuntime == 0 || sourceRuntime == fallbackRuntime)
 }
 
 func (s *PostgresStore) RejectReview(ctx context.Context, sourceProvider, sourceMovieID string, now time.Time) error {
