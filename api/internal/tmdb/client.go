@@ -52,6 +52,25 @@ type video struct {
 	Official bool   `json:"official"`
 }
 
+type movieDetailsResponse struct {
+	ID               int64  `json:"id"`
+	IMDBID           string `json:"imdb_id"`
+	Title            string `json:"title"`
+	OriginalTitle    string `json:"original_title"`
+	OriginalLanguage string `json:"original_language"`
+	Overview         string `json:"overview"`
+	ReleaseDate      string `json:"release_date"`
+	PosterPath       string `json:"poster_path"`
+	BackdropPath     string `json:"backdrop_path"`
+	Runtime          int    `json:"runtime"`
+	Genres           []struct {
+		Name string `json:"name"`
+	} `json:"genres"`
+	Videos struct {
+		Results []video `json:"results"`
+	} `json:"videos"`
+}
+
 type Config struct {
 	HTTPClient      *http.Client
 	BaseURL         string
@@ -163,24 +182,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	if id <= 0 {
 		return Details{}, fmt.Errorf("tmdb movie ID is invalid")
 	}
-	var response struct {
-		ID               int64  `json:"id"`
-		IMDBID           string `json:"imdb_id"`
-		Title            string `json:"title"`
-		OriginalTitle    string `json:"original_title"`
-		OriginalLanguage string `json:"original_language"`
-		Overview         string `json:"overview"`
-		ReleaseDate      string `json:"release_date"`
-		PosterPath       string `json:"poster_path"`
-		BackdropPath     string `json:"backdrop_path"`
-		Runtime          int    `json:"runtime"`
-		Genres           []struct {
-			Name string `json:"name"`
-		} `json:"genres"`
-		Videos struct {
-			Results []video `json:"results"`
-		} `json:"videos"`
-	}
+	var response movieDetailsResponse
 	query := url.Values{
 		"append_to_response":     {"videos"},
 		"include_video_language": {"fr"},
@@ -189,7 +191,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	if err := c.get(ctx, "/3/movie/"+strconv.FormatInt(id, 10), query, &response); err != nil {
 		return Details{}, err
 	}
-	if response.ID != id || response.IMDBID != "" && !validIMDBID(response.IMDBID) || !validText(response.Title, 1024) || !validText(response.OriginalTitle, 1024) || !validOriginalLanguage(response.OriginalLanguage) || response.Runtime < 0 || response.Runtime > 600 || len(response.Overview) > 10000 {
+	if !validMovieDetailsResponse(response, id) {
 		return Details{}, fmt.Errorf("tmdb movie response is invalid")
 	}
 	if response.ReleaseDate != "" {
@@ -242,6 +244,17 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 		details.BackdropURL = backdropURL
 	}
 	return details, nil
+}
+
+func validMovieDetailsResponse(response movieDetailsResponse, expectedID int64) bool {
+	return response.ID == expectedID &&
+		(response.IMDBID == "" || validIMDBID(response.IMDBID)) &&
+		validText(response.Title, 1024) &&
+		validText(response.OriginalTitle, 1024) &&
+		validOriginalLanguage(response.OriginalLanguage) &&
+		response.Runtime >= 0 &&
+		response.Runtime <= 600 &&
+		len(response.Overview) <= 10000
 }
 
 func selectTrailerYouTubeKey(videos []video, language string) string {
