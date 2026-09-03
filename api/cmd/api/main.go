@@ -180,85 +180,34 @@ func run(ctx context.Context) error {
 	if err := runStore.PurgeTerminalBefore(startupCtx, time.Now().UTC().Add(-synccontrol.TerminalRunRetentionPeriod)); err != nil {
 		return fmt.Errorf("sync run retention startup failed")
 	}
-	store := schedulepg.NewStore(pool)
-	source, err := schedule.NewPostgresSource(startupCtx, store, schedule.SourceOptions{Logger: logger, Observer: metrics})
+	schedules, err := newScheduleRuntime(startupCtx, pool, logger, metrics)
 	if err != nil {
-		return fmt.Errorf("schedule snapshot startup failed")
+		return err
 	}
-	service, err := schedule.NewService(source, newProductionScheduleOptions())
-	if err != nil {
-		return fmt.Errorf("schedule service startup failed")
-	}
-	enrichmentStore := enrichment.NewPostgresStore(pool)
 	workerCtx, stopWorkers := context.WithCancel(ctx)
-	defer stopWorkers()
-	var enrichmentProvider enrichment.Provider
-	if cfg.TMDB.Token != "" {
-		tmdbClient, err := tmdb.NewClient(cfg.TMDB.Token)
-		if err != nil {
-			return fmt.Errorf("TMDB configuration is invalid")
-		}
-		enrichmentProvider = tmdbClient
-	}
-	adminOptions, metadataRefreshManager, err := newAdminOptions(workerCtx, cfg.Admin.Password, cfg.Admin.SessionSecret, enrichmentStore, enrichmentProvider)
-	if err != nil {
-		return fmt.Errorf("TMDB metadata refresh configuration is invalid")
-	}
-	adminOptions.TheaterLocations = newTheaterLocationController(pool, time.Now)
-	adminOptions.Logger = logger
-	adminOptions.Metrics = metrics
-	geocodingManager, err := newTheaterGeocodingManager(workerCtx, pool, time.Now)
-	if err != nil {
-		return fmt.Errorf("geocoding configuration is invalid")
-	}
-	defer geocodingManager.Close()
-	adminOptions.TheaterGeocoding = geocodingManager
-	var syncManager httpapi.SyncController
-	var concreteSyncManager *synccontrol.Manager
-	var syncScheduler *syncschedule.Service
-	if len(proxies) != 0 {
-		var enrich synccontrol.EnrichFunc
-		if enrichmentProvider != nil {
-			enrich = func(ctx context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
-				summary, err := enrichment.NewMatcher(enrichmentStore, enrichmentProvider, time.Now).Run(ctx, movies)
-				return &summary, err
-			}
-		}
-		executor, err := synccontrol.NewProductionExecutor(newSyncExecutorOptions(store, proxies, syncConfig, enrich, time.Now, logger, metrics))
-		if err != nil {
-			return fmt.Errorf("sync configuration is invalid")
-		}
-		manager, err := synccontrol.NewManager(workerCtx, time.Now, executor, runStore, synccontrol.NewPostgresRunLocker(pool))
-		if err != nil {
-			return fmt.Errorf("sync configuration is invalid")
-		}
-		concreteSyncManager = manager
-		syncManager = manager
-	}
-	if concreteSyncManager != nil || metadataRefreshManager != nil {
-		scheduleStore := syncschedule.NewPostgresStore(pool)
-		starter := syncScheduleStarter{providers: concreteSyncManager, metadata: metadataRefreshManager, claimer: scheduleStore}
-		scheduler, err := syncschedule.NewService(scheduleStore, starter)
-		if err != nil {
-			if concreteSyncManager != nil {
-				concreteSyncManager.Close()
-			}
-			return fmt.Errorf("sync schedule configuration is invalid")
-		}
-		if err := scheduler.Start(workerCtx); err != nil {
-			scheduler.Close()
-			if concreteSyncManager != nil {
-				concreteSyncManager.Close()
-			}
-			return fmt.Errorf("sync schedule configuration is invalid")
-		}
-		syncScheduler = scheduler
-	}
 	var polling sync.WaitGroup
+	var admin adminRuntime
+	var syncs syncRuntime
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			shutdownWorkers(stopWorkers, syncs.scheduler, syncs.manager, admin.geocodingManager, admin.metadataRefreshManager, &polling)
+		})
+	}
+	defer cleanup()
+
+	admin, err = newAdminRuntime(workerCtx, pool, cfg, logger, metrics)
+	if err != nil {
+		return err
+	}
+	syncs, err = newSyncRuntime(workerCtx, pool, schedules.store, runStore, proxies, syncConfig, admin, logger, metrics)
+	if err != nil {
+		return err
+	}
 	polling.Add(3)
 	go func() {
 		defer polling.Done()
-		source.Run(workerCtx)
+		schedules.source.Run(workerCtx)
 	}()
 	go func() {
 		defer polling.Done()
@@ -268,22 +217,15 @@ func run(ctx context.Context) error {
 		defer polling.Done()
 		runShortlinkRetention(workerCtx, shortlinkStore, logger, time.Now)
 	}()
-	var cleanupOnce sync.Once
-	cleanup := func() {
-		cleanupOnce.Do(func() {
-			shutdownWorkers(stopWorkers, syncScheduler, concreteSyncManager, geocodingManager, metadataRefreshManager, &polling)
-		})
-	}
-	defer cleanup()
-	adminOptions.Syncs = syncManager
-	adminOptions.SyncSchedules = syncScheduler
+	admin.options.Syncs = syncs.controller
+	admin.options.SyncSchedules = syncs.scheduler
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: newAPIHandler(service, cfg, adminOptions, shortlinkService, httpapi.ReadinessOptions{
-			Schedule:  source,
+		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, httpapi.ReadinessOptions{
+			Schedule:  schedules.source,
 			Database:  pool,
-			Revisions: store,
+			Revisions: schedules.store,
 		}),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
@@ -293,6 +235,117 @@ func run(ctx context.Context) error {
 	}
 	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
+}
+
+type scheduleRuntime struct {
+	store   *schedulepg.Store
+	source  *schedule.PostgresSource
+	service *schedule.Service
+}
+
+func newScheduleRuntime(ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, metrics *observability.Metrics) (scheduleRuntime, error) {
+	store := schedulepg.NewStore(pool)
+	source, err := schedule.NewPostgresSource(ctx, store, schedule.SourceOptions{Logger: logger, Observer: metrics})
+	if err != nil {
+		return scheduleRuntime{}, fmt.Errorf("schedule snapshot startup failed")
+	}
+	service, err := schedule.NewService(source, newProductionScheduleOptions())
+	if err != nil {
+		return scheduleRuntime{}, fmt.Errorf("schedule service startup failed")
+	}
+	return scheduleRuntime{store: store, source: source, service: service}, nil
+}
+
+type adminRuntime struct {
+	options                httpapi.AdminOptions
+	enrichmentStore        *enrichment.PostgresStore
+	enrichmentProvider     enrichment.Provider
+	metadataRefreshManager *enrichment.MetadataRefreshManager
+	geocodingManager       *geocoding.Manager
+}
+
+func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.Config, logger *slog.Logger, metrics *observability.Metrics) (adminRuntime, error) {
+	store := enrichment.NewPostgresStore(pool)
+	var provider enrichment.Provider
+	if cfg.TMDB.Token != "" {
+		client, err := tmdb.NewClient(cfg.TMDB.Token)
+		if err != nil {
+			return adminRuntime{}, fmt.Errorf("TMDB configuration is invalid")
+		}
+		provider = client
+	}
+	options, metadataRefreshManager, err := newAdminOptions(ctx, cfg.Admin.Password, cfg.Admin.SessionSecret, store, provider)
+	if err != nil {
+		return adminRuntime{}, fmt.Errorf("TMDB metadata refresh configuration is invalid")
+	}
+	geocodingManager, err := newTheaterGeocodingManager(ctx, pool, time.Now)
+	if err != nil {
+		if metadataRefreshManager != nil {
+			metadataRefreshManager.Close()
+		}
+		return adminRuntime{}, fmt.Errorf("geocoding configuration is invalid")
+	}
+	options.TheaterLocations = newTheaterLocationController(pool, time.Now)
+	options.TheaterGeocoding = geocodingManager
+	options.Logger = logger
+	options.Metrics = metrics
+	return adminRuntime{
+		options:                options,
+		enrichmentStore:        store,
+		enrichmentProvider:     provider,
+		metadataRefreshManager: metadataRefreshManager,
+		geocodingManager:       geocodingManager,
+	}, nil
+}
+
+type syncRuntime struct {
+	controller httpapi.SyncController
+	manager    *synccontrol.Manager
+	scheduler  *syncschedule.Service
+}
+
+func newSyncRuntime(ctx context.Context, pool *pgxpool.Pool, store *schedulepg.Store, runStore *synccontrol.PostgresRunStore, proxies []syncproxy.Proxy, cfg runtimeconfig.Config, admin adminRuntime, logger *slog.Logger, metrics *observability.Metrics) (syncRuntime, error) {
+	var runtime syncRuntime
+	if len(proxies) != 0 {
+		var enrich synccontrol.EnrichFunc
+		if admin.enrichmentProvider != nil {
+			enrich = func(ctx context.Context, movies []enrichment.Movie) (*enrichment.Summary, error) {
+				summary, err := enrichment.NewMatcher(admin.enrichmentStore, admin.enrichmentProvider, time.Now).Run(ctx, movies)
+				return &summary, err
+			}
+		}
+		executor, err := synccontrol.NewProductionExecutor(newSyncExecutorOptions(store, proxies, cfg, enrich, time.Now, logger, metrics))
+		if err != nil {
+			return syncRuntime{}, fmt.Errorf("sync configuration is invalid")
+		}
+		manager, err := synccontrol.NewManager(ctx, time.Now, executor, runStore, synccontrol.NewPostgresRunLocker(pool))
+		if err != nil {
+			return syncRuntime{}, fmt.Errorf("sync configuration is invalid")
+		}
+		runtime.controller = manager
+		runtime.manager = manager
+	}
+	if runtime.manager == nil && admin.metadataRefreshManager == nil {
+		return runtime, nil
+	}
+	scheduleStore := syncschedule.NewPostgresStore(pool)
+	starter := syncScheduleStarter{providers: runtime.manager, metadata: admin.metadataRefreshManager, claimer: scheduleStore}
+	scheduler, err := syncschedule.NewService(scheduleStore, starter)
+	if err != nil {
+		if runtime.manager != nil {
+			runtime.manager.Close()
+		}
+		return syncRuntime{}, fmt.Errorf("sync schedule configuration is invalid")
+	}
+	if err := scheduler.Start(ctx); err != nil {
+		scheduler.Close()
+		if runtime.manager != nil {
+			runtime.manager.Close()
+		}
+		return syncRuntime{}, fmt.Errorf("sync schedule configuration is invalid")
+	}
+	runtime.scheduler = scheduler
+	return runtime, nil
 }
 
 func newProductionScheduleOptions() schedule.ServiceOptions {
