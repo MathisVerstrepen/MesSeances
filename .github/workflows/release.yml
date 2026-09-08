@@ -48,6 +48,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -69,6 +70,8 @@ jobs:
           [[ "$HEAD_FORK" == false ]]
           [[ "$HEAD_SHA" =~ $sha_pattern ]]
           [[ "$MERGE_SHA" =~ $sha_pattern ]]
+          [[ "$WORKFLOW_SHA" =~ $sha_pattern ]]
+          [[ "$WORKFLOW_SHA" == "$MERGE_SHA" ]]
 
           pr_json="$(gh api "repos/$EVENT_REPOSITORY/pulls/$PR_NUMBER")"
           jq -e \
@@ -94,16 +97,6 @@ jobs:
             '.name == "main" and .protected == true and .commit.sha == $merge_sha' \
             >/dev/null <<<"$main_json"
 
-          tool_path=base-automation/scripts/release_automation.py
-          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
-            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
-            printf 'pre-merge base release tooling is not a regular file\n' >&2
-            exit 1
-          fi
-
           printf 'source=merge\nref=%s\n' "$MERGE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Check out selected release automation
@@ -117,7 +110,6 @@ jobs:
         env:
           AUTOMATION_REF: ${{ steps.automation.outputs.ref }}
           AUTOMATION_SOURCE: ${{ steps.automation.outputs.source }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         shell: bash
         run: |
@@ -126,11 +118,8 @@ jobs:
           [[ "$(git -C release-automation rev-parse HEAD)" == "$AUTOMATION_REF" ]]
           [[ -f release-automation/scripts/release_automation.py ]]
           [[ ! -L release-automation/scripts/release_automation.py ]]
-          case "$AUTOMATION_SOURCE" in
-            base) [[ "$AUTOMATION_REF" == "$BASE_SHA" ]] ;;
-            merge) [[ "$AUTOMATION_REF" == "$MERGE_SHA" ]] ;;
-            *) exit 1 ;;
-          esac
+          [[ "$AUTOMATION_SOURCE" == merge ]]
+          [[ "$AUTOMATION_REF" == "$MERGE_SHA" ]]
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -250,6 +239,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -271,6 +261,8 @@ jobs:
           [[ "$HEAD_FORK" == false ]]
           [[ "$HEAD_SHA" =~ $sha_pattern ]]
           [[ "$MERGE_SHA" =~ $sha_pattern ]]
+          [[ "$WORKFLOW_SHA" =~ $sha_pattern ]]
+          [[ "$WORKFLOW_SHA" == "$MERGE_SHA" ]]
 
           pr_json="$(gh api "repos/$EVENT_REPOSITORY/pulls/$PR_NUMBER")"
           jq -e \
@@ -296,16 +288,6 @@ jobs:
             '.name == "main" and .protected == true and .commit.sha == $merge_sha' \
             >/dev/null <<<"$main_json"
 
-          tool_path=base-automation/scripts/release_automation.py
-          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
-            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
-            printf 'pre-merge base release tooling is not a regular file\n' >&2
-            exit 1
-          fi
-
           printf 'source=merge\nref=%s\n' "$MERGE_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Check out selected release automation
@@ -319,7 +301,6 @@ jobs:
         env:
           AUTOMATION_REF: ${{ steps.automation.outputs.ref }}
           AUTOMATION_SOURCE: ${{ steps.automation.outputs.source }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         shell: bash
         run: |
@@ -328,11 +309,8 @@ jobs:
           [[ "$(git -C release-automation rev-parse HEAD)" == "$AUTOMATION_REF" ]]
           [[ -f release-automation/scripts/release_automation.py ]]
           [[ ! -L release-automation/scripts/release_automation.py ]]
-          case "$AUTOMATION_SOURCE" in
-            base) [[ "$AUTOMATION_REF" == "$BASE_SHA" ]] ;;
-            merge) [[ "$AUTOMATION_REF" == "$MERGE_SHA" ]] ;;
-            *) exit 1 ;;
-          esac
+          [[ "$AUTOMATION_SOURCE" == merge ]]
+          [[ "$AUTOMATION_REF" == "$MERGE_SHA" ]]
 
       - name: Set up Python
         uses: actions/setup-python@v6

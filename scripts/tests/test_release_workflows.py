@@ -1,6 +1,7 @@
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +14,17 @@ BASE_SHA = "a" * 40
 HEAD_SHA = "b" * 40
 MERGE_SHA = "c" * 40
 REPOSITORY = "MathisVerstrepen/MesSeances"
+LEGACY_TOOL = '''import argparse
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    publish = commands.add_parser("publish")
+    publish.add_argument("--repository", required=True)
+    publish.add_argument("--pull-request-number", required=True, type=int)
+    parser.parse_args(argv)
+    raise AssertionError("legacy publication must not execute")
+'''
 
 
 def step_scripts(workflow: str, step_name: str) -> list[str]:
@@ -75,6 +87,8 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
         self.assertEqual(selectors[0], selectors[1])
         selector = selectors[0]
         self.assertNotIn("source=head", workflow)
+        self.assertNotIn("source=base", workflow)
+        self.assertNotIn("tool_path=base-automation", selector)
         assert_order(
             self,
             selector,
@@ -83,15 +97,13 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
             '[[ "$BASE_REF" == main ]]',
             '[[ "$HEAD_REF" == dev ]]',
             '[[ "$HEAD_FORK" == false ]]',
+            '[[ "$WORKFLOW_SHA" =~ $sha_pattern ]]',
+            '[[ "$WORKFLOW_SHA" == "$MERGE_SHA" ]]',
             'pr_json="$(gh api',
             '.base.sha == $base_sha and .head.sha == $head_sha',
             '.merge_commit_sha == $merge_sha',
             'main_json="$(gh api',
             '.protected == true and .commit.sha == $merge_sha',
-            'if [[ -f "$tool_path" && ! -L "$tool_path" ]]',
-            "printf 'source=base",
-            "exit 0",
-            'if [[ -e "$tool_path" || -L "$tool_path" ]]',
             "printf 'source=merge",
         )
         self.assertEqual(
@@ -106,6 +118,8 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
             workflow.split("  promote:\n", 1)[1],
         )
         for section in sections:
+            self.assertIn("WORKFLOW_SHA: ${{ github.workflow_sha }}", section)
+            self.assertEqual(section.count("persist-credentials: false"), 2)
             assert_order(
                 self,
                 section,
@@ -218,7 +232,7 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
 class SelectorExecutionTests(unittest.TestCase):
     """Run actual workflow Bash with no possible access to real git/gh credentials."""
 
-    def run_script(self, script, *, privileged=True, tool="regular", changes=None,
+    def run_script(self, script, *, privileged=True, tool="regular", selected_tool="regular", changes=None,
                    pr_changes=None, main_changes=None, api_failure="", raw_pr=None,
                    raw_main=None):
         with tempfile.TemporaryDirectory() as directory:
@@ -253,20 +267,53 @@ case "$2" in
   *) exit 93 ;;
 esac
 ''',
+                "python": f'''#!{sys.executable}
+import importlib.util
+import json
+import os
+import sys
+from unittest import mock
+
+def record(value):
+    with open(os.environ["CALLS"], "a") as calls:
+        calls.write(value + "\\n")
+
+record("python " + json.dumps(sys.argv[1:]))
+spec = importlib.util.spec_from_file_location("selected_release", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+def publish(client, number, **shas):
+    record("publish " + json.dumps({{"number": number, **shas}}, sort_keys=True))
+    return "1.2.3"
+
+with mock.patch.object(module, "GitHubClient", create=True), mock.patch.object(
+    module, "publish", side_effect=publish, create=True
+), mock.patch.object(module, "urllib_transport", create=True,
+                     side_effect=AssertionError("network called")):
+    sys.exit(module.main(sys.argv[2:]))
+''',
             }
             for name, content in stubs.items():
                 path = bin_path / name
                 path.write_text(content)
                 path.chmod(0o700)
-            for checkout in ("base-automation", "release-automation"):
+            for checkout, shape in (("base-automation", tool), ("release-automation", selected_tool)):
                 path = root / checkout / "scripts/release_automation.py"
                 path.parent.mkdir(parents=True)
-                if tool == "regular":
+                if shape == "regular":
                     path.write_text("raise AssertionError('tooling must not execute')\n")
-                elif tool == "directory":
+                elif shape == "legacy":
+                    path.write_text(LEGACY_TOOL)
+                elif shape == "current":
+                    path.write_text((ROOT / "scripts/release_automation.py").read_text())
+                elif shape == "directory":
                     path.mkdir()
-                elif tool == "symlink":
+                elif shape == "symlink":
                     path.symlink_to(root / "missing")
+                else:
+                    self.assertEqual(shape, "absent")
             pr = {
                 "number": 12, "state": "closed", "merged": True,
                 "base": {"ref": "main", "sha": BASE_SHA, "repo": {"full_name": REPOSITORY}},
@@ -291,14 +338,19 @@ esac
                 "BASE_REPOSITORY": REPOSITORY, "HEAD_REPOSITORY": REPOSITORY,
                 "BASE_REF": "main", "HEAD_REF": "dev", "HEAD_FORK": "false",
                 "BASE_SHA": BASE_SHA, "HEAD_SHA": HEAD_SHA, "MERGE_SHA": MERGE_SHA,
-                "CHECKOUT_BASE": BASE_SHA, "CHECKOUT_SELECTED": BASE_SHA,
-                "AUTOMATION_REF": BASE_SHA, "AUTOMATION_SOURCE": "base",
+                "WORKFLOW_SHA": MERGE_SHA,
+                "CHECKOUT_BASE": BASE_SHA, "CHECKOUT_SELECTED": MERGE_SHA if privileged else BASE_SHA,
+                "AUTOMATION_REF": MERGE_SHA if privileged else BASE_SHA,
+                "AUTOMATION_SOURCE": "merge" if privileged else "base",
+                "RELEASE_REPOSITORY": REPOSITORY, "RELEASE_PULL_REQUEST": "12",
+                "PYTHONDONTWRITEBYTECODE": "1",
                 "GITHUB_OUTPUT": str(root / "output"), "CALLS": str(root / "calls"),
                 "PR_JSON": json.dumps(pr) if raw_pr is None else raw_pr,
                 "MAIN_JSON": json.dumps(main) if raw_main is None else raw_main,
                 "API_FAILURE": api_failure,
             }
             env.update(changes or {})
+            env = {key: value for key, value in env.items() if value is not None}
             result = subprocess.run([str(bin_path / "bash"), "--noprofile", "--norc", "-c", script],
                                     cwd=root, env=env, text=True, capture_output=True, timeout=5)
             output = root / "output"
@@ -314,16 +366,18 @@ esac
         result, output, calls = self.run_script(script, **kwargs)
         self.assertNotEqual(result.returncode, 0, result.stderr)
         self.assertEqual(output, "", calls)
+        self.assertNotIn("python ", calls)
         return calls
 
     def test_valid_sources(self):
         for script, privileged in self.selectors():
-            for tool in ("regular", "absent"):
+            tools = ("regular", "legacy", "absent", "directory", "symlink") if privileged else ("regular", "absent")
+            for tool in tools:
                 with self.subTest(privileged=privileged, tool=tool):
                     result, output, calls = self.run_script(script, privileged=privileged, tool=tool)
                     self.assertEqual(result.returncode, 0, result.stderr)
-                    source, sha = ("base", BASE_SHA) if tool == "regular" else (
-                        ("merge", MERGE_SHA) if privileged else ("head", HEAD_SHA))
+                    source, sha = ("merge", MERGE_SHA) if privileged else (
+                        ("base", BASE_SHA) if tool == "regular" else ("head", HEAD_SHA))
                     self.assertEqual(output, f"source={source}\nref={sha}\n")
                     self.assertEqual(calls.count("gh api"), 2 if privileged else 0)
 
@@ -348,7 +402,17 @@ esac
                                                          changes={key: invalid})
                             self.assertNotIn("gh api", calls)
 
-    def test_fresh_api_identity_and_main_must_match_for_either_source(self):
+    def test_workflow_revision_must_match_merge_before_api_reads(self):
+        for script, privileged in self.selectors():
+            if not privileged:
+                continue
+            for tool in ("regular", "legacy", "absent", "directory", "symlink"):
+                for value in (None, "", "short", "g" * 40, MERGE_SHA.upper(), BASE_SHA, HEAD_SHA):
+                    with self.subTest(tool=tool, workflow_sha=value):
+                        calls = self.assert_rejected(script, tool=tool, changes={"WORKFLOW_SHA": value})
+                        self.assertNotIn("gh api", calls)
+
+    def test_fresh_api_identity_and_main_must_match_with_present_or_absent_base(self):
         bad_pr = {
             "number": [13, True, "12", None], "state": ["open", None], "merged": [False, "true", 1, None],
             "base.ref": ["dev", None], "head.ref": ["main", None],
@@ -374,27 +438,83 @@ esac
                 for endpoint in ("pulls/12", "branches/main"):
                     self.assert_rejected(script, tool=tool, api_failure=f"repos/{REPOSITORY}/{endpoint}")
 
-    def test_unsafe_present_paths_never_fall_back(self):
+    def test_validation_unsafe_present_paths_never_fall_back(self):
         for script, privileged in self.selectors():
+            if privileged:
+                continue
             for tool in ("directory", "symlink"):
                 with self.subTest(privileged=privileged, tool=tool):
                     self.assert_rejected(script, privileged=privileged, tool=tool)
 
     def test_selected_checkout_and_source_are_verified_before_execution(self):
         for workflow in (VALIDATION_WORKFLOW, PUBLICATION_WORKFLOW):
+            privileged = workflow == PUBLICATION_WORKFLOW
             for script in step_scripts(workflow.read_text(), "Verify selected release automation"):
-                result, _, _ = self.run_script(script)
+                result, _, _ = self.run_script(script, privileged=privileged)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 source, sha = ("head", HEAD_SHA) if workflow == VALIDATION_WORKFLOW else ("merge", MERGE_SHA)
-                result, _, _ = self.run_script(script, changes={"AUTOMATION_SOURCE": source,
+                result, _, _ = self.run_script(script, privileged=privileged, changes={"AUTOMATION_SOURCE": source,
                                                                "AUTOMATION_REF": sha,
                                                                "CHECKOUT_SELECTED": sha})
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for changes in ({"CHECKOUT_SELECTED": HEAD_SHA}, {"AUTOMATION_REF": "main"},
-                                {"AUTOMATION_SOURCE": "unknown"}):
-                    self.assert_rejected(script, changes=changes)
+                bad = [{"CHECKOUT_SELECTED": HEAD_SHA}, {"AUTOMATION_REF": "main"},
+                       {"AUTOMATION_REF": ""}, {"AUTOMATION_SOURCE": "unknown"},
+                       {"AUTOMATION_SOURCE": ""}]
+                if privileged:
+                    bad.extend([
+                        {"AUTOMATION_SOURCE": "base", "AUTOMATION_REF": BASE_SHA,
+                         "CHECKOUT_SELECTED": BASE_SHA},
+                        {"AUTOMATION_SOURCE": "head", "AUTOMATION_REF": HEAD_SHA,
+                         "CHECKOUT_SELECTED": HEAD_SHA},
+                        {"AUTOMATION_SOURCE": "merge", "AUTOMATION_REF": BASE_SHA,
+                         "CHECKOUT_SELECTED": BASE_SHA},
+                        {"AUTOMATION_SOURCE": "merge", "AUTOMATION_REF": "main",
+                         "CHECKOUT_SELECTED": "main"},
+                    ])
+                for changes in bad:
+                    self.assert_rejected(script, privileged=privileged, changes=changes)
                 for tool in ("absent", "symlink", "directory"):
-                    self.assert_rejected(script, tool=tool)
+                    self.assert_rejected(script, privileged=privileged, selected_tool=tool)
+
+    def test_legacy_base_cannot_override_merge_publisher_or_its_sha_arguments(self):
+        workflow = PUBLICATION_WORKFLOW.read_text()
+        selectors = step_scripts(workflow, "Select release automation source")
+        verifiers = step_scripts(workflow, "Verify selected release automation")
+        invocation = step_scripts(workflow, "Revalidate and publish GitHub release")[0]
+
+        # The legacy base really lacks the SHA options used by the workflow.
+        result, output, calls = self.run_script(
+            "set -euo pipefail\n" + invocation.replace("release-automation/", "base-automation/"),
+            tool="legacy",
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("unrecognized arguments: --base-sha", result.stderr)
+        self.assertEqual(output, "")
+        self.assertNotIn("publish ", calls)
+
+        for selector, verifier in zip(selectors, verifiers, strict=True):
+            # Simulate checkout of the selector's exact output, not a fixed fixture SHA.
+            script = "\n".join((selector, '''
+source "$GITHUB_OUTPUT"
+AUTOMATION_SOURCE="$source"
+AUTOMATION_REF="$ref"
+CHECKOUT_SELECTED="$ref"
+export CHECKOUT_SELECTED
+''', verifier, invocation))
+            result, output, calls = self.run_script(script, tool="legacy", selected_tool="current")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output, f"source=merge\nref={MERGE_SHA}\nversion=1.2.3\n")
+            python_calls = [json.loads(line.removeprefix("python ")) for line in calls.splitlines()
+                            if line.startswith("python ")]
+            self.assertEqual(python_calls, [[
+                "release-automation/scripts/release_automation.py", "publish",
+                "--repository", REPOSITORY, "--pull-request-number", "12",
+                "--base-sha", BASE_SHA, "--head-sha", HEAD_SHA, "--merge-sha", MERGE_SHA,
+            ]])
+            published = [json.loads(line.removeprefix("publish ")) for line in calls.splitlines()
+                         if line.startswith("publish ")]
+            self.assertEqual(published, [{"number": 12, "base_sha": BASE_SHA,
+                                          "head_sha": HEAD_SHA, "merge_sha": MERGE_SHA}])
 
 
 if __name__ == "__main__":
