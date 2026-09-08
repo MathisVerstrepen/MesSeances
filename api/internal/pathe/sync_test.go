@@ -62,6 +62,32 @@ func completeResponses(t *testing.T) map[string][]byte {
 	}
 }
 
+func TestSyncPreservesEarlyPremiereAndOvernightSessions(t *testing.T) {
+	responses := completeResponses(t)
+	key := movieShowtimesURL("film-a", "lille")
+	responses[key] = bytes.ReplaceAll(responses[key], []byte("2026-08-15 20:00:00"), []byte("2026-08-15 06:00:00"))
+	responses[key] = bytes.ReplaceAll(responses[key], []byte("2026-08-15 22:10:00"), []byte("2026-08-15 08:10:00"))
+	dataset, summary, err := Sync(context.Background(), &fakeGetter{responses: responses}, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Showtimes != 4 || summary.Requests != 7 || len(dataset.Showtimes) != 4 {
+		t.Fatalf("sessions lost: summary=%+v", summary)
+	}
+	premiere, overnight := dataset.Showtimes[0], dataset.Showtimes[1]
+	if premiere.StartTime.Format(providerTimeLayout) != "2026-08-15 06:00:00" || premiere.ServiceDate != "2026-08-15" || premiere.EndTime.Sub(premiere.StartTime) != 130*time.Minute {
+		t.Fatalf("premiere=%+v", premiere)
+	}
+	if overnight.StartTime.Format(providerTimeLayout) != "2026-08-16 01:30:00" || overnight.ServiceDate != "2026-08-15" {
+		t.Fatalf("overnight=%+v", overnight)
+	}
+	// Published snapshots are validated as combined datasets on reload too.
+	dataset.Provider = schedule.ProviderCombined
+	if err := schedule.ValidateDataset(dataset, true); err != nil {
+		t.Fatalf("combined snapshot rejected early premiere: %v", err)
+	}
+}
+
 func TestSyncEndpointGraphAndExactDatasetMapping(t *testing.T) {
 	getter := &fakeGetter{responses: completeResponses(t)}
 	generated := time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC)

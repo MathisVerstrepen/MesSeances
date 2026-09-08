@@ -158,9 +158,9 @@ func parseSession(item sessionResponse, movie show, theater cinema, advertisedDa
 	serviceDate := start.Format("2006-01-02")
 	if start.Hour() <= 2 {
 		serviceDate = start.AddDate(0, 0, -1).Format("2006-01-02")
-	} else if start.Hour() < 8 {
-		return schedule.ShowtimeRecord{}, fmt.Errorf("showtime is outside cinema day")
 	}
+	// Pathé also advertises early premieres (for example at 06:00).
+	// Keep their calendar date while preserving the overnight rollover above.
 	if serviceDate != advertisedDate {
 		return schedule.ShowtimeRecord{}, fmt.Errorf("showtime does not match advertised date")
 	}
