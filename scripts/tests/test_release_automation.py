@@ -17,6 +17,7 @@ REPOSITORY = "MathisVerstrepen/MesSeances"
 API = f"https://api.github.com/repos/{REPOSITORY}"
 SHA = "a" * 40
 HEAD_SHA = "b" * 40
+BASE_SHA = "e" * 40
 VERSION = "0.7.0"
 CHANGELOG_PATH = f"docs/changelogs/{VERSION}.md"
 BODY = """## Changed
@@ -58,11 +59,11 @@ def pull(
         "merge_commit_sha": sha,
         "title": title,
         "body": body,
-        "base": {"ref": base, "repo": {"full_name": base_repository}},
+        "base": {"ref": base, "sha": BASE_SHA, "repo": {"full_name": base_repository}},
         "head": {
             "ref": head,
             "sha": head_sha,
-            "repo": {"full_name": head_repository},
+            "repo": {"full_name": head_repository, "fork": False},
         },
     }
 
@@ -201,7 +202,7 @@ class VersionTests(unittest.TestCase):
                 tags, release.Version.parse("1.9.8"), allow_existing=False
             )
 
-    def test_existing_candidate_only_allowed_for_reconciliation(self):
+    def test_existing_candidate_only_allowed_for_immutable_validation(self):
         tags = [{"name": VERSION}]
         with self.assertRaisesRegex(release.ReleaseError, "already has a tag"):
             release.validate_version_progression(
@@ -446,8 +447,18 @@ class PublishTests(unittest.TestCase):
         self.transport = FakeTransport()
         self.client = release.GitHubClient(REPOSITORY, "secret", self.transport)
 
+    def publish(self, **overrides):
+        arguments = {"base_sha": BASE_SHA, "head_sha": HEAD_SHA, "merge_sha": SHA}
+        arguments.update(overrides)
+        return release.publish(self.client, 12, **arguments)
+
+    def queue_bound(self, *, pr=None, main=None):
+        self.transport.add("GET", "/pulls/12", pull() if pr is None else pr)
+        self.transport.add("GET", "/branches/main", main if main is not None else
+                           {"name": "main", "protected": True, "commit": {"sha": SHA}})
+
     def queue_validation(self, *, pr=None, tags=None):
-        self.transport.add("GET", "/pulls/12", pr or pull())
+        self.queue_bound(pr=pr)
         self.transport.add("GET", f"/commits/{SHA}", {"sha": SHA})
         self.transport.add("GET", changelog_request(SHA), changelog(ref=SHA))
         self.transport.add("GET", tree_request(SHA), tree())
@@ -455,117 +466,271 @@ class PublishTests(unittest.TestCase):
             "GET", "/tags?per_page=100", tags if tags is not None else []
         )
 
-    def test_first_release_creates_lightweight_tag_and_stable_latest_release(self):
-        self.queue_validation()
-        self.transport.add("GET", f"/git/ref/tags/{VERSION}", {"message": "missing"}, status=404)
-        self.transport.add("POST", "/git/refs", {"ref": f"refs/tags/{VERSION}"}, status=201)
-        self.transport.add(
-            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
-        )
-        self.transport.add("GET", f"/releases/tags/{VERSION}", {"message": "missing"}, status=404)
-        self.transport.add("POST", "/releases", {"id": 8}, status=201)
+    def tag(self, **overrides):
+        return {"ref": f"refs/tags/{VERSION}", "object": {"type": "commit", "sha": SHA}, **overrides}
 
-        self.assertEqual(release.publish(self.client, 12), VERSION)
-        writes = [call for call in self.transport.calls if call["method"] == "POST"]
-        self.assertEqual(
-            writes[0]["payload"], {"ref": f"refs/tags/{VERSION}", "sha": SHA}
-        )
-        self.assertEqual(
-            writes[1]["payload"],
-            {
-                "tag_name": VERSION,
-                "name": VERSION,
-                "body": BODY,
-                "draft": False,
-                "prerelease": False,
-                "generate_release_notes": False,
-                "make_latest": "true",
-            },
-        )
+    def record(self, **overrides):
+        return {"id": 8, "tag_name": VERSION, "name": VERSION, "body": BODY,
+                "draft": False, "prerelease": False, **overrides}
+
+    def queue_tag(self, value):
+        self.transport.add("GET", f"/git/ref/tags/{VERSION}", value, status=404 if value is None else 200)
+
+    def queue_record(self, value):
+        self.transport.add("GET", f"/releases/tags/{VERSION}", value, status=404 if value is None else 200)
+
+    def writes(self):
+        return [call for call in self.transport.calls if call["method"] != "GET"]
+
+    def assert_stopped(self, writes=0):
+        with self.assertRaises(release.ReleaseError) as raised:
+            self.publish()
+        self.assertEqual(len(self.writes()), writes)
+        self.assertFalse(any(call["method"] in ("PATCH", "DELETE") for call in self.transport.calls))
         self.transport.assert_done()
+        return str(raised.exception)
 
-    def test_same_target_tag_and_exact_release_are_idempotent(self):
+    def test_create_and_collision_readbacks_accept_only_exact_state(self):
+        for status in (201, 422):
+            with self.subTest(status=status):
+                self.setUp()
+                self.queue_validation()
+                self.queue_tag(None)
+                self.queue_record(None)
+                self.queue_bound()
+                self.transport.add("POST", "/git/refs", {"untrusted": "response"}, status=status)
+                self.queue_tag(self.tag())
+                self.queue_bound()
+                self.transport.add("POST", "/releases", {"untrusted": "response"}, status=status)
+                self.queue_record(self.record())
+                self.transport.add("GET", "/releases/latest", {"id": 8})
+                self.assertEqual(self.publish(), VERSION)
+                self.assertEqual([call["payload"] for call in self.writes()], [
+                    {"ref": f"refs/tags/{VERSION}", "sha": SHA},
+                    {"tag_name": VERSION, "name": VERSION, "body": BODY,
+                     "draft": False, "prerelease": False, "generate_release_notes": False,
+                     "make_latest": "true"}])
+                self.transport.assert_done()
+
+    def test_exact_existing_records_are_get_only(self):
         self.queue_validation(tags=[{"name": VERSION}])
-        self.transport.add(
-            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
-        )
-        existing = {"id": 8, **release._canonical_release(VERSION, BODY)}
-        self.transport.add("GET", f"/releases/tags/{VERSION}", existing)
+        self.queue_tag(self.tag())
+        self.queue_record(self.record())
         self.transport.add("GET", "/releases/latest", {"id": 8})
-
-        self.assertEqual(release.publish(self.client, 12), VERSION)
-        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
+        self.assertEqual(self.publish(), VERSION)
+        self.assertEqual(self.writes(), [])
         self.transport.assert_done()
 
-    def test_mismatched_existing_tag_is_never_moved_or_deleted(self):
-        self.queue_validation(tags=[{"name": VERSION}])
-        self.transport.add(
-            "GET",
-            f"/git/ref/tags/{VERSION}",
-            {"object": {"type": "commit", "sha": "b" * 40}},
-        )
-        with self.assertRaisesRegex(release.ReleaseError, "does not resolve"):
-            release.publish(self.client, 12)
-        self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
-        self.assertFalse(any("/releases" in call["path"] for call in self.transport.calls))
-
-    def test_existing_release_is_reconciled_as_stable_and_latest(self):
-        self.queue_validation(tags=[{"name": "0.6.9"}, {"name": VERSION}])
-        self.transport.add(
-            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
-        )
-        self.transport.add(
-            "GET",
-            f"/releases/tags/{VERSION}",
-            {
-                "id": 8,
-                "tag_name": VERSION,
-                "name": "wrong",
-                "body": "wrong",
-                "draft": True,
-                "prerelease": True,
-            },
-        )
-        self.transport.add("GET", "/releases/latest", {"id": 7})
-        self.transport.add("PATCH", "/releases/8", {"id": 8})
-
-        release.publish(self.client, 12)
-        self.assertEqual(
-            self.transport.calls[-1]["payload"],
-            {
-                "tag_name": VERSION,
-                "name": VERSION,
-                "body": BODY,
-                "draft": False,
-                "prerelease": False,
-                "make_latest": "true",
-            },
-        )
-
-    def test_create_races_are_reread_and_reconciled(self):
+    def test_existing_tag_missing_release_creates_only_release(self):
         self.queue_validation()
-        self.transport.add("GET", f"/git/ref/tags/{VERSION}", {"message": "missing"}, status=404)
-        self.transport.add("POST", "/git/refs", {"message": "exists"}, status=422)
-        self.transport.add(
-            "GET", f"/git/ref/tags/{VERSION}", {"object": {"type": "commit", "sha": SHA}}
-        )
-        self.transport.add("GET", f"/releases/tags/{VERSION}", {"message": "missing"}, status=404)
-        self.transport.add("POST", "/releases", {"message": "exists"}, status=422)
-        self.transport.add(
-            "GET",
-            f"/releases/tags/{VERSION}",
-            {
-                "id": 8,
-                "tag_name": VERSION,
-                "name": "old",
-                "body": "old",
-                "draft": True,
-                "prerelease": True,
-            },
-        )
-        self.transport.add("GET", "/releases/latest", {"id": 7})
-        self.transport.add("PATCH", "/releases/8", {"id": 8})
-        self.assertEqual(release.publish(self.client, 12), VERSION)
+        self.queue_tag(self.tag())
+        self.queue_record(None)
+        self.queue_bound()
+        self.transport.add("POST", "/releases", {}, status=201)
+        self.queue_record(self.record())
+        self.transport.add("GET", "/releases/latest", {"id": 8})
+        self.assertEqual(self.publish(), VERSION)
+        self.assertEqual([call["path"] for call in self.writes()], ["/releases"])
+        self.transport.assert_done()
+
+    def test_invalid_tags_never_write(self):
+        invalid = [[], {}, self.tag(ref="refs/tags/other"), self.tag(object=None),
+                   self.tag(object={"type": "tag", "sha": SHA}),
+                   self.tag(object={"type": "commit", "sha": HEAD_SHA}),
+                   self.tag(object={"type": "commit", "sha": True}),
+                   self.tag(object={"type": "commit", "sha": "short"})]
+        for tag in invalid:
+            with self.subTest(tag=tag):
+                self.setUp()
+                self.queue_validation()
+                self.queue_tag(tag)
+                self.assert_stopped()
+
+    def test_release_field_mismatches_stop_before_any_write(self):
+        invalid = [[], {}, *[self.record(**{key: value}) for key, values in {
+            "id": [True, False, 0, -1, "8", 8.0, None], "tag_name": ["other", None],
+            "name": ["other", None], "body": [BODY + "\n", None],
+            "draft": [True, 0, "false", None], "prerelease": [True, 0, "false", None],
+        }.items() for value in values]]
+        for record in invalid:
+            for tag in (None, self.tag()):
+                with self.subTest(record=record, tag=tag):
+                    self.setUp()
+                    self.queue_validation()
+                    self.queue_tag(tag)
+                    self.queue_record(record)
+                    self.assert_stopped()
+
+    def test_release_without_tag_is_inconsistent(self):
+        self.queue_validation()
+        self.queue_tag(None)
+        self.queue_record(self.record())
+        self.assert_stopped()
+
+    def test_latest_must_have_same_positive_integer_id(self):
+        for latest in (None, [], {}, {"id": 7}, {"id": True}, {"id": "8"}, {"id": 8.0}, {"id": 0}):
+            with self.subTest(latest=latest):
+                self.setUp()
+                self.queue_validation()
+                self.queue_tag(self.tag())
+                self.queue_record(self.record())
+                self.transport.add("GET", "/releases/latest", latest, status=404 if latest is None else 200)
+                self.assert_stopped()
+
+    def test_create_readback_failure_stops_without_retry(self):
+        for status in (201, 422):
+            for kind in ("tag", "release", "latest"):
+                for value in (None, {}, {"wrong": "object"}):
+                    with self.subTest(status=status, kind=kind, value=value):
+                        self.setUp()
+                        self.queue_validation()
+                        self.queue_tag(None)
+                        self.queue_record(None)
+                        self.queue_bound()
+                        self.transport.add("POST", "/git/refs", {}, status=status)
+                        self.queue_tag(value if kind == "tag" else self.tag())
+                        if kind != "tag":
+                            self.queue_bound()
+                            self.transport.add("POST", "/releases", {}, status=status)
+                            self.queue_record(value if kind == "release" else self.record())
+                            if kind == "latest":
+                                self.transport.add("GET", "/releases/latest", value,
+                                                   status=404 if value is None else 200)
+                        message = self.assert_stopped(writes=1 if kind == "tag" else 2)
+                        self.assertIn("tag create", message)
+                        if kind != "tag":
+                            self.assertIn("Release create", message)
+
+    def test_uncertain_create_errors_never_retry_or_read_back(self):
+        for endpoint in ("/git/refs", "/releases"):
+            for status in (403, 500):
+                with self.subTest(endpoint=endpoint, status=status):
+                    self.setUp()
+                    self.queue_validation()
+                    self.queue_tag(None if endpoint == "/git/refs" else self.tag())
+                    self.queue_record(None)
+                    self.queue_bound()
+                    self.transport.add("POST", endpoint, {"message": "private-response"}, status=status)
+                    message = self.assert_stopped(writes=1)
+                    self.assertNotIn("private-response", message)
+
+    def test_expected_shas_are_required_and_malformed_values_fail_before_reads(self):
+        with self.assertRaises(TypeError):
+            release.publish(self.client, 12)
+        for key in ("base_sha", "head_sha", "merge_sha"):
+            for value in (None, True, "", "main", "a" * 39, "g" * 40):
+                with self.subTest(key=key, value=value), self.assertRaises(release.ReleaseError):
+                    self.publish(**{key: value})
+        self.assertEqual(self.transport.calls, [])
+
+    def test_requested_number_must_be_positive_nonboolean_integer(self):
+        for number in (True, False, 0, -1, "12", None):
+            with self.subTest(number=number), self.assertRaises(release.ReleaseError):
+                release.publish(self.client, number, base_sha=BASE_SHA, head_sha=HEAD_SHA, merge_sha=SHA)
+        self.assertEqual(self.transport.calls, [])
+
+    def test_bound_identity_mismatches_fail_before_writes(self):
+        invalid = {"number": [13, True, "12", None], "state": ["open", None],
+                   "merged": [False, 1, "true", None], "base.ref": ["dev", None],
+                   "head.ref": ["main", None], "base.repo.full_name": ["other/repo", None],
+                   "head.repo.full_name": ["other/repo", None], "head.repo.fork": [True, 0, None],
+                   "base.sha": [HEAD_SHA, None], "head.sha": [BASE_SHA, None],
+                   "merge_commit_sha": [HEAD_SHA, None]}
+        for key, values in invalid.items():
+            for value in values:
+                with self.subTest(key=key, value=value):
+                    self.setUp()
+                    pr = pull()
+                    cursor = pr
+                    parts = key.split(".")
+                    for part in parts[:-1]:
+                        cursor = cursor[part]
+                    cursor[parts[-1]] = value
+                    self.transport.add("GET", "/pulls/12", pr)
+                    self.assert_stopped()
+
+    def test_main_must_be_exact_current_protected_branch(self):
+        for main in ([], {}, {"name": "dev", "protected": True, "commit": {"sha": SHA}},
+                     *[{"name": "main", "protected": value, "commit": {"sha": SHA}}
+                       for value in (False, 1, "true", None)],
+                     {"name": "main", "protected": True, "commit": {"sha": HEAD_SHA}}):
+            with self.subTest(main=main):
+                self.setUp()
+                self.queue_bound(main=main)
+                self.assert_stopped()
+
+    def test_fresh_pr_and_main_are_checked_at_each_write_boundary(self):
+        for after_tag in (False, True):
+            for field in ("title", "body", "head", "main"):
+                with self.subTest(after_tag=after_tag, field=field):
+                    self.setUp()
+                    self.queue_validation()
+                    self.queue_tag(None)
+                    self.queue_record(None)
+                    if after_tag:
+                        self.queue_bound()
+                        self.transport.add("POST", "/git/refs", {}, status=201)
+                        self.queue_tag(self.tag())
+                    pr = pull()
+                    if field == "title":
+                        pr["title"] = "Release 0.7.1"
+                    elif field == "body":
+                        pr["body"] = BODY.replace("licensing", "legal")
+                    elif field == "head":
+                        pr["head"]["sha"] = BASE_SHA
+                    self.transport.add("GET", "/pulls/12", pr)
+                    if field == "main":
+                        self.transport.add("GET", "/branches/main",
+                                           {"name": "main", "protected": True, "commit": {"sha": HEAD_SHA}})
+                    message = self.assert_stopped(writes=int(after_tag))
+                    if after_tag:
+                        self.assertIn("tag create", message)
+
+    def test_api_failures_at_initial_and_write_boundaries_stop(self):
+        for stage in ("initial", "first-write", "after-tag"):
+            for endpoint in ("/pulls/12", "/branches/main"):
+                for status in (404, 403, 500):
+                    with self.subTest(stage=stage, endpoint=endpoint, status=status):
+                        self.setUp()
+                        if stage != "initial":
+                            self.queue_validation()
+                            self.queue_tag(None)
+                            self.queue_record(None)
+                        if stage == "after-tag":
+                            self.queue_bound()
+                            self.transport.add("POST", "/git/refs", {}, status=201)
+                            self.queue_tag(self.tag())
+                        if endpoint == "/branches/main":
+                            self.transport.add("GET", "/pulls/12", pull())
+                        self.transport.add("GET", endpoint, {"message": "private-response"}, status=status)
+                        message = self.assert_stopped(writes=int(stage == "after-tag"))
+                        self.assertNotIn("private-response", message)
+
+    def test_successful_null_optional_objects_are_not_absence(self):
+        for endpoint in (f"/git/ref/tags/{VERSION}", f"/releases/tags/{VERSION}"):
+            with self.subTest(endpoint=endpoint):
+                self.setUp()
+                self.queue_validation()
+                if "/releases/" in endpoint:
+                    self.queue_tag(None)
+                self.transport.add("GET", endpoint, None)
+                self.assert_stopped()
+
+    def test_collision_with_wrong_commit_or_release_body_is_not_repaired(self):
+        for kind in ("tag", "release"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.queue_validation()
+                self.queue_tag(None if kind == "tag" else self.tag())
+                self.queue_record(None)
+                self.queue_bound()
+                if kind == "tag":
+                    self.transport.add("POST", "/git/refs", {}, status=422)
+                    self.queue_tag(self.tag(object={"type": "commit", "sha": HEAD_SHA}))
+                else:
+                    self.transport.add("POST", "/releases", {}, status=422)
+                    self.queue_record(self.record(body="wrong"))
+                self.assert_stopped(writes=1)
 
     def test_unsafe_or_unmerged_pr_fails_before_mutation(self):
         candidates = (
@@ -581,19 +746,19 @@ class PublishTests(unittest.TestCase):
                 client = release.GitHubClient(REPOSITORY, "secret", transport)
                 transport.add("GET", "/pulls/12", candidate)
                 with self.assertRaises(release.ReleaseError):
-                    release.publish(client, 12)
+                    release.publish(client, 12, base_sha=BASE_SHA, head_sha=HEAD_SHA, merge_sha=SHA)
                 transport.assert_done()
 
     def test_invalid_merge_commit_response_fails_before_tag_read(self):
-        self.transport.add("GET", "/pulls/12", pull())
+        self.queue_bound()
         self.transport.add("GET", f"/commits/{SHA}", {"sha": "b" * 40})
         with self.assertRaisesRegex(release.ReleaseError, "merge commit response"):
-            release.publish(self.client, 12)
+            self.publish()
         self.transport.assert_done()
 
     def test_changelog_mismatch_at_merge_commit_stops_before_any_write(self):
         private_file_text = "provider-secret-123"
-        self.transport.add("GET", "/pulls/12", pull())
+        self.queue_bound()
         self.transport.add("GET", f"/commits/{SHA}", {"sha": SHA})
         self.transport.add(
             "GET",
@@ -603,7 +768,7 @@ class PublishTests(unittest.TestCase):
         with self.assertRaisesRegex(
             release.ReleaseError, "does not exactly match"
         ) as raised:
-            release.publish(self.client, 12)
+            self.publish()
         self.assertNotIn(private_file_text, str(raised.exception))
         self.assertNotIn(BODY, str(raised.exception))
         self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
@@ -613,7 +778,7 @@ class PublishTests(unittest.TestCase):
     def test_newer_tag_rejects_rerun_before_mutation(self):
         self.queue_validation(tags=[{"name": VERSION}, {"name": "0.7.1"}])
         with self.assertRaisesRegex(release.ReleaseError, "not newer"):
-            release.publish(self.client, 12)
+            self.publish()
         self.assertTrue(all(call["method"] == "GET" for call in self.transport.calls))
 
 
@@ -644,6 +809,24 @@ class PromotionTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
+    def test_publish_requires_and_passes_all_expected_shas(self):
+        args = ["publish", "--repository", REPOSITORY, "--pull-request-number", "12"]
+        sha_args = ["--base-sha", BASE_SHA, "--head-sha", HEAD_SHA, "--merge-sha", SHA]
+        for index in (0, 2, 4):
+            with mock.patch.object(release, "GitHubClient") as client, mock.patch("sys.stderr", io.StringIO()):
+                with self.assertRaises(SystemExit) as raised:
+                    release.main(args + sha_args[:index] + sha_args[index + 2:])
+                self.assertEqual(raised.exception.code, 2)
+                client.assert_not_called()
+        stdout = io.StringIO()
+        with mock.patch.object(release, "GitHubClient") as client, mock.patch.object(
+            release, "publish", return_value=VERSION
+        ) as publish, mock.patch("sys.stdout", stdout):
+            self.assertEqual(release.main(args + sha_args), 0)
+            publish.assert_called_once_with(client.return_value, 12, base_sha=BASE_SHA,
+                                            head_sha=HEAD_SHA, merge_sha=SHA)
+        self.assertEqual(stdout.getvalue(), VERSION + "\n")
+
     def test_missing_token_exits_nonzero_without_network(self):
         stderr = io.StringIO()
         with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
