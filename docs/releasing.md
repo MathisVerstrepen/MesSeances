@@ -26,25 +26,25 @@ Create each feature worktree from current remote `dev`:
 
 ```sh
 git fetch origin
-git worktree add ../movieflow-my-feature -b feature/my-feature origin/dev
+git worktree add ../movieflow-my-feature -b feat/my-feature origin/dev
 cd ../movieflow-my-feature
 ```
 
-Implement and verify the feature, then push it and open a pull request into `dev`:
+Implement and verify the feature. Read `.github/PULL_REQUEST_TEMPLATE/feature.md` and prepare the feature PR body from that template, not the release template. With explicit push/PR authorization:
 
 ```sh
-git push -u origin feature/my-feature
-gh pr create --base dev --head feature/my-feature --title "feat: describe feature" --body "Describe the change and its validation."
+git push -u origin feat/my-feature
+gh pr create --base dev --head feat/my-feature --title "feat: describe feature" --template feature.md
 ```
 
 After merge, remove the worktree and local feature branch from the original checkout:
 
 ```sh
 git worktree remove ../movieflow-my-feature
-git branch -d feature/my-feature
+git branch -d feat/my-feature
 ```
 
-`dev` is intentionally unprotected. Feature pull requests into `dev` are a required team convention rather than a GitHub rule.
+`dev` is intentionally unprotected. Feature pull requests into `dev` are a required team convention rather than a GitHub rule. Require every registered check to pass before merging, including `Release automation / tests` alongside existing Go, integration, and frontend checks. This adds no branch-protection setting and does not rename existing checks.
 
 ## Release pull request
 
@@ -113,33 +113,55 @@ Validation derives only `docs/changelogs/<strict-title-version>.md` after title 
 
 ## Publication behavior
 
-Merging a valid same-repository `dev` to `main` pull request runs one serialized release workflow. When release tooling exists on the pull request's pre-merge `main` base, validation, finalization, and promotion execute that exact base version. For the one-time bootstrap where the exact base lacks the tooling path, read-only validation may execute the exact non-fork `dev` head only after event repository, branch, state, and SHA checks pass. Privileged finalization and promotion never execute unmerged head tooling: each may execute the exact merge commit only after GitHub API data confirms a merged same-repository `dev` to `main` pull request with matching base, head, and merge SHAs and confirms that merge commit is current protected `main`. Any mismatch stops before Python. No separate manual tooling seed on `main` is required. Release automation then re-fetches pull request and commit data through GitHub API; revalidates repository, branches, merge state, merge SHA, title, body, and all tags; and re-reads exact changelog from exact merge commit before any tag or Release write. This merge-commit recheck prevents a head-only or stale file from becoming release record. Automation then:
+Merging a valid same-repository `dev` to `main` pull request runs one serialized release workflow. Before selecting any tooling, including present base tooling, validation checks the supported event/action, open/unmerged state, same-repository non-fork dev/main identity, both SHAs, and exact base checkout. Finalization and promotion each check the closed/merged event identity and all three SHAs, then require fresh GitHub PR number/base/head/merge equality and current protected `main == MERGE_SHA`. API errors, malformed metadata, and mismatches stop before Python.
+
+After these guards, ordinary tooling at the exact pre-merge base is preferred. Only an absent base tooling path permits fallback: exact non-fork head for read-only validation, exact merge commit for finalization/promotion. Existing nonregular or symlink paths fail, never fall back. Selected checkout SHA and ordinary tooling file are verified before execution. Unsafe-but-present base tooling must be rejected by operator preflight, not opportunistically replaced by dev or merge tooling.
+
+Python publication independently requires event-bound `--base-sha`, `--head-sha`, and `--merge-sha`; it has no configurable branch overrides or unbound compatibility mode. It revalidates exact PR number, same-repository non-fork dev/main identity, literal closed/merged state, all expected SHAs, and fresh current protected main. Strict title/body, numeric tag progression, merge commit, and exact merge changelog checks still precede writes. Immediately before the first write and before a subsequent Release create, it re-reads bound PR identity/metadata and protected main and stops on observed changes. These reads are not an atomic lock; concurrent changes can still occur after a read.
+
+Both immutable records are preflighted before any write. Existing tag must be the exact lightweight commit ref at merge SHA; annotated tags are rejected even when they dereference to that commit. Existing Release must have a positive non-boolean integer ID, exact tag/name/body, literal `draft=false` and `prerelease=false`, and the same ID from `/releases/latest`. Any mismatch stops without PATCH or DELETE. A Release without its tag is inconsistent. Exact existing tag and Release succeed using GET only; an exact tag with no Release permits only Release creation. With both absent, automation:
 
 1. Creates lightweight Git tag `X.Y.Z` at exact merge commit without ever moving or deleting a tag.
-2. Creates or reconciles stable GitHub Release with same name, exact validated pull request body, `prerelease=false`, and latest-release status.
+2. Creates a stable GitHub Release with the same name, exact validated pull request body, `draft=false`, `prerelease=false`, and latest-release status.
 3. Builds and pushes `ghcr.io/<owner>/<repo>-api:<version>` and `ghcr.io/<owner>/<repo>-web:<version>` for `linux/amd64`.
 4. Resolves both versioned manifests, then repoints both `latest` aliases from those manifests without rebuilding.
 
 Workflow uses only repository `GITHUB_TOKEN`. Tag, Release, and image work stays in closed-pull-request workflow because events created by `GITHUB_TOKEN` do not reliably start downstream workflows. No step deploys or restarts production. Operator selects `IMAGE_TAG=<version>` and performs existing production deployment manually.
 
+Successful creates require fresh canonical read-back: tag GET, then Release GET and latest GET. An explicit 422 create collision permits one bounded read-back only, accepting exact canonical state without a second POST or reconciliation. Other errors and uncertain writes stop. Exact-object validation is not permission to rerun workflows or recover through agent mutations.
+
+## Repair integration and blocked bootstrap
+
+A reviewed release-automation repair normally reaches `dev` through a conventional feature PR. That alone does not unblock publication. When protected main contains unsafe present tooling, the next release would select that old base; missing-tooling fallback cannot bootstrap this repair. A direct maintenance PR to main is not a compliant shortcut under the current release-only validator. Keep main integration and publication blocked until an operator-approved, independently justified route preserves protection and all retained release prerequisites. Do not disable publication, weaken validation or the release skill, bypass protection, or publish with unsafe tooling to seed the repair.
+
+Before any later publication authorization is exercised, freshly inspect exact protected-main workflows/tooling, active workflow IDs, refs, protection, and checks using the complete publish skill preflight. Repair integration success is not release readiness.
+
+## Focused automation tests
+
+From repository root with Python 3.13, Bash, and jq available:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s scripts/tests
+```
+
+The stdlib suite uses queued HTTP fixtures and isolated executed workflow-shell fixtures; it never publishes or contacts GitHub. `.github/workflows/release-tests.yml` runs it on every push and pull request to dev/main with read-only contents permission, no persisted checkout credentials, and no secrets or path filters. `make check` remains the application gate and does not run this suite.
+
 ## Failure recovery
 
-Validation failure makes no tag or Release changes. For missing or mismatched changelog, do not merge: verify strict title version, inspect tracked file at reported head SHA, and restore exact body/file equality with LF and one final newline through reviewed `dev` history. If changelog is correct and only open pull request body differs, replace body with exact file content. For malformed GitHub metadata or an inaccessible/truncated contents response, stop and retry validation only after provider state is unambiguous. For stale version, choose numerically newer version and corresponding filename. Wait for `Release PR / Validate release metadata` to pass before merge.
+Validation failure makes no tag or Release changes. Do not merge. Inspect strict title/version, exact head changelog/body equality, metadata, and checks read-only; report the mismatch for operator review. Do not automatically edit metadata, retry validation, select another version, or prepare another release to recover a failed attempt.
 
-Publication is idempotent for same version and merge commit. Find run and failed jobs:
+For publication failures, identify the exact PR, base/head/merge SHAs, version, correlated workflow run, and failed jobs. Read-only diagnostics include:
 
 ```sh
 gh run list --workflow release.yml --limit 10
 gh run view RUN_ID --json jobs --jq '.jobs[] | [.databaseId, .name, .conclusion] | @tsv'
 ```
 
-- If tag exists at merge commit but Release creation or image build failed, rerun failed jobs: `gh run rerun RUN_ID --failed`.
-- If both versioned images exist and only `Promote latest aliases` failed, rerun that job without rebuilding: `gh run rerun RUN_ID --job JOB_ID`. Promotion rechecks newest tag and resolves both version manifests before touching either alias.
-- If Release exists with wrong name, body, draft state, stable state, or latest status, rerun reconciles it to validated pull request and marks it latest.
-- If publication fails changelog recheck before tag creation, compare pull request body with `docs/changelogs/X.Y.Z.md` at immutable merge commit. A transient API failure may be retried after GitHub state is healthy. If merge-commit file is correct but merged pull request body was changed, restore exact body before operator-authorized rerun. If immutable merge content is wrong, do not rewrite history or create tag; correct `dev` through normal review and use a new numerically greater release pull request.
-- If tag resolves to another commit, stop. Automation intentionally never moves or deletes tags. Investigate repository history, leave collided tag untouched, and use a numerically newer release through a new `dev` to `main` pull request after `dev` has another commit.
-- If a newer strict stable tag now exists, stale run cannot update image `latest` aliases. Recover newest release from its own workflow run.
-- If one `latest` alias changed before second alias command failed, rerun promotion job. Both version manifests are revalidated before aliases are repointed again.
-- During first-release bootstrap, a failed finalization or promotion rerun can use merge-commit tooling only while that exact merge commit remains current protected `main`. If `main` advanced or protection is missing, automation stops before Python; do not seed, copy, or run tooling manually with workflow credentials. Inspect repository state and recover through a newly reviewed release path.
+- No writes: report the failed guard, metadata/changelog mismatch, immutable-record conflict, API error, or main/PR drift. Do not infer that a transient failure permits a retry.
+- Tag-only or uncertain tag create: inspect the exact ref and target read-only, report confirmed versus uncertain effects, and leave it untouched. A later failure does not roll back the tag.
+- Release-created or uncertain Release create: inspect Release and latest objects read-only. Report mismatched fields or unsuccessful canonical read-back without editing, deleting, or reconciling either record.
+- Partial versioned images: inspect both version manifests and build-job conclusions. Report which images are confirmed, absent, or unknown; do not rebuild or rerun.
+- Partial latest aliases: inspect both alias and version digests. Report each result separately; do not repoint either alias. Promotion is not atomic across images.
+- Advanced or unprotected main, changed PR metadata, or a newer stable tag: report the observed race and any earlier writes. Stop; do not manually execute selected tooling or recover through another release.
 
-Never delete or force-update a release tag to make a failed run pass.
+Escalate failures, uncertainty, and partial publication to the operator. Never automatically rerun or dispatch a workflow, retry an uncertain mutation, edit merged metadata, create a replacement release, or promise rollback. Never delete or force-update a release tag to make a failed run pass. A later invocation repeats full preflight and may only monitor a uniquely correlated merged publication read-only under the release skill's safeguards.
