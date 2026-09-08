@@ -55,12 +55,17 @@ func (value *objectOrEmptyArray[T]) UnmarshalJSON(body []byte) error {
 		*value = object
 		return nil
 	case '[':
-		var array []json.RawMessage
-		if err := json.Unmarshal(trimmed, &array); err != nil {
-			return err
-		}
-		if len(array) != 0 {
+		if len(trimmed) < 2 || trimmed[len(trimmed)-1] != ']' {
 			return fmt.Errorf("expected object or empty array")
+		}
+		// Only an empty sentinel is valid. Do not allocate decoded elements
+		// from a nonempty array that will be rejected anyway.
+		for _, character := range trimmed[1 : len(trimmed)-1] {
+			switch character {
+			case ' ', '\t', '\n', '\r':
+			default:
+				return fmt.Errorf("expected object or empty array")
+			}
 		}
 		*value = make(map[string]T)
 		return nil

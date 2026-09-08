@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -59,6 +60,32 @@ func completeResponses(t *testing.T) map[string][]byte {
 		movieShowtimesURL("film-a", "lille"): fixture(t, "showtimes-film-a-lille.json"),
 		movieShowtimesURL("film-b", "lille"): fixture(t, "showtimes-film-b-lille.json"),
 		eventShowtimesURL("event-a", "lille", "2026-08-16"): fixture(t, "showtimes-event-a-lille-2026-08-16.json"),
+	}
+}
+
+func TestSyncPreservesEarlyPremiereAndOvernightSessions(t *testing.T) {
+	responses := completeResponses(t)
+	key := movieShowtimesURL("film-a", "lille")
+	responses[key] = bytes.ReplaceAll(responses[key], []byte("2026-08-15 20:00:00"), []byte("2026-08-15 06:00:00"))
+	responses[key] = bytes.ReplaceAll(responses[key], []byte("2026-08-15 22:10:00"), []byte("2026-08-15 08:10:00"))
+	dataset, summary, err := Sync(context.Background(), &fakeGetter{responses: responses}, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Showtimes != 4 || summary.Requests != 7 || len(dataset.Showtimes) != 4 {
+		t.Fatalf("sessions lost: summary=%+v", summary)
+	}
+	premiere, overnight := dataset.Showtimes[0], dataset.Showtimes[1]
+	if premiere.StartTime.Format(providerTimeLayout) != "2026-08-15 06:00:00" || premiere.ServiceDate != "2026-08-15" || premiere.EndTime.Sub(premiere.StartTime) != 130*time.Minute {
+		t.Fatalf("premiere=%+v", premiere)
+	}
+	if overnight.StartTime.Format(providerTimeLayout) != "2026-08-16 01:30:00" || overnight.ServiceDate != "2026-08-15" {
+		t.Fatalf("overnight=%+v", overnight)
+	}
+	// Published snapshots are validated as combined datasets on reload too.
+	dataset.Provider = schedule.ProviderCombined
+	if err := schedule.ValidateDataset(dataset, true); err != nil {
+		t.Fatalf("combined snapshot rejected early premiere: %v", err)
 	}
 }
 
@@ -150,6 +177,9 @@ func TestParseMovieShowtimeResponseSkipsAbsentAdvertisedDate(t *testing.T) {
 	for name, body := range map[string][]byte{
 		"absent advertised date": []byte(`{"2026-08-16":[]}`),
 		"present empty array":    []byte(`{"2026-08-15":[]}`),
+		"empty object":           []byte(`{}`),
+		"empty array sentinel":   []byte(`[]`),
+		"spaced empty sentinel":  []byte(" \n [ \n\t ] \n"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			records, err := parseMovieShowtimeResponse(body, job, location)
@@ -159,6 +189,12 @@ func TestParseMovieShowtimeResponseSkipsAbsentAdvertisedDate(t *testing.T) {
 		})
 	}
 	for name, body := range map[string][]byte{
+		"null response":                []byte(`null`),
+		"nonempty array":               []byte(`[{}]`),
+		"array containing null":        []byte(`[null]`),
+		"string response":              []byte(`"[]"`),
+		"truncated array":              []byte(`[`),
+		"trailing JSON":                []byte(`[] {}`),
 		"malformed present value":      []byte(`{"2026-08-15":{}}`),
 		"null present value":           []byte(`{"2026-08-15":null}`),
 		"malformed unadvertised value": []byte(`{"2026-08-16":{}}`),
@@ -166,6 +202,56 @@ func TestParseMovieShowtimeResponseSkipsAbsentAdvertisedDate(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parseMovieShowtimeResponse(body, job, location); err == nil {
 				t.Fatal("malformed present date accepted")
+			}
+		})
+	}
+}
+
+func TestSyncAcceptsEmptyMovieArrayWithoutLosingOtherSessions(t *testing.T) {
+	responses := completeResponses(t)
+	responses[movieShowtimesURL("film-a", "lille")] = []byte(`[]`)
+	getter := &fakeGetter{responses: responses}
+	dataset, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Requests != 7 || summary.Jobs != 3 || summary.Showtimes != 2 || len(dataset.Showtimes) != 2 || len(dataset.Theaters) != 2 {
+		t.Fatalf("summary=%+v dataset=%+v", summary, dataset)
+	}
+	if dataset.Showtimes[0].Movie.ProviderID != "event-a" || dataset.Showtimes[1].Movie.ProviderID != "film-b" {
+		t.Fatalf("remaining sessions=%+v", dataset.Showtimes)
+	}
+	if !reflect.DeepEqual(dataset.Theaters[0].AvailableDates, []string{"2026-08-15", "2026-08-16"}) || dataset.Window.Through != "2026-08-16" {
+		t.Fatalf("advertised window changed: %+v", dataset)
+	}
+}
+
+func TestSyncClassifiesParserFailures(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		url       string
+		body      []byte
+		operation Operation
+	}{
+		{"cinemas", CinemasURL, []byte(`[{"slug":"synthetic-secret!"}]`), OperationCinemas},
+		{"shows", ShowsURL, []byte(`{"shows":[]}`), OperationShows},
+		{"program", cinemaProgramURL("lille"), []byte(`{"days":{},"shows":{"synthetic-secret":{}}}`), OperationCinemaProgram},
+		{"movie JSON", movieShowtimesURL("film-a", "lille"), []byte(`synthetic-secret`), OperationMovieTimes},
+		{"movie shape", movieShowtimesURL("film-a", "lille"), []byte(`[{}]`), OperationMovieTimes},
+		{"movie session", movieShowtimesURL("film-b", "lille"), fixture(t, "showtimes-unknown-version.json"), OperationMovieTimes},
+		{"event shape", eventShowtimesURL("event-a", "lille", "2026-08-16"), []byte(`null`), OperationEventTimes},
+		{"event session", eventShowtimesURL("event-a", "lille", "2026-08-16"), []byte(`[{}]`), OperationEventTimes},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			responses := completeResponses(t)
+			responses[test.url] = test.body
+			dataset, _, err := Sync(context.Background(), &fakeGetter{responses: responses}, SyncOptions{From: "2026-08-15", Now: time.Now()})
+			var requestErr *RequestError
+			if !errors.As(err, &requestErr) || requestErr.Operation != test.operation || requestErr.Category != CategoryInvalidPayload || requestErr.StatusCode != 0 || requestErr.Unwrap() == nil {
+				t.Fatalf("unclassified parser failure: %v", err)
+			}
+			if strings.Contains(err.Error(), "synthetic-secret") || len(dataset.Showtimes) != 0 || errors.Is(err, schedule.ErrDatasetValidation) {
+				t.Fatalf("unsafe failure result: %v", err)
 			}
 		})
 	}
@@ -305,6 +391,16 @@ func TestSyncRejectsDuplicateShowingOrphanAndEmptyDataset(t *testing.T) {
 		_, _, err := Sync(context.Background(), &fakeGetter{responses: responses}, SyncOptions{From: "2026-08-15", Now: time.Now()})
 		if err == nil || !errors.Is(err, schedule.ErrDatasetValidation) {
 			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("all showtimes explicitly empty", func(t *testing.T) {
+		responses := completeResponses(t)
+		responses[movieShowtimesURL("film-a", "lille")] = []byte(`[]`)
+		responses[movieShowtimesURL("film-b", "lille")] = []byte(`[]`)
+		responses[eventShowtimesURL("event-a", "lille", "2026-08-16")] = []byte(`[]`)
+		_, _, err := Sync(context.Background(), &fakeGetter{responses: responses}, SyncOptions{From: "2026-08-15", Now: time.Now()})
+		if !errors.Is(err, schedule.ErrDatasetValidation) {
+			t.Fatalf("empty dataset accepted: %v", err)
 		}
 	})
 }

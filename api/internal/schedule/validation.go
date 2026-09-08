@@ -158,7 +158,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		expectedDate := localStart.Format(dateLayout)
 		if localStart.Hour() <= 2 {
 			expectedDate = localStart.AddDate(0, 0, -1).Format(dateLayout)
-		} else if localStart.Hour() < 8 {
+		} else if localStart.Hour() < 8 && provider != ProviderPathe {
 			return fmt.Errorf("showing outside cinema day")
 		}
 		if expectedDate != showing.ServiceDate || !validLanguage(showing.Language) || !validFormat(showing.Format) || showing.ProviderVersion == "" {

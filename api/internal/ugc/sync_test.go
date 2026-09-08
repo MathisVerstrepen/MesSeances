@@ -59,6 +59,24 @@ func singleDateCinemaFixture(t *testing.T) []byte {
 	return []byte(strings.Replace(string(readFixture(t, "cinema.html")), `<button id="nav_date_2026-08-16">16 août</button>`, "", 1))
 }
 
+func TestSyncPreservesOriginalVersionWithoutSubtitles(t *testing.T) {
+	getter := &fakeGetter{responses: map[string][]byte{
+		SitemapURL:                             []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`),
+		"https://www.ugc.fr/cinema.html?id=25": singleDateCinemaFixture(t),
+		"https://www.ugc.fr/showingsCinemaAjaxAction!getShowingsForCinemaPage.action?cinemaId=25&date=15%2F08%2F2026&page=30007": []byte(strings.ReplaceAll(string(readFixture(t, "showings.html")), `data-version="VOSTF"`, `data-version="VOSST"`)),
+	}}
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-15", Now: time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Showtimes != 2 || summary.Skipped != 0 || summary.Requests != 3 || len(data.Showtimes) != 2 {
+		t.Fatalf("sessions lost: summary=%+v", summary)
+	}
+	if data.Showtimes[0].Language != schedule.LanguageVO || data.Showtimes[0].ProviderVersion != "VOSST" {
+		t.Fatalf("original version changed: showing=%+v", data.Showtimes[0])
+	}
+}
+
 func TestSyncCompleteDiscovery(t *testing.T) {
 	sitemap := []byte(`<?xml version="1.0"?><urlset><url><loc>https://www.ugc.fr/cinema.html?id=25</loc></url></urlset>`)
 	secondDayShowingsText := strings.ReplaceAll(string(readFixture(t, "showings.html")), "15/08/2026", "16/08/2026")
