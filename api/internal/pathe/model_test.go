@@ -1,6 +1,71 @@
 package pathe
 
-import "testing"
+import (
+	"bytes"
+	"reflect"
+	"testing"
+)
+
+func TestObjectOrEmptyArraySentinelWhitespace(t *testing.T) {
+	for _, body := range []string{"[]", "[ ]", "[\t]", "[\n]", "[\r]", " \t\r\n[ \t\r\n ] \t\r\n"} {
+		t.Run(body, func(t *testing.T) {
+			value := objectOrEmptyArray[int]{"previous": 1}
+			if err := value.UnmarshalJSON([]byte(body)); err != nil || value == nil || len(value) != 0 {
+				t.Fatalf("empty sentinel not normalized: value=%v err=%v", value, err)
+			}
+		})
+	}
+	for _, body := range []string{"", "[", "]", "[0]", "[null]", "[{}]", "[[]]", "[,]", "null", "[\v]", "[\f]", "[\x00]", "[\u00a0]", "[\u2003]", "[] []", "[] {}", "[] junk", "[ ] ]"} {
+		t.Run(body, func(t *testing.T) {
+			value := objectOrEmptyArray[int]{"previous": 1}
+			if err := value.UnmarshalJSON([]byte(body)); err == nil {
+				t.Fatal("invalid sentinel accepted")
+			}
+			if !reflect.DeepEqual(value, objectOrEmptyArray[int]{"previous": 1}) {
+				t.Fatalf("rejected sentinel mutated destination: %v", value)
+			}
+		})
+	}
+}
+
+func TestObjectOrEmptyArrayPreservesTypedObjects(t *testing.T) {
+	var numbers objectOrEmptyArray[int]
+	if err := numbers.UnmarshalJSON([]byte(`{"number":42}`)); err != nil || numbers["number"] != 42 {
+		t.Fatalf("typed number map: %v err=%v", numbers, err)
+	}
+	var lists objectOrEmptyArray[[]string]
+	if err := lists.UnmarshalJSON([]byte(`{"list":["one","two"]}`)); err != nil || !reflect.DeepEqual(lists["list"], []string{"one", "two"}) {
+		t.Fatalf("typed list map: %v err=%v", lists, err)
+	}
+	if err := numbers.UnmarshalJSON([]byte(`{"number":"wrong type"}`)); err == nil {
+		t.Fatal("invalid object value accepted")
+	}
+}
+
+func TestObjectOrEmptyArrayRejectsLargeArrayWithBoundedAllocations(t *testing.T) {
+	// A near-limit payload previously materialized millions of RawMessages
+	// before rejecting the array. Build input outside allocation measurements.
+	body := make([]byte, MaxResponseBytes-1)
+	body[0], body[len(body)-1] = '[', ']'
+	for i := 1; i < len(body)-1; i++ {
+		if i%2 == 1 {
+			body[i] = '0'
+		} else {
+			body[i] = ','
+		}
+	}
+	for _, input := range [][]byte{body, append(append([]byte{'['}, bytes.Repeat([]byte{' '}, MaxResponseBytes-4)...), '0', ']')} {
+		allocations := testing.AllocsPerRun(3, func() {
+			var value objectOrEmptyArray[[]sessionResponse]
+			if err := value.UnmarshalJSON(input); err == nil || value != nil {
+				t.Fatal("large nonempty array accepted")
+			}
+		})
+		if allocations > 4 {
+			t.Fatalf("nonempty array rejection allocated per payload element: %.0f allocations", allocations)
+		}
+	}
+}
 
 func TestCinemaProgramDecodesObjectsAndEmptyArraySentinels(t *testing.T) {
 	for name, body := range map[string][]byte{

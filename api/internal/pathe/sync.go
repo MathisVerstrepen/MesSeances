@@ -69,7 +69,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 	}
 	cinemas, err := parseCinemas(cinemaBody)
 	if err != nil {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse Pathé cinemas: %w", err)
+		return schedule.Dataset{}, SyncSummary{}, requestError(OperationCinemas, CategoryInvalidPayload, 0, err)
 	}
 	if len(cinemas) == 0 {
 		return schedule.Dataset{}, SyncSummary{}, datasetValidationError{message: "Pathé sync produced no active cinemas"}
@@ -80,7 +80,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 	}
 	shows, err := parseShows(showBody)
 	if err != nil {
-		return schedule.Dataset{}, SyncSummary{}, fmt.Errorf("parse Pathé shows: %w", err)
+		return schedule.Dataset{}, SyncSummary{}, requestError(OperationShows, CategoryInvalidPayload, 0, err)
 	}
 
 	programs, err := parallel.MapOrdered(ctx, cinemas, parallel.Options{Workers: WorkerCount}, func(phaseCtx context.Context, theater cinema) (map[string][]string, error) {
@@ -90,7 +90,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 		}
 		pairs, parseErr := parseProgram(body, shows, from, location)
 		if parseErr != nil {
-			return nil, fmt.Errorf("parse Pathé cinema program: %w", parseErr)
+			return nil, requestError(OperationCinemaProgram, CategoryInvalidPayload, 0, parseErr)
 		}
 		return pairs, nil
 	})
@@ -161,17 +161,11 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 		if fetchErr != nil {
 			return nil, fetchErr
 		}
-		if job.operation == OperationMovieTimes {
-			return parseMovieShowtimeResponse(body, job, location)
+		records, parseErr := parseShowtimeResponse(body, job, location)
+		if parseErr != nil {
+			return nil, requestError(job.operation, CategoryInvalidPayload, 0, parseErr)
 		}
-		var response []sessionResponse
-		if decodeErr := decodeJSON(body, &response); decodeErr != nil {
-			return nil, fmt.Errorf("parse Pathé event showtimes: %w", decodeErr)
-		}
-		if response == nil {
-			return nil, fmt.Errorf("parse Pathé event showtimes: response is incomplete")
-		}
-		return parseSessions(response, job.movie, job.theater, job.advertisedDate, location)
+		return records, nil
 	})
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, err
@@ -212,8 +206,23 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 	return dataset, summary, nil
 }
 
+func parseShowtimeResponse(body []byte, job showtimeJob, location *time.Location) ([]schedule.ShowtimeRecord, error) {
+	if job.operation == OperationMovieTimes {
+		return parseMovieShowtimeResponse(body, job, location)
+	}
+	var response []sessionResponse
+	if err := decodeJSON(body, &response); err != nil {
+		return nil, fmt.Errorf("parse Pathé event showtimes: %w", err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("parse Pathé event showtimes: response is incomplete")
+	}
+	return parseSessions(response, job.movie, job.theater, job.advertisedDate, location)
+}
+
 func parseMovieShowtimeResponse(body []byte, job showtimeJob, location *time.Location) ([]schedule.ShowtimeRecord, error) {
-	var response map[string][]sessionResponse
+	// Like cinema programs, movie dates use [] instead of {} when empty.
+	var response objectOrEmptyArray[[]sessionResponse]
 	if err := decodeJSON(body, &response); err != nil {
 		return nil, fmt.Errorf("parse Pathé movie showtimes: %w", err)
 	}
