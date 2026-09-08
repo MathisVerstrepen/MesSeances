@@ -100,6 +100,51 @@ func TestValidateDatasetResourceAndRuntimeBounds(t *testing.T) {
 	}
 }
 
+func TestValidateDatasetEarlyStartsArePatheOnly(t *testing.T) {
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name     string
+		data     func() Dataset
+		accepted bool
+	}{
+		{name: "pathe", data: patheTestDataset, accepted: true},
+		{name: "ugc", data: testDataset},
+		{name: "kinepolis", data: kinepolisTestDataset},
+	} {
+		for _, hour := range []int{3, 6, 7} {
+			t.Run(test.name+"/"+strconv.Itoa(hour), func(t *testing.T) {
+				data := test.data()
+				showing := &data.Showtimes[0]
+				date, err := time.ParseInLocation(dateLayout, showing.ServiceDate, location)
+				if err != nil {
+					t.Fatal(err)
+				}
+				showing.StartTime = date.Add(time.Duration(hour) * time.Hour)
+				showing.EndTime = showing.StartTime.Add(time.Duration(showing.Movie.RuntimeMinutes) * time.Minute)
+				for _, combined := range []bool{false, true} {
+					if combined {
+						data.Provider = ProviderCombined
+					}
+					err := ValidateDataset(data, true)
+					if test.accepted && err != nil || !test.accepted && (err == nil || err.Error() != "showing outside cinema day") {
+						t.Fatalf("combined=%t error=%v", combined, err)
+					}
+				}
+				if test.accepted {
+					showing.StartTime = showing.StartTime.AddDate(0, 0, 1)
+					showing.EndTime = showing.EndTime.AddDate(0, 0, 1)
+					if err := ValidateDataset(data, true); err == nil {
+						t.Fatal("early start with wrong service date accepted")
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestValidateDatasetProviderTimingRules(t *testing.T) {
 	location, err := time.LoadLocation(Timezone)
 	if err != nil {

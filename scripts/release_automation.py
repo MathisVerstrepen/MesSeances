@@ -135,7 +135,10 @@ class GitHubClient:
 
     def get_optional(self, path: str) -> Any | None:
         try:
-            return self.request("GET", path)[0]
+            value = self.request("GET", path)[0]
+            if value is None:
+                raise ReleaseError("GitHub optional object response is invalid")
+            return value
         except GitHubError as exc:
             if exc.status == 404:
                 return None
@@ -423,32 +426,16 @@ def _read_tag_target(client: GitHubClient, version: str) -> str | None:
         return None
     try:
         obj = ref["object"]
-        seen: set[str] = set()
-        while obj["type"] == "tag":
-            sha = obj["sha"]
-            if not isinstance(sha, str) or sha in seen or len(seen) >= 10:
-                raise ReleaseError("annotated tag dereference loop detected")
-            seen.add(sha)
-            tag, _ = client.request("GET", f"/git/tags/{_q(sha)}")
-            obj = tag["object"]
-        if obj["type"] != "commit" or not SHA_RE.fullmatch(obj["sha"]):
-            raise ReleaseError("tag does not resolve to a commit")
+        if (
+            ref["ref"] != f"refs/tags/{version}"
+            or obj["type"] != "commit"
+            or not isinstance(obj["sha"], str)
+            or not SHA_RE.fullmatch(obj["sha"])
+        ):
+            raise ReleaseError("tag must be the exact lightweight commit ref")
         return obj["sha"].lower()
     except (KeyError, TypeError) as exc:
         raise ReleaseError("GitHub tag response is invalid") from exc
-
-
-def _ensure_tag(client: GitHubClient, version: str, merge_sha: str) -> None:
-    target = _read_tag_target(client, version)
-    if target is None:
-        try:
-            client.request("POST", "/git/refs", {"ref": f"refs/tags/{version}", "sha": merge_sha})
-        except GitHubError as exc:
-            if exc.status != 422:
-                raise
-        target = _read_tag_target(client, version)
-    if target != merge_sha.lower():
-        raise ReleaseError(f"tag {version} does not resolve to release PR merge commit")
 
 
 def _canonical_release(version: str, body: str) -> dict[str, Any]:
@@ -463,59 +450,130 @@ def _canonical_release(version: str, body: str) -> dict[str, Any]:
     }
 
 
-def _ensure_release(client: GitHubClient, version: str, body: str) -> None:
-    path = f"/releases/tags/{_q(version)}"
-    release = client.get_optional(path)
-    canonical = _canonical_release(version, body)
-    if release is None:
-        try:
-            client.request("POST", "/releases", canonical)
-            return
-        except GitHubError as exc:
-            if exc.status != 422:
-                raise
-        release = client.get_optional(path)
-    if not isinstance(release, dict) or not isinstance(release.get("id"), int):
-        raise ReleaseError("GitHub release response is invalid")
-    desired = {
-        key: value
-        for key, value in canonical.items()
-        if key not in {"generate_release_notes", "make_latest"}
-    }
-    comparable = {key: release.get(key) for key in desired}
-    latest = client.get_optional("/releases/latest")
-    if latest is not None and (
-        not isinstance(latest, dict) or not isinstance(latest.get("id"), int)
+def _positive_id(value: Any) -> bool:
+    return type(value) is int and value > 0
+
+
+def _validate_release(
+    client: GitHubClient, record: Any, version: str, body: str
+) -> None:
+    if (
+        not isinstance(record, dict)
+        or not _positive_id(record.get("id"))
+        or record.get("tag_name") != version
+        or record.get("name") != version
+        or record.get("body") != body
+        or record.get("draft") is not False
+        or record.get("prerelease") is not False
     ):
-        raise ReleaseError("GitHub latest release response is invalid")
-    needs_latest = latest is None or latest["id"] != release["id"]
-    if comparable != desired or needs_latest:
-        payload = dict(desired)
-        if needs_latest:
-            payload["make_latest"] = "true"
-        client.request("PATCH", f"/releases/{release['id']}", payload)
+        raise ReleaseError("GitHub Release does not match the immutable release record")
+    latest = client.get_optional("/releases/latest")
+    if (
+        not isinstance(latest, dict)
+        or not _positive_id(latest.get("id"))
+        or latest["id"] != record["id"]
+    ):
+        raise ReleaseError("GitHub latest Release does not match the immutable release record")
+
+
+def _bound_publication(
+    client: GitHubClient, number: int, base_sha: str, head_sha: str, merge_sha: str,
+    expected_metadata: tuple[ReleaseMetadata, str] | None = None,
+) -> tuple[ReleaseMetadata, str]:
+    pull, _ = client.request("GET", f"/pulls/{number}")
+    _validate_pull_identity(pull, client.repository)
+    try:
+        matches = (
+            _positive_id(pull.get("number")) and pull["number"] == number
+            and pull.get("merged") is True and pull.get("state") == "closed"
+            and pull["head"]["repo"].get("fork") is False
+            and pull["base"].get("sha") == base_sha
+            and pull["head"].get("sha") == head_sha
+            and pull.get("merge_commit_sha") == merge_sha
+        )
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ReleaseError("GitHub bound release PR response is invalid") from exc
+    if not matches:
+        raise ReleaseError("release PR does not match the expected merged dev-to-main identity and SHAs")
+    metadata = parse_release_title(pull.get("title")), validate_release_body(pull.get("body"))
+    if expected_metadata is not None and metadata != expected_metadata:
+        raise ReleaseError("release PR metadata changed before publication write")
+    main, _ = client.request("GET", "/branches/main")
+    if (
+        not isinstance(main, dict)
+        or main.get("name") != "main"
+        or main.get("protected") is not True
+        or not isinstance(main.get("commit"), dict)
+        or main["commit"].get("sha") != merge_sha
+    ):
+        raise ReleaseError("release merge SHA is not current protected main")
+    return metadata
+
+
+def _create_once(
+    client: GitHubClient, path: str, payload: Mapping[str, Any],
+    effects: list[str], label: str,
+) -> None:
+    effects.append(f"{label} create attempted (outcome uncertain)")
+    try:
+        client.request("POST", path, payload)
+    except GitHubError as exc:
+        if exc.status != 422:
+            raise
+        effects[-1] = f"{label} create returned 422 (collision requires read-back)"
+    else:
+        effects[-1] = f"{label} create succeeded (requires read-back)"
 
 
 def publish(
-    client: GitHubClient, pull_request_number: int, base: str = "main", head: str = "dev"
+    client: GitHubClient, pull_request_number: int, *,
+    base_sha: str, head_sha: str, merge_sha: str,
 ) -> str:
-    pull, _ = client.request("GET", f"/pulls/{pull_request_number}")
-    _validate_pull_identity(pull, client.repository, base, head)
-    if pull.get("merged") is not True or pull.get("state") != "closed":
-        raise ReleaseError("release PR is not merged")
-    merge_sha = pull.get("merge_commit_sha")
-    if not isinstance(merge_sha, str) or not SHA_RE.fullmatch(merge_sha):
-        raise ReleaseError("release PR merge commit SHA is invalid")
-
-    metadata = parse_release_title(pull.get("title"))
-    body = validate_release_body(pull.get("body"))
+    if not _positive_id(pull_request_number):
+        raise ReleaseError("release PR number must be a positive integer")
+    for sha in (base_sha, head_sha, merge_sha):
+        if not isinstance(sha, str) or not SHA_RE.fullmatch(sha):
+            raise ReleaseError("expected base, head, and merge SHAs must be full commit SHAs")
+    metadata, body = _bound_publication(
+        client, pull_request_number, base_sha, head_sha, merge_sha
+    )
     _validate_merge_commit(client, merge_sha)
     _validate_changelog(client, metadata.version, merge_sha, body)
     tags = client.paginate("/tags?per_page=100")
     validate_version_progression(tags, metadata.version, allow_existing=True)
     version = str(metadata.version)
-    _ensure_tag(client, version, merge_sha)
-    _ensure_release(client, version, body)
+    target = _read_tag_target(client, version)
+    if target is not None and target != merge_sha.lower():
+        raise ReleaseError("tag does not target release PR merge commit")
+    record_path = f"/releases/tags/{_q(version)}"
+    record = client.get_optional(record_path)
+    if record is not None:
+        if target is None:
+            raise ReleaseError("existing Release without its tag is inconsistent")
+        _validate_release(client, record, version, body)
+        return version
+
+    # Both records have been preflighted before any write. Fresh reads at each
+    # boundary detect observed drift, but cannot lock GitHub against concurrent edits.
+    effects: list[str] = []
+    try:
+        _bound_publication(
+            client, pull_request_number, base_sha, head_sha, merge_sha, (metadata, body)
+        )
+        if target is None:
+            _create_once(client, "/git/refs", {"ref": f"refs/tags/{version}", "sha": merge_sha},
+                         effects, "tag")
+            if _read_tag_target(client, version) != merge_sha.lower():
+                raise ReleaseError("created tag does not target release PR merge commit")
+            _bound_publication(
+                client, pull_request_number, base_sha, head_sha, merge_sha, (metadata, body)
+            )
+        _create_once(client, "/releases", _canonical_release(version, body), effects, "Release")
+        _validate_release(client, client.get_optional(record_path), version, body)
+    except ReleaseError as exc:
+        if effects:
+            raise ReleaseError(f"{exc}; {'; '.join(effects)}; stopped without rollback or retry") from exc
+        raise
     return version
 
 
@@ -555,6 +613,9 @@ def main(argv: list[str] | None = None) -> int:
     publish_parser.add_argument(
         "--pull-request-number", required=True, type=_positive_integer
     )
+    publish_parser.add_argument("--base-sha", required=True)
+    publish_parser.add_argument("--head-sha", required=True)
+    publish_parser.add_argument("--merge-sha", required=True)
 
     verify_parser = subparsers.add_parser("verify-promotion")
     verify_parser.add_argument("--repository", required=True)
@@ -566,7 +627,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-pr":
             version = validate_pull_request(client, args.pull_request_number)
         elif args.command == "publish":
-            version = publish(client, args.pull_request_number)
+            version = publish(client, args.pull_request_number, base_sha=args.base_sha,
+                              head_sha=args.head_sha, merge_sha=args.merge_sha)
         else:
             version = verify_promotion(client, args.version)
         print(version)

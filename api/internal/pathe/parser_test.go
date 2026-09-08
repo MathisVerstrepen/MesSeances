@@ -222,9 +222,15 @@ func TestSessionServiceDateAndStrictFields(t *testing.T) {
 	if err != nil || record.ServiceDate != "2026-08-15" || record.StartTime.Location() != location || record.EndTime.Sub(record.StartTime) != 90*time.Minute {
 		t.Fatalf("record=%+v err=%v", record, err)
 	}
-	session.Time = "2026-08-16 03:00:00"
-	if _, err := parseSession(session, movie, theater, "2026-08-16", location); err == nil {
-		t.Fatal("03:00 showtime accepted")
+	for _, hour := range []string{"03:00:00", "06:00:00", "07:59:00"} {
+		session.Time = "2026-08-16 " + hour
+		record, err := parseSession(session, movie, theater, "2026-08-16", location)
+		if err != nil || record.ServiceDate != "2026-08-16" || record.StartTime.Format(providerTimeLayout) != session.Time {
+			t.Fatalf("early session changed: record=%+v err=%v", record, err)
+		}
+		if _, err := parseSession(session, movie, theater, "2026-08-15", location); err == nil {
+			t.Fatal("early session accepted under previous advertised date")
+		}
 	}
 	session.Time = "2026-08-16 08:00:00"
 	session.Version = "unknown"

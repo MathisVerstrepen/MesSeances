@@ -46,6 +46,20 @@ jobs:
           [[ "$HEAD_SHA" =~ $sha_pattern ]]
           [[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]
 
+          case "$EVENT_ACTION" in
+            opened|edited|synchronize|reopened|ready_for_review) ;;
+            *) exit 1 ;;
+          esac
+          [[ "$EVENT_NAME" == pull_request ]]
+          [[ "$EVENT_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
+          [[ "$EVENT_STATE" == open ]]
+          [[ "$EVENT_MERGED" == false ]]
+          [[ "$BASE_REF" == main ]]
+          [[ "$HEAD_REF" == dev ]]
+          [[ "$BASE_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_REPOSITORY" == "$EVENT_REPOSITORY" ]]
+          [[ "$HEAD_FORK" == false ]]
+
           tool_path=base-automation/scripts/release_automation.py
           if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
             printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
@@ -55,19 +69,6 @@ jobs:
             printf 'pre-merge base release tooling is not a regular file\n' >&2
             exit 1
           fi
-
-          case "$EVENT_ACTION" in
-            opened|edited|synchronize|reopened|ready_for_review) ;;
-            *) exit 1 ;;
-          esac
-          [[ "$EVENT_NAME" == pull_request ]]
-          [[ "$EVENT_STATE" == open ]]
-          [[ "$EVENT_MERGED" == false ]]
-          [[ "$BASE_REF" == main ]]
-          [[ "$HEAD_REF" == dev ]]
-          [[ "$BASE_REPOSITORY" == "$EVENT_REPOSITORY" ]]
-          [[ "$HEAD_REPOSITORY" == "$EVENT_REPOSITORY" ]]
-          [[ "$HEAD_FORK" == false ]]
 
           printf 'source=head\nref=%s\n' "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 

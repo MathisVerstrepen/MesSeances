@@ -33,19 +33,20 @@ const (
 type ErrorCategory string
 
 const (
-	CategoryCanceled      ErrorCategory = "canceled"
-	CategoryInvalidURL    ErrorCategory = "invalid URL"
-	CategoryNoProxy       ErrorCategory = "no proxy available"
-	CategoryTransport     ErrorCategory = "transport"
-	CategoryRedirect      ErrorCategory = "redirect rejected"
-	CategoryResponseRead  ErrorCategory = "response unreadable"
-	CategoryResponseLarge ErrorCategory = "response too large"
-	CategoryChallenge     ErrorCategory = "challenge response"
-	CategoryServer        ErrorCategory = "server error"
-	CategoryStatus        ErrorCategory = "HTTP status"
-	CategoryContentType   ErrorCategory = "non-JSON content"
-	CategoryInvalidJSON   ErrorCategory = "invalid JSON"
-	CategoryEmptyResponse ErrorCategory = "empty response"
+	CategoryCanceled       ErrorCategory = "canceled"
+	CategoryInvalidURL     ErrorCategory = "invalid URL"
+	CategoryNoProxy        ErrorCategory = "no proxy available"
+	CategoryTransport      ErrorCategory = "transport"
+	CategoryRedirect       ErrorCategory = "redirect rejected"
+	CategoryResponseRead   ErrorCategory = "response unreadable"
+	CategoryResponseLarge  ErrorCategory = "response too large"
+	CategoryChallenge      ErrorCategory = "challenge response"
+	CategoryServer         ErrorCategory = "server error"
+	CategoryStatus         ErrorCategory = "HTTP status"
+	CategoryContentType    ErrorCategory = "non-JSON content"
+	CategoryInvalidJSON    ErrorCategory = "invalid JSON"
+	CategoryInvalidPayload ErrorCategory = "invalid payload"
+	CategoryEmptyResponse  ErrorCategory = "empty response"
 )
 
 type RequestError struct {

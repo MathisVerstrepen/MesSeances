@@ -56,16 +56,6 @@ jobs:
           [[ "$BASE_SHA" =~ $sha_pattern ]]
           [[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]
 
-          tool_path=base-automation/scripts/release_automation.py
-          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
-            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
-            printf 'pre-merge base release tooling is not a regular file\n' >&2
-            exit 1
-          fi
-
           [[ "$EVENT_NAME" == pull_request ]]
           [[ "$EVENT_ACTION" == closed ]]
           [[ "$EVENT_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
@@ -83,7 +73,7 @@ jobs:
           pr_json="$(gh api "repos/$EVENT_REPOSITORY/pulls/$PR_NUMBER")"
           jq -e \
             --arg number "$PR_NUMBER" \
-            '(.number | tostring) == $number' \
+            '(.number | type) == "number" and (.number | tostring) == $number' \
             >/dev/null <<<"$pr_json"
           jq -e \
             --arg repository "$EVENT_REPOSITORY" \
@@ -103,6 +93,16 @@ jobs:
             --arg merge_sha "$MERGE_SHA" \
             '.name == "main" and .protected == true and .commit.sha == $merge_sha' \
             >/dev/null <<<"$main_json"
+
+          tool_path=base-automation/scripts/release_automation.py
+          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
+            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
+            printf 'pre-merge base release tooling is not a regular file\n' >&2
+            exit 1
+          fi
 
           printf 'source=merge\nref=%s\n' "$MERGE_SHA" >> "$GITHUB_OUTPUT"
 
@@ -143,11 +143,17 @@ jobs:
           RELEASE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_REPOSITORY: ${{ github.repository }}
           RELEASE_PULL_REQUEST: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         shell: bash
         run: |
           version="$(python release-automation/scripts/release_automation.py publish \
             --repository "$RELEASE_REPOSITORY" \
-            --pull-request-number "$RELEASE_PULL_REQUEST")"
+            --pull-request-number "$RELEASE_PULL_REQUEST" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --merge-sha "$MERGE_SHA")"
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
 
   build:
@@ -252,16 +258,6 @@ jobs:
           [[ "$BASE_SHA" =~ $sha_pattern ]]
           [[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]
 
-          tool_path=base-automation/scripts/release_automation.py
-          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
-            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
-            printf 'pre-merge base release tooling is not a regular file\n' >&2
-            exit 1
-          fi
-
           [[ "$EVENT_NAME" == pull_request ]]
           [[ "$EVENT_ACTION" == closed ]]
           [[ "$EVENT_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]
@@ -279,7 +275,7 @@ jobs:
           pr_json="$(gh api "repos/$EVENT_REPOSITORY/pulls/$PR_NUMBER")"
           jq -e \
             --arg number "$PR_NUMBER" \
-            '(.number | tostring) == $number' \
+            '(.number | type) == "number" and (.number | tostring) == $number' \
             >/dev/null <<<"$pr_json"
           jq -e \
             --arg repository "$EVENT_REPOSITORY" \
@@ -299,6 +295,16 @@ jobs:
             --arg merge_sha "$MERGE_SHA" \
             '.name == "main" and .protected == true and .commit.sha == $merge_sha' \
             >/dev/null <<<"$main_json"
+
+          tool_path=base-automation/scripts/release_automation.py
+          if [[ -f "$tool_path" && ! -L "$tool_path" ]]; then
+            printf 'source=base\nref=%s\n' "$BASE_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -e "$tool_path" || -L "$tool_path" ]]; then
+            printf 'pre-merge base release tooling is not a regular file\n' >&2
+            exit 1
+          fi
 
           printf 'source=merge\nref=%s\n' "$MERGE_SHA" >> "$GITHUB_OUTPUT"
 

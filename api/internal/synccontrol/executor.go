@@ -177,7 +177,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary pathe.SyncSummary
 		data, summary, err = e.syncPathe(ctx, client, pathe.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: summary.Requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetCGR:
 		if e.newCGR == nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
@@ -313,7 +313,7 @@ func safePatheFetchCategory(category pathe.ErrorCategory) logCategory {
 		return categoryHTTPStatus
 	case pathe.CategoryContentType:
 		return categoryContentType
-	case pathe.CategoryInvalidJSON:
+	case pathe.CategoryInvalidJSON, pathe.CategoryInvalidPayload:
 		return categoryInvalidPayload
 	case pathe.CategoryEmptyResponse:
 		return categoryEmptyResponse

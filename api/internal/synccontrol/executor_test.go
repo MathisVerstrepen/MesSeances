@@ -427,6 +427,7 @@ func TestProductionExecutorLogsSanitizedPatheFetchDiagnostics(t *testing.T) {
 		{name: "redirect", category: pathe.CategoryRedirect, operation: pathe.OperationShows, wantCategory: "redirect", wantOperation: "program"},
 		{name: "response too large", category: pathe.CategoryResponseLarge, operation: pathe.OperationCinemaProgram, wantCategory: "response_too_large", wantOperation: "program"},
 		{name: "invalid JSON", category: pathe.CategoryInvalidJSON, operation: pathe.OperationMovieTimes, wantCategory: "invalid_payload", wantOperation: "showings"},
+		{name: "invalid payload", category: pathe.CategoryInvalidPayload, operation: pathe.OperationMovieTimes, wantCategory: "invalid_payload", wantOperation: "showings"},
 		{name: "canceled", category: pathe.CategoryCanceled, operation: pathe.OperationEventTimes, wantCategory: "canceled", wantOperation: "showings"},
 	}
 	for _, test := range tests {
@@ -467,6 +468,33 @@ func TestProductionExecutorBoundsPatheFetchDiagnostics(t *testing.T) {
 	logLine := logs.String()
 	if !strings.Contains(logLine, `"fetch_category":"unknown"`) || !strings.Contains(logLine, `"request_operation":"unknown"`) || strings.Contains(logLine, `"http_status"`) || strings.Contains(logLine, malicious) {
 		t.Fatalf("unbounded diagnostic log: %s", logLine)
+	}
+}
+
+type countingPatheGetter struct {
+	unusedPatheGetter
+	requests int
+}
+
+func (g countingPatheGetter) RequestCount() int { return g.requests }
+
+func TestProductionExecutorRetainsPatheParserFailureDiagnostics(t *testing.T) {
+	var logs bytes.Buffer
+	executor := failedPatheExecutor(&logs, fmt.Errorf("synthetic-secret: %w", &pathe.RequestError{Operation: pathe.OperationMovieTimes, Category: pathe.CategoryInvalidPayload}))
+	executor.newPathe = func() (pathe.Getter, error) { return countingPatheGetter{requests: 660}, nil }
+	_, err := executor.Run(context.Background(), TargetPathe, Window{From: "2026-08-17"})
+	var runErr *RunError
+	if !errors.As(err, &runErr) {
+		t.Fatalf("expected run error: %v", err)
+	}
+	canonical := strings.Join(runErr.logs[TargetPathe], "\n")
+	for _, want := range []string{"operation=showings", "category=invalid_payload", "requests=660"} {
+		if !strings.Contains(canonical, want) {
+			t.Fatalf("canonical log missing %q: %s", want, canonical)
+		}
+	}
+	if strings.Contains(canonical+logs.String(), "synthetic-secret") || !strings.Contains(logs.String(), `"requests":660`) {
+		t.Fatalf("unsafe or missing diagnostic: %s", canonical)
 	}
 }
 
