@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -13,11 +14,12 @@ import (
 )
 
 type adminMovieStoreStub struct {
-	query     enrichment.AdminMovieQuery
-	patch     enrichment.AdminMoviePatch
-	id        int64
-	listErr   error
-	updateErr error
+	query         enrichment.AdminMovieQuery
+	patch         enrichment.AdminMoviePatch
+	id            int64
+	listErr       error
+	updateErr     error
+	showtimeCount int
 }
 
 func (store *adminMovieStoreStub) AdminMovies(_ context.Context, query enrichment.AdminMovieQuery) (enrichment.AdminMovieList, error) {
@@ -25,7 +27,7 @@ func (store *adminMovieStoreStub) AdminMovies(_ context.Context, query enrichmen
 	if store.listErr != nil {
 		return enrichment.AdminMovieList{}, store.listErr
 	}
-	return enrichment.AdminMovieList{Items: []enrichment.AdminMovieItem{{ID: "7", UpdatedAt: "2026-08-30T12:00:00.123456Z"}}, Total: 1, Limit: query.Limit, Offset: query.Offset}, nil
+	return enrichment.AdminMovieList{Items: []enrichment.AdminMovieItem{{ID: "7", UpdatedAt: "2026-08-30T12:00:00.123456Z", ShowtimeCount: store.showtimeCount}}, Total: 1, Limit: query.Limit, Offset: query.Offset}, nil
 }
 
 func (store *adminMovieStoreStub) UpdateAdminMovie(_ context.Context, id int64, patch enrichment.AdminMoviePatch) (enrichment.AdminMovieItem, error) {
@@ -68,11 +70,37 @@ func TestAdminMovieListAuthenticationAndStrictQuery(t *testing.T) {
 		"unknown=value", "limit=1&limit=2", "search=", "search=%20%20", "limit=101", "offset=-1",
 		"runtime_min=120&runtime_max=90", "release_date_from=2026-02-30", "override_status=automatic&override_field=title",
 		"sort=bogus", "direction=sideways", "search=%ZZ",
+		"sort=showtime_count&sort=id", "sort=showtime_count%20DESC", "sort=showtime_count&direction=DESC",
+		"showtime_count=1", "override_field=showtime_count",
 	}
 	for _, query := range invalid {
 		response := adminRequest(handler, http.MethodGet, "/api/v1/admin/movies?"+query, "", "", cookie)
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("query=%q status=%d body=%s", query, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestAdminMovieListShowtimeCountAndSorting(t *testing.T) {
+	store := &adminMovieStoreStub{}
+	handler := adminMovieHandler(t, store)
+	cookie := loginAdmin(t, handler, "password")
+	for _, count := range []int{0, 7} {
+		store.showtimeCount = count
+		for _, direction := range []string{"asc", "desc"} {
+			response := adminRequest(handler, http.MethodGet, "/api/v1/admin/movies?sort=showtime_count&direction="+direction+"&limit=25&offset=5", "", "", cookie)
+			if response.Code != http.StatusOK || store.query.Sort != "showtime_count" || store.query.Direction != direction || store.query.Limit != 25 || store.query.Offset != 5 {
+				t.Fatalf("status=%d query=%+v body=%s", response.Code, store.query, response.Body.String())
+			}
+			var payload struct {
+				Items []map[string]json.RawMessage `json:"items"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || len(payload.Items) != 1 {
+				t.Fatalf("payload=%+v err=%v", payload, err)
+			}
+			if got := string(payload.Items[0]["showtime_count"]); got != strconv.Itoa(count) {
+				t.Fatalf("showtime_count=%q want integer %d", got, count)
+			}
 		}
 	}
 }
@@ -97,18 +125,24 @@ func TestAdminMoviePatchSecurityParsingAndErrors(t *testing.T) {
 	}
 
 	invalid := map[string]string{
-		"id":             "/api/v1/admin/movies/07",
-		"unknown field":  "/api/v1/admin/movies/7",
-		"overlap":        "/api/v1/admin/movies/7",
-		"no operation":   "/api/v1/admin/movies/7",
-		"nullable title": "/api/v1/admin/movies/7",
+		"id":              "/api/v1/admin/movies/07",
+		"unknown field":   "/api/v1/admin/movies/7",
+		"overlap":         "/api/v1/admin/movies/7",
+		"no operation":    "/api/v1/admin/movies/7",
+		"nullable title":  "/api/v1/admin/movies/7",
+		"count override":  "/api/v1/admin/movies/7",
+		"count restore":   "/api/v1/admin/movies/7",
+		"count top level": "/api/v1/admin/movies/7",
 	}
 	bodies := map[string]string{
-		"id":             body,
-		"unknown field":  `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"identity_anchor_provider":"ugc"}}`,
-		"overlap":        `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"title":"Film"},"restore":["title"]}`,
-		"no operation":   `{"expected_updated_at":"2026-08-30T12:00:00Z"}`,
-		"nullable title": `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"title":null}}`,
+		"id":              body,
+		"unknown field":   `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"identity_anchor_provider":"ugc"}}`,
+		"overlap":         `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"title":"Film"},"restore":["title"]}`,
+		"no operation":    `{"expected_updated_at":"2026-08-30T12:00:00Z"}`,
+		"nullable title":  `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"title":null}}`,
+		"count override":  `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"showtime_count":7}}`,
+		"count restore":   `{"expected_updated_at":"2026-08-30T12:00:00Z","restore":["showtime_count"]}`,
+		"count top level": `{"expected_updated_at":"2026-08-30T12:00:00Z","overrides":{"title":"Film"},"showtime_count":7}`,
 	}
 	for name, target := range invalid {
 		response := adminRequest(handler, http.MethodPatch, target, bodies[name], "http://localhost:3000", cookie)

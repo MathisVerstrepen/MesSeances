@@ -113,7 +113,7 @@ export const adminMovieFields = [
 
 export type AdminMovieField = typeof adminMovieFields[number]
 export type AdminMovieOverrideStatus = 'all' | 'overridden' | 'automatic'
-export type AdminMovieSort = 'title' | 'runtime_minutes' | 'release_date' | 'updated_at' | 'id'
+export type AdminMovieSort = 'title' | 'runtime_minutes' | 'release_date' | 'showtime_count' | 'updated_at' | 'id'
 export type AdminMovieSortDirection = 'asc' | 'desc'
 
 export interface AdminMovieMetadata {
@@ -131,6 +131,7 @@ export interface AdminMovieMetadata {
 export interface AdminMovieItem {
   id: string
   updated_at: string
+  showtime_count: number
   automatic: AdminMovieMetadata
   values: AdminMovieMetadata
   overridden_fields: AdminMovieField[]

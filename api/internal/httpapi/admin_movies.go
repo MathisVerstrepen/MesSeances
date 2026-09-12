@@ -172,7 +172,7 @@ func validParsedAdminMovieQuery(query enrichment.AdminMovieQuery) bool {
 	if query.OverrideField != "" && !enrichment.ValidAdminMovieField(query.OverrideField) || query.OverrideStatus == "automatic" && query.OverrideField != "" {
 		return false
 	}
-	if query.Sort != "title" && query.Sort != "runtime_minutes" && query.Sort != "release_date" && query.Sort != "updated_at" && query.Sort != "id" {
+	if query.Sort != "title" && query.Sort != "runtime_minutes" && query.Sort != "release_date" && query.Sort != "updated_at" && query.Sort != "id" && query.Sort != "showtime_count" {
 		return false
 	}
 	return query.Direction == "asc" || query.Direction == "desc"

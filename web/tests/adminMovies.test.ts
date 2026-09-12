@@ -2,12 +2,13 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { getFrenchAdminApiError, useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
-import type { AdminMovieItem, AdminMoviePatchRequest, AdminMoviesQuery, AdminMoviesResponse } from '../app/types/api.ts'
+import { adminMovieFields, type AdminMovieItem, type AdminMoviePatchRequest, type AdminMoviesQuery, type AdminMoviesResponse } from '../app/types/api.ts'
 import {
   adminMovieDraftFingerprint,
   adminMovieGridFilterModel,
   adminMovieQueryFromGrid,
   adminMovieRouteQuery,
+  adminMovieRouteStateFromGrid,
   buildAdminMoviePatch,
   emptyAdminMovieDraft,
   isAdminMovieFieldOverridden,
@@ -32,6 +33,7 @@ function movie(overrides: Partial<AdminMovieItem> = {}): AdminMovieItem {
   return {
     id: '9007199254740993',
     updated_at: '2026-08-30T09:15:00.123456789Z',
+    showtime_count: 0,
     automatic: { ...metadata, genres: [...metadata.genres] },
     values: { ...metadata, genres: [...metadata.genres] },
     overridden_fields: [],
@@ -91,6 +93,69 @@ test('translates one AG Grid sort and core filters to strict list API query', ()
     release_date: { type: 'inRange', dateFrom: '0001-01-01', dateTo: '2026-12-31' },
     genres: { type: 'contains', filter: 'drame' }
   })
+})
+
+for (const direction of ['asc', 'desc'] as const) {
+  test(`round-trips upcoming screening ${direction} sort through grid, URL and paginated API query`, () => {
+    const initial = parseAdminMovieRouteQuery({ q: 'Alien', runtime_min: '90', genre: 'Action', page: '4' })
+    const sorted = adminMovieRouteStateFromGrid(initial, [{ colId: 'showtime_count', sort: direction }], adminMovieGridFilterModel(initial))
+    assert.equal(sorted.sort, 'showtime_count')
+    assert.equal(sorted.direction, direction)
+    assert.equal(sorted.page, 1)
+
+    const url = adminMovieRouteQuery({ ...sorted, page: 3 })
+    assert.equal(url.sort, 'showtime_count')
+    assert.equal(url.direction, direction === 'asc' ? undefined : 'desc')
+    assert.equal(url.page, '3')
+    const restored = parseAdminMovieRouteQuery(url)
+    assert.deepEqual(adminMovieRouteQuery(restored), url)
+    assert.equal(restored.sort, 'showtime_count')
+    assert.equal(restored.direction, direction)
+
+    const request = {
+      sortModel: [{ colId: restored.sort, sort: restored.direction }],
+      filterModel: adminMovieGridFilterModel(restored)
+    }
+    const query = adminMovieQueryFromGrid(restored, request)
+    assert.equal(query.sort, 'showtime_count')
+    assert.equal(query.direction, direction)
+    assert.equal(query.offset, 100)
+    assert.equal(query.limit, 50)
+    assert.equal(query.search, 'Alien')
+    assert.equal(query.runtime_min, 90)
+    assert.equal(query.genre, 'Action')
+    assert.deepEqual(adminMovieQueryFromGrid(restored, { ...request, startRow: 150, endRow: 200 }), { ...query, offset: 150 })
+  })
+}
+
+test('keeps title ascending as the default and when screening sort is cleared', () => {
+  for (const query of [{}, { sort: 'invalid', direction: 'invalid' }]) {
+    const state = parseAdminMovieRouteQuery(query)
+    assert.equal(state.sort, 'title')
+    assert.equal(state.direction, 'asc')
+  }
+  const state = parseAdminMovieRouteQuery({ sort: 'showtime_count', direction: 'desc', page: '3' })
+  const cleared = adminMovieRouteStateFromGrid(state, [], {})
+  assert.equal(cleared.sort, 'title')
+  assert.equal(cleared.direction, 'asc')
+  assert.equal(cleared.page, 1)
+})
+
+test('exposes upcoming screenings as a read-only numeric column without filtering or zero-hiding renderers', async () => {
+  const grid = await readFile(new URL('../app/components/admin/AdminMoviesGrid.client.vue', import.meta.url), 'utf8')
+  const column = grid.match(/\{ colId: 'showtime_count',[^}]+\}/)?.[0]
+  assert.ok(column)
+  assert.match(column, /headerName: 'Séances à venir'/)
+  assert.match(column, /field: 'showtime_count'/)
+  assert.match(column, /cellDataType: 'number'/)
+  assert.match(column, /sortable: true/)
+  assert.match(column, /filter: false/)
+  assert.match(column, /editable: false/)
+  assert.doesNotMatch(column, /valueGetter|valueFormatter|valueSetter|cellRenderer|cellEditor/)
+  assert.ok(!adminMovieFields.some((field: string) => field === 'showtime_count'))
+  assert.match(grid, /row-model-type="infinite"/)
+  assert.match(grid, /state: \[\{ colId: state.sort, sort: state.direction \}\]/)
+  assert.match(grid, /adminMovieQueryFromGrid\(routeState.value, params\)/)
 })
 
 test('keeps independent drafts and distinguishes equal automatic override, explicit null, and restore', () => {
@@ -155,11 +220,13 @@ test('uses credentialed GET and PATCH contracts and decimal-string IDs', async (
       return Promise.resolve(options.method === 'PATCH' ? item : response)
     }
   })
-  const query: AdminMoviesQuery = { limit: 50, offset: 0, override_status: 'all', sort: 'title', direction: 'asc' }
+  const query: AdminMoviesQuery = { limit: 50, offset: 0, override_status: 'all', sort: 'showtime_count', direction: 'desc' }
   const patch: AdminMoviePatchRequest = { expected_updated_at: item.updated_at, overrides: { title: 'Nouveau titre' } }
   const api = useMesSeancesApi()
-  await api.adminMovies(query)
-  await api.adminUpdateMovie(item.id, patch)
+  const listed = await api.adminMovies(query)
+  const updated = await api.adminUpdateMovie(item.id, patch)
+  assert.equal(listed.items[0]?.showtime_count, 0)
+  assert.equal(updated.showtime_count, 0)
   assert.deepEqual(calls, [
     {
       url: 'http://localhost:8080/api/v1/admin/movies',

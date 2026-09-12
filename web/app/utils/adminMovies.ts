@@ -115,7 +115,7 @@ export interface AdminMovieGridFilterModel {
   genres?: AdminMovieGridFilter
 }
 
-const adminMovieSorts = ['title', 'runtime_minutes', 'release_date', 'updated_at', 'id'] as const
+const adminMovieSorts = ['title', 'runtime_minutes', 'release_date', 'showtime_count', 'updated_at', 'id'] as const
 const adminMovieDirections = ['asc', 'desc'] as const
 const adminMovieOverrideStatuses = ['all', 'overridden', 'automatic'] as const
 const maxRuntime = 2_147_483_647

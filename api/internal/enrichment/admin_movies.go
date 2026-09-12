@@ -59,6 +59,7 @@ type AdminMovieMetadata struct {
 type AdminMovieItem struct {
 	ID               string             `json:"id"`
 	UpdatedAt        string             `json:"updated_at"`
+	ShowtimeCount    int                `json:"showtime_count"`
 	Automatic        AdminMovieMetadata `json:"automatic"`
 	Values           AdminMovieMetadata `json:"values"`
 	OverriddenFields []AdminMovieField  `json:"overridden_fields"`
@@ -164,7 +165,7 @@ func validAdminMovieQuery(query AdminMovieQuery) bool {
 	if query.OverrideField != "" && !ValidAdminMovieField(query.OverrideField) || query.OverrideStatus == "automatic" && query.OverrideField != "" {
 		return false
 	}
-	if query.Sort != "title" && query.Sort != "runtime_minutes" && query.Sort != "release_date" && query.Sort != "updated_at" && query.Sort != "id" {
+	if query.Sort != "title" && query.Sort != "runtime_minutes" && query.Sort != "release_date" && query.Sort != "updated_at" && query.Sort != "id" && query.Sort != "showtime_count" {
 		return false
 	}
 	return query.Direction == "asc" || query.Direction == "desc"
