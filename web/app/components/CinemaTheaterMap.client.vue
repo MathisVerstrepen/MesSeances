@@ -327,6 +327,7 @@ function onMapLoad() {
           'kinepolis', THEATER_PROVIDER_COLORS.kinepolis,
           'pathe', THEATER_PROVIDER_COLORS.pathe,
           'cgr', THEATER_PROVIDER_COLORS.cgr,
+          'megarama', THEATER_PROVIDER_COLORS.megarama,
           '#52525b'
         ],
         'circle-stroke-color': '#ffffff',

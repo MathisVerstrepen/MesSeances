@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ const (
 	SourceKinepolis = "kinepolis"
 	SourcePathe     = "pathe"
 	SourceCGR       = "cgr"
+	SourceMegarama  = "megarama"
 	ProviderTMDB    = "tmdb"
 	LocaleFrench    = "fr-FR"
 
@@ -130,6 +132,9 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceMegarama {
+		return len(id) <= 114 && (megaramaGlobalID.MatchString(id) || megaramaLocalID.MatchString(id) && id[3:7] == id[12:16])
+	}
 	if provider == SourceUGC || provider == SourceCGR {
 		movieID, err := strconv.ParseInt(id, 10, 64)
 		return err == nil && movieID > 0 && strconv.FormatInt(movieID, 10) == id
@@ -145,6 +150,9 @@ func validSourceIdentity(provider, id string) bool {
 	}
 	return true
 }
+
+var megaramaGlobalID = regexp.MustCompile(`^[A-Z0-9]{5}$`)
+var megaramaLocalID = regexp.MustCompile(`^EMS[0-9]{4}-emsx[0-9]{4}HC[0-9]+$`)
 
 func validateMetadata(metadata Metadata) error {
 	if metadata.Provider != ProviderTMDB || metadata.ProviderMovieID <= 0 || metadata.Locale != LocaleFrench || strings.TrimSpace(metadata.ProviderTitle) == "" || len(metadata.ProviderTitle) > 1024 || strings.TrimSpace(metadata.LocalizedTitle) == "" || len(metadata.LocalizedTitle) > 1024 {

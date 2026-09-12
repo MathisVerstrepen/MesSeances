@@ -9,6 +9,7 @@ import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { filterAndSortCatalogMovies, movieCatalogSortValues } from '~/utils/movieCatalogPresentation'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
 import { groupShowtimeResults, resultGroupingOptions, resultLayoutOptions, sortShowtimeResults, toTheaterShowtimeResults } from '~/utils/showtimeResults'
 
 const route = useRoute()
@@ -291,17 +292,19 @@ const cinemaJsonLd = computed(() => {
     const movieId = movieIds.get(showtime.movie.slug)
     const start = Date.parse(showtime.start_time)
     const end = Date.parse(showtime.end_time)
-    if (!id || seen.has(id) || !movieId || !showtime.movie.title.trim() || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
+    const unknownMegaramaEnd = showtime.provider === 'megarama' && end === start
+    if (!id || seen.has(id) || !movieId || !showtime.movie.title.trim() || !Number.isFinite(start) || !Number.isFinite(end) || (end <= start && !unknownMegaramaEnd)) continue
     seen.add(id)
-    graph.push({
+    const event: JsonLdNode = {
       '@type': 'ScreeningEvent',
       '@id': `${theaterUrl}#screening-${encodeURIComponent(id)}`,
       name: `${showtime.movie.title} à ${current.theater.name}`,
       startDate: showtime.start_time,
-      endDate: showtime.end_time,
       location: { '@id': theaterId },
       workPresented: { '@id': movieId }
-    })
+    }
+    if (hasKnownShowtimeEnd(showtime.provider, showtime.start_time, showtime.end_time)) event.endDate = showtime.end_time
+    graph.push(event)
   }
   return serializeJsonLd({ '@context': 'https://schema.org', '@graph': graph })
 })

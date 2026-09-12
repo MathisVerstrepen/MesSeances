@@ -23,6 +23,7 @@ import (
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/megarama"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
@@ -422,6 +423,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewCGR: func() (cgr.Getter, error) {
 			return cgr.NewClient(cgr.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewMegarama: func() (megarama.Getter, error) {
+			return megarama.NewClient(megarama.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

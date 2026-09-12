@@ -152,3 +152,17 @@ test('keeps breadcrumb identities and serializes script-breaking characters safe
   assert.match(serialized, /\\u0026/u)
   assert.match(serialized, /\\u2028/u)
 })
+
+test('keeps unknown Megarama events but omits their endDate without recomputing from catalog runtime', () => {
+  const schedule = fixture()
+  const theater = schedule.theaters[0]!
+  const unknown = { ...theater.showtimes[0]!, provider: 'megarama' as const }
+  unknown.end_time = unknown.start_time
+  theater.showtimes = [unknown, { ...unknown, id: 'known', end_time: '2026-08-29T20:10:00+02:00' }]
+  schedule.theaters = [theater]
+  const events = buildFilmJsonLd(schedule, { movieUrl: 'https://messeances.fr/film/film-42', siteUrl: 'https://messeances.fr' })['@graph'].filter((node) => node['@type'] === 'ScreeningEvent')
+  assert.equal(events.length, 2)
+  assert.equal(events[0]!.startDate, unknown.start_time)
+  assert.equal(Object.hasOwn(events[0]!, 'endDate'), false)
+  assert.equal(events[1]!.endDate, '2026-08-29T20:10:00+02:00')
+})

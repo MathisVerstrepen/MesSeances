@@ -18,6 +18,12 @@ type memoryScheduleStore struct {
 	claims map[int64]Occurrence
 }
 
+func TestMegaramaTargetOrder(t *testing.T) {
+	if !ValidTarget(TargetMegarama) || TargetOrder(TargetMegarama) != TargetOrder(TargetCGR)+1 || TargetOrder(TargetMetadataRefresh) != TargetOrder(TargetMegarama)+1 {
+		t.Fatal("Megarama target ordering")
+	}
+}
+
 func newMemoryScheduleStore() *memoryScheduleStore {
 	return &memoryScheduleStore{rows: map[int64]Schedule{}, claims: map[int64]Occurrence{}}
 }

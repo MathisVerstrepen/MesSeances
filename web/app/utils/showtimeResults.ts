@@ -1,5 +1,6 @@
 import type { SlotResult, TheaterShowtimesResponse } from '../types/api'
 import type { ResultGrouping, ResultLayout, ShowtimeMovieResultGroup, ShowtimeResultViewModel } from '../types/showtimeResults'
+import { hasKnownShowtimeEnd } from './showtimeEnd.ts'
 
 export const resultGroupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
   { value: 'movie', label: 'Par film' },
@@ -81,6 +82,8 @@ const CGR_SELECTION_KEY_PATTERN = /^cgr:cgr-showing-([A-Z][0-9]{4})-([a-f0-9]{64
 const KINEPOLIS_PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const PATHE_PROVIDER_ID_PATTERN = /^V[1-9][0-9]*S[1-9][0-9]*$/
 const CGR_TOKEN_PATTERN = /^c([A-Z][0-9]{4})-([A-Za-z0-9_-]{43})$/
+const MEGARAMA_SELECTION_KEY_PATTERN = /^megarama:megarama-showing-([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
+const MEGARAMA_TOKEN_PATTERN = /^m([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
 
 function isValidUgcProviderID(value: string): boolean {
   if (!/^[0-9]{1,128}$/.test(value)) return false
@@ -138,10 +141,14 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 
   const cgrMatch = CGR_SELECTION_KEY_PATTERN.exec(key)
   if (cgrMatch?.[1] && cgrMatch[2]) return `c${cgrMatch[1]}-${hexToBase64Url(cgrMatch[2])}`
+  const megaramaMatch = MEGARAMA_SELECTION_KEY_PATTERN.exec(key)
+  if (megaramaMatch?.[1] && megaramaMatch[0] === key) return `m${megaramaMatch[1]}`
   return null
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  const megaramaMatch = MEGARAMA_TOKEN_PATTERN.exec(token)
+  if (megaramaMatch?.[1] && megaramaMatch[0] === token) return `megarama:megarama-showing-${megaramaMatch[1]}`
   if (token.startsWith('u')) {
     const providerID = token.slice(1)
     return isValidUgcProviderID(providerID) ? `ugc:ugc-showing-${providerID}` : null
@@ -186,6 +193,8 @@ function showtimeInterval(result: ShowtimeResultViewModel): readonly [number, nu
 }
 
 export function areShowtimeResultsCompatible(first: ShowtimeResultViewModel, second: ShowtimeResultViewModel): boolean {
+  if (!hasKnownShowtimeEnd(first.provider, first.advertisedStartTime, first.endTime)
+    || !hasKnownShowtimeEnd(second.provider, second.advertisedStartTime, second.endTime)) return false
   const firstInterval = showtimeInterval(first)
   const secondInterval = showtimeInterval(second)
   if (!firstInterval || !secondInterval) return true

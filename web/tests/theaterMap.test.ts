@@ -26,13 +26,14 @@ function theater(overrides: Partial<Theater> & Pick<Theater, 'id'>): Theater {
 }
 
 test('defines an exhaustive provider palette', () => {
-  const providers: Provider[] = ['ugc', 'kinepolis', 'pathe', 'cgr']
+  const providers: Provider[] = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama']
   assert.deepEqual(Object.keys(THEATER_PROVIDER_COLORS), providers)
   assert.deepEqual(THEATER_PROVIDER_COLORS, {
     ugc: '#0b5cad',
     kinepolis: '#7e22ce',
     pathe: '#d97706',
-    cgr: '#c81e1e'
+    cgr: '#c81e1e',
+    megarama: '#a16207'
   })
 })
 

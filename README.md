@@ -11,9 +11,9 @@ The application interface is in French.
 - **Browse the current movie catalog.** See current films from the landing page, search the full schedule catalog, and open detailed pages with available screenings, artwork, synopsis, release information, and genres when metadata is available.
 - **Choose favorite cinemas.** Search cinemas by name or city and keep a local selection that drives the timeline, movie pages, and time-window search. Favorites stay in the current browser; no account is required.
 - **Discover cinemas by city.** Open public cinema pages for current and selected-date screenings, or browse exact-city pages for cinemas and films in the current schedule window.
-- **Compare supported providers.** Movie pages combine UGC, Kinepolis, Pathé, and CGR showtimes when their listings have been matched as the same film.
+- **Compare supported providers.** Movie pages combine UGC, Kinepolis, Pathé, CGR, and Megarama showtimes when their listings have been matched as the same film.
 - **Book with the cinema.** Available booking actions open the provider's official booking page in a new tab.
-- **Run schedule updates from the admin area.** Authenticated administrators can start UGC, Kinepolis, Pathé, and CGR synchronizations together or separately and follow current status.
+- **Run schedule updates from the admin area.** Authenticated administrators can start UGC, Kinepolis, Pathé, CGR, and Megarama synchronizations together or separately and follow current status. Megarama is also available as a scheduled target; no schedule is enabled automatically.
 
 ## Typical flow
 
@@ -48,6 +48,14 @@ Pathé ingestion uses only `https://www.pathe.fr/api/*` JSON endpoints. Like oth
 
 CGR ingestion uses its public Gatsby cinema query and `https://www.cgrcinemas.fr/api/gatsby-source-boxofficeapi/*` JSON endpoints. Movie detail requests are capped at 50 IDs. It always publishes a complete national CGR snapshot. Missing CGR runtimes and unpublished room names are preserved as unknown values instead of dropping showtimes.
 
+Megarama ingestion fetches `https://ws.ticketingcine.com/config.js?site_id=CHN0042`, extracts embedded `gl_config` JSON without evaluating JavaScript, then posts JSON-RPC `get_prog` to `https://ws.ticketingcine.com/site` once per cinema. Each request must carry that cinema's validated website as its own `Referer`; a generic chain referer is not valid. All requests, including optional film-page artwork lookup, require the existing `PROXY_FILE` transport. Two workers build one complete national snapshot before atomic publication. An explicit empty cinema program is retained; incomplete, malformed, conflicting, or all-empty ingestion preserves the previous snapshot. Diagnostics never include provider bodies, raw network errors, or proxy credentials.
+
+Megarama cinema identities retain `EMS` codes and global film identities retain their five-character codes. Local `emsx...HC...` film identities are qualified with the cinema's config ID; session IDs are preserved. Published future sessions define the horizon, including distant events rather than a fixed seven-day window. Session wall times are interpreted in `Europe/Paris`; nonexistent or ambiguous DST times without source disambiguation are rejected. Sessions before 03:00 belong to the previous cinema day.
+
+Megarama end times use source runtime plus the persisted session `first_part_duration`. If source runtime is missing, public reads use confirmed cached TMDB runtime plus that same first-part duration, without another provider crawl or TMDB request. Missing first-part duration adds zero. This value is not the search ads buffer, and manually overridden display runtime does not determine the end. If runtime remains unknown, the screening is retained with `end_time == start_time`, end time is hidden, and strict finish-time search excludes it. Source runtime stays unchanged in storage.
+
+Megarama session booking links use verified cinema-specific HTTPS hosts and `#showsession?id=<session-id>`. Missing links fall back to the validated official cinema website and are labeled as website links rather than reservations. Poster URLs are limited to verified `images.monnaie-services.com` paths: global `/movie_poster/120/` images are resized to `/600/`, while local `/ems_spectacle/120/` images retain their source size. Missing global posters can use `og:image` from `https://www.ticketingcine.com/film/<CODE>.html`; absent artwork remains absent.
+
 ### Theater geocoding
 
 Theater coordinates live in stable rows outside schedule generations. After a complete snapshot exists, authenticated administrators can launch geocoding from the theater-locations page. This in-process job uses IGN Géoplateforme with a fixed 20-second timeout and processes new theaters, every ambiguous row, and changed not-found rows. It preserves every matched or manual row and unchanged not-found row. Requests run sequentially at no more than five starts per second and use bounded retries. Launch returns immediately, status and terminal counters are durable, and only one admin-launched geocoding job can run across API replicas.
@@ -68,7 +76,7 @@ When admin access is enabled, configure both `ADMIN_PASSWORD` and an independent
 
 `INTERNAL_API_SHARED_SECRET` is optional for local development. Leaving it blank disables internal service identity and keeps Nuxt on public API routes and quotas. A configured value must be exactly 64 lowercase hexadecimal characters, and server-side Nuxt must receive the same value as private `NUXT_INTERNAL_API_SHARED_SECRET`.
 
-Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, and CGR and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive.
+Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, CGR, and Megarama and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive.
 
 `PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
 
@@ -149,7 +157,7 @@ See [development and release operation](docs/releasing.md) for exact worktree co
 
 ## Contributor checks
 
-These offline checks do not run UGC, Kinepolis, Pathé, or CGR synchronization and do not make real TMDB or IGN calls:
+These offline checks do not run UGC, Kinepolis, Pathé, CGR, or Megarama synchronization and do not make real TMDB or IGN calls:
 
 ```sh
 python -m unittest discover -s scripts/tests
@@ -161,6 +169,12 @@ npm --prefix web run test:unit
 npm --prefix web run typecheck
 npm --prefix web run lint
 npm --prefix web run build
+```
+
+For a deliberate proxy-only Megarama full-chain contract smoke, run from `api/` with an operator-supplied proxy file. This opt-in test builds and validates a dataset in memory, logs counts only, and does not publish to a database or call TMDB/IGN. Ordinary tests skip it when the variable is unset:
+
+```sh
+MEGARAMA_LIVE_PROXY_FILE=/absolute/path/to/proxies.txt go test ./internal/megarama -run '^TestProxyFullSyncContractIntegration$' -count=1 -v
 ```
 
 With the API and Nuxt already running from the current build, verify exact entity titles, breadcrumb and catalog `ItemList` structured data, current-only `/films` discovery, all-canonical sitemap inventory without `lastmod`, contextual entity links, historical redirects, and crawler error behavior:

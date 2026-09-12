@@ -69,7 +69,7 @@ func TestSyncScheduleStarterAvailabilityAndProviderMapping(t *testing.T) {
 	claimer := &fakeScheduleClaimer{claimed: true}
 	starter := syncScheduleStarter{providers: providers, metadata: metadata, claimer: claimer}
 	targets := starter.AvailableTargets()
-	if len(targets) != 5 || targets[0] != syncschedule.TargetUGC || targets[4] != syncschedule.TargetMetadataRefresh {
+	if len(targets) != 6 || targets[0] != syncschedule.TargetUGC || targets[4] != syncschedule.TargetMegarama || targets[5] != syncschedule.TargetMetadataRefresh {
 		t.Fatalf("targets=%v", targets)
 	}
 	occurrence := syncschedule.Occurrence{ScheduleID: 12, Target: syncschedule.TargetPathe, Revision: 3, ScheduledFor: time.Now(), Attempt: 1}

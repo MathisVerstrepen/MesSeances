@@ -104,6 +104,10 @@ func TestAdminStartSyncContract(t *testing.T) {
 	if cgr.Code != http.StatusAccepted || len(controller.started) != 3 || controller.started[2] != synccontrol.TargetCGR {
 		t.Fatalf("CGR status=%d started=%v body=%s", cgr.Code, controller.started, cgr.Body.String())
 	}
+	megarama := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/megarama", "", "http://localhost:3000", cookie)
+	if megarama.Code != http.StatusAccepted || len(controller.started) != 4 || controller.started[3] != synccontrol.TargetMegarama {
+		t.Fatalf("Megarama status=%d started=%v", megarama.Code, controller.started)
+	}
 	body := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/ugc", `{}`, "http://localhost:3000", cookie)
 	assertAPIError(t, body, http.StatusBadRequest, "invalid_request", "Requête invalide.")
 	controller.startErr = synccontrol.ErrInvalidTarget

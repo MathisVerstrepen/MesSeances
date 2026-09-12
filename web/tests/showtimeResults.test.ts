@@ -87,13 +87,14 @@ test('round-trips compact selection tokens for every provider in canonical key o
   const cgr = 'cgr:cgr-showing-P0798-eb8c701bf9eb902f738cb7a32ed14cb55b9e2b42e0fc346ac79d9cf11d171bbc'
   const kinepolis = 'kinepolis:kinepolis-showing-Vista_Session-42'
   const pathe = 'pathe:pathe-showing-V3001S170227'
+  const megarama = 'megarama:megarama-showing-emsx056500123456'
   const ugc = 'ugc:ugc-showing-330660140434'
-  const keys = [pathe, ugc, cgr, kinepolis, cgr]
-  const compact = 'cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w,kVista_Session-42,pV3001S170227,u330660140434'
+  const keys = [pathe, ugc, cgr, kinepolis, cgr, megarama]
+  const compact = 'cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w,kVista_Session-42,memsx056500123456,pV3001S170227,u330660140434'
 
   assert.equal(serializeShowtimeSelection(keys), compact)
-  assert.deepEqual(parseShowtimeSelection(compact), [cgr, kinepolis, pathe, ugc])
-  assert.deepEqual(parseShowtimeSelection(`${compact},${compact}`), [cgr, kinepolis, pathe, ugc])
+  assert.deepEqual(parseShowtimeSelection(compact), [cgr, kinepolis, megarama, pathe, ugc])
+  assert.deepEqual(parseShowtimeSelection(`${compact},${compact}`), [cgr, kinepolis, megarama, pathe, ugc])
   assert.deepEqual(parseShowtimeSelection(undefined), [])
   assert.equal(serializeShowtimeSelection([]), undefined)
 })
@@ -145,6 +146,32 @@ test('materially reduces realistic selected-screening value length', () => {
   assert.equal(encodeURIComponent(verbose).length, 307)
   assert.equal(encodeURIComponent(compact).length, 172)
   assert.ok(compact.length < verbose.length * 0.6)
+})
+
+test('round-trips exact Megarama case and ASCII identity limits while rejecting unsafe tokens', () => {
+  for (const id of ['emsx056500123456', 'Ab_1-2', 'a'.repeat(111)]) {
+    const key = `megarama:megarama-showing-${id}`
+    assert.equal(serializeShowtimeSelection([key]), `m${id}`)
+    assert.deepEqual(parseShowtimeSelection(`m${id}`), [key])
+  }
+  for (const id of ['', '-bad', '_bad', 'bad.id', 'bad/id', 'bad%2Fid', 'é', 'a'.repeat(112), 'abc\n', 'abc\r', ' abc', 'abc ']) {
+    assert.equal(serializeShowtimeSelection([`megarama:megarama-showing-${id}`]), undefined)
+    assert.deepEqual(parseShowtimeSelection(`m${id}`), [])
+  }
+})
+
+test('unknown Megarama ends remain selectable but never prove compatibility', () => {
+  const unknown = view({ provider: 'megarama', key: 'megarama:megarama-showing-emsx056500123456', endTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00' })
+  const known = view({ key: 'known', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  assert.equal(areShowtimeResultsCompatible(unknown, known), false)
+  assert.equal(areShowtimeResultsCompatible(known, unknown), false)
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], []), [unknown, known])
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key]), [unknown])
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [known.key]), [known])
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key, known.key]), [unknown, known])
+  assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection([unknown.key])), [unknown.key])
+  const resolved = { ...unknown, endTime: '2026-08-24T20:10:00+02:00' }
+  assert.equal(areShowtimeResultsCompatible(resolved, known), true)
 })
 
 test('keeps only available selection keys in deterministic order', () => {

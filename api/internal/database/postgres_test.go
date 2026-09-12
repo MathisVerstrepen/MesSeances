@@ -87,6 +87,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{28, "028_movie_imdb_id.sql"},
 		{29, "029_multi_sync_schedules.sql"},
 		{30, "030_public_movie_metadata_overrides.sql"},
+		{31, "031_megarama_provider.sql"},
 	}
 
 	items, err := embeddedMigrations()

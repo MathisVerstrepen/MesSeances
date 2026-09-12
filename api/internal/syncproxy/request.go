@@ -45,6 +45,17 @@ type ResponsePolicy struct {
 	AfterRead  func(int, []byte) (*Failure, bool)
 }
 
+// Request holds request-local data. Do snapshots body and headers before retrying.
+// An empty MediaTypes list retains the executor's JSON validation.
+type Request struct {
+	Method     string
+	URL        string
+	Body       []byte
+	Headers    http.Header
+	MediaTypes []string
+	NoRedirect bool
+}
+
 type RetryPolicy struct {
 	Sleep                    func(context.Context, time.Duration) error
 	RetireFinalFailure       bool
@@ -120,6 +131,17 @@ func NewExecutor(config ExecutorConfig) (*Executor, error) {
 func (e *Executor) RequestCount() int { return int(e.requests.Load()) }
 
 func (e *Executor) Get(ctx context.Context, rawURL string, policy ResponsePolicy) ([]byte, *Failure) {
+	return e.Do(ctx, Request{Method: http.MethodGet, URL: rawURL}, policy)
+}
+
+func (e *Executor) Do(ctx context.Context, input Request, policy ResponsePolicy) ([]byte, *Failure) {
+	parsed, err := url.Parse(input.URL)
+	if err != nil || !e.validURL(parsed) || (input.Method != http.MethodGet && input.Method != http.MethodPost) {
+		return nil, &Failure{Kind: FailureInvalidURL}
+	}
+	input.Body = bytes.Clone(input.Body)
+	input.Headers = input.Headers.Clone()
+	input.MediaTypes = append([]string(nil), input.MediaTypes...)
 	attempted := make([]bool, len(e.clients))
 	ordinal := -1
 	var prior *Failure
@@ -137,7 +159,7 @@ func (e *Executor) Get(ctx context.Context, rawURL string, policy ResponsePolicy
 			attempted[ordinal] = true
 		}
 
-		body, failure, retry := e.attempt(ctx, e.clients[ordinal], rawURL, policy)
+		body, failure, retry := e.attempt(ctx, e.clients[ordinal], input, policy)
 		if failure == nil {
 			return body, nil
 		}
@@ -166,12 +188,23 @@ func (e *Executor) Get(ctx context.Context, rawURL string, policy ResponsePolicy
 	return nil, prior
 }
 
-func (e *Executor) attempt(ctx context.Context, client *http.Client, rawURL string, policy ResponsePolicy) ([]byte, *Failure, bool) {
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+func (e *Executor) attempt(ctx context.Context, client *http.Client, input Request, policy ResponsePolicy) ([]byte, *Failure, bool) {
+	request, err := http.NewRequestWithContext(ctx, input.Method, input.URL, bytes.NewReader(input.Body))
 	if err != nil {
 		return nil, &Failure{Kind: FailureInvalidURL}, false
 	}
 	request.Header = e.headers.Clone()
+	if request.Header == nil {
+		request.Header = make(http.Header)
+	}
+	for key, values := range input.Headers {
+		request.Header[key] = append([]string(nil), values...)
+	}
+	if input.NoRedirect {
+		copy := *client
+		copy.CheckRedirect = func(*http.Request, []*http.Request) error { return errRedirectAuthority }
+		client = &copy
+	}
 	e.requests.Add(1)
 	response, err := e.do(client, request)
 	if err != nil {
@@ -214,17 +247,26 @@ func (e *Executor) attempt(ctx context.Context, client *http.Client, rawURL stri
 			return nil, failure, retry
 		}
 	}
-	if response.Request == nil || response.Request.URL.String() != rawURL || !e.validURL(response.Request.URL) {
+	if response.Request == nil || response.Request.URL.String() != input.URL || !e.validURL(response.Request.URL) {
 		return nil, &Failure{Kind: FailureRedirect}, false
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if err != nil || !isJSONMediaType(mediaType, e.allowNonApplicationJSONSuffix) {
+	validMedia := isJSONMediaType(mediaType, e.allowNonApplicationJSONSuffix)
+	if len(input.MediaTypes) != 0 {
+		validMedia = false
+		for _, allowed := range input.MediaTypes {
+			if mediaType == allowed {
+				validMedia = true
+			}
+		}
+	}
+	if err != nil || !validMedia {
 		return nil, &Failure{Kind: FailureContentType}, false
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, &Failure{Kind: FailureEmptyResponse}, false
 	}
-	if !json.Valid(body) {
+	if len(input.MediaTypes) == 0 && !json.Valid(body) {
 		return nil, &Failure{Kind: FailureInvalidJSON}, false
 	}
 	return body, nil, false

@@ -10,8 +10,10 @@ import (
 	"messeances/api/internal/cgr"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/megarama"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/ugc"
 )
 
@@ -27,6 +29,7 @@ type ProductionExecutorOptions struct {
 	NewKinepolis     func() (kinepolis.Fetcher, error)
 	NewPathe         func() (pathe.Getter, error)
 	NewCGR           func() (cgr.Getter, error)
+	NewMegarama      func() (megarama.Getter, error)
 	Enrich           EnrichFunc
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -40,6 +43,7 @@ type ProductionExecutor struct {
 	newKinepolis     func() (kinepolis.Fetcher, error)
 	newPathe         func() (pathe.Getter, error)
 	newCGR           func() (cgr.Getter, error)
+	newMegarama      func() (megarama.Getter, error)
 	enrich           EnrichFunc
 	now              func() time.Time
 	logger           *slog.Logger
@@ -49,14 +53,16 @@ type ProductionExecutor struct {
 	syncKinepolis    func(context.Context, kinepolis.Fetcher, kinepolis.SyncOptions) (schedule.Dataset, kinepolis.SyncSummary, error)
 	syncPathe        func(context.Context, pathe.Getter, pathe.SyncOptions) (schedule.Dataset, pathe.SyncSummary, error)
 	syncCGR          func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error)
+	syncMegarama     func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
 	return &ProductionExecutor{
 		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe, newCGR: options.NewCGR,
+		newMegarama: options.NewMegarama, syncMegarama: megarama.Sync,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
 		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
@@ -66,8 +72,8 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	started := time.Now()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR}
-	} else if target != TargetUGC && target != TargetKinepolis && target != TargetPathe && target != TargetCGR {
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama}
+	} else if !ValidTarget(target) {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
 	datasets := make([]schedule.Dataset, 0, len(providers))
@@ -194,6 +200,18 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 			requests = count
 		}
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+	case TargetMegarama:
+		if e.newMegarama == nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+		}
+		client, clientErr := e.newMegarama()
+		if clientErr != nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
+		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
+		var summary megarama.SyncSummary
+		data, summary, err = e.syncMegarama(ctx, client, megarama.SyncOptions{From: window.From, Now: e.now()})
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	default:
 		return data, outcome, newProviderRunError(provider, StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
@@ -435,6 +453,20 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 			details.Category = safeCGRCategory(requestErr.Category)
 			details.HTTPStatus = requestErr.StatusCode
 		}
+	case TargetMegarama:
+		var requestErr *megarama.RequestError
+		if errors.As(err, &requestErr) {
+			switch requestErr.Operation {
+			case megarama.OperationConfig:
+				details.Operation = operationCinemas
+			case megarama.OperationProgram:
+				details.Operation = operationProgram
+			case megarama.OperationPoster:
+				details.Operation = operationMovies
+			}
+			details.Category = safeMegaramaCategory(requestErr.Kind)
+			details.HTTPStatus = requestErr.StatusCode
+		}
 	}
 	if details.HTTPStatus < 100 || details.HTTPStatus > 599 || details.Category != categoryHTTPStatus {
 		details.HTTPStatus = 0
@@ -602,7 +634,7 @@ func safeCGRCategory(category cgr.ErrorCategory) logCategory {
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
-		if showing.Movie.RuntimeMinutes == 0 {
+		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama {
 			continue
 		}
 		movie, found := unique[showing.Movie.ProviderID]
@@ -619,4 +651,35 @@ func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie
 		movies = append(movies, movie)
 	}
 	return movies
+}
+
+func safeMegaramaCategory(kind syncproxy.FailureKind) logCategory {
+	switch kind {
+	case syncproxy.FailureCanceled:
+		return categoryCanceled
+	case syncproxy.FailureInvalidURL:
+		return categoryInvalidURL
+	case syncproxy.FailureNoClient:
+		return categoryTransportUnavailable
+	case syncproxy.FailureTransport:
+		return categoryTransport
+	case syncproxy.FailureRedirect:
+		return categoryRedirect
+	case syncproxy.FailureResponseRead:
+		return categoryResponseRead
+	case syncproxy.FailureResponseLarge:
+		return categoryResponseTooLarge
+	case syncproxy.FailureChallenge:
+		return categoryChallenge
+	case syncproxy.FailureServer, syncproxy.FailureStatus:
+		return categoryHTTPStatus
+	case syncproxy.FailureContentType:
+		return categoryContentType
+	case syncproxy.FailureInvalidJSON:
+		return categoryInvalidPayload
+	case syncproxy.FailureEmptyResponse:
+		return categoryEmptyResponse
+	default:
+		return categoryUnknown
+	}
 }

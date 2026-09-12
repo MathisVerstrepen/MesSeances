@@ -46,7 +46,7 @@ interface TargetSectionState {
   entries: ScheduleEntryState[]
 }
 
-const providers = ['ugc', 'kinepolis', 'pathe', 'cgr'] as const
+const providers = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'] as const
 const targets = [...providers, 'tmdb_metadata_refresh'] as const
 const api = useMesSeancesApi()
 const schedulesPending = ref(true)
@@ -68,6 +68,7 @@ const targetLabels = {
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
   cgr: 'CGR',
+  megarama: 'Megarama',
   tmdb_metadata_refresh: 'Actualiser toutes les métadonnées TMDB'
 } satisfies Record<AdminSyncScheduleTarget, string>
 
@@ -111,7 +112,8 @@ const latestRuns = computed<Record<Provider, AdminSyncJob | null>>(() => ({
   ugc: selectLatestProviderRun('ugc', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
   kinepolis: selectLatestProviderRun('kinepolis', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
   pathe: selectLatestProviderRun('pathe', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
-  cgr: selectLatestProviderRun('cgr', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? [])
+  cgr: selectLatestProviderRun('cgr', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  megarama: selectLatestProviderRun('megarama', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? [])
 }))
 
 function newClientKey(): string {

@@ -20,6 +20,7 @@ const (
 	TargetKinepolis       Target = "kinepolis"
 	TargetPathe           Target = "pathe"
 	TargetCGR             Target = "cgr"
+	TargetMegarama        Target = "megarama"
 	TargetMetadataRefresh Target = "tmdb_metadata_refresh"
 )
 
@@ -68,7 +69,7 @@ func cloneSchedule(schedule Schedule) Schedule {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMetadataRefresh
+	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetMetadataRefresh
 }
 
 func TargetOrder(target Target) int {
@@ -81,9 +82,11 @@ func TargetOrder(target Target) int {
 		return 2
 	case TargetCGR:
 		return 3
-	case TargetMetadataRefresh:
+	case TargetMegarama:
 		return 4
-	default:
+	case TargetMetadataRefresh:
 		return 5
+	default:
+		return 6
 	}
 }
