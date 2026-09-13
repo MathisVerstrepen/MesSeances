@@ -39,6 +39,12 @@ func TestAdminMovieServiceValidatesAndNormalizesList(t *testing.T) {
 	if err != nil || result.Items == nil || store.query.Search != "Titre" || store.query.Genre != "Drame" {
 		t.Fatalf("result=%+v query=%+v err=%v", result, store.query, err)
 	}
+	for _, direction := range []string{"asc", "desc"} {
+		query := AdminMovieQuery{Limit: 25, Offset: 5, OverrideStatus: "all", Sort: "showtime_count", Direction: direction}
+		if _, err := service.List(context.Background(), query); err != nil || store.query != query {
+			t.Fatalf("showtime sort query=%+v stored=%+v err=%v", query, store.query, err)
+		}
+	}
 
 	invalid := []AdminMovieQuery{
 		{Limit: 0, OverrideStatus: "all", Sort: "title", Direction: "asc"},
@@ -47,6 +53,9 @@ func TestAdminMovieServiceValidatesAndNormalizesList(t *testing.T) {
 		{Limit: 50, ReleaseDateFrom: stringPointer("2026-02-30"), OverrideStatus: "all", Sort: "title", Direction: "asc"},
 		{Limit: 50, OverrideStatus: "automatic", OverrideField: AdminMovieFieldTitle, Sort: "title", Direction: "asc"},
 		{Limit: 50, OverrideStatus: "all", Sort: "unknown", Direction: "asc"},
+		{Limit: 50, OverrideStatus: "all", Sort: "showtime_count DESC; SELECT 1", Direction: "asc"},
+		{Limit: 50, OverrideStatus: "all", Sort: "showtime_count", Direction: "desc NULLS FIRST"},
+		{Limit: 50, OverrideStatus: "all", OverrideField: "showtime_count", Sort: "showtime_count", Direction: "asc"},
 	}
 	for _, query := range invalid {
 		if _, err := service.List(context.Background(), query); !errors.Is(err, ErrAdminMovieInvalid) {
@@ -77,6 +86,7 @@ func TestAdminMovieServiceValidatesAndNormalizesPatch(t *testing.T) {
 
 	invalid := []AdminMoviePatch{
 		{ExpectedUpdatedAt: time.Now()},
+		{ExpectedUpdatedAt: time.Now(), Restore: []AdminMovieField{"showtime_count"}},
 		{ExpectedUpdatedAt: time.Now(), Restore: []AdminMovieField{AdminMovieFieldTitle, AdminMovieFieldTitle}},
 		{ExpectedUpdatedAt: time.Now(), Restore: []AdminMovieField{AdminMovieFieldTitle}, Overrides: AdminMovieOverrides{Title: AdminMovieOverrideValue[string]{Present: true, Value: &title}}},
 		{ExpectedUpdatedAt: time.Now(), Overrides: AdminMovieOverrides{Title: AdminMovieOverrideValue[string]{Present: true}}},
@@ -133,3 +143,12 @@ func TestAdminMovieServicePatchBoundaries(t *testing.T) {
 }
 
 func stringPointer(value string) *string { return &value }
+
+func TestAdminMovieShowtimeOrder(t *testing.T) {
+	for _, direction := range []string{"asc", "desc"} {
+		query := AdminMovieQuery{Sort: "showtime_count", Direction: direction}
+		if got, want := adminMovieOrder(query), "showtime_count "+direction+", id ASC"; got != want {
+			t.Fatalf("order=%q want=%q", got, want)
+		}
+	}
+}
