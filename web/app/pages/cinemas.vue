@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, Check, CheckCheck, List, ListFilter, LoaderCircle, LocateFixed, Map as MapIcon, RefreshCw, Search, X } from '@lucide/vue'
+import { AlertTriangle, ArrowRight, Building2, Check, CheckCheck, List, ListFilter, LoaderCircle, LocateFixed, Map as MapIcon, RefreshCw, Search, X } from '@lucide/vue'
 import type { Theater } from '~/types/api'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import { groupTheatersByCityIdentity, updateTheaterSelection } from '~/utils/cinemaSelection'
@@ -483,12 +483,16 @@ useHead(() => ({
                     group.theaters.length === 1 ? '!border-r-0 sm:col-span-2' : ''
                   ]"
                 >
-                  <label class="group flex cursor-pointer items-start gap-4">
-                    <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
-                    <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
-                    <span class="min-w-0"><BrandedText :text="theaterDisplayName(theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
-                  </label>
-                  <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
+                  <div class="flex items-start gap-4">
+                    <label class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5">
+                      <input type="checkbox" class="peer sr-only" :aria-label="`Sélectionner ${theaterDisplayName(theater)}`" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
+                      <span class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
+                    </label>
+                    <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" :aria-label="`Voir les séances : ${theaterDisplayName(theater)}`" class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent">
+                      <span class="min-w-0 flex-1"><BrandedText :text="theaterDisplayName(theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
+                      <ArrowRight :size="22" class="mt-0.5 shrink-0 text-ink group-hover:text-primary" aria-hidden="true" />
+                    </NuxtLink>
+                  </div>
                 </div>
               </div>
               </section>
