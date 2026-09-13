@@ -12,8 +12,16 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// Showtimes reference movies by generation and provider, so the source join
+// counts each published screening once without joining other generations.
 const adminMovieEffectiveCTE = `WITH effective AS (
     SELECT movie.id, movie.updated_at,
+        (SELECT count(*)
+         FROM public_movie_sources source
+         JOIN showtimes showing ON showing.provider=source.source_provider AND showing.movie_provider_id=source.source_movie_id
+         WHERE source.public_movie_id=movie.id
+           AND showing.generation_id=(SELECT version FROM schedule_snapshot WHERE singleton=true)
+           AND showing.start_time > CURRENT_TIMESTAMP) AS showtime_count,
         movie.title AS automatic_title,
         movie.runtime_minutes AS automatic_runtime_minutes,
         movie.release_date AS automatic_release_date,
@@ -82,7 +90,7 @@ func (s *PostgresStore) AdminMovies(ctx context.Context, query AdminMovieQuery) 
 	limitPlaceholder := fmt.Sprintf("$%d", len(args)+1)
 	offsetPlaceholder := fmt.Sprintf("$%d", len(args)+2)
 	listArgs := append(append([]any(nil), args...), query.Limit, query.Offset)
-	rows, err := s.pool.Query(ctx, adminMovieEffectiveCTE+`SELECT id, updated_at,
+	rows, err := s.pool.Query(ctx, adminMovieEffectiveCTE+`SELECT id, updated_at, showtime_count,
     automatic_title, automatic_runtime_minutes, automatic_release_date, automatic_genres, automatic_overview,
     automatic_poster_url, automatic_backdrop_url, automatic_trailer_vf_youtube_key, automatic_trailer_vo_youtube_key,
     title, runtime_minutes, release_date, genres, overview, poster_url, backdrop_url,
@@ -154,6 +162,7 @@ func adminMovieOrder(query AdminMovieQuery) string {
 		"release_date":    "release_date",
 		"updated_at":      "updated_at",
 		"id":              "id",
+		"showtime_count":  "showtime_count",
 	}[query.Sort]
 	order := expression + " " + query.Direction
 	if query.Sort == "release_date" {
@@ -169,11 +178,12 @@ type adminMovieScanner interface {
 func scanAdminMovie(row adminMovieScanner) (AdminMovieItem, error) {
 	var id int64
 	var updatedAt time.Time
+	var showtimeCount int
 	var automatic, effective AdminMovieMetadata
 	var automaticRelease, effectiveRelease *time.Time
 	flags := make([]bool, len(adminMovieFields))
 	if err := row.Scan(
-		&id, &updatedAt,
+		&id, &updatedAt, &showtimeCount,
 		&automatic.Title, &automatic.RuntimeMinutes, &automaticRelease, &automatic.Genres, &automatic.Overview,
 		&automatic.PosterURL, &automatic.BackdropURL, &automatic.TrailerVFYouTubeKey, &automatic.TrailerVOYouTubeKey,
 		&effective.Title, &effective.RuntimeMinutes, &effectiveRelease, &effective.Genres, &effective.Overview,
@@ -198,7 +208,8 @@ func scanAdminMovie(row adminMovieScanner) (AdminMovieItem, error) {
 	}
 	return AdminMovieItem{
 		ID: strconv.FormatInt(id, 10), UpdatedAt: updatedAt.UTC().Format(time.RFC3339Nano),
-		Automatic: automatic, Values: effective, OverriddenFields: fields,
+		ShowtimeCount: showtimeCount,
+		Automatic:     automatic, Values: effective, OverriddenFields: fields,
 	}, nil
 }
 
@@ -241,8 +252,12 @@ FROM public_movies WHERE id=$1 FOR UPDATE`, id).Scan(
 		if effective.TrailerVFYouTubeKey != nil && effective.TrailerVOYouTubeKey != nil && *effective.TrailerVFYouTubeKey == *effective.TrailerVOYouTubeKey {
 			return nil, ErrAdminMovieInvalid
 		}
+		var showtimeCount int
+		if err := tx.QueryRow(ctx, adminMovieEffectiveCTE+"SELECT showtime_count FROM effective WHERE id=$1", id).Scan(&showtimeCount); err != nil {
+			return nil, fmt.Errorf("read admin movie showtime count failed")
+		}
 		if reflect.DeepEqual(state, next) {
-			item = makeAdminMovieItem(id, updatedAt, automatic, next)
+			item = makeAdminMovieItem(id, updatedAt, showtimeCount, automatic, next)
 			return &writeFinalization{
 				mapCommitError: func(error) error { return fmt.Errorf("commit unchanged admin movie update failed") },
 			}, nil
@@ -257,7 +272,7 @@ FROM public_movies WHERE id=$1 FOR UPDATE`, id).Scan(
 		if err := tx.QueryRow(ctx, "UPDATE public_movies SET updated_at=CURRENT_TIMESTAMP WHERE id=$1 RETURNING updated_at", id).Scan(&updatedAt); err != nil {
 			return nil, fmt.Errorf("touch admin movie failed")
 		}
-		item = makeAdminMovieItem(id, updatedAt, automatic, next)
+		item = makeAdminMovieItem(id, updatedAt, showtimeCount, automatic, next)
 		return &writeFinalization{
 			advanceVersion: true,
 			mapCommitError: func(error) error { return fmt.Errorf("commit admin movie update failed") },
@@ -428,7 +443,7 @@ func effectiveAdminMovieMetadata(automatic AdminMovieMetadata, state adminMovieO
 	return effective
 }
 
-func makeAdminMovieItem(id int64, updatedAt time.Time, automatic AdminMovieMetadata, state adminMovieOverrideState) AdminMovieItem {
+func makeAdminMovieItem(id int64, updatedAt time.Time, showtimeCount int, automatic AdminMovieMetadata, state adminMovieOverrideState) AdminMovieItem {
 	fields := make([]AdminMovieField, 0, len(adminMovieFields))
 	for _, field := range adminMovieFields {
 		if state.active(field) {
@@ -437,7 +452,8 @@ func makeAdminMovieItem(id int64, updatedAt time.Time, automatic AdminMovieMetad
 	}
 	return AdminMovieItem{
 		ID: strconv.FormatInt(id, 10), UpdatedAt: updatedAt.UTC().Format(time.RFC3339Nano),
-		Automatic: automatic, Values: effectiveAdminMovieMetadata(automatic, state), OverriddenFields: fields,
+		ShowtimeCount: showtimeCount,
+		Automatic:     automatic, Values: effectiveAdminMovieMetadata(automatic, state), OverriddenFields: fields,
 	}
 }
 

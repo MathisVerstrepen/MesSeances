@@ -171,6 +171,7 @@ function inlineColumn(field: 'title' | 'runtime_minutes' | 'release_date', optio
 
 const columnDefs: ColDef<AdminMovieItem>[] = [
   inlineColumn('title', { minWidth: 330, flex: 1, pinned: 'left', lockPinned: true }),
+  { colId: 'showtime_count', headerName: 'Séances à venir', width: 175, field: 'showtime_count', cellDataType: 'number', sortable: true, filter: false, editable: false },
   inlineColumn('runtime_minutes', {
     width: 175,
     filter: 'agNumberColumnFilter',
