@@ -144,6 +144,17 @@ export interface AdminMoviesResponse {
   offset: number
 }
 
+export interface AdminMoviePoster {
+  url: string
+  width: number
+  height: number
+  language: string | null
+}
+
+export interface AdminMoviePostersResponse {
+  posters: AdminMoviePoster[]
+}
+
 export interface AdminMoviesQuery {
   limit: number
   offset: number

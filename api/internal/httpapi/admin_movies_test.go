@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/tmdb"
 )
 
 type adminMovieStoreStub struct {
@@ -20,6 +21,13 @@ type adminMovieStoreStub struct {
 	listErr       error
 	updateErr     error
 	showtimeCount int
+	tmdbID        int64
+	identityErr   error
+}
+
+func (store *adminMovieStoreStub) AdminMovieTMDBID(_ context.Context, id int64) (int64, error) {
+	store.id = id
+	return store.tmdbID, store.identityErr
 }
 
 func (store *adminMovieStoreStub) AdminMovies(_ context.Context, query enrichment.AdminMovieQuery) (enrichment.AdminMovieList, error) {
@@ -43,8 +51,100 @@ func adminMovieHandler(t *testing.T, store *adminMovieStoreStub) http.Handler {
 	reviews := enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, nil)
 	return testHandlerWithAdmin(t, AdminOptions{
 		Password: "password", SessionSecret: "test-session-secret", Reviews: reviews,
-		Movies: enrichment.NewAdminMovieService(store),
+		Movies: enrichment.NewAdminMovieService(store, nil),
 	})
+}
+
+type adminMoviePosterProviderStub struct {
+	id  int64
+	err error
+}
+
+func (provider *adminMoviePosterProviderStub) Posters(_ context.Context, id int64) ([]tmdb.Poster, error) {
+	provider.id = id
+	language := "ja"
+	return []tmdb.Poster{
+		{URL: "https://image.tmdb.org/t/p/w500/poster.jpg", Width: 1000, Height: 1500, Language: &language},
+		{URL: "https://image.tmdb.org/t/p/w500/neutral.jpg", Width: 500, Height: 750},
+	}, provider.err
+}
+
+func TestAdminMoviePostersAuthenticationAndResponse(t *testing.T) {
+	store := &adminMovieStoreStub{tmdbID: 42}
+	provider := &adminMoviePosterProviderStub{}
+	handler := testHandlerWithAdmin(t, AdminOptions{
+		Password: "password", SessionSecret: "test-session-secret",
+		Reviews: enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, nil),
+		Movies:  enrichment.NewAdminMovieService(store, provider),
+	})
+	if response := adminRequest(handler, http.MethodGet, "/api/v1/admin/movies/7/posters", "", "", nil); response.Code != http.StatusUnauthorized || provider.id != 0 || store.id != 0 {
+		t.Fatalf("unauthenticated status=%d body=%s", response.Code, response.Body.String())
+	}
+	cookie := loginAdmin(t, handler, "password")
+	// No Origin required for a read. Query-supplied TMDB identities cannot replace the stored match.
+	response := adminRequest(handler, http.MethodGet, "/api/v1/admin/movies/7/posters?tmdb_id=99", "", "", cookie)
+	if response.Code != http.StatusOK || provider.id != 42 || store.id != 7 || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status=%d providerID=%d storeID=%d headers=%v", response.Code, provider.id, store.id, response.Header())
+	}
+	want := `{"posters":[{"url":"https://image.tmdb.org/t/p/w500/poster.jpg","width":1000,"height":1500,"language":"ja"},{"url":"https://image.tmdb.org/t/p/w500/neutral.jpg","width":500,"height":750,"language":null}]}`
+	if strings.TrimSpace(response.Body.String()) != want {
+		t.Fatalf("body=%s", response.Body.String())
+	}
+	for _, id := range []string{"0", "-1", "01", "abc", "9223372036854775808"} {
+		store.id, provider.id = 0, 0
+		response := adminRequest(handler, http.MethodGet, "/api/v1/admin/movies/"+id+"/posters", "", "", cookie)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_admin_movie_id"`) || store.id != 0 || provider.id != 0 {
+			t.Fatalf("id=%s status=%d body=%s", id, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestAdminMoviePostersEmptyAndErrors(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		tmdbID      int64
+		storeErr    error
+		providerErr error
+		noProvider  bool
+		noService   bool
+		status      int
+		code        string
+	}{
+		{name: "no match", status: 200},
+		{name: "no match without provider", noProvider: true, status: 200},
+		{name: "nonexistent movie", storeErr: enrichment.ErrAdminMovieNotFound, status: 404, code: "admin_movie_not_found"},
+		{name: "database failure", storeErr: errors.New("secret database error"), status: 500, code: "admin_movie_posters_failed"},
+		{name: "unconfigured TMDB", tmdbID: 42, noProvider: true, status: 503, code: "admin_movie_posters_unavailable"},
+		{name: "upstream failure", tmdbID: 42, providerErr: errors.New("secret upstream body"), status: 502, code: "admin_movie_posters_failed"},
+		{name: "missing service", noService: true, status: 503, code: "admin_unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &adminMovieStoreStub{tmdbID: test.tmdbID, identityErr: test.storeErr}
+			provider := &adminMoviePosterProviderStub{err: test.providerErr}
+			service := enrichment.NewAdminMovieService(store, provider)
+			if test.noProvider {
+				service = enrichment.NewAdminMovieService(store, nil)
+			}
+			if test.noService {
+				service = nil
+			}
+			handler := testHandlerWithAdmin(t, AdminOptions{
+				Password: "password", SessionSecret: "test-session-secret",
+				Reviews: enrichment.NewReviewService(adminReviewStore{}, adminProvider{}, nil), Movies: service,
+			})
+			cookie := loginAdmin(t, handler, "password")
+			response := adminRequest(handler, http.MethodGet, "/api/v1/admin/movies/7/posters", "", "", cookie)
+			if response.Code != test.status || strings.Contains(response.Body.String(), "secret") || response.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if test.code != "" && !strings.Contains(response.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("body=%s want code=%s", response.Body.String(), test.code)
+			}
+			if test.status == 200 && strings.TrimSpace(response.Body.String()) != `{"posters":[]}` {
+				t.Fatalf("empty result=%s", response.Body.String())
+			}
+		})
+	}
 }
 
 func TestAdminMovieListAuthenticationAndStrictQuery(t *testing.T) {

@@ -5,6 +5,7 @@ import { getFrenchAdminApiError, useMesSeancesApi } from '../app/composables/use
 import { adminMovieFields, type AdminMovieItem, type AdminMoviePatchRequest, type AdminMoviesQuery, type AdminMoviesResponse } from '../app/types/api.ts'
 import {
   adminMovieDraftFingerprint,
+  adminMovieFieldValue,
   adminMovieGridFilterModel,
   adminMovieQueryFromGrid,
   adminMovieRouteQuery,
@@ -184,6 +185,32 @@ test('keeps independent drafts and distinguishes equal automatic override, expli
 
   const refreshed = { ...item, updated_at: '2026-08-30T10:00:00Z' }
   assert.equal(buildAdminMoviePatch(refreshed, first)?.expected_updated_at, item.updated_at)
+})
+
+test('poster selection changes only its draft and preserves save, cancel, restore and conflict timestamp semantics', () => {
+  const item = movie()
+  const url = 'https://image.tmdb.org/t/p/w500/alternative.jpg'
+  const previous = stageAdminMovieOverride(item, undefined, 'overview', 'Synopsis modifié')
+  const draft = stageAdminMovieOverride(item, previous, 'poster_url', url)
+  assert.equal(item.values.poster_url, 'https://images.example/poster.jpg')
+  assert.equal(adminMovieFieldValue(item, draft, 'poster_url'), url)
+  assert.equal(adminMovieFieldValue(item, draft, 'overview'), 'Synopsis modifié')
+  assert.equal(isAdminMovieFieldOverridden(item, draft, 'poster_url'), true)
+  assert.deepEqual(validateAdminMovieDraft(item, draft), {})
+  assert.deepEqual(buildAdminMoviePatch(item, draft), {
+    expected_updated_at: item.updated_at,
+    overrides: { overview: 'Synopsis modifié', poster_url: url }
+  })
+  // Cancelling drops the row draft and restores effective saved values.
+  assert.equal(adminMovieFieldValue(item, undefined, 'poster_url'), item.values.poster_url)
+  assert.equal(buildAdminMoviePatch(item, undefined), null)
+  const saved = movie({ values: { ...item.values, poster_url: url }, overridden_fields: ['poster_url'] })
+  const restored = stageAdminMovieRestore(saved, undefined, 'poster_url')
+  assert.equal(adminMovieFieldValue(saved, restored, 'poster_url'), item.automatic.poster_url)
+  assert.deepEqual(buildAdminMoviePatch(saved, restored), { expected_updated_at: saved.updated_at, restore: ['poster_url'] })
+  const reselected = stageAdminMovieOverride(saved, restored, 'poster_url', url)
+  assert.equal(adminMovieFieldValue(saved, reselected, 'poster_url'), url)
+  assert.equal(buildAdminMoviePatch({ ...item, updated_at: '2026-09-13T10:00:00Z' }, draft)?.expected_updated_at, item.updated_at)
 })
 
 test('validates field domains and effective trailer collisions before PATCH', () => {
