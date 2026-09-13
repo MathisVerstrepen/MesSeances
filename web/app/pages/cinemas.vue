@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { AlertTriangle, Building2, Check, CheckCheck, List, ListFilter, LoaderCircle, LocateFixed, Map as MapIcon, RefreshCw, Search, X } from '@lucide/vue'
 import type { Theater } from '~/types/api'
+import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import { groupTheatersByCityIdentity, updateTheaterSelection } from '~/utils/cinemaSelection'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
@@ -485,7 +486,7 @@ useHead(() => ({
                   <label class="group flex cursor-pointer items-start gap-4">
                     <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
                     <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
-                    <span class="min-w-0"><BrandedText :text="theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
+                    <span class="min-w-0"><BrandedText :text="theaterDisplayName(theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
                   </label>
                   <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
                 </div>
