@@ -59,6 +59,18 @@ test('shared components preserve card, controls, and pagination contracts', () =
   assert.match(pagination, /aria-live="polite"/)
 })
 
+test('cards reserve a runtime line even when duration is unknown', () => {
+  assert.match(card, /<div class="min-h-5 [^"]*leading-5[^"]*">\s*<template v-if="movie\.runtime_minutes > 0">/)
+  assert.match(card, /<\/template>\s*<\/div>\s*<slot name="release"/)
+})
+
+test('film runtime and release-date chips share the same sizing', () => {
+  const runtimeClass = film.match(/<span v-if="schedule\.movie\.runtime_minutes > 0" class="([^"]+)"/)?.[1]
+  const releaseClass = film.match(/<time v-if="isUpcomingFilm && frenchReleaseLabel"[^>]*class="([^"]+)"/)?.[1]
+  assert.ok(runtimeClass)
+  assert.equal(releaseClass, runtimeClass)
+})
+
 test('films and city render shared catalog primitives', () => {
   for (const source of [films, city]) {
     assert.match(source, /<MovieCatalogControls/)

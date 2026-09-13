@@ -584,7 +584,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase max-sm:[overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
           <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
             <span v-if="schedule.movie.runtime_minutes > 0" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ schedule.movie.runtime_minutes }} min</span>
-            <time v-if="isUpcomingFilm && frenchReleaseLabel" :datetime="schedule.movie.french_release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-relaxed text-ink">Sortie le {{ frenchReleaseLabel }}</time>
+            <time v-if="isUpcomingFilm && frenchReleaseLabel" :datetime="schedule.movie.french_release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">Sortie le {{ frenchReleaseLabel }}</time>
             <template v-else-if="releaseDateLabel">
               <time :datetime="schedule.movie.release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ releaseDateLabel }}</time>
             </template>

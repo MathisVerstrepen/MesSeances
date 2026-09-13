@@ -15,6 +15,9 @@ const pending = ref(false)
 const errorMessage = ref('')
 let requestId = 0
 let mounted = false
+let scrollAfterLoad: { page: number } | null = null
+let removeNavigationFailureHook: (() => void) | undefined
+let removeNavigationErrorHook: (() => void) | undefined
 const groups = computed(() => groupUpcomingMovies(catalog.value?.items ?? []))
 const totalPages = computed(() => Math.max(1, catalog.value?.total_pages ?? 0))
 
@@ -44,6 +47,8 @@ if (import.meta.server && errorMessage.value) {
 
 async function loadCatalog() {
   const currentRequest = ++requestId
+  const scrollIntent = scrollAfterLoad
+  let loaded = false
   pending.value = true
   errorMessage.value = ''
   try {
@@ -51,8 +56,10 @@ async function loadCatalog() {
     if (currentRequest !== requestId) return
     catalog.value = response
     pagination.value.page = response.page
+    if (scrollIntent && scrollAfterLoad === scrollIntent) scrollIntent.page = response.page
     const query = upcomingRouteQuery(pagination.value)
     if (!queriesEqual(route.query, query)) await router.replace({ query })
+    loaded = true
   } catch (error) {
     if (currentRequest !== requestId) return
     catalog.value = null
@@ -60,11 +67,29 @@ async function loadCatalog() {
   } finally {
     if (currentRequest === requestId) pending.value = false
   }
+  // The loading panel must be gone before scrolling, otherwise the browser clamps to its height.
+  await nextTick()
+  if (loaded && mounted && currentRequest === requestId && scrollIntent && scrollAfterLoad === scrollIntent) {
+    scrollAfterLoad = null
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+  }
+}
+
+function followPageLink(event: MouseEvent, nextPage: number) {
+  // NuxtLink already started navigation before emitting this event. Do not push again.
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+  if (pending.value || scrollAfterLoad || nextPage < 1 || nextPage > totalPages.value || nextPage === pagination.value.page) {
+    event.preventDefault()
+    return
+  }
+  scrollAfterLoad = { page: nextPage }
 }
 
 watch(() => route.query, async () => {
   if (!mounted) return
   const next = parseUpcomingRoute(route.query)
+  // Keep a failed pagination's intent for retry, but never carry it into history/other loads.
+  if (scrollAfterLoad && scrollAfterLoad.page !== next.page) scrollAfterLoad = null
   const changed = !queriesEqual(upcomingRouteQuery(pagination.value), upcomingRouteQuery(next))
   pagination.value = next
   const query = upcomingRouteQuery(next)
@@ -72,11 +97,21 @@ watch(() => route.query, async () => {
   if (changed) await loadCatalog()
 })
 onMounted(async () => {
+  removeNavigationFailureHook = router.afterEach((_to, _from, failure) => {
+    if (failure) scrollAfterLoad = null
+  })
+  removeNavigationErrorHook = router.onError(() => { scrollAfterLoad = null })
   const query = upcomingRouteQuery(pagination.value)
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   mounted = true
 })
-onBeforeUnmount(() => { requestId++ })
+onBeforeUnmount(() => {
+  mounted = false
+  scrollAfterLoad = null
+  requestId++
+  removeNavigationFailureHook?.()
+  removeNavigationErrorHook?.()
+})
 
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/films/prochainement')
@@ -96,7 +131,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     <header class="border-b-2 border-ink bg-surface">
       <div class="mx-auto max-w-[1440px] px-4 py-12 sm:px-6 sm:py-16 lg:px-10">
         <h1 class="text-[clamp(2.4rem,8vw,7.5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">Prochainement<span class="text-primary">.</span></h1>
-        <p v-if="catalog" class="mt-6 font-mono text-xs font-bold uppercase tracking-wide">Du <time :datetime="catalog.window.from">{{ formatFrenchReleaseDate(catalog.window.from) }}</time> au <time :datetime="catalog.window.through">{{ formatFrenchReleaseDate(catalog.window.through) }}</time></p>
+        <div v-if="catalog" class="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 font-mono text-xs font-bold uppercase tracking-wide">
+          <p>Du <time :datetime="catalog.window.from">{{ formatFrenchReleaseDate(catalog.window.from) }}</time> au <time :datetime="catalog.window.through">{{ formatFrenchReleaseDate(catalog.window.through) }}</time></p>
+          <p>{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
+        </div>
       </div>
     </header>
     <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
@@ -115,7 +153,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <p>Aucune sortie annoncée</p>
         </EditorialStatePanel>
         <template v-else>
-          <p class="mt-6 font-mono text-xs font-bold uppercase">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
           <section v-for="group in groups" :key="group.weekStart" class="mt-8" :aria-labelledby="`week-${group.weekStart}`">
             <h2 :id="`week-${group.weekStart}`" class="border-b-2 border-ink pb-3 text-3xl font-black tracking-tight">{{ formatReleaseWeek(group.weekStart) }}</h2>
             <ul class="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6">
@@ -126,7 +163,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               </li>
             </ul>
           </section>
-          <MovieCatalogPagination :page="pagination.page" :total-pages="totalPages" :previous-to="pagination.page > 1 ? { query: upcomingRouteQuery({ page: pagination.page - 1 }) } : null" :next-to="pagination.page < totalPages ? { query: upcomingRouteQuery({ page: pagination.page + 1 }) } : null" :pending="pending" />
+          <MovieCatalogPagination :page="pagination.page" :total-pages="totalPages" :previous-to="pagination.page > 1 ? { query: upcomingRouteQuery({ page: pagination.page - 1 }) } : null" :next-to="pagination.page < totalPages ? { query: upcomingRouteQuery({ page: pagination.page + 1 }) } : null" :pending="pending" @navigate="followPageLink" />
         </template>
       </div>
     </div>
