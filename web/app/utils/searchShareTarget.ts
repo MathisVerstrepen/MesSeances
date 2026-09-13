@@ -1,4 +1,4 @@
-import { serializeShowtimeSelection } from './showtimeResults.ts'
+import { showtimeSelectionQueryValues } from './showtimeResults.ts'
 
 export interface CompleteSearchShareState {
   theaterIds: readonly string[]
@@ -12,10 +12,11 @@ export interface CompleteSearchShareState {
   grouping: 'movie' | 'chronological'
   layout: 'lines' | 'boxes'
   selectedShowtimeKeys: readonly string[]
+  selectedOnly: boolean
 }
 
 export function buildCompleteSearchShareTarget(search: CompleteSearchShareState): string {
-  const selected = serializeShowtimeSelection(search.selectedShowtimeKeys)
+  const selection = showtimeSelectionQueryValues(search.selectedShowtimeKeys, search.selectedOnly)
   const query = new URLSearchParams([
     ['theaters', search.theaterIds.join(',')],
     ['date', search.date],
@@ -29,7 +30,8 @@ export function buildCompleteSearchShareTarget(search: CompleteSearchShareState)
     ['layout', search.layout]
   ])
 
-  if (selected) query.set('selected', selected)
+  if (selection.selected) query.set('selected', selection.selected)
+  if (selection.selected_only) query.set('selected_only', selection.selected_only)
 
   return `/recherche?${query.toString()}`
 }
