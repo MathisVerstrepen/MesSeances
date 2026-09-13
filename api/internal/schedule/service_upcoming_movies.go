@@ -60,7 +60,7 @@ func (s *Service) UpcomingMovies(query UpcomingMoviesQuery) (UpcomingMoviesRespo
 	if view == nil || view.data.UpcomingCompletedAt.IsZero() {
 		return UpcomingMoviesResponse{}, ErrUpcomingUnavailable
 	}
-	result := UpcomingMoviesResponse{GeneratedAt: view.data.UpcomingCompletedAt, CatalogRevision: catalogRevisionAt(view, now, s.location), Timezone: Timezone, Window: UpcomingWindow(now), Items: []MovieCatalogItem{}, AvailableGenres: []string{}, AvailableMonths: []string{}, Page: query.Page, PageSize: query.PageSize}
+	result := UpcomingMoviesResponse{GeneratedAt: view.data.UpcomingCompletedAt, CatalogRevision: catalogRevisionAt(view, now, s.location), Timezone: Timezone, Window: UpcomingDisplayWindow(now), Items: []MovieCatalogItem{}, AvailableGenres: []string{}, AvailableMonths: []string{}, Page: query.Page, PageSize: query.PageSize}
 	eligible := []catalogGroupedMovie{}
 	months := map[string]bool{}
 	filtered := []PublicMovieRecord{}

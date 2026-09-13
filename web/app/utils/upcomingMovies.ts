@@ -32,16 +32,27 @@ export function upcomingApiQuery(filters: UpcomingFilters): UpcomingMoviesQuery 
   return { month: filters.month || undefined, genres: filters.genres.length ? filters.genres.join(',') : undefined, page: filters.page, page_size: 24 }
 }
 
-export function groupUpcomingMovies(items: UpcomingCatalogMovie[]): Array<{ month: string; movies: UpcomingCatalogMovie[] }> {
+export function releaseWeekStart(value: string): string {
+  if (!isCalendarDate(value)) throw new Error('Invalid French release date')
+  const date = new Date(`${value}T12:00:00Z`)
+  // UTC calendar arithmetic keeps Wednesday-through-Tuesday weeks independent of DST and host timezone.
+  date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 4) % 7)
+  return date.toISOString().slice(0, 10)
+}
+
+export function groupUpcomingMovies(items: UpcomingCatalogMovie[]): Array<{ weekStart: string; movies: UpcomingCatalogMovie[] }> {
   const groups = new Map<string, UpcomingCatalogMovie[]>()
   for (const movie of items) {
-    if (!isCalendarDate(movie.french_release_date)) throw new Error('Invalid French release date')
-    const month = movie.french_release_date.slice(0, 7)
-    const movies = groups.get(month) ?? []
+    const weekStart = releaseWeekStart(movie.french_release_date)
+    const movies = groups.get(weekStart) ?? []
     movies.push(movie)
-    groups.set(month, movies)
+    groups.set(weekStart, movies)
   }
-  return [...groups].sort(([left], [right]) => left.localeCompare(right)).map(([month, movies]) => ({ month, movies }))
+  return [...groups].sort(([left], [right]) => left.localeCompare(right)).map(([weekStart, movies]) => ({ weekStart, movies }))
+}
+
+export function formatReleaseWeek(value: string): string {
+  return formatFrenchReleaseDate(releaseWeekStart(value))
 }
 
 export function formatFrenchReleaseDate(value: string): string {

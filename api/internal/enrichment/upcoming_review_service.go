@@ -118,7 +118,7 @@ func completeUpcomingReview(item *AdminUpcomingMovie, now time.Time) {
 	if item.ReasonCodes == nil {
 		item.ReasonCodes = []string{}
 	}
-	window := schedule.UpcomingWindow(now)
+	window := schedule.UpcomingDisplayWindow(now)
 	item.InWindow = item.FrenchReleaseDate != nil && *item.FrenchReleaseDate >= window.From && *item.FrenchReleaseDate <= window.Through
 	item.PubliclyVisible = item.Active && item.InWindow && item.Decision != "excluded"
 }

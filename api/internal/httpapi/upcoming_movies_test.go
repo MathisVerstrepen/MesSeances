@@ -40,6 +40,9 @@ func TestUpcomingCatalogOnlyWireContract(t *testing.T) {
 	if result.Page != 1 || result.PageSize != 24 || result.Total != 1 || result.Items[0].FrenchReleaseDate == nil || *result.Items[0].FrenchReleaseDate != "2026-10-07" || result.Items[0].ReleaseDate == nil || *result.Items[0].ReleaseDate != "2000-01-01" {
 		t.Fatalf("list=%+v", result)
 	}
+	if result.Window != (schedule.Window{From: "2026-09-16", Through: "2027-09-13"}) {
+		t.Fatalf("display window=%+v", result.Window)
+	}
 	t.Logf("UPCOMING_WIRE %s", strings.TrimSpace(list.Body.String()))
 	detail := request("/api/v1/movies/film-1/showtimes?date=2026-09-13&city=Paris")
 	if detail.Code != 200 || !strings.Contains(detail.Body.String(), `"release_status":"upcoming"`) || !strings.Contains(detail.Body.String(), `"theaters":[]`) || !strings.Contains(detail.Body.String(), `"available_dates":[]`) {
@@ -76,5 +79,49 @@ func TestUpcomingCatalogOnlyWireContract(t *testing.T) {
 	source.view = schedule.NewSnapshotView(data, schedule.SnapshotRevision{EnrichmentVersion: 2})
 	if w := request("/api/v1/movies/upcoming"); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) || !strings.Contains(w.Body.String(), `"available_genres":[]`) || !strings.Contains(w.Body.String(), `"available_months":[]`) {
 		t.Fatalf("empty=%d %s", w.Code, w.Body)
+	}
+}
+
+func TestUpcomingDisplayWindowHTTPMidnight(t *testing.T) {
+	now := time.Date(2026, 9, 15, 21, 59, 59, 0, time.UTC)
+	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Timezone: schedule.Timezone, GeneratedAt: now, UpcomingCompletedAt: now}
+	for i, date := range []string{"2026-09-15", "2026-09-17", "2026-09-23"} {
+		id := int64(i + 1)
+		data.PublicMovies = append(data.PublicMovies, schedule.PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: "Film", HasUpcomingRelease: true, UpcomingActive: true, FrenchReleaseDate: date, UpdatedAt: now})
+	}
+	source := &mutableFixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{EnrichmentVersion: 1})}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{})
+	var previousRevision string
+	for _, test := range []struct {
+		from, through, slug string
+		total               int
+	}{
+		{"2026-09-16", "2027-09-15", "film-2", 2},
+		{"2026-09-23", "2027-09-16", "film-3", 1},
+	} {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/movies/upcoming?page_size=1", nil))
+		var result schedule.UpcomingMoviesResponse
+		if w.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", w.Code, w.Body)
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Window != (schedule.Window{From: test.from, Through: test.through}) || result.Total != test.total || len(result.Items) != 1 || result.Items[0].Slug != test.slug || !result.GeneratedAt.Equal(data.UpcomingCompletedAt) || result.CatalogRevision == previousRevision {
+			t.Fatalf("display response=%+v", result)
+		}
+		previousRevision = result.CatalogRevision
+		now = now.Add(time.Second)
+	}
+	// The hidden Thursday release remains upcoming on its unchanged detail URL.
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/movies/film-2/showtimes?date=2026-09-16", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"release_status":"upcoming"`) || !strings.Contains(w.Body.String(), `"french_release_date":"2026-09-17"`) {
+		t.Fatalf("hidden detail=%d %s", w.Code, w.Body)
 	}
 }

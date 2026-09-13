@@ -5,7 +5,7 @@ import type { MovieShowtimesResponse, UpcomingCatalogMovie } from '../app/types/
 import { getFrenchApiError, useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import { loadInitialFilmSchedule } from '../app/utils/filmInitialSchedule.ts'
 import { buildFilmJsonLd } from '../app/utils/filmJsonLd.ts'
-import { formatFrenchReleaseDate, formatReleaseMonth, groupUpcomingMovies, parseUpcomingFilters, upcomingApiQuery, upcomingRouteQuery } from '../app/utils/upcomingMovies.ts'
+import { formatFrenchReleaseDate, formatReleaseMonth, formatReleaseWeek, groupUpcomingMovies, parseUpcomingFilters, releaseWeekStart, upcomingApiQuery, upcomingRouteQuery } from '../app/utils/upcomingMovies.ts'
 import { upcomingSitemapEntry } from '../server/utils/sitemap.ts'
 
 function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
@@ -28,14 +28,67 @@ test('normalizes route keys, rejects duplicate scalar filters, and keeps OR genr
   assert.deepEqual(upcomingRouteQuery({ month: '', genres: [], page: 1 }), {})
 })
 
-test('groups each page by verified French month, keeps within-month backend ordering', () => {
-  const films = [movie('2027-01-06', 'film-2'), movie('2026-12-16', 'film-3'), movie('2026-12-23', 'film-1')]
-  assert.deepEqual(groupUpcomingMovies(films).map(group => [group.month, group.movies.map(item => item.slug)]), [
-    ['2026-12', ['film-3', 'film-1']], ['2027-01', ['film-2']]
+test('assigns every weekday to its prior-or-same Wednesday, with Tuesday closing the week', () => {
+  for (const date of ['2026-09-16', '2026-09-17', '2026-09-18', '2026-09-19', '2026-09-20', '2026-09-21', '2026-09-22']) {
+    assert.equal(releaseWeekStart(date), '2026-09-16', date)
+  }
+  assert.equal(releaseWeekStart('2026-09-15'), '2026-09-09')
+  assert.equal(releaseWeekStart('2026-09-23'), '2026-09-23')
+})
+
+test('groups chronologically without inventing empty weeks or changing within-week backend order or actual dates', () => {
+  const films = [movie('2027-01-13', 'film-2'), movie('2027-01-05', 'film-3'), movie('2026-12-30', 'film-1'), movie('2026-12-30', 'film-4')]
+  const original = structuredClone(films)
+  films.forEach(Object.freeze)
+  Object.freeze(films)
+  const groups = groupUpcomingMovies(films)
+  assert.deepEqual(groups.map(group => [group.weekStart, group.movies.map(item => item.slug)]), [
+    ['2026-12-30', ['film-3', 'film-1', 'film-4']], ['2027-01-13', ['film-2']]
   ])
+  assert.equal(groups[0]?.movies[0], films[1])
+  assert.deepEqual(films, original)
   assert.deepEqual(groupUpcomingMovies([]), [])
-  assert.throws(() => groupUpcomingMovies([movie('2027-02-29')]), /Invalid French release date/)
-  assert.throws(() => groupUpcomingMovies([movie('')]), /Invalid French release date/)
+})
+
+test('weeks cross month, year, leap day and DST boundaries without timezone drift', () => {
+  const cases = [
+    ['2026-09-30', '2026-09-30'], ['2026-10-01', '2026-09-30'], ['2026-10-06', '2026-09-30'],
+    ['2027-01-01', '2026-12-30'], ['2027-01-05', '2026-12-30'], ['2027-01-06', '2027-01-06'],
+    ['2028-02-29', '2028-02-23'], ['2028-03-01', '2028-03-01'],
+    ['2026-10-25', '2026-10-21'], ['2026-10-27', '2026-10-21'], ['2026-10-28', '2026-10-28'],
+    ['2027-03-28', '2027-03-24'], ['2027-03-30', '2027-03-24'], ['2027-03-31', '2027-03-31']
+  ] as const
+  const previousTimezone = process.env.TZ
+  try {
+    for (const timezone of ['UTC', 'Europe/Paris', 'America/Los_Angeles', 'Pacific/Kiritimati']) {
+      process.env.TZ = timezone
+      for (const [date, expected] of cases) assert.equal(releaseWeekStart(date), expected, `${timezone}: ${date}`)
+      assert.equal(formatReleaseWeek('2026-09-16'), '16 septembre 2026')
+      assert.equal(formatReleaseWeek('2027-01-01'), '30 décembre 2026')
+      assert.equal(formatFrenchReleaseDate('2026-10-01'), '1 octobre 2026')
+    }
+  } finally {
+    if (previousTimezone === undefined) delete process.env.TZ
+    else process.env.TZ = previousTimezone
+  }
+})
+
+test('groups only supplied page and month-filter items even when the same week spans both', () => {
+  const september = movie('2026-09-30', 'film-1')
+  const october = movie('2026-10-01', 'film-2')
+  assert.deepEqual(groupUpcomingMovies([september, october]), [{ weekStart: '2026-09-30', movies: [september, october] }])
+  assert.deepEqual(groupUpcomingMovies([september]), [{ weekStart: '2026-09-30', movies: [september] }])
+  assert.deepEqual(groupUpcomingMovies([october]), [{ weekStart: '2026-09-30', movies: [october] }])
+})
+
+test('rejects missing or invalid verified dates rather than falling back to general release dates', () => {
+  for (const date of ['', '2027-02-29', '2026-04-31', '2026-13-01', '2026-09-00', '2026-9-16', '2026-09-16T00:00:00Z', null, undefined]) {
+    // SAFETY: Deliberately pass malformed API fields to verify runtime rejection, including absent dates.
+    const invalid = date as string
+    assert.throws(() => releaseWeekStart(invalid), /Invalid French release date/)
+    assert.throws(() => groupUpcomingMovies([movie(invalid)]), /Invalid French release date/)
+    assert.throws(() => formatReleaseWeek(invalid), /Invalid French release date/)
+  }
 })
 
 test('date-only labels retain year, leap day and DST calendar dates without clock-based drift', () => {
@@ -96,6 +149,13 @@ test('SSR page and detail use exact states, shared cards and no catalog-only pre
   assert.match(page, /router\.push/)
   assert.match(page, /Aucune sortie annoncée/)
   assert.match(page, /Aucun film ne correspond aux filtres/)
+  assert.match(page, /:key="group\.weekStart"/)
+  assert.match(page, /:aria-labelledby="`week-\$\{group\.weekStart\}`"/)
+  assert.match(page, /:id="`week-\$\{group\.weekStart\}`"/)
+  assert.match(page, /formatReleaseWeek\(group\.weekStart\)/)
+  assert.match(page, /Sortie le <time :datetime="movie\.french_release_date">\{\{ formatFrenchReleaseDate\(movie\.french_release_date\) \}\}/)
+  assert.match(page, /semaine par semaine/)
+  assert.doesNotMatch(page, /group\.month|mois par mois/)
   assert.doesNotMatch(page, /useCinemaPreferences|todayInParis|\.release_date/)
   assert.match(tabs, /aria-current/)
   assert.doesNotMatch(tabs, /role="tab/)

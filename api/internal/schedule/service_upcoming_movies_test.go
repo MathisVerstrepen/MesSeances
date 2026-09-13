@@ -18,7 +18,8 @@ func upcomingCatalogFixture() Dataset {
 		genres      []string
 		active      bool
 	}{
-		{10, "Écho", "2026-09-14", []string{"Drame"}, true}, {2, "Écho", "2026-09-14", []string{"Action"}, true}, {3, "Alpha", "2026-10-02", []string{"Comédie"}, true}, {4, "Beyond", "2027-09-14", nil, false}, {5, "Today", "2026-09-13", nil, true}, {6, "Withdrawn", "", nil, false},
+		{10, "Écho", "2026-09-16", []string{"Drame"}, true}, {2, "Écho", "2026-09-16", []string{"Action"}, true}, {3, "Alpha", "2026-10-02", []string{"Comédie"}, true}, {4, "Beyond", "2027-09-14", nil, false}, {5, "Today", "2026-09-13", nil, true}, {6, "Withdrawn", "", nil, false},
+		{7, "Current week Monday", "2026-09-14", []string{"Animation"}, true}, {8, "Current week Tuesday", "2026-09-15", []string{"Animation"}, true},
 	} {
 		data.PublicMovies = append(data.PublicMovies, PublicMovieRecord{ID: v.id, IdentityAnchorTMDBID: v.id, TMDBID: v.id, Title: v.title, FrenchReleaseDate: v.date, HasUpcomingRelease: true, UpcomingActive: v.active, Genres: v.genres, UpdatedAt: now})
 	}
@@ -78,9 +79,14 @@ func TestUpcomingCatalogFilteringPagingAndMidnight(t *testing.T) {
 			t.Fatalf("empty=%+v error=%v", result, err)
 		}
 	}
-	now = now.Add(12 * time.Hour)
+	now = time.Date(2026, 9, 15, 21, 59, 59, 0, time.UTC)
+	before, err := s.UpcomingMovies(UpcomingMoviesQuery{})
+	if err != nil || before.Total != 3 || before.Window.From != "2026-09-16" {
+		t.Fatalf("before Wednesday=%+v err=%v", before, err)
+	}
+	now = now.Add(time.Second)
 	aged, _ := s.UpcomingMovies(UpcomingMoviesQuery{})
-	if aged.Total != 1 || aged.CatalogRevision == first.CatalogRevision || !aged.GeneratedAt.Equal(first.GeneratedAt) {
+	if aged.Total != 1 || aged.Window.From != "2026-09-23" || aged.CatalogRevision == before.CatalogRevision || !aged.GeneratedAt.Equal(first.GeneratedAt) {
 		t.Fatalf("aged=%+v", aged)
 	}
 	for _, q := range []UpcomingMoviesQuery{{Month: "2026-9"}, {Month: "2026-13"}, {Page: -1}, {PageSize: 101}, {Genres: []string{""}}} {
@@ -97,7 +103,7 @@ func TestUpcomingDetailStatusesAndBundleClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, test := range []struct{ slug, status string }{{"film-2", "upcoming"}, {"film-4", "upcoming"}, {"film-5", "ended"}, {"film-6", "unavailable"}} {
+	for _, test := range []struct{ slug, status string }{{"film-2", "upcoming"}, {"film-4", "upcoming"}, {"film-5", "ended"}, {"film-6", "unavailable"}, {"film-7", "upcoming"}, {"film-8", "upcoming"}} {
 		before := clockCalls
 		scoped, national, err := s.MovieShowtimesBundle(MovieShowtimesQuery{Slug: test.slug, Date: "2026-09-13", City: "Paris"})
 		if err != nil || scoped.ReleaseStatus != test.status || !reflect.DeepEqual(scoped, national) || scoped.CurrentlyScreened || scoped.Theaters == nil || scoped.AvailableDates == nil || clockCalls != before+1 {
@@ -119,7 +125,8 @@ func TestUpcomingDetailStatusesAndBundleClock(t *testing.T) {
 
 func TestUpcomingPreviewStillHasSessions(t *testing.T) {
 	data := testDataset()
-	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Preview", RuntimeMinutes: 100, TMDBID: 42, HasUpcomingRelease: true, FrenchReleaseDate: "2026-09-01", UpcomingActive: true}}
+	data.UpcomingCompletedAt = data.GeneratedAt
+	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Preview", RuntimeMinutes: 100, TMDBID: 42, HasUpcomingRelease: true, FrenchReleaseDate: "2026-08-17", UpcomingActive: true}}
 	data.Showtimes = data.Showtimes[:1]
 	data.Showtimes[0].Movie.PublicMovieID = 1
 	data.MovieSources = []PublicMovieSourceRecord{{Provider: ProviderUGC, SourceMovieID: "200", PublicMovieID: 1, SourceSlug: "ugc-film-200"}}
@@ -128,8 +135,76 @@ func TestUpcomingPreviewStillHasSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := s.MovieShowtimes(MovieShowtimesQuery{Slug: "film-1", Date: "2026-08-15"})
-	if err != nil || result.ReleaseStatus != "upcoming" || !result.CurrentlyScreened || len(result.Theaters) != 1 || len(result.Theaters[0].Showtimes) != 1 {
+	if err != nil || result.ReleaseStatus != "upcoming" || !result.CurrentlyScreened || len(result.Theaters) != 1 || len(result.Theaters[0].Showtimes) != 1 || result.Movie.FrenchReleaseDate == nil || *result.Movie.FrenchReleaseDate != "2026-08-17" {
 		t.Fatalf("preview=%+v err=%v", result, err)
+	}
+	upcoming, err := s.UpcomingMovies(UpcomingMoviesQuery{})
+	if err != nil || upcoming.Total != 0 {
+		t.Fatalf("current-week preview listed=%+v err=%v", upcoming, err)
+	}
+	inventory, err := s.Movies(MovieCatalogQuery{})
+	if err != nil || len(inventory.Items) != 1 {
+		t.Fatalf("current-week inventory=%+v err=%v", inventory, err)
+	}
+}
+
+func TestUpcomingDisplayEligibilityBeforeFacetsFiltersAndPages(t *testing.T) {
+	for _, test := range []struct{ name, today, hidden, from, through, beyond string }{
+		{"current week", "2026-09-13", "2026-09-15", "2026-09-16", "2027-09-13", "2027-09-14"},
+		{"hidden unique month", "2026-08-30", "2026-08-31", "2026-09-02", "2027-08-30", "2027-08-31"},
+		{"leap clamp", "2028-02-29", "2028-02-29", "2028-03-01", "2029-02-28", "2029-03-01"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			location, err := time.LoadLocation(Timezone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now, err := time.ParseInLocation(time.DateOnly, test.today, location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now}
+			for i, date := range []string{test.hidden, test.from, test.through, test.beyond} {
+				genre := "Drame"
+				if i == 0 || i == 3 {
+					genre = "Animation"
+				}
+				id := int64(i + 1)
+				data.PublicMovies = append(data.PublicMovies, PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: "Film", FrenchReleaseDate: date, HasUpcomingRelease: true, UpcomingActive: true, Genres: []string{genre}, UpdatedAt: now})
+			}
+			view := NewSnapshotView(data, SnapshotRevision{EnrichmentVersion: 1})
+			s, err := NewService(testSource{view}, ServiceOptions{Now: func() time.Time { return now }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for page := 1; page <= 3; page++ {
+				result, err := s.UpcomingMovies(UpcomingMoviesQuery{Page: page, PageSize: 1})
+				if err != nil || result.Total != 2 || result.Window != (Window{From: test.from, Through: test.through}) || !reflect.DeepEqual(result.AvailableGenres, []string{"Drame"}) || !reflect.DeepEqual(result.AvailableMonths, []string{test.from[:7], test.through[:7]}) {
+					t.Fatalf("page %d=%+v err=%v", page, result, err)
+				}
+				if page <= 2 {
+					want := []string{test.from, test.through}[page-1]
+					if len(result.Items) != 1 || result.Items[0].FrenchReleaseDate == nil || *result.Items[0].FrenchReleaseDate != want {
+						t.Fatalf("page %d exact date=%+v", page, result.Items)
+					}
+				} else if len(result.Items) != 0 {
+					t.Fatalf("extra page=%+v", result.Items)
+				}
+			}
+			queries := []UpcomingMoviesQuery{{Genres: []string{"Animation"}}, {Month: test.hidden[:7], Genres: []string{"Animation"}}}
+			if test.hidden[:7] != test.from[:7] {
+				queries = append(queries, UpcomingMoviesQuery{Month: test.hidden[:7]})
+			}
+			for _, query := range queries {
+				result, err := s.UpcomingMovies(query)
+				if err != nil || result.Total != 0 || len(result.Items) != 0 || !reflect.DeepEqual(result.AvailableGenres, []string{"Drame"}) {
+					t.Fatalf("hidden filter=%+v err=%v", result, err)
+				}
+			}
+			if !reflect.DeepEqual(view.data.PublicMovies, data.PublicMovies) {
+				t.Fatal("display changed stored movie records")
+			}
+		})
 	}
 }
 

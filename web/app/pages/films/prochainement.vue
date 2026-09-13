@@ -4,7 +4,7 @@ import type { UpcomingMoviesResponse } from '~/types/api'
 import { normalizeMovieGenres } from '~/utils/movieCatalogFilters'
 import { queriesEqual } from '~/utils/routeQuery'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
-import { formatFrenchReleaseDate, formatReleaseMonth, groupUpcomingMovies, parseUpcomingFilters, upcomingApiQuery, upcomingRouteQuery } from '~/utils/upcomingMovies'
+import { formatFrenchReleaseDate, formatReleaseMonth, formatReleaseWeek, groupUpcomingMovies, parseUpcomingFilters, upcomingApiQuery, upcomingRouteQuery } from '~/utils/upcomingMovies'
 import type { UpcomingFilters } from '~/utils/upcomingMovies'
 
 const api = useMesSeancesApi()
@@ -97,7 +97,7 @@ onBeforeUnmount(() => { requestId++ })
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/films/prochainement')
 const title = 'Films prochainement au cinéma - MesSeances'
-const description = 'Les prochaines sorties françaises au cinéma, mois par mois, pour l’année à venir.'
+const description = 'Les prochaines sorties françaises au cinéma, semaine par semaine, pour l’année à venir.'
 useSeoMeta({
   title, description, ogTitle: title, ogDescription: description, ogUrl: canonicalUrl,
   ogType: 'website', ogLocale: 'fr_FR',
@@ -151,8 +151,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </EditorialStatePanel>
         <template v-else>
           <p class="mt-6 font-mono text-xs font-bold uppercase">{{ catalog.total }} film{{ catalog.total > 1 ? 's' : '' }}</p>
-          <section v-for="group in groups" :key="group.month" class="mt-8" :aria-labelledby="`month-${group.month}`">
-            <h2 :id="`month-${group.month}`" class="border-b-2 border-ink pb-3 text-3xl font-black capitalize tracking-tight">{{ formatReleaseMonth(group.month) }}</h2>
+          <section v-for="group in groups" :key="group.weekStart" class="mt-8" :aria-labelledby="`week-${group.weekStart}`">
+            <h2 :id="`week-${group.weekStart}`" class="border-b-2 border-ink pb-3 text-3xl font-black tracking-tight">{{ formatReleaseWeek(group.weekStart) }}</h2>
             <ul class="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4 xl:grid-cols-6">
               <li v-for="movie in group.movies" :key="movie.slug" class="min-w-0">
                 <MovieCatalogCard :movie="movie" :to="`/film/${encodeURIComponent(movie.slug)}`">
