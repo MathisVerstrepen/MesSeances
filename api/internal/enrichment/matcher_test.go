@@ -149,7 +149,7 @@ func TestMatcherSearchesRawThenCanonicalAndDeduplicatesIDs(t *testing.T) {
 	store := newMemoryStore()
 	provider := &fakeProvider{
 		searchByQuery: map[string][]tmdb.Candidate{
-			"Film (THE ROYAL OPERA)": {{ID: 1, Title: "Film", OriginalTitle: "Film"}},
+			"Film - THE ROYAL OPERA": {{ID: 1, Title: "Film", OriginalTitle: "Film"}},
 			"film":                   {{ID: 1, Title: "Film", OriginalTitle: "Film"}, {ID: 2, Title: "Film", OriginalTitle: "Film"}},
 		},
 		details: map[int64]tmdb.Details{
@@ -157,9 +157,9 @@ func TestMatcherSearchesRawThenCanonicalAndDeduplicatesIDs(t *testing.T) {
 			2: {ID: 2, Title: "Film", OriginalTitle: "Film", Runtime: 100, Genres: []string{}},
 		},
 	}
-	_, err := NewMatcher(store, provider, func() time.Time { return matcherNow }).Run(context.Background(), []Movie{{ProviderID: "10", Title: "Film (THE ROYAL OPERA)", RuntimeMinutes: 90}})
+	_, err := NewMatcher(store, provider, func() time.Time { return matcherNow }).Run(context.Background(), []Movie{{ProviderID: "10", Title: "Film - THE ROYAL OPERA", RuntimeMinutes: 90}})
 	match := store.matches["10"]
-	if err != nil || len(provider.searchQueries) != 2 || provider.searchQueries[0] != "Film (THE ROYAL OPERA)" || provider.searchQueries[1] != "film" || provider.detailCalls != 2 || len(match.Candidates) != 2 {
+	if err != nil || len(provider.searchQueries) != 2 || provider.searchQueries[0] != "Film - THE ROYAL OPERA" || provider.searchQueries[1] != "film" || provider.detailCalls != 2 || len(match.Candidates) != 2 {
 		t.Fatalf("queries=%v details=%d match=%+v err=%v", provider.searchQueries, provider.detailCalls, match, err)
 	}
 }
@@ -189,6 +189,7 @@ func TestMatcherControlledTMDBCandidateWrappers(t *testing.T) {
 		{"bastille original", "NOTRE-DAME DE PARIS (OPERA DE PARIS)", "Notre-Dame de Paris (Opéra Bastille)", true},
 		{"national localized", "NOTRE-DAME DE PARIS (OPERA DE PARIS)", "Notre-Dame de Paris [Opéra National de Paris]", false},
 		{"national original", "NOTRE-DAME DE PARIS (OPERA DE PARIS)", "Notre-Dame de Paris [Opéra National de Paris]", true},
+		{"parenthesized annotation", "CARMEN (THE ROYAL OPERA)", "Carmen (Royal Opera House)", false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -216,7 +217,7 @@ func TestMatcherCandidateWrapperNearMissesFailClosed(t *testing.T) {
 		{"malformed long year", "CARMEN (THE ROYAL OPERA)", "Royal Ballet & Opera 26/27: Carmen"},
 		{"generic royal ballet", "CARMEN (THE ROYAL OPERA)", "Royal Ballet Carmen"},
 		{"generic opera containment", "CARMEN (THE ROYAL OPERA)", "Opera Carmen"},
-		{"unapproved parentheses", "CARMEN (THE ROYAL OPERA)", "Carmen (Royal Opera House)"},
+		{"unbalanced parentheses", "CARMEN (THE ROYAL OPERA)", "Carmen (Royal Opera House"},
 		{"unapproved brackets", "NOTRE-DAME DE PARIS (OPERA DE PARIS)", "Notre-Dame de Paris [Palais Garnier]"},
 		{"extra subtitle", "CARMEN (THE ROYAL OPERA)", "Royal Ballet & Opera 2026/27: Carmen: Gala"},
 		{"truncated", "CARMEN (THE ROYAL OPERA)", "Royal Ballet & Opera 2026/27: Carm..."},
@@ -441,7 +442,7 @@ func TestMatcherCandidateOutsidePersistedFiveStillAffectsAcceptance(t *testing.T
 func TestMatcherCanonicalSearchFailurePersistsBoundedRawCandidates(t *testing.T) {
 	providerFailure := errors.New("provider failure")
 	store := newMemoryStore()
-	raw := "Film (THE ROYAL BALLET)"
+	raw := "Film - THE ROYAL BALLET"
 	provider := &fakeProvider{
 		searchByQuery:    map[string][]tmdb.Candidate{raw: {}},
 		searchErrByQuery: map[string]error{"film": providerFailure},

@@ -165,9 +165,22 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
             self.assertIn(f"{variable}: ${{{{ github.event.pull_request.{field} }}}}", step)
             self.assertIn(f'--{variable.lower().replace("_", "-")} "${variable}"', step)
 
+    def test_ci_workflows_use_only_pull_requests_with_stable_check_names(self):
+        workflows = {
+            "go.yml": ("Go CI / checks", "Go CI / integration"),
+            "frontend.yml": ("Frontend CI / checks",),
+            "release-tests.yml": ("Release automation / tests",),
+        }
+        for filename, check_names in workflows.items():
+            with self.subTest(workflow=filename):
+                workflow = (ROOT / ".github/workflows" / filename).read_text()
+                triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+                self.assertEqual(triggers, "  pull_request:\n    branches: [dev, main]\n")
+                for name in check_names:
+                    self.assertIn(f"    name: {name}\n", workflow)
+
     def test_release_test_ci_has_read_only_unfiltered_root_suite(self):
         workflow = (ROOT / ".github/workflows/release-tests.yml").read_text()
-        self.assertIn("  push:\n    branches: [dev, main]", workflow)
         self.assertIn("  pull_request:\n    branches: [dev, main]", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertEqual(workflow.count("permissions:"), 1)

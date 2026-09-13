@@ -22,10 +22,20 @@ func (s *PostgresStore) PendingMatches(ctx context.Context, filter PendingMatchF
 		exactTMDBID = &id
 	}
 	rows, err := s.pool.Query(ctx, `SELECT m.provider, m.provider_id, m.title, m.runtime_minutes, COALESCE(m.poster_url, ''), COALESCE(mm.status, 'review_required'), COALESCE(mm.candidates, '[]'::jsonb), COALESCE(mm.evaluated_at, CURRENT_TIMESTAMP),
-       mm.updated_at, mm.metadata_movie_id, mm.score, cache.localized_title, cache.provider_title, cache.runtime_minutes, cache.poster_url
+       mm.updated_at, mm.metadata_movie_id, mm.score, cache.localized_title, cache.provider_title, cache.runtime_minutes, cache.poster_url,
+       COALESCE(screening.booking_url, ''), COALESCE(screening.provider_showing_id, ''), COALESCE(screening.theater_provider_id, '')
 FROM movies m JOIN schedule_snapshot ss ON ss.singleton=true AND m.generation_id=ss.version
 LEFT JOIN movie_matches mm ON mm.source_provider=m.provider AND mm.source_movie_id=m.provider_id AND mm.metadata_provider='tmdb'
 LEFT JOIN movie_metadata_cache cache ON cache.provider='tmdb' AND cache.provider_movie_id=mm.metadata_movie_id AND cache.locale='fr-FR'
+LEFT JOIN LATERAL (
+    SELECT st.booking_url, st.provider_showing_id, t.provider_id AS theater_provider_id
+    FROM showtimes st JOIN theaters t ON t.generation_id=st.generation_id AND t.id=st.theater_id AND t.provider=st.provider
+    WHERE st.generation_id=m.generation_id AND st.provider=m.provider AND st.movie_provider_id=m.provider_id
+    ORDER BY (st.start_time >= CURRENT_TIMESTAMP) DESC,
+             CASE WHEN st.start_time >= CURRENT_TIMESTAMP THEN st.start_time END ASC,
+             st.start_time DESC, st.id
+    LIMIT 1
+) screening ON true
 WHERE (($1='unresolved' AND (mm.status IS NULL OR mm.status IN ('review_required', 'unmatched')))
     OR ($1='rejected' AND mm.status='rejected')
     OR ($1='matched' AND mm.status='matched'))
@@ -49,7 +59,7 @@ ORDER BY LOWER(m.title), m.provider, m.provider_id LIMIT $2 OFFSET $3`, string(f
 		var score *float64
 		var localizedTitle, providerTitle, posterURL *string
 		var runtime *int
-		if err := rows.Scan(&item.SourceProvider, &item.SourceMovieID, &item.SourceTitle, &item.SourceRuntimeMinutes, &item.SourcePosterURL, &item.Status, &candidates, &item.EvaluatedAt, &updatedAt, &metadataMovieID, &score, &localizedTitle, &providerTitle, &runtime, &posterURL); err != nil || json.Unmarshal(candidates, &item.Candidates) != nil {
+		if err := rows.Scan(&item.SourceProvider, &item.SourceMovieID, &item.SourceTitle, &item.SourceRuntimeMinutes, &item.SourcePosterURL, &item.Status, &candidates, &item.EvaluatedAt, &updatedAt, &metadataMovieID, &score, &localizedTitle, &providerTitle, &runtime, &posterURL, &item.SourceDetailURL, &item.sourceShowingID, &item.sourceTheaterID); err != nil || json.Unmarshal(candidates, &item.Candidates) != nil {
 			return nil, fmt.Errorf("read pending movie matches failed")
 		}
 		if item.Status == StatusMatched {

@@ -22,23 +22,40 @@ type scheduleOccurrenceClaimer interface {
 }
 
 type syncScheduleStarter struct {
+	upcoming interface {
+		StartScheduled(enrichment.UpcomingClaim) (<-chan syncschedule.Completion, error)
+	}
 	providers providerScheduleStarter
 	metadata  metadataScheduleStarter
 	claimer   scheduleOccurrenceClaimer
 }
 
 func (s syncScheduleStarter) AvailableTargets() []syncschedule.Target {
-	targets := make([]syncschedule.Target, 0, 5)
+	targets := make([]syncschedule.Target, 0, 6)
 	if s.providers != nil {
-		targets = append(targets, syncschedule.TargetUGC, syncschedule.TargetKinepolis, syncschedule.TargetPathe, syncschedule.TargetCGR)
+		targets = append(targets, syncschedule.TargetUGC, syncschedule.TargetKinepolis, syncschedule.TargetPathe, syncschedule.TargetCGR, syncschedule.TargetMegarama)
 	}
 	if s.metadata != nil && s.claimer != nil {
 		targets = append(targets, syncschedule.TargetMetadataRefresh)
+	}
+	if s.upcoming != nil && s.claimer != nil {
+		targets = append(targets, syncschedule.TargetUpcomingMovies)
 	}
 	return targets
 }
 
 func (s syncScheduleStarter) StartScheduled(occurrence syncschedule.Occurrence) (<-chan syncschedule.Completion, error) {
+	if occurrence.Target == syncschedule.TargetUpcomingMovies {
+		if s.upcoming == nil || s.claimer == nil {
+			return nil, syncschedule.ErrTargetUnavailable
+		}
+		return s.upcoming.StartScheduled(func(ctx context.Context) (bool, error) {
+			if occurrence.Attempt > 0 {
+				return true, nil
+			}
+			return s.claimer.ClaimOccurrence(ctx, occurrence)
+		})
+	}
 	if occurrence.Target == syncschedule.TargetMetadataRefresh {
 		return s.startMetadata(occurrence)
 	}

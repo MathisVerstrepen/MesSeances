@@ -59,7 +59,8 @@ const providerLabels = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
-  cgr: 'CGR'
+  cgr: 'CGR',
+  megarama: 'Megarama'
 } satisfies Record<Provider, string>
 
 const geocodingFailureLabels = {
@@ -523,9 +524,9 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
         </li>
       </ul>
 
-      <nav v-if="offset > 0 || canGoNext" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" aria-label="Pagination des localisations de cinémas">
+      <nav v-if="offset > 0 || canGoNext" class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t border-line pt-6 sm:flex" aria-label="Pagination des localisations de cinémas">
         <button type="button" class="h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="offset === 0 || pending" @click="changePage(offset - PAGE_SIZE)">Précédent</button>
-        <span class="text-sm text-muted" aria-live="polite">Page {{ page }}</span>
+        <span class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none" aria-live="polite">Page {{ page }}</span>
         <button type="button" class="h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGoNext || pending" @click="changePage(offset + PAGE_SIZE)">Suivant</button>
       </nav>
     </template>

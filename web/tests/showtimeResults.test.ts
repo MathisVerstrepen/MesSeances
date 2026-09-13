@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { SlotResult, TheaterShowtimesResponse } from '../app/types/api.ts'
 import type { ShowtimeResultViewModel } from '../app/types/showtimeResults.ts'
-import { areShowtimeResultsCompatible, filterCompatibleShowtimeResults, groupShowtimeResults, parseShowtimeSelection, serializeShowtimeSelection, sortShowtimeResults, toSlotShowtimeResults, toTheaterShowtimeResults, validShowtimeSelectionKeys } from '../app/utils/showtimeResults.ts'
+import { areShowtimeResultsCompatible, filterCompatibleShowtimeResults, filterSelectedShowtimeResults, groupShowtimeResults, parseShowtimeSelection, serializeShowtimeSelection, showtimeSelectionQueryValues, sortShowtimeResults, toSlotShowtimeResults, toTheaterShowtimeResults, validShowtimeSelectionKeys } from '../app/utils/showtimeResults.ts'
 
 const movie = { slug: 'film-1', title: 'Film 1', runtime_minutes: 101, updated_at: '2026-08-24T00:00:00Z' }
 
@@ -87,13 +87,14 @@ test('round-trips compact selection tokens for every provider in canonical key o
   const cgr = 'cgr:cgr-showing-P0798-eb8c701bf9eb902f738cb7a32ed14cb55b9e2b42e0fc346ac79d9cf11d171bbc'
   const kinepolis = 'kinepolis:kinepolis-showing-Vista_Session-42'
   const pathe = 'pathe:pathe-showing-V3001S170227'
+  const megarama = 'megarama:megarama-showing-emsx056500123456'
   const ugc = 'ugc:ugc-showing-330660140434'
-  const keys = [pathe, ugc, cgr, kinepolis, cgr]
-  const compact = 'cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w,kVista_Session-42,pV3001S170227,u330660140434'
+  const keys = [pathe, ugc, cgr, kinepolis, cgr, megarama]
+  const compact = 'cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w,kVista_Session-42,memsx056500123456,pV3001S170227,u330660140434'
 
   assert.equal(serializeShowtimeSelection(keys), compact)
-  assert.deepEqual(parseShowtimeSelection(compact), [cgr, kinepolis, pathe, ugc])
-  assert.deepEqual(parseShowtimeSelection(`${compact},${compact}`), [cgr, kinepolis, pathe, ugc])
+  assert.deepEqual(parseShowtimeSelection(compact), [cgr, kinepolis, megarama, pathe, ugc])
+  assert.deepEqual(parseShowtimeSelection(`${compact},${compact}`), [cgr, kinepolis, megarama, pathe, ugc])
   assert.deepEqual(parseShowtimeSelection(undefined), [])
   assert.equal(serializeShowtimeSelection([]), undefined)
 })
@@ -147,6 +148,32 @@ test('materially reduces realistic selected-screening value length', () => {
   assert.ok(compact.length < verbose.length * 0.6)
 })
 
+test('round-trips exact Megarama case and ASCII identity limits while rejecting unsafe tokens', () => {
+  for (const id of ['emsx056500123456', 'Ab_1-2', 'a'.repeat(111)]) {
+    const key = `megarama:megarama-showing-${id}`
+    assert.equal(serializeShowtimeSelection([key]), `m${id}`)
+    assert.deepEqual(parseShowtimeSelection(`m${id}`), [key])
+  }
+  for (const id of ['', '-bad', '_bad', 'bad.id', 'bad/id', 'bad%2Fid', 'é', 'a'.repeat(112), 'abc\n', 'abc\r', ' abc', 'abc ']) {
+    assert.equal(serializeShowtimeSelection([`megarama:megarama-showing-${id}`]), undefined)
+    assert.deepEqual(parseShowtimeSelection(`m${id}`), [])
+  }
+})
+
+test('unknown Megarama ends remain selectable but never prove compatibility', () => {
+  const unknown = view({ provider: 'megarama', key: 'megarama:megarama-showing-emsx056500123456', endTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00' })
+  const known = view({ key: 'known', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  assert.equal(areShowtimeResultsCompatible(unknown, known), false)
+  assert.equal(areShowtimeResultsCompatible(known, unknown), false)
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], []), [unknown, known])
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key]), [unknown])
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [known.key]), [known])
+  assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key, known.key]), [unknown, known])
+  assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection([unknown.key])), [unknown.key])
+  const resolved = { ...unknown, endTime: '2026-08-24T20:10:00+02:00' }
+  assert.equal(areShowtimeResultsCompatible(resolved, known), true)
+})
+
 test('keeps only available selection keys in deterministic order', () => {
   const results = [view({ key: 'ugc:b' }), view({ key: 'ugc:a' })]
   assert.deepEqual(validShowtimeSelectionKeys(results, ['stale:key', 'ugc:b', 'ugc:a', 'ugc:b']), ['ugc:a', 'ugc:b'])
@@ -185,4 +212,36 @@ test('ignores stale selections and fails open for invalid intervals', () => {
 
   assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['stale:key']).map((result) => result.key), ['valid', 'invalid'])
   assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['invalid']).map((result) => result.key), ['valid', 'invalid'])
+})
+
+test('selected-only results keep exact sessions, not other screenings of selected movies', () => {
+  const selected = view({ key: 'ugc:ugc-showing-12' })
+  const sameMovie = view({ key: 'ugc:ugc-showing-13', effectiveStartTime: '2026-08-24T20:00:00+02:00', endTime: '2026-08-24T22:00:00+02:00' })
+  const otherMovie = view({ key: 'kinepolis:kinepolis-showing-42', provider: 'kinepolis', movieKey: 'kinepolis:film-2', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  const source = [selected, sameMovie, otherMovie]
+  const before = structuredClone(source)
+
+  assert.deepEqual(filterSelectedShowtimeResults(source, [selected.key, 'stale:key', selected.key]), [selected])
+  assert.deepEqual(filterSelectedShowtimeResults(source, [otherMovie.key, selected.key]), [selected, otherMovie])
+  assert.deepEqual(filterCompatibleShowtimeResults(source, [selected.key]), source)
+  assert.deepEqual(source, before)
+})
+
+test('selected-only results restore the normal view with no valid selection', () => {
+  const source = [view({ key: 'available' })]
+  for (const keys of [[], ['stale:key']]) {
+    const filtered = filterSelectedShowtimeResults(source, keys)
+    assert.deepEqual(filtered, source)
+    assert.notEqual(filtered, source)
+  }
+  assert.deepEqual(filterSelectedShowtimeResults([], ['stale:key']), [])
+})
+
+test('selection query serialization requires a nonempty serializable selection for selected-only mode', () => {
+  const keys = ['ugc:ugc-showing-12', 'ugc:ugc-showing-12']
+  assert.deepEqual(showtimeSelectionQueryValues(keys, true), { selected: 'u12', selected_only: '1' })
+  assert.deepEqual(showtimeSelectionQueryValues(keys, false), { selected: 'u12', selected_only: undefined })
+  for (const empty of [[], ['invalid']]) {
+    assert.deepEqual(showtimeSelectionQueryValues(empty, true), { selected: undefined, selected_only: undefined })
+  }
 })

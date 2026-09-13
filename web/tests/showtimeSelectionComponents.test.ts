@@ -8,12 +8,19 @@ const lineSource = await readFile(new URL('../app/components/ShowtimeResultLine.
 const boxSource = await readFile(new URL('../app/components/ShowtimeResultBox.vue', import.meta.url), 'utf8')
 
 test('search page owns canonical route selection and filters only rendered results', () => {
-  assert.match(pageSource, /const SELECTION_QUERY_KEYS = \['selected'\]/)
+  assert.match(pageSource, /const SELECTION_QUERY_KEYS = \['selected', 'selected_only'\]/)
   assert.match(pageSource, /async function canonicalizeShowtimeSelection\(\)/)
   assert.match(pageSource, /filterCompatibleShowtimeResults\(normalizedResults\.value, selectedShowtimeKeys\.value\)/)
+  assert.match(pageSource, /filterSelectedShowtimeResults\(normalizedResults\.value, selectedShowtimeKeys\.value\)/)
   assert.match(pageSource, /:results="visibleResults"/)
   assert.match(pageSource, /:selected-keys="selectedShowtimeKeys"/)
   assert.match(pageSource, /const preserveSelection = appliedSearch\.value !== null && searchKey\(search\) === searchKey\(appliedSearch\.value\)/)
+})
+
+test('selected-only setting is a labeled checkbox shown only for valid selections', () => {
+  assert.match(pageSource, /const selectedCount = computed\(\(\) => selectedShowtimeKeys\.value\.length\)/)
+  assert.match(pageSource, /const selectedOnly = computed\(\(\) => selectedCount\.value > 0 && routeSelectedOnly\.value\)/)
+  assert.match(pageSource, /<label v-if="selectedCount"[^>]*>\s*<input :checked="selectedOnly" type="checkbox"[^>]*@change="setSelectedOnly" \/>\s*<span>Afficher uniquement les séances sélectionnées<\/span>\s*<\/label>/)
 })
 
 test('selection state reaches every grouped and chronological result renderer', () => {

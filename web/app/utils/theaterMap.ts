@@ -6,14 +6,16 @@ export const THEATER_PROVIDER_COLORS = {
   ugc: '#0b5cad',
   kinepolis: '#7e22ce',
   pathe: '#d97706',
-  cgr: '#c81e1e'
+  cgr: '#c81e1e',
+  megarama: '#ffff00'
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
-  cgr: 'CGR'
+  cgr: 'CGR',
+  megarama: 'Megarama'
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {

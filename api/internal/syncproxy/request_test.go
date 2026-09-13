@@ -425,7 +425,7 @@ func TestExecutorResponseValidation(t *testing.T) {
 		if _, failure := executor.Get(t.Context(), requestTestURL, ResponsePolicy{AfterRead: func(int, []byte) (*Failure, bool) { sequence = append(sequence, "after"); return nil, false }}); failure != nil {
 			t.Fatal(failure)
 		}
-		if !slices.Equal(sequence, []string{"after", "URL"}) {
+		if !slices.Equal(sequence, []string{"URL", "after", "URL"}) {
 			t.Fatalf("sequence=%v", sequence)
 		}
 	})
@@ -440,7 +440,7 @@ func TestExecutorResponseValidation(t *testing.T) {
 		want      FailureKind
 	}{
 		{"exact URL", "application/json", `{}`, false, "https://example.test/other", true, FailureRedirect},
-		{"disallowed URL", "application/json", `{}`, false, requestTestURL, false, FailureRedirect},
+		{"disallowed URL", "application/json", `{}`, false, requestTestURL, false, FailureInvalidURL},
 		{"application suffix", "application/problem+json", `{}`, false, requestTestURL, true, 0},
 		{"strict non-application suffix", "text/problem+json", `{}`, false, requestTestURL, true, FailureContentType},
 		{"broad suffix", "text/problem+json", `{}`, true, requestTestURL, true, 0},
@@ -458,7 +458,7 @@ func TestExecutorResponseValidation(t *testing.T) {
 				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {test.mediaType}}, Body: body, Request: request}, nil
 			}))}, AllowNonApplicationJSONSuffix: test.broadJSON, ValidURL: func(*url.URL) bool { return test.validURL }})
 			_, failure := executor.Get(t.Context(), requestTestURL, requestPolicy())
-			if test.want == 0 && failure != nil || test.want != 0 && (failure == nil || failure.Kind != test.want) || !body.closed {
+			if test.want == 0 && failure != nil || test.want != 0 && (failure == nil || failure.Kind != test.want) || body.closed != test.validURL {
 				t.Fatalf("closed=%v failure=%+v", body.closed, failure)
 			}
 		})

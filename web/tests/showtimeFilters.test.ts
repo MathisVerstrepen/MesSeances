@@ -19,7 +19,7 @@ const [planning, search, film] = await Promise.all([
 
 test('keeps canonical language and format ordering with explicit ALL labels', () => {
   assert.deepEqual(queryLanguageOptions.map((option) => option.value), ['ALL', 'VOSTFR', 'VF'])
-  assert.deepEqual(showtimeLanguageOptions.map((option) => option.value), ['ALL', 'VOSTFR', 'VF', 'VO', 'VF_SME'])
+  assert.deepEqual(showtimeLanguageOptions.map((option) => option.value), ['ALL', 'VOSTFR', 'VF', 'VO', 'VF_SME', 'VFSTF'])
   assert.deepEqual(queryFormatOptions.map((option) => option.value), ['ALL', '2D', '3D', 'IMAX', 'DOLBY', 'SCREENX', 'LASER_ULTRA', '4DX', 'ICE'])
   assert.equal(queryLanguageOptions[0].label, 'Toutes les langues')
   assert.equal(queryFormatOptions[0]?.label, 'Tous les formats')
@@ -32,6 +32,9 @@ test('filters dynamic film options while preserving canonical order', () => {
 
 test('uses shared labels in compact summaries', () => {
   assert.equal(languageLabel('VF_SME'), 'VF SME')
+  assert.equal(languageLabel('VFSTF'), 'VFSTF')
+  assert.equal(showtimeFilterSummary('VFSTF', '3D'), 'VFSTF · 3D')
+  assert.deepEqual(availableLanguageOptions(['VFSTF', 'VF']).map((option) => option.value), ['ALL', 'VF', 'VFSTF'])
   assert.equal(showtimeFilterSummary('VF_SME', 'LASER_ULTRA'), 'VF SME · Laser ULTRA by Kinepolis')
   assert.equal(showtimeFilterSummary('ALL', 'ALL'), 'Toutes les langues · Tous les formats')
 })

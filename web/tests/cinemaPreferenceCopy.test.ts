@@ -11,7 +11,7 @@ const sources = await Promise.all([
   '../app/composables/useSharedTheaterRestoration.ts',
   '../app/pages/index.vue',
   '../app/pages/confidentialite.vue',
-  '../app/pages/films.vue',
+  '../app/pages/films/index.vue',
   '../app/pages/planning.vue',
   '../app/pages/cinema/[slug].vue',
   '../app/pages/ville/[slug]/cinemas.vue'

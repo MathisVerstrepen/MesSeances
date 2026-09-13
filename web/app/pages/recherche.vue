@@ -9,12 +9,12 @@ import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQu
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { languageLabel, queryFormatOptions, queryFormatValues, queryLanguageOptions, queryLanguageValues } from '~/utils/showtimeFilters'
-import { filterCompatibleShowtimeResults, parseShowtimeSelection, resultGroupingOptions, resultLayoutOptions, serializeShowtimeSelection, toSlotShowtimeResults, validShowtimeSelectionKeys } from '~/utils/showtimeResults'
+import { filterCompatibleShowtimeResults, filterSelectedShowtimeResults, parseShowtimeSelection, resultGroupingOptions, resultLayoutOptions, showtimeSelectionQueryValues, toSlotShowtimeResults, validShowtimeSelectionKeys } from '~/utils/showtimeResults'
 import type { LocationQuery } from 'vue-router'
 
 const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads'] as const
 const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
-const SELECTION_QUERY_KEYS = ['selected'] as const
+const SELECTION_QUERY_KEYS = ['selected', 'selected_only'] as const
 const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before'] as const
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
@@ -76,8 +76,12 @@ const layoutOptions = resultLayoutOptions
 const normalizedResults = computed(() => toSlotShowtimeResults(results.value ?? []))
 const routeSelectedShowtimeKeys = computed(() => parseShowtimeSelection(singularQueryValue(route.query.selected)))
 const selectedShowtimeKeys = computed(() => validShowtimeSelectionKeys(normalizedResults.value, routeSelectedShowtimeKeys.value))
-const visibleResults = computed(() => filterCompatibleShowtimeResults(normalizedResults.value, selectedShowtimeKeys.value))
 const selectedCount = computed(() => selectedShowtimeKeys.value.length)
+const routeSelectedOnly = computed(() => singularQueryValue(route.query.selected_only) === '1')
+const selectedOnly = computed(() => selectedCount.value > 0 && routeSelectedOnly.value)
+const visibleResults = computed(() => selectedOnly.value
+  ? filterSelectedShowtimeResults(normalizedResults.value, selectedShowtimeKeys.value)
+  : filterCompatibleShowtimeResults(normalizedResults.value, selectedShowtimeKeys.value))
 const shareTarget = computed(() => {
   const search = appliedSearch.value
   if (!search) return null
@@ -86,7 +90,8 @@ const shareTarget = computed(() => {
     ...search,
     grouping: resultGrouping.value,
     layout: resultLayout.value,
-    selectedShowtimeKeys: results.value === null ? routeSelectedShowtimeKeys.value : selectedShowtimeKeys.value
+    selectedShowtimeKeys: results.value === null ? routeSelectedShowtimeKeys.value : selectedShowtimeKeys.value,
+    selectedOnly: routeSelectedOnly.value
   })
 })
 const activeFilterSummary = computed(() => {
@@ -230,16 +235,19 @@ function searchKey(search: AppliedSearch) {
 
 async function canonicalizeShowtimeSelection() {
   if (results.value === null) return
-  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, {
-    selected: serializeShowtimeSelection(selectedShowtimeKeys.value)
-  })
+  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, showtimeSelectionQueryValues(selectedShowtimeKeys.value, routeSelectedOnly.value))
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
 async function setShowtimeSelection(keys: readonly string[]) {
-  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, {
-    selected: serializeShowtimeSelection(keys)
-  })
+  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, showtimeSelectionQueryValues(keys, routeSelectedOnly.value))
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
+}
+
+async function setSelectedOnly(event: Event) {
+  // SAFETY: This handler is bound directly to the selected-only checkbox's change event.
+  const checked = (event.target as HTMLInputElement).checked
+  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, showtimeSelectionQueryValues(selectedShowtimeKeys.value, checked))
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
@@ -522,8 +530,13 @@ watch(isCenteredCalendar, () => {
   isCalendarOpen.value = false
 })
 
-watch(() => route.query, () => {
+watch(() => route.query, (query, previousQuery) => {
   if (!isReady) return
+  // Selection-only navigation must not reset draft filters or close the mobile sheet.
+  if (appliedSearch.value && queriesEqual(mergeOwnedQuery(query, SELECTION_QUERY_KEYS, {}), mergeOwnedQuery(previousQuery, SELECTION_QUERY_KEYS, {}))) {
+    canonicalizeShowtimeSelection()
+    return
+  }
   if (isFilterSheetOpen.value) {
     const parsed = parseAppliedSearch()
     closeFilterSheet({ restoreFocus: parsed !== 'bare' && parsed !== null })
@@ -697,6 +710,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <label class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]">
             <input v-model="form.includeAds" type="checkbox" class="mt-0.5 size-4 accent-primary" />
             <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
+          </label>
+
+          <label v-if="selectedCount" class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]">
+            <input :checked="selectedOnly" type="checkbox" class="mt-0.5 size-4 accent-primary" @change="setSelectedOnly" />
+            <span>Afficher uniquement les séances sélectionnées</span>
           </label>
 
           <button type="submit" class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasValidSelectedDate">

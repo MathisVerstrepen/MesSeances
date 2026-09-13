@@ -42,5 +42,11 @@ func NewService(source Source, options ServiceOptions) (*Service, error) {
 }
 
 func (s *Service) HasSnapshot() bool {
-	return s != nil && s.source.Snapshot() != nil
+	if s == nil {
+		return false
+	}
+	view := s.source.Snapshot()
+	return view != nil && !view.catalogOnly
 }
+
+func (s *Service) HasCatalog() bool { return s != nil && s.source.Snapshot() != nil }

@@ -12,20 +12,26 @@ type Window struct {
 }
 
 type Dataset struct {
-	SchemaVersion int                       `json:"schema_version"`
-	Provider      Provider                  `json:"provider"`
-	Scope         Scope                     `json:"scope"`
-	GeneratedAt   time.Time                 `json:"generated_at"`
-	Timezone      string                    `json:"timezone"`
-	Window        Window                    `json:"window"`
-	Theaters      []TheaterRecord           `json:"theaters"`
-	Showtimes     []ShowtimeRecord          `json:"showtimes"`
-	PublicMovies  []PublicMovieRecord       `json:"-"`
-	MovieSources  []PublicMovieSourceRecord `json:"-"`
-	MovieAliases  []MovieSlugAliasRecord    `json:"-"`
+	UpcomingCompletedAt time.Time                 `json:"-"`
+	SchemaVersion       int                       `json:"schema_version"`
+	Provider            Provider                  `json:"provider"`
+	Scope               Scope                     `json:"scope"`
+	GeneratedAt         time.Time                 `json:"generated_at"`
+	Timezone            string                    `json:"timezone"`
+	Window              Window                    `json:"window"`
+	Theaters            []TheaterRecord           `json:"theaters"`
+	Showtimes           []ShowtimeRecord          `json:"showtimes"`
+	PublicMovies        []PublicMovieRecord       `json:"-"`
+	MovieSources        []PublicMovieSourceRecord `json:"-"`
+	MovieAliases        []MovieSlugAliasRecord    `json:"-"`
 }
 
 type PublicMovieRecord struct {
+	IdentityAnchorTMDBID   int64
+	FrenchReleaseDate      string
+	HasUpcomingRelease     bool
+	UpcomingActive         bool
+	UpcomingExcluded       bool
 	ID                     int64
 	RedirectToID           int64
 	IdentityAnchorProvider Provider
@@ -40,6 +46,7 @@ type PublicMovieRecord struct {
 	ReleaseDate            string
 	Genres                 []string
 	TMDBID                 int64
+	TMDBRuntimeMinutes     int
 	IMDBID                 string
 	UpdatedAt              time.Time
 }
@@ -109,19 +116,20 @@ type MovieEnrichment struct {
 }
 
 type ShowtimeRecord struct {
-	Provider          Provider    `json:"provider,omitempty"`
-	ID                string      `json:"id"`
-	ProviderShowingID string      `json:"provider_showing_id"`
-	ServiceDate       string      `json:"service_date"`
-	TheaterID         string      `json:"theater_id"`
-	Movie             MovieRecord `json:"movie"`
-	StartTime         time.Time   `json:"start_time"`
-	EndTime           time.Time   `json:"end_time"`
-	Language          Language    `json:"language"`
-	ProviderVersion   string      `json:"provider_version"`
-	Format            Format      `json:"format"`
-	Room              string      `json:"room"`
-	BookingURL        string      `json:"booking_url"`
+	Provider                 Provider    `json:"provider,omitempty"`
+	ID                       string      `json:"id"`
+	ProviderShowingID        string      `json:"provider_showing_id"`
+	ServiceDate              string      `json:"service_date"`
+	TheaterID                string      `json:"theater_id"`
+	Movie                    MovieRecord `json:"movie"`
+	StartTime                time.Time   `json:"start_time"`
+	EndTime                  time.Time   `json:"end_time"`
+	FirstPartDurationMinutes int         `json:"first_part_duration_minutes"`
+	Language                 Language    `json:"language"`
+	ProviderVersion          string      `json:"provider_version"`
+	Format                   Format      `json:"format"`
+	Room                     string      `json:"room"`
+	BookingURL               string      `json:"booking_url"`
 }
 
 func cloneDataset(in Dataset) Dataset {

@@ -37,15 +37,18 @@ export function safePosterUrl(url: string | null | undefined) {
     const isCgrPoster = (hostname === 'acsta.net' || hostname.endsWith('.acsta.net'))
       && parsed.pathname !== '/'
       && !parsed.pathname.includes('%')
+    const isMegaramaPoster = url === parsed.href
+      && url.length <= 2048
+      && /^https:\/\/images\.monnaie-services\.com\/(?:movie_poster\/(?:120|600)\/FR[A-Z0-9]{5}\/[A-Z0-9]{8}\.webp|ems_spectacle\/120\/[0-9]{4}\/HC[0-9]+\.jpg(?:\?ts=[0-9]+)?)$/.test(url)
 
     if (
       parsed.protocol !== 'https:'
       || parsed.port
       || parsed.username
       || parsed.password
-      || parsed.search
+      || (parsed.search && !isMegaramaPoster)
       || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster)
+      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster)
       || !hasSafePath(url, parsed.origin)
     ) return null
 

@@ -64,6 +64,7 @@ type SnapshotView struct {
 	theaterCatalog   []int
 	theaterRank      []int
 	catalogRevision  string
+	catalogOnly      bool
 }
 
 type snapshotReadiness struct {
@@ -97,6 +98,10 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 	view.readiness = newSnapshotReadiness(view.data)
 	if len(revisions) > 0 {
 		view.catalogRevision = fmt.Sprintf("schedule:%d;enrichment:%d", revisions[0].ScheduleVersion, revisions[0].EnrichmentVersion)
+		view.catalogOnly = revisions[0].ScheduleVersion == 0
+		if view.catalogOnly {
+			view.readiness.complete = false
+		}
 	}
 	for position, movie := range view.data.PublicMovies {
 		view.publicMovieByID[movie.ID] = position

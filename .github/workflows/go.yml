@@ -1,8 +1,6 @@
 name: Go CI
 
 on:
-  push:
-    branches: [dev, main]
   pull_request:
     branches: [dev, main]
 
@@ -91,4 +89,4 @@ jobs:
           cache-dependency-path: api/go.sum
       - name: PostgreSQL integration tests
         working-directory: api
-        run: go test ./internal/database ./internal/schedulepg ./internal/enrichment ./internal/synccontrol ./internal/syncschedule ./internal/shortlink -run 'Integration$' -count=1
+        run: go test ./internal/database ./internal/publicmoviepg ./internal/schedulepg ./internal/enrichment ./internal/synccontrol ./internal/syncschedule ./internal/shortlink ./cmd/api -run 'Integration$' -count=1

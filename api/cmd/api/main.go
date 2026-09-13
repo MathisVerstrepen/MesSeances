@@ -23,6 +23,7 @@ import (
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/megarama"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
@@ -192,6 +193,7 @@ func run(ctx context.Context) error {
 	cleanup := func() {
 		cleanupOnce.Do(func() {
 			shutdownWorkers(stopWorkers, syncs.scheduler, syncs.manager, admin.geocodingManager, admin.metadataRefreshManager, &polling)
+			admin.upcomingManager.Close()
 		})
 	}
 	defer cleanup()
@@ -257,6 +259,7 @@ func newScheduleRuntime(ctx context.Context, pool *pgxpool.Pool, logger *slog.Lo
 }
 
 type adminRuntime struct {
+	upcomingManager        *enrichment.UpcomingManager
 	options                httpapi.AdminOptions
 	enrichmentStore        *enrichment.PostgresStore
 	enrichmentProvider     enrichment.Provider
@@ -266,15 +269,18 @@ type adminRuntime struct {
 
 func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.Config, logger *slog.Logger, metrics *observability.Metrics) (adminRuntime, error) {
 	store := enrichment.NewPostgresStore(pool)
-	var provider enrichment.Provider
+	var provider adminTMDBProvider
+	var upcomingProvider enrichment.UpcomingProvider
 	if cfg.TMDB.Token != "" {
 		client, err := tmdb.NewClient(cfg.TMDB.Token)
 		if err != nil {
 			return adminRuntime{}, fmt.Errorf("TMDB configuration is invalid")
 		}
 		provider = client
+		upcomingProvider = client
 	}
-	options, metadataRefreshManager, err := newAdminOptions(ctx, cfg.Admin.Password, cfg.Admin.SessionSecret, store, provider)
+	gate := enrichment.NewTMDBRunGate()
+	options, metadataRefreshManager, err := newAdminOptions(ctx, cfg.Admin.Password, cfg.Admin.SessionSecret, store, provider, gate)
 	if err != nil {
 		return adminRuntime{}, fmt.Errorf("TMDB metadata refresh configuration is invalid")
 	}
@@ -286,10 +292,22 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		return adminRuntime{}, fmt.Errorf("geocoding configuration is invalid")
 	}
 	options.TheaterLocations = newTheaterLocationController(pool, time.Now)
+	options.UpcomingReviews = enrichment.NewUpcomingReviewService(store, time.Now)
 	options.TheaterGeocoding = geocodingManager
 	options.Logger = logger
 	options.Metrics = metrics
+	var upcomingManager *enrichment.UpcomingManager
+	if upcomingProvider != nil && cfg.Admin.Password != "" {
+		upcomingManager, err = enrichment.NewUpcomingManager(ctx, enrichment.NewUpcomingService(store, upcomingProvider, nil, gate), enrichment.NewPostgresUpcomingLocker(pool))
+		if err != nil {
+			metadataRefreshManager.Close()
+			geocodingManager.Close()
+			return adminRuntime{}, fmt.Errorf("upcoming configuration is invalid")
+		}
+		options.TMDBUpcoming = upcomingManager
+	}
 	return adminRuntime{
+		upcomingManager:        upcomingManager,
 		options:                options,
 		enrichmentStore:        store,
 		enrichmentProvider:     provider,
@@ -325,11 +343,21 @@ func newSyncRuntime(ctx context.Context, pool *pgxpool.Pool, store *schedulepg.S
 		runtime.controller = manager
 		runtime.manager = manager
 	}
-	if runtime.manager == nil && admin.metadataRefreshManager == nil {
+	if runtime.manager == nil && admin.metadataRefreshManager == nil && admin.upcomingManager == nil {
 		return runtime, nil
 	}
 	scheduleStore := syncschedule.NewPostgresStore(pool)
-	starter := syncScheduleStarter{providers: runtime.manager, metadata: admin.metadataRefreshManager, claimer: scheduleStore}
+	starter := syncScheduleStarter{claimer: scheduleStore}
+	// Do not put typed nil pointers into availability interfaces.
+	if runtime.manager != nil {
+		starter.providers = runtime.manager
+	}
+	if admin.metadataRefreshManager != nil {
+		starter.metadata = admin.metadataRefreshManager
+	}
+	if admin.upcomingManager != nil {
+		starter.upcoming = admin.upcomingManager
+	}
 	scheduler, err := syncschedule.NewService(scheduleStore, starter)
 	if err != nil {
 		if runtime.manager != nil {
@@ -423,6 +451,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		NewCGR: func() (cgr.Getter, error) {
 			return cgr.NewClient(cgr.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
+		NewMegarama: func() (megarama.Getter, error) {
+			return megarama.NewClient(megarama.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
 	}
 }
 
@@ -498,16 +529,23 @@ func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFun
 	}
 }
 
-func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
+type adminTMDBProvider interface {
+	enrichment.Provider
+	enrichment.AdminMoviePosterProvider
+}
+
+func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider adminTMDBProvider, gate *enrichment.TMDBRunGate) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
 	options := httpapi.AdminOptions{
 		Password:      password,
 		SessionSecret: sessionSecret,
 		Reviews:       enrichment.NewReviewService(store, provider, nil),
 		LocalMovies:   enrichment.NewLocalMovieService(store),
-		Movies:        enrichment.NewAdminMovieService(store),
+		Movies:        enrichment.NewAdminMovieService(store, provider),
 	}
 	if provider != nil {
-		gate := enrichment.NewTMDBRunGate()
+		if gate == nil {
+			gate = enrichment.NewTMDBRunGate()
+		}
 		options.TMDBReruns = enrichment.NewRerunService(store, enrichment.NewMatcher(store, provider, nil), gate)
 		manager, err := enrichment.NewMetadataRefreshManager(ctx, enrichment.NewMetadataRefreshService(store, provider, nil, gate), nil)
 		if err != nil {

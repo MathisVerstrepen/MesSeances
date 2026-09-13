@@ -20,7 +20,7 @@ let active = false
 const job = computed(() => status.value?.job ?? null)
 const now = ref(Date.now())
 const controlsDisabled = computed(() => initialPending.value || startingTarget.value !== null || status.value === null || job.value?.state === 'running')
-const providers = ['ugc', 'kinepolis', 'pathe', 'cgr'] as const
+const providers = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'] as const
 const targets = ['all', ...providers] as const
 const activeJob = computed(() => job.value?.state === 'running' ? job.value : null)
 const history = computed(() => {
@@ -55,14 +55,16 @@ const targetLabels = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
-  cgr: 'CGR'
+  cgr: 'CGR',
+  megarama: 'Megarama'
 } satisfies Record<AdminSyncTarget, string>
 
 const providerLabels = {
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
-  cgr: 'CGR'
+  cgr: 'CGR',
+  megarama: 'Megarama'
 } satisfies Record<Provider, string>
 
 const triggerLabels = {

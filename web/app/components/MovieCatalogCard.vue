@@ -29,9 +29,12 @@ const props = withDefaults(defineProps<{
     </div>
     <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
       <h3 class="line-clamp-2 min-h-[2.5rem] text-sm font-black leading-snug tracking-[-0.02em] group-hover:text-primary">{{ movie.title }}</h3>
-      <span class="inline-block font-mono text-[9px] font-bold uppercase tracking-[0.14em]">
-        {{ formatRuntime(movie.runtime_minutes) }}<template v-if="movie.showtime_count !== undefined"> · {{ formatShowtimeCount(movie.showtime_count) }}</template>
-      </span>
+      <div class="min-h-5 font-mono text-[9px] font-bold uppercase leading-5 tracking-[0.14em]">
+        <template v-if="movie.runtime_minutes > 0">
+          {{ formatRuntime(movie.runtime_minutes) }}<template v-if="movie.showtime_count !== undefined"> · {{ formatShowtimeCount(movie.showtime_count) }}</template>
+        </template>
+      </div>
+      <slot name="release" />
     </div>
   </NuxtLink>
 </template>

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/shortlink"
 	"messeances/api/internal/syncproxy"
+	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 )
 
@@ -71,6 +73,7 @@ func (s testShortlinkRetentionStore) PurgeCreatedBefore(ctx context.Context, cut
 func (w testCloseableWorker) Close() { w.close() }
 
 func (testTMDBProvider) Search(context.Context, string) ([]tmdb.Candidate, error) { return nil, nil }
+func (testTMDBProvider) Posters(context.Context, int64) ([]tmdb.Poster, error)    { return nil, nil }
 func (testTMDBProvider) Details(context.Context, int64) (tmdb.Details, error) {
 	return tmdb.Details{}, nil
 }
@@ -207,7 +210,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminOptions, manager, err := newAdminOptions(context.Background(), cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil)
+	adminOptions, manager, err := newAdminOptions(context.Background(), cfg.Admin.Password, cfg.Admin.SessionSecret, enrichment.NewPostgresStore(nil), nil, nil)
 	if err != nil || manager != nil {
 		t.Fatalf("admin options manager=%v err=%v", manager, err)
 	}
@@ -249,20 +252,93 @@ func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
 
 func TestNewAdminOptionsWiresLocalMoviesWithoutTMDBProvider(t *testing.T) {
 	store := enrichment.NewPostgresStore(nil)
-	options, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil)
+	options, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, nil, nil)
 	if err != nil || manager != nil {
 		t.Fatalf("without provider manager=%v err=%v", manager, err)
 	}
 	if options.Password != "password" || options.Reviews == nil || options.LocalMovies == nil || options.Movies == nil || options.TMDBReruns != nil || options.TMDBRefreshes != nil {
 		t.Fatalf("options=%+v", options)
 	}
-	withProvider, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{})
+	withProvider, manager, err := newAdminOptions(context.Background(), "password", "session-secret", store, testTMDBProvider{}, nil)
 	if err != nil || manager == nil {
 		t.Fatalf("with provider manager=%v err=%v", manager, err)
 	}
 	defer manager.Close()
 	if withProvider.TMDBReruns == nil || withProvider.TMDBRefreshes == nil || withProvider.Reviews == nil || withProvider.LocalMovies == nil || withProvider.Movies == nil {
 		t.Fatalf("provider options=%+v", withProvider)
+	}
+}
+
+type noStartupTransport struct{ calls int }
+
+func (transport *noStartupTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	transport.calls++
+	return nil, errors.New("network prohibited in startup test")
+}
+
+func TestUpcomingRuntimeAvailabilityWithoutProxiesIntegration(t *testing.T) {
+	pool := upcomingRuntimePool(t)
+	transport := &noStartupTransport{}
+	previous := http.DefaultTransport
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	for _, test := range []struct {
+		name, token, password string
+		available             bool
+	}{
+		{"no token", "", "fixture-password", false},
+		{"token no proxy", "fixture-token", "fixture-password", true},
+		{"admin disabled", "fixture-token", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var cfg runtimeconfig.Config
+			cfg.Admin.Password, cfg.Admin.SessionSecret = test.password, "fixture-session-secret"
+			cfg.TMDB.Token = test.token
+			runtime, err := newAdminRuntime(t.Context(), pool, cfg, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer runtime.geocodingManager.Close()
+			if runtime.metadataRefreshManager != nil {
+				defer runtime.metadataRefreshManager.Close()
+			}
+			defer runtime.upcomingManager.Close()
+			if runtime.options.UpcomingReviews == nil {
+				t.Fatal("DB-only upcoming review service missing")
+			}
+			list, err := runtime.options.UpcomingReviews.List(t.Context(), enrichment.UpcomingReviewQuery{Filter: "all", Limit: 50})
+			if err != nil || list.Total != 0 || list.Items == nil {
+				t.Fatalf("empty DB-only review catalog %+v %v", list, err)
+			}
+			if (runtime.upcomingManager != nil) != test.available {
+				t.Fatalf("upcoming availability=%t", runtime.upcomingManager != nil)
+			}
+			if (runtime.options.TMDBUpcoming != nil) != test.available {
+				t.Fatalf("manual availability=%t", runtime.options.TMDBUpcoming != nil)
+			}
+			if test.available && (runtime.options.TMDBUpcoming != runtime.upcomingManager || runtime.options.TMDBUpcoming.Snapshot() != nil) {
+				t.Fatal("manual controller does not share idle scheduled manager")
+			}
+			syncRuntime, err := newSyncRuntime(t.Context(), pool, nil, nil, nil, cfg, runtime, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if syncRuntime.manager != nil {
+				t.Fatal("provider manager started without proxies")
+			}
+			if syncRuntime.scheduler != nil {
+				defer syncRuntime.scheduler.Close()
+				targets := syncRuntime.scheduler.AvailableTargets()
+				if slices.Contains(targets, syncschedule.TargetUpcomingMovies) != test.available || slices.Contains(targets, syncschedule.TargetUGC) {
+					t.Fatalf("wrong available targets: %v", targets)
+				}
+			} else if test.available {
+				t.Fatal("upcoming-only scheduler missing")
+			}
+		})
+	}
+	if transport.calls != 0 {
+		t.Fatal("startup made a remote request")
 	}
 }
 

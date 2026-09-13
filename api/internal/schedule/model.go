@@ -173,6 +173,7 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
+	FrenchReleaseDate   *string   `json:"french_release_date"`
 	Slug                string    `json:"slug"`
 	Title               string    `json:"title"`
 	RuntimeMinutes      int       `json:"runtime_minutes"`
@@ -209,6 +210,7 @@ type MovieTheaterShowtimes struct {
 }
 
 type MovieSchedule struct {
+	ReleaseStatus     string                  `json:"release_status"`
 	Movie             MovieCatalogItem        `json:"movie"`
 	BackdropURL       *string                 `json:"backdrop_url"`
 	CurrentlyScreened bool                    `json:"currently_screened"`

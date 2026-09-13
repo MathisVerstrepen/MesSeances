@@ -13,6 +13,7 @@ import (
 	"messeances/api/internal/cgr"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/megarama"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/ugc"
@@ -137,7 +138,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
-			if len(datasets) != 4 || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
+			if len(datasets) != 5 || datasets[4].Provider != schedule.ProviderMegarama || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
 				t.Fatalf("datasets=%+v", datasets)
 			}
 			return 11, nil
@@ -174,8 +175,9 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 			return nil, nil
 		},
 	}
+	configureMegaramaTestExecutor(t, executor, window)
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
-	if err != nil || writes != 1 || enrichments != 4 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
+	if err != nil || writes != 1 || enrichments != 5 || outcomes[TargetMegarama].Sync.Version != 11 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
 	}
 }
@@ -330,6 +332,7 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 		},
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
 	}
+	configureMegaramaTestExecutor(t, executor, window)
 	_, err := executor.Run(context.Background(), TargetAll, window)
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Provider != TargetKinepolis || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {
@@ -822,9 +825,28 @@ func validDataset(t *testing.T, provider schedule.Provider, window Window) sched
 		theaterID, theaterProviderID, movieID, showingID = "cgr-W8010", "W8010", "1001", "W8010-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 		address, postal = "1 rue", "59000"
 		booking = "https://achat.cgrcinemas.fr/lille/r/123"
+	case schedule.ProviderMegarama:
+		theaterID, theaterProviderID, movieID, showingID = "megarama-EMS0565", "EMS0565", "ABCDE", "emsx056500000001"
+		address, postal = "1 rue", "33000"
+		booking = "https://bordeaux.megarama.fr/"
 	}
 	return schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: provider, Scope: schedule.ScopeAll, GeneratedAt: time.Now().UTC(), Timezone: schedule.Timezone, Window: schedule.Window{From: window.From, Through: window.From},
 		Theaters:  []schedule.TheaterRecord{{ID: theaterID, ProviderID: theaterProviderID, Slug: theaterID, Name: "Cinéma", Address: address, City: "Lille", PostalCode: postal, AvailableDates: []string{window.From}, AcceptedPasses: passes}},
 		Showtimes: []schedule.ShowtimeRecord{{ID: string(provider) + "-showing-" + showingID, ProviderShowingID: showingID, ServiceDate: window.From, TheaterID: theaterID, Movie: schedule.MovieRecord{ProviderID: movieID, Slug: string(provider) + "-film-" + movieID, Title: "Film", RuntimeMinutes: 100}, StartTime: start, EndTime: start.Add(100 * time.Minute), Language: schedule.LanguageVF, ProviderVersion: "VF", Format: "2D", BookingURL: booking}},
+	}
+}
+
+type unusedMegaramaGetter struct{}
+
+func (unusedMegaramaGetter) Config(context.Context) ([]byte, error)                  { return nil, nil }
+func (unusedMegaramaGetter) Program(context.Context, string, string) ([]byte, error) { return nil, nil }
+func (unusedMegaramaGetter) Poster(context.Context, string) ([]byte, error)          { return nil, nil }
+func (unusedMegaramaGetter) RequestCount() int                                       { return 3 }
+
+func configureMegaramaTestExecutor(t *testing.T, executor *ProductionExecutor, window Window) {
+	t.Helper()
+	executor.newMegarama = func() (megarama.Getter, error) { return unusedMegaramaGetter{}, nil }
+	executor.syncMegarama = func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error) {
+		return validDataset(t, schedule.ProviderMegarama, window), megarama.SyncSummary{Requests: 3}, nil
 	}
 }

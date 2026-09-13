@@ -34,6 +34,27 @@ func TestValidTargetAcceptsSelectedSearchScreenings(t *testing.T) {
 	}
 }
 
+func TestValidTargetSelectedOnly(t *testing.T) {
+	for _, test := range []struct {
+		target string
+		want   bool
+	}{
+		{target: "/recherche?selected_only=1", want: true},
+		{target: "/recherche?selected=ugc%3Ashowing-42&selected_only=1&shared_theaters=ugc-25", want: true},
+		{target: "/recherche?selected_only=1&unknown=value"},
+		{target: "/recherche?selected_only=1&selected_only=1"},
+		{target: "/recherche?selected_only=1&selected%5Fonly=1"},
+		{target: "/recherche?selected_only=%"},
+		{target: "/recherche?selected_only=1%0A"},
+	} {
+		t.Run(test.target, func(t *testing.T) {
+			if got := ValidTarget(test.target); got != test.want {
+				t.Fatalf("ValidTarget(%q)=%v want=%v", test.target, got, test.want)
+			}
+		})
+	}
+}
+
 func TestValidTargetRejectsUnsupportedOrUnsafeTargets(t *testing.T) {
 	for _, target := range []string{
 		"", "planning", "//evil.example/x", "/\\evil", "https://evil.example/", "/films#x",

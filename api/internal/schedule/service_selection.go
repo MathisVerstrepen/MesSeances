@@ -104,7 +104,7 @@ func validateLanguage(language Language) error {
 }
 
 func matchesLanguage(session, requested Language) bool {
-	return requested == LanguageAll || requested == session || requested == LanguageVF && session == LanguageVFSME
+	return requested == LanguageAll || requested == session || requested == LanguageVF && (session == LanguageVFSME || session == LanguageVFSTF)
 }
 
 func validateSlotFormat(format Format) error {

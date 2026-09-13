@@ -31,6 +31,7 @@ function movie(slug: string, overrides: Partial<CatalogMovie> = {}): CatalogMovi
     imdb_id: null,
     overview: 'Résumé durable',
     release_date: '2026-08-20',
+    french_release_date: null,
     genres: ['Drame'],
     ...overrides
   }

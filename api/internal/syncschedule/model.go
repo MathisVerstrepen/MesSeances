@@ -20,7 +20,9 @@ const (
 	TargetKinepolis       Target = "kinepolis"
 	TargetPathe           Target = "pathe"
 	TargetCGR             Target = "cgr"
+	TargetMegarama        Target = "megarama"
 	TargetMetadataRefresh Target = "tmdb_metadata_refresh"
+	TargetUpcomingMovies  Target = "tmdb_upcoming_movies"
 )
 
 var (
@@ -68,7 +70,7 @@ func cloneSchedule(schedule Schedule) Schedule {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMetadataRefresh
+	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetMetadataRefresh || target == TargetUpcomingMovies
 }
 
 func TargetOrder(target Target) int {
@@ -81,9 +83,13 @@ func TargetOrder(target Target) int {
 		return 2
 	case TargetCGR:
 		return 3
-	case TargetMetadataRefresh:
+	case TargetMegarama:
 		return 4
-	default:
+	case TargetMetadataRefresh:
 		return 5
+	case TargetUpcomingMovies:
+		return 6
+	default:
+		return 7
 	}
 }

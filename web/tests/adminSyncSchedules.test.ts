@@ -45,7 +45,8 @@ function job(
       ugc: { state: states.ugc ?? (target === 'ugc' || target === 'all' ? 'succeeded' : 'not_requested') },
       kinepolis: { state: states.kinepolis ?? (target === 'kinepolis' || target === 'all' ? 'succeeded' : 'not_requested') },
       pathe: { state: states.pathe ?? (target === 'pathe' || target === 'all' ? 'succeeded' : 'not_requested') },
-      cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') }
+      cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') },
+      megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -105,10 +106,12 @@ test('creates independent blank and persisted drafts for repeated targets', () =
 })
 
 test('reports target availability without treating disabled configuration as unavailable data', () => {
-  const available = ['ugc', 'tmdb_metadata_refresh'] as const
+  const available = ['ugc', 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'] as const
   assert.equal(isAdminSyncScheduleTargetAvailable('ugc', available), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_metadata_refresh', available), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('cgr', available), false)
+  assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_upcoming_movies', available), true)
+  assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_upcoming_movies', []), false)
 })
 
 test('maps schedule CRUD and availability failures to safe French recovery messages', () => {
@@ -166,10 +169,12 @@ test('uses create, update, and delete schedule endpoints with credentials and de
   ])
 })
 
-test('page keeps five target sections and per-entry CRUD state without component tooling', async () => {
+test('page keeps provider and both TMDB target sections with per-entry CRUD state', async () => {
   const page = await readFile(new URL('../app/pages/admin/sync-schedules.vue', import.meta.url), 'utf8')
 
-  assert.match(page, /const targets = \[\.\.\.providers, 'tmdb_metadata_refresh'\] as const/)
+  assert.match(page, /const targets = \[\.\.\.providers, 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'\] as const/)
+  assert.match(page, /tmdb_upcoming_movies: 'TMDB - Prochainement'/)
+  assert.match(page, /return providers\.some\(provider => provider === target\)/)
   assert.match(page, /item\.target === section\.target/)
   assert.match(page, /api\.adminCreateSyncSchedule\(entry\.target, request\)/)
   assert.match(page, /api\.adminUpdateSyncSchedule\(entry\.target, entry\.persisted\.id, request\)/)

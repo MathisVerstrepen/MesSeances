@@ -8,6 +8,7 @@ const RESOLVED_DATE = '2026-09-02'
 
 function schedule(date: string, availableDates: string[], marker: string): MovieShowtimesResponse {
   return {
+    release_status: 'showing',
     movie: {
       slug: 'film-1',
       title: marker,
@@ -18,6 +19,7 @@ function schedule(date: string, availableDates: string[], marker: string): Movie
       imdb_id: null,
       overview: null,
       release_date: date,
+      french_release_date: null,
       genres: []
     },
     backdrop_url: null,

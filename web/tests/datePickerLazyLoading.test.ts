@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const filmsSource = await readFile(new URL('../app/pages/films.vue', import.meta.url), 'utf8')
+const filmsSource = await readFile(new URL('../app/pages/films/index.vue', import.meta.url), 'utf8')
 const searchSource = await readFile(new URL('../app/pages/recherche.vue', import.meta.url), 'utf8')
 const showtimeSource = await readFile(new URL('../app/components/ShowtimeDatePicker.vue', import.meta.url), 'utf8')
 const dateBarSource = await readFile(new URL('../app/components/ShowtimeDateBar.vue', import.meta.url), 'utf8')

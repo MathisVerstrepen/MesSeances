@@ -15,11 +15,12 @@ export const queryLanguageOptions = [
 export const showtimeLanguageOptions = [
   ...queryLanguageOptions,
   { value: 'VO', label: 'VO' },
-  { value: 'VF_SME', label: 'VF SME' }
+  { value: 'VF_SME', label: 'VF SME' },
+  { value: 'VFSTF', label: 'VFSTF' }
 ] as const satisfies readonly ShowtimeFilterOption<'ALL' | ShowtimeLanguage>[]
 
 export const queryLanguageValues = queryLanguageOptions.map((option) => option.value)
-export const showtimeLanguageValues = ['VOSTFR', 'VF', 'VO', 'VF_SME'] as const satisfies readonly ShowtimeLanguage[]
+export const showtimeLanguageValues = ['VOSTFR', 'VF', 'VO', 'VF_SME', 'VFSTF'] as const satisfies readonly ShowtimeLanguage[]
 export const queryFormatOptions = formatOptions
 export const queryFormatValues = queryFormatOptions.map((option) => option.value)
 

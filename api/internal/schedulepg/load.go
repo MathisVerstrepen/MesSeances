@@ -22,26 +22,31 @@ func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRe
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
-	data.Theaters, err = loadTheaterAggregate(ctx, tx, revision.ScheduleVersion)
-	if err != nil {
-		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
-	}
-	movies, err := loadMovieAggregate(ctx, tx, revision.ScheduleVersion)
-	if err != nil {
-		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
-	}
-	data.Showtimes, err = loadShowtimeAggregate(ctx, tx, revision.ScheduleVersion, movies)
-	if err != nil {
-		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
+	if revision.ScheduleVersion > 0 {
+		data.Theaters, err = loadTheaterAggregate(ctx, tx, revision.ScheduleVersion)
+		if err != nil {
+			return schedule.Dataset{}, schedule.SnapshotRevision{}, err
+		}
+		movies, err := loadMovieAggregate(ctx, tx, revision.ScheduleVersion)
+		if err != nil {
+			return schedule.Dataset{}, schedule.SnapshotRevision{}, err
+		}
+		data.Showtimes, err = loadShowtimeAggregate(ctx, tx, revision.ScheduleVersion, movies)
+		if err != nil {
+			return schedule.Dataset{}, schedule.SnapshotRevision{}, err
+		}
+	} else {
+		data.Theaters = []schedule.TheaterRecord{}
+		data.Showtimes = []schedule.ShowtimeRecord{}
 	}
 	data.PublicMovies, data.MovieSources, data.MovieAliases, err = loadPublicMovieCatalog(ctx, tx)
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
 	}
-	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
+	if revision.ScheduleVersion < 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("invalid schedule snapshot revision")
 	}
-	if err := schedule.ValidateDataset(data, true); err != nil {
+	if err := schedule.ValidateSnapshotDataset(data, revision); err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("loaded schedule dataset is invalid: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -57,7 +62,16 @@ func loadMetadata(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.Sn
 	var provider, scope string
 	err := tx.QueryRow(ctx, `SELECT s.version, e.version, l.version, s.schema_version, s.provider, s.scope, s.generated_at, s.timezone, s.window_from, s.window_through FROM schedule_snapshot s CROSS JOIN movie_enrichment_state e CROSS JOIN theater_location_state l WHERE s.singleton=true AND e.singleton=true AND l.singleton=true`).Scan(&revision.ScheduleVersion, &revision.EnrichmentVersion, &revision.TheaterLocationVersion, &data.SchemaVersion, &provider, &scope, &data.GeneratedAt, &data.Timezone, &from, &through)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return schedule.Dataset{}, schedule.SnapshotRevision{}, schedule.ErrNoCompleteSnapshot
+		err = tx.QueryRow(ctx, `SELECT u.completed_at,e.version,l.version FROM tmdb_upcoming_state u CROSS JOIN movie_enrichment_state e CROSS JOIN theater_location_state l WHERE u.singleton AND e.singleton AND l.singleton`).Scan(&data.UpcomingCompletedAt, &revision.EnrichmentVersion, &revision.TheaterLocationVersion)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return schedule.Dataset{}, schedule.SnapshotRevision{}, schedule.ErrNoCompleteSnapshot
+		}
+		if err != nil {
+			return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("read catalog metadata failed")
+		}
+		data.UpcomingCompletedAt = data.UpcomingCompletedAt.UTC()
+		data.GeneratedAt, data.SchemaVersion, data.Timezone = data.UpcomingCompletedAt, schedule.SchemaVersion, schedule.Timezone
+		return data, revision, nil
 	}
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("read schedule snapshot metadata failed")
@@ -66,6 +80,11 @@ func loadMetadata(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.Sn
 	data.Provider, data.Scope = schedule.Provider(provider), schedule.Scope(scope)
 	data.Window = schedule.Window{From: schedule.FormatServiceDate(from), Through: schedule.FormatServiceDate(through)}
 	data.Showtimes = []schedule.ShowtimeRecord{}
+	err = tx.QueryRow(ctx, "SELECT completed_at FROM tmdb_upcoming_state WHERE singleton").Scan(&data.UpcomingCompletedAt)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("read upcoming publication failed")
+	}
+	data.UpcomingCompletedAt = data.UpcomingCompletedAt.UTC()
 	return data, revision, nil
 }
 
@@ -76,7 +95,7 @@ func loadShowtimeAggregate(ctx context.Context, tx pgx.Tx, version int64, movies
 	}
 	showtimes := []schedule.ShowtimeRecord{}
 	referencedMovies := map[string]bool{}
-	rows, err := tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes WHERE generation_id=$1 ORDER BY theater_id, service_date, start_time, id`, version)
+	rows, err := tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, first_part_duration_minutes FROM showtimes WHERE generation_id=$1 ORDER BY theater_id, service_date, start_time, id`, version)
 	if err != nil {
 		return nil, fmt.Errorf("read showtimes failed")
 	}
@@ -85,7 +104,7 @@ func loadShowtimeAggregate(ctx context.Context, tx pgx.Tx, version int64, movies
 		var date time.Time
 		var movieID string
 		var provider, language, format string
-		if err := rows.Scan(&provider, &showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &language, &showing.ProviderVersion, &format, &showing.Room, &showing.BookingURL); err != nil {
+		if err := rows.Scan(&provider, &showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &language, &showing.ProviderVersion, &format, &showing.Room, &showing.BookingURL, &showing.FirstPartDurationMinutes); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read showtimes failed")
 		}
@@ -251,7 +270,7 @@ ORDER BY m.provider, m.provider_id`, version)
 
 func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMovieRecord, []schedule.PublicMovieSourceRecord, []schedule.MovieSlugAliasRecord, error) {
 	movies := []schedule.PublicMovieRecord{}
-	rows, err := tx.Query(ctx, `SELECT movie.id, COALESCE(movie.redirect_to_id,0), movie.identity_anchor_provider, movie.identity_anchor_source_movie_id,
+	rows, err := tx.Query(ctx, `SELECT movie.id, COALESCE(movie.redirect_to_id,0), COALESCE(movie.identity_anchor_provider,''), COALESCE(movie.identity_anchor_source_movie_id,''),
 	       CASE WHEN override.title_overridden THEN override.title ELSE movie.title END,
 	       CASE WHEN override.runtime_minutes_overridden THEN override.runtime_minutes ELSE movie.runtime_minutes END,
 	       COALESCE(CASE WHEN override.poster_url_overridden THEN override.poster_url ELSE movie.poster_url END,''),
@@ -262,9 +281,11 @@ func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMo
 	       COALESCE(movie.confirmed_tmdb_id,0), COALESCE(movie.imdb_id,''),
 	       COALESCE(CASE WHEN override.trailer_vf_youtube_key_overridden THEN override.trailer_vf_youtube_key ELSE movie.trailer_vf_youtube_key END,''),
 	       COALESCE(CASE WHEN override.trailer_vo_youtube_key_overridden THEN override.trailer_vo_youtube_key ELSE movie.trailer_vo_youtube_key END,''),
-	       movie.updated_at
+	       movie.updated_at, COALESCE(tmdb.runtime_minutes, 0), COALESCE(movie.identity_anchor_tmdb_id,0), COALESCE(upcoming.french_release_date::text,''), upcoming.tmdb_id IS NOT NULL, COALESCE(upcoming.active,false), COALESCE(upcoming.decision='excluded',false)
 FROM public_movies movie
+LEFT JOIN tmdb_upcoming_movies upcoming ON upcoming.public_movie_id=movie.id
 LEFT JOIN public_movie_metadata_overrides override ON override.public_movie_id=movie.id
+LEFT JOIN movie_metadata_cache tmdb ON tmdb.provider='tmdb' AND tmdb.locale='fr-FR' AND tmdb.provider_movie_id=movie.confirmed_tmdb_id
 ORDER BY movie.id`)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("read public movies failed")
@@ -272,7 +293,7 @@ ORDER BY movie.id`)
 	for rows.Next() {
 		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded); err != nil {
 			rows.Close()
 			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}

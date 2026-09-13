@@ -42,6 +42,11 @@ export const API_SITEMAP_CACHE_POLICIES = Object.freeze({
 })
 export const SITEMAP_CATALOG_PAGE_SIZE = 100
 
+export function upcomingSitemapEntry(generatedAt: string): SitemapEntry {
+  if (!validTimestamp(generatedAt)) throw new Error('Invalid upcoming publication timestamp')
+  return { path: '/films/prochainement', lastmod: generatedAt }
+}
+
 function nonblank(value: string | null | undefined): boolean {
   return value !== null && value !== undefined && value.trim().length > 0
 }

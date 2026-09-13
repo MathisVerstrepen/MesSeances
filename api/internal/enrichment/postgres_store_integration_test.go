@@ -73,6 +73,9 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 	}
 	t.Run("current unresolved rerun selection", func(t *testing.T) {
 		defer func() {
+			_, _ = pool.Exec(context.Background(), "DELETE FROM showtimes WHERE theater_id='kinepolis-FRLIL'")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM theater_dates WHERE theater_id='kinepolis-FRLIL'")
+			_, _ = pool.Exec(context.Background(), "DELETE FROM theaters WHERE id='kinepolis-FRLIL'")
 			_, _ = pool.Exec(context.Background(), "DELETE FROM local_movie_groups WHERE primary_source_provider='ugc' AND primary_source_movie_id='406'")
 			_, _ = pool.Exec(context.Background(), "DELETE FROM movie_matches WHERE source_movie_id IN ('401','402','403','404','405','406','499')")
 			_, _ = pool.Exec(context.Background(), "DELETE FROM showtimes WHERE theater_id='ugc-9901'")
@@ -88,9 +91,16 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 		if _, err := pool.Exec(ctx, `INSERT INTO theater_dates (generation_id,theater_id,service_date) VALUES (1,'ugc-9901','2026-08-17'),(2,'ugc-9901','2026-08-17')`); err != nil {
 			t.Fatalf("insert rerun dates failed: %v", err)
 		}
+		if _, err := pool.Exec(ctx, `INSERT INTO theaters (generation_id,id,provider_id,slug,name,address,city,postal_code,provider) VALUES
+			(1,'kinepolis-FRLIL','FRLIL','kinepolis-FRLIL','Test active','Test','Lille','59000','kinepolis'),
+			(2,'kinepolis-FRLIL','FRLIL','kinepolis-FRLIL','Test inactive','Test','Lille','59000','kinepolis');
+			INSERT INTO theater_dates (generation_id,theater_id,service_date) VALUES (1,'kinepolis-FRLIL','2026-08-17'),(2,'kinepolis-FRLIL','2026-08-17')`); err != nil {
+			t.Fatalf("insert screening link theaters failed: %v", err)
+		}
 		if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES
 			(1,'ugc','401','ugc-film-401','Missing',90),
 			(1,'kinepolis','401','kinepolis-film-401','Missing Kinepolis',91),
+			(2,'kinepolis','401','kinepolis-film-401','Inactive Kinepolis',91),
 			(1,'ugc','402','ugc-film-402','Unmatched',92),
 			(1,'ugc','403','ugc-film-403','Review',93),
 			(1,'ugc','404','ugc-film-404','Matched',94),
@@ -102,7 +112,9 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 		if _, err := pool.Exec(ctx, `INSERT INTO showtimes (generation_id,id,provider_showing_id,service_date,theater_id,movie_provider_id,start_time,end_time,language,provider_version,format,room,booking_url,provider) VALUES
 			(1,'ugc-showing-4011','4011','2026-08-17','ugc-9901','401','2026-08-17T18:00:00Z','2026-08-17T19:30:00Z','VF','VF','2D','1','https://example.test/4011','ugc'),
 			(1,'ugc-showing-4010','4010','2026-08-17','ugc-9901','401','2026-08-17T10:00:00Z','2026-08-17T11:30:00Z','VF','VF','2D','1','https://example.test/4010','ugc'),
-			(1,'kinepolis-showing-4012','4012','2026-08-17','ugc-9901','401','2026-08-17T11:00:00Z','2026-08-17T12:31:00Z','VF','VF','2D','1','https://example.test/4012','kinepolis'),
+			(1,'kinepolis-showing-4012','4012','2026-08-17','kinepolis-FRLIL','401','2026-08-17T11:00:00Z','2026-08-17T12:31:00Z','VF','VF','2D','1','https://kinepolis.fr/direct-vista-redirect/4012/0/FRLIL/0','kinepolis'),
+			(1,'kinepolis-showing-4013','4013','2026-08-17','kinepolis-FRLIL','401','2026-08-17T12:00:00Z','2026-08-17T13:31:00Z','VF','VF','2D','1','https://kinepolis.fr/direct-vista-redirect/4013/0/FRLIL/0','kinepolis'),
+			(2,'kinepolis-showing-4014','4014','2026-08-17','kinepolis-FRLIL','401','2026-08-17T13:00:00Z','2026-08-17T14:31:00Z','VF','VF','2D','1','https://kinepolis.fr/direct-vista-redirect/4014/0/FRLIL/0','kinepolis'),
 			(1,'ugc-showing-4020','4020','2026-08-17','ugc-9901','402','2026-08-17T12:00:00Z','2026-08-17T13:32:00Z','VF','VF','2D','1','https://example.test/4020','ugc'),
 			(1,'ugc-showing-4030','4030','2026-08-17','ugc-9901','403','2026-08-17T13:00:00Z','2026-08-17T14:33:00Z','VF','VF','2D','1','https://example.test/4030','ugc'),
 			(1,'ugc-showing-4040','4040','2026-08-17','ugc-9901','404','2026-08-17T14:00:00Z','2026-08-17T15:34:00Z','VF','VF','2D','1','https://example.test/4040','ugc'),
@@ -151,6 +163,36 @@ VALUES (1,1,'combined','all_cinemas',$1,'Europe/Paris','2026-08-16','2026-08-23'
 		if wantFirst := time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC); !movies[1].FirstShowingAt.Equal(wantFirst) {
 			t.Fatalf("first showing=%s want=%s", movies[1].FirstShowingAt, wantFirst)
 		}
+		t.Run("review links use active generation and provider", func(t *testing.T) {
+			// Exercise both time preferences without depending on the test execution date.
+			for _, test := range []struct{ interval, showingID string }{{"-2 hours", "4013"}, {"2 hours", "4012"}, {"-30 minutes", "4013"}} {
+				if _, err := pool.Exec(ctx, `UPDATE showtimes SET
+					start_time=CURRENT_TIMESTAMP + $1::interval + CASE
+						WHEN generation_id=2 THEN CASE WHEN $1::interval < interval '0' THEN interval '90 minutes' ELSE interval '-1 hour' END
+						WHEN provider_showing_id='4013' THEN interval '1 hour' ELSE interval '0' END,
+					end_time=CURRENT_TIMESTAMP + $1::interval + interval '3 hours'
+					WHERE provider='kinepolis' AND movie_provider_id='401'`, test.interval); err != nil {
+					t.Fatal(err)
+				}
+				items, err := NewReviewService(store, nil, nil).Pending(ctx, PendingMatchFilterUnresolved, "", 100, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				found := 0
+				for _, item := range items {
+					if item.SourceProvider != SourceKinepolis || item.SourceMovieID != "401" {
+						continue
+					}
+					found++
+					if want := "https://kinepolis.fr/direct-vista-redirect/" + test.showingID + "/0/FRLIL/0"; item.SourceDetailURL != want || item.sourceTheaterID != "FRLIL" {
+						t.Fatalf("item=%+v want URL=%s", item, want)
+					}
+				}
+				if found != 1 {
+					t.Fatalf("review rows=%d want=1", found)
+				}
+			}
+		})
 	})
 	if _, err := pool.Exec(ctx, `INSERT INTO movies (generation_id, provider, provider_id, slug, title, runtime_minutes)
 VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200','ugc-film-200','Film',721)`); err != nil {
@@ -189,7 +231,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 		t.Fatalf("published version=%d error=%v", version, err)
 	}
 	t.Run("admin movie metadata overrides", func(t *testing.T) {
-		service := NewAdminMovieService(store)
+		service := NewAdminMovieService(store, nil)
 		baseQuery := AdminMovieQuery{Limit: 50, OverrideStatus: "all", Sort: "id", Direction: "asc"}
 		list, err := service.List(ctx, baseQuery)
 		if err != nil || len(list.Items) != 1 || list.Items[0].Automatic.Title != "Film" || list.Items[0].Values.Title != "Film" || list.Items[0].ID == "" {

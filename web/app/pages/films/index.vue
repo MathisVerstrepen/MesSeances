@@ -467,6 +467,7 @@ useHead(() => ({
 
 <template>
   <main class="catalog-page bg-[#f8f7f2] text-ink">
+    <FilmCatalogTabs active="showing" />
     <section class="border-b-2 border-ink bg-surface" aria-labelledby="catalog-title">
       <div class="relative mx-auto max-w-[1440px] overflow-hidden px-4 pb-10 pt-12 sm:px-6 sm:pb-14 sm:pt-16 lg:px-10 lg:pb-16 lg:pt-20">
         <p class="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Catalogue · En salle</p>
@@ -623,7 +624,7 @@ useHead(() => ({
           </form>
         </div>
 
-        <div ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
+        <div id="tous-les-films" ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
 
         <div v-if="catalog && !pending" class="results-bar mt-10 flex items-center justify-between gap-3 border-y-2 border-ink py-4 sm:items-end sm:gap-6">
           <h2 class="min-w-0 flex-1 text-xl font-black tracking-[-0.035em] max-sm:truncate sm:text-2xl">
@@ -666,7 +667,6 @@ useHead(() => ({
           </ul>
 
           <MovieCatalogPagination
-            class="films-pagination"
             :page="page"
             :total-pages="totalPages"
             :previous-to="page > 1 ? { query: filmQuery({ search: appliedSearch, page: page - 1, sort, filters: appliedFilters }) } : null"
@@ -735,17 +735,6 @@ useHead(() => ({
 
 :global(.catalog-calendar-menu .dp--today) {
   border: 2px solid #991b1b;
-}
-
-@media (max-width: 639px) {
-  .films-pagination {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .films-pagination :deep([aria-live='polite']) {
-    grid-column: 1 / -1;
-  }
 }
 
 </style>

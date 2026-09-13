@@ -42,7 +42,7 @@ func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, ro
 }
 
 func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (schedule.PublicationResult, error) {
-	if len(datasets) == 0 || len(datasets) > 4 {
+	if len(datasets) == 0 || len(datasets) > 5 {
 		return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement batch")
 	}
 	datasets = append([]schedule.Dataset(nil), datasets...)
@@ -54,7 +54,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 			return schedule.PublicationResult{}, err
 		}
 		datasets[i] = publication.Dataset
-		if datasets[i].Provider != schedule.ProviderUGC && datasets[i].Provider != schedule.ProviderKinepolis && datasets[i].Provider != schedule.ProviderPathe && datasets[i].Provider != schedule.ProviderCGR || providers[datasets[i].Provider] {
+		if datasets[i].Provider != schedule.ProviderUGC && datasets[i].Provider != schedule.ProviderKinepolis && datasets[i].Provider != schedule.ProviderPathe && datasets[i].Provider != schedule.ProviderCGR && datasets[i].Provider != schedule.ProviderMegarama || providers[datasets[i].Provider] {
 			return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement providers")
 		}
 		if i > 0 && (datasets[i].Scope != datasets[0].Scope || datasets[i].Timezone != datasets[0].Timezone || datasets[i].SchemaVersion != datasets[0].SchemaVersion) {
@@ -117,7 +117,7 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 			`INSERT INTO theater_dates SELECT theater_id, service_date, $1 FROM theater_dates WHERE generation_id=$2`,
 			`INSERT INTO theater_passes SELECT theater_id, pass_code, $1 FROM theater_passes WHERE generation_id=$2`,
 			`INSERT INTO movies SELECT provider_id, slug, title, runtime_minutes, poster_url, provider, source_overview, source_release_date, source_genres, $1 FROM movies WHERE generation_id=$2`,
-			`INSERT INTO showtimes SELECT id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, provider, $1 FROM showtimes WHERE generation_id=$2`,
+			`INSERT INTO showtimes (id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, provider, generation_id, first_part_duration_minutes) SELECT id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, provider, $1, first_part_duration_minutes FROM showtimes WHERE generation_id=$2`,
 		}
 		for _, query := range copies {
 			if _, err := tx.Exec(ctx, query, version, current); err != nil {
@@ -184,9 +184,9 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 		showtimeRows := make([][]any, 0, len(data.Showtimes))
 		for _, showing := range data.Showtimes {
 			serviceDate, _ := schedule.ParseServiceDate(showing.ServiceDate)
-			showtimeRows = append(showtimeRows, []any{showing.ID, showing.ProviderShowingID, serviceDate, showing.TheaterID, showing.Movie.ProviderID, showing.StartTime, showing.EndTime, string(showing.Language), showing.ProviderVersion, string(showing.Format), showing.Room, showing.BookingURL, string(showing.Provider), version})
+			showtimeRows = append(showtimeRows, []any{showing.ID, showing.ProviderShowingID, serviceDate, showing.TheaterID, showing.Movie.ProviderID, showing.StartTime, showing.EndTime, string(showing.Language), showing.ProviderVersion, string(showing.Format), showing.Room, showing.BookingURL, string(showing.Provider), version, showing.FirstPartDurationMinutes})
 		}
-		if err := copyRows(ctx, tx, "showtimes", []string{"id", "provider_showing_id", "service_date", "theater_id", "movie_provider_id", "start_time", "end_time", "language", "provider_version", "format", "room", "booking_url", "provider", "generation_id"}, showtimeRows); err != nil {
+		if err := copyRows(ctx, tx, "showtimes", []string{"id", "provider_showing_id", "service_date", "theater_id", "movie_provider_id", "start_time", "end_time", "language", "provider_version", "format", "room", "booking_url", "provider", "generation_id", "first_part_duration_minutes"}, showtimeRows); err != nil {
 			return schedule.PublicationResult{}, fmt.Errorf("insert showtimes failed")
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO provider_snapshots (generation_id, provider, schema_version, scope, generated_at, timezone, window_from, window_through) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, version, string(data.Provider), data.SchemaVersion, string(data.Scope), data.GeneratedAt, data.Timezone, data.Window.From, data.Window.Through); err != nil {

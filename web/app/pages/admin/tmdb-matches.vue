@@ -20,6 +20,7 @@ import {
   adminTMDBMatchedSearch,
   adminTMDBMetadataRefreshPresentation,
   adminTMDBMatchesTab,
+  adminTMDBSearchURL,
   shouldRefreshAdminTMDBMatchLists
 } from '~/utils/adminTmdbMatches'
 import { mergeOwnedQuery, positiveSafeInteger, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
@@ -749,7 +750,8 @@ function providerLabel(provider: Provider): string {
     ugc: 'UGC',
     kinepolis: 'Kinepolis',
     pathe: 'Pathé',
-    cgr: 'CGR'
+    cgr: 'CGR',
+    megarama: 'Megarama'
   } satisfies Record<Provider, string>
   return labels[provider]
 }
@@ -936,7 +938,10 @@ useHead({ title: 'Identités des films - MesSeances' })
                     <div class="min-w-0 flex-1">
                       <h3 :id="`source-title-${domKey(match)}`" class="line-clamp-3 text-sm font-semibold leading-snug text-ink">{{ match.source_title }}</h3>
                       <dl class="mt-2 space-y-1 text-xs text-muted"><div><dt class="sr-only">Durée source</dt><dd>{{ match.source_runtime_minutes }} min</dd></div><div class="break-all"><dt class="inline"><BrandedText :text="`ID ${providerLabel(match.source_provider)} :`" /></dt> <dd class="inline">{{ match.source_movie_id }}</dd></div></dl>
-                      <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"><BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /><ExternalLink :size="13" aria-hidden="true" /></a>
+                      <div class="mt-3 flex flex-col items-start gap-2">
+                        <a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" :aria-label="`Voir sur ${providerLabel(match.source_provider)}, ouverture dans un nouvel onglet`"><BrandedText :text="`Voir sur ${providerLabel(match.source_provider)}`" decorative /><ExternalLink :size="13" aria-hidden="true" /></a>
+                        <a v-if="adminTMDBSearchURL(match.source_title)" :href="adminTMDBSearchURL(match.source_title)" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-semibold text-accent hover:underline" aria-label="TMDB, ouverture dans un nouvel onglet">TMDB <ExternalLink :size="13" class="shrink-0" aria-hidden="true" /></a>
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -1001,10 +1006,10 @@ useHead({ title: 'Identités des films - MesSeances' })
           </ul>
         </template>
 
-        <nav v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`">
-          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="activeMatchSection.offset === 0 || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)">Précédent</button>
-          <span class="text-sm text-muted" aria-live="polite">Page {{ activeMatchSection.page }}</span>
-          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!activeMatchSection.canGoNext || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)">Suivant</button>
+        <nav v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)" class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t border-line pt-6 sm:flex" :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`">
+          <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="activeMatchSection.offset === 0 || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)">Précédent</button>
+          <span class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none" aria-live="polite">Page {{ activeMatchSection.page }}</span>
+          <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!activeMatchSection.canGoNext || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)">Suivant</button>
         </nav>
       </section>
     </div>
@@ -1075,10 +1080,10 @@ useHead({ title: 'Identités des films - MesSeances' })
         </li>
       </ul>
 
-      <nav v-if="!groupsPending && !groupsError && (groupsOffset > 0 || canGroupsGoNext)" class="mt-5 flex items-center justify-center gap-4" aria-label="Pagination des regroupements locaux">
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="groupsOffset === 0 || anyMutation" @click="changeGroupsPage(groupsOffset - PAGE_SIZE)">Précédent</button>
-        <span class="text-sm text-muted" aria-live="polite">Page {{ groupsPage }}</span>
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGroupsGoNext || anyMutation" @click="changeGroupsPage(groupsOffset + PAGE_SIZE)">Suivant</button>
+      <nav v-if="!groupsPending && !groupsError && (groupsOffset > 0 || canGroupsGoNext)" class="mt-5 grid grid-cols-2 items-center justify-center gap-4 sm:flex" aria-label="Pagination des regroupements locaux">
+        <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="groupsOffset === 0 || anyMutation" @click="changeGroupsPage(groupsOffset - PAGE_SIZE)">Précédent</button>
+        <span class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none" aria-live="polite">Page {{ groupsPage }}</span>
+        <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGroupsGoNext || anyMutation" @click="changeGroupsPage(groupsOffset + PAGE_SIZE)">Suivant</button>
       </nav>
     </section>
   </main>

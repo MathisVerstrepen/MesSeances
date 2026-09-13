@@ -739,7 +739,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 }
 
-func TestFourProviderPostgresStoreIntegration(t *testing.T) {
+func TestFiveProviderPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -790,7 +790,7 @@ func TestFourProviderPostgresStoreIntegration(t *testing.T) {
 		t.Fatalf("Pathé load revision=%+v dataset=%+v err=%v", revision, loaded, err)
 	}
 
-	ugc, kinepolis, cgr := testDataset(), kinepolisTestDataset(), cgrTestDataset()
+	ugc, kinepolis, cgr, megarama := testDataset(), kinepolisTestDataset(), cgrTestDataset(), megaramaTestDataset()
 	publication, err = store.Replace(ctx, []Dataset{ugc})
 	if err != nil || publication.Version != 2 {
 		t.Fatalf("UGC copy-forward publication=%+v err=%v", publication, err)
@@ -806,13 +806,13 @@ func TestFourProviderPostgresStoreIntegration(t *testing.T) {
 	}
 	pathe.Showtimes[0].Movie.ProviderID = "film-b"
 	pathe.Showtimes[0].Movie.Slug = "pathe-film-film-b"
-	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe, cgr})
-	if err != nil || publication.Version != 3 || len(publication.Providers) != 4 {
-		t.Fatalf("four-provider publication=%+v err=%v", publication, err)
+	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe, cgr, megarama})
+	if err != nil || publication.Version != 3 || len(publication.Providers) != 5 {
+		t.Fatalf("five-provider publication=%+v err=%v", publication, err)
 	}
 	loaded, revision, err = store.Load(ctx)
-	if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 6 || len(loaded.Showtimes) != 8 {
-		t.Fatalf("four-provider load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
+	if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 8 || len(loaded.Showtimes) != 9 {
+		t.Fatalf("five-provider load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
 	}
 	var loadedCGR *ShowtimeRecord
 	for index := range loaded.Showtimes {
@@ -841,16 +841,89 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatalf("Pathé copy-forward publication=%+v err=%v", publication, err)
 	}
 	loaded, revision, err = store.Load(ctx)
-	if err != nil || revision.ScheduleVersion != 4 || len(loaded.Theaters) != 6 || len(loaded.Showtimes) != 8 {
+	if err != nil || revision.ScheduleVersion != 4 || len(loaded.Theaters) != 8 || len(loaded.Showtimes) != 9 {
 		t.Fatalf("Pathé copy-forward load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
 	}
 	providers := map[schedule.Provider]bool{}
 	for _, theater := range loaded.Theaters {
 		providers[theater.Provider] = true
 	}
-	if !providers[ProviderUGC] || !providers[ProviderKinepolis] || !providers[ProviderPathe] || !providers[ProviderCGR] {
+	if !providers[ProviderUGC] || !providers[ProviderKinepolis] || !providers[ProviderPathe] || !providers[ProviderCGR] || !providers[schedule.ProviderMegarama] {
 		t.Fatalf("copy-forward providers=%v", providers)
 	}
+
+	assertMegaramaEnd := func(want int) {
+		t.Helper()
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "megarama-film-ABCDE", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatalf("Megarama detail: %v", err)
+		}
+		s := detail.Theaters[0].Showtimes[0]
+		if s.EndTime.Sub(s.StartTime) != time.Duration(want)*time.Minute {
+			t.Fatalf("effective duration=%v want=%d", s.EndTime.Sub(s.StartTime), want)
+		}
+		loaded, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider == schedule.ProviderMegarama && (r.Movie.RuntimeMinutes != 0 || !r.EndTime.Equal(r.StartTime) || r.FirstPartDurationMinutes != 10) {
+				t.Fatal("source runtime/end/first part overwritten")
+			}
+		}
+	}
+	assertMegaramaEnd(0)
+	megaramaMatch := match(enrichment.SourceMegarama, "ABCDE")
+	megaramaMatch.SourceRuntimeMinutes = 0
+	megaramaMatch.MetadataMovieID = 43
+	megaramaMatch.Candidates = []enrichment.Candidate{{ID: 43, Title: "Film Megarama", Runtime: 123, Score: 1}}
+	megaramaMetadata := metadata
+	megaramaMetadata.ProviderMovieID = 43
+	megaramaMetadata.RuntimeMinutes = 123
+	if err := enrichmentStore.Publish(ctx, megaramaMatch, megaramaMetadata); err != nil {
+		t.Fatalf("Megarama TMDB match: %v", err)
+	}
+	assertMegaramaEnd(133)
+	megaramaMetadata.RuntimeMinutes = 0
+	if err := enrichmentStore.Publish(ctx, megaramaMatch, megaramaMetadata); err != nil {
+		t.Fatal(err)
+	}
+	assertMegaramaEnd(0)
+	if _, err := store.Replace(ctx, []Dataset{megarama}); err != nil {
+		t.Fatal(err)
+	}
+	after, _, err := store.Load(ctx)
+	if err != nil || len(after.Showtimes) != 9 || len(after.Theaters) != 8 {
+		t.Fatal("Megarama replacement damaged other providers")
+	}
+	assertMegaramaEnd(0)
+	invalid := megaramaTestDataset()
+	invalid.Showtimes[0].FirstPartDurationMinutes = -1
+	if _, err := store.Replace(ctx, []Dataset{invalid}); err == nil {
+		t.Fatal("invalid batch published")
+	}
+	after, _, err = store.Load(ctx)
+	if err != nil || len(after.Showtimes) != 9 {
+		t.Fatal("failed publication damaged active snapshot")
+	}
+}
+
+func megaramaTestDataset() Dataset {
+	location, _ := time.LoadLocation(Timezone)
+	start := time.Date(2026, 8, 15, 19, 0, 0, 0, location)
+	return Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderMegarama, Scope: ScopeAll, GeneratedAt: start.UTC(), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"},
+		Theaters: []TheaterRecord{
+			{Provider: schedule.ProviderMegarama, ID: "megarama-EMS0565", ProviderID: "EMS0565", Slug: "megarama-EMS0565", Name: "Megarama Bordeaux", Address: "1 rue", City: "Bordeaux", PostalCode: "33000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}},
+			{Provider: schedule.ProviderMegarama, ID: "megarama-EMS0015", ProviderID: "EMS0015", Slug: "megarama-EMS0015", Name: "Megarama Palace", Address: "1 rue", City: "Lons-le-Saunier", PostalCode: "39000", AvailableDates: []string{}, AcceptedPasses: []string{}},
+		}, Showtimes: []ShowtimeRecord{{Provider: schedule.ProviderMegarama, ID: "megarama-showing-emsx056500000001", ProviderShowingID: "emsx056500000001", ServiceDate: "2026-08-15", TheaterID: "megarama-EMS0565", Movie: MovieRecord{Provider: schedule.ProviderMegarama, ProviderID: "ABCDE", Slug: "megarama-film-ABCDE", Title: "Film Megarama", RuntimeMinutes: 0}, StartTime: start, EndTime: start, FirstPartDurationMinutes: 10, Language: schedule.LanguageVFSTF, ProviderVersion: "VFSTF", Format: Format4DX, Room: "Salle 1", BookingURL: "https://bordeaux.megarama.fr/"}}}
 }
 
 func shiftedDataset(data Dataset, days int) Dataset {

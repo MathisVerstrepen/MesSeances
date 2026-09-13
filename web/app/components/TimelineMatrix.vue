@@ -4,6 +4,7 @@ import type { QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater }
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
+import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
@@ -58,7 +59,9 @@ function createRow(id: string, label: string, secondary: string, items: PlacedSh
       const start = item.showtime.start_offset_minutes
       const lane = laneEnds.findIndex((end) => end <= start)
       const targetLane = lane === -1 ? laneEnds.length : lane
-      laneEnds[targetLane] = start + item.showtime.duration_minutes
+      // Reserve the visible hit area for unknown ends so adjacent sessions remain reachable.
+      laneEnds[targetLane] = start + (hasKnownShowtimeEnd(item.showtime.provider, item.showtime.start_time, item.showtime.end_time)
+        ? item.showtime.duration_minutes : showtimeWidth(0) / pixelsPerMinute.value)
       return { ...item, lane: targetLane, width: showtimeWidth(item.showtime.duration_minutes) }
     })
   return { id, label, secondary, showtimes, height: 32 + Math.max(1, laneEnds.length) * 80 }
@@ -408,7 +411,7 @@ onBeforeUnmount(() => {
           <h2 id="timeline-showtime-inspector-title" class="mt-2 text-3xl font-black leading-[0.95] tracking-[-0.045em] text-ink">
             {{ selected.showtime.movie.title }}
           </h2>
-          <p class="mt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-ink">{{ selected.showtime.movie.runtime_minutes }} min</p>
+          <p v-if="selected.showtime.movie.runtime_minutes > 0" class="mt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-ink">{{ selected.showtime.movie.runtime_minutes }} min</p>
 
           <dl class="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-4 border-y-2 border-ink py-5 text-sm">
             <dt class="font-medium text-ink">Date</dt>
@@ -416,7 +419,7 @@ onBeforeUnmount(() => {
             <dt class="font-medium text-ink">Horaire</dt>
             <dd class="flex items-center justify-end gap-2 font-semibold text-ink">
               <Clock3 :size="16" class="text-primary" aria-hidden="true" />
-              {{ formatParisTime(selected.showtime.start_time) }} → {{ formatParisTime(selected.showtime.end_time) }}
+              {{ formatParisTime(selected.showtime.start_time) }} <template v-if="hasKnownShowtimeEnd(selected.showtime.provider, selected.showtime.start_time, selected.showtime.end_time)">→ {{ formatParisTime(selected.showtime.end_time) }}</template>
             </dd>
             <dt class="font-medium text-ink">Cinéma</dt>
             <dd class="text-right font-medium text-ink"><BrandedText :text="selected.theater.name" /></dd>

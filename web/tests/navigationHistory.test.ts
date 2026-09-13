@@ -13,7 +13,7 @@ const [
   adminMatches,
   adminMovies
 ] = await Promise.all([
-  readFile(new URL('../app/pages/films.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../app/pages/films/index.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/recherche.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/planning.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8'),

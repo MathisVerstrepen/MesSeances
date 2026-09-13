@@ -1,6 +1,6 @@
-import type { MoviesResponse } from '../../../app/types/api'
+import type { ApiErrorResponse, MoviesResponse, UpcomingMoviesResponse } from '../../../app/types/api'
 import { internalApiHeaders } from '../../utils/internalApi'
-import { API_SITEMAP_CACHE_POLICIES, buildFilmSitemapEntries, renderSitemap, SITEMAP_CATALOG_PAGE_SIZE, validateCatalogPage } from '../../utils/sitemap'
+import { API_SITEMAP_CACHE_POLICIES, buildFilmSitemapEntries, renderSitemap, SITEMAP_CATALOG_PAGE_SIZE, upcomingSitemapEntry, validateCatalogPage } from '../../utils/sitemap'
 
 export default defineCachedEventHandler(async (event) => {
   const config = useRuntimeConfig(event)
@@ -41,6 +41,15 @@ export default defineCachedEventHandler(async (event) => {
     }
 
     const entries = buildFilmSitemapEntries(movies, firstPage, homepageCatalog, filmsCatalog)
+    const upcoming = await $fetch.raw<UpcomingMoviesResponse | ApiErrorResponse>(`${apiBase}/api/v1/movies/upcoming`, {
+      headers, retry: false, ignoreResponseError: true, query: { page: 1 }
+    })
+    const publication = upcoming._data
+    if (upcoming.status === 200 && publication && !('error' in publication)) {
+      entries.push(upcomingSitemapEntry(publication.generated_at))
+    } else if (!(upcoming.status === 503 && publication && 'error' in publication && publication.error.code === 'upcoming_unavailable')) {
+      throw new Error('Upcoming sitemap unavailable')
+    }
     setResponseHeader(event, 'Content-Type', 'application/xml; charset=utf-8')
     return renderSitemap(config.public.siteUrl, entries)
   } catch {

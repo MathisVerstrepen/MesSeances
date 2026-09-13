@@ -47,6 +47,8 @@ type AdminOptions struct {
 	Reviews          *enrichment.ReviewService
 	TMDBReruns       TMDBRerunner
 	TMDBRefreshes    TMDBMetadataRefresher
+	TMDBUpcoming     TMDBUpcomingSyncer
+	UpcomingReviews  *enrichment.UpcomingReviewService
 	LocalMovies      *enrichment.LocalMovieService
 	Syncs            SyncController
 	SyncSchedules    SyncScheduleController
@@ -65,6 +67,11 @@ type TMDBRerunner interface {
 type TMDBMetadataRefresher interface {
 	Start() (enrichment.MetadataRefreshStatus, error)
 	Snapshot() *enrichment.MetadataRefreshStatus
+}
+
+type TMDBUpcomingSyncer interface {
+	Start() (enrichment.UpcomingStatus, error)
+	Snapshot() *enrichment.UpcomingStatus
 }
 
 type SyncController interface {
@@ -149,9 +156,10 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)
 	router.With(api.requireSchedule).Get("/api/v1/cities/{slug}", api.city)
-	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/movies", api.movies)
-	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
-	router.With(api.requireInternalService, api.requireSchedule, expensiveReads).Get("/api/v1/internal/movies/{slug}/showtimes-bundle", api.movieShowtimesBundle)
+	router.With(api.requireCatalog, expensiveReads).Get("/api/v1/movies", api.movies)
+	router.With(api.requireCatalog, expensiveReads).Get("/api/v1/movies/upcoming", api.upcomingMovies)
+	router.With(api.requireCatalog, expensiveReads).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
+	router.With(api.requireInternalService, api.requireCatalog, expensiveReads).Get("/api/v1/internal/movies/{slug}/showtimes-bundle", api.movieShowtimesBundle)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/search/slot", api.searchSlot)
 	router.With(api.noStoreShortlink, api.requireShortlinkOrigin, shortlinkCreations).Post("/api/v1/shortlinks", api.createShortlink)
 	router.Get("/api/v1/shortlinks/{code}", api.resolveShortlink)
@@ -166,8 +174,13 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)
 			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
+			router.Get("/tmdb-upcoming-movies/sync", api.admin.tmdbUpcomingStatus)
+			router.Get("/tmdb-upcoming-movies", api.admin.upcomingReviews)
+			router.With(api.admin.requireOrigin).Patch("/tmdb-upcoming-movies/{tmdbID}/decision", api.admin.setUpcomingDecision)
+			router.With(api.admin.requireOrigin).Post("/tmdb-upcoming-movies/sync", api.admin.syncTMDBUpcoming)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
 			router.Get("/movies", api.admin.adminMovies)
+			router.Get("/movies/{id}/posters", api.admin.adminMoviePosters)
 			router.With(api.admin.requireOrigin).Patch("/movies/{id}", api.admin.updateAdminMovie)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/members", api.admin.addLocalMovieMembers)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"messeances/api/internal/schedule"
 	"messeances/api/internal/tmdb"
 )
 
@@ -59,7 +60,9 @@ func (s *ReviewService) Pending(ctx context.Context, filter PendingMatchFilter, 
 		item := &items[itemIndex]
 		if item.SourceProvider == SourceUGC {
 			item.SourceDetailURL = ugcDetailURL(item.SourceMovieID)
-		} else {
+		} else if item.SourceProvider == SourceMegarama && megaramaGlobalID.MatchString(item.SourceMovieID) {
+			item.SourceDetailURL = "https://www.ticketingcine.com/film/" + item.SourceMovieID + ".html"
+		} else if !validSourceIdentity(item.SourceProvider, item.SourceMovieID) || !schedule.ValidBookingURL(schedule.Provider(item.SourceProvider), item.SourceDetailURL, item.sourceShowingID, item.sourceTheaterID) {
 			item.SourceDetailURL = ""
 		}
 		if !validSourcePosterURL(item.SourceProvider, item.SourcePosterURL) {
@@ -134,6 +137,9 @@ func validUGCPosterURL(raw string) bool {
 }
 
 func validSourcePosterURL(provider, raw string) bool {
+	if provider == SourceMegarama {
+		return raw == "" || schedule.ValidMegaramaPosterURL(raw)
+	}
 	if raw == "" {
 		return true
 	}
