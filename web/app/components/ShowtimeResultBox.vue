@@ -3,6 +3,7 @@ import { Film, MapPin } from '@lucide/vue'
 import type { ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
 import { posterImageSources, safeBackdropUrl } from '~/utils/safeImageUrl'
+import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
 
 const props = withDefaults(defineProps<{
   result: ShowtimeResultViewModel
@@ -18,6 +19,7 @@ const emit = defineEmits<{
 }>()
 
 const advertisedStartTooltipId = useId()
+const hasKnownEnd = computed(() => hasKnownShowtimeEnd(props.result.provider, props.result.advertisedStartTime, props.result.endTime))
 const backdropFailed = ref(false)
 const posterFailed = ref(false)
 const mediaImage = ref<HTMLImageElement | null>(null)
@@ -62,7 +64,7 @@ function formatRoom(room: string) {
 <template>
   <BookingLink
     v-if="scope === 'single-theater' && !showMovie"
-    v-slot="{ available }"
+    v-slot="{ available, kind, label }"
     :url="result.bookingUrl"
     :provider="result.provider"
     :aria-label="bookingLabel()"
@@ -72,12 +74,13 @@ function formatRoom(room: string) {
     available-class="border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]"
     unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
   >
-    <div class="flex w-full items-baseline justify-between gap-2"><span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(displayedStartTime) }}</span><span class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(result.endTime) }}</span></div>
+    <div class="flex w-full items-baseline justify-between gap-2"><span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(displayedStartTime) }}</span><span v-if="hasKnownEnd" class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(result.endTime) }}</span></div>
     <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
       <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
     </div>
     <span v-if="!available" class="mt-2 text-xs font-black">Réservation indisponible</span>
+    <span v-else-if="kind === 'website'" class="mt-2 text-xs font-black">{{ label }}</span>
   </BookingLink>
 
   <article v-else-if="scope === 'single-theater'" class="flex h-full min-h-48 min-w-0 flex-col border-2 border-ink bg-surface p-3 text-left shadow-[4px_4px_0_#27272a]">
@@ -119,7 +122,7 @@ function formatRoom(room: string) {
       <Film v-else :size="24" class="text-muted" aria-hidden="true" />
     </div>
     <h3 class="mb-3 line-clamp-2 text-sm font-black leading-tight tracking-[-0.02em] text-ink"><NuxtLink :to="`/film/${encodeURIComponent(result.movieSlug)}`" class="hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ result.movieTitle }}</NuxtLink></h3>
-    <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">{{ formatParisTime(displayedStartTime) }} → {{ formatParisTime(result.endTime) }}</p>
+    <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">{{ formatParisTime(displayedStartTime) }} <template v-if="hasKnownEnd">→ {{ formatParisTime(result.endTime) }}</template></p>
     <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
       <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
@@ -134,7 +137,7 @@ function formatRoom(room: string) {
       available-class="text-ink underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
       unavailable-class="text-muted"
     >
-      <template #default="{ available }">{{ available ? 'Réserver' : 'Réservation indisponible' }}</template>
+      <template #default="{ available, kind, label }">{{ kind === 'website' ? label : available ? 'Réserver' : 'Réservation indisponible' }}</template>
     </BookingLink>
   </article>
 
@@ -163,7 +166,7 @@ function formatRoom(room: string) {
         <span :aria-describedby="advertisedStartTooltipId" class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
         <span :id="advertisedStartTooltipId" class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100" role="tooltip">Heure de début annoncée, publicités incluses</span>
       </span>
-      → {{ formatParisTime(result.endTime) }}
+      <template v-if="hasKnownEnd">→ {{ formatParisTime(result.endTime) }}</template>
     </p>
 
     <div class="mt-4 flex min-w-0 items-start gap-1.5 text-xs font-bold text-ink"><MapPin :size="13" class="mt-0.5 shrink-0" aria-hidden="true" /><BrandedText :text="result.theaterName" /></div>
@@ -181,7 +184,7 @@ function formatRoom(room: string) {
       available-class="relative z-20 text-ink underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
       unavailable-class="pointer-events-none text-muted"
     >
-      <template #default="{ available }">{{ available ? 'Réserver' : 'Réservation indisponible' }}</template>
+      <template #default="{ available, kind, label }">{{ kind === 'website' ? label : available ? 'Réserver' : 'Réservation indisponible' }}</template>
     </BookingLink>
   </article>
 </template>

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { buildCompleteSearchShareTarget } from '../app/utils/searchShareTarget.ts'
 import { withSharedTheaterSelection } from '../app/utils/sharedTheaterSelection.ts'
 import { isValidShortLinkTarget } from '../app/utils/shortLinkTarget.ts'
+import { parseShowtimeSelection } from '../app/utils/showtimeResults.ts'
 
 test('builds a deterministic complete target with explicit default values', () => {
   const target = buildCompleteSearchShareTarget({
@@ -23,6 +24,22 @@ test('builds a deterministic complete target with explicit default values', () =
     target,
     '/recherche?theaters=ugc-25%2Ckinepolis_42&date=2026-08-22&start_after=18%3A00&finish_before=23%3A30&language=ALL&format=ALL&include_ads=1&buffer_ads=15&grouping=movie&layout=lines'
   )
+})
+
+test('shares Megarama theater identities and selected sessions through the existing short-link contract', () => {
+  const theaterIds = ['megarama-EMS0565', 'ugc-25']
+  const selectedShowtimeKeys = ['megarama:megarama-showing-emsx056500123456', 'ugc:ugc-showing-12']
+  const target = buildCompleteSearchShareTarget({
+    theaterIds, date: '2026-09-12', startAfter: '18:00', finishBefore: '23:30',
+    language: 'VF', format: '4DX', includeAds: false, bufferAds: 15,
+    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys
+  })
+  const shared = withSharedTheaterSelection(target, theaterIds)!
+  assert.equal(isValidShortLinkTarget(shared), true)
+  const query = new URL(shared, 'https://messeances.fr').searchParams
+  assert.equal(query.get('shared_theaters'), 'megarama-EMS0565,ugc-25')
+  assert.equal(query.get('selected'), 'memsx056500123456,u12')
+  assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
 })
 
 test('omits an empty normalized screening selection', () => {

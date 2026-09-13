@@ -5,6 +5,7 @@ import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '
 import { isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
+import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
 import { loadInitialFilmSchedule, NationwideInitialScheduleError } from '~/utils/filmInitialSchedule'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { isIndexableMovie } from '~/utils/movieIndexability'
@@ -852,7 +853,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               <ul class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-6">
                 <li v-for="showtime in theater.showtimes" :key="showtime.id" class="min-w-0">
                   <BookingLink
-                    v-slot="{ available }"
+                    v-slot="{ available, kind, label }"
                     :url="showtime.booking_url"
                     :provider="showtime.provider"
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
@@ -864,7 +865,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                   >
                     <div class="flex w-full items-baseline justify-between gap-2">
                       <span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(showtime.start_time) }}</span>
-                      <span class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(showtime.end_time) }}</span>
+                      <span v-if="hasKnownShowtimeEnd(showtime.provider, showtime.start_time, showtime.end_time)" class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(showtime.end_time) }}</span>
                     </div>
                     <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
                       <span>{{ showtime.language }}</span>
@@ -880,6 +881,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                     </span>
                     <span v-else-if="showtime.timingState === 'past'" class="sr-only">Séance passée</span>
                     <span v-if="!available" class="mt-2 text-xs font-black">Réservation indisponible</span>
+                    <span v-else-if="kind === 'website'" class="mt-2 text-xs font-black">{{ label }}</span>
                     <svg
                       v-if="showtime.timingState === 'past'"
                       viewBox="0 0 100 100"

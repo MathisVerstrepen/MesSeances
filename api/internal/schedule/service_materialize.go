@@ -24,6 +24,9 @@ func recordProvider(explicit Provider, identity string) Provider {
 	if strings.HasPrefix(identity, string(ProviderCGR)+"-") {
 		return ProviderCGR
 	}
+	if strings.HasPrefix(identity, string(ProviderMegarama)+"-") {
+		return ProviderMegarama
+	}
 	return ProviderUGC
 }
 func invalid(message string) error { return &ValidationError{Message: message} }
@@ -32,7 +35,7 @@ func materializeRecord(view *SnapshotView, record ShowtimeRecord) Showtime {
 	booking := record.BookingURL
 	provider := recordProvider(record.Provider, record.ID)
 	movie := materializeCatalogMovie(view, record.Movie)
-	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt}, StartTime: record.StartTime.UTC(), EndTime: record.EndTime.UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 }
 
 func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalogItem {

@@ -17,9 +17,10 @@ var (
 )
 
 var (
-	ugcTheaterID   = regexp.MustCompile(`^[1-9][0-9]*$`)
-	chainTheaterID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
-	cgrTheaterID   = regexp.MustCompile(`^[A-Z][0-9]{4}$`)
+	ugcTheaterID      = regexp.MustCompile(`^[1-9][0-9]*$`)
+	chainTheaterID    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+	cgrTheaterID      = regexp.MustCompile(`^[A-Z][0-9]{4}$`)
+	megaramaTheaterID = regexp.MustCompile(`^EMS[0-9]{4}$`)
 )
 
 type ResolutionSuggestion struct {
@@ -119,6 +120,8 @@ func ValidProviderTheaterID(provider, providerTheaterID string) bool {
 		return chainTheaterID.MatchString(providerTheaterID)
 	case "cgr":
 		return cgrTheaterID.MatchString(providerTheaterID)
+	case "megarama":
+		return megaramaTheaterID.MatchString(providerTheaterID)
 	default:
 		return false
 	}

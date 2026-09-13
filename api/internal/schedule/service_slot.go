@@ -53,6 +53,9 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 				continue
 			}
 			showtime := materializeRecord(view, record)
+			if showtime.Provider == ProviderMegarama && !showtime.EndTime.After(showtime.StartTime) {
+				continue
+			}
 			effectiveStart := showtime.StartTime
 			if !query.IncludeAds {
 				effectiveStart = effectiveStart.Add(time.Duration(query.BufferAds) * time.Minute)

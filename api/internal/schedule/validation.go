@@ -109,8 +109,8 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		providerShowings[providerShowingKey] = true
 		runtime, validRuntime := RuntimeDuration(showing.Movie.RuntimeMinutes)
 		movieProvider := recordProvider(showing.Movie.Provider, showing.Movie.Slug)
-		unknownCGRRuntime := provider == ProviderCGR && showing.Movie.RuntimeMinutes == 0
-		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime && !unknownCGRRuntime {
+		unknownRuntime := (provider == ProviderCGR || provider == ProviderMegarama) && showing.Movie.RuntimeMinutes == 0
+		if movieProvider != provider || showing.Movie.ProviderID == "" || showing.Movie.Slug != string(provider)+"-film-"+showing.Movie.ProviderID || !validProviderIdentity(provider, "movie", showing.Movie.ProviderID) || showing.Movie.Title == "" || !validRuntime && !unknownRuntime {
 			return fmt.Errorf("invalid movie")
 		}
 		if showing.Movie.LocalMovieID < 0 || showing.Movie.LocalMovieID == 0 && showing.Movie.LocalMetadataProvider != "" {
@@ -145,7 +145,16 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		if err != nil || date.Before(from) || date.After(through) || !contains(theater.AvailableDates, showing.ServiceDate) {
 			return fmt.Errorf("invalid showing service date")
 		}
-		validEnd := showing.EndTime.After(showing.StartTime) || unknownCGRRuntime && showing.EndTime.Equal(showing.StartTime)
+		if showing.FirstPartDurationMinutes < 0 || provider != ProviderMegarama && showing.FirstPartDurationMinutes != 0 {
+			return fmt.Errorf("invalid first part duration")
+		}
+		if provider == ProviderMegarama {
+			end, valid := MegaramaEnd(showing.StartTime, showing.Movie.RuntimeMinutes, showing.FirstPartDurationMinutes)
+			if !valid || !end.Equal(showing.EndTime) || !megaramaShowingMatchesTheater(showing.ProviderShowingID, theater.ProviderID) {
+				return fmt.Errorf("invalid Megarama showing times or cinema")
+			}
+		}
+		validEnd := showing.EndTime.After(showing.StartTime) || unknownRuntime && showing.EndTime.Equal(showing.StartTime)
 		if showing.StartTime.IsZero() || showing.EndTime.IsZero() || !validEnd || provider == ProviderKinepolis && !showing.EndTime.Equal(showing.StartTime.Add(runtime)) {
 			return fmt.Errorf("invalid showing times")
 		}
@@ -158,7 +167,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 		expectedDate := localStart.Format(dateLayout)
 		if localStart.Hour() <= 2 {
 			expectedDate = localStart.AddDate(0, 0, -1).Format(dateLayout)
-		} else if localStart.Hour() < 8 && provider != ProviderPathe {
+		} else if localStart.Hour() < 8 && provider != ProviderPathe && provider != ProviderMegarama {
 			return fmt.Errorf("showing outside cinema day")
 		}
 		if expectedDate != showing.ServiceDate || !validLanguage(showing.Language) || !validFormat(showing.Format) || showing.ProviderVersion == "" {
@@ -195,7 +204,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
-		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR || invalidTrailerKeys(movie.TMDBID, movie.TrailerVFYouTubeKey, movie.TrailerVOYouTubeKey) || invalidIMDBID(movie.TMDBID, movie.IMDBID) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
+		if movie.ID <= 0 || !validProvider(movie.IdentityAnchorProvider, false) || !validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID) || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.TMDBRuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && movie.IdentityAnchorProvider != ProviderCGR && movie.IdentityAnchorProvider != ProviderMegarama || invalidTrailerKeys(movie.TMDBID, movie.TrailerVFYouTubeKey, movie.TrailerVOYouTubeKey) || invalidIMDBID(movie.TMDBID, movie.IMDBID) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
 			return fmt.Errorf("invalid public movie")
 		}
 		if movie.RedirectToID == movie.ID {
@@ -222,7 +231,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 	for _, source := range data.MovieSources {
 		key := string(source.Provider) + "\x00" + source.SourceMovieID
 		target, ok := publicMovies[source.PublicMovieID]
-		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || !validProvider(source.Provider, false) || !validProviderIdentity(source.Provider, "movie", source.SourceMovieID) || source.SourceSlug != string(source.Provider)+"-film-"+source.SourceMovieID || source.Title == "" || source.RuntimeMinutes < 0 || source.RuntimeMinutes == 0 && source.Provider != ProviderCGR || source.PosterURL != "" && !validProviderImageURL(source.Provider, source.PosterURL) {
+		if !ok || target.RedirectToID != 0 || sources[key].SourceMovieID != "" || !validProvider(source.Provider, false) || !validProviderIdentity(source.Provider, "movie", source.SourceMovieID) || source.SourceSlug != string(source.Provider)+"-film-"+source.SourceMovieID || source.Title == "" || source.RuntimeMinutes < 0 || source.RuntimeMinutes == 0 && source.Provider != ProviderCGR && source.Provider != ProviderMegarama || source.PosterURL != "" && !validProviderImageURL(source.Provider, source.PosterURL) {
 			return fmt.Errorf("invalid public movie source")
 		}
 		sources[key] = source
@@ -348,6 +357,9 @@ func validUGCURL(raw string, allowAssets bool) bool {
 }
 
 func validBookingURL(provider Provider, raw, showingID, theaterProviderID string) bool {
+	if provider == ProviderMegarama {
+		return ValidMegaramaBookingURL(raw, theaterProviderID, showingID)
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" || parsed.RawPath != "" {
 		return false
@@ -391,10 +403,13 @@ var (
 )
 
 func validProvider(provider Provider, combined bool) bool {
-	return provider == ProviderUGC || provider == ProviderKinepolis || provider == ProviderPathe || provider == ProviderCGR || combined && provider == ProviderCombined
+	return provider == ProviderUGC || provider == ProviderKinepolis || provider == ProviderPathe || provider == ProviderCGR || provider == ProviderMegarama || combined && provider == ProviderCombined
 }
 
 func validProviderIdentity(provider Provider, kind, value string) bool {
+	if provider == ProviderMegarama {
+		return validMegaramaIdentity(kind, value)
+	}
 	if !providerIdentity.MatchString(value) {
 		return false
 	}
@@ -450,6 +465,9 @@ func validPositiveDecimal(value string) bool {
 }
 
 func validProviderImageURL(provider Provider, raw string) bool {
+	if provider == ProviderMegarama {
+		return ValidMegaramaPosterURL(raw)
+	}
 	if provider == ProviderUGC {
 		return validUGCURL(raw, true)
 	}

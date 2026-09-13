@@ -10,6 +10,7 @@ const (
 	ProviderKinepolis Provider = "kinepolis"
 	ProviderPathe     Provider = "pathe"
 	ProviderCGR       Provider = "cgr"
+	ProviderMegarama  Provider = "megarama"
 	ProviderCombined  Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"
@@ -20,6 +21,7 @@ const (
 	LanguageVF     Language = "VF"
 	LanguageVO     Language = "VO"
 	LanguageVFSME  Language = "VF_SME"
+	LanguageVFSTF  Language = "VFSTF"
 
 	FormatAll        Format = "ALL"
 	Format2D         Format = "2D"

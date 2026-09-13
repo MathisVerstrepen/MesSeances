@@ -37,7 +37,7 @@ func (s *Service) TheaterShowtimes(query TheaterShowtimesQuery) (TheaterShowtime
 		record := view.data.Showtimes[showingPosition]
 		showtime := materializeRecord(view, record)
 		poster, backdrop := materializeMovieMedia(view, record.Movie)
-		result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: int(showtime.StartTime.Sub(windowStart) / time.Minute), DurationMinutes: int(record.EndTime.Sub(record.StartTime) / time.Minute), PosterURL: poster, BackdropURL: backdrop})
+		result.Showtimes = append(result.Showtimes, TimelineShowtime{Showtime: showtime, StartOffsetMinutes: int(showtime.StartTime.Sub(windowStart) / time.Minute), DurationMinutes: int(showtime.EndTime.Sub(showtime.StartTime) / time.Minute), PosterURL: poster, BackdropURL: backdrop})
 	}
 	sort.Slice(result.Showtimes, func(i, j int) bool {
 		if !result.Showtimes[i].StartTime.Equal(result.Showtimes[j].StartTime) {

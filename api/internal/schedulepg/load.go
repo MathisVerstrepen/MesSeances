@@ -76,7 +76,7 @@ func loadShowtimeAggregate(ctx context.Context, tx pgx.Tx, version int64, movies
 	}
 	showtimes := []schedule.ShowtimeRecord{}
 	referencedMovies := map[string]bool{}
-	rows, err := tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url FROM showtimes WHERE generation_id=$1 ORDER BY theater_id, service_date, start_time, id`, version)
+	rows, err := tx.Query(ctx, `SELECT provider, id, provider_showing_id, service_date, theater_id, movie_provider_id, start_time, end_time, language, provider_version, format, room, booking_url, first_part_duration_minutes FROM showtimes WHERE generation_id=$1 ORDER BY theater_id, service_date, start_time, id`, version)
 	if err != nil {
 		return nil, fmt.Errorf("read showtimes failed")
 	}
@@ -85,7 +85,7 @@ func loadShowtimeAggregate(ctx context.Context, tx pgx.Tx, version int64, movies
 		var date time.Time
 		var movieID string
 		var provider, language, format string
-		if err := rows.Scan(&provider, &showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &language, &showing.ProviderVersion, &format, &showing.Room, &showing.BookingURL); err != nil {
+		if err := rows.Scan(&provider, &showing.ID, &showing.ProviderShowingID, &date, &showing.TheaterID, &movieID, &showing.StartTime, &showing.EndTime, &language, &showing.ProviderVersion, &format, &showing.Room, &showing.BookingURL, &showing.FirstPartDurationMinutes); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("read showtimes failed")
 		}
@@ -262,9 +262,10 @@ func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMo
 	       COALESCE(movie.confirmed_tmdb_id,0), COALESCE(movie.imdb_id,''),
 	       COALESCE(CASE WHEN override.trailer_vf_youtube_key_overridden THEN override.trailer_vf_youtube_key ELSE movie.trailer_vf_youtube_key END,''),
 	       COALESCE(CASE WHEN override.trailer_vo_youtube_key_overridden THEN override.trailer_vo_youtube_key ELSE movie.trailer_vo_youtube_key END,''),
-	       movie.updated_at
+	       movie.updated_at, COALESCE(tmdb.runtime_minutes, 0)
 FROM public_movies movie
 LEFT JOIN public_movie_metadata_overrides override ON override.public_movie_id=movie.id
+LEFT JOIN movie_metadata_cache tmdb ON tmdb.provider='tmdb' AND tmdb.locale='fr-FR' AND tmdb.provider_movie_id=movie.confirmed_tmdb_id
 ORDER BY movie.id`)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("read public movies failed")
@@ -272,7 +273,7 @@ ORDER BY movie.id`)
 	for rows.Next() {
 		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes); err != nil {
 			rows.Close()
 			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}

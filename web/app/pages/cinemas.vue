@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, Check, CheckCheck, List, ListFilter, LoaderCircle, LocateFixed, Map as MapIcon, RefreshCw, Search, X } from '@lucide/vue'
+import { AlertTriangle, ArrowRight, Building2, Check, CheckCheck, List, ListFilter, LoaderCircle, LocateFixed, Map as MapIcon, RefreshCw, Search, X } from '@lucide/vue'
 import type { Theater } from '~/types/api'
+import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import { groupTheatersByCityIdentity, updateTheaterSelection } from '~/utils/cinemaSelection'
 import { serializeJsonLd } from '~/utils/jsonLd'
-import { mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { queriesEqual } from '~/utils/routeQuery'
+import { cinemaDirectoryQuery, parseCinemaDirectoryQuery, type CinemaDirectoryState } from '~/utils/cinemaDirectoryQuery'
+import { createCinemaDirectoryLocation } from '~/utils/cinemaDirectoryLocation'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
-import { buildOpenStreetMapPositionUrl, formatPositionAccuracy, formatPositionCoordinate, formatTheaterDistance, isValidGeographicPoint, sortTheatersByDistance, type GeographicPoint } from '~/utils/theaterDistance'
+import { buildOpenStreetMapPositionUrl, formatPositionAccuracy, formatPositionCoordinate, formatTheaterDistance, sortTheatersByDistance } from '~/utils/theaterDistance'
 
 const route = useRoute()
 const router = useRouter()
 const api = useMesSeancesApi()
-const OWNED_QUERY_KEYS = ['q'] as const
 
 const initialDirectory = await useAsyncData('cinema-directory', async () => {
   try {
@@ -36,35 +38,29 @@ const {
   setFavoriteTheaterIds
 } = useCinemaPreferences()
 
-type LocationStatus = 'idle' | 'requesting' | 'active' | 'failed'
-type ViewMode = 'list' | 'map'
-
 const search = ref('')
 const statusMessage = ref('')
-const locationStatus = ref<LocationStatus>('idle')
-const locationError = ref('')
-const userPosition = ref<GeographicPoint | null>(null)
-const locationAccuracyMeters = ref<number | null>(null)
-const viewMode = ref<ViewMode>('list')
+const routeState = computed(() => parseCinemaDirectoryQuery(route.query))
+const viewMode = computed(() => routeState.value.view)
+const locationMode = computed(() => routeState.value.location)
+const location = createCinemaDirectoryLocation(() => import.meta.client ? navigator.geolocation : undefined)
+const { locationStatus, locationError, userPosition, locationAccuracyMeters } = location
 const selectedOnly = ref(false)
 const draftFavoriteTheaterIds = ref<string[]>([])
 const preferencesReady = ref(false)
 let isUnmounted = false
-
-function cinemaQuery(value: string) {
-  return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, { q: value || undefined })
-}
+let isMounted = false
 
 function hydrateRoute() {
-  const value = singularQueryValue(route.query.q)?.trim() ?? ''
+  const value = routeState.value.search
   if (search.value.trim() !== value) search.value = value
-  return cinemaQuery(value)
+  return cinemaDirectoryQuery(route.query)
 }
 
 function updateSearch(event: Event) {
   if (!(event.currentTarget instanceof HTMLInputElement)) return
   search.value = event.currentTarget.value
-  const query = cinemaQuery(search.value.trim())
+  const query = cinemaDirectoryQuery(route.query, { search: search.value })
   if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
@@ -86,72 +82,18 @@ const nearbyRows = computed(() => userPosition.value
   : [])
 const visibleTheaterCount = computed(() => displayedTheaters.value.length)
 
-function failLocation(message: string) {
-  if (isUnmounted) return
-  userPosition.value = null
-  locationAccuracyMeters.value = null
-  locationStatus.value = 'failed'
-  locationError.value = message
-}
-
-function handleLocationSuccess(position: GeolocationPosition) {
-  if (isUnmounted) return
-  const point = {
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude
-  }
-  if (!isValidGeographicPoint(point)) {
-    failLocation('Position indisponible. Vérifiez que la localisation est activée, puis réessayez.')
-    return
-  }
-  userPosition.value = point
-  locationAccuracyMeters.value = Number.isFinite(position.coords.accuracy) && position.coords.accuracy >= 0
-    ? position.coords.accuracy
-    : null
-  locationStatus.value = 'active'
-  locationError.value = ''
-}
-
-function handleLocationError(error: GeolocationPositionError) {
-  if (error.code === 1) {
-    failLocation('Localisation refusée. Autorisez l’accès à votre position dans les réglages du navigateur, puis réessayez.')
-    return
-  }
-  if (error.code === 3) {
-    failLocation('La localisation a pris trop de temps. Réessayez.')
-    return
-  }
-  failLocation('Position indisponible. Vérifiez que la localisation est activée, puis réessayez.')
+function setDisplayMode(changes: Partial<Pick<CinemaDirectoryState, 'view' | 'location'>>) {
+  const query = cinemaDirectoryQuery(route.query, { search: search.value, ...changes })
+  if (!queriesEqual(route.query, query)) router.push({ query })
 }
 
 function useCurrentPosition() {
-  if (locationStatus.value === 'requesting') return
-  locationError.value = ''
-  userPosition.value = null
-  locationAccuracyMeters.value = null
-
-  if (!import.meta.client || !navigator.geolocation) {
-    failLocation('La localisation n’est pas disponible dans ce navigateur. Continuez avec la liste par ville.')
-    return
-  }
-
-  locationStatus.value = 'requesting'
-  try {
-    navigator.geolocation.getCurrentPosition(handleLocationSuccess, handleLocationError, {
-      enableHighAccuracy: false,
-      timeout: 8000,
-      maximumAge: 600000
-    })
-  } catch {
-    failLocation('Position indisponible. Vérifiez que la localisation est activée, puis réessayez.')
-  }
+  if (locationMode.value === 'nearby') location.retry()
+  else setDisplayMode({ location: 'nearby' })
 }
 
 function showByCity() {
-  userPosition.value = null
-  locationAccuracyMeters.value = null
-  locationStatus.value = 'idle'
-  locationError.value = ''
+  setDisplayMode({ location: 'city' })
 }
 
 function reportSaved() {
@@ -186,7 +128,7 @@ function toggleTheater(id: string) {
 }
 
 function showList() {
-  viewMode.value = 'list'
+  setDisplayMode({ view: 'list' })
 }
 
 function recoverMapBoundary(clearError: () => void) {
@@ -218,11 +160,16 @@ async function retryDirectory() {
 }
 
 hydrateRoute()
+watch(locationMode, (mode) => {
+  if (isMounted) location.setNearbyMode(mode === 'nearby')
+}, { flush: 'sync' })
 watch(() => route.query, () => {
   const query = hydrateRoute()
   if (!queriesEqual(route.query, query)) router.replace({ query })
 })
 onMounted(async () => {
+  isMounted = true
+  location.setNearbyMode(locationMode.value === 'nearby')
   const query = hydrateRoute()
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   await loadPreferences()
@@ -230,6 +177,8 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => {
   isUnmounted = true
+  isMounted = false
+  location.dispose()
 })
 
 const config = useRuntimeConfig()
@@ -317,7 +266,7 @@ useHead(() => ({
             <LocateFixed v-else :size="18" aria-hidden="true" />
             {{ locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position' }}
           </button>
-          <button v-else type="button" class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="showByCity">
+          <button v-if="locationMode === 'nearby' && (locationStatus === 'active' || locationStatus === 'failed')" type="button" class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="showByCity">
             Afficher par ville
           </button>
         </div>
@@ -340,8 +289,8 @@ useHead(() => ({
 
         <div v-if="directoryTheaters.length > 0 && !directoryError" class="selection-toolbar mt-7 flex flex-wrap items-center justify-between gap-3 border-y-2 border-ink py-4 max-sm:items-stretch">
           <div class="view-switch inline-grid h-11 grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface max-sm:w-full" role="group" aria-label="Mode d’affichage des cinémas">
-            <button type="button" class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]" :aria-pressed="viewMode === 'list'" @click="viewMode = 'list'"><List :size="16" aria-hidden="true" /> Liste</button>
-            <button type="button" class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]" :aria-pressed="viewMode === 'map'" @click="viewMode = 'map'"><MapIcon :size="16" aria-hidden="true" /> Carte</button>
+            <button type="button" class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]" :aria-pressed="viewMode === 'list'" @click="showList"><List :size="16" aria-hidden="true" /> Liste</button>
+            <button type="button" class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]" :aria-pressed="viewMode === 'map'" @click="setDisplayMode({ view: 'map' })"><MapIcon :size="16" aria-hidden="true" /> Carte</button>
           </div>
           <div class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full">
             <button
@@ -428,12 +377,16 @@ useHead(() => ({
                 <span v-if="row.distanceKm !== null">{{ formatTheaterDistance(row.distanceKm) }}</span>
                 <span v-if="row.isNearest" class="border-2 border-ink bg-highlight px-[0.4rem] py-[0.15rem]">Le plus proche</span>
               </div>
-              <label class="group flex cursor-pointer items-start gap-4">
-                <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(row.theater.id)" @change="toggleTheater(row.theater.id)" />
-                <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
-                <span class="min-w-0"><BrandedText :text="row.theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
-              </label>
-              <NuxtLink :to="`/cinema/${encodeURIComponent(row.theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
+              <div class="flex items-start gap-4">
+                <label class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5">
+                  <input type="checkbox" class="peer sr-only" :aria-label="`Sélectionner ${theaterDisplayName(row.theater)}`" :checked="selectedIds.has(row.theater.id)" @change="toggleTheater(row.theater.id)" />
+                  <span class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
+                </label>
+                <NuxtLink :to="`/cinema/${encodeURIComponent(row.theater.slug)}`" :aria-label="`Voir les séances : ${theaterDisplayName(row.theater)}`" class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent">
+                  <span class="min-w-0 flex-1"><BrandedText :text="theaterDisplayName(row.theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
+                  <ArrowRight :size="22" class="mt-0.5 shrink-0 text-ink group-hover:text-primary" aria-hidden="true" />
+                </NuxtLink>
+              </div>
             </div>
             </div>
 
@@ -444,7 +397,6 @@ useHead(() => ({
                   <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">
                     <NuxtLink :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ group.city }}</NuxtLink>
                   </h3>
-                  <p class="mt-1 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
                 <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier mes cinémas à ${group.city}`">
                   <ClientOnly>
@@ -482,12 +434,16 @@ useHead(() => ({
                     group.theaters.length === 1 ? '!border-r-0 sm:col-span-2' : ''
                   ]"
                 >
-                  <label class="group flex cursor-pointer items-start gap-4">
-                    <input type="checkbox" class="peer sr-only" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
-                    <span class="theater-check mt-0.5 grid size-7 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
-                    <span class="min-w-0"><BrandedText :text="theater.name" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
-                  </label>
-                  <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="mt-3 inline-flex min-h-11 items-center font-mono text-[11px] font-black uppercase underline decoration-2 underline-offset-4 hover:text-primary">Voir les séances</NuxtLink>
+                  <div class="flex items-start gap-4">
+                    <label class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5">
+                      <input type="checkbox" class="peer sr-only" :aria-label="`Sélectionner ${theaterDisplayName(theater)}`" :checked="selectedIds.has(theater.id)" @change="toggleTheater(theater.id)" />
+                      <span class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
+                    </label>
+                    <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" :aria-label="`Voir les séances : ${theaterDisplayName(theater)}`" class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent">
+                      <span class="min-w-0 flex-1"><BrandedText :text="theaterDisplayName(theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
+                      <ArrowRight :size="22" class="mt-0.5 shrink-0 text-ink group-hover:text-primary" aria-hidden="true" />
+                    </NuxtLink>
+                  </div>
                 </div>
               </div>
               </section>
