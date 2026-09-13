@@ -592,9 +592,13 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             <li
               v-for="genre in schedule.movie.genres"
               :key="genre"
-              class="border-2 border-ink bg-surface px-[0.55rem] py-[0.35rem] text-[0.7rem] leading-none font-extrabold text-ink"
             >
-              {{ genre }}
+              <NuxtLink
+                :to="{ path: '/films', query: { genres: genre }, hash: '#tous-les-films' }"
+                class="block border-2 border-ink bg-surface px-[0.55rem] py-[0.35rem] text-[0.7rem] leading-none font-extrabold text-ink hover:bg-highlight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+              >
+                {{ genre }}
+              </NuxtLink>
             </li>
           </ul>
           <MovieTrailer
