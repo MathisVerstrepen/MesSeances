@@ -1006,10 +1006,10 @@ useHead({ title: 'Identités des films - MesSeances' })
           </ul>
         </template>
 
-        <nav v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)" class="mt-8 flex items-center justify-center gap-4 border-t border-line pt-6" :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`">
-          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="activeMatchSection.offset === 0 || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)">Précédent</button>
-          <span class="text-sm text-muted" aria-live="polite">Page {{ activeMatchSection.page }}</span>
-          <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!activeMatchSection.canGoNext || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)">Suivant</button>
+        <nav v-if="!activeMatchSection.pending && !activeMatchSection.error && (activeMatchSection.offset > 0 || activeMatchSection.canGoNext)" class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t border-line pt-6 sm:flex" :aria-label="`Pagination de ${activeMatchSection.title.toLocaleLowerCase('fr')}`">
+          <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="activeMatchSection.offset === 0 || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset - PAGE_SIZE)">Précédent</button>
+          <span class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none" aria-live="polite">Page {{ activeMatchSection.page }}</span>
+          <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!activeMatchSection.canGoNext || anyMutation" @click="activeMatchSection.changePage(activeMatchSection.offset + PAGE_SIZE)">Suivant</button>
         </nav>
       </section>
     </div>
@@ -1080,10 +1080,10 @@ useHead({ title: 'Identités des films - MesSeances' })
         </li>
       </ul>
 
-      <nav v-if="!groupsPending && !groupsError && (groupsOffset > 0 || canGroupsGoNext)" class="mt-5 flex items-center justify-center gap-4" aria-label="Pagination des regroupements locaux">
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="groupsOffset === 0 || anyMutation" @click="changeGroupsPage(groupsOffset - PAGE_SIZE)">Précédent</button>
-        <span class="text-sm text-muted" aria-live="polite">Page {{ groupsPage }}</span>
-        <button type="button" class="h-10 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGroupsGoNext || anyMutation" @click="changeGroupsPage(groupsOffset + PAGE_SIZE)">Suivant</button>
+      <nav v-if="!groupsPending && !groupsError && (groupsOffset > 0 || canGroupsGoNext)" class="mt-5 grid grid-cols-2 items-center justify-center gap-4 sm:flex" aria-label="Pagination des regroupements locaux">
+        <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="groupsOffset === 0 || anyMutation" @click="changeGroupsPage(groupsOffset - PAGE_SIZE)">Précédent</button>
+        <span class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none" aria-live="polite">Page {{ groupsPage }}</span>
+        <button type="button" class="min-h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50" :disabled="!canGroupsGoNext || anyMutation" @click="changeGroupsPage(groupsOffset + PAGE_SIZE)">Suivant</button>
       </nav>
     </section>
   </main>

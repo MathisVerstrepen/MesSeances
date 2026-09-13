@@ -183,9 +183,9 @@ onBeforeUnmount(() => { mounted = false; cancelSearch(); dispose() })
           </div>
         </div>
 
-        <nav v-if="total > UPCOMING_REVIEW_PAGE_SIZE || filters.page > 1" aria-label="Pagination des sorties" class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-5">
+        <nav v-if="total > UPCOMING_REVIEW_PAGE_SIZE || filters.page > 1" aria-label="Pagination des sorties" class="mt-5 grid grid-cols-2 items-center justify-between gap-3 border-t border-line pt-5 sm:flex sm:flex-wrap">
           <button type="button" :class="secondaryButtonClass" :disabled="loading || filters.page <= 1" @click="changePage(filters.page - 1)">Précédente</button>
-          <span class="text-sm text-muted">Page {{ filters.page }} sur {{ pageCount }}</span>
+          <span class="order-first col-span-2 min-w-0 text-center text-sm wrap-anywhere text-muted sm:order-none">Page {{ filters.page }} sur {{ pageCount }}</span>
           <button type="button" :class="secondaryButtonClass" :disabled="loading || filters.page >= pageCount" @click="changePage(filters.page + 1)">Suivante</button>
         </nav>
       </template>
