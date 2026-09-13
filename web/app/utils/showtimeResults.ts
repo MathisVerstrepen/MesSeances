@@ -180,6 +180,11 @@ export function serializeShowtimeSelection(keys: readonly string[]): string | un
   return tokens.length > 0 ? tokens.join(',') : undefined
 }
 
+export function showtimeSelectionQueryValues(keys: readonly string[], selectedOnly: boolean) {
+  const selected = serializeShowtimeSelection(keys)
+  return { selected, selected_only: selected && selectedOnly ? '1' : undefined }
+}
+
 export function validShowtimeSelectionKeys(results: readonly ShowtimeResultViewModel[], keys: readonly string[]): string[] {
   const availableKeys = new Set(results.map((result) => result.key))
   return [...new Set(keys.filter((key) => availableKeys.has(key)))].sort()
@@ -209,4 +214,10 @@ export function filterCompatibleShowtimeResults(results: readonly ShowtimeResult
   const selectedResults = results.filter((result) => selectedKeySet.has(result.key))
   return results.filter((result) => selectedKeySet.has(result.key)
     || selectedResults.every((selectedResult) => areShowtimeResultsCompatible(result, selectedResult)))
+}
+
+export function filterSelectedShowtimeResults(results: readonly ShowtimeResultViewModel[], selectedKeys: readonly string[]): ShowtimeResultViewModel[] {
+  const selectedKeySet = new Set(selectedKeys)
+  const selectedResults = results.filter((result) => selectedKeySet.has(result.key))
+  return selectedResults.length > 0 ? selectedResults : [...results]
 }

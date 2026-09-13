@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { SlotResult, TheaterShowtimesResponse } from '../app/types/api.ts'
 import type { ShowtimeResultViewModel } from '../app/types/showtimeResults.ts'
-import { areShowtimeResultsCompatible, filterCompatibleShowtimeResults, groupShowtimeResults, parseShowtimeSelection, serializeShowtimeSelection, sortShowtimeResults, toSlotShowtimeResults, toTheaterShowtimeResults, validShowtimeSelectionKeys } from '../app/utils/showtimeResults.ts'
+import { areShowtimeResultsCompatible, filterCompatibleShowtimeResults, filterSelectedShowtimeResults, groupShowtimeResults, parseShowtimeSelection, serializeShowtimeSelection, showtimeSelectionQueryValues, sortShowtimeResults, toSlotShowtimeResults, toTheaterShowtimeResults, validShowtimeSelectionKeys } from '../app/utils/showtimeResults.ts'
 
 const movie = { slug: 'film-1', title: 'Film 1', runtime_minutes: 101, updated_at: '2026-08-24T00:00:00Z' }
 
@@ -212,4 +212,36 @@ test('ignores stale selections and fails open for invalid intervals', () => {
 
   assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['stale:key']).map((result) => result.key), ['valid', 'invalid'])
   assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['invalid']).map((result) => result.key), ['valid', 'invalid'])
+})
+
+test('selected-only results keep exact sessions, not other screenings of selected movies', () => {
+  const selected = view({ key: 'ugc:ugc-showing-12' })
+  const sameMovie = view({ key: 'ugc:ugc-showing-13', effectiveStartTime: '2026-08-24T20:00:00+02:00', endTime: '2026-08-24T22:00:00+02:00' })
+  const otherMovie = view({ key: 'kinepolis:kinepolis-showing-42', provider: 'kinepolis', movieKey: 'kinepolis:film-2', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  const source = [selected, sameMovie, otherMovie]
+  const before = structuredClone(source)
+
+  assert.deepEqual(filterSelectedShowtimeResults(source, [selected.key, 'stale:key', selected.key]), [selected])
+  assert.deepEqual(filterSelectedShowtimeResults(source, [otherMovie.key, selected.key]), [selected, otherMovie])
+  assert.deepEqual(filterCompatibleShowtimeResults(source, [selected.key]), source)
+  assert.deepEqual(source, before)
+})
+
+test('selected-only results restore the normal view with no valid selection', () => {
+  const source = [view({ key: 'available' })]
+  for (const keys of [[], ['stale:key']]) {
+    const filtered = filterSelectedShowtimeResults(source, keys)
+    assert.deepEqual(filtered, source)
+    assert.notEqual(filtered, source)
+  }
+  assert.deepEqual(filterSelectedShowtimeResults([], ['stale:key']), [])
+})
+
+test('selection query serialization requires a nonempty serializable selection for selected-only mode', () => {
+  const keys = ['ugc:ugc-showing-12', 'ugc:ugc-showing-12']
+  assert.deepEqual(showtimeSelectionQueryValues(keys, true), { selected: 'u12', selected_only: '1' })
+  assert.deepEqual(showtimeSelectionQueryValues(keys, false), { selected: 'u12', selected_only: undefined })
+  for (const empty of [[], ['invalid']]) {
+    assert.deepEqual(showtimeSelectionQueryValues(empty, true), { selected: undefined, selected_only: undefined })
+  }
 })

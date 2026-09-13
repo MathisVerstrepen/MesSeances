@@ -24,6 +24,12 @@ test('accepts encoded values without changing order or encoding', () => {
   assert.equal(isValidShortLinkTarget(`/films?q=${'x'.repeat(2039)}`), true)
 })
 
+test('accepts selected-only search links without allowing the option on other routes or duplicate keys', () => {
+  assert.equal(isValidShortLinkTarget('/recherche?selected=u12&selected_only=1'), true)
+  assert.equal(isValidShortLinkTarget('/films?selected_only=1'), false)
+  assert.equal(isValidShortLinkTarget('/recherche?selected=u12&selected_only=1&selected_only=0'), false)
+})
+
 test('accepts cinema films view and its display query', () => {
   assert.equal(isValidShortLinkTarget('/cinema/ugc-lille?view=films'), true)
   assert.equal(

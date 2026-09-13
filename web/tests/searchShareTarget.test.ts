@@ -17,7 +17,8 @@ test('builds a deterministic complete target with explicit default values', () =
     bufferAds: 15,
     grouping: 'movie',
     layout: 'lines',
-    selectedShowtimeKeys: []
+    selectedShowtimeKeys: [],
+    selectedOnly: false
   })
 
   assert.equal(
@@ -32,13 +33,14 @@ test('shares Megarama theater identities and selected sessions through the exist
   const target = buildCompleteSearchShareTarget({
     theaterIds, date: '2026-09-12', startAfter: '18:00', finishBefore: '23:30',
     language: 'VF', format: '4DX', includeAds: false, bufferAds: 15,
-    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys
+    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys, selectedOnly: true
   })
   const shared = withSharedTheaterSelection(target, theaterIds)!
   assert.equal(isValidShortLinkTarget(shared), true)
   const query = new URL(shared, 'https://messeances.fr').searchParams
   assert.equal(query.get('shared_theaters'), 'megarama-EMS0565,ugc-25')
   assert.equal(query.get('selected'), 'memsx056500123456,u12')
+  assert.equal(query.get('selected_only'), '1')
   assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
 })
 
@@ -54,10 +56,12 @@ test('omits an empty normalized screening selection', () => {
     bufferAds: 15,
     grouping: 'movie',
     layout: 'lines',
-    selectedShowtimeKeys: ['', '']
+    selectedShowtimeKeys: ['', ''],
+    selectedOnly: true
   })
 
   assert.equal(new URL(target, 'https://messeances.fr').searchParams.has('selected'), false)
+  assert.equal(new URL(target, 'https://messeances.fr').searchParams.has('selected_only'), false)
 })
 
 test('preserves non-default filters and presentation with compact selections', () => {
@@ -72,7 +76,8 @@ test('preserves non-default filters and presentation with compact selections', (
     bufferAds: 20,
     grouping: 'chronological',
     layout: 'boxes',
-    selectedShowtimeKeys: ['ugc:ugc-showing-900', 'ugc:ugc-showing-12', 'ugc:ugc-showing-900']
+    selectedShowtimeKeys: ['ugc:ugc-showing-900', 'ugc:ugc-showing-12', 'ugc:ugc-showing-900'],
+    selectedOnly: false
   })
   const sharedTarget = withSharedTheaterSelection(target, ['ugc-25', 'ugc-26'])
 
@@ -95,6 +100,7 @@ test('builds the reported realistic compact selection as a valid short-link targ
     bufferAds: 15,
     grouping: 'chronological',
     layout: 'boxes',
+    selectedOnly: false,
     selectedShowtimeKeys: [
       'pathe:pathe-showing-V3001S170227',
       'cgr:cgr-showing-P1016-57435c8260ab73a85f6cd30038f21572df9b71a18c68467bef03566bdc5d36f2',

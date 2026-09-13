@@ -37,6 +37,47 @@ func TestServiceCreateGeneratesSecureShapeAndPreservesTarget(t *testing.T) {
 	}
 }
 
+func TestServiceSelectedOnlyCreateAndResolve(t *testing.T) {
+	const code = "AAAAAAAAAAAAAAAAAAAAAA"
+	for _, test := range []struct {
+		target string
+		valid  bool
+	}{
+		{target: "/recherche?theaters=ugc-25&selected=ugc%3Ashowing-42&selected_only=1&shared_theaters=ugc-25", valid: true},
+		{target: "/?selected_only=1"},
+		{target: "/planning?selected_only=1"},
+		{target: "/films?selected_only=1"},
+		{target: "/credits?selected_only=1"},
+		{target: "/film/ugc-film-42?selected_only=1"},
+		{target: "/cinema/ugc-lille?selected_only=1"},
+		{target: "/ville/lille/cinemas?selected_only=1"},
+		{target: "/cinemas?selected_only=1"},
+	} {
+		t.Run(test.target, func(t *testing.T) {
+			want := Link{Code: code, Target: test.target}
+			store := &stubStore{resolved: want}
+			service := NewService(store, ServiceOptions{Random: bytes.NewReader(make([]byte, 16))})
+			created, createErr := service.Create(context.Background(), test.target)
+			resolved, resolveErr := service.Resolve(context.Background(), code)
+			if test.valid {
+				if createErr != nil || created != want || len(store.created) != 1 || store.created[0] != want {
+					t.Fatalf("created=%+v stored=%+v err=%v", created, store.created, createErr)
+				}
+				if resolveErr != nil || resolved != want {
+					t.Fatalf("resolved=%+v err=%v", resolved, resolveErr)
+				}
+				return
+			}
+			if !errors.Is(createErr, ErrInvalidTarget) || len(store.created) != 0 || created != (Link{}) {
+				t.Fatalf("invalid target created=%+v stored=%+v err=%v", created, store.created, createErr)
+			}
+			if !errors.Is(resolveErr, ErrUnavailable) || resolved != (Link{}) {
+				t.Fatalf("invalid target resolved=%+v err=%v", resolved, resolveErr)
+			}
+		})
+	}
+}
+
 func TestServiceCreateRetriesCollisions(t *testing.T) {
 	random := append(make([]byte, 16), bytes.Repeat([]byte{1}, 16)...)
 	store := &stubStore{createErrors: []error{ErrCollision, nil}}
