@@ -2,6 +2,14 @@ package schedule
 
 import "time"
 
+// upcomingReleaseWeek returns the Wednesday key for a snapshot-validated date.
+// Date-only UTC calendar arithmetic avoids timezone and DST shifts.
+func upcomingReleaseWeek(date string) string {
+	day, _ := time.Parse(time.DateOnly, date)
+	days := (int(day.Weekday()) - int(time.Wednesday) + 7) % 7
+	return day.AddDate(0, 0, -days).Format(time.DateOnly)
+}
+
 // UpcomingWindow excludes Paris today and clamps the next calendar anniversary.
 func UpcomingWindow(now time.Time) Window {
 	location, _ := time.LoadLocation(Timezone)

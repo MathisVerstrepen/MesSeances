@@ -369,7 +369,7 @@ func TestUpcomingReviewPublicReloadIntegration(t *testing.T) {
 		return service, list
 	}
 	_, before := load()
-	if before.Total != 4 || !slices.Equal(before.AvailableMonths, []string{"2026-10", "2026-11"}) || !slices.Contains(before.AvailableGenres, "Unique") {
+	if before.Total != 4 || len(before.Items) != 4 || before.TotalWeeks != 2 || before.TotalPages != 1 {
 		t.Fatalf("flags hid film %+v", before)
 	}
 	item, err := store.SetUpcomingDecision(ctx, 42, UpcomingDecisionUpdate{Decision: "excluded", ExpectedRevision: 1}, now)
@@ -377,7 +377,7 @@ func TestUpcomingReviewPublicReloadIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	service, hidden := load()
-	if hidden.Total != 3 || slices.Contains(hidden.AvailableGenres, "Unique") || !slices.Equal(hidden.AvailableMonths, []string{"2026-10"}) || hidden.CatalogRevision == before.CatalogRevision || !hidden.GeneratedAt.Equal(before.GeneratedAt) {
+	if hidden.Total != 3 || len(hidden.Items) != 3 || hidden.TotalWeeks != 1 || hidden.TotalPages != 1 || slices.ContainsFunc(hidden.Items, func(movie schedule.MovieCatalogItem) bool { return movie.Slug == item.Slug }) || hidden.CatalogRevision == before.CatalogRevision || !hidden.GeneratedAt.Equal(before.GeneratedAt) {
 		t.Fatalf("exclusion reload %+v", hidden)
 	}
 	detail, err := service.MovieShowtimes(schedule.MovieShowtimesQuery{Slug: item.Slug, Date: "2026-09-13"})
@@ -392,7 +392,7 @@ func TestUpcomingReviewPublicReloadIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, reset := load()
-	if reset.Total != 4 || reset.CatalogRevision == hidden.CatalogRevision || !reset.GeneratedAt.Equal(before.GeneratedAt) || !reflect.DeepEqual(reset.AvailableGenres, before.AvailableGenres) {
+	if reset.Total != 4 || reset.TotalWeeks != before.TotalWeeks || reset.TotalPages != before.TotalPages || reset.CatalogRevision == hidden.CatalogRevision || !reset.GeneratedAt.Equal(before.GeneratedAt) || !reflect.DeepEqual(reset.Items, before.Items) {
 		t.Fatalf("reset %+v", reset)
 	}
 	queue, err := store.UpcomingReviews(ctx, UpcomingReviewQuery{Filter: "needs_review", Limit: 50}, now)

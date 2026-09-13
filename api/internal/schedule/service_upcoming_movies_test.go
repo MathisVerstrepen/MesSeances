@@ -3,7 +3,9 @@ package schedule
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -42,7 +44,92 @@ func TestUpcomingCalendarWindow(t *testing.T) {
 	}
 }
 
-func TestUpcomingCatalogFilteringPagingAndMidnight(t *testing.T) {
+func TestUpcomingFourNonemptyWeeksLossless(t *testing.T) {
+	for _, weeks := range []int{0, 4, 5, 8, 9} {
+		t.Run(fmt.Sprint(weeks), func(t *testing.T) {
+			now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+			firstWednesday := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+			data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now}
+			wantPages := [][]string{}
+			for week := range weeks {
+				if week%4 == 0 {
+					wantPages = append(wantPages, []string{})
+				}
+				// Skip alternating calendar weeks; nine groups cross month and year.
+				for day := range 7 {
+					count := 1
+					if week == 0 {
+						count = 18 // 126 films in one week, exceeding both old caps.
+					}
+					for range count {
+						id := int64(len(data.PublicMovies) + 1)
+						date := firstWednesday.AddDate(0, 0, week*14+day).Format(time.DateOnly)
+						data.PublicMovies = append(data.PublicMovies, PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: "Film", FrenchReleaseDate: date, HasUpcomingRelease: true, UpcomingActive: true, UpdatedAt: now})
+						wantPages[week/4] = append(wantPages[week/4], fmt.Sprintf("film-%d", id))
+					}
+				}
+			}
+			wantTotal := len(data.PublicMovies)
+			// None of these otherwise-distinct groups may consume a page slot.
+			for i, date := range []string{"2026-09-15", "2026-09-23", "2026-10-07", "2026-10-21", "2027-09-14"} {
+				id := int64(1000 + i)
+				movie := PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: "Hidden", FrenchReleaseDate: date, HasUpcomingRelease: true, UpcomingActive: true, UpdatedAt: now}
+				switch i {
+				case 1:
+					movie.UpcomingExcluded = true
+				case 2:
+					movie.UpcomingActive = false
+				case 3:
+					movie.RedirectToID = 1000
+				}
+				data.PublicMovies = append(data.PublicMovies, movie)
+			}
+			slices.Reverse(data.PublicMovies)
+			view := NewSnapshotView(data, SnapshotRevision{EnrichmentVersion: 1})
+			clockCalls := 0
+			service, err := NewService(testSource{view}, ServiceOptions{Now: func() time.Time { clockCalls++; return now }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := map[string]bool{}
+			for page := 1; page <= len(wantPages)+1; page++ {
+				before := clockCalls
+				got, err := service.UpcomingMovies(UpcomingMoviesQuery{Page: page})
+				if err != nil || got.Page != page || got.Total != wantTotal || got.TotalWeeks != weeks || got.TotalPages != len(wantPages) || got.Items == nil || clockCalls != before+1 {
+					t.Fatalf("page %d: %+v err=%v clock calls=%d", page, got, err, clockCalls-before)
+				}
+				slugs := []string{}
+				for _, item := range got.Items {
+					if seen[item.Slug] {
+						t.Fatalf("duplicate %s", item.Slug)
+					}
+					seen[item.Slug] = true
+					slugs = append(slugs, item.Slug)
+				}
+				want := []string{}
+				if page <= len(wantPages) {
+					want = wantPages[page-1]
+				}
+				if !slices.Equal(slugs, want) {
+					t.Fatalf("page %d slugs=%v want=%v", page, slugs, want)
+				}
+				repeated, err := service.UpcomingMovies(UpcomingMoviesQuery{Page: page})
+				if err != nil || !reflect.DeepEqual(repeated, got) {
+					t.Fatal("nondeterministic page")
+				}
+			}
+			if len(seen) != wantTotal || !reflect.DeepEqual(view.data.PublicMovies, data.PublicMovies) {
+				t.Fatal("lost films or mutated snapshot")
+			}
+			huge, err := service.UpcomingMovies(UpcomingMoviesQuery{Page: int(^uint(0) >> 1)})
+			if err != nil || huge.Items == nil || len(huge.Items) != 0 || huge.Total != wantTotal || huge.TotalWeeks != weeks || huge.TotalPages != len(wantPages) {
+				t.Fatalf("huge=%+v err=%v", huge, err)
+			}
+		})
+	}
+}
+
+func TestUpcomingCatalogPagingAndMidnight(t *testing.T) {
 	data := upcomingCatalogFixture()
 	if err := ValidateSnapshotDataset(data, SnapshotRevision{EnrichmentVersion: 1}); err != nil {
 		t.Fatal(err)
@@ -58,24 +145,16 @@ func TestUpcomingCatalogFilteringPagingAndMidnight(t *testing.T) {
 	if !s.HasCatalog() || s.HasSnapshot() {
 		t.Fatal("availability conflated")
 	}
-	first, err := s.UpcomingMovies(UpcomingMoviesQuery{PageSize: 1})
+	first, err := s.UpcomingMovies(UpcomingMoviesQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Total != 3 || len(first.Items) != 1 || first.Items[0].Slug != "film-2" || !reflect.DeepEqual(first.AvailableMonths, []string{"2026-09", "2026-10"}) || !reflect.DeepEqual(first.AvailableGenres, []string{"Action", "Comédie", "Drame"}) {
+	if first.Total != 3 || first.TotalWeeks != 2 || first.TotalPages != 1 || first.Page != 1 || len(first.Items) != 3 || first.Items[0].Slug != "film-2" || first.Items[1].Slug != "film-10" || first.Items[2].Slug != "film-3" {
 		t.Fatalf("first=%+v", first)
 	}
-	second, _ := s.UpcomingMovies(UpcomingMoviesQuery{Page: 2, PageSize: 1})
-	if second.Items[0].Slug != "film-10" {
-		t.Fatalf("second=%+v", second)
-	}
-	filtered, _ := s.UpcomingMovies(UpcomingMoviesQuery{Month: "2026-09", Genres: []string{"action", "Comédie"}})
-	if filtered.Total != 1 || !reflect.DeepEqual(filtered.AvailableGenres, first.AvailableGenres) || !reflect.DeepEqual(filtered.AvailableMonths, first.AvailableMonths) {
-		t.Fatalf("filtered=%+v", filtered)
-	}
-	for _, q := range []UpcomingMoviesQuery{{Month: "2030-01"}, {Page: int(^uint(0) >> 1)}} {
+	for _, q := range []UpcomingMoviesQuery{{Page: 2}, {Page: int(^uint(0) >> 1)}} {
 		result, err := s.UpcomingMovies(q)
-		if err != nil || result.Items == nil || len(result.Items) != 0 {
+		if err != nil || result.Items == nil || len(result.Items) != 0 || result.Total != 3 || result.TotalWeeks != 2 || result.TotalPages != 1 || result.Page != q.Page {
 			t.Fatalf("empty=%+v error=%v", result, err)
 		}
 	}
@@ -86,13 +165,42 @@ func TestUpcomingCatalogFilteringPagingAndMidnight(t *testing.T) {
 	}
 	now = now.Add(time.Second)
 	aged, _ := s.UpcomingMovies(UpcomingMoviesQuery{})
-	if aged.Total != 1 || aged.Window.From != "2026-09-23" || aged.CatalogRevision == before.CatalogRevision || !aged.GeneratedAt.Equal(first.GeneratedAt) {
+	if aged.Total != 1 || aged.TotalWeeks != 1 || aged.TotalPages != 1 || aged.Window.From != "2026-09-23" || aged.CatalogRevision == before.CatalogRevision || !aged.GeneratedAt.Equal(first.GeneratedAt) {
 		t.Fatalf("aged=%+v", aged)
 	}
-	for _, q := range []UpcomingMoviesQuery{{Month: "2026-9"}, {Month: "2026-13"}, {Page: -1}, {PageSize: 101}, {Genres: []string{""}}} {
+	for _, q := range []UpcomingMoviesQuery{{Page: -1}} {
 		if _, err := s.UpcomingMovies(q); err == nil {
 			t.Fatalf("accepted %+v", q)
 		}
+	}
+}
+
+func TestUpcomingDateTitleNumericIDOrder(t *testing.T) {
+	data := upcomingCatalogFixture()
+	data.PublicMovies = nil
+	for _, entry := range []struct {
+		id          int64
+		title, date string
+	}{
+		{10, " Alpha ", "2026-09-16"}, {2, "alpha", "2026-09-16"},
+		{3, "Beta", "2026-09-16"}, {1, "Alpha", "2026-09-17"},
+	} {
+		data.PublicMovies = append(data.PublicMovies, PublicMovieRecord{ID: entry.id, IdentityAnchorTMDBID: entry.id, TMDBID: entry.id, Title: entry.title, FrenchReleaseDate: entry.date, HasUpcomingRelease: true, UpcomingActive: true, UpdatedAt: data.GeneratedAt})
+	}
+	service, err := NewService(testSource{NewSnapshotView(data, SnapshotRevision{EnrichmentVersion: 1})}, ServiceOptions{Now: func() time.Time { return data.GeneratedAt }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.UpcomingMovies(UpcomingMoviesQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	slugs := []string{}
+	for _, item := range got.Items {
+		slugs = append(slugs, item.Slug)
+	}
+	if !slices.Equal(slugs, []string{"film-2", "film-10", "film-3", "film-1"}) {
+		t.Fatalf("order=%v", slugs)
 	}
 }
 
@@ -148,11 +256,14 @@ func TestUpcomingPreviewStillHasSessions(t *testing.T) {
 	}
 }
 
-func TestUpcomingDisplayEligibilityBeforeFacetsFiltersAndPages(t *testing.T) {
+func TestUpcomingDisplayEligibilityBeforeWeeksAndPages(t *testing.T) {
 	for _, test := range []struct{ name, today, hidden, from, through, beyond string }{
 		{"current week", "2026-09-13", "2026-09-15", "2026-09-16", "2027-09-13", "2027-09-14"},
 		{"hidden unique month", "2026-08-30", "2026-08-31", "2026-09-02", "2027-08-30", "2027-08-31"},
 		{"leap clamp", "2028-02-29", "2028-02-29", "2028-03-01", "2029-02-28", "2029-03-01"},
+		{"spring DST", "2026-03-29", "2026-03-31", "2026-04-01", "2027-03-29", "2027-03-30"},
+		{"fall DST", "2026-10-25", "2026-10-27", "2026-10-28", "2027-10-25", "2027-10-26"},
+		{"year crossover", "2026-12-31", "2027-01-05", "2027-01-06", "2027-12-31", "2028-01-01"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			location, err := time.LoadLocation(Timezone)
@@ -178,27 +289,16 @@ func TestUpcomingDisplayEligibilityBeforeFacetsFiltersAndPages(t *testing.T) {
 				t.Fatal(err)
 			}
 			for page := 1; page <= 3; page++ {
-				result, err := s.UpcomingMovies(UpcomingMoviesQuery{Page: page, PageSize: 1})
-				if err != nil || result.Total != 2 || result.Window != (Window{From: test.from, Through: test.through}) || !reflect.DeepEqual(result.AvailableGenres, []string{"Drame"}) || !reflect.DeepEqual(result.AvailableMonths, []string{test.from[:7], test.through[:7]}) {
+				result, err := s.UpcomingMovies(UpcomingMoviesQuery{Page: page})
+				if err != nil || result.Total != 2 || result.TotalWeeks != 2 || result.TotalPages != 1 || result.Window != (Window{From: test.from, Through: test.through}) {
 					t.Fatalf("page %d=%+v err=%v", page, result, err)
 				}
-				if page <= 2 {
-					want := []string{test.from, test.through}[page-1]
-					if len(result.Items) != 1 || result.Items[0].FrenchReleaseDate == nil || *result.Items[0].FrenchReleaseDate != want {
+				if page == 1 {
+					if len(result.Items) != 2 || result.Items[0].FrenchReleaseDate == nil || *result.Items[0].FrenchReleaseDate != test.from || result.Items[1].FrenchReleaseDate == nil || *result.Items[1].FrenchReleaseDate != test.through {
 						t.Fatalf("page %d exact date=%+v", page, result.Items)
 					}
 				} else if len(result.Items) != 0 {
 					t.Fatalf("extra page=%+v", result.Items)
-				}
-			}
-			queries := []UpcomingMoviesQuery{{Genres: []string{"Animation"}}, {Month: test.hidden[:7], Genres: []string{"Animation"}}}
-			if test.hidden[:7] != test.from[:7] {
-				queries = append(queries, UpcomingMoviesQuery{Month: test.hidden[:7]})
-			}
-			for _, query := range queries {
-				result, err := s.UpcomingMovies(query)
-				if err != nil || result.Total != 0 || len(result.Items) != 0 || !reflect.DeepEqual(result.AvailableGenres, []string{"Drame"}) {
-					t.Fatalf("hidden filter=%+v err=%v", result, err)
 				}
 			}
 			if !reflect.DeepEqual(view.data.PublicMovies, data.PublicMovies) {
@@ -219,13 +319,9 @@ func TestUpcomingExclusionOnlyAffectsUpcomingList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.UpcomingMovies(UpcomingMoviesQuery{PageSize: 1})
-	if err != nil || result.Total != 2 || len(result.Items) != 1 || !reflect.DeepEqual(result.AvailableGenres, []string{"Action", "Drame"}) || !reflect.DeepEqual(result.AvailableMonths, []string{"2026-09"}) {
-		t.Fatalf("exclusion facets %+v %v", result, err)
-	}
-	filtered, err := s.UpcomingMovies(UpcomingMoviesQuery{Genres: []string{"Comédie"}})
-	if err != nil || filtered.Total != 0 {
-		t.Fatal("excluded genre matched")
+	result, err := s.UpcomingMovies(UpcomingMoviesQuery{})
+	if err != nil || result.Total != 2 || len(result.Items) != 2 || result.TotalWeeks != 1 || result.TotalPages != 1 {
+		t.Fatalf("exclusion weeks %+v %v", result, err)
 	}
 	detail, err := s.MovieShowtimes(MovieShowtimesQuery{Slug: "film-3", Date: "2026-09-13"})
 	if err != nil || detail.ReleaseStatus != "upcoming" {

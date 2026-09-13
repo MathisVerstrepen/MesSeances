@@ -42,7 +42,7 @@ export default defineCachedEventHandler(async (event) => {
 
     const entries = buildFilmSitemapEntries(movies, firstPage, homepageCatalog, filmsCatalog)
     const upcoming = await $fetch.raw<UpcomingMoviesResponse | ApiErrorResponse>(`${apiBase}/api/v1/movies/upcoming`, {
-      headers, retry: false, ignoreResponseError: true, query: { page: 1, page_size: 1 }
+      headers, retry: false, ignoreResponseError: true, query: { page: 1 }
     })
     const publication = upcoming._data
     if (upcoming.status === 200 && publication && !('error' in publication)) {

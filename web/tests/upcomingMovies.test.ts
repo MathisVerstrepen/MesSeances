@@ -5,7 +5,7 @@ import type { MovieShowtimesResponse, UpcomingCatalogMovie } from '../app/types/
 import { getFrenchApiError, useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import { loadInitialFilmSchedule } from '../app/utils/filmInitialSchedule.ts'
 import { buildFilmJsonLd } from '../app/utils/filmJsonLd.ts'
-import { formatFrenchReleaseDate, formatReleaseMonth, formatReleaseWeek, groupUpcomingMovies, parseUpcomingFilters, releaseWeekStart, upcomingApiQuery, upcomingRouteQuery } from '../app/utils/upcomingMovies.ts'
+import { formatFrenchReleaseDate, formatReleaseWeek, groupUpcomingMovies, parseUpcomingRoute, releaseWeekStart, upcomingApiQuery, upcomingRouteQuery } from '../app/utils/upcomingMovies.ts'
 import { upcomingSitemapEntry } from '../server/utils/sitemap.ts'
 
 function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
@@ -16,16 +16,21 @@ function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
   }
 }
 
-test('normalizes route keys, rejects duplicate scalar filters, and keeps OR genres and safe pages', () => {
-  const filters = parseUpcomingFilters({ month: '2027-02', genres: 'Drame, Animation,drame', page: '02', theaters: 'ugc-1' })
-  assert.deepEqual(filters, { month: '2027-02', genres: ['Animation', 'Drame'], page: 2 })
-  assert.deepEqual(upcomingRouteQuery(filters), { month: '2027-02', genres: 'Animation,Drame', page: '2' })
-  assert.deepEqual(upcomingApiQuery(filters), { month: '2027-02', genres: 'Animation,Drame', page: 2, page_size: 24 })
-  for (const month of ['2026-13', '2026-1', '2026-02-01', ['2026-01', '2026-02']]) {
-    assert.equal(parseUpcomingFilters({ month }).month, '')
+test('keeps only page and strips obsolete filters, page size and unknown route keys', () => {
+  const state = parseUpcomingRoute({ month: '2027-02', genres: 'Drame, Animation,drame', page: '02', page_size: '24', theaters: 'ugc-1', unknown: 'value' })
+  assert.deepEqual(state, { page: 2 })
+  assert.deepEqual(upcomingRouteQuery(state), { page: '2' })
+  assert.deepEqual(upcomingApiQuery(state), { page: 2 })
+  assert.deepEqual(upcomingRouteQuery(parseUpcomingRoute({ month: ['2026-01', '2026-02'], genres: ['Drame', 'Action'] })), {})
+  assert.deepEqual(upcomingRouteQuery({ page: 1 }), {})
+})
+
+test('normalizes malformed, duplicate and unsafe pages without a compatibility fallback', () => {
+  for (const page of ['', '0', '-1', '1.5', '1e2', '9007199254740992', ['2', '3'], null, undefined]) {
+    assert.deepEqual(parseUpcomingRoute({ page }), { page: 1 })
   }
-  assert.deepEqual(parseUpcomingFilters({ genres: ['Drame', 'Action'], page: '9007199254740992' }), { month: '', genres: [], page: 1 })
-  assert.deepEqual(upcomingRouteQuery({ month: '', genres: [], page: 1 }), {})
+  assert.deepEqual(parseUpcomingRoute({ page: '9007199254740991' }), { page: Number.MAX_SAFE_INTEGER })
+  for (const page of [1, 2, 3, 99]) assert.deepEqual(parseUpcomingRoute(upcomingRouteQuery({ page })), { page })
 })
 
 test('assigns every weekday to its prior-or-same Wednesday, with Tuesday closing the week', () => {
@@ -73,12 +78,19 @@ test('weeks cross month, year, leap day and DST boundaries without timezone drif
   }
 })
 
-test('groups only supplied page and month-filter items even when the same week spans both', () => {
+test('keeps all films in a complete week spanning two months', () => {
   const september = movie('2026-09-30', 'film-1')
   const october = movie('2026-10-01', 'film-2')
   assert.deepEqual(groupUpcomingMovies([september, october]), [{ weekStart: '2026-09-30', movies: [september, october] }])
-  assert.deepEqual(groupUpcomingMovies([september]), [{ weekStart: '2026-09-30', movies: [september] }])
-  assert.deepEqual(groupUpcomingMovies([october]), [{ weekStart: '2026-09-30', movies: [october] }])
+})
+
+test('renders every supplied film in four nonempty weeks without a 24 or 100 item cap', () => {
+  const bigWeek = Array.from({ length: 126 }, (_, index) => movie('2026-09-30', `film-${index + 1}`))
+  const films = [...bigWeek, movie('2026-10-15', 'film-127'), movie('2026-12-31', 'film-128'), movie('2027-02-02', 'film-129')]
+  const groups = groupUpcomingMovies(films)
+  assert.deepEqual(groups.map(group => group.weekStart), ['2026-09-30', '2026-10-14', '2026-12-30', '2027-01-27'])
+  assert.equal(groups[0]?.movies.length, 126)
+  assert.deepEqual(groups.flatMap(group => group.movies), films)
 })
 
 test('rejects missing or invalid verified dates rather than falling back to general release dates', () => {
@@ -95,8 +107,6 @@ test('date-only labels retain year, leap day and DST calendar dates without cloc
   assert.equal(formatFrenchReleaseDate('2028-02-29'), '29 février 2028')
   assert.equal(formatFrenchReleaseDate('2026-10-25'), '25 octobre 2026')
   assert.equal(formatFrenchReleaseDate('2027-03-28'), '28 mars 2027')
-  assert.equal(formatReleaseMonth('2027-09'), 'septembre 2027')
-  assert.throws(() => formatReleaseMonth('2026-13'))
 })
 
 interface UpcomingFetchOptions {
@@ -110,8 +120,8 @@ test('API composable sends only frozen upcoming query and disables retry', async
     useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080/' } }),
     $fetch: (url: string, options: UpcomingFetchOptions) => { calls.push({ url, options }); return Promise.resolve({}) }
   })
-  await useMesSeancesApi().upcomingMovies({ month: '2026-10', page: 1, page_size: 24 })
-  assert.deepEqual(calls, [{ url: 'http://localhost:8080/api/v1/movies/upcoming', options: { query: { month: '2026-10', page: 1, page_size: 24 }, retry: false } }])
+  await useMesSeancesApi().upcomingMovies({ page: 1 })
+  assert.deepEqual(calls, [{ url: 'http://localhost:8080/api/v1/movies/upcoming', options: { query: { page: 1 }, retry: false } }])
   assert.match(getFrenchApiError({ data: { error: { code: 'upcoming_unavailable', message: 'unavailable' } } }), /pas encore disponibles/)
 })
 
@@ -138,6 +148,7 @@ test('sitemap uses real upcoming publication timestamp only at canonical page', 
   const handler = await readFile(new URL('../server/routes/sitemaps/films.xml.ts', import.meta.url), 'utf8')
   assert.match(handler, /publication\.error\.code === 'upcoming_unavailable'/)
   assert.match(handler, /upcomingSitemapEntry\(publication\.generated_at\)/)
+  assert.match(handler, /\/api\/v1\/movies\/upcoming`, \{\s*headers, retry: false, ignoreResponseError: true, query: \{ page: 1 \}\s*\}\)/)
 })
 
 test('SSR page and detail use exact states, shared cards and no catalog-only preference blocker', async () => {
@@ -146,9 +157,14 @@ test('SSR page and detail use exact states, shared cards and no catalog-only pre
   const tabs = await readFile(new URL('../app/components/FilmCatalogTabs.vue', import.meta.url), 'utf8')
   assert.match(page, /await useAsyncData/)
   assert.match(page, /currentRequest !== requestId/)
-  assert.match(page, /router\.push/)
+  assert.match(page, /router\.replace/)
   assert.match(page, /Aucune sortie annoncée/)
-  assert.match(page, /Aucun film ne correspond aux filtres/)
+  assert.doesNotMatch(page, /Mois de sortie|Genres|Effacer les filtres|Aucun film ne correspond aux filtres|<form|available_months|available_genres|page_size|\/ 24/)
+  assert.match(page, /catalog\.value\?\.total_pages/)
+  assert.match(page, /Math\.max\(1, response\.total_pages\)/)
+  assert.match(page, /if \(state\.page > lastPage\) response = await api\.upcomingMovies/)
+  assert.match(page, /:previous-to="pagination\.page > 1/)
+  assert.match(page, /:next-to="pagination\.page < totalPages/)
   assert.match(page, /:key="group\.weekStart"/)
   assert.match(page, /:aria-labelledby="`week-\$\{group\.weekStart\}`"/)
   assert.match(page, /:id="`week-\$\{group\.weekStart\}`"/)

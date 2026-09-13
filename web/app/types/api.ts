@@ -674,10 +674,7 @@ export interface MovieShowtimesTheater {
 }
 
 export interface UpcomingMoviesQuery {
-  month?: string
-  genres?: string
   page?: number
-  page_size?: number
 }
 
 export type UpcomingCatalogMovie = CatalogMovie & { french_release_date: string }
@@ -688,11 +685,10 @@ export interface UpcomingMoviesResponse {
   timezone: 'Europe/Paris'
   window: { from: string; through: string }
   items: UpcomingCatalogMovie[]
-  available_genres: string[]
-  available_months: string[]
   page: number
-  page_size: number
   total: number
+  total_weeks: number
+  total_pages: number
 }
 
 export interface MovieShowtimesResponse {
