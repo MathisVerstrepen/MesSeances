@@ -14,6 +14,8 @@ type UpcomingRelease struct {
 	TMDBID            int64
 	FrenchReleaseDate string
 	Active            bool
+	FrenchReleases    []tmdb.FrenchReleaseRow
+	ReasonCodes       []string
 }
 
 type UpcomingPublication struct {
@@ -24,14 +26,14 @@ type UpcomingPublication struct {
 }
 
 type UpcomingStore interface {
-	ActiveUpcomingIDs(context.Context) ([]int64, error)
+	RetainedUpcomingIDs(context.Context) ([]int64, error)
 	Metadata(context.Context, string, int64, string) (Metadata, bool, error)
 	PublishUpcoming(context.Context, UpcomingPublication) error
 }
 
 type UpcomingProvider interface {
 	DiscoverMovies(context.Context, string, string, int) (tmdb.DiscoverPage, error)
-	FrenchTheatricalReleaseDate(context.Context, int64) (string, error)
+	FrenchReleaseEvidence(context.Context, int64) (tmdb.ReleaseEvidence, error)
 	Details(context.Context, int64) (tmdb.Details, error)
 }
 
@@ -56,7 +58,7 @@ func NewUpcomingService(store UpcomingStore, provider UpcomingProvider, now func
 func (s *UpcomingService) sync(ctx context.Context) error {
 	now := s.now().UTC()
 	publication := UpcomingPublication{Window: schedule.UpcomingWindow(now), Releases: []UpcomingRelease{}, Metadata: []Metadata{}}
-	retained, err := s.store.ActiveUpcomingIDs(ctx)
+	retained, err := s.store.RetainedUpcomingIDs(ctx)
 	if err != nil {
 		return fmt.Errorf("read upcoming candidates failed")
 	}
@@ -89,19 +91,20 @@ func (s *UpcomingService) sync(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		date, err := s.provider.FrenchTheatricalReleaseDate(ctx, id)
+		evidence, err := s.provider.FrenchReleaseEvidence(ctx, id)
 		if errors.Is(err, tmdb.ErrNotFound) {
-			date, err = "", nil
+			evidence, err = tmdb.ReleaseEvidence{Rows: []tmdb.FrenchReleaseRow{}}, nil
 		}
 		if err != nil {
 			return fmt.Errorf("verify upcoming release failed")
 		}
+		date := evidence.FrenchReleaseDate
 		if date != "" {
 			if parsed, err := time.Parse(time.DateOnly, date); err != nil || parsed.Format(time.DateOnly) != date {
 				return fmt.Errorf("upcoming release date is invalid")
 			}
 		}
-		release := UpcomingRelease{TMDBID: id, FrenchReleaseDate: date, Active: date >= publication.Window.From && date <= publication.Window.Through}
+		release := UpcomingRelease{TMDBID: id, FrenchReleaseDate: date, Active: date >= publication.Window.From && date <= publication.Window.Through, FrenchReleases: evidence.Rows, ReasonCodes: AssessUpcoming(evidence.Rows, date)}
 		if release.Active {
 			cached, found, err := s.store.Metadata(ctx, ProviderTMDB, id, LocaleFrench)
 			if err != nil {
@@ -111,6 +114,7 @@ func (s *UpcomingService) sync(ctx context.Context) error {
 				details, err := s.provider.Details(ctx, id)
 				if errors.Is(err, tmdb.ErrNotFound) {
 					release.Active, release.FrenchReleaseDate = false, ""
+					release.FrenchReleases, release.ReasonCodes = []tmdb.FrenchReleaseRow{}, []string{}
 				} else {
 					if err != nil || details.ID != id {
 						return fmt.Errorf("read upcoming metadata failed")

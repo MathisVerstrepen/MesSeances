@@ -74,6 +74,14 @@ func upcomingMatch(now time.Time, id int64) Match {
 	return Match{SourceProvider: SourceUGC, SourceMovieID: "10", MetadataProvider: ProviderTMDB, Status: StatusMatched, MetadataMovieID: id, Score: 1, NormalizedSourceTitle: NormalizeTitle("Provider title"), SourceRuntimeMinutes: 90, Candidates: []Candidate{}, EvaluatedAt: now, RetryAfter: now.Add(metadataTTL)}
 }
 
+func upcomingTestRelease(id int64, date string, active bool) UpcomingRelease {
+	rows := []tmdb.FrenchReleaseRow{}
+	if date != "" {
+		rows = append(rows, tmdb.FrenchReleaseRow{Type: 3, Date: date})
+	}
+	return UpcomingRelease{TMDBID: id, FrenchReleaseDate: date, Active: active, FrenchReleases: rows, ReasonCodes: AssessUpcoming(rows, date)}
+}
+
 func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 	for _, sourceFirst := range []bool{false, true} {
 		t.Run(map[bool]string{false: "TMDB first", true: "source first"}[sourceFirst], func(t *testing.T) {
@@ -84,7 +92,7 @@ func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 			reader := schedulepg.NewStore(pool)
 			now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 			metadata := metadataFromDetails(tmdb.Details{ID: 42, Title: "Catalog title", OriginalTitle: "Original", ReleaseDate: "2000-01-01", Runtime: 90, TrailerVFYouTubeKey: "abcdefghijk", Genres: []string{"Drame"}}, 0, now)
-			publication := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now), Metadata: []Metadata{metadata}, Releases: []UpcomingRelease{{TMDBID: 42, FrenchReleaseDate: "2026-10-07", Active: true}}}
+			publication := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now), Metadata: []Metadata{metadata}, Releases: []UpcomingRelease{upcomingTestRelease(42, "2026-10-07", true)}}
 			var beforeID int64
 			if sourceFirst {
 				if _, err := reader.Replace(ctx, []schedule.Dataset{upcomingProviderDataset(now)}); err != nil {
@@ -100,6 +108,9 @@ func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 			if err := store.PublishUpcoming(ctx, publication); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := store.SetUpcomingDecision(ctx, 42, UpcomingDecisionUpdate{Decision: "excluded", ExpectedRevision: 1}, now); err != nil {
+				t.Fatal(err)
+			}
 			data, revision, err := reader.Load(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -111,7 +122,7 @@ func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 			if sourceFirst && catalogID != beforeID {
 				t.Fatal("source-first identity changed")
 			}
-			if !sourceFirst && (revision.ScheduleVersion != 0 || revision.EnrichmentVersion != 1 || len(data.Theaters) != 0 || len(data.Showtimes) != 0 || data.Window != (schedule.Window{}) || !data.GeneratedAt.Equal(now)) {
+			if !sourceFirst && (revision.ScheduleVersion != 0 || revision.EnrichmentVersion != 2 || len(data.Theaters) != 0 || len(data.Showtimes) != 0 || data.Window != (schedule.Window{}) || !data.GeneratedAt.Equal(now)) {
 				t.Fatalf("bootstrap data=%+v revision=%+v", data, revision)
 			}
 			source, err := schedule.NewPostgresSource(ctx, reader)
@@ -180,7 +191,7 @@ func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 			}
 			old := publicMovieByID(data, retainedID)
 			corrected := publicMovieByID(data, publicSourceID(data, schedule.ProviderUGC, "10"))
-			if old.TMDBID != 42 || old.RedirectToID != 0 || old.FrenchReleaseDate != "2026-10-07" || old.Title != "Manual title" || corrected.TMDBID != 99 || corrected.HasUpcomingRelease || retainedID == corrected.ID {
+			if old.TMDBID != 42 || old.RedirectToID != 0 || old.FrenchReleaseDate != "2026-10-07" || old.Title != "Manual title" || !old.UpcomingExcluded || corrected.TMDBID != 99 || corrected.HasUpcomingRelease || corrected.UpcomingExcluded || retainedID == corrected.ID {
 				t.Fatalf("old=%+v corrected=%+v", old, corrected)
 			}
 			if !sourceFirst && retainedID != catalogID {
@@ -195,14 +206,23 @@ func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 				t.Fatalf("refresh IDs=%v err=%v", ids, err)
 			}
 			metadata.LocalizedTitle = "Refreshed base"
+			reviewBefore, err := store.UpcomingReviews(ctx, UpcomingReviewQuery{Filter: "all", Search: "42", Limit: 50}, now)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if err := store.RefreshMetadata(ctx, []Metadata{metadata}); err != nil {
 				t.Fatal(err)
+			}
+			reviewAfter, err := store.UpcomingReviews(ctx, UpcomingReviewQuery{Filter: "all", Search: "42", Limit: 50}, now)
+			if err != nil || !reflect.DeepEqual(reviewBefore, reviewAfter) {
+				t.Fatal("metadata refresh altered assessment")
 			}
 			// Withdrawal retains identity, overrides and general release-date cache.
 			publication.CompletedAt = now.Add(2 * time.Hour)
 			publication.Metadata = nil
 			publication.Releases[0].Active = false
 			publication.Releases[0].FrenchReleaseDate = ""
+			publication.Releases[0].FrenchReleases = nil
 			if err := store.PublishUpcoming(ctx, publication); err != nil {
 				t.Fatal(err)
 			}
@@ -226,13 +246,17 @@ func TestUpcomingPersistenceLifecycleIntegration(t *testing.T) {
 			if old.FrenchReleaseDate != "" || !old.HasUpcomingRelease || old.Title != "Manual title" || old.TMDBID != 42 {
 				t.Fatalf("withdrawal lost record: %+v", old)
 			}
-			publication.Releases[0] = UpcomingRelease{TMDBID: 42, FrenchReleaseDate: "2026-11-04", Active: true}
+			publication.Releases[0] = upcomingTestRelease(42, "2026-11-04", true)
 			if err := store.PublishUpcoming(ctx, publication); err != nil {
 				t.Fatal(err)
 			}
 			var reappeared int64
 			if err := pool.QueryRow(ctx, "SELECT public_movie_id FROM tmdb_upcoming_movies WHERE tmdb_id=42").Scan(&reappeared); err != nil || reappeared != retainedID {
 				t.Fatal("reappearance allocated a new identity")
+			}
+			reviewAfter, err = store.UpcomingReviews(ctx, UpcomingReviewQuery{Filter: "excluded", Search: "42", Limit: 50}, now)
+			if err != nil || reviewAfter.Total != 1 || reviewAfter.Items[0].PubliclyVisible || reviewAfter.Items[0].Decision != "excluded" {
+				t.Fatal("reappearance lost decision")
 			}
 		})
 	}
@@ -244,7 +268,7 @@ func TestUpcomingPublicationRollbackAndLeaseIntegration(t *testing.T) {
 	defer cancel()
 	store := NewPostgresStore(pool)
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	p := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now), Releases: []UpcomingRelease{{TMDBID: 42, FrenchReleaseDate: "2026-10-07", Active: true}}, Metadata: []Metadata{metadataFromDetails(tmdb.Details{ID: 42, Title: "Original", OriginalTitle: "Original"}, 0, now)}}
+	p := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now), Releases: []UpcomingRelease{upcomingTestRelease(42, "2026-10-07", true)}, Metadata: []Metadata{metadataFromDetails(tmdb.Details{ID: 42, Title: "Original", OriginalTitle: "Original"}, 0, now)}}
 	if err := store.PublishUpcoming(ctx, p); err != nil {
 		t.Fatal(err)
 	}
@@ -370,7 +394,7 @@ func TestUpcomingExistingOwnerAndLocalGroupsIntegration(t *testing.T) {
 	metadata := metadataFromDetails(tmdb.Details{ID: 42, Title: "Original", OriginalTitle: "Original", Runtime: 90}, 0, now)
 	other := metadata
 	other.ProviderMovieID = 99
-	publication := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now), Metadata: []Metadata{metadata, other}, Releases: []UpcomingRelease{{TMDBID: 42, FrenchReleaseDate: "2026-10-07", Active: true}, {TMDBID: 99, FrenchReleaseDate: "2026-11-04", Active: true}}}
+	publication := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now), Metadata: []Metadata{metadata, other}, Releases: []UpcomingRelease{upcomingTestRelease(42, "2026-10-07", true), upcomingTestRelease(99, "2026-11-04", true)}}
 	if err := store.PublishUpcoming(ctx, publication); err != nil {
 		t.Fatal(err)
 	}
@@ -379,6 +403,12 @@ func TestUpcomingExistingOwnerAndLocalGroupsIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	owner42, owner99 := data.PublicMovies[0].ID, data.PublicMovies[1].ID
+	if _, err := store.SetUpcomingDecision(ctx, 42, UpcomingDecisionUpdate{Decision: "excluded", ExpectedRevision: 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetUpcomingDecision(ctx, 99, UpcomingDecisionUpdate{Decision: "approved", ExpectedRevision: 1}, now); err != nil {
+		t.Fatal(err)
+	}
 	dataset := upcomingProviderDataset(now)
 	extra := dataset.Showtimes[0]
 	extra.ID, extra.ProviderShowingID = "ugc-showing-101", "101"
@@ -433,6 +463,15 @@ func TestUpcomingExistingOwnerAndLocalGroupsIntegration(t *testing.T) {
 		movie := publicMovieByID(data, id)
 		if movie.RedirectToID != 0 || movie.TMDBID == 0 || !movie.UpcomingActive || movie.FrenchReleaseDate == "" {
 			t.Fatalf("local grouping lost catalog identity: %+v", movie)
+		}
+	}
+	reviews, err := store.UpcomingReviews(ctx, UpcomingReviewQuery{Filter: "all", Limit: 50}, now)
+	if err != nil || reviews.Total != 2 {
+		t.Fatal(err)
+	}
+	for _, item := range reviews.Items {
+		if item.Revision != 2 || item.Decision != map[int64]string{42: "excluded", 99: "approved"}[item.TMDBID] {
+			t.Fatalf("correction/rejection/merge/unmerge altered decision %+v", item)
 		}
 	}
 }

@@ -30,6 +30,10 @@ import type {
   AdminTMDBRerunSummary,
   AdminUnmergeLocalMovieResponse,
   AdminUpcomingSyncResponse,
+  AdminUpcomingMovie,
+  AdminUpcomingMoviesQuery,
+  AdminUpcomingMoviesResponse,
+  AdminSetUpcomingDecisionRequest,
   ApiErrorResponse,
   CitiesResponse,
   CityDetailResponse,
@@ -214,6 +218,22 @@ export function useMesSeancesApi() {
         credentials: 'include'
       }))
     },
+    adminUpcomingMovies(query: AdminUpcomingMoviesQuery, signal?: AbortSignal) {
+      return withAdminRedirect(apiFetch<AdminUpcomingMoviesResponse>(`${apiBase}/api/v1/admin/tmdb-upcoming-movies`, {
+        credentials: 'include',
+        query: queryValues(query),
+        signal,
+        retry: false
+      }))
+    },
+    adminSetUpcomingDecision(tmdbID: number, input: AdminSetUpcomingDecisionRequest) {
+      return withAdminRedirect(apiFetch<AdminUpcomingMovie>(`${apiBase}/api/v1/admin/tmdb-upcoming-movies/${tmdbID}/decision`, {
+        method: 'PATCH',
+        credentials: 'include',
+        body: input,
+        retry: false
+      }))
+    },
     adminStartUpcomingSync(signal?: AbortSignal) {
       return withAdminRedirect(apiFetch<AdminUpcomingSyncResponse>(`${apiBase}/api/v1/admin/tmdb-upcoming-movies/sync`, {
         method: 'POST',
@@ -373,6 +393,13 @@ export function getFrenchShortLinkPreparationError(cause: unknown): string {
 export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
   if (code === 'admin_unavailable') return 'L’administration est désactivée sur ce service.'
+  if (code === 'invalid_upcoming_review_query') return 'Filtres de revue invalides.'
+  if (code === 'invalid_upcoming_review_id') return 'Identifiant TMDB invalide.'
+  if (code === 'invalid_upcoming_review_update') return 'Décision de revue invalide.'
+  if (code === 'upcoming_review_not_found') return 'Cette sortie n’existe plus. La liste a été actualisée.'
+  if (code === 'upcoming_review_conflict') return 'Cette évaluation a changé. La liste a été actualisée.'
+  if (code === 'upcoming_review_list_failed') return 'Impossible de charger la revue des sorties.'
+  if (code === 'upcoming_review_update_failed') return 'Impossible d’enregistrer la décision. Actualisez la liste avant de réessayer.'
   if (code === 'invalid_admin_movie_query') return 'Filtres de films invalides.'
   if (code === 'invalid_admin_movie_id') return 'Identifiant de film invalide.'
   if (code === 'invalid_admin_movie_update') return 'Modifications de film invalides.'

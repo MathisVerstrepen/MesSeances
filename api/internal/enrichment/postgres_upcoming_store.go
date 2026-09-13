@@ -2,15 +2,19 @@ package enrichment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
+
+	"messeances/api/internal/tmdb"
 
 	"github.com/jackc/pgx/v5"
 )
 
-func (s *PostgresStore) ActiveUpcomingIDs(ctx context.Context) ([]int64, error) {
-	rows, err := s.pool.Query(ctx, "SELECT tmdb_id FROM tmdb_upcoming_movies WHERE active ORDER BY tmdb_id")
+func (s *PostgresStore) RetainedUpcomingIDs(ctx context.Context) ([]int64, error) {
+	rows, err := s.pool.Query(ctx, "SELECT tmdb_id FROM tmdb_upcoming_movies ORDER BY tmdb_id")
 	if err != nil {
 		return nil, fmt.Errorf("read upcoming IDs failed")
 	}
@@ -45,6 +49,10 @@ func (s *PostgresStore) PublishUpcoming(ctx context.Context, publication Upcomin
 			return fmt.Errorf("upcoming release is invalid")
 		}
 		seen[release.TMDBID] = true
+		evidence, err := tmdb.NormalizeFrenchReleases(release.FrenchReleases)
+		if err != nil || !slices.Equal(evidence.Rows, release.FrenchReleases) || evidence.FrenchReleaseDate != release.FrenchReleaseDate || !slices.Equal(AssessUpcoming(evidence.Rows, evidence.FrenchReleaseDate), release.ReasonCodes) {
+			return fmt.Errorf("upcoming review evidence is invalid")
+		}
 		if release.FrenchReleaseDate != "" {
 			if parsed, err := time.Parse(time.DateOnly, release.FrenchReleaseDate); err != nil || parsed.Format(time.DateOnly) != release.FrenchReleaseDate {
 				return fmt.Errorf("upcoming date is invalid")
@@ -60,8 +68,14 @@ func (s *PostgresStore) PublishUpcoming(ctx context.Context, publication Upcomin
 				return nil, err
 			}
 		}
-		if _, err := tx.Exec(ctx, "UPDATE tmdb_upcoming_movies SET active=false WHERE active"); err != nil {
-			return nil, fmt.Errorf("clear upcoming membership failed")
+		// Every retained identity must be assessed; never turn a partial payload into withdrawal.
+		ids := make([]int64, 0, len(publication.Releases))
+		for _, release := range publication.Releases {
+			ids = append(ids, release.TMDBID)
+		}
+		var omitted bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM tmdb_upcoming_movies WHERE NOT(tmdb_id=ANY($1::bigint[])))", ids).Scan(&omitted); err != nil || omitted {
+			return nil, fmt.Errorf("upcoming publication is incomplete")
 		}
 		for _, release := range publication.Releases {
 			var publicID int64
@@ -82,8 +96,25 @@ SELECT provider_movie_id,provider_movie_id,localized_title,runtime_minutes FROM 
 					return nil, fmt.Errorf("allocate upcoming identity failed")
 				}
 			}
-			if _, err := tx.Exec(ctx, `INSERT INTO tmdb_upcoming_movies(tmdb_id,public_movie_id,french_release_date,active,verified_at)
-VALUES($1,$2,NULLIF($3,'')::date,$4,$5) ON CONFLICT(tmdb_id) DO UPDATE SET french_release_date=EXCLUDED.french_release_date,active=EXCLUDED.active,verified_at=EXCLUDED.verified_at`, release.TMDBID, publicID, release.FrenchReleaseDate, release.Active, publication.CompletedAt); err != nil {
+			rows := release.FrenchReleases
+			if rows == nil {
+				rows = []tmdb.FrenchReleaseRow{}
+			}
+			reasons := release.ReasonCodes
+			if reasons == nil {
+				reasons = []string{}
+			}
+			encoded, err := json.Marshal(rows)
+			if err != nil {
+				return nil, fmt.Errorf("encode upcoming evidence failed")
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO tmdb_upcoming_movies(tmdb_id,public_movie_id,french_release_date,active,verified_at,french_releases,reason_codes,assessed_at)
+VALUES($1,$2,NULLIF($3,'')::date,$4,$5,$6::jsonb,$7,$5) ON CONFLICT(tmdb_id) DO UPDATE SET
+review_revision=tmdb_upcoming_movies.review_revision + CASE WHEN
+ (tmdb_upcoming_movies.french_release_date,tmdb_upcoming_movies.active,tmdb_upcoming_movies.french_releases,tmdb_upcoming_movies.reason_codes,tmdb_upcoming_movies.assessed_at IS NULL)
+ IS DISTINCT FROM (EXCLUDED.french_release_date,EXCLUDED.active,EXCLUDED.french_releases,EXCLUDED.reason_codes,false) THEN 1 ELSE 0 END,
+french_release_date=EXCLUDED.french_release_date,active=EXCLUDED.active,verified_at=EXCLUDED.verified_at,
+french_releases=EXCLUDED.french_releases,reason_codes=EXCLUDED.reason_codes,assessed_at=EXCLUDED.assessed_at`, release.TMDBID, publicID, release.FrenchReleaseDate, release.Active, publication.CompletedAt, encoded, reasons); err != nil {
 				return nil, fmt.Errorf("write upcoming release failed")
 			}
 		}

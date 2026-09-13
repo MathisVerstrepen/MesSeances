@@ -48,6 +48,7 @@ type AdminOptions struct {
 	TMDBReruns       TMDBRerunner
 	TMDBRefreshes    TMDBMetadataRefresher
 	TMDBUpcoming     TMDBUpcomingSyncer
+	UpcomingReviews  *enrichment.UpcomingReviewService
 	LocalMovies      *enrichment.LocalMovieService
 	Syncs            SyncController
 	SyncSchedules    SyncScheduleController
@@ -174,6 +175,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.Get("/tmdb-matches/refresh-metadata", api.admin.tmdbMetadataRefreshStatus)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/tmdb-upcoming-movies/sync", api.admin.tmdbUpcomingStatus)
+			router.Get("/tmdb-upcoming-movies", api.admin.upcomingReviews)
+			router.With(api.admin.requireOrigin).Patch("/tmdb-upcoming-movies/{tmdbID}/decision", api.admin.setUpcomingDecision)
 			router.With(api.admin.requireOrigin).Post("/tmdb-upcoming-movies/sync", api.admin.syncTMDBUpcoming)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
 			router.Get("/movies", api.admin.adminMovies)

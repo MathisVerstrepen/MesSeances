@@ -31,6 +31,7 @@ type PublicMovieRecord struct {
 	FrenchReleaseDate      string
 	HasUpcomingRelease     bool
 	UpcomingActive         bool
+	UpcomingExcluded       bool
 	ID                     int64
 	RedirectToID           int64
 	IdentityAnchorProvider Provider

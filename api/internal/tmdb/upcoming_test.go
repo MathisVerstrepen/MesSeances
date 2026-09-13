@@ -50,7 +50,8 @@ func TestUpcomingFirstFrenchTheatricalEvidence(t *testing.T) {
 		{"first FR not worldwide", `[{"iso_3166_1":"US","release_dates":[{"type":3,"release_date":"2000-01-01T00:00:00Z"}]},{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-10-01T00:00:00+14:00"}]}]`, "2026-10-01", false},
 		{"past limited excludes rerelease", `[{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-10-01T00:00:00Z"},{"type":2,"release_date":"1990-03-04T00:00:00.000Z"}]}]`, "1990-03-04", false},
 		{"all FR records", `[{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-10-01T00:00:00Z"}]},{"iso_3166_1":"FR","release_dates":[{"type":2,"release_date":"2026-09-30T23:00:00-12:00"}]}]`, "2026-09-30", false},
-		{"irrelevant malformed dates", `[{"iso_3166_1":"US","release_dates":[{"type":3,"release_date":"bad"}]},{"iso_3166_1":"FR","release_dates":[{"type":1,"release_date":"bad"},{"type":4,"release_date":"bad"},{"type":5,"release_date":"bad"},{"type":6,"release_date":"bad"}]}]`, "", false},
+		{"malformed non-theatrical FR dates", `[{"iso_3166_1":"FR","release_dates":[{"type":1,"release_date":"bad"}]}]`, "", true},
+		{"ignore non FR", `[{"iso_3166_1":"US","release_dates":[{"type":3,"release_date":"bad","note":42}]}]`, "", false},
 		{"empty", `[]`, "", false},
 		{"empty FR", `[{"iso_3166_1":"FR","release_dates":[]}]`, "", false},
 		{"null", `null`, "", true},
@@ -59,6 +60,8 @@ func TestUpcomingFirstFrenchTheatricalEvidence(t *testing.T) {
 		{"missing relevant date", `[{"iso_3166_1":"FR","release_dates":[{"type":3}]}]`, "", true},
 		{"not timestamp", `[{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-10-01"}]}]`, "", true},
 		{"invalid leap", `[{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2027-02-29T00:00:00Z"}]}]`, "", true},
+		{"invalid timezone hour", `[{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-10-01T00:00:00+24:00"}]}]`, "", true},
+		{"invalid timezone minute", `[{"iso_3166_1":"FR","release_dates":[{"type":3,"release_date":"2026-10-01T00:00:00+00:60"}]}]`, "", true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -67,15 +70,15 @@ func TestUpcomingFirstFrenchTheatricalEvidence(t *testing.T) {
 				}
 				_, _ = fmt.Fprintf(w, `{"id":42,"results":%s}`, test.results)
 			}, "fixture-token")
-			date, err := client.FrenchTheatricalReleaseDate(context.Background(), 42)
-			if (err != nil) != test.invalid || date != test.want {
-				t.Fatalf("date=%q error=%v", date, err)
+			evidence, err := client.FrenchReleaseEvidence(context.Background(), 42)
+			if (err != nil) != test.invalid || evidence.FrenchReleaseDate != test.want {
+				t.Fatalf("evidence=%+v error=%v", evidence, err)
 			}
 		})
 	}
 	for _, body := range []string{`{"id":43,"results":[]}`, `{"id":42}`, `{"id":42,"results":`} {
 		client := testClient(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }, "fixture-token")
-		if _, err := client.FrenchTheatricalReleaseDate(context.Background(), 42); err == nil {
+		if _, err := client.FrenchReleaseEvidence(context.Background(), 42); err == nil {
 			t.Fatal("accepted malformed release response")
 		}
 	}
@@ -88,7 +91,7 @@ func TestUpcomingTransportFailureSafety(t *testing.T) {
 				w.WriteHeader(status)
 				_, _ = w.Write([]byte("private upstream contents"))
 			}, "fixture-token")
-			_, err := client.FrenchTheatricalReleaseDate(context.Background(), 42)
+			_, err := client.FrenchReleaseEvidence(context.Background(), 42)
 			if err == nil || strings.Contains(err.Error(), "private") || strings.Contains(err.Error(), "fixture-token") {
 				t.Fatalf("unsafe error: %v", err)
 			}

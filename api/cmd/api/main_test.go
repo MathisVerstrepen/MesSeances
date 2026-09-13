@@ -303,6 +303,13 @@ func TestUpcomingRuntimeAvailabilityWithoutProxiesIntegration(t *testing.T) {
 				defer runtime.metadataRefreshManager.Close()
 			}
 			defer runtime.upcomingManager.Close()
+			if runtime.options.UpcomingReviews == nil {
+				t.Fatal("DB-only upcoming review service missing")
+			}
+			list, err := runtime.options.UpcomingReviews.List(t.Context(), enrichment.UpcomingReviewQuery{Filter: "all", Limit: 50})
+			if err != nil || list.Total != 0 || list.Items == nil {
+				t.Fatalf("empty DB-only review catalog %+v %v", list, err)
+			}
 			if (runtime.upcomingManager != nil) != test.available {
 				t.Fatalf("upcoming availability=%t", runtime.upcomingManager != nil)
 			}

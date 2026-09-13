@@ -1,8 +1,10 @@
 package schedule
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -128,5 +130,58 @@ func TestUpcomingPreviewStillHasSessions(t *testing.T) {
 	result, err := s.MovieShowtimes(MovieShowtimesQuery{Slug: "film-1", Date: "2026-08-15"})
 	if err != nil || result.ReleaseStatus != "upcoming" || !result.CurrentlyScreened || len(result.Theaters) != 1 || len(result.Theaters[0].Showtimes) != 1 {
 		t.Fatalf("preview=%+v err=%v", result, err)
+	}
+}
+
+func TestUpcomingExclusionOnlyAffectsUpcomingList(t *testing.T) {
+	data := upcomingCatalogFixture()
+	for i := range data.PublicMovies {
+		if data.PublicMovies[i].ID == 3 {
+			data.PublicMovies[i].UpcomingExcluded = true
+		}
+	}
+	s, err := NewService(testSource{NewSnapshotView(data, SnapshotRevision{EnrichmentVersion: 2})}, ServiceOptions{Now: func() time.Time { return data.GeneratedAt }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := s.UpcomingMovies(UpcomingMoviesQuery{PageSize: 1})
+	if err != nil || result.Total != 2 || len(result.Items) != 1 || !reflect.DeepEqual(result.AvailableGenres, []string{"Action", "Drame"}) || !reflect.DeepEqual(result.AvailableMonths, []string{"2026-09"}) {
+		t.Fatalf("exclusion facets %+v %v", result, err)
+	}
+	filtered, err := s.UpcomingMovies(UpcomingMoviesQuery{Genres: []string{"Comédie"}})
+	if err != nil || filtered.Total != 0 {
+		t.Fatal("excluded genre matched")
+	}
+	detail, err := s.MovieShowtimes(MovieShowtimesQuery{Slug: "film-3", Date: "2026-09-13"})
+	if err != nil || detail.ReleaseStatus != "upcoming" {
+		t.Fatalf("detail %+v %v", detail, err)
+	}
+	encoded, err := json.Marshal([]any{result, detail})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, private := range []string{"UpcomingExcluded", "decision", "french_releases", "reason_codes", "assessed_at", "assessment_status", "review_revision"} {
+		if strings.Contains(string(encoded), private) {
+			t.Fatalf("private field %s", private)
+		}
+	}
+	// Real sessions, generic inventory and status remain independent from exclusion.
+	data = testDataset()
+	data.UpcomingCompletedAt = data.GeneratedAt
+	data.PublicMovies = []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderUGC, IdentityAnchorSourceID: "200", Title: "Preview", RuntimeMinutes: 100, TMDBID: 42, HasUpcomingRelease: true, FrenchReleaseDate: "2026-09-01", UpcomingActive: true, UpcomingExcluded: true}}
+	data.Showtimes = data.Showtimes[:1]
+	data.Showtimes[0].Movie.PublicMovieID = 1
+	data.MovieSources = []PublicMovieSourceRecord{{Provider: ProviderUGC, SourceMovieID: "200", PublicMovieID: 1, SourceSlug: "ugc-film-200"}}
+	s, err = NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	detail, err = s.MovieShowtimes(MovieShowtimesQuery{Slug: "film-1", Date: "2026-08-15"})
+	if err != nil || !detail.CurrentlyScreened || len(detail.Theaters) != 1 || detail.ReleaseStatus != "upcoming" {
+		t.Fatalf("real sessions hidden %+v %v", detail, err)
+	}
+	inventory, err := s.Movies(MovieCatalogQuery{})
+	if err != nil || len(inventory.Items) != 1 {
+		t.Fatalf("inventory %+v %v", inventory, err)
 	}
 }

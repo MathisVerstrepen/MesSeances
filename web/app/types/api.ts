@@ -347,6 +347,53 @@ export interface AdminTMDBMetadataRefreshResponse {
   job: AdminTMDBMetadataRefreshJob | null
 }
 
+export type UpcomingReviewReason = 'limited_only' | 'non_theatrical_before_or_same_day' | 'broadcaster_theatrical_note' | 'single_screening_note'
+export type UpcomingReviewDecision = 'unreviewed' | 'approved' | 'excluded'
+export type UpcomingReviewFilter = 'needs_review' | 'pending_assessment' | 'approved' | 'excluded' | 'all'
+
+export interface FrenchReleaseRow {
+  type: 1 | 2 | 3 | 4 | 5 | 6
+  date: string
+  note: string
+}
+
+export interface AdminUpcomingMovie {
+  tmdb_id: number
+  public_movie_id: string
+  slug: string
+  title: string
+  poster_url: string | null
+  french_release_date: string | null
+  active: boolean
+  in_window: boolean
+  publicly_visible: boolean
+  assessment_status: 'pending' | 'assessed'
+  assessed_at: string | null
+  french_releases: FrenchReleaseRow[]
+  reason_codes: UpcomingReviewReason[]
+  decision: UpcomingReviewDecision
+  revision: number
+}
+
+export interface AdminUpcomingMoviesQuery {
+  filter?: UpcomingReviewFilter
+  search?: string
+  limit?: number
+  offset?: number
+}
+
+export interface AdminUpcomingMoviesResponse {
+  items: AdminUpcomingMovie[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AdminSetUpcomingDecisionRequest {
+  decision: UpcomingReviewDecision
+  expected_revision: number
+}
+
 export interface AdminUpcomingSyncResponse {
   job: {
     state: 'running' | 'succeeded' | 'failed'

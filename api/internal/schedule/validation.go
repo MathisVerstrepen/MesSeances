@@ -214,7 +214,7 @@ func validatePublicMovieCatalog(data Dataset) error {
 				return fmt.Errorf("invalid French release date")
 			}
 		}
-		if (movie.FrenchReleaseDate != "" || movie.UpcomingActive) && !movie.HasUpcomingRelease || movie.UpcomingActive && movie.FrenchReleaseDate == "" || movie.HasUpcomingRelease && (movie.TMDBID <= 0 || movie.RedirectToID != 0) {
+		if (movie.FrenchReleaseDate != "" || movie.UpcomingActive || movie.UpcomingExcluded) && !movie.HasUpcomingRelease || movie.UpcomingActive && movie.FrenchReleaseDate == "" || movie.HasUpcomingRelease && (movie.TMDBID <= 0 || movie.RedirectToID != 0) {
 			return fmt.Errorf("invalid upcoming movie evidence")
 		}
 		if movie.RedirectToID == movie.ID {

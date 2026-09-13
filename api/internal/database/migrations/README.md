@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [032_upcoming_movies.sql](032_upcoming_movies.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [033_upcoming_movie_reviews.sql](033_upcoming_movie_reviews.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -272,8 +272,15 @@ Exactly one anchor shape is required: both provider/source fields nonnull and TM
 | `french_release_date` | `date` | Nullable; first verified FR theatrical date |
 | `active` | `boolean` | Membership at the last successful import; true requires a nonnull date |
 | `verified_at` | `timestamptz` | Last release verification timestamp |
+| `french_releases` | `jsonb` | Default `[]`; array of at most 64 normalized FR `{type,date,note}` rows; application validates types 1..6, calendar dates, notes up to 1,024 Unicode code points, canonical ordering and uniqueness |
+| `reason_codes` | `text[]` | Default `{}`; at most four nonnull allowlisted codes: `limited_only`, `non_theatrical_before_or_same_day`, `broadcaster_theatrical_note`, `single_screening_note`; application enforces uniqueness and canonical order |
+| `assessed_at` | `timestamptz` | Nullable; pending assessment requires empty evidence and reasons |
+| `decision` | `text` | Default `unreviewed`; `unreviewed`, `approved`, or `excluded`; never derived from reasons |
+| `review_revision` | `bigint` | Default `1`; optimistic per-TMDB-row revision, between 1 and 9,007,199,254,740,991 |
 
-`tmdb_upcoming_state` stores at most one successful complete publication. Columns are `singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton)`, `completed_at timestamptz`, `window_from date`, and `window_through date`, with ordered bounds. No row is seeded. Absence means no successful import, distinct from a successful empty catalog. Publication and reconciliation advance the existing `movie_enrichment_state.version` atomically; no additional revision counter is stored. An application catalog-only snapshot uses schedule revision zero without creating a `schedule_snapshot` row or fabricated showtimes.
+Existing rows begin pending without changing prior eligibility. Complete upcoming syncs reverify all retained IDs and atomically refresh structured evidence, preserving decisions. Revision changes only for changed evidence/date/membership/assessment status or an explicit decision, not timestamp-only refreshes. Decisions lock the same writer transaction and compare expected revision before no-op detection. Reconciliation transfers only the canonical public owner, never the TMDB-keyed review. Exclusion affects the upcoming list and facets only; flags, pending assessment, actual showtimes and durable detail access remain independent.
+
+`tmdb_upcoming_state` stores at most one successful complete publication. Columns are `singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton)`, `completed_at timestamptz`, `window_from date`, and `window_through date`, with ordered bounds. No row is seeded. Absence means no successful import, distinct from a successful empty catalog. Publication and reconciliation advance the existing `movie_enrichment_state.version` atomically; review revisions serve optimistic item editing, not a second publication clock. An application catalog-only snapshot uses schedule revision zero without creating a `schedule_snapshot` row or fabricated showtimes.
 
 ### `public_movie_sources`
 

@@ -134,7 +134,7 @@ func TestAdminUpcomingSyncSafeErrors(t *testing.T) {
 
 type httpUpcomingStore struct{ published atomic.Bool }
 
-func (*httpUpcomingStore) ActiveUpcomingIDs(context.Context) ([]int64, error) { return nil, nil }
+func (*httpUpcomingStore) RetainedUpcomingIDs(context.Context) ([]int64, error) { return nil, nil }
 func (*httpUpcomingStore) Metadata(context.Context, string, int64, string) (enrichment.Metadata, bool, error) {
 	return enrichment.Metadata{}, false, nil
 }
@@ -160,8 +160,8 @@ func (p *httpUpcomingProvider) DiscoverMovies(ctx context.Context, _, _ string, 
 		return tmdb.DiscoverPage{Page: 1, IDs: []int64{}}, nil
 	}
 }
-func (*httpUpcomingProvider) FrenchTheatricalReleaseDate(context.Context, int64) (string, error) {
-	return "", errors.New("unexpected release call")
+func (*httpUpcomingProvider) FrenchReleaseEvidence(context.Context, int64) (tmdb.ReleaseEvidence, error) {
+	return tmdb.ReleaseEvidence{}, errors.New("unexpected release call")
 }
 func (*httpUpcomingProvider) Details(context.Context, int64) (tmdb.Details, error) {
 	return tmdb.Details{}, errors.New("unexpected details call")

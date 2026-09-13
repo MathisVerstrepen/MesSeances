@@ -2,11 +2,15 @@ package tmdb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type DiscoverPage struct {
@@ -61,53 +65,90 @@ func (c *Client) DiscoverMovies(ctx context.Context, from, through string, page 
 	return result, nil
 }
 
-var releaseTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)
+var releaseTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\.\d+)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$`)
 
-// FrenchTheatricalReleaseDate preserves the written calendar date, not its UTC conversion.
+type FrenchReleaseRow struct {
+	Type int    `json:"type"`
+	Date string `json:"date"`
+	Note string `json:"note"`
+}
+
+type ReleaseEvidence struct {
+	FrenchReleaseDate string
+	Rows              []FrenchReleaseRow
+}
+
+// NormalizeFrenchReleases checks raw bounds before whitespace normalization and deduplication.
+func NormalizeFrenchReleases(rows []FrenchReleaseRow) (ReleaseEvidence, error) {
+	result := ReleaseEvidence{Rows: []FrenchReleaseRow{}}
+	if len(rows) > 64 {
+		return result, fmt.Errorf("tmdb release evidence is invalid")
+	}
+	for _, row := range rows {
+		date, err := time.Parse(time.DateOnly, row.Date)
+		if err != nil || date.Format(time.DateOnly) != row.Date || row.Type < 1 || row.Type > 6 || !utf8.ValidString(row.Note) || strings.ContainsRune(row.Note, 0) || utf8.RuneCountInString(row.Note) > 1024 {
+			return ReleaseEvidence{}, fmt.Errorf("tmdb release evidence is invalid")
+		}
+		row.Note = strings.Join(strings.Fields(row.Note), " ")
+		result.Rows = append(result.Rows, row)
+		if (row.Type == 2 || row.Type == 3) && (result.FrenchReleaseDate == "" || row.Date < result.FrenchReleaseDate) {
+			result.FrenchReleaseDate = row.Date
+		}
+	}
+	slices.SortFunc(result.Rows, func(a, b FrenchReleaseRow) int {
+		if c := strings.Compare(a.Date, b.Date); c != 0 {
+			return c
+		}
+		if a.Type != b.Type {
+			return a.Type - b.Type
+		}
+		return strings.Compare(a.Note, b.Note)
+	})
+	result.Rows = slices.Compact(result.Rows)
+	return result, nil
+}
+
+// FrenchReleaseEvidence preserves the written calendar date, not its UTC conversion.
 // Empty evidence is distinct from an invalid response and from HTTP 404.
-func (c *Client) FrenchTheatricalReleaseDate(ctx context.Context, id int64) (string, error) {
+func (c *Client) FrenchReleaseEvidence(ctx context.Context, id int64) (ReleaseEvidence, error) {
 	if id <= 0 {
-		return "", fmt.Errorf("tmdb movie ID is invalid")
+		return ReleaseEvidence{}, fmt.Errorf("tmdb movie ID is invalid")
 	}
 	var response struct {
 		ID      int64 `json:"id"`
 		Results []struct {
-			Country string `json:"iso_3166_1"`
-			Dates   []struct {
-				Type int    `json:"type"`
-				Date string `json:"release_date"`
-			} `json:"release_dates"`
+			Country string          `json:"iso_3166_1"`
+			Dates   json.RawMessage `json:"release_dates"`
 		} `json:"results"`
 	}
 	if err := c.get(ctx, "/3/movie/"+strconv.FormatInt(id, 10)+"/release_dates", nil, &response); err != nil {
-		return "", err
+		return ReleaseEvidence{}, err
 	}
 	if response.ID != id || response.Results == nil {
-		return "", fmt.Errorf("tmdb release response is invalid")
+		return ReleaseEvidence{}, fmt.Errorf("tmdb release response is invalid")
 	}
-	earliest := ""
+	rows := []FrenchReleaseRow{}
 	for _, country := range response.Results {
 		if country.Country != "FR" {
 			continue
 		}
-		if country.Dates == nil {
-			return "", fmt.Errorf("tmdb release response is invalid")
+		var dates []struct {
+			Type int    `json:"type"`
+			Date string `json:"release_date"`
+			Note string `json:"note"`
 		}
-		for _, release := range country.Dates {
-			if release.Type != 2 && release.Type != 3 {
-				continue
-			}
+		if !utf8.Valid(country.Dates) || json.Unmarshal(country.Dates, &dates) != nil || dates == nil || len(rows)+len(dates) > 64 {
+			return ReleaseEvidence{}, fmt.Errorf("tmdb release response is invalid")
+		}
+		for _, release := range dates {
 			if !releaseTimestamp.MatchString(release.Date) {
-				return "", fmt.Errorf("tmdb release date is invalid")
+				return ReleaseEvidence{}, fmt.Errorf("tmdb release date is invalid")
 			}
 			if _, err := time.Parse(time.RFC3339Nano, release.Date); err != nil {
-				return "", fmt.Errorf("tmdb release date is invalid")
+				return ReleaseEvidence{}, fmt.Errorf("tmdb release date is invalid")
 			}
-			date := release.Date[:10]
-			if earliest == "" || date < earliest {
-				earliest = date
-			}
+			rows = append(rows, FrenchReleaseRow{Type: release.Type, Date: release.Date[:10], Note: release.Note})
 		}
 	}
-	return earliest, nil
+	return NormalizeFrenchReleases(rows)
 }

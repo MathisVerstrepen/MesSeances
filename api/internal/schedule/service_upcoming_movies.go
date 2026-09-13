@@ -65,7 +65,7 @@ func (s *Service) UpcomingMovies(query UpcomingMoviesQuery) (UpcomingMoviesRespo
 	months := map[string]bool{}
 	filtered := []PublicMovieRecord{}
 	for _, movie := range view.data.PublicMovies {
-		if movie.RedirectToID != 0 || !movie.UpcomingActive || movie.FrenchReleaseDate < result.Window.From || movie.FrenchReleaseDate > result.Window.Through {
+		if movie.RedirectToID != 0 || !movie.UpcomingActive || movie.UpcomingExcluded || movie.FrenchReleaseDate < result.Window.From || movie.FrenchReleaseDate > result.Window.Through {
 			continue
 		}
 		item := materializePublicMovie(movie)

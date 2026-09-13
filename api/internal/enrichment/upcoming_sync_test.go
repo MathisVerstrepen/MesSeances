@@ -16,7 +16,7 @@ type upcomingTestStore struct {
 	publication UpcomingPublication
 }
 
-func (s *upcomingTestStore) ActiveUpcomingIDs(context.Context) ([]int64, error) {
+func (s *upcomingTestStore) RetainedUpcomingIDs(context.Context) ([]int64, error) {
 	return s.ids, s.idsErr
 }
 func (s *upcomingTestStore) PublishUpcoming(ctx context.Context, p UpcomingPublication) error {
@@ -37,6 +37,7 @@ type upcomingTestProvider struct {
 	pageErr    int
 	pageCalls  []int
 	dates      map[int64]string
+	evidence   map[int64]tmdb.ReleaseEvidence
 	dateErrors map[int64]error
 	verified   []int64
 	discover   func(context.Context) error
@@ -57,9 +58,16 @@ func (p *upcomingTestProvider) DiscoverMovies(ctx context.Context, _, _ string, 
 	}
 	return p.pages[page-1], nil
 }
-func (p *upcomingTestProvider) FrenchTheatricalReleaseDate(_ context.Context, id int64) (string, error) {
+func (p *upcomingTestProvider) FrenchReleaseEvidence(_ context.Context, id int64) (tmdb.ReleaseEvidence, error) {
 	p.verified = append(p.verified, id)
-	return p.dates[id], p.dateErrors[id]
+	if evidence, ok := p.evidence[id]; ok {
+		return evidence, p.dateErrors[id]
+	}
+	evidence := tmdb.ReleaseEvidence{FrenchReleaseDate: p.dates[id], Rows: []tmdb.FrenchReleaseRow{}}
+	if evidence.FrenchReleaseDate != "" {
+		evidence.Rows = append(evidence.Rows, tmdb.FrenchReleaseRow{Type: 3, Date: evidence.FrenchReleaseDate})
+	}
+	return evidence, p.dateErrors[id]
 }
 
 func upcomingFixture() (*upcomingTestStore, *upcomingTestProvider, time.Time) {
@@ -163,10 +171,35 @@ func TestUpcomingEmptyWithdrawalAndExpiredCache(t *testing.T) {
 			if name == "expired metadata" && len(store.publication.Metadata) != 1 {
 				t.Fatal("expired cache not refreshed")
 			}
+			if !wantActive && (store.publication.Releases[0].FrenchReleaseDate != "" || len(store.publication.Releases[0].FrenchReleases) != 0 || len(store.publication.Releases[0].ReasonCodes) != 0) {
+				t.Fatal("withdrawal did not clear assessment")
+			}
 		})
 	}
 	store := &upcomingTestStore{}
 	if err := NewUpcomingService(store, &upcomingTestProvider{}, nil, nil).sync(context.Background()); err != nil || store.publishCalls != 1 || store.publication.CompletedAt.IsZero() {
 		t.Fatalf("empty publication=%+v err=%v", store.publication, err)
+	}
+}
+
+func TestUpcomingStructuredEvidenceIsNotEligibility(t *testing.T) {
+	store, p, now := upcomingFixture()
+	p.pages = nil
+	p.evidence = map[int64]tmdb.ReleaseEvidence{99: {Rows: []tmdb.FrenchReleaseRow{{Type: 2, Date: "2026-11-01", Note: "Séance unique"}}, FrenchReleaseDate: "2026-11-01"}}
+	service := NewUpcomingService(store, p, func() time.Time { return now }, nil)
+	if err := service.sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	release := store.publication.Releases[0]
+	if !release.Active || !reflect.DeepEqual(release.ReasonCodes, []string{ReasonLimitedOnly, ReasonSingleScreening}) {
+		t.Fatalf("flags became exclusion %+v", release)
+	}
+	p.evidence[99] = tmdb.ReleaseEvidence{Rows: []tmdb.FrenchReleaseRow{{Type: 6, Date: "2026-10-01", Note: "Arte"}}}
+	if err := service.sync(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	release = store.publication.Releases[0]
+	if release.Active || release.FrenchReleaseDate != "" || len(release.FrenchReleases) != 1 || len(release.ReasonCodes) != 0 || len(p.calls) != 0 {
+		t.Fatalf("non-theatrical-only evidence %+v calls=%v", release, p.calls)
 	}
 }

@@ -292,6 +292,7 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		return adminRuntime{}, fmt.Errorf("geocoding configuration is invalid")
 	}
 	options.TheaterLocations = newTheaterLocationController(pool, time.Now)
+	options.UpcomingReviews = enrichment.NewUpcomingReviewService(store, time.Now)
 	options.TheaterGeocoding = geocodingManager
 	options.Logger = logger
 	options.Metrics = metrics
