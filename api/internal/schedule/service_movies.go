@@ -43,6 +43,7 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		return MovieCatalog{}, err
 	}
 	now := s.now()
+	result.CatalogRevision = catalogRevisionAt(view, now, s.location)
 	if query.IncludeEnded && (query.Date != nil || query.DateTo != nil) {
 		return MovieCatalog{}, invalid("Le paramètre include_ended est incompatible avec date ou date_to.")
 	}

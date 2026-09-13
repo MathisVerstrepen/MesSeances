@@ -38,6 +38,7 @@ type publicMovie struct {
 	redirectTo    int64
 	anchor        sourceKey
 	confirmedTMDB int64
+	anchorTMDB    int64
 }
 
 type metadata struct {
@@ -68,6 +69,7 @@ type tmdbMetadata struct {
 }
 
 type component struct {
+	catalogOwner int64
 	members      []*source
 	localGroupID int64
 	primary      sourceKey
@@ -101,9 +103,6 @@ func Reconcile(ctx context.Context, tx pgx.Tx) error {
 	if err != nil {
 		return err
 	}
-	if len(sources) == 0 {
-		return validateTargets(ctx, tx)
-	}
 	movies, err := loadPublicMovies(ctx, tx)
 	if err != nil {
 		return err
@@ -129,6 +128,13 @@ func Reconcile(ctx context.Context, tx pgx.Tx) error {
 		}
 	}
 	components := buildComponents(sources)
+	components, err = addCatalogEvidence(ctx, tx, components)
+	if err != nil {
+		return err
+	}
+	if len(components) == 0 {
+		return validateTargets(ctx, tx)
+	}
 	tmdb, err := loadTMDBMetadata(ctx, tx, components)
 	if err != nil {
 		return err
@@ -258,8 +264,8 @@ FROM public_movie_sources ORDER BY source_provider, source_movie_id`)
 }
 
 func loadPublicMovies(ctx context.Context, tx pgx.Tx) (map[int64]publicMovie, error) {
-	rows, err := tx.Query(ctx, `SELECT id, COALESCE(redirect_to_id,0), identity_anchor_provider,
-       identity_anchor_source_movie_id, COALESCE(confirmed_tmdb_id,0)
+	rows, err := tx.Query(ctx, `SELECT id, COALESCE(redirect_to_id,0), COALESCE(identity_anchor_provider,''),
+       COALESCE(identity_anchor_source_movie_id,''), COALESCE(confirmed_tmdb_id,0), COALESCE(identity_anchor_tmdb_id,0)
 FROM public_movies ORDER BY id FOR UPDATE`)
 	if err != nil {
 		return nil, fmt.Errorf("lock public movies failed")
@@ -268,7 +274,7 @@ FROM public_movies ORDER BY id FOR UPDATE`)
 	result := make(map[int64]publicMovie)
 	for rows.Next() {
 		var item publicMovie
-		if err := rows.Scan(&item.id, &item.redirectTo, &item.anchor.provider, &item.anchor.id, &item.confirmedTMDB); err != nil {
+		if err := rows.Scan(&item.id, &item.redirectTo, &item.anchor.provider, &item.anchor.id, &item.confirmedTMDB, &item.anchorTMDB); err != nil {
 			return nil, fmt.Errorf("lock public movies failed")
 		}
 		result[item.id] = item
@@ -401,6 +407,9 @@ FROM movie_metadata_cache WHERE provider='tmdb' AND locale='fr-FR' AND provider_
 }
 
 func chooseAnchor(component *component) sourceKey {
+	if len(component.members) == 0 {
+		return sourceKey{}
+	}
 	if component.primary.provider != "" {
 		return component.primary
 	}
@@ -455,6 +464,20 @@ func assignPublicIDs(ctx context.Context, tx pgx.Tx, components []*component, mo
 	idComponents := make(map[int64]map[*component]bool)
 	anchorComponents := make(map[int64]*component)
 	for _, item := range components {
+		if item.catalogOwner > 0 {
+			id := item.catalogOwner
+			movie, ok := movies[id]
+			if !ok || movie.redirectTo != 0 {
+				return nil, fmt.Errorf("catalog evidence points to inactive identity")
+			}
+			if idComponents[id] == nil {
+				idComponents[id] = make(map[*component]bool)
+			}
+			idComponents[id][item] = true
+			if movie.anchorTMDB == item.tmdbID || containsSource(item, movie.anchor) {
+				anchorComponents[id] = item
+			}
+		}
 		for _, member := range item.members {
 			movie, ok := movies[member.publicID]
 			if !ok || movie.redirectTo != 0 {
@@ -464,7 +487,7 @@ func assignPublicIDs(ctx context.Context, tx pgx.Tx, components []*component, mo
 				idComponents[member.publicID] = make(map[*component]bool)
 			}
 			idComponents[member.publicID][item] = true
-			if containsSource(item, movie.anchor) {
+			if containsSource(item, movie.anchor) || movie.anchorTMDB > 0 && movie.anchorTMDB == item.tmdbID {
 				anchorComponents[member.publicID] = item
 			}
 		}
@@ -478,6 +501,14 @@ func assignPublicIDs(ctx context.Context, tx pgx.Tx, components []*component, mo
 	claimed := make(map[int64]bool)
 	for _, component := range components {
 		candidates := make([]int64, 0)
+		// An already-live confirmed owner wins unless its provider anchor is being corrected.
+		if component.catalogOwner > 0 {
+			for id, movie := range movies {
+				if movie.redirectTo == 0 && movie.confirmedTMDB == component.tmdbID {
+					candidates = append(candidates, id)
+				}
+			}
+		}
 		if component.primary.provider != "" {
 			if primary := findSource(component, component.primary); primary != nil {
 				candidates = append(candidates, primary.publicID)
@@ -508,7 +539,11 @@ func assignPublicIDs(ctx context.Context, tx pgx.Tx, components []*component, mo
 		if component.publicID != 0 {
 			continue
 		}
-		if err := tx.QueryRow(ctx, `INSERT INTO public_movies (
+		if component.anchor.provider == "" {
+			if err := tx.QueryRow(ctx, `INSERT INTO public_movies(identity_anchor_tmdb_id,title,runtime_minutes) VALUES($1,$2,$3) RETURNING id`, component.tmdbID, component.metadata.title, component.metadata.runtime).Scan(&component.publicID); err != nil {
+				return nil, fmt.Errorf("allocate catalog identity failed")
+			}
+		} else if err := tx.QueryRow(ctx, `INSERT INTO public_movies (
     identity_anchor_provider, identity_anchor_source_movie_id, title, runtime_minutes,
     poster_url, backdrop_url, overview, release_date, genres, confirmed_tmdb_id
 ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULL) RETURNING id`, component.anchor.provider, component.anchor.id,
@@ -560,6 +595,9 @@ func inheritMetadataOverrides(ctx context.Context, tx pgx.Tx, components []*comp
 	for _, item := range components {
 		sourceIDs := make([]int64, 0)
 		if item.allocated {
+			if item.catalogOwner > 0 {
+				sourceIDs = append(sourceIDs, item.catalogOwner)
+			}
 			for id, movie := range movies {
 				if movie.redirectTo != 0 && containsSource(item, movie.anchor) {
 					sourceIDs = append(sourceIDs, id)
@@ -679,6 +717,7 @@ func persistAssignments(ctx context.Context, tx pgx.Tx, components []*component,
 		assigned[id] = true
 	}
 	oldTargets := make(map[int64]map[int64]bool)
+	anchorTargets := make(map[int64]int64)
 	desiredTMDB := make(map[int64]int64)
 	for _, component := range components {
 		desiredTMDB[component.publicID] = component.metadata.tmdbID
@@ -692,7 +731,19 @@ func persistAssignments(ctx context.Context, tx pgx.Tx, components []*component,
 	}
 	for _, component := range components {
 		assigned[component.publicID] = true
+		if component.catalogOwner > 0 {
+			if oldTargets[component.catalogOwner] == nil {
+				oldTargets[component.catalogOwner] = make(map[int64]bool)
+			}
+			oldTargets[component.catalogOwner][component.publicID] = true
+			if _, err := tx.Exec(ctx, "UPDATE tmdb_upcoming_movies SET public_movie_id=$2 WHERE tmdb_id=$1", component.tmdbID, component.publicID); err != nil {
+				return fmt.Errorf("transfer catalog evidence failed")
+			}
+		}
 		for _, member := range component.members {
+			if movies[member.publicID].anchor == member.key {
+				anchorTargets[member.publicID] = component.publicID
+			}
 			if oldTargets[member.publicID] == nil {
 				oldTargets[member.publicID] = make(map[int64]bool)
 			}
@@ -728,11 +779,15 @@ WHERE id=$1 AND redirect_to_id IS NULL`, component.publicID, component.metadata.
 		if assigned[oldID] {
 			continue
 		}
-		if len(targets) != 1 {
+		if len(targets) != 1 && anchorTargets[oldID] == 0 {
 			return fmt.Errorf("public movie split retention is ambiguous")
 		}
 		var target int64
 		for target = range targets {
+		}
+		if len(targets) > 1 {
+			target = anchorTargets[oldID]
+			oldTargets[oldID] = map[int64]bool{target: true}
 		}
 		if _, err := tx.Exec(ctx, `UPDATE public_movies SET redirect_to_id=$2, confirmed_tmdb_id=NULL, imdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL,
     updated_at=CASE WHEN redirect_to_id IS DISTINCT FROM $2 THEN CURRENT_TIMESTAMP ELSE updated_at END
@@ -826,6 +881,10 @@ func validateTargets(ctx context.Context, tx pgx.Tx) error {
     JOIN public_movies movie ON movie.id=source.public_movie_id
     WHERE movie.redirect_to_id IS NOT NULL
 ) OR EXISTS (
+    SELECT 1 FROM tmdb_upcoming_movies upcoming
+    JOIN public_movies movie ON movie.id=upcoming.public_movie_id
+    WHERE movie.redirect_to_id IS NOT NULL OR movie.confirmed_tmdb_id IS DISTINCT FROM upcoming.tmdb_id
+) OR EXISTS (
     SELECT 1 FROM movie_slug_aliases alias
     JOIN public_movies movie ON movie.id=alias.public_movie_id
     WHERE movie.redirect_to_id IS NOT NULL
@@ -837,6 +896,9 @@ func validateTargets(ctx context.Context, tx pgx.Tx) error {
 
 func componentPublicIDs(component *component) []int64 {
 	set := make(map[int64]bool)
+	if component.catalogOwner > 0 {
+		set[component.catalogOwner] = true
+	}
 	for _, member := range component.members {
 		set[member.publicID] = true
 	}

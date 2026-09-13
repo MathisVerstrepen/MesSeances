@@ -8,7 +8,7 @@ const [card, controls, pagination, films, city, cinema, film] = await Promise.al
   readFile(new URL('../app/components/MovieCatalogCard.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/components/MovieCatalogControls.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/components/MovieCatalogPagination.vue', import.meta.url), 'utf8'),
-  readFile(new URL('../app/pages/films.vue', import.meta.url), 'utf8'),
+  readFile(new URL('../app/pages/films/index.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/ville/[slug]/cinemas.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/cinema/[slug].vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8')
@@ -17,7 +17,7 @@ const [card, controls, pagination, films, city, cinema, film] = await Promise.al
 function movie(overrides: Partial<CatalogMovie>): CatalogMovie {
   return {
     slug: 'film', title: 'Film', runtime_minutes: 90, updated_at: '', poster_url: null,
-    tmdb_id: null, imdb_id: null, overview: null, release_date: null, genres: [], ...overrides
+    tmdb_id: null, imdb_id: null, overview: null, release_date: null, french_release_date: null, genres: [], ...overrides
   }
 }
 
@@ -31,7 +31,8 @@ test('movie detail genre chips link to the filtered film catalog', () => {
   const genres = film.match(/<ul[^>]+aria-label="Genres">([\s\S]*?)<\/ul>/)?.[1]
   assert.ok(genres)
   assert.match(genres, /v-for="genre in schedule\.movie\.genres"/)
-  assert.match(genres, /<NuxtLink\s+:to="\{ path: '\/films', query: \{ genres: genre \}, hash: '#tous-les-films' \}"/)
+  assert.match(genres, /path: isUpcomingFilm \? '\/films\/prochainement' : '\/films', query: \{ genres: genre \}/)
+  assert.match(genres, /hash: isUpcomingFilm \? undefined : '#tous-les-films'/)
   assert.match(films, /id="tous-les-films" ref="resultsSection" class="scroll-mt-4"/)
   assert.match(genres, /focus-visible:outline-2/)
   assert.match(genres, /\{\{ genre \}\}[\s\S]*<\/NuxtLink>/)

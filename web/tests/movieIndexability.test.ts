@@ -14,6 +14,7 @@ function movie(overrides: Partial<CatalogMovie> = {}): CatalogMovie {
     imdb_id: null,
     overview: ' Une histoire durable. ',
     release_date: '2026-02-28',
+    french_release_date: null,
     genres: [' Drame '],
     ...overrides
   }

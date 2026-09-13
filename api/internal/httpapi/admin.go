@@ -16,6 +16,7 @@ type adminAPI struct {
 	reviews       *enrichment.ReviewService
 	tmdbReruns    TMDBRerunner
 	tmdbRefreshes TMDBMetadataRefresher
+	tmdbUpcoming  TMDBUpcomingSyncer
 	locals        *enrichment.LocalMovieService
 	syncs         SyncController
 	schedules     SyncScheduleController
@@ -44,7 +45,8 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 	}
 	return &adminAPI{
 		origin: origin, password: password, key: key, hasKey: hasKey,
-		reviews: options.Reviews, tmdbReruns: options.TMDBReruns, tmdbRefreshes: options.TMDBRefreshes, locals: options.LocalMovies, syncs: options.Syncs, schedules: options.SyncSchedules, locations: options.TheaterLocations, geocoding: options.TheaterGeocoding, movies: options.Movies, now: options.Now,
+		tmdbUpcoming: options.TMDBUpcoming,
+		reviews:      options.Reviews, tmdbReruns: options.TMDBReruns, tmdbRefreshes: options.TMDBRefreshes, locals: options.LocalMovies, syncs: options.Syncs, schedules: options.SyncSchedules, locations: options.TheaterLocations, geocoding: options.TheaterGeocoding, movies: options.Movies, now: options.Now,
 	}
 }
 

@@ -467,6 +467,7 @@ useHead(() => ({
 
 <template>
   <main class="catalog-page bg-[#f8f7f2] text-ink">
+    <FilmCatalogTabs active="showing" />
     <section class="border-b-2 border-ink bg-surface" aria-labelledby="catalog-title">
       <div class="relative mx-auto max-w-[1440px] overflow-hidden px-4 pb-10 pt-12 sm:px-6 sm:pb-14 sm:pt-16 lg:px-10 lg:pb-16 lg:pt-20">
         <p class="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Catalogue · En salle</p>

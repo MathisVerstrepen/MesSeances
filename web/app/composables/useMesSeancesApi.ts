@@ -29,6 +29,7 @@ import type {
   AdminTMDBMetadataRefreshResponse,
   AdminTMDBRerunSummary,
   AdminUnmergeLocalMovieResponse,
+  AdminUpcomingSyncResponse,
   ApiErrorResponse,
   CitiesResponse,
   CityDetailResponse,
@@ -45,7 +46,9 @@ import type {
   TheaterShowtimesResponse,
   TheaterQuery,
   TimelineQuery,
-  TimelineResponse
+  TimelineResponse,
+  UpcomingMoviesQuery,
+  UpcomingMoviesResponse
 } from '~/types/api'
 
 function queryValues<T extends object>(query: T) {
@@ -104,6 +107,9 @@ export function useMesSeancesApi() {
     },
     movies(query: MoviesQuery = {}) {
       return apiFetch<MoviesResponse>(`${apiBase}/api/v1/movies`, { query: queryValues(query) })
+    },
+    upcomingMovies(query: UpcomingMoviesQuery = {}) {
+      return apiFetch<UpcomingMoviesResponse>(`${apiBase}/api/v1/movies/upcoming`, { query: queryValues(query), retry: false })
     },
     movieShowtimes(slug: string, query: MovieShowtimesQuery) {
       return apiFetch<MovieShowtimesResponse>(`${apiBase}/api/v1/movies/${encodeURIComponent(slug)}/showtimes`, { query: queryValues(query) })
@@ -206,6 +212,23 @@ export function useMesSeancesApi() {
     adminTMDBMetadataRefreshStatus() {
       return withAdminRedirect(apiFetch<AdminTMDBMetadataRefreshResponse>(`${apiBase}/api/v1/admin/tmdb-matches/refresh-metadata`, {
         credentials: 'include'
+      }))
+    },
+    adminStartUpcomingSync(signal?: AbortSignal) {
+      return withAdminRedirect(apiFetch<AdminUpcomingSyncResponse>(`${apiBase}/api/v1/admin/tmdb-upcoming-movies/sync`, {
+        method: 'POST',
+        credentials: 'include',
+        signal,
+        retry: false,
+        timeout: 15000
+      }))
+    },
+    adminUpcomingSyncStatus(signal?: AbortSignal) {
+      return withAdminRedirect(apiFetch<AdminUpcomingSyncResponse>(`${apiBase}/api/v1/admin/tmdb-upcoming-movies/sync`, {
+        credentials: 'include',
+        signal,
+        retry: false,
+        timeout: 15000
       }))
     },
     adminLocalMovieGroups(limit: number, offset: number) {
@@ -334,6 +357,7 @@ export function isNotFoundError(cause: unknown): boolean {
 }
 
 export function getFrenchApiError(cause: unknown): string {
+  if (getApiErrorCode(cause) === 'upcoming_unavailable') return 'Les prochaines sorties ne sont pas encore disponibles. Réessayez plus tard.'
   const message = parseApiFailure(cause)?.data?.error?.message
   if (message !== undefined) return message
   return 'Impossible de joindre le service. Vérifiez que l’API est démarrée, puis réessayez.'

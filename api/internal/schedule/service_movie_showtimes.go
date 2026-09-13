@@ -3,9 +3,26 @@ package schedule
 import (
 	"sort"
 	"strings"
+	"time"
 )
 
 func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, error) {
+	return s.movieShowtimes(s.source.Snapshot(), s.now(), query)
+}
+
+// MovieShowtimesBundle freezes snapshot and clock for both scopes.
+func (s *Service) MovieShowtimesBundle(query MovieShowtimesQuery) (MovieSchedule, MovieSchedule, error) {
+	view, now := s.source.Snapshot(), s.now()
+	scoped, err := s.movieShowtimes(view, now, query)
+	if err != nil {
+		return MovieSchedule{}, MovieSchedule{}, err
+	}
+	query.City, query.TheaterIDs = "", nil
+	nationwide, err := s.movieShowtimes(view, now, query)
+	return scoped, nationwide, err
+}
+
+func (s *Service) movieShowtimes(view *SnapshotView, now time.Time, query MovieShowtimesQuery) (MovieSchedule, error) {
 	if _, err := s.parseDate(query.Date); err != nil {
 		return MovieSchedule{}, err
 	}
@@ -13,7 +30,6 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 	if city != "" && len(query.TheaterIDs) > 0 {
 		return MovieSchedule{}, invalid("Les paramètres city et theaters sont mutuellement exclusifs.")
 	}
-	view := s.source.Snapshot()
 	canonicalSlug, found := view.resolveMovieSlug(query.Slug)
 	if !found {
 		return MovieSchedule{}, &NotFoundError{Message: "Film introuvable."}
@@ -28,7 +44,7 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 			value := public.BackdropURL
 			backdrop = &value
 		}
-	} else {
+	} else if movieIndex.firstShowtime >= 0 {
 		representative := view.data.Showtimes[movieIndex.firstShowtime].Movie
 		movie = materializeCatalogMovie(view, representative)
 		_, backdrop = materializeMovieMedia(view, representative)
@@ -58,7 +74,14 @@ func (s *Service) MovieShowtimes(query MovieShowtimesQuery) (MovieSchedule, erro
 		}
 		grouped[record.TheaterID] = append(grouped[record.TheaterID], materializeRecord(view, record))
 	}
-	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, CurrentlyScreened: movieCurrentlyScreened(view, canonicalSlug, s.now()), Date: query.Date, AvailableDates: availableDates, Theaters: []MovieTheaterShowtimes{}}
+	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, CurrentlyScreened: movieCurrentlyScreened(view, canonicalSlug, now), Date: query.Date, AvailableDates: availableDates, Theaters: []MovieTheaterShowtimes{}, ReleaseStatus: "ended"}
+	if movie.FrenchReleaseDate != nil && *movie.FrenchReleaseDate > now.In(s.location).Format(time.DateOnly) {
+		result.ReleaseStatus = "upcoming"
+	} else if result.CurrentlyScreened {
+		result.ReleaseStatus = "showing"
+	} else if len(view.data.PublicMovies) > 0 && view.data.PublicMovies[movieIndex.publicMovie].HasUpcomingRelease && movie.FrenchReleaseDate == nil {
+		result.ReleaseStatus = "unavailable"
+	}
 	for _, theaterPosition := range view.theaterCatalog {
 		theater := view.data.Theaters[theaterPosition]
 		showtimes := grouped[theater.ID]

@@ -11,6 +11,7 @@ func (s *PostgresStore) MatchedTMDBIDs(ctx context.Context) ([]int64, error) {
 	rows, err := s.pool.Query(ctx, `SELECT DISTINCT metadata_movie_id
 FROM movie_matches
 WHERE metadata_provider='tmdb' AND status='matched'
+UNION SELECT tmdb_id FROM tmdb_upcoming_movies
 ORDER BY metadata_movie_id`)
 	if err != nil {
 		return nil, fmt.Errorf("read matched TMDB IDs failed")

@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [030_public_movie_metadata_overrides.sql](030_public_movie_metadata_overrides.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [032_upcoming_movies.sql](032_upcoming_movies.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -19,7 +19,7 @@ It is created by the Go runner, not by a numbered migration:
 ## Conventions and relationships
 
 - In the column tables below, columns are **not null with no default** unless marked nullable or given a default. Primary keys also imply not null. `identity` means `GENERATED ALWAYS AS IDENTITY`.
-- Providers are `ugc`, `kinepolis`, `pathe`, and `cgr`, unless a table explicitly allows another value. Provider fields are strings with checks, not PostgreSQL enums.
+- Providers are `ugc`, `kinepolis`, `pathe`, `cgr`, and `megarama`, unless a table explicitly allows another value. Provider fields are strings with checks, not PostgreSQL enums. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
 - Runtime fields are `integer >= 0`; `0` represents an unknown runtime. The old `smallint`, 600-minute limit, and positive-only checks no longer apply.
 - `timestamptz` stores instants; `date` stores calendar/service dates. Schedule metadata fixes the timezone to `Europe/Paris`.
 - Primary keys and unique constraints create implicit indexes. Additional indexes are listed separately below. Foreign keys use default `NO ACTION` deletion behavior unless `CASCADE` is specified.
@@ -39,7 +39,8 @@ movies (generation_id, provider, provider_id)
 public_movies
   <- public_movie_sources
   <- movie_slug_aliases
-  <- public_movie_metadata_overrides
+   <- public_movie_metadata_overrides
+   <- tmdb_upcoming_movies
   <- public_movies.redirect_to_id
 local_movie_groups <-> local_movie_group_members
 sync_schedules <- sync_schedule_occurrence_claims
@@ -57,6 +58,7 @@ These rules apply to provider theater IDs, provider movie IDs (including source 
 | `kinepolis` | `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$` | Same as theater ID | Same as theater ID |
 | `pathe` | `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$` | Same as theater ID | `^V[1-9][0-9]*S[1-9][0-9]*$` |
 | `cgr` | `^[A-Z][0-9]{4}$` | `^[1-9][0-9]{0,127}$` | `^[A-Z][0-9]{4}-[a-f0-9]{64}$` |
+| `megarama` | `^EMS[0-9]{4}$` | Five uppercase alphanumeric characters, or `^EMS[0-9]{4}-emsx[0-9]{4}HC[0-9]+$` with equal cinema digits; maximum 114 characters | `^emsx[0-9]{12}$`; theater ID must match the first four digits |
 
 Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and slugs must also fit their own 128-character columns. Pathé showing identities include both venue and session tokens, not just an `S...` token.
 
@@ -154,7 +156,8 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | `provider` | `varchar(32)` | Provider; default `ugc` |
 | `service_date` | `date` | Service date |
 | `theater_id`, `movie_provider_id` | `varchar(128)` | Referenced schedule identities |
-| `start_time`, `end_time` | `timestamptz` | End must follow start, except CGR permits equality |
+| `start_time`, `end_time` | `timestamptz` | End must follow start, except CGR and Megarama permit equality |
+| `first_part_duration_minutes` | `integer` | Default `0`; nonnegative; must be zero except for Megarama |
 | `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be `ALL` |
 | `provider_version` | `varchar(256)` | Nonblank after trimming |
 | `format` | `varchar(16)` | `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, or `ICE` |
@@ -241,8 +244,9 @@ Primary key: `id`. Public identities survive schedule generations and can redire
 | --- | --- | --- |
 | `id` | `bigint identity` | Positive |
 | `redirect_to_id` | `bigint` | Nullable; FK to `public_movies(id)`; cannot equal `id` |
-| `identity_anchor_provider` | `varchar(32)` | Provider |
-| `identity_anchor_source_movie_id` | `varchar(128)` | Provider movie identity |
+| `identity_anchor_provider` | `varchar(32)` | Nullable; provider |
+| `identity_anchor_source_movie_id` | `varchar(128)` | Nullable; provider movie identity |
+| `identity_anchor_tmdb_id` | `bigint` | Nullable; positive TMDB identity anchor |
 | `title` | `varchar(1024)` | Nonblank after trimming |
 | `runtime_minutes` | `integer` | Nonnegative |
 | `poster_url` | `varchar(4096)` | Nullable; must start with `https://` |
@@ -255,7 +259,21 @@ Primary key: `id`. Public identities survive schedule generations and can redire
 | `trailer_vf_youtube_key`, `trailer_vo_youtube_key` | `varchar(11)` | Nullable; YouTube key pattern; must differ if both present; each requires nonnull `confirmed_tmdb_id` |
 | `imdb_id` | `varchar(32)` | Nullable; `^tt[0-9]{7,30}$`; requires nonnull `confirmed_tmdb_id` |
 
-Partial unique indexes enforce unique confirmed TMDB IDs and unique source anchors among nonredirected rows only. The self-FK prevents dangling redirects and the check prevents direct self-redirection, but neither prevents longer cycles. Timestamp defaults do not automatically update existing rows.
+Exactly one anchor shape is required: both provider/source fields nonnull and TMDB anchor null, or both provider/source fields null and a positive nonnull TMDB anchor. Existing provider identity checks remain unchanged. Partial unique indexes enforce unique confirmed TMDB IDs, source anchors, and TMDB anchors among nonredirected rows only. The self-FK prevents dangling redirects and the check prevents direct self-redirection, but neither prevents longer cycles. Timestamp defaults do not automatically update existing rows.
+
+### `tmdb_upcoming_movies` and `tmdb_upcoming_state`
+
+`tmdb_upcoming_movies` retains verified first French theatrical release evidence independently of provider sources and schedule generations. Withdrawn and out-of-window records remain stored. The general cache/public `release_date` and manual release-date overrides retain their existing semantics; they are not French theatrical evidence.
+
+| Column | Type | Definition |
+| --- | --- | --- |
+| `tmdb_id` | `bigint` | Primary key; positive |
+| `public_movie_id` | `bigint` | FK to `public_movies(id)` |
+| `french_release_date` | `date` | Nullable; first verified FR theatrical date |
+| `active` | `boolean` | Membership at the last successful import; true requires a nonnull date |
+| `verified_at` | `timestamptz` | Last release verification timestamp |
+
+`tmdb_upcoming_state` stores at most one successful complete publication. Columns are `singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton)`, `completed_at timestamptz`, `window_from date`, and `window_through date`, with ordered bounds. No row is seeded. Absence means no successful import, distinct from a successful empty catalog. Publication and reconciliation advance the existing `movie_enrichment_state.version` atomically; no additional revision counter is stored. An application catalog-only snapshot uses schedule revision zero without creating a `schedule_snapshot` row or fabricated showtimes.
 
 ### `public_movie_sources`
 
@@ -364,14 +382,14 @@ Running rows require null finish, summary, and error fields. Succeeded rows requ
 
 ### `sync_schedules`
 
-Stores configurable daily, weekly, or cron schedules for provider synchronization and TMDB metadata refresh tasks.
+Stores configurable daily, weekly, or cron schedules for provider synchronization, TMDB metadata refresh, and TMDB upcoming import tasks.
 
 Multiple schedules may share a target; `target` is not unique. The former `provider` primary key was replaced in migration 029.
 
 | Column | Type | Definition |
 | --- | --- | --- |
 | `id` | `bigint identity` | Primary key |
-| `target` | `text` | Provider or `tmdb_metadata_refresh`; not `all` |
+| `target` | `text` | Provider, `tmdb_metadata_refresh`, or `tmdb_upcoming_movies`; not `all` |
 | `revision` | `bigint` | Default `1`; positive |
 | `enabled` | `boolean` | Whether the schedule is enabled |
 | `schedule_kind` | `text` | `daily`, `weekly`, or `cron` |
@@ -402,7 +420,7 @@ Stores provider synchronization execution history, including run state, coverage
 | Column | Type | Definition |
 | --- | --- | --- |
 | `id` | `bigint identity` | Primary key |
-| `target` | `text` | Provider or `all`; not `tmdb_metadata_refresh` |
+| `target` | `text` | Provider or `all`; neither TMDB scheduler target is allowed |
 | `state` | `text` | `running`, `succeeded`, or `failed` |
 | `started_at` | `timestamptz` | Start timestamp |
 | `finished_at` | `timestamptz` | Nullable; null exactly when running |
@@ -444,6 +462,9 @@ All indexes below use PostgreSQL's default B-tree method. Primary-key and unique
 | `movie_matches_retry_idx` | `movie_matches` | `status, retry_after` | Nonunique |
 | `public_movies_active_tmdb_id_key` | `public_movies` | `confirmed_tmdb_id` | Unique where `redirect_to_id IS NULL AND confirmed_tmdb_id IS NOT NULL` |
 | `public_movies_anchor_key` | `public_movies` | `identity_anchor_provider, identity_anchor_source_movie_id` | Unique where `redirect_to_id IS NULL` |
+| `public_movies_tmdb_anchor_key` | `public_movies` | `identity_anchor_tmdb_id` | Unique where `redirect_to_id IS NULL` |
+| `tmdb_upcoming_movies_public_movie_id_idx` | `tmdb_upcoming_movies` | `public_movie_id` | Nonunique |
+| `tmdb_upcoming_movies_release_date_idx` | `tmdb_upcoming_movies` | `french_release_date, public_movie_id` | Nonunique where `active` |
 | `public_movie_sources_public_movie_id_idx` | `public_movie_sources` | `public_movie_id` | Nonunique |
 | `movie_slug_aliases_public_movie_id_idx` | `movie_slug_aliases` | `public_movie_id` | Nonunique |
 | `sync_runs_latest_idx` | `sync_runs` | `started_at DESC, id DESC` | Nonunique |
