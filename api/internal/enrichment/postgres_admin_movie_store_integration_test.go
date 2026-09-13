@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -110,6 +111,27 @@ FROM (VALUES
 		t.Fatalf("seed admin showtime fixtures failed: %v", err)
 	}
 	store := NewPostgresStore(pool)
+	t.Run("poster identity uses confirmed public movie match", func(t *testing.T) {
+		if _, err := pool.Exec(ctx, `UPDATE public_movies SET confirmed_tmdb_id=42 WHERE id=2`); err != nil {
+			t.Fatal("set confirmed movie identity failed")
+		}
+		for _, test := range []struct {
+			id      int64
+			want    int64
+			wantErr error
+		}{
+			{id: 2, want: 42},
+			{id: 1, want: 0},
+			{id: 7, wantErr: ErrAdminMovieNotFound},
+			{id: 999, wantErr: ErrAdminMovieNotFound},
+			{id: 0, wantErr: ErrAdminMovieInvalid},
+		} {
+			id, err := store.AdminMovieTMDBID(ctx, test.id)
+			if id != test.want || !errors.Is(err, test.wantErr) {
+				t.Fatalf("movie=%d identity=%d err=%v", test.id, id, err)
+			}
+		}
+	})
 	query := AdminMovieQuery{Limit: 100, OverrideStatus: "all", Sort: "showtime_count", Direction: "asc"}
 	list, err := store.AdminMovies(ctx, query)
 	if err != nil || list.Total != 6 || len(list.Items) != 6 {

@@ -71,6 +71,7 @@ func (s testShortlinkRetentionStore) PurgeCreatedBefore(ctx context.Context, cut
 func (w testCloseableWorker) Close() { w.close() }
 
 func (testTMDBProvider) Search(context.Context, string) ([]tmdb.Candidate, error) { return nil, nil }
+func (testTMDBProvider) Posters(context.Context, int64) ([]tmdb.Poster, error)    { return nil, nil }
 func (testTMDBProvider) Details(context.Context, int64) (tmdb.Details, error) {
 	return tmdb.Details{}, nil
 }

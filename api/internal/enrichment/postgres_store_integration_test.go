@@ -189,7 +189,7 @@ VALUES ((SELECT version FROM schedule_snapshot WHERE singleton=true),'ugc','200'
 		t.Fatalf("published version=%d error=%v", version, err)
 	}
 	t.Run("admin movie metadata overrides", func(t *testing.T) {
-		service := NewAdminMovieService(store)
+		service := NewAdminMovieService(store, nil)
 		baseQuery := AdminMovieQuery{Limit: 50, OverrideStatus: "all", Sort: "id", Direction: "asc"}
 		list, err := service.List(ctx, baseQuery)
 		if err != nil || len(list.Items) != 1 || list.Items[0].Automatic.Title != "Film" || list.Items[0].Values.Title != "Film" || list.Items[0].ID == "" {

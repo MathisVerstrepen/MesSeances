@@ -27,6 +27,7 @@ import { AgGridVue } from 'ag-grid-vue3'
 import { AlertTriangle, LoaderCircle, RefreshCw } from '@lucide/vue'
 import AdminMoviesActionsCell from './AdminMoviesActionsCell.vue'
 import AdminMoviesMetadataCell from './AdminMoviesMetadataCell.vue'
+import AdminMoviePosterPicker from './AdminMoviePosterPicker.vue'
 import type { AdminMovieField, AdminMovieItem } from '~/types/api'
 import {
   ADMIN_MOVIE_PAGE_SIZE,
@@ -322,6 +323,12 @@ function updateDetail(field: AdminMovieField, event: Event) {
   updateDraft(item, field, value)
 }
 
+function selectPoster(url: string) {
+  const item = selectedDetailsItem.value
+  if (!item || pendingRows.value[item.id]) return
+  updateDraft(item, 'poster_url', url)
+}
+
 function automaticValue(item: AdminMovieItem, field: AdminMovieField): string {
   return formatFieldValue(field, item.automatic[field]) || 'Non renseigné'
 }
@@ -544,11 +551,13 @@ onBeforeUnmount(() => {
         <div v-for="field in (['genres', 'overview', 'poster_url', 'backdrop_url', 'trailer_vf_youtube_key', 'trailer_vo_youtube_key'] as AdminMovieField[])" :key="field" :class="field === 'overview' ? 'lg:col-span-2' : ''">
           <div class="mb-1.5 flex min-h-8 flex-wrap items-center gap-2">
             <label :for="`${detailsId(selectedDetailsItem)}-${field}`" class="text-sm font-semibold text-ink">{{ adminMovieFieldLabels[field] }}</label>
+            <AdminMoviePosterPicker v-if="field === 'poster_url'" :key="selectedDetailsItem.id" :movie-id="selectedDetailsItem.id" :movie-title="selectedDetailsItem.values.title" :current-poster-url="detailValue('poster_url') || null" :disabled="Boolean(pendingRows[selectedDetailsItem.id])" @select="selectPoster" />
             <span v-if="isAdminMovieFieldOverridden(selectedDetailsItem, drafts[selectedDetailsItem.id], field)" class="inline-flex items-center gap-1 text-xs font-semibold text-primary"><span class="size-2 rounded-full bg-primary" aria-hidden="true" /> Valeur manuelle</span>
             <button v-if="isAdminMovieFieldOverridden(selectedDetailsItem, drafts[selectedDetailsItem.id], field)" type="button" class="ml-auto text-xs font-semibold text-accent underline underline-offset-2" @click="restoreField(selectedDetailsItem, field)">Restaurer la valeur automatique</button>
           </div>
           <textarea v-if="field === 'genres' || field === 'overview'" :id="`${detailsId(selectedDetailsItem)}-${field}`" class="field h-auto min-h-28 py-2" :maxlength="field === 'overview' ? 10000 : undefined" :value="detailValue(field)" :aria-invalid="selectedDetailsErrors[field] ? 'true' : undefined" @input="updateDetail(field, $event)" />
           <input v-else :id="`${detailsId(selectedDetailsItem)}-${field}`" class="field" type="text" :maxlength="field.includes('youtube') ? 11 : 4096" :value="detailValue(field)" :aria-invalid="selectedDetailsErrors[field] ? 'true' : undefined" autocomplete="off" spellcheck="false" @input="updateDetail(field, $event)">
+          <PosterImage v-if="field === 'poster_url'" :src="detailValue('poster_url')" :alt="`Affiche de ${selectedDetailsItem.values.title}`" sizes="120px" class="mt-3 aspect-[2/3] w-30 rounded-md bg-canvas" image-class="size-full rounded-md object-contain" fallback-class="p-2 text-center text-xs text-muted" />
           <p v-if="selectedDetailsErrors[field]" class="mt-1 text-sm font-semibold text-red-700" role="alert">{{ selectedDetailsErrors[field] }}</p>
           <p v-if="isAdminMovieFieldOverridden(selectedDetailsItem, drafts[selectedDetailsItem.id], field)" class="mt-1 text-xs text-muted">Automatique : {{ automaticValue(selectedDetailsItem, field) }}</p>
         </div>

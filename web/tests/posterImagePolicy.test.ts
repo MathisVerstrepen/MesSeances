@@ -41,7 +41,7 @@ test('PosterImage centrally owns responsive lazy image policy and protects it fr
 
 test('every PosterImage consumer supplies an explicit layout size', () => {
   const tags = vueSources.flatMap(({ path, source }) => [...source.matchAll(/<PosterImage\b[\s\S]*?\/>/g)].map((match) => ({ path, tag: match[0] })))
-  assert.equal(tags.length, 11)
+  assert.equal(tags.length, 13)
   for (const { path, tag } of tags) assert.match(tag, /\s:?sizes=/, path)
 
   const adminTMDBMatchPosters = tags.filter(({ path }) => path.endsWith(adminTMDBMatchesPagePath))

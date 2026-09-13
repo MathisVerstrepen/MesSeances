@@ -267,7 +267,7 @@ type adminRuntime struct {
 
 func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.Config, logger *slog.Logger, metrics *observability.Metrics) (adminRuntime, error) {
 	store := enrichment.NewPostgresStore(pool)
-	var provider enrichment.Provider
+	var provider adminTMDBProvider
 	if cfg.TMDB.Token != "" {
 		client, err := tmdb.NewClient(cfg.TMDB.Token)
 		if err != nil {
@@ -502,13 +502,18 @@ func serve(ctx context.Context, server httpServer, stopWorkers context.CancelFun
 	}
 }
 
-func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider enrichment.Provider) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
+type adminTMDBProvider interface {
+	enrichment.Provider
+	enrichment.AdminMoviePosterProvider
+}
+
+func newAdminOptions(ctx context.Context, password, sessionSecret string, store *enrichment.PostgresStore, provider adminTMDBProvider) (httpapi.AdminOptions, *enrichment.MetadataRefreshManager, error) {
 	options := httpapi.AdminOptions{
 		Password:      password,
 		SessionSecret: sessionSecret,
 		Reviews:       enrichment.NewReviewService(store, provider, nil),
 		LocalMovies:   enrichment.NewLocalMovieService(store),
-		Movies:        enrichment.NewAdminMovieService(store),
+		Movies:        enrichment.NewAdminMovieService(store, provider),
 	}
 	if provider != nil {
 		gate := enrichment.NewTMDBRunGate()

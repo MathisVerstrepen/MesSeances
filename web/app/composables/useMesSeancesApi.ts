@@ -9,6 +9,7 @@ import type {
   AdminMatchDecisionResponse,
   AdminMovieItem,
   AdminMoviePatchRequest,
+  AdminMoviePostersResponse,
   AdminMoviesQuery,
   AdminMoviesResponse,
   AdminPendingMatchesFilter,
@@ -128,6 +129,13 @@ export function useMesSeancesApi() {
         credentials: 'include',
         query: queryValues(query),
         signal
+      }))
+    },
+    adminMoviePosters(id: string, signal?: AbortSignal) {
+      return withAdminRedirect(apiFetch<AdminMoviePostersResponse>(`${apiBase}/api/v1/admin/movies/${encodeURIComponent(id)}/posters`, {
+        credentials: 'include',
+        signal,
+        retry: false
       }))
     },
     adminUpdateMovie(id: string, input: AdminMoviePatchRequest) {

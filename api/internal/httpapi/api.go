@@ -168,6 +168,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/refresh-metadata", api.admin.refreshTMDBMetadata)
 			router.Get("/local-movie-groups", api.admin.localMovieGroups)
 			router.Get("/movies", api.admin.adminMovies)
+			router.Get("/movies/{id}/posters", api.admin.adminMoviePosters)
 			router.With(api.admin.requireOrigin).Patch("/movies/{id}", api.admin.updateAdminMovie)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups", api.admin.mergeLocalMovies)
 			router.With(api.admin.requireOrigin).Post("/local-movie-groups/{localMovieID}/members", api.admin.addLocalMovieMembers)

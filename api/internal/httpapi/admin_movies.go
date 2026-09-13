@@ -39,6 +39,33 @@ func (a *adminAPI) adminMovies(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (a *adminAPI) adminMoviePosters(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseAdminMovieID(chi.URLParam(r, "id"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid_admin_movie_id", "Identifiant de film invalide.")
+		return
+	}
+	if a.movies == nil {
+		writeError(w, http.StatusServiceUnavailable, "admin_unavailable", "Service administrateur indisponible.")
+		return
+	}
+	result, err := a.movies.Posters(r.Context(), id)
+	if err != nil {
+		switch {
+		case errors.Is(err, enrichment.ErrAdminMovieNotFound):
+			writeError(w, http.StatusNotFound, "admin_movie_not_found", "Film introuvable.")
+		case errors.Is(err, enrichment.ErrAdminMoviePostersUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "admin_movie_posters_unavailable", "Affiches TMDB indisponibles.")
+		case errors.Is(err, enrichment.ErrAdminMoviePostersUpstream):
+			writeError(w, http.StatusBadGateway, "admin_movie_posters_failed", "Impossible de charger les affiches TMDB.")
+		default:
+			writeError(w, http.StatusInternalServerError, "admin_movie_posters_failed", "Impossible de charger les affiches TMDB.")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (a *adminAPI) updateAdminMovie(w http.ResponseWriter, r *http.Request) {
 	id, ok := parseAdminMovieID(chi.URLParam(r, "id"))
 	if !ok {

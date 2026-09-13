@@ -10,12 +10,16 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"messeances/api/internal/tmdb"
 )
 
 var (
-	ErrAdminMovieInvalid  = errors.New("invalid admin movie request")
-	ErrAdminMovieConflict = errors.New("admin movie conflict")
-	ErrAdminMovieNotFound = errors.New("admin movie not found")
+	ErrAdminMovieInvalid            = errors.New("invalid admin movie request")
+	ErrAdminMovieConflict           = errors.New("admin movie conflict")
+	ErrAdminMovieNotFound           = errors.New("admin movie not found")
+	ErrAdminMoviePostersUnavailable = errors.New("admin movie posters unavailable")
+	ErrAdminMoviePostersUpstream    = errors.New("admin movie posters upstream failed")
 )
 
 type AdminMovieField string
@@ -113,12 +117,52 @@ type AdminMoviePatch struct {
 type AdminMovieStore interface {
 	AdminMovies(context.Context, AdminMovieQuery) (AdminMovieList, error)
 	UpdateAdminMovie(context.Context, int64, AdminMoviePatch) (AdminMovieItem, error)
+	AdminMovieTMDBID(context.Context, int64) (int64, error)
 }
 
-type AdminMovieService struct{ store AdminMovieStore }
+type AdminMoviePosterProvider interface {
+	Posters(context.Context, int64) ([]tmdb.Poster, error)
+}
 
-func NewAdminMovieService(store AdminMovieStore) *AdminMovieService {
-	return &AdminMovieService{store: store}
+type AdminMoviePosterList struct {
+	Posters []tmdb.Poster `json:"posters"`
+}
+
+type AdminMovieService struct {
+	store   AdminMovieStore
+	posters AdminMoviePosterProvider
+}
+
+func NewAdminMovieService(store AdminMovieStore, posters AdminMoviePosterProvider) *AdminMovieService {
+	return &AdminMovieService{store: store, posters: posters}
+}
+
+func (s *AdminMovieService) Posters(ctx context.Context, id int64) (AdminMoviePosterList, error) {
+	if id <= 0 {
+		return AdminMoviePosterList{}, ErrAdminMovieInvalid
+	}
+	if s == nil || s.store == nil {
+		return AdminMoviePosterList{}, ErrAdminMoviePostersUnavailable
+	}
+	tmdbID, err := s.store.AdminMovieTMDBID(ctx, id)
+	if err != nil {
+		return AdminMoviePosterList{}, err
+	}
+	result := AdminMoviePosterList{Posters: []tmdb.Poster{}}
+	if tmdbID == 0 {
+		return result, nil
+	}
+	if s.posters == nil {
+		return AdminMoviePosterList{}, ErrAdminMoviePostersUnavailable
+	}
+	posters, err := s.posters.Posters(ctx, tmdbID)
+	if err != nil {
+		return AdminMoviePosterList{}, ErrAdminMoviePostersUpstream
+	}
+	if posters != nil {
+		result.Posters = posters
+	}
+	return result, nil
 }
 
 func (s *AdminMovieService) List(ctx context.Context, query AdminMovieQuery) (AdminMovieList, error) {

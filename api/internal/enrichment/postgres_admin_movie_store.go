@@ -77,6 +77,24 @@ type adminMovieOverrideState struct {
 	trailerVOOverridden bool
 }
 
+// AdminMovieTMDBID uses the reconciled identity, never source candidates or overrides.
+// Zero denotes an existing movie without a confirmed TMDB match.
+func (s *PostgresStore) AdminMovieTMDBID(ctx context.Context, id int64) (int64, error) {
+	if id <= 0 {
+		return 0, ErrAdminMovieInvalid
+	}
+	var tmdbID int64
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE(confirmed_tmdb_id, 0)
+FROM public_movies WHERE id=$1 AND redirect_to_id IS NULL`, id).Scan(&tmdbID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, ErrAdminMovieNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read admin movie identity failed")
+	}
+	return tmdbID, nil
+}
+
 func (s *PostgresStore) AdminMovies(ctx context.Context, query AdminMovieQuery) (AdminMovieList, error) {
 	if !validAdminMovieQuery(query) {
 		return AdminMovieList{}, ErrAdminMovieInvalid
