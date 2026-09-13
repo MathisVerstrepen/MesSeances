@@ -754,8 +754,21 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
         </div>
 
         <div class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block">
-          <ShowtimeDateBar v-if="hasAvailableDates" :selected-date="selectedDate" :available-dates="availableDates" :today="today" @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })" />
-          <span v-else class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
+          <div class="flex min-w-0 items-center gap-3">
+            <ShowtimeDateBar v-if="hasAvailableDates" :selected-date="selectedDate" :available-dates="availableDates" :today="today" @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })" />
+            <span v-else class="inline-flex h-10 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
+            <button
+              type="button"
+              class="ml-auto inline-flex h-10 shrink-0 items-center gap-2 border-2 border-ink px-4 font-mono text-[10px] font-black uppercase tracking-[0.06em] focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
+              :class="sortByNextShowtime ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'bg-surface hover:bg-[#e8e6de]'"
+              :aria-pressed="sortByNextShowtime"
+              aria-label="Trier les cinémas par prochain horaire"
+              @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
+            >
+              <ArrowDownUp :size="16" aria-hidden="true" />
+              <span class="whitespace-nowrap">Prochain horaire</span>
+            </button>
+          </div>
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
             <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
@@ -791,17 +804,6 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                   </button>
                 </div>
               </template>
-              <button
-                type="button"
-                class="ml-auto inline-flex min-h-8 shrink-0 items-center gap-[0.3rem] border-[1.5px] border-ink px-[0.55rem] py-[0.35rem] text-[0.72rem] font-extrabold"
-                :class="sortByNextShowtime ? 'bg-ink text-surface' : 'bg-transparent hover:bg-[#e8e6de]'"
-                :aria-pressed="sortByNextShowtime"
-                aria-label="Trier les cinémas par prochain horaire"
-                @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
-              >
-                <ArrowDownUp :size="16" aria-hidden="true" />
-                <span class="whitespace-nowrap">Prochain horaire</span>
-              </button>
             </div>
           </div>
         </div>
