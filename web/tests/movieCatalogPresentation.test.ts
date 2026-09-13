@@ -4,13 +4,14 @@ import test from 'node:test'
 import type { CatalogMovie } from '../app/types/api.ts'
 import { filterAndSortCatalogMovies, movieCatalogSortOptions } from '../app/utils/movieCatalogPresentation.ts'
 
-const [card, controls, pagination, films, city, cinema] = await Promise.all([
+const [card, controls, pagination, films, city, cinema, film] = await Promise.all([
   readFile(new URL('../app/components/MovieCatalogCard.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/components/MovieCatalogControls.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/components/MovieCatalogPagination.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/films.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/ville/[slug]/cinemas.vue', import.meta.url), 'utf8'),
-  readFile(new URL('../app/pages/cinema/[slug].vue', import.meta.url), 'utf8')
+  readFile(new URL('../app/pages/cinema/[slug].vue', import.meta.url), 'utf8'),
+  readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8')
 ])
 
 function movie(overrides: Partial<CatalogMovie>): CatalogMovie {
@@ -24,6 +25,16 @@ test('shares canonical catalog sort ordering', () => {
   assert.deepEqual(movieCatalogSortOptions.map(({ value }) => value), [
     'title_asc', 'title_desc', 'release_date_desc', 'runtime_asc', 'runtime_desc', 'showtimes_desc'
   ])
+})
+
+test('movie detail genre chips link to the filtered film catalog', () => {
+  const genres = film.match(/<ul[^>]+aria-label="Genres">([\s\S]*?)<\/ul>/)?.[1]
+  assert.ok(genres)
+  assert.match(genres, /v-for="genre in schedule\.movie\.genres"/)
+  assert.match(genres, /<NuxtLink\s+:to="\{ path: '\/films', query: \{ genres: genre \}, hash: '#tous-les-films' \}"/)
+  assert.match(films, /id="tous-les-films" ref="resultsSection" class="scroll-mt-4"/)
+  assert.match(genres, /focus-visible:outline-2/)
+  assert.match(genres, /\{\{ genre \}\}[\s\S]*<\/NuxtLink>/)
 })
 
 test('filters titles without case or diacritics and applies deterministic sort tie-breakers', () => {

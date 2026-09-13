@@ -623,7 +623,7 @@ useHead(() => ({
           </form>
         </div>
 
-        <div ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
+        <div id="tous-les-films" ref="resultsSection" class="scroll-mt-4" aria-hidden="true"></div>
 
         <div v-if="catalog && !pending" class="results-bar mt-10 flex items-center justify-between gap-3 border-y-2 border-ink py-4 sm:items-end sm:gap-6">
           <h2 class="min-w-0 flex-1 text-xl font-black tracking-[-0.035em] max-sm:truncate sm:text-2xl">
