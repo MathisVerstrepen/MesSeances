@@ -8,6 +8,8 @@ import {
   adminTMDBMatchedSearch,
   adminTMDBMetadataRefreshPresentation,
   adminTMDBMatchesTab,
+  adminTMDBSearchQuery,
+  adminTMDBSearchURL,
   ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS,
   shouldRefreshAdminTMDBMatchLists
 } from '../app/utils/adminTmdbMatches.ts'
@@ -53,6 +55,56 @@ test('trims matched search without truncating or changing literal text', () => {
   assert.equal(adminTMDBMatchedSearch(undefined), '')
   assert.equal(adminTMDBMatchedSearch(overlong), 'é'.repeat(1025))
   assert.equal(ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS, 350)
+})
+
+test('normalizes manual TMDB search titles by removing balanced annotations only', () => {
+  const cases = [
+    ['America America 2 (Version Kannada)', 'America America 2'],
+    ['  America\tAmerica 2 (Version Kannada) (VOSTFR)  ', 'America America 2'],
+    ['America (Version (Kannada)) America 2', 'America America 2'],
+    ['America(Version Kannada)America 2', 'America America 2'],
+    ['Alien', 'Alien'],
+    ['  Le\u00a0\u00a0Film\n2 ', 'Le Film 2'],
+    ['Film (unfinished', 'Film (unfinished'],
+    ['Film ) title (VO)', 'Film ) title'],
+    ['Film (unfinished (VO)', 'Film (unfinished'],
+    ['(Version (Kannada)) ()', ''],
+    ['   ', '']
+  ] as const
+
+  for (const [title, expected] of cases) {
+    assert.equal(adminTMDBSearchQuery(title), expected, title)
+  }
+})
+
+test('encodes normalized TMDB queries on a fixed HTTPS movie-search URL', () => {
+  assert.equal(adminTMDBSearchURL('America America 2 (Version Kannada)'), 'https://www.themoviedb.org/search/movie?query=America+America+2')
+  const title = 'Été & nuit + #1 ? / 100% "映画" (VOSTFR)'
+  const url = new URL(adminTMDBSearchURL(title)!)
+  assert.equal(url.origin, 'https://www.themoviedb.org')
+  assert.equal(url.pathname, '/search/movie')
+  assert.equal(url.hash, '')
+  assert.deepEqual([...url.searchParams], [['query', 'Été & nuit + #1 ? / 100% "映画"']])
+  assert.equal(adminTMDBSearchURL('(Version Kannada)'), undefined)
+  assert.equal(adminTMDBSearchURL(''), undefined)
+  assert.doesNotThrow(() => adminTMDBSearchURL('Film \ud800'))
+})
+
+test('shows safe new-tab TMDB search alongside generic provider links in shared movie cards', async () => {
+  const page = await readFile(new URL('../app/pages/admin/tmdb-matches.vue', import.meta.url), 'utf8')
+  const sourceSection = page.match(/<section class="min-w-0" :aria-labelledby="`source-title-\$\{domKey\(match\)\}`">[\s\S]*?<\/section>/)?.[0]
+  assert.ok(sourceSection)
+  const searchLink = sourceSection.match(/<a v-if="adminTMDBSearchURL\(match.source_title\)"[^>]*>[\s\S]*?<\/a>/)?.[0]
+  assert.ok(searchLink)
+  assert.match(searchLink, /:href="adminTMDBSearchURL\(match.source_title\)"/)
+  assert.match(searchLink, /target="_blank" rel="noopener noreferrer"/)
+  assert.match(searchLink, /aria-label="TMDB, ouverture dans un nouvel onglet"/)
+  assert.match(sourceSection, /<a v-if="match.source_detail_url" :href="match.source_detail_url" target="_blank" rel="noopener noreferrer"/)
+  assert.match(sourceSection, /Voir sur \$\{providerLabel\(match.source_provider\)\}/)
+  assert.doesNotMatch(sourceSection, /activeTab|match\.status|source_provider ===/)
+  for (const [provider, label] of Object.entries({ ugc: 'UGC', kinepolis: 'Kinepolis', pathe: 'Pathé', cgr: 'CGR', megarama: 'Megarama' })) {
+    assert.ok(page.includes(`${provider}: '${label}'`))
+  }
 })
 
 test('sends trimmed search only in non-empty matched-list query objects', async () => {

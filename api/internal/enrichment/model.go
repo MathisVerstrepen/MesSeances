@@ -96,6 +96,8 @@ type PendingMatch struct {
 	EvaluatedAt          time.Time   `json:"evaluated_at"`
 	UpdatedAt            *time.Time  `json:"updated_at,omitempty"`
 	CurrentMatch         *Candidate  `json:"current_match,omitempty"`
+	sourceShowingID      string
+	sourceTheaterID      string
 }
 
 var (

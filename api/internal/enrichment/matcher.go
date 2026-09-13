@@ -253,11 +253,14 @@ func (m *Matcher) process(ctx context.Context, movie Movie, summary *Summary, fo
 }
 
 func (m *Matcher) reusableMatch(ctx context.Context, movie Movie, provider string) (*ReusableMetadataMatch, error) {
+	canonical := CanonicalTitle(provider, cleanSearchTitle(movie.Title))
+	if canonical == "" {
+		return nil, nil
+	}
 	matches, err := m.store.ConfirmedMatches(ctx, provider, ProviderTMDB, max(1, movie.RuntimeMinutes-2), movie.RuntimeMinutes+2)
 	if err != nil {
 		return nil, err
 	}
-	canonical := CanonicalTitle(provider, movie.Title)
 	byID := make(map[int64]ReusableMetadataMatch)
 	for _, match := range matches {
 		if match.MetadataMovieID <= 0 || abs(match.SourceRuntimeMinutes-movie.RuntimeMinutes) > 2 || CanonicalTitle(match.SourceProvider, match.NormalizedSourceTitle) != canonical {
@@ -350,7 +353,11 @@ func finalizeCandidates(candidates []Candidate) []Candidate {
 }
 
 func searchQueries(rawTitle, provider string) ([]string, map[string]struct{}) {
+	rawTitle = cleanSearchTitle(rawTitle)
 	rawNormalized := NormalizeTitle(rawTitle)
+	if rawNormalized == "" {
+		return nil, nil
+	}
 	canonical := CanonicalTitle(provider, rawTitle)
 	queries := []string{rawTitle}
 	if canonical != "" && canonical != rawNormalized {
@@ -437,7 +444,12 @@ func fourDigits(value string) bool {
 }
 
 func candidateTitleMatches(value string, exactTitles map[string]struct{}) bool {
-	if _, exact := exactTitles[NormalizeTitle(value)]; exact {
+	value = cleanSearchTitle(value)
+	normalized := NormalizeTitle(value)
+	if normalized == "" {
+		return false
+	}
+	if _, exact := exactTitles[normalized]; exact {
 		return true
 	}
 	_, exact := exactTitles[canonicalCandidateTitle(value)]
@@ -530,4 +542,32 @@ func NormalizeTitle(value string) string {
 		}
 	}
 	return strings.TrimSpace(builder.String())
+}
+
+// cleanSearchTitle removes balanced annotations only. Keep NormalizeTitle unchanged:
+// it also fingerprints stored decisions, including sticky rejections and reviews.
+func cleanSearchTitle(value string) string {
+	var builder strings.Builder
+	depth, start, kept := 0, 0, 0
+	for index, r := range value {
+		switch r {
+		case '(':
+			if depth == 0 {
+				start = index
+			}
+			depth++
+		case ')':
+			if depth == 0 {
+				continue
+			}
+			depth--
+			if depth == 0 {
+				builder.WriteString(value[kept:start])
+				builder.WriteByte(' ')
+				kept = index + 1
+			}
+		}
+	}
+	builder.WriteString(value[kept:])
+	return strings.Join(strings.Fields(builder.String()), " ")
 }

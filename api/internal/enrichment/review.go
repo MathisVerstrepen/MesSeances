@@ -62,7 +62,7 @@ func (s *ReviewService) Pending(ctx context.Context, filter PendingMatchFilter, 
 			item.SourceDetailURL = ugcDetailURL(item.SourceMovieID)
 		} else if item.SourceProvider == SourceMegarama && megaramaGlobalID.MatchString(item.SourceMovieID) {
 			item.SourceDetailURL = "https://www.ticketingcine.com/film/" + item.SourceMovieID + ".html"
-		} else {
+		} else if !validSourceIdentity(item.SourceProvider, item.SourceMovieID) || !schedule.ValidBookingURL(schedule.Provider(item.SourceProvider), item.SourceDetailURL, item.sourceShowingID, item.sourceTheaterID) {
 			item.SourceDetailURL = ""
 		}
 		if !validSourcePosterURL(item.SourceProvider, item.SourcePosterURL) {

@@ -356,12 +356,20 @@ func validUGCURL(raw string, allowAssets bool) bool {
 	return host == "www.ugc.fr" || allowAssets && strings.HasSuffix(host, ".ugc.fr")
 }
 
+// ValidBookingURL checks a persisted screening link against its provider and identities.
+func ValidBookingURL(provider Provider, raw, showingID, theaterProviderID string) bool {
+	if len(raw) > maxURLLength || !validProviderIdentity(provider, "showing", showingID) || !validProviderIdentity(provider, "theater", theaterProviderID) {
+		return false
+	}
+	return validBookingURL(provider, raw, showingID, theaterProviderID)
+}
+
 func validBookingURL(provider Provider, raw, showingID, theaterProviderID string) bool {
 	if provider == ProviderMegarama {
 		return ValidMegaramaBookingURL(raw, theaterProviderID, showingID)
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" || parsed.RawPath != "" {
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" || parsed.RawPath != "" || parsed.Opaque != "" || parsed.ForceQuery {
 		return false
 	}
 	if provider == ProviderKinepolis {

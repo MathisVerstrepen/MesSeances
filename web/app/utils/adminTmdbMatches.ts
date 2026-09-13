@@ -13,6 +13,30 @@ export interface AdminTMDBMetadataRefreshPresentation {
 
 export const ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS = 350
 
+export function adminTMDBSearchQuery(title: string): string {
+  const characters: string[] = []
+  const openings: number[] = []
+  for (const character of title) {
+    if (character === '(') openings.push(characters.length)
+    if (character === ')' && openings.length) {
+      // Replace balanced groups with a space without dropping unmatched title text.
+      characters.length = openings.pop()!
+      characters.push(' ')
+    } else {
+      characters.push(character)
+    }
+  }
+  return characters.join('').replace(/\s+/g, ' ').trim()
+}
+
+export function adminTMDBSearchURL(title: string): string | undefined {
+  const query = adminTMDBSearchQuery(title)
+  if (!query) return undefined
+  const url = new URL('https://www.themoviedb.org/search/movie')
+  url.searchParams.set('query', query)
+  return url.href
+}
+
 export function adminTMDBMatchedSearch(value: string | undefined): string {
   return value?.trim() ?? ''
 }
