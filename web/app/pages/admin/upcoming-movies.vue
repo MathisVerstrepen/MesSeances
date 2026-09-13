@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, LoaderCircle } from '@lucide/vue'
+import { AlertTriangle, ArrowLeft, LoaderCircle, RefreshCw } from '@lucide/vue'
 import type { UpcomingReviewFilter } from '~/types/api'
 import { frenchReleaseTypeLabels, formatUpcomingAssessmentTime, normalizeUpcomingReviewSearch, parseUpcomingReviewRoute, upcomingReviewDecisionLabels, upcomingReviewFilters, upcomingReviewReasonLabels, upcomingReviewRouteQuery, upcomingReviewVisibility, UPCOMING_REVIEW_PAGE_SIZE, UPCOMING_REVIEW_SEARCH_DELAY } from '~/utils/adminUpcomingMovies'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
@@ -10,6 +10,11 @@ useHead({ title: 'Revue des sorties à venir - MesSeances' })
 const route = useRoute()
 const router = useRouter()
 const api = useMesSeancesApi()
+const { pending: upcomingPending, running: upcomingRunning, canStart: canStartUpcoming, canCheck: canCheckUpcoming, needsCheck: upcomingNeedsCheck, error: upcomingError, message: upcomingMessage, checkStatus: checkUpcomingStatus, start: startUpcomingSync, dispose: disposeUpcomingSync } = useAdminUpcomingSync(api)
+
+onMounted(() => { void checkUpcomingStatus() })
+onBeforeUnmount(disposeUpcomingSync)
+
 const filters = computed(() => parseUpcomingReviewRoute(route.query))
 const search = ref(filters.value.q)
 const { items, total, loading, loaded, error, message, mutationID, canMutate, load, invalidate, decide, dispose } = useAdminUpcomingMovies(api, async (page) => {
@@ -79,6 +84,20 @@ onBeforeUnmount(() => { mounted = false; cancelSearch(); dispose() })
       <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">Revue des sorties à venir</h1>
       <p class="mt-3 text-sm text-muted">Les signalements restent visibles jusqu’à leur exclusion.</p>
     </header>
+
+    <div class="mt-5">
+      <button type="button" class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto" :disabled="!canStartUpcoming" aria-describedby="upcoming-sync-status" @click="startUpcomingSync">
+        <LoaderCircle v-if="upcomingPending || upcomingRunning" :size="17" class="shrink-0 animate-spin" aria-hidden="true" />
+        <RefreshCw v-else :size="17" class="shrink-0" aria-hidden="true" />
+        Synchroniser TMDB - Prochainement
+      </button>
+      <p id="upcoming-sync-status" class="text-sm text-muted" :class="{ 'mt-3': upcomingMessage }" role="status" aria-live="polite">{{ upcomingMessage }}</p>
+      <div v-if="upcomingError" class="mt-3 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
+        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+        <p>{{ upcomingError }}</p>
+      </div>
+      <button v-if="upcomingNeedsCheck && !upcomingPending" type="button" class="mt-3" :class="secondaryButtonClass" :disabled="!canCheckUpcoming" @click="checkUpcomingStatus">Vérifier le statut</button>
+    </div>
 
     <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
       <div>

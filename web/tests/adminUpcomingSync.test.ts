@@ -302,19 +302,35 @@ test('GET and empty-body POST use frozen path, credentials, cancellation, timeou
   ])
 })
 
-test('dashboard wires accessible direct action, status recovery, initial load and teardown without schedule mutation', async () => {
-  const page = await readFile(new URL('../app/pages/admin/index.vue', import.meta.url), 'utf8')
+test('upcoming review page owns accessible direct action, status recovery, initial load and teardown without schedule mutation', async () => {
+  const page = await readFile(new URL('../app/pages/admin/upcoming-movies.vue', import.meta.url), 'utf8')
   const api = await readFile(new URL('../app/composables/useMesSeancesApi.ts', import.meta.url), 'utf8')
   assert.match(page, /definePageMeta\(\{ middleware: 'admin-auth' \}\)/)
   assert.match(page, /onMounted\(\(\) => \{ void checkUpcomingStatus\(\) \}\)/)
   assert.match(page, /onBeforeUnmount\(disposeUpcomingSync\)/)
-  assert.match(page, /<button type="button"[^>]+:disabled="!canStartUpcoming \|\| loggingOut"[^>]+@click="startUpcomingSync"/)
+  assert.equal([...page.matchAll(/useAdminUpcomingSync\(api\)/g)].length, 1)
+  assert.equal([...page.matchAll(/void checkUpcomingStatus\(\)/g)].length, 1)
+  assert.match(page, /<button type="button"[^>]+:disabled="!canStartUpcoming"[^>]+aria-describedby="upcoming-sync-status"[^>]+@click="startUpcomingSync"/)
+  assert.match(page, /v-if="upcomingPending \|\| upcomingRunning"/)
+  assert.match(page, /v-if="upcomingNeedsCheck && !upcomingPending"[^>]+:disabled="!canCheckUpcoming"/)
   assert.match(page, /Synchroniser TMDB - Prochainement/)
   assert.match(page, /role="status" aria-live="polite"/)
   assert.match(page, /v-if="upcomingError"[^>]+role="alert"/)
   assert.match(page, /@click="checkUpcomingStatus">Vérifier le statut/)
-  assert.doesNotMatch(page, /adminCreateSyncSchedule|adminUpdateSyncSchedule|adminStartSync|v-html/)
+  assert.doesNotMatch(page, /adminCreateSyncSchedule|adminUpdateSyncSchedule|adminStartSync|v-html|loggingOut|void startUpcomingSync\(/)
+  assert.ok(page.indexOf('Synchroniser TMDB - Prochainement') < page.indexOf('<label for="review-filter"'))
+  const buttonClass = page.match(/<button type="button" class="([^"]+)"[^>]+@click="startUpcomingSync"/)?.[1]?.split(' ') ?? []
+  for (const token of ['inline-flex', 'min-h-11', 'w-full', 'sm:w-auto', 'bg-primary', 'text-white']) assert.ok(buttonClass.includes(token), token)
   for (const method of ['adminUpcomingSyncStatus', 'adminStartUpcomingSync']) {
     assert.match(api, new RegExp(`${method}\\(signal\\?: AbortSignal\\) \\{\\s+return withAdminRedirect`))
   }
+})
+
+test('dashboard retains review navigation and logout without instantiating or querying upcoming sync', async () => {
+  const dashboard = await readFile(new URL('../app/pages/admin/index.vue', import.meta.url), 'utf8')
+  assert.match(dashboard, /to="\/admin\/upcoming-movies"/)
+  assert.match(dashboard, /Revue des sorties à venir/)
+  assert.match(dashboard, /@click="logout"/)
+  assert.match(dashboard, /await api.adminLogout\(\)/)
+  assert.doesNotMatch(dashboard, /useAdminUpcomingSync|adminUpcomingSyncStatus|adminStartUpcomingSync|checkUpcomingStatus|startUpcomingSync|upcoming-sync-status|Synchroniser TMDB - Prochainement/)
 })

@@ -6,11 +6,6 @@ definePageMeta({ middleware: 'admin-auth' })
 const api = useMesSeancesApi()
 const loggingOut = ref(false)
 const errorMessage = ref('')
-const { pending: upcomingPending, running: upcomingRunning, canStart: canStartUpcoming, canCheck: canCheckUpcoming, needsCheck: upcomingNeedsCheck, error: upcomingError, message: upcomingMessage, checkStatus: checkUpcomingStatus, start: startUpcomingSync, dispose: disposeUpcomingSync } = useAdminUpcomingSync(api)
-
-onMounted(() => { void checkUpcomingStatus() })
-onBeforeUnmount(disposeUpcomingSync)
-
 async function logout() {
   if (loggingOut.value) return
   loggingOut.value = true
@@ -47,19 +42,6 @@ useHead({ title: 'Administration - MesSeances' })
     <section class="mt-6" aria-labelledby="admin-tools-title">
       <h2 id="admin-tools-title" class="sr-only">Outils d’administration</h2>
       <div class="grid max-w-xl gap-4">
-        <div>
-          <button type="button" class="button-primary w-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" :disabled="!canStartUpcoming || loggingOut" aria-describedby="upcoming-sync-status" @click="startUpcomingSync">
-            <LoaderCircle v-if="upcomingPending || upcomingRunning" :size="17" class="shrink-0 animate-spin" aria-hidden="true" />
-            <RefreshCw v-else :size="17" class="shrink-0" aria-hidden="true" />
-            Synchroniser TMDB - Prochainement
-          </button>
-          <p id="upcoming-sync-status" class="text-sm text-muted" :class="{ 'mt-3': upcomingMessage }" role="status" aria-live="polite">{{ upcomingMessage }}</p>
-          <div v-if="upcomingError" class="mt-3 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-            <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-            <p>{{ upcomingError }}</p>
-          </div>
-          <button v-if="upcomingNeedsCheck && !upcomingPending" type="button" class="mt-3 text-sm font-semibold text-accent underline underline-offset-2 disabled:cursor-not-allowed disabled:opacity-50" :disabled="!canCheckUpcoming || loggingOut" @click="checkUpcomingStatus">Vérifier le statut</button>
-        </div>
         <NuxtLink to="/admin/upcoming-movies" class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
           <span class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent">
             <Film :size="22" aria-hidden="true" />

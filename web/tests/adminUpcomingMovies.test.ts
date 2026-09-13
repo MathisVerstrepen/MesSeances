@@ -229,7 +229,7 @@ test('French error mappings never display diagnostic details', () => {
   }
 })
 
-test('page is client-only authenticated, accessible, escaped and preserves dashboard sync/history', async () => {
+test('page is client-only authenticated, accessible, escaped and preserves review history alongside relocated sync', async () => {
   const page = await readFile(new URL('../app/pages/admin/upcoming-movies.vue', import.meta.url), 'utf8')
   const dashboard = await readFile(new URL('../app/pages/admin/index.vue', import.meta.url), 'utf8')
   assert.match(page, /definePageMeta\(\{ middleware: 'admin-auth' \}\)/)
@@ -259,5 +259,7 @@ test('page is client-only authenticated, accessible, escaped and preserves dashb
   assert.doesNotMatch(page, /v-html|localStorage|sessionStorage|adminStartUpcomingSync|useAsyncData/)
   for (const decision of ['approved', 'excluded', 'unreviewed'] satisfies UpcomingReviewDecision[]) assert.ok(page.includes(`decide(movie, '${decision}')`))
   assert.match(dashboard, /to="\/admin\/upcoming-movies"/)
-  assert.match(dashboard, /@click="startUpcomingSync"/)
+  assert.match(page, /@click="startUpcomingSync"/)
+  assert.match(page, /onBeforeUnmount\(disposeUpcomingSync\)/)
+  assert.doesNotMatch(dashboard, /useAdminUpcomingSync|@click="startUpcomingSync"/)
 })
