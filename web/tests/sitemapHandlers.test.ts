@@ -4,7 +4,7 @@ import test from 'node:test'
 import { API_SITEMAP_CACHE_POLICIES, API_SITEMAP_CACHE_POLICY } from '../server/utils/sitemap.ts'
 
 const handlerFixtures = [
-  { route: 'films', url: new URL('../server/routes/sitemaps/films.xml.ts', import.meta.url), retryDeclarations: 2 },
+  { route: 'films', url: new URL('../server/routes/sitemaps/films.xml.ts', import.meta.url), retryDeclarations: 3 },
   { route: 'cinemas', url: new URL('../server/routes/sitemaps/cinemas.xml.ts', import.meta.url), retryDeclarations: 1 },
   { route: 'cities', url: new URL('../server/routes/sitemaps/cities.xml.ts', import.meta.url), retryDeclarations: 1 }
 ]

@@ -6,7 +6,6 @@ definePageMeta({ middleware: 'admin-auth' })
 const api = useMesSeancesApi()
 const loggingOut = ref(false)
 const errorMessage = ref('')
-
 async function logout() {
   if (loggingOut.value) return
   loggingOut.value = true
@@ -43,6 +42,13 @@ useHead({ title: 'Administration - MesSeances' })
     <section class="mt-6" aria-labelledby="admin-tools-title">
       <h2 id="admin-tools-title" class="sr-only">Outils d’administration</h2>
       <div class="grid max-w-xl gap-4">
+        <NuxtLink to="/admin/upcoming-movies" class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+          <span class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent">
+            <Film :size="22" aria-hidden="true" />
+          </span>
+          <span class="min-w-0 flex-1 text-base font-semibold text-ink">Revue des sorties à venir</span>
+          <ArrowRight :size="20" class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent" aria-hidden="true" />
+        </NuxtLink>
         <NuxtLink to="/admin/tmdb-matches" class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover">
           <span class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent">
             <Film :size="22" aria-hidden="true" />

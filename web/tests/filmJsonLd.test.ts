@@ -14,6 +14,7 @@ const movie = {
   imdb_id: 'tt0000042',
   overview: '  Une histoire de cinéma.  ',
   release_date: '2026-08-20',
+  french_release_date: null,
   genres: ['Drame']
 }
 
@@ -33,6 +34,7 @@ function showtime(id: string, start: string): Showtime {
 
 function fixture(): MovieShowtimesResponse {
   return {
+    release_status: 'showing',
     movie,
     backdrop_url: 'https://image.tmdb.org/t/p/w780/backdrop.jpg',
     date: '2026-08-29',

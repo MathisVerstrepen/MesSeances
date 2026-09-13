@@ -16,6 +16,47 @@ type fakeProviderScheduleStarter struct {
 	err        error
 }
 
+type fakeUpcomingScheduleStarter struct{}
+
+func (*fakeUpcomingScheduleStarter) StartScheduled(claim enrichment.UpcomingClaim) (<-chan syncschedule.Completion, error) {
+	claimed, err := claim(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	if !claimed {
+		return nil, syncschedule.ErrOccurrenceClaimed
+	}
+	done := make(chan syncschedule.Completion, 1)
+	done <- syncschedule.Completion{Succeeded: true}
+	close(done)
+	return done, nil
+}
+
+func TestUpcomingScheduleWithoutProvidersAndRetryClaims(t *testing.T) {
+	claimer := &fakeScheduleClaimer{claimed: true}
+	starter := syncScheduleStarter{upcoming: &fakeUpcomingScheduleStarter{}, claimer: claimer}
+	if targets := starter.AvailableTargets(); len(targets) != 1 || targets[0] != syncschedule.TargetUpcomingMovies {
+		t.Fatalf("targets=%v", targets)
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		done, err := starter.StartScheduled(syncschedule.Occurrence{ScheduleID: 7, Target: syncschedule.TargetUpcomingMovies, Revision: 1, ScheduledFor: time.Now(), Attempt: attempt})
+		if err != nil || !(<-done).Succeeded || claimer.calls != 1 {
+			t.Fatalf("attempt=%d claims=%d err=%v", attempt, claimer.calls, err)
+		}
+	}
+	claimer.claimed = false
+	if _, err := starter.StartScheduled(syncschedule.Occurrence{Target: syncschedule.TargetUpcomingMovies}); !errors.Is(err, syncschedule.ErrOccurrenceClaimed) {
+		t.Fatalf("claim conflict=%v", err)
+	}
+	starter.upcoming = nil
+	if targets := starter.AvailableTargets(); len(targets) != 0 {
+		t.Fatalf("disabled targets=%v", targets)
+	}
+	if _, err := starter.StartScheduled(syncschedule.Occurrence{Target: syncschedule.TargetUpcomingMovies}); !errors.Is(err, syncschedule.ErrTargetUnavailable) {
+		t.Fatalf("unavailable=%v", err)
+	}
+}
+
 func (s *fakeProviderScheduleStarter) StartScheduled(occurrence synccontrol.Occurrence) (synccontrol.Status, <-chan synccontrol.Completion, error) {
 	s.occurrence = occurrence
 	if s.err != nil {

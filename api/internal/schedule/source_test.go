@@ -135,6 +135,42 @@ func TestPostgresSourceSnapshotIsDetachedZeroAllocationAndNoIO(t *testing.T) {
 	}
 }
 
+func TestUpcomingSourcePollTransitionsAndFailureRetention(t *testing.T) {
+	reader := &fakeSnapshotReader{loadErr: ErrNoCompleteSnapshot, versionErr: ErrNoCompleteSnapshot}
+	source, err := NewPostgresSource(context.Background(), reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(source, ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.HasCatalog() || service.HasSnapshot() {
+		t.Fatal("pending source available")
+	}
+	reader.data = upcomingCatalogFixture()
+	reader.enrichmentVersion = 1
+	reader.loadErr = nil
+	reader.versionErr = nil
+	source.refresh(context.Background())
+	if !service.HasCatalog() || service.HasSnapshot() {
+		t.Fatal("catalog publication not loaded")
+	}
+	old := source.Snapshot()
+	reader.enrichmentVersion = 2
+	reader.data.UpcomingCompletedAt = time.Time{}
+	source.refresh(context.Background())
+	if source.Snapshot() != old {
+		t.Fatal("invalid catalog replaced successful publication")
+	}
+	reader.data = testDataset()
+	reader.version = 1
+	source.refresh(context.Background())
+	if !service.HasCatalog() || !service.HasSnapshot() || source.Snapshot() == old {
+		t.Fatal("provider publication did not replace catalog-only view")
+	}
+}
+
 func TestPostgresSourcePollPublishesScheduleAndEnrichmentRevisions(t *testing.T) {
 	reader := &fakeSnapshotReader{version: 1, data: testDataset()}
 	source, err := NewPostgresSource(context.Background(), reader)

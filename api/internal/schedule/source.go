@@ -47,10 +47,10 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 		}
 		return nil, fmt.Errorf("load initial schedule snapshot: %w", err)
 	}
-	if revision.ScheduleVersion <= 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
+	if revision.ScheduleVersion < 0 || revision.EnrichmentVersion < 0 || revision.TheaterLocationVersion < 0 {
 		return nil, fmt.Errorf("invalid initial schedule snapshot revision")
 	}
-	if err := ValidateDataset(data, true); err != nil {
+	if err := ValidateSnapshotDataset(data, revision); err != nil {
 		return nil, fmt.Errorf("invalid initial schedule snapshot: %w", err)
 	}
 	source.revision = revision
@@ -118,7 +118,7 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 		}
 		return
 	}
-	if currentRevision.ScheduleVersion <= 0 || currentRevision.EnrichmentVersion < 0 || currentRevision.TheaterLocationVersion < 0 {
+	if currentRevision.ScheduleVersion < 0 || currentRevision.EnrichmentVersion < 0 || currentRevision.TheaterLocationVersion < 0 || currentRevision.ScheduleVersion == 0 && currentRevision.EnrichmentVersion == 0 {
 		result = "invalid_revision"
 		stage, reason = "revision_check", "invalid_revision"
 		return
@@ -140,12 +140,12 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 		}
 		return
 	}
-	if loadedRevision.ScheduleVersion <= 0 || loadedRevision.EnrichmentVersion < 0 || loadedRevision.TheaterLocationVersion < 0 {
+	if loadedRevision.ScheduleVersion < 0 || loadedRevision.EnrichmentVersion < 0 || loadedRevision.TheaterLocationVersion < 0 || loadedRevision.ScheduleVersion == 0 && loadedRevision.EnrichmentVersion == 0 {
 		result = "invalid_revision"
 		stage, reason = "snapshot_load", "invalid_revision"
 		return
 	}
-	if ValidateDataset(data, true) != nil {
+	if ValidateSnapshotDataset(data, loadedRevision) != nil {
 		result = "invalid_dataset"
 		stage, reason = "dataset_validation", "invalid_dataset"
 		return

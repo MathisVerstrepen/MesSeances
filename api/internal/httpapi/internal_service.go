@@ -60,12 +60,7 @@ func (api *API) movieShowtimesBundle(w http.ResponseWriter, r *http.Request) {
 	base := schedule.MovieShowtimesQuery{Slug: chi.URLParam(r, "slug"), Date: query.Get("date")}
 	scopedQuery := base
 	scopedQuery.City = query.Get("city")
-	scoped, err := api.schedule.MovieShowtimes(scopedQuery)
-	if err != nil {
-		writeServiceError(w, err)
-		return
-	}
-	nationwide, err := api.schedule.MovieShowtimes(base)
+	scoped, nationwide, err := api.schedule.MovieShowtimesBundle(scopedQuery)
 	if err != nil {
 		writeServiceError(w, err)
 		return

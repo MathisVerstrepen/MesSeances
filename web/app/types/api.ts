@@ -23,6 +23,7 @@ export interface CatalogMovie extends Movie {
   trailer_vo_youtube_key?: string | null
   overview: string | null
   release_date: string | null
+  french_release_date: string | null
   genres: string[]
   showtime_count?: number
 }
@@ -346,6 +347,62 @@ export interface AdminTMDBMetadataRefreshResponse {
   job: AdminTMDBMetadataRefreshJob | null
 }
 
+export type UpcomingReviewReason = 'limited_only' | 'non_theatrical_before_or_same_day' | 'broadcaster_theatrical_note' | 'single_screening_note'
+export type UpcomingReviewDecision = 'unreviewed' | 'approved' | 'excluded'
+export type UpcomingReviewFilter = 'needs_review' | 'pending_assessment' | 'approved' | 'excluded' | 'all'
+
+export interface FrenchReleaseRow {
+  type: 1 | 2 | 3 | 4 | 5 | 6
+  date: string
+  note: string
+}
+
+export interface AdminUpcomingMovie {
+  tmdb_id: number
+  public_movie_id: string
+  slug: string
+  title: string
+  poster_url: string | null
+  french_release_date: string | null
+  active: boolean
+  in_window: boolean
+  publicly_visible: boolean
+  assessment_status: 'pending' | 'assessed'
+  assessed_at: string | null
+  french_releases: FrenchReleaseRow[]
+  reason_codes: UpcomingReviewReason[]
+  decision: UpcomingReviewDecision
+  revision: number
+}
+
+export interface AdminUpcomingMoviesQuery {
+  filter?: UpcomingReviewFilter
+  search?: string
+  limit?: number
+  offset?: number
+}
+
+export interface AdminUpcomingMoviesResponse {
+  items: AdminUpcomingMovie[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AdminSetUpcomingDecisionRequest {
+  decision: UpcomingReviewDecision
+  expected_revision: number
+}
+
+export interface AdminUpcomingSyncResponse {
+  job: {
+    state: 'running' | 'succeeded' | 'failed'
+    started_at: string
+    finished_at: string | null
+    error_code?: 'sync_failed'
+  } | null
+}
+
 export interface AdminLocalMovieSource {
   source_provider: Provider
   source_movie_id: string
@@ -398,7 +455,7 @@ export type AdminSyncFailureCode = 'none' | 'client_creation_failed' | 'provider
 export type AdminSyncEnrichmentState = 'skipped' | 'complete' | 'degraded'
 export type AdminSyncScheduleKind = 'daily' | 'weekly' | 'cron'
 export type AdminSyncWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
-export type AdminSyncScheduleTarget = Provider | 'tmdb_metadata_refresh'
+export type AdminSyncScheduleTarget = Provider | 'tmdb_metadata_refresh' | 'tmdb_upcoming_movies'
 
 export interface AdminSyncOccurrence {
   schedule_id: string
@@ -616,7 +673,26 @@ export interface MovieShowtimesTheater {
   showtimes: Showtime[]
 }
 
+export interface UpcomingMoviesQuery {
+  page?: number
+}
+
+export type UpcomingCatalogMovie = CatalogMovie & { french_release_date: string }
+
+export interface UpcomingMoviesResponse {
+  generated_at: string
+  catalog_revision: string
+  timezone: 'Europe/Paris'
+  window: { from: string; through: string }
+  items: UpcomingCatalogMovie[]
+  page: number
+  total: number
+  total_weeks: number
+  total_pages: number
+}
+
 export interface MovieShowtimesResponse {
+  release_status: 'upcoming' | 'showing' | 'ended' | 'unavailable'
   movie: CatalogMovie
   backdrop_url: string | null
   date: string

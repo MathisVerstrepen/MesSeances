@@ -12,20 +12,26 @@ type Window struct {
 }
 
 type Dataset struct {
-	SchemaVersion int                       `json:"schema_version"`
-	Provider      Provider                  `json:"provider"`
-	Scope         Scope                     `json:"scope"`
-	GeneratedAt   time.Time                 `json:"generated_at"`
-	Timezone      string                    `json:"timezone"`
-	Window        Window                    `json:"window"`
-	Theaters      []TheaterRecord           `json:"theaters"`
-	Showtimes     []ShowtimeRecord          `json:"showtimes"`
-	PublicMovies  []PublicMovieRecord       `json:"-"`
-	MovieSources  []PublicMovieSourceRecord `json:"-"`
-	MovieAliases  []MovieSlugAliasRecord    `json:"-"`
+	UpcomingCompletedAt time.Time                 `json:"-"`
+	SchemaVersion       int                       `json:"schema_version"`
+	Provider            Provider                  `json:"provider"`
+	Scope               Scope                     `json:"scope"`
+	GeneratedAt         time.Time                 `json:"generated_at"`
+	Timezone            string                    `json:"timezone"`
+	Window              Window                    `json:"window"`
+	Theaters            []TheaterRecord           `json:"theaters"`
+	Showtimes           []ShowtimeRecord          `json:"showtimes"`
+	PublicMovies        []PublicMovieRecord       `json:"-"`
+	MovieSources        []PublicMovieSourceRecord `json:"-"`
+	MovieAliases        []MovieSlugAliasRecord    `json:"-"`
 }
 
 type PublicMovieRecord struct {
+	IdentityAnchorTMDBID   int64
+	FrenchReleaseDate      string
+	HasUpcomingRelease     bool
+	UpcomingActive         bool
+	UpcomingExcluded       bool
 	ID                     int64
 	RedirectToID           int64
 	IdentityAnchorProvider Provider

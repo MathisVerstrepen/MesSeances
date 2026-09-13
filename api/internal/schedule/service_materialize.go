@@ -84,6 +84,10 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 
 func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 	item := MovieCatalogItem{Slug: publicMovieIDSlug(record.ID), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, UpdatedAt: record.UpdatedAt, Genres: append([]string{}, record.Genres...)}
+	if record.FrenchReleaseDate != "" {
+		value := record.FrenchReleaseDate
+		item.FrenchReleaseDate = &value
+	}
 	if record.PosterURL != "" {
 		value := record.PosterURL
 		item.PosterURL = &value

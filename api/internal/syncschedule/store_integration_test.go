@@ -72,6 +72,51 @@ func TestPostgresScheduleStoreIntegration(t *testing.T) {
 	}
 }
 
+func TestUpcomingScheduleCRUDIntegration(t *testing.T) {
+	ctx, pool := scheduleIntegrationPool(t)
+	store := NewPostgresStore(pool)
+	var ids []int64
+	for _, definition := range []Definition{{Kind: KindDaily, Time: "03:00"}, {Kind: KindWeekly, Time: "03:00", Weekdays: []string{"sun"}}, {Kind: KindCron, Expression: "0 3 * * *"}} {
+		row, err := store.Create(ctx, Schedule{Target: TargetUpcomingMovies, Enabled: true, Definition: definition})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, row.ID)
+		got, err := store.Get(ctx, TargetUpcomingMovies, row.ID)
+		if err != nil || got.Target != TargetUpcomingMovies {
+			t.Fatalf("get=%+v err=%v", got, err)
+		}
+		occurrence := Occurrence{ScheduleID: row.ID, Target: row.Target, Revision: row.Revision, ScheduledFor: time.Date(2026, 9, 14, 1, 0, 0, 0, time.UTC)}
+		if claimed, err := store.ClaimOccurrence(ctx, occurrence); err != nil || !claimed {
+			t.Fatalf("claim=%v err=%v", claimed, err)
+		}
+		if claimed, err := store.ClaimOccurrence(ctx, occurrence); err != nil || claimed {
+			t.Fatalf("duplicate claim=%v err=%v", claimed, err)
+		}
+		row.Enabled = false
+		if updated, err := store.Update(ctx, row); err != nil || updated.Revision != 2 {
+			t.Fatalf("update=%+v err=%v", updated, err)
+		}
+	}
+	metadata, err := store.Create(ctx, Schedule{Target: TargetMetadataRefresh, Definition: Definition{Kind: KindDaily, Time: "03:00"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.List(ctx)
+	if err != nil || len(rows) != 4 || rows[0].ID != metadata.ID || rows[1].ID != ids[0] {
+		t.Fatalf("ordering=%+v err=%v", rows, err)
+	}
+	for _, id := range ids {
+		if err := store.Delete(ctx, TargetUpcomingMovies, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var runs int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM sync_runs").Scan(&runs); err != nil || runs != 0 {
+		t.Fatalf("upcoming wrote provider runs=%d err=%v", runs, err)
+	}
+}
+
 func scheduleIntegrationPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

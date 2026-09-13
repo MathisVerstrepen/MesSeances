@@ -21,6 +21,8 @@ const (
 
 var ErrStop = errors.New("tmdb pass must stop")
 
+var ErrNotFound = errors.New("tmdb movie not found")
+
 type Candidate struct {
 	ID            int64
 	Title         string
@@ -394,6 +396,9 @@ func (c *Client) get(ctx context.Context, path string, query url.Values, destina
 		return ErrStop
 	}
 	if response.StatusCode != http.StatusOK {
+		if response.StatusCode == http.StatusNotFound {
+			return ErrNotFound
+		}
 		return fmt.Errorf("tmdb request failed")
 	}
 	reader := io.LimitReader(response.Body, maxResponseBytes+1)
