@@ -445,7 +445,6 @@ useHead(() => ({
                   <h3 class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl">
                     <NuxtLink :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">{{ group.city }}</NuxtLink>
                   </h3>
-                  <p class="mt-1 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]">{{ group.theaters.length }} cinéma{{ group.theaters.length > 1 ? 's' : '' }}</p>
                 </div>
                 <div class="grid grid-cols-2 gap-2 sm:flex" role="group" :aria-label="`Modifier mes cinémas à ${group.city}`">
                   <ClientOnly>

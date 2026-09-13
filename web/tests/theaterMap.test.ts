@@ -33,7 +33,7 @@ test('defines an exhaustive provider palette', () => {
     kinepolis: '#7e22ce',
     pathe: '#d97706',
     cgr: '#c81e1e',
-    megarama: '#a16207'
+    megarama: '#ffff00'
   })
 })
 
