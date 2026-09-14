@@ -20,6 +20,7 @@ const (
 	SourceMegarama  = "megarama"
 	SourceCineville = "cineville"
 	SourceMK2       = "mk2"
+	SourceCinewest  = "cinewest"
 	ProviderTMDB    = "tmdb"
 	LocaleFrench    = "fr-FR"
 
@@ -138,6 +139,9 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceCinewest {
+		return schedule.ValidCinewestIdentity("movie", id)
+	}
 	if provider == SourceMK2 {
 		return schedule.ValidMK2Identity("movie", id)
 	}

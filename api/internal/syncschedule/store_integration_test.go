@@ -117,6 +117,37 @@ func TestUpcomingScheduleCRUDIntegration(t *testing.T) {
 	}
 }
 
+func TestCinewestScheduleCRUDIntegration(t *testing.T) {
+	ctx, pool := scheduleIntegrationPool(t)
+	store := NewPostgresStore(pool)
+	for _, target := range []Target{TargetMetadataRefresh, TargetCinewest, TargetMK2} {
+		row, err := store.Create(ctx, Schedule{Target: target, Definition: Definition{Kind: KindDaily, Time: "03:00"}})
+		if err != nil || row.Enabled {
+			t.Fatal("disabled schedule creation", err)
+		}
+		got, err := store.Get(ctx, target, row.ID)
+		if err != nil || got.Target != target || got.Enabled {
+			t.Fatal("schedule roundtrip", err)
+		}
+	}
+	rows, err := store.List(ctx)
+	if err != nil || len(rows) != 3 || rows[0].Target != TargetMK2 || rows[1].Target != TargetCinewest || rows[2].Target != TargetMetadataRefresh {
+		t.Fatal("Cinewest schedule order", err)
+	}
+	row := rows[1]
+	row.Definition.Time = "04:00"
+	updated, err := store.Update(ctx, row)
+	if err != nil || updated.Revision != 2 || updated.Enabled {
+		t.Fatal("disabled schedule update", err)
+	}
+	if err := store.Delete(ctx, TargetCinewest, row.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, TargetCinewest, row.ID); !errors.Is(err, ErrScheduleMissing) {
+		t.Fatal("schedule deletion", err)
+	}
+}
+
 func scheduleIntegrationPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

@@ -4,7 +4,7 @@ import "strings"
 
 func (s *Service) Theaters(query TheaterCatalogQuery) []TheaterCatalogItem {
 	chain := strings.TrimSpace(string(query.Chain))
-	if chain != "" && !strings.EqualFold(chain, string(ProviderUGC)) && !strings.EqualFold(chain, string(ProviderKinepolis)) && !strings.EqualFold(chain, string(ProviderPathe)) && !strings.EqualFold(chain, string(ProviderCGR)) && !strings.EqualFold(chain, string(ProviderMegarama)) && !strings.EqualFold(chain, string(ProviderCineville)) && !strings.EqualFold(chain, string(ProviderMK2)) {
+	if chain != "" && !strings.EqualFold(chain, string(ProviderUGC)) && !strings.EqualFold(chain, string(ProviderKinepolis)) && !strings.EqualFold(chain, string(ProviderPathe)) && !strings.EqualFold(chain, string(ProviderCGR)) && !strings.EqualFold(chain, string(ProviderMegarama)) && !strings.EqualFold(chain, string(ProviderCineville)) && !strings.EqualFold(chain, string(ProviderMK2)) && !strings.EqualFold(chain, string(ProviderCinewest)) {
 		return []TheaterCatalogItem{}
 	}
 	city := strings.TrimSpace(query.City)

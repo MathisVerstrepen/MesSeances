@@ -25,7 +25,7 @@ test('adapts slot results without mutation and preserves effective time, raw end
   assert.deepEqual(source, before)
   assert.deepEqual(result, {
     key: 'ugc:slot-1', showtimeId: 'slot-1', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101,
-    theaterName: 'UGC Lille', advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00', end: canonical('2026-08-24T20:01:00+02:00'),
+    theaterName: 'UGC Lille', theaterId: 'ugc-1', advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00', end: canonical('2026-08-24T20:01:00+02:00'),
     language: 'VOSTFR', format: 'IMAX', room: '4', bookingUrl: 'https://www.ugc.fr/reservation', posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg', backdropUrl: 'https://image.tmdb.org/t/p/w780/backdrop.jpg'
   })
 })
@@ -42,6 +42,7 @@ test('adapts theater showtimes without mutation and injects theater while mappin
 
   assert.deepEqual(source, before)
   assert.equal(result?.theaterName, 'Kinepolis Lille')
+  assert.equal(result?.theaterId, 'k-1')
   assert.equal(result?.effectiveStartTime, result?.advertisedStartTime)
   assert.deepEqual(result?.end, canonical(source.showtimes[0].end_time))
   assert.equal(result?.posterUrl, 'poster')
@@ -88,7 +89,7 @@ test('estimated compatibility uses returned ends and effective starts, with touc
 
 function view(overrides: Partial<ShowtimeResultViewModel>): ShowtimeResultViewModel {
   return {
-    key: 'ugc:id', showtimeId: 'id', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101, theaterName: 'UGC',
+    key: 'ugc:id', showtimeId: 'id', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101, theaterName: 'UGC', theaterId: 'ugc-25',
     advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:00:00+02:00', end: canonical('2026-08-24T20:00:00+02:00'),
     language: 'VF', format: '2D', room: '', bookingUrl: null, posterUrl: null, backdropUrl: null, ...overrides
   }

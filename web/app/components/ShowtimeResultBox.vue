@@ -66,6 +66,7 @@ function formatRoom(room: string) {
     :url="result.bookingUrl"
     :provider="result.provider"
     :showtime-id="result.showtimeId"
+    :theater-id="result.theaterId"
     :aria-label="bookingLabel()"
     :data-showtime-id="result.showtimeId"
     unstyled
@@ -132,6 +133,7 @@ function formatRoom(room: string) {
       :url="result.bookingUrl"
       :provider="result.provider"
       :showtime-id="result.showtimeId"
+      :theater-id="result.theaterId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled
@@ -180,6 +182,7 @@ function formatRoom(room: string) {
       :url="result.bookingUrl"
       :provider="result.provider"
       :showtime-id="result.showtimeId"
+      :theater-id="result.theaterId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled

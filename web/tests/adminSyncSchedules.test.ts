@@ -48,7 +48,8 @@ function job(
       cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') },
       megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') },
       cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') },
-      mk2: { state: states.mk2 ?? (target === 'mk2' || target === 'all' ? 'succeeded' : 'not_requested') }
+      mk2: { state: states.mk2 ?? (target === 'mk2' || target === 'all' ? 'succeeded' : 'not_requested') },
+      cinewest: { state: states.cinewest ?? (target === 'cinewest' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -218,6 +219,20 @@ test('deduplicates current and history entries and returns null without eligible
   const duplicate = { ...current, started_at: '2026-08-24T15:00:00Z' }
   assert.equal(selectLatestProviderRun('ugc', current, [duplicate])?.started_at, '2026-08-24T10:00:00Z')
   assert.equal(selectLatestProviderRun('ugc', null, [job('other', 'kinepolis', '2026-08-24T12:00:00Z')]), null)
+})
+
+test('Cinewest direct and all runs remain independent of partner platform providers and availability', () => {
+  const all = job('all', 'all', '2026-09-14T10:00:00Z')
+  const direct = job('cinewest', 'cinewest', '2026-09-14T11:00:00Z')
+  const partners = [job('cgr', 'cgr', '2026-09-14T12:00:00Z'), job('megarama', 'megarama', '2026-09-14T12:00:00Z')]
+  assert.equal(selectLatestProviderRun('cinewest', null, [all, ...partners])?.id, 'all')
+  assert.equal(selectLatestProviderRun('cinewest', null, [all, direct, ...partners])?.id, 'cinewest')
+  assert.equal(selectLatestProviderRun('cinewest', null, partners), null)
+  assert.equal(selectLatestProviderRun('cinewest', null, [job('not-requested', 'all', '2026-09-14T13:00:00Z', { cinewest: 'not_requested' })]), null)
+  assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', ['cinewest']), true)
+  assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', ['cgr', 'megarama']), false)
+  assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', []), false)
+  assert.equal(blankAdminSyncScheduleDraft().enabled, false)
 })
 
 test('calculates whole-run duration from finished or supplied current time', () => {

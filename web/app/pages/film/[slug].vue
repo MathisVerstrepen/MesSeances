@@ -869,6 +869,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                     :url="showtime.booking_url"
                     :provider="showtime.provider"
                     :showtime-id="showtime.id"
+                    :theater-id="theater.id"
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
                     class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between border-2 p-3 text-left lg:scroll-mt-52"

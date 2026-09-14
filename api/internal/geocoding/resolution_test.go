@@ -6,7 +6,22 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"messeances/api/internal/schedule"
 )
+
+func TestCinewestLocationIdentities(t *testing.T) {
+	for _, id := range schedule.CinewestTheaterIDs() {
+		if !ValidProviderTheaterID("cinewest", id) {
+			t.Fatal("Cinewest location rejected")
+		}
+	}
+	for _, id := range []string{"royanlelido", "cineoffice-cinewest", "ticketingcine-EMS9999", "webediamovies-W0000"} {
+		if ValidProviderTheaterID("cinewest", id) {
+			t.Fatal("unknown location accepted")
+		}
+	}
+}
 
 type resolutionMemoryStore struct {
 	items          []PendingLocation

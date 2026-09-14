@@ -9,6 +9,7 @@ const props = defineProps<{
   url?: string | null
   provider?: Provider | null
   showtimeId?: string | null
+  theaterId?: string | null
   ariaLabel?: string
   availableClass?: string
   unavailableClass?: string
@@ -20,7 +21,7 @@ defineSlots<{
 }>()
 
 const reservation = computed(() => {
-  const booking = safeBookingUrl(props.url, props.provider, props.showtimeId)
+  const booking = safeBookingUrl(props.url, props.provider, props.showtimeId, props.theaterId)
   if (!booking) return null
 
   const labels = {
@@ -30,12 +31,15 @@ const reservation = computed(() => {
     cgr: 'Réserver sur CGR Cinémas',
     megarama: 'Réserver sur Megarama',
     cineville: 'Réserver sur Cinéville',
-    mk2: 'Réserver sur MK2'
+    mk2: 'Réserver sur MK2',
+    cinewest: 'Réserver sur Cinewest'
   } satisfies Record<Provider, string>
   return {
     url: booking.url,
     kind: booking.kind,
-    label: booking.kind === 'website' ? 'Site du cinéma Megarama' : labels[booking.provider]
+    label: booking.kind === 'website'
+      ? booking.provider === 'cinewest' ? 'Site du cinéma Cinewest' : 'Site du cinéma Megarama'
+      : labels[booking.provider]
   }
 })
 </script>

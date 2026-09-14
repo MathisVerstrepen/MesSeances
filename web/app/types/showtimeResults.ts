@@ -14,6 +14,7 @@ export interface ShowtimeResultViewModel {
   movieTitle: string
   movieRuntimeMinutes: number
   theaterName: string
+  theaterId: string
   advertisedStartTime: string
   effectiveStartTime: string
   end: ResolvedShowtimeEnd | null

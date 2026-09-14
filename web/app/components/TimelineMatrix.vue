@@ -433,7 +433,7 @@ onBeforeUnmount(() => {
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" :showtime-id="selected.showtime.id" />
+            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" :showtime-id="selected.showtime.id" :theater-id="selected.theater.id" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
               class="inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"

@@ -330,6 +330,7 @@ function onMapLoad() {
           'megarama', THEATER_PROVIDER_COLORS.megarama,
           'cineville', THEATER_PROVIDER_COLORS.cineville,
           'mk2', THEATER_PROVIDER_COLORS.mk2,
+          'cinewest', THEATER_PROVIDER_COLORS.cinewest,
           '#52525b'
         ],
         'circle-stroke-color': '#ffffff',

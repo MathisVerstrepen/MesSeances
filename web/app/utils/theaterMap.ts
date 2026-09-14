@@ -9,7 +9,8 @@ export const THEATER_PROVIDER_COLORS = {
   cgr: '#c81e1e',
   megarama: '#ffff00',
   cineville: '#009bce',
-  mk2: '#e20d13'
+  mk2: '#e20d13',
+  cinewest: '#e30613'
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -19,7 +20,8 @@ export const THEATER_PROVIDER_LABELS = {
   cgr: 'CGR',
   megarama: 'Megarama',
   cineville: 'Cinéville',
-  mk2: 'MK2'
+  mk2: 'MK2',
+  cinewest: 'Cinewest'
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {

@@ -19,7 +19,7 @@ test('integrates Megarama into admin targets, labels, latest runs, and the label
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /megarama: 'Megarama'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest'\]/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /megarama: selectLatestProviderRun\('megarama'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'megarama', THEATER_PROVIDER_COLORS\.megarama/)
@@ -28,7 +28,7 @@ test('integrates Megarama into admin targets, labels, latest runs, and the label
 
 test('website fallback overrides reservation aria text and all custom slots show the truthful label', async () => {
   const booking = await source('components/BookingLink.vue')
-  assert.match(booking, /booking\.kind === 'website' \? 'Site du cinéma Megarama'/)
+  assert.match(booking, /booking\.kind === 'website'\s*\? booking\.provider === 'cinewest' \? 'Site du cinéma Cinewest' : 'Site du cinéma Megarama'/)
   assert.match(booking, /reservation\.kind === 'website' \? reservation\.label : ariaLabel \|\| reservation\.label/)
   assert.match(booking, /:kind="reservation\.kind" :label="reservation\.label"/)
   assert.match(booking, /megarama: 'Réserver sur Megarama'/)

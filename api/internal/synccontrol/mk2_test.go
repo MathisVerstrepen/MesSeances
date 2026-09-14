@@ -84,7 +84,7 @@ func TestMK2ManagerScheduledStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForTerminal(t, manager)
-	if status.State != StateSucceeded || status.Providers["mk2"].State != ProviderSucceeded || status.Providers["ugc"].State != ProviderNotRequested || len(status.Providers) != 7 || status.Occurrence == nil || status.Occurrence.Provider != TargetMK2 {
+	if status.State != StateSucceeded || status.Providers["mk2"].State != ProviderSucceeded || status.Providers["ugc"].State != ProviderNotRequested || len(status.Providers) != 8 || status.Occurrence == nil || status.Occurrence.Provider != TargetMK2 {
 		t.Fatalf("status=%+v", status)
 	}
 	status.Providers["mk2"] = ProviderStatus{State: "mutated"}
