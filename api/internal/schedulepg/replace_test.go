@@ -11,7 +11,7 @@ func TestReplaceRejectsDuplicateAndOversizedProviderBatchesBeforeDatabaseAccess(
 	if _, err := store.Replace(context.Background(), []Dataset{pathe, pathe}); err == nil || err.Error() != "invalid schedule replacement providers" {
 		t.Fatalf("duplicate provider error=%v", err)
 	}
-	if _, err := store.Replace(context.Background(), []Dataset{testDataset(), kinepolisTestDataset(), pathe, cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset(), mk2TestDataset(), pathe, pathe}); err == nil || err.Error() != "invalid schedule replacement batch" {
+	if _, err := store.Replace(context.Background(), []Dataset{testDataset(), kinepolisTestDataset(), pathe, cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset(), mk2TestDataset(), cinewestTestDataset(), grandecranTestDataset(), pathe}); err == nil || err.Error() != "invalid schedule replacement batch" {
 		t.Fatalf("oversized batch error=%v", err)
 	}
 }

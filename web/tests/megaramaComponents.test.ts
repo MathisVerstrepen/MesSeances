@@ -19,7 +19,7 @@ test('integrates Megarama into admin targets, labels, latest runs, and the label
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /megarama: 'Megarama'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran'\]/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /megarama: selectLatestProviderRun\('megarama'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'megarama', THEATER_PROVIDER_COLORS\.megarama/)

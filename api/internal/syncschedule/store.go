@@ -31,7 +31,7 @@ const scheduleColumns = `id,target,revision,enabled,schedule_kind,local_time,wee
 
 func (s *PostgresStore) List(ctx context.Context) ([]Schedule, error) {
 	rows, err := s.pool.Query(ctx, `SELECT `+scheduleColumns+` FROM sync_schedules
-		ORDER BY CASE target WHEN 'ugc' THEN 1 WHEN 'kinepolis' THEN 2 WHEN 'pathe' THEN 3 WHEN 'cgr' THEN 4 WHEN 'megarama' THEN 5 WHEN 'cineville' THEN 6 WHEN 'mk2' THEN 7 WHEN 'cinewest' THEN 8 WHEN 'tmdb_metadata_refresh' THEN 9 WHEN 'tmdb_upcoming_movies' THEN 10 ELSE 11 END,id`)
+		ORDER BY CASE target WHEN 'ugc' THEN 1 WHEN 'kinepolis' THEN 2 WHEN 'pathe' THEN 3 WHEN 'cgr' THEN 4 WHEN 'megarama' THEN 5 WHEN 'cineville' THEN 6 WHEN 'mk2' THEN 7 WHEN 'cinewest' THEN 8 WHEN 'grandecran' THEN 9 WHEN 'tmdb_metadata_refresh' THEN 10 WHEN 'tmdb_upcoming_movies' THEN 11 ELSE 12 END,id`)
 	if err != nil {
 		return nil, fmt.Errorf("list sync schedules failed")
 	}

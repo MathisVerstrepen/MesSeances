@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
-type CreditBrand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type CreditBrand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
 interface Credit {
   brand: CreditBrand
@@ -27,7 +27,8 @@ const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; c
       { brand: 'MEGARAMA', name: 'Megarama', url: 'https://www.megarama.fr/' },
       { brand: 'CINEVILLE', name: 'Cinéville', url: 'https://www.cineville.fr/' },
       { brand: 'MK2', name: 'MK2', url: 'https://www.mk2.com/' },
-      { brand: 'CINEWEST', name: 'Cinewest', url: 'https://www.cinewest.fr/' }
+      { brand: 'CINEWEST', name: 'Cinewest', url: 'https://www.cinewest.fr/' },
+      { brand: 'Grand Ecran', name: 'Grand Ecran', url: 'https://www.grandecran.fr/' }
     ]
   },
   {
@@ -98,9 +99,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             class="provider-grid grid border-l-2 border-t-2 border-ink sm:grid-cols-2"
             :class="section.id === 'technologies' ? 'xl:grid-cols-5' : 'xl:grid-cols-4'"
           >
-            <section v-for="credit in section.credits" :key="credit.brand" class="flex min-w-0 flex-col border-r-2 border-b-2 border-ink bg-surface [&:nth-child(3n+1)_.provider-link]:shadow-[inset_0_-4px_0_var(--color-highlight)] [&:nth-child(3n+2)_.provider-link]:shadow-[inset_0_-4px_0_#ffcf3f] [&:nth-child(3n)_.provider-link]:shadow-[inset_0_-4px_0_var(--color-accent)]" :aria-labelledby="`credit-${credit.brand}`">
+            <section v-for="credit in section.credits" :key="credit.brand" class="flex min-w-0 flex-col border-r-2 border-b-2 border-ink bg-surface [&:nth-child(3n+1)_.provider-link]:shadow-[inset_0_-4px_0_var(--color-highlight)] [&:nth-child(3n+2)_.provider-link]:shadow-[inset_0_-4px_0_#ffcf3f] [&:nth-child(3n)_.provider-link]:shadow-[inset_0_-4px_0_var(--color-accent)]" :aria-labelledby="`credit-${credit.brand.replaceAll(' ', '-')}`">
               <div class="flex items-center justify-between border-b-2 border-ink bg-[#f1efe8] px-4 py-3">
-                <h3 :id="`credit-${credit.brand}`" class="font-mono text-[0.65rem] font-black uppercase tracking-[0.12em] text-ink">{{ credit.name }}</h3>
+                <h3 :id="`credit-${credit.brand.replaceAll(' ', '-')}`" class="font-mono text-[0.65rem] font-black uppercase tracking-[0.12em] text-ink">{{ credit.name }}</h3>
               </div>
               <a
                 :href="credit.url"

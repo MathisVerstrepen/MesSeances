@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [036_cinewest_provider.sql](036_cinewest_provider.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [037_grandecran_provider.sql](037_grandecran_provider.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -19,7 +19,7 @@ It is created by the Go runner, not by a numbered migration:
 ## Conventions and relationships
 
 - In the column tables below, columns are **not null with no default** unless marked nullable or given a default. Primary keys also imply not null. `identity` means `GENERATED ALWAYS AS IDENTITY`.
-- Providers are `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, and `cinewest`, unless a table explicitly allows another value. Provider fields are strings with checks, not PostgreSQL enums. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
+- Providers are `ugc`, `kinepolis`, `pathe`, `cgr`, `megarama`, `cineville`, `mk2`, `cinewest`, and `grandecran`, unless a table explicitly allows another value. Provider fields are strings with checks, not PostgreSQL enums. TMDB upcoming ingestion is a scheduler target, not a cinema provider.
 - Runtime fields are `integer >= 0`; `0` represents an unknown runtime. The old `smallint`, 600-minute limit, and positive-only checks no longer apply.
 - `timestamptz` stores instants; `date` stores calendar/service dates. Schedule metadata fixes the timezone to `Europe/Paris`.
 - Primary keys and unique constraints create implicit indexes. Additional indexes are listed separately below. Foreign keys use default `NO ACTION` deletion behavior unless `CASCADE` is specified.
@@ -50,7 +50,7 @@ Movie matches, metadata cache entries, local group source identities, public cat
 
 ### Provider identity checks
 
-These rules apply to provider theater IDs, provider movie IDs (including source IDs and identity anchors), and showing IDs. `theater_locations.provider_theater_id` only has a nonblank check except for Cineville, MK2, and Cinewest, which additionally use their identity helpers.
+These rules apply to provider theater IDs, provider movie IDs (including source IDs and identity anchors), and showing IDs. `theater_locations.provider_theater_id` only has a nonblank check except for Cineville, MK2, Cinewest, and Grand Ecran, which additionally use their identity helpers.
 
 | Provider | Theater ID | Movie/source movie ID | Showing ID |
 | --- | --- | --- | --- |
@@ -62,12 +62,15 @@ These rules apply to provider theater IDs, provider movie IDs (including source 
 | `cineville` | Canonical positive int64 decimal | Canonical signed nonzero int64 decimal | `<cinemaID>-<sessionID>`, both positive int64 decimal; cinema component matches theater |
 | `mk2` | Nonzero digit string preserving leading zeros; at most 124 characters | `HO` followed by digits; at most 119 characters | `<cinemaID>-<sessionID>`; positive canonical decimal session; at most 116 characters; cinema component matches theater |
 | `cinewest` | Exact 13-venue allowlist, prefixed `cineoffice-`, `ticketingcine-`, or `webediamovies-` | Platform-prefixed positive decimal for Cine Office/Capitole, or ticketingcine five-character global ID/site-scoped local ID; maximum 114 bytes | Platform prefix and 64 lowercase SHA-256 hex characters; digest of namespaced theater ID, NUL, exact source session ID |
+| `grandecran` | `^[A-Z0-9]{5}$` | `^([1-9][0-9]{0,111}\|c[A-Za-z0-9_-]{1,111})$`; numeric or opaque event, at most 112 characters | `^[A-Z0-9]{5}-[a-f0-9]{64}$`; cinema component matches theater |
 
 `cineville_decimal_valid(text, boolean)` is an immutable strict SQL helper enforcing exact decimal syntax and int64 range. Cineville theater locations use the same positive identity check. Cineville source aliases additionally require `slug = 'cineville-film-' || source_movie_id` and source alias kind.
 
 `mk2_identity_valid(text, text)` is an immutable strict SQL helper enforcing MK2 source and derived identity bounds. MK2 theater locations use the same cinema identity check. MK2 aliases require source kind and `slug = 'mk2-film-' || source_movie_id`. No schedules are seeded or enabled by the MK2 migration.
 
 `cinewest_identity_valid(text, text)` enforces the fixed 13-theater manifest and namespaced source/derived bounds. Ticketingcine local movie IDs use `ticketingcine-EMSdddd-emsxddddHC<number>` with equal site digits and one of the three approved sites. Cinewest aliases require source kind and `slug = 'cinewest-film-' || source_movie_id`; location IDs use the theater helper. Cinewest is an available manual/scheduled sync target after MK2; no schedule is seeded or enabled.
+
+`grandecran_identity_valid(text, text)` is an immutable strict SQL helper used for Grand Ecran source and derived identities. Theater locations require its theater identity. Source aliases require source kind and `slug = 'grandecran-film-' || source_movie_id`; public source slugs use the same exact identity. No Grand Ecran schedules are seeded or enabled. Stored showing ends equal starts regardless of runtime, first-part duration is zero, and rooms may be empty.
 
 Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and slugs must also fit their own 128-character columns. Pathé showing identities include both venue and session tokens, not just an `S...` token.
 
@@ -165,7 +168,7 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | `provider` | `varchar(32)` | Provider; default `ugc` |
 | `service_date` | `date` | Service date |
 | `theater_id`, `movie_provider_id` | `varchar(128)` | Referenced schedule identities |
-| `start_time`, `end_time` | `timestamptz` | Cineville and MK2 require equality (unknown end), regardless of runtime. Cinewest Cine Office requires its published end after start; ticketingcine permits equality or a later computed end; Capitole requires equality. Other providers require end after start, except CGR and Megarama permit equality |
+| `start_time`, `end_time` | `timestamptz` | Cineville, MK2, and Grand Ecran require equality (unknown end), regardless of runtime. Cinewest Cine Office requires its published end after start; ticketingcine permits equality or a later computed end; Capitole requires equality. Other providers require end after start, except CGR and Megarama permit equality |
 | `first_part_duration_minutes` | `integer` | Default `0`; nonnegative; must be zero except for Megarama and Cinewest ticketingcine |
 | `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be `ALL`. Empty language requires MK2 `provider_version = 'Muet'` or Cinewest Cine Office `provider_version = 'VERSION_MUET'`; these silent markers require empty language |
 | `provider_version` | `varchar(256)` | Nonblank after trimming |
@@ -447,7 +450,7 @@ Stores provider synchronization execution history, including run state, coverage
 | `scheduled_for` | `timestamptz` | Nullable |
 | `schedule_attempt` | `smallint` | Nullable |
 
-Manual runs require all four schedule fields to be null. Scheduled runs require an individual provider target, nonnull `scheduled_for`, and checks for positive schedule ID/revision and attempt between 0 and 2. The latter three columns lack explicit nonnull checks for legacy providers, so SQL null can pass; Cineville and MK2 require all three nonnull. Scheduled occurrence attempts are unique by `(schedule_id, schedule_revision, scheduled_for, schedule_attempt)` for scheduled rows; nulls retain PostgreSQL's default distinct behavior. There is no one-running-run unique index on this table.
+Manual runs require all four schedule fields to be null. Scheduled runs require an individual provider target, nonnull `scheduled_for`, and checks for positive schedule ID/revision and attempt between 0 and 2. The latter three columns lack explicit nonnull checks for legacy providers, so SQL null can pass; Cineville, MK2, Cinewest, and Grand Ecran require all three nonnull. Scheduled occurrence attempts are unique by `(schedule_id, schedule_revision, scheduled_for, schedule_attempt)` for scheduled rows; nulls retain PostgreSQL's default distinct behavior. There is no one-running-run unique index on this table.
 
 ## Short links
 

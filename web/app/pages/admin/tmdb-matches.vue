@@ -754,7 +754,8 @@ function providerLabel(provider: Provider): string {
     megarama: 'Megarama',
     cineville: 'Cinéville',
     mk2: 'MK2',
-    cinewest: 'Cinewest'
+    cinewest: 'Cinewest',
+    grandecran: 'Grand Ecran'
   } satisfies Record<Provider, string>
   return labels[provider]
 }

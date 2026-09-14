@@ -17,12 +17,17 @@ const providerBrands = {
   megarama: 'MEGARAMA',
   cineville: 'CINEVILLE',
   mk2: 'MK2',
-  cinewest: 'CINEWEST'
+  cinewest: 'CINEWEST',
+  grandecran: 'Grand Ecran'
 } as const satisfies Record<Provider, string>
 
 // Normalize only for accessible-name detection, never for visible source text.
-// Accent folding covers Pathé/Pathe and Cinéville/Cineville, including decomposed accents.
-const nameIncludesProvider = computed(() => props.name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().split(/[^\p{L}\p{N}_]+/u).includes(props.provider))
+// Accent folding also covers multi-word Grand Écran, including decomposed accents.
+const nameIncludesProvider = computed(() => {
+  const name = props.name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  return name.split(/[^\p{L}\p{N}_]+/u).includes(props.provider)
+    || (props.provider === 'grandecran' && /(?<![\p{L}\p{N}_])grand\s+ecran(?![\p{L}\p{N}_])/u.test(name))
+})
 </script>
 
 <template>

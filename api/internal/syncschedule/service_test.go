@@ -19,7 +19,7 @@ type memoryScheduleStore struct {
 }
 
 func TestMegaramaTargetOrder(t *testing.T) {
-	if !ValidTarget(TargetMegarama) || TargetOrder(TargetMegarama) != TargetOrder(TargetCGR)+1 || !ValidTarget(TargetCineville) || TargetOrder(TargetCineville) != TargetOrder(TargetMegarama)+1 || !ValidTarget(TargetMK2) || TargetOrder(TargetMK2) != TargetOrder(TargetCineville)+1 || !ValidTarget(TargetCinewest) || TargetOrder(TargetCinewest) != TargetOrder(TargetMK2)+1 || TargetOrder(TargetMetadataRefresh) != TargetOrder(TargetCinewest)+1 {
+	if !ValidTarget(TargetMegarama) || TargetOrder(TargetMegarama) != TargetOrder(TargetCGR)+1 || !ValidTarget(TargetCineville) || TargetOrder(TargetCineville) != TargetOrder(TargetMegarama)+1 || !ValidTarget(TargetMK2) || TargetOrder(TargetMK2) != TargetOrder(TargetCineville)+1 || !ValidTarget(TargetCinewest) || TargetOrder(TargetCinewest) != TargetOrder(TargetMK2)+1 || !ValidTarget(TargetGrandEcran) || TargetOrder(TargetGrandEcran) != TargetOrder(TargetCinewest)+1 || TargetOrder(TargetMetadataRefresh) != TargetOrder(TargetGrandEcran)+1 {
 		t.Fatal("Megarama target ordering")
 	}
 }

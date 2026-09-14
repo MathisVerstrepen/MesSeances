@@ -22,6 +22,7 @@ import (
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/geocoding"
+	"messeances/api/internal/grandecran"
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
@@ -465,6 +466,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewCinewest: func() (cinewest.Fetcher, error) {
 			return cinewest.NewClient(cinewest.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewGrandEcran: func() (grandecran.Getter, error) {
+			return grandecran.NewClient(grandecran.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

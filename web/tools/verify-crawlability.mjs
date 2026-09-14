@@ -222,12 +222,16 @@ function reservationUrl(showtime) {
   try {
     const parsed = new URL(value)
     const hostname = parsed.hostname.toLowerCase()
-    const hostProvider = hostname === 'www.ugc.fr' ? 'ugc' : hostname === 'kinepolis.fr' ? 'kinepolis' : hostname === 's.pathe.fr' ? 'pathe' : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : hostname === 'www.mk2.com' ? 'mk2' : null
+    const hostProvider = hostname === 'www.ugc.fr' ? 'ugc' : hostname === 'kinepolis.fr' ? 'kinepolis' : hostname === 's.pathe.fr' ? 'pathe' : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : hostname === 'achat.grandecran.fr' ? 'grandecran' : hostname === 'www.mk2.com' ? 'mk2' : null
     const isSafePatheBooking = hostProvider !== 'pathe' || (!parsed.search && !parsed.hash && parsed.href === value && /^\/fr\/[A-Za-z0-9_-]*S[1-9][0-9]*\/booking$/.test(parsed.pathname))
     const isSafeCgrBooking = hostProvider !== 'cgr' || (
       value.length <= 2048
       && /^https:\/\/achat\.cgrcinemas\.fr\/[a-z0-9-]+\/r\/[1-9][0-9]*$/.test(value)
     )
+    if (hostProvider === 'grandecran') {
+      const match = /^https:\/\/achat\.grandecran\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/r\/[1-9][0-9]*$/.exec(value)
+      if (!match || match[0] !== value || showtime.booking_url !== value || parsed.href !== value || value.length > 4096) return null
+    }
     if (hostProvider === 'mk2') {
       const match = /^https:\/\/www\.mk2\.com\/panier\/seance\/tickets\?cinemaId=([0-9]+)&sessionId=([1-9][0-9]*)$/.exec(value)
       if (!match || match[0] !== value || showtime.booking_url !== value || parsed.href !== value || value.length > 2048) return null
