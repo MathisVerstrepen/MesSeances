@@ -13,6 +13,8 @@ func TestReviewSourceDetailURLs(t *testing.T) {
 	}{
 		{"ugc", SourceUGC, "200", "", "", "https://evil.example/", "https://www.ugc.fr/film.html?id=200"},
 		{"cineville signed visa", SourceCineville, "-693091020261", "639-1", "639", "https://www.cineville.fr/vad/639/1/9", "https://www.cineville.fr/vad/639/1/9"},
+		{"mk2 booking", SourceMK2, "HO00006568", "0004-140350", "0004", "https://www.mk2.com/panier/seance/tickets?cinemaId=0004&sessionId=140350", "https://www.mk2.com/panier/seance/tickets?cinemaId=0004&sessionId=140350"},
+		{"mk2 wrong showing", SourceMK2, "HO00006568", "0004-140351", "0004", "https://www.mk2.com/panier/seance/tickets?cinemaId=0004&sessionId=140350", ""},
 		{"cineville wrong showing", SourceCineville, "-693091020261", "639-2", "639", "https://www.cineville.fr/vad/639/1/9", ""},
 		{"cineville wrong cinema", SourceCineville, "-693091020261", "707-1", "639", "https://www.cineville.fr/vad/707/1/9", ""},
 		{"kinepolis", SourceKinepolis, "HO00016258", "1234", "FRLIL", "https://kinepolis.fr/direct-vista-redirect/1234/0/FRLIL/0", "https://kinepolis.fr/direct-vista-redirect/1234/0/FRLIL/0"},

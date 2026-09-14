@@ -174,7 +174,7 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	cfg.Sync.CinevilleRequestInterval = 3 * time.Second
 	cfg.Sync.OperationTimeout = 37 * time.Second
 	options := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)
-	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.NewCGR == nil || options.NewMegarama == nil || options.NewCineville == nil || options.OperationTimeout != cfg.Sync.OperationTimeout {
+	if options.NewUGC == nil || options.NewKinepolis == nil || options.NewPathe == nil || options.NewCGR == nil || options.NewMegarama == nil || options.NewCineville == nil || options.NewMK2 == nil || options.OperationTimeout != cfg.Sync.OperationTimeout {
 		t.Fatalf("options=%+v", options)
 	}
 	if client, err := options.NewPathe(); err != nil || client == nil {
@@ -185,6 +185,9 @@ func TestSyncExecutorOptionsWireAllProviderFactories(t *testing.T) {
 	}
 	if client, err := options.NewCineville(); err != nil || client == nil {
 		t.Fatalf("Cineville client=%v err=%v", client, err)
+	}
+	if client, err := options.NewMK2(); err != nil || client == nil {
+		t.Fatalf("MK2 client=%v err=%v", client, err)
 	}
 	cfg.Sync.CinevilleRequestInterval = 999 * time.Millisecond
 	invalid := newSyncExecutorOptions(testSnapshotWriter{}, proxies, cfg, nil, time.Now, observability.NewLogger(io.Discard), nil)

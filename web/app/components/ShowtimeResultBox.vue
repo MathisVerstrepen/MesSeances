@@ -65,6 +65,7 @@ function formatRoom(room: string) {
     v-slot="{ available, kind, label }"
     :url="result.bookingUrl"
     :provider="result.provider"
+    :showtime-id="result.showtimeId"
     :aria-label="bookingLabel()"
     :data-showtime-id="result.showtimeId"
     unstyled
@@ -74,7 +75,7 @@ function formatRoom(room: string) {
   >
     <div class="flex w-full items-baseline justify-between gap-2"><span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(displayedStartTime) }}</span><span v-if="result.end && !result.end.estimated" class="font-mono text-[9px] font-bold uppercase text-muted">fin <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></span><span v-else-if="result.end" class="w-14" aria-hidden="true" /></div>
     <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-      <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
+      <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
     </div>
     <span v-if="!available" class="mt-2 text-xs font-black">Réservation indisponible</span>
@@ -124,12 +125,13 @@ function formatRoom(room: string) {
     <h3 class="mb-3 line-clamp-2 text-sm font-black leading-tight tracking-[-0.02em] text-ink"><NuxtLink :to="`/film/${encodeURIComponent(result.movieSlug)}`" class="hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ result.movieTitle }}</NuxtLink></h3>
     <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">{{ formatParisTime(displayedStartTime) }} <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template></p>
     <div class="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-      <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
+      <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
     </div>
     <BookingLink
       :url="result.bookingUrl"
       :provider="result.provider"
+      :showtime-id="result.showtimeId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled
@@ -171,12 +173,13 @@ function formatRoom(room: string) {
 
     <div class="mt-4 flex min-w-0 items-start gap-1.5 text-xs font-bold text-ink"><MapPin :size="13" class="mt-0.5 shrink-0" aria-hidden="true" /><BrandedText :text="result.theaterName" /></div>
     <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-      <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
+      <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
     </div>
     <BookingLink
       :url="result.bookingUrl"
       :provider="result.provider"
+      :showtime-id="result.showtimeId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled

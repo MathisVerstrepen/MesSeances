@@ -197,6 +197,7 @@ function safePosterUrl(value) {
       || (hostname === 'cdn.kinepolis.fr' && parsed.pathname.startsWith('/images/') && parsed.pathname !== '/images/')
       || ((hostname === 'pathe.fr' || hostname.endsWith('.pathe.fr')) && parsed.pathname !== '/' && !parsed.pathname.includes('%'))
       || ((hostname === 'acsta.net' || hostname.endsWith('.acsta.net')) && parsed.pathname !== '/' && !parsed.pathname.includes('%'))
+      || (value === parsed.href && value.length <= 2048 && /^https:\/\/srv-web-vista\.mk2\.com\/CDN\/media\/entity\/get\/FilmPosterGraphic\/HO[0-9]{1,117}$/.test(value))
     return parsed.protocol === 'https:' && !parsed.port && !parsed.username && !parsed.password && !parsed.search && !parsed.hash && allowed && hasSafeImagePath(String(value), parsed.origin) ? parsed.href : null
   } catch {
     return null
@@ -221,12 +222,18 @@ function reservationUrl(showtime) {
   try {
     const parsed = new URL(value)
     const hostname = parsed.hostname.toLowerCase()
-    const hostProvider = hostname === 'www.ugc.fr' ? 'ugc' : hostname === 'kinepolis.fr' ? 'kinepolis' : hostname === 's.pathe.fr' ? 'pathe' : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : null
+    const hostProvider = hostname === 'www.ugc.fr' ? 'ugc' : hostname === 'kinepolis.fr' ? 'kinepolis' : hostname === 's.pathe.fr' ? 'pathe' : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : hostname === 'www.mk2.com' ? 'mk2' : null
     const isSafePatheBooking = hostProvider !== 'pathe' || (!parsed.search && !parsed.hash && parsed.href === value && /^\/fr\/[A-Za-z0-9_-]*S[1-9][0-9]*\/booking$/.test(parsed.pathname))
     const isSafeCgrBooking = hostProvider !== 'cgr' || (
       value.length <= 2048
       && /^https:\/\/achat\.cgrcinemas\.fr\/[a-z0-9-]+\/r\/[1-9][0-9]*$/.test(value)
     )
+    if (hostProvider === 'mk2') {
+      const match = /^https:\/\/www\.mk2\.com\/panier\/seance\/tickets\?cinemaId=([0-9]+)&sessionId=([1-9][0-9]*)$/.exec(value)
+      if (!match || match[0] !== value || showtime.booking_url !== value || parsed.href !== value || value.length > 2048) return null
+      const id = `${match[1]}-${match[2]}`
+      if (id.length > 128 - 'mk2-showing-'.length || !/[1-9]/.test(match[1]) || showtime.id !== `mk2-showing-${id}`) return null
+    }
     if (parsed.protocol !== 'https:' || !hostProvider || (showtime.provider && showtime.provider !== hostProvider) || parsed.username || parsed.password || parsed.port || !isSafePatheBooking || !isSafeCgrBooking) return null
     return parsed.href
   } catch {

@@ -107,18 +107,19 @@ function formatRoom(room: string) {
         </h3>
         <div v-if="scope === 'multi-theater'" class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
           <span class="flex items-center gap-1.5"><MapPin :size="14" aria-hidden="true" /> <BrandedText :text="result.theaterName" /></span>
-          <span>{{ result.room }}</span>
-          <span class="font-medium text-muted">{{ result.language }}</span>
+          <span v-if="result.room">{{ result.room }}</span>
+          <span v-if="result.language" class="font-medium text-muted">{{ result.language }}</span>
           <ShowtimeFormat :format="result.format" class="font-medium text-muted" />
         </div>
         <div v-else class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-          <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
+          <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
           <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
         </div>
       </div>
       <BookingLink
         :url="result.bookingUrl"
         :provider="result.provider"
+        :showtime-id="result.showtimeId"
         :aria-label="bookingLabel()"
         :data-showtime-id="result.showtimeId"
         unstyled
@@ -152,18 +153,19 @@ function formatRoom(room: string) {
       </p>
       <div v-if="scope === 'multi-theater'" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
         <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <BrandedText :text="result.theaterName" /></span>
-        <span>{{ result.room }}</span>
-        <span class="font-medium text-muted">{{ result.language }}</span>
+        <span v-if="result.room">{{ result.room }}</span>
+        <span v-if="result.language" class="font-medium text-muted">{{ result.language }}</span>
         <ShowtimeFormat :format="result.format" class="font-medium text-muted" />
       </div>
       <div v-else class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-        <span>{{ result.language }}</span><span aria-hidden="true">·</span><ShowtimeFormat :format="result.format" />
+        <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
         <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
       </div>
     </div>
     <BookingLink
       :url="result.bookingUrl"
       :provider="result.provider"
+      :showtime-id="result.showtimeId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled

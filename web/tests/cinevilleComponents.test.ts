@@ -28,7 +28,7 @@ test('Cinéville appears in every existing admin provider surface, map and booki
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /cineville: 'Cinéville'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2'\]/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /cineville: selectLatestProviderRun\('cineville'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'cineville', THEATER_PROVIDER_COLORS\.cineville/)

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"messeances/api/internal/schedule"
 )
 
 const (
@@ -17,6 +19,7 @@ const (
 	SourceCGR       = "cgr"
 	SourceMegarama  = "megarama"
 	SourceCineville = "cineville"
+	SourceMK2       = "mk2"
 	ProviderTMDB    = "tmdb"
 	LocaleFrench    = "fr-FR"
 
@@ -135,6 +138,9 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceMK2 {
+		return schedule.ValidMK2Identity("movie", id)
+	}
 	if provider == SourceCineville {
 		movieID, err := strconv.ParseInt(id, 10, 64)
 		return err == nil && movieID != 0 && strconv.FormatInt(movieID, 10) == id

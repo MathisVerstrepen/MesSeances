@@ -25,6 +25,7 @@ import (
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/megarama"
+	"messeances/api/internal/mk2"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
@@ -457,6 +458,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewCineville: func() (cineville.Fetcher, error) {
 			return cineville.NewClient(cineville.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.CinevilleRequestInterval, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewMK2: func() (mk2.Fetcher, error) {
+			return mk2.NewClient(mk2.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

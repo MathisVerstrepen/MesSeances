@@ -329,6 +329,7 @@ function onMapLoad() {
           'cgr', THEATER_PROVIDER_COLORS.cgr,
           'megarama', THEATER_PROVIDER_COLORS.megarama,
           'cineville', THEATER_PROVIDER_COLORS.cineville,
+          'mk2', THEATER_PROVIDER_COLORS.mk2,
           '#52525b'
         ],
         'circle-stroke-color': '#ffffff',

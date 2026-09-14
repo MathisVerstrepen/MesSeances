@@ -1,6 +1,7 @@
 import type { SlotResult, TheaterShowtimesResponse } from '../types/api'
 import type { ResultGrouping, ResultLayout, ShowtimeMovieResultGroup, ShowtimeResultViewModel } from '../types/showtimeResults'
 import { resolveShowtimeEnd } from './showtimeEnd.ts'
+import { isValidMk2ShowingId } from './mk2.ts'
 
 export const resultGroupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
   { value: 'movie', label: 'Par film' },
@@ -136,6 +137,8 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const mk2Prefix = 'mk2:mk2-showing-'
+  if (key.startsWith(mk2Prefix) && isValidMk2ShowingId(key.slice(mk2Prefix.length))) return `x${key.slice(mk2Prefix.length)}`
   const ugcMatch = UGC_SELECTION_KEY_PATTERN.exec(key)
   if (ugcMatch?.[1] && isValidUgcProviderID(ugcMatch[1])) return `u${ugcMatch[1]}`
 
@@ -155,6 +158,7 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  if (token.startsWith('x')) return isValidMk2ShowingId(token.slice(1)) ? `mk2:mk2-showing-${token.slice(1)}` : null
   const cinevilleMatch = CINEVILLE_TOKEN_PATTERN.exec(token)
   if (cinevilleMatch?.[1] && cinevilleMatch[0] === token && isValidCinevilleShowingID(cinevilleMatch[1])) return `cineville:cineville-showing-${cinevilleMatch[1]}`
   const megaramaMatch = MEGARAMA_TOKEN_PATTERN.exec(token)

@@ -1,4 +1,5 @@
 import type { Provider } from '../types/api'
+import { isValidMk2ShowingId } from './mk2.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -75,7 +76,15 @@ function isSafeCinevilleBooking(value: string): boolean {
   return match !== null && match[0] === value && match.slice(1).every((id) => BigInt(id) <= 9223372036854775807n)
 }
 
-export function safeBookingUrl(raw: string | null | undefined, expectedProvider?: Provider | null): SafeBookingUrl | null {
+function isSafeMk2Booking(value: string, showtimeId?: string | null): boolean {
+  const match = /^https:\/\/www\.mk2\.com\/panier\/seance\/tickets\?cinemaId=([0-9]+)&sessionId=([1-9][0-9]*)$/.exec(value)
+  if (!match || match[0] !== value || value.length > 2048) return false
+  const showingId = `${match[1]}-${match[2]}`
+  return isValidMk2ShowingId(showingId)
+    && (showtimeId === undefined || showtimeId === `mk2-showing-${showingId}`)
+}
+
+export function safeBookingUrl(raw: string | null | undefined, expectedProvider?: Provider | null, showtimeId?: string | null): SafeBookingUrl | null {
   const value = raw?.trim()
   if (!value) return null
 
@@ -88,7 +97,7 @@ export function safeBookingUrl(raw: string | null | undefined, expectedProvider?
         ? 'kinepolis'
         : hostname === 's.pathe.fr'
           ? 'pathe'
-          : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : hostname === 'www.cineville.fr' ? 'cineville' : MEGARAMA_HOSTS.has(hostname) || MEGARAMA_BOOKING_HOSTS.has(hostname) ? 'megarama' : null
+          : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : hostname === 'www.cineville.fr' ? 'cineville' : hostname === 'www.mk2.com' ? 'mk2' : MEGARAMA_HOSTS.has(hostname) || MEGARAMA_BOOKING_HOSTS.has(hostname) ? 'megarama' : null
     const isSafePatheBooking = provider !== 'pathe' || (
       !parsed.search
       && !parsed.hash
@@ -106,6 +115,7 @@ export function safeBookingUrl(raw: string | null | undefined, expectedProvider?
       || parsed.port
       || !isSafePatheBooking
       || !isSafeCgrBookingUrl
+      || (provider === 'mk2' && (raw !== value || parsed.href !== value || !isSafeMk2Booking(value, showtimeId)))
       || (provider === 'cineville' && (raw !== value || parsed.href !== value || !isSafeCinevilleBooking(value)))
       || (provider === 'megarama' && (raw !== value || !isSafeMegaramaBooking(value, hostname)))
     ) return null
