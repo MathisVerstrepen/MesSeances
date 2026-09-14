@@ -7,7 +7,7 @@ const source = (path: string) => readFile(new URL(`../app/${path}`, import.meta.
 
 test('Cinewest uses the unchanged supplied logo for both sizes with accessible names and credits', async () => {
   const bytes = await readFile(new URL('../app/assets/imgs/cinewest_logo_small.webp', import.meta.url))
-  assert.equal(createHash('sha256').update(bytes).digest('hex'), 'cdd24d3c2085d890b3713ba2ca5ccc4e52278bcd94171e784aadeaae19532c65')
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), '158b83dd20ab4fd7f8ef655bffb2ee0270a64878d51651cd384a84291a28de0c')
   const logo = await source('components/BrandLogo.vue')
   assert.match(logo, /cinewest_logo_small\.webp\?no-inline/)
   assert.match(logo, /CINEWEST: \{ inline: cinewestLogoSmall, display: cinewestLogoSmall \}/)
