@@ -332,6 +332,7 @@ function onMapLoad() {
           'mk2', THEATER_PROVIDER_COLORS.mk2,
           'cinewest', THEATER_PROVIDER_COLORS.cinewest,
           'grandecran', THEATER_PROVIDER_COLORS.grandecran,
+          'noecinemas', THEATER_PROVIDER_COLORS.noecinemas,
           '#52525b'
         ],
         'circle-stroke-color': '#ffffff',

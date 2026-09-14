@@ -1106,6 +1106,81 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 	}
 	assertGrand(123)
 	assertCinewestStore(t, store)
+	noe := noecinemasTestDataset()
+	if _, err := store.Replace(ctx, []Dataset{noe}); err != nil {
+		t.Fatal(err)
+	}
+	assertNoe := func(runtime int) {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		providers := map[schedule.Provider]bool{}
+		var noeMovie, ugcMovie int64
+		for _, r := range loaded.Showtimes {
+			providers[r.Provider] = true
+			if r.Provider == schedule.ProviderNoeCinemas {
+				noeMovie = r.Movie.PublicMovieID
+				if r.Movie.RuntimeMinutes != 0 || r.Room != "" || r.Movie.PosterURL != "" || !r.EndTime.Equal(r.StartTime) {
+					t.Fatal("Noé source facts changed")
+				}
+			}
+			if r.Provider == schedule.ProviderUGC && r.Movie.ProviderID == "200" {
+				ugcMovie = r.Movie.PublicMovieID
+			}
+		}
+		if len(providers) != 10 || noeMovie == 0 || ugcMovie == 0 || noeMovie == ugcMovie {
+			t.Fatal("provider coexistence or numeric identity collision")
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "noecinemas-film-200", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatal("Noé durable alias", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if r.Movie.RuntimeMinutes != runtime || r.ID != noe.Showtimes[0].ID || !r.EndTime.Equal(r.StartTime) || r.BookingURL == nil || *r.BookingURL != noe.Showtimes[0].BookingURL {
+			t.Fatal("Noé public record")
+		}
+		if runtime == 0 && r.EstimatedEndTime != nil || runtime > 0 && (r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+15)*time.Minute))) {
+			t.Fatal("Noé estimate")
+		}
+	}
+	assertNoe(0)
+	noeMatch := match(enrichment.SourceNoeCinemas, "200")
+	noeMatch.SourceRuntimeMinutes, noeMatch.MetadataMovieID = 0, 47
+	noeMatch.Candidates = []enrichment.Candidate{{ID: 47, Title: "Noé independent film", Runtime: 123, Score: 1}}
+	noeMetadata := metadata
+	noeMetadata.ProviderMovieID, noeMetadata.RuntimeMinutes = 47, 123
+	if err := enrichmentStore.Publish(ctx, noeMatch, noeMetadata); err != nil {
+		t.Fatal(err)
+	}
+	assertNoe(123)
+	if _, err := store.Replace(ctx, []Dataset{noe}); err != nil {
+		t.Fatal(err)
+	}
+	assertNoe(123)
+	_, beforeRevision, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badNoe := noecinemasTestDataset()
+	badNoe.Showtimes[0].EndTime = badNoe.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{ugc, badNoe}); err == nil {
+		t.Fatal("invalid Noé batch published")
+	}
+	_, afterRevision, err = store.Load(ctx)
+	if err != nil || beforeRevision != afterRevision {
+		t.Fatal("invalid Noé batch changed generation")
+	}
+	assertNoe(123)
 }
 
 func assertCinewestStore(t *testing.T, store *Store) {

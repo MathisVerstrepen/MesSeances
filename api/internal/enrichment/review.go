@@ -143,6 +143,9 @@ func validSourcePosterURL(provider, raw string) bool {
 	if provider == SourceGrandEcran {
 		return raw == "" || schedule.ValidGrandEcranPosterURL(raw)
 	}
+	if provider == SourceNoeCinemas {
+		return raw == "" || schedule.ValidNoeCinemasPosterURL(raw)
+	}
 	if provider == SourceMK2 {
 		return raw == "" || schedule.ValidMK2PosterURL(raw)
 	}

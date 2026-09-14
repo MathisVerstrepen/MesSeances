@@ -1,5 +1,5 @@
 <script setup lang="ts">
-type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'IMAX' | 'KINEPOLIS' | 'PATHE'
+type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'Noé Cinémas' | 'IMAX' | 'KINEPOLIS' | 'PATHE'
 type Segment = { value: string; brand?: Brand }
 
 const props = withDefaults(defineProps<{
@@ -12,11 +12,12 @@ const props = withDefaults(defineProps<{
 })
 
 const segments = computed<Segment[]>(() => props.text
-  .split(/(?<![\p{L}\p{N}_])(UGC|CGR|Megarama|IMAX|Kinepolis|Pathé|Pathe|Cinéville|Cineville|MK2|Cinewest|Grand [EÉ]cran)(?![\p{L}\p{N}_])/giu)
+  .split(/(?<![\p{L}\p{N}_])(UGC|CGR|Megarama|IMAX|Kinepolis|Pathé|Pathe|Cinéville|Cineville|MK2|Cinewest|Grand [EÉ]cran|No[eé](?:\u0301)?\s+Cin[eé](?:\u0301)?mas)(?![\p{L}\p{N}_])/giu)
   .filter(Boolean)
   .map((value) => {
-    const brand = value.toUpperCase().replace('É', 'E')
+    const brand = value.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()
     if (brand === 'GRAND ECRAN') return { value, brand: 'Grand Ecran' }
+    if (/^NOE\s+CINEMAS$/.test(brand)) return { value, brand: 'Noé Cinémas' }
     return brand === 'UGC' || brand === 'CGR' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'IMAX' || brand === 'KINEPOLIS' || brand === 'PATHE' ? { value, brand } : { value }
   }))
 </script>

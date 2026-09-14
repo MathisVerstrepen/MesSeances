@@ -148,6 +148,54 @@ func TestCinewestScheduleCRUDIntegration(t *testing.T) {
 	}
 }
 
+func TestNoeCinemasScheduleCRUDIntegration(t *testing.T) {
+	ctx, pool := scheduleIntegrationPool(t)
+	store := NewPostgresStore(pool)
+	for _, target := range []Target{TargetMetadataRefresh, TargetNoeCinemas, TargetGrandEcran} {
+		row, err := store.Create(ctx, Schedule{Target: target, Definition: Definition{Kind: KindDaily, Time: "03:00"}})
+		if err != nil || row.Enabled {
+			t.Fatal("disabled creation", err)
+		}
+	}
+	rows, err := store.List(ctx)
+	if err != nil || len(rows) != 3 || rows[0].Target != TargetGrandEcran || rows[1].Target != TargetNoeCinemas || rows[2].Target != TargetMetadataRefresh {
+		t.Fatal("Noé order", err)
+	}
+	row := rows[1]
+	got, err := store.Get(ctx, TargetNoeCinemas, row.ID)
+	if err != nil || got.Target != TargetNoeCinemas {
+		t.Fatal("reload", err)
+	}
+	o := Occurrence{ScheduleID: row.ID, Target: row.Target, Revision: row.Revision, ScheduledFor: time.Date(2026, 9, 14, 1, 0, 0, 0, time.UTC)}
+	if claimed, err := store.ClaimOccurrence(ctx, o); err != nil || claimed {
+		t.Fatal("disabled occurrence", err)
+	}
+	row.Enabled = true
+	row, err = store.Update(ctx, row)
+	if err != nil || row.Revision != 2 || !row.Enabled {
+		t.Fatal("enable schedule", err)
+	}
+	o.Revision = row.Revision
+	if claimed, err := store.ClaimOccurrence(ctx, o); err != nil || !claimed {
+		t.Fatal("first occurrence", err)
+	}
+	if claimed, err := store.ClaimOccurrence(ctx, o); err != nil || claimed {
+		t.Fatal("duplicate occurrence", err)
+	}
+	row.Definition.Time = "04:00"
+	row.Enabled = false
+	updated, err := store.Update(ctx, row)
+	if err != nil || updated.Revision != 3 || updated.Enabled {
+		t.Fatal("update", err)
+	}
+	if err := store.Delete(ctx, TargetNoeCinemas, row.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Get(ctx, TargetNoeCinemas, row.ID); !errors.Is(err, ErrScheduleMissing) {
+		t.Fatal("delete", err)
+	}
+}
+
 func scheduleIntegrationPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")

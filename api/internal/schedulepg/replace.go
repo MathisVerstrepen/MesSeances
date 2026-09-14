@@ -43,7 +43,7 @@ func copyRows(ctx context.Context, tx pgx.Tx, table string, columns []string, ro
 }
 
 func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (schedule.PublicationResult, error) {
-	allowedProviders := [...]schedule.Provider{schedule.ProviderUGC, schedule.ProviderKinepolis, schedule.ProviderPathe, schedule.ProviderCGR, schedule.ProviderMegarama, schedule.ProviderCineville, schedule.ProviderMK2, schedule.ProviderCinewest, schedule.ProviderGrandEcran}
+	allowedProviders := [...]schedule.Provider{schedule.ProviderUGC, schedule.ProviderKinepolis, schedule.ProviderPathe, schedule.ProviderCGR, schedule.ProviderMegarama, schedule.ProviderCineville, schedule.ProviderMK2, schedule.ProviderCinewest, schedule.ProviderGrandEcran, schedule.ProviderNoeCinemas}
 	if len(datasets) == 0 || len(datasets) > len(allowedProviders) {
 		return schedule.PublicationResult{}, fmt.Errorf("invalid schedule replacement batch")
 	}

@@ -217,6 +217,50 @@ function safeBackdropUrl(value) {
 }
 
 function reservationUrl(showtime) {
+  // Mirror the finite default:DESKTOP policy, never the room-only redirect grammar.
+  const noePrefixes = {
+    B0158: 'https://achat.noecinemas.com/domont-ermitage/r/',
+    B0181: 'https://achat.cinepal.fr/reserver/r/',
+    P0089: 'https://achat.noecinemas.com/pithiviers/reserver/r/',
+    P0101: 'https://achat.omnia-cinemas.com/reserver/r/',
+    P0276: 'https://achat.cinemamorny.fr/reserver/r/',
+    P0290: 'https://achat.les-arts-cinema.com/reserver/r/',
+    P0297: 'https://achat.cinema-nogent-le-rotrou.fr/reserver/r/',
+    P0542: 'https://achat.noecinemas.com/houlgate/reserver/r/',
+    P0613: 'https://achat.noecinemas.com/elbeuf/reserver/r/',
+    P0713: 'https://achat.noecinemas.com/fecamp/reserver/r/',
+    P0733: 'https://achat.noecinemas.com/caudebec-en-caux/reserver/r/',
+    P0714: 'https://achat.3colombiers-gravenchon.fr/r/',
+    P0975: 'https://achat.cinemas-vernon.fr/reserver/r/',
+    P0997: 'https://achat.noecinemas.com/les-andelys/reserver/r/',
+    P2132: 'https://achat.noecinemas.com/gisors/r/',
+    P2425: 'https://achat.cinema-senonches.com/reserver/r/',
+    P2478: 'https://achat.noecinemas.com/carentan/reserver/r/',
+    P7898: 'https://achat.cinema-altkirch.com/reserver/r/',
+    P8088: 'https://achat.cinema-laigle.com/reserver/r/',
+    P9554: 'https://achat.cinemas-bernay.fr/reserver/r/',
+    W2750: 'https://achat.noecinemas.com/pont-audemer/reserver/r/',
+    W5200: 'https://achat.chaumont-cinemas.com/reserver/r/',
+    W7619: 'https://achat.noecinemas.com/yvetot-arches-lumiere/reserver/r/',
+    W8390: 'https://achat.cinemasdulavandou.fr/grand-bleu/reserver/r/'
+  }
+  const raw = String(showtime.booking_url ?? '')
+  if (raw === showtime.booking_url && raw.length <= 4096 && (!showtime.provider || showtime.provider === 'noecinemas')) {
+    const entry = Object.entries(noePrefixes).find(([, prefix]) => raw.startsWith(prefix))
+    if (entry) {
+      const [theater, prefix] = entry
+      const session = raw.slice(prefix.length)
+      const match = /^[1-9][0-9]*$/.exec(session)
+      if (!match || match[0] !== session) return null
+      if (showtime.theater_id !== undefined && showtime.theater_id !== `noecinemas-${theater}`) return null
+      if (showtime.id !== undefined) {
+        const showing = /^noecinemas-showing-([A-Z0-9]{5})-([a-f0-9]{64})$/.exec(showtime.id)
+        if (!showing || showing[0] !== showtime.id || showing[1] !== theater) return null
+      }
+      return raw
+    }
+  }
+  if (showtime.provider === 'noecinemas') return null
   const value = String(showtime.booking_url ?? '').trim()
   if (!value) return null
   try {

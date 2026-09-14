@@ -22,6 +22,7 @@ const (
 	SourceMK2        = "mk2"
 	SourceCinewest   = "cinewest"
 	SourceGrandEcran = "grandecran"
+	SourceNoeCinemas = "noecinemas"
 	ProviderTMDB     = "tmdb"
 	LocaleFrench     = "fr-FR"
 
@@ -145,6 +146,9 @@ func validSourceIdentity(provider, id string) bool {
 	}
 	if provider == SourceGrandEcran {
 		return schedule.ValidGrandEcranIdentity("movie", id)
+	}
+	if provider == SourceNoeCinemas {
+		return schedule.ValidNoeCinemasIdentity("movie", id)
 	}
 	if provider == SourceMK2 {
 		return schedule.ValidMK2Identity("movie", id)

@@ -23,7 +23,7 @@ test('MK2 appears in individual, all-run and schedule provider surfaces without 
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /mk2: 'MK2'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran', 'noecinemas'\]/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /mk2: selectLatestProviderRun\('mk2'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'mk2', THEATER_PROVIDER_COLORS\.mk2/)

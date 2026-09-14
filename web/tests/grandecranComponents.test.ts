@@ -32,7 +32,7 @@ test('Grand Ecran follows existing MK2 and Cinewest order in manual, all and sch
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /grandecran: 'Grand Ecran'/)
-    if (page.startsWith('sync')) assert.match(value, /const providers = \['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran'\] as const/)
+    if (page.startsWith('sync')) assert.match(value, /const providers = \['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran', 'noecinemas'\] as const/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /grandecran: selectLatestProviderRun\('grandecran'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'grandecran', THEATER_PROVIDER_COLORS\.grandecran/)

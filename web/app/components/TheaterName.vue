@@ -18,7 +18,8 @@ const providerBrands = {
   cineville: 'CINEVILLE',
   mk2: 'MK2',
   cinewest: 'CINEWEST',
-  grandecran: 'Grand Ecran'
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas'
 } as const satisfies Record<Provider, string>
 
 // Normalize only for accessible-name detection, never for visible source text.
@@ -27,6 +28,7 @@ const nameIncludesProvider = computed(() => {
   const name = props.name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
   return name.split(/[^\p{L}\p{N}_]+/u).includes(props.provider)
     || (props.provider === 'grandecran' && /(?<![\p{L}\p{N}_])grand\s+ecran(?![\p{L}\p{N}_])/u.test(name))
+    || (props.provider === 'noecinemas' && /(?<![\p{L}\p{N}_])noe\s+cinemas(?![\p{L}\p{N}_])/u.test(name))
 })
 </script>
 

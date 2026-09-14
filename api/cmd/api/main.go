@@ -28,6 +28,7 @@ import (
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/megarama"
 	"messeances/api/internal/mk2"
+	"messeances/api/internal/noecinemas"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
@@ -469,6 +470,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewGrandEcran: func() (grandecran.Getter, error) {
 			return grandecran.NewClient(grandecran.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewNoeCinemas: func() (noecinemas.Getter, error) {
+			return noecinemas.NewClient(noecinemas.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

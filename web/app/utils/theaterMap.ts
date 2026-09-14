@@ -11,7 +11,8 @@ export const THEATER_PROVIDER_COLORS = {
   cineville: '#009bce',
   mk2: '#e20d13',
   cinewest: '#e30613',
-  grandecran: '#bd2428'
+  grandecran: '#bd2428',
+  noecinemas: '#8b1e2d'
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -23,7 +24,8 @@ export const THEATER_PROVIDER_LABELS = {
   cineville: 'Cinéville',
   mk2: 'MK2',
   cinewest: 'Cinewest',
-  grandecran: 'Grand Ecran'
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas'
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {

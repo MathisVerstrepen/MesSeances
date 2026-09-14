@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
-type CreditBrand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type CreditBrand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'Noé Cinémas' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
 interface Credit {
   brand: CreditBrand
@@ -28,7 +28,8 @@ const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; c
       { brand: 'CINEVILLE', name: 'Cinéville', url: 'https://www.cineville.fr/' },
       { brand: 'MK2', name: 'MK2', url: 'https://www.mk2.com/' },
       { brand: 'CINEWEST', name: 'Cinewest', url: 'https://www.cinewest.fr/' },
-      { brand: 'Grand Ecran', name: 'Grand Ecran', url: 'https://www.grandecran.fr/' }
+      { brand: 'Grand Ecran', name: 'Grand Ecran', url: 'https://www.grandecran.fr/' },
+      { brand: 'Noé Cinémas', name: 'Noé Cinémas', url: 'https://www.noecinemas.com/' }
     ]
   },
   {

@@ -59,14 +59,14 @@ test('Cinewest already in the name keeps its text without duplicate logos or acc
 
 const providers = {
   ugc: 'UGC', cgr: 'CGR Cinémas', kinepolis: 'Kinepolis', pathe: 'Pathé',
-  megarama: 'Megarama', cineville: 'Cinéville', mk2: 'MK2', cinewest: 'Cinewest', grandecran: 'Grand Ecran'
+  megarama: 'Megarama', cineville: 'Cinéville', mk2: 'MK2', cinewest: 'Cinewest', grandecran: 'Grand Ecran', noecinemas: 'Noé Cinémas'
 } satisfies Record<Provider, string>
 
 // SAFETY: providers is a local literal exhaustively checked against Record<Provider, string> above.
 const providerKeys = Object.keys(providers) as Provider[]
 
 for (const provider of providerKeys) {
-  const asset = provider === 'mk2' ? 'mk2_logo.svg' : provider === 'grandecran' ? 'grand_ecran_logo_small.webp' : `${provider}_logo_small.webp`
+  const asset = provider === 'mk2' ? 'mk2_logo.svg' : provider === 'grandecran' ? 'grand_ecran_logo_small.webp' : provider === 'noecinemas' ? 'noe_cinema_logo_small.webp' : `${provider}_logo_small.webp`
   test(`${provider}: provider logo is unique and source name stays exact with or without its brand`, async () => {
     for (const name of ['Cinéma GALAXY', `Le ${providers[provider]} Centre`, `${providers[provider]} ${providers[provider]}`]) {
       const html = await render(name, provider)
