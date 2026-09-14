@@ -331,6 +331,7 @@ function onMapLoad() {
           'cineville', THEATER_PROVIDER_COLORS.cineville,
           'mk2', THEATER_PROVIDER_COLORS.mk2,
           'cinewest', THEATER_PROVIDER_COLORS.cinewest,
+          'grandecran', THEATER_PROVIDER_COLORS.grandecran,
           '#52525b'
         ],
         'circle-stroke-color': '#ffffff',

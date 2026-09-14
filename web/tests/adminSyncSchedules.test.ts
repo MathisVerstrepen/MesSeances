@@ -49,7 +49,8 @@ function job(
       megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') },
       cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') },
       mk2: { state: states.mk2 ?? (target === 'mk2' || target === 'all' ? 'succeeded' : 'not_requested') },
-      cinewest: { state: states.cinewest ?? (target === 'cinewest' || target === 'all' ? 'succeeded' : 'not_requested') }
+      cinewest: { state: states.cinewest ?? (target === 'cinewest' || target === 'all' ? 'succeeded' : 'not_requested') },
+      grandecran: { state: states.grandecran ?? (target === 'grandecran' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -233,6 +234,23 @@ test('Cinewest direct and all runs remain independent of partner platform provid
   assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', ['cgr', 'megarama']), false)
   assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', []), false)
   assert.equal(blankAdminSyncScheduleDraft().enabled, false)
+})
+
+test('Grand Ecran schedules retain availability and latest direct, all and scheduled outcomes', () => {
+  const direct = job('direct', 'grandecran', '2026-09-14T08:00:00Z')
+  const all = job('all', 'all', '2026-09-14T09:00:00Z')
+  const scheduled = { ...job('scheduled', 'grandecran', '2026-09-14T10:00:00Z'), trigger: 'scheduled' as const }
+  const notRequested = job('not-requested', 'all', '2026-09-14T11:00:00Z', { grandecran: 'not_requested' })
+  const running = job('running', 'grandecran', '2026-09-14T12:00:00Z', {}, 'running')
+  assert.equal(selectLatestProviderRun('grandecran', null, [direct])?.id, 'direct')
+  assert.equal(selectLatestProviderRun('grandecran', null, [direct, all])?.id, 'all')
+  assert.equal(selectLatestProviderRun('grandecran', running, [direct, all, scheduled, notRequested])?.id, 'scheduled')
+  assert.equal(selectLatestProviderRun('grandecran', null, [job('other', 'mk2', '2026-09-14T13:00:00Z')]), null)
+  for (const state of ['failed', 'skipped'] as const) {
+    assert.equal(selectLatestProviderRun('grandecran', null, [job(state, 'all', '2026-09-14T14:00:00Z', { grandecran: state }, 'failed')])?.id, state)
+  }
+  assert.equal(isAdminSyncScheduleTargetAvailable('grandecran', ['grandecran']), true)
+  assert.equal(isAdminSyncScheduleTargetAvailable('grandecran', []), false)
 })
 
 test('calculates whole-run duration from finished or supplied current time', () => {

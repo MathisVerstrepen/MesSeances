@@ -15,15 +15,16 @@ type ProviderState string
 type TriggerSource string
 
 const (
-	TargetAll       Target = "all"
-	TargetUGC       Target = "ugc"
-	TargetKinepolis Target = "kinepolis"
-	TargetPathe     Target = "pathe"
-	TargetCGR       Target = "cgr"
-	TargetMegarama  Target = "megarama"
-	TargetCineville Target = "cineville"
-	TargetMK2       Target = "mk2"
-	TargetCinewest  Target = "cinewest"
+	TargetAll        Target = "all"
+	TargetUGC        Target = "ugc"
+	TargetKinepolis  Target = "kinepolis"
+	TargetPathe      Target = "pathe"
+	TargetCGR        Target = "cgr"
+	TargetMegarama   Target = "megarama"
+	TargetCineville  Target = "cineville"
+	TargetMK2        Target = "mk2"
+	TargetCinewest   Target = "cinewest"
+	TargetGrandEcran Target = "grandecran"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"
@@ -157,7 +158,7 @@ func releaseRunLease(ctx context.Context, lease RunLease) error {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetAll || target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest
+	return target == TargetAll || target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran
 }
 
 func (m *Manager) Start(target Target) (Status, error) {
@@ -227,14 +228,15 @@ func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan C
 	now := m.now()
 	today := now.In(m.location)
 	providers := map[string]ProviderStatus{
-		string(TargetUGC):       {State: ProviderNotRequested},
-		string(TargetKinepolis): {State: ProviderNotRequested},
-		string(TargetPathe):     {State: ProviderNotRequested},
-		string(TargetCGR):       {State: ProviderNotRequested},
-		string(TargetMegarama):  {State: ProviderNotRequested},
-		string(TargetCineville): {State: ProviderNotRequested},
-		string(TargetMK2):       {State: ProviderNotRequested},
-		string(TargetCinewest):  {State: ProviderNotRequested},
+		string(TargetUGC):        {State: ProviderNotRequested},
+		string(TargetKinepolis):  {State: ProviderNotRequested},
+		string(TargetPathe):      {State: ProviderNotRequested},
+		string(TargetCGR):        {State: ProviderNotRequested},
+		string(TargetMegarama):   {State: ProviderNotRequested},
+		string(TargetCineville):  {State: ProviderNotRequested},
+		string(TargetMK2):        {State: ProviderNotRequested},
+		string(TargetCinewest):   {State: ProviderNotRequested},
+		string(TargetGrandEcran): {State: ProviderNotRequested},
 	}
 	if target == TargetAll || target == TargetUGC {
 		providers[string(TargetUGC)] = ProviderStatus{State: ProviderPending}
@@ -259,6 +261,9 @@ func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan C
 	}
 	if target == TargetAll || target == TargetCinewest {
 		providers[string(TargetCinewest)] = ProviderStatus{State: ProviderPending}
+	}
+	if target == TargetAll || target == TargetGrandEcran {
+		providers[string(TargetGrandEcran)] = ProviderStatus{State: ProviderPending}
 	}
 	status := Status{
 		Target: target, State: StateRunning, Trigger: TriggerManual,
@@ -350,7 +355,7 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	}()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest}
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran}
 	}
 	for _, provider := range providers {
 		m.setProvider(provider, ProviderRunning)
@@ -509,7 +514,7 @@ func cloneStatus(status Status) Status {
 			state.Log = append([]string(nil), state.Log...)
 			copy.Providers[provider] = state
 		}
-		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest} {
+		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran} {
 			if _, exists := copy.Providers[string(provider)]; !exists {
 				copy.Providers[string(provider)] = ProviderStatus{State: ProviderNotRequested}
 			}

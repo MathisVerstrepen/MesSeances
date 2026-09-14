@@ -25,7 +25,7 @@ test('Cinewest follows MK2 in all existing admin provider surfaces and map witho
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /cinewest: 'Cinewest'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran'\]/)
   }
   assert.match(await source('pages/admin/sync.vue'), /const targets = \['all', \.\.\.providers\]/)
   const schedules = await source('pages/admin/sync-schedules.vue')

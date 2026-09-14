@@ -54,6 +54,8 @@ type Request struct {
 	Headers    http.Header
 	MediaTypes []string
 	NoRedirect bool
+	// AllowRedirect permits a changed final URL, still subject to ValidURL.
+	AllowRedirect bool
 }
 
 type RetryPolicy struct {
@@ -136,7 +138,7 @@ func (e *Executor) Get(ctx context.Context, rawURL string, policy ResponsePolicy
 
 func (e *Executor) Do(ctx context.Context, input Request, policy ResponsePolicy) ([]byte, *Failure) {
 	parsed, err := url.Parse(input.URL)
-	if err != nil || !e.validURL(parsed) || (input.Method != http.MethodGet && input.Method != http.MethodPost) {
+	if err != nil || !e.validURL(parsed) || input.NoRedirect && input.AllowRedirect || (input.Method != http.MethodGet && input.Method != http.MethodPost) {
 		return nil, &Failure{Kind: FailureInvalidURL}
 	}
 	input.Body = bytes.Clone(input.Body)
@@ -247,7 +249,7 @@ func (e *Executor) attempt(ctx context.Context, client *http.Client, input Reque
 			return nil, failure, retry
 		}
 	}
-	if response.Request == nil || response.Request.URL.String() != input.URL || !e.validURL(response.Request.URL) {
+	if response.Request == nil || response.Request.URL == nil || !input.AllowRedirect && response.Request.URL.String() != input.URL || !e.validURL(response.Request.URL) {
 		return nil, &Failure{Kind: FailureRedirect}, false
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))

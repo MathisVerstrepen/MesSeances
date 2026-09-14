@@ -739,7 +739,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 }
 
-func TestSevenProviderPostgresStoreIntegration(t *testing.T) {
+func TestMultiProviderPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -1037,6 +1037,74 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatal("invalid MK2 batch changed revision")
 	}
 	assertMK2(123)
+	grand := grandecranTestDataset()
+	publication, err = store.Replace(ctx, []Dataset{grand})
+	if err != nil || len(publication.Providers) != 1 {
+		t.Fatalf("Grand Ecran publication err=%v", err)
+	}
+	assertGrand := func(runtime int) {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != 11 || len(loaded.Showtimes) != 12 {
+			t.Fatalf("Grand Ecran reload theaters=%d showtimes=%d err=%v", len(loaded.Theaters), len(loaded.Showtimes), err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider == schedule.ProviderGrandEcran && (r.Movie.RuntimeMinutes != 0 || r.Room != "" || r.Movie.PosterURL != "" || !r.EndTime.Equal(r.StartTime)) {
+				t.Fatal("Grand Ecran source facts overwritten")
+			}
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "grandecran-film-cEvent_1", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatalf("Grand Ecran alias err=%v", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if r.ID != grand.Showtimes[0].ID || r.Movie.RuntimeMinutes != runtime || r.BookingURL == nil || *r.BookingURL != grand.Showtimes[0].BookingURL || !r.StartTime.Equal(r.EndTime) {
+			t.Fatal("Grand Ecran DTO")
+		}
+		if runtime == 0 {
+			if r.EstimatedEndTime != nil {
+				t.Fatal("estimate without runtime")
+			}
+		} else if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+15)*time.Minute)) {
+			t.Fatal("missing Grand Ecran estimate")
+		}
+	}
+	assertGrand(0)
+	grandMatch := match(enrichment.SourceGrandEcran, "cEvent_1")
+	grandMatch.SourceRuntimeMinutes, grandMatch.MetadataMovieID = 0, 46
+	grandMatch.Candidates = []enrichment.Candidate{{ID: 46, Title: "Event", Runtime: 123, Score: 1}}
+	grandMetadata := metadata
+	grandMetadata.ProviderMovieID, grandMetadata.RuntimeMinutes = 46, 123
+	if err := enrichmentStore.Publish(ctx, grandMatch, grandMetadata); err != nil {
+		t.Fatal(err)
+	}
+	assertGrand(123)
+	if _, err := store.Replace(ctx, []Dataset{grand}); err != nil {
+		t.Fatal(err)
+	}
+	assertGrand(123)
+	_, beforeRevision, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidGrand := grandecranTestDataset()
+	invalidGrand.Showtimes[0].EndTime = invalidGrand.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{ugc, invalidGrand}); err == nil {
+		t.Fatal("invalid Grand Ecran batch published")
+	}
+	_, afterRevision, err = store.Load(ctx)
+	if err != nil || beforeRevision != afterRevision {
+		t.Fatal("invalid Grand Ecran batch changed revision")
+	}
+	assertGrand(123)
 	assertCinewestStore(t, store)
 }
 
@@ -1044,10 +1112,10 @@ func assertCinewestStore(t *testing.T, store *Store) {
 	t.Helper()
 	ctx := t.Context()
 	d := cinewestTestDataset()
-	all := []Dataset{testDataset(), kinepolisTestDataset(), patheTestDataset(), cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset(), mk2TestDataset(), d}
+	all := []Dataset{testDataset(), kinepolisTestDataset(), patheTestDataset(), cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset(), mk2TestDataset(), d, grandecranTestDataset()}
 	publication, err := store.Replace(ctx, all)
-	if err != nil || len(publication.Providers) != 8 {
-		t.Fatalf("eight-provider publication: %v", err)
+	if err != nil || len(publication.Providers) != 9 {
+		t.Fatalf("nine-provider publication: %v", err)
 	}
 	loaded, _, err := store.Load(ctx)
 	if err != nil {
@@ -1140,6 +1208,18 @@ func cinewestTestDataset() Dataset {
 		}
 		d.Theaters, d.Showtimes = append(d.Theaters, c), append(d.Showtimes, r)
 	}
+	return d
+}
+
+func grandecranTestDataset() Dataset {
+	d := mk2TestDataset()
+	d.Provider = schedule.ProviderGrandEcran
+	d.Theaters = []TheaterRecord{{Provider: schedule.ProviderGrandEcran, ID: "grandecran-G028P", ProviderID: "G028P", Slug: "grandecran-G028P", Name: "Grand Ecran Test", Address: "1 rue Test", City: "Paris", PostalCode: "75001", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}
+	r := &d.Showtimes[0]
+	id := "G028P-" + strings.Repeat("a", 64)
+	r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderGrandEcran, "grandecran-showing-"+id, id, "grandecran-G028P"
+	r.Movie = MovieRecord{Provider: schedule.ProviderGrandEcran, ProviderID: "cEvent_1", Slug: "grandecran-film-cEvent_1", Title: "Event"}
+	r.Language, r.ProviderVersion, r.Room, r.BookingURL = LanguageVOSTFR, "VOSTFR", "", "https://achat.grandecran.fr/test/r/123"
 	return d
 }
 

@@ -13,16 +13,17 @@ import (
 )
 
 const (
-	SourceUGC       = "ugc"
-	SourceKinepolis = "kinepolis"
-	SourcePathe     = "pathe"
-	SourceCGR       = "cgr"
-	SourceMegarama  = "megarama"
-	SourceCineville = "cineville"
-	SourceMK2       = "mk2"
-	SourceCinewest  = "cinewest"
-	ProviderTMDB    = "tmdb"
-	LocaleFrench    = "fr-FR"
+	SourceUGC        = "ugc"
+	SourceKinepolis  = "kinepolis"
+	SourcePathe      = "pathe"
+	SourceCGR        = "cgr"
+	SourceMegarama   = "megarama"
+	SourceCineville  = "cineville"
+	SourceMK2        = "mk2"
+	SourceCinewest   = "cinewest"
+	SourceGrandEcran = "grandecran"
+	ProviderTMDB     = "tmdb"
+	LocaleFrench     = "fr-FR"
 
 	StatusMatched        = "matched"
 	StatusReviewRequired = "review_required"
@@ -141,6 +142,9 @@ func validateMatch(match Match) error {
 func validSourceIdentity(provider, id string) bool {
 	if provider == SourceCinewest {
 		return schedule.ValidCinewestIdentity("movie", id)
+	}
+	if provider == SourceGrandEcran {
+		return schedule.ValidGrandEcranIdentity("movie", id)
 	}
 	if provider == SourceMK2 {
 		return schedule.ValidMK2Identity("movie", id)

@@ -82,6 +82,8 @@ const UGC_SELECTION_KEY_PATTERN = /^ugc:ugc-showing-([0-9]{1,128})$/
 const KINEPOLIS_SELECTION_KEY_PATTERN = /^kinepolis:kinepolis-showing-([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/
 const PATHE_SELECTION_KEY_PATTERN = /^pathe:pathe-showing-(V[1-9][0-9]*S[1-9][0-9]*)$/
 const CGR_SELECTION_KEY_PATTERN = /^cgr:cgr-showing-([A-Z][0-9]{4})-([a-f0-9]{64})$/
+const GRAND_ECRAN_SELECTION_KEY_PATTERN = /^grandecran:grandecran-showing-([A-Z0-9]{5})-([a-f0-9]{64})$/
+const GRAND_ECRAN_TOKEN_PATTERN = /^g([A-Z0-9]{5})-([A-Za-z0-9_-]{43})$/
 const KINEPOLIS_PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const PATHE_PROVIDER_ID_PATTERN = /^V[1-9][0-9]*S[1-9][0-9]*$/
 const CGR_TOKEN_PATTERN = /^c([A-Z][0-9]{4})-([A-Za-z0-9_-]{43})$/
@@ -156,6 +158,8 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 
   const cgrMatch = CGR_SELECTION_KEY_PATTERN.exec(key)
   if (cgrMatch?.[1] && cgrMatch[2]) return `c${cgrMatch[1]}-${hexToBase64Url(cgrMatch[2])}`
+  const grandEcranMatch = GRAND_ECRAN_SELECTION_KEY_PATTERN.exec(key)
+  if (grandEcranMatch?.[1] && grandEcranMatch[2] && grandEcranMatch[0] === key) return `g${grandEcranMatch[1]}-${hexToBase64Url(grandEcranMatch[2])}`
   const megaramaMatch = MEGARAMA_SELECTION_KEY_PATTERN.exec(key)
   if (megaramaMatch?.[1] && megaramaMatch[0] === key) return `m${megaramaMatch[1]}`
   const cinevilleMatch = CINEVILLE_SELECTION_KEY_PATTERN.exec(key)
@@ -188,6 +192,12 @@ function decodeShowtimeSelectionToken(token: string): string | null {
     return providerID.length <= 115 && PATHE_PROVIDER_ID_PATTERN.test(providerID) ? `pathe:pathe-showing-${providerID}` : null
   }
 
+  const grandEcranMatch = GRAND_ECRAN_TOKEN_PATTERN.exec(token)
+  if (grandEcranMatch?.[1] && grandEcranMatch[2] && grandEcranMatch[0] === token) {
+    const hash = base64UrlToHex(grandEcranMatch[2])
+    if (!hash || hash.length !== 64 || hexToBase64Url(hash) !== grandEcranMatch[2]) return null
+    return `grandecran:grandecran-showing-${grandEcranMatch[1]}-${hash}`
+  }
   const cgrMatch = CGR_TOKEN_PATTERN.exec(token)
   if (!cgrMatch?.[1] || !cgrMatch[2]) return null
   const hash = base64UrlToHex(cgrMatch[2])

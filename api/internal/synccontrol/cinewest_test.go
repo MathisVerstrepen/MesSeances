@@ -71,7 +71,7 @@ func TestCinewestExecutorAndScheduledStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForTerminal(t, manager)
-	if status.State != StateSucceeded || len(status.Providers) != 8 || status.Providers["cinewest"].State != ProviderSucceeded || status.Occurrence.Provider != TargetCinewest {
+	if status.State != StateSucceeded || len(status.Providers) != 9 || status.Providers["cinewest"].State != ProviderSucceeded || status.Occurrence.Provider != TargetCinewest {
 		t.Fatal("scheduled status")
 	}
 	status.Providers["cinewest"] = ProviderStatus{State: "mutated"}
