@@ -1,8 +1,8 @@
 export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
-export type ShowtimeLanguage = 'VOSTFR' | 'VF' | 'VO' | 'VF_SME' | 'VFSTF'
+export type ShowtimeLanguage = '' | 'VOSTFR' | 'VF' | 'VO' | 'VF_SME' | 'VFSTF'
 export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'ICE'
 export type QueryFormat = 'ALL' | ShowtimeFormat
-export type Provider = 'ugc' | 'kinepolis' | 'pathe' | 'cgr' | 'megarama'
+export type Provider = 'ugc' | 'kinepolis' | 'pathe' | 'cgr' | 'megarama' | 'cineville' | 'mk2' | 'cinewest' | 'grandecran' | 'noecinemas'
 export type MovieSort = 'title_asc' | 'title_desc' | 'release_date_desc' | 'runtime_asc' | 'runtime_desc' | 'showtimes_desc'
 export type MovieDurationFilter = 'short' | 'medium' | 'long'
 
@@ -34,6 +34,8 @@ export interface Showtime {
   movie: Movie
   start_time: string
   end_time: string
+  estimated_end_time: string | null
+  estimated_end_ads_minutes: number | null
   language: ShowtimeLanguage
   format: ShowtimeFormat
   room: string

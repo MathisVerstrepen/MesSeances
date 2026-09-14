@@ -64,6 +64,11 @@ func TestAdminSyncStatusAuthenticationAvailabilityAndNoStore(t *testing.T) {
 	handler := pendingSyncAdminHandler(t, controller)
 	unauthorized := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs", "", "", nil)
 	assertAPIError(t, unauthorized, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	unauthorizedMK2 := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/mk2", "", "http://localhost:3000", nil)
+	assertAPIError(t, unauthorizedMK2, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	unauthorizedGrandEcran := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/grandecran", "", "http://localhost:3000", nil)
+	assertAPIError(t, unauthorizedGrandEcran, http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	assertAPIError(t, adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/noecinemas", "", "http://localhost:3000", nil), http.StatusUnauthorized, "unauthorized", "Authentification requise.")
 	cookie := loginAdmin(t, handler, "password")
 	initial := adminRequest(handler, http.MethodGet, "/api/v1/admin/syncs", "", "", cookie)
 	if initial.Code != http.StatusOK || strings.TrimSpace(initial.Body.String()) != `{"job":null,"runs":[]}` || initial.Header().Get("Cache-Control") != "no-store" {
@@ -107,6 +112,21 @@ func TestAdminStartSyncContract(t *testing.T) {
 	megarama := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/megarama", "", "http://localhost:3000", cookie)
 	if megarama.Code != http.StatusAccepted || len(controller.started) != 4 || controller.started[3] != synccontrol.TargetMegarama {
 		t.Fatalf("Megarama status=%d started=%v", megarama.Code, controller.started)
+	}
+	mk2 := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/mk2", "", "http://localhost:3000", cookie)
+	if mk2.Code != http.StatusAccepted || len(controller.started) != 5 || controller.started[4] != synccontrol.TargetMK2 {
+		t.Fatalf("MK2 status=%d started=%v", mk2.Code, controller.started)
+	}
+	grandEcranWrongOrigin := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/grandecran", "", "https://evil.example", cookie)
+	assertAPIError(t, grandEcranWrongOrigin, http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
+	grandEcran := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/grandecran", "", "http://localhost:3000", cookie)
+	if grandEcran.Code != http.StatusAccepted || len(controller.started) != 6 || controller.started[5] != synccontrol.TargetGrandEcran {
+		t.Fatalf("Grand Ecran status=%d started=%v", grandEcran.Code, controller.started)
+	}
+	assertAPIError(t, adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/noecinemas", "", "https://evil.example", cookie), http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
+	noe := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/noecinemas", "", "http://localhost:3000", cookie)
+	if noe.Code != http.StatusAccepted || len(controller.started) != 7 || controller.started[6] != synccontrol.TargetNoeCinemas {
+		t.Fatalf("Noé status=%d started=%v", noe.Code, controller.started)
 	}
 	body := adminRequest(handler, http.MethodPost, "/api/v1/admin/syncs/ugc", `{}`, "http://localhost:3000", cookie)
 	assertAPIError(t, body, http.StatusBadRequest, "invalid_request", "Requête invalide.")

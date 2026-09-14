@@ -243,7 +243,7 @@ func (s *Service) List(ctx context.Context) ([]Schedule, error) {
 
 func (s *Service) AvailableTargets() []Target {
 	targets := make([]Target, 0, len(s.available))
-	for _, target := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetMetadataRefresh, TargetUpcomingMovies} {
+	for _, target := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetMetadataRefresh, TargetUpcomingMovies} {
 		if _, ok := s.available[target]; ok {
 			targets = append(targets, target)
 		}

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { posterImageSources } from '../app/utils/safeImageUrl.ts'
 
 const appRoot = new URL('../app/', import.meta.url)
 const posterImageSource = await readFile(new URL('../app/components/PosterImage.vue', import.meta.url), 'utf8')
@@ -21,6 +22,16 @@ async function readVueSources(directory: URL): Promise<Array<{ path: string, sou
 
 const vueSources = await readVueSources(appRoot)
 const combinedAppSource = vueSources.map(({ source }) => source).join('\n')
+
+test('Cinéville source posters share the existing lazy renderer and missing-poster fallback', () => {
+  const src = 'https://storage.googleapis.com/cineville-files-prod/images/event.jpg'
+  assert.deepEqual(posterImageSources(src), { src, srcset: null })
+  for (const value of [null, '', 'https://storage.googleapis.com/other/images/event.jpg']) {
+    assert.deepEqual(posterImageSources(value), { src: null, srcset: null })
+  }
+  assert.match(posterImageSource, /posterImageSources\(props\.src\)/)
+  assert.match(resultBoxSource, /posterImageSources\(props\.result\.posterUrl\)/)
+})
 
 test('PosterImage centrally owns responsive lazy image policy and protects it from fallthrough attributes', () => {
   assert.match(posterImageSource, /sizes: string/)

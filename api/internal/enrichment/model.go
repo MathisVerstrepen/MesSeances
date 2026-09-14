@@ -8,16 +8,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"messeances/api/internal/schedule"
 )
 
 const (
-	SourceUGC       = "ugc"
-	SourceKinepolis = "kinepolis"
-	SourcePathe     = "pathe"
-	SourceCGR       = "cgr"
-	SourceMegarama  = "megarama"
-	ProviderTMDB    = "tmdb"
-	LocaleFrench    = "fr-FR"
+	SourceUGC        = "ugc"
+	SourceKinepolis  = "kinepolis"
+	SourcePathe      = "pathe"
+	SourceCGR        = "cgr"
+	SourceMegarama   = "megarama"
+	SourceCineville  = "cineville"
+	SourceMK2        = "mk2"
+	SourceCinewest   = "cinewest"
+	SourceGrandEcran = "grandecran"
+	SourceNoeCinemas = "noecinemas"
+	ProviderTMDB     = "tmdb"
+	LocaleFrench     = "fr-FR"
 
 	StatusMatched        = "matched"
 	StatusReviewRequired = "review_required"
@@ -134,6 +141,22 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceCinewest {
+		return schedule.ValidCinewestIdentity("movie", id)
+	}
+	if provider == SourceGrandEcran {
+		return schedule.ValidGrandEcranIdentity("movie", id)
+	}
+	if provider == SourceNoeCinemas {
+		return schedule.ValidNoeCinemasIdentity("movie", id)
+	}
+	if provider == SourceMK2 {
+		return schedule.ValidMK2Identity("movie", id)
+	}
+	if provider == SourceCineville {
+		movieID, err := strconv.ParseInt(id, 10, 64)
+		return err == nil && movieID != 0 && strconv.FormatInt(movieID, 10) == id
+	}
 	if provider == SourceMegarama {
 		return len(id) <= 114 && (megaramaGlobalID.MatchString(id) || megaramaLocalID.MatchString(id) && id[3:7] == id[12:16])
 	}

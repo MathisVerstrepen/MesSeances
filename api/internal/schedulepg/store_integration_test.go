@@ -739,7 +739,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 }
 
-func TestFiveProviderPostgresStoreIntegration(t *testing.T) {
+func TestMultiProviderPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -790,7 +790,7 @@ func TestFiveProviderPostgresStoreIntegration(t *testing.T) {
 		t.Fatalf("Pathé load revision=%+v dataset=%+v err=%v", revision, loaded, err)
 	}
 
-	ugc, kinepolis, cgr, megarama := testDataset(), kinepolisTestDataset(), cgrTestDataset(), megaramaTestDataset()
+	ugc, kinepolis, cgr, megarama, cineville := testDataset(), kinepolisTestDataset(), cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset()
 	publication, err = store.Replace(ctx, []Dataset{ugc})
 	if err != nil || publication.Version != 2 {
 		t.Fatalf("UGC copy-forward publication=%+v err=%v", publication, err)
@@ -806,13 +806,13 @@ func TestFiveProviderPostgresStoreIntegration(t *testing.T) {
 	}
 	pathe.Showtimes[0].Movie.ProviderID = "film-b"
 	pathe.Showtimes[0].Movie.Slug = "pathe-film-film-b"
-	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe, cgr, megarama})
-	if err != nil || publication.Version != 3 || len(publication.Providers) != 5 {
-		t.Fatalf("five-provider publication=%+v err=%v", publication, err)
+	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe, cgr, megarama, cineville})
+	if err != nil || publication.Version != 3 || len(publication.Providers) != 6 {
+		t.Fatalf("six-provider publication=%+v err=%v", publication, err)
 	}
 	loaded, revision, err = store.Load(ctx)
-	if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 8 || len(loaded.Showtimes) != 9 {
-		t.Fatalf("five-provider load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
+	if err != nil || revision.ScheduleVersion != 3 || loaded.Provider != ProviderCombined || len(loaded.Theaters) != 9 || len(loaded.Showtimes) != 10 {
+		t.Fatalf("six-provider load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
 	}
 	var loadedCGR *ShowtimeRecord
 	for index := range loaded.Showtimes {
@@ -841,14 +841,14 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatalf("Pathé copy-forward publication=%+v err=%v", publication, err)
 	}
 	loaded, revision, err = store.Load(ctx)
-	if err != nil || revision.ScheduleVersion != 4 || len(loaded.Theaters) != 8 || len(loaded.Showtimes) != 9 {
+	if err != nil || revision.ScheduleVersion != 4 || len(loaded.Theaters) != 9 || len(loaded.Showtimes) != 10 {
 		t.Fatalf("Pathé copy-forward load revision=%+v theaters=%d showtimes=%d err=%v", revision, len(loaded.Theaters), len(loaded.Showtimes), err)
 	}
 	providers := map[schedule.Provider]bool{}
 	for _, theater := range loaded.Theaters {
 		providers[theater.Provider] = true
 	}
-	if !providers[ProviderUGC] || !providers[ProviderKinepolis] || !providers[ProviderPathe] || !providers[ProviderCGR] || !providers[schedule.ProviderMegarama] {
+	if !providers[ProviderUGC] || !providers[ProviderKinepolis] || !providers[ProviderPathe] || !providers[ProviderCGR] || !providers[schedule.ProviderMegarama] || !providers[schedule.ProviderCineville] {
 		t.Fatalf("copy-forward providers=%v", providers)
 	}
 
@@ -901,7 +901,7 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatal(err)
 	}
 	after, _, err := store.Load(ctx)
-	if err != nil || len(after.Showtimes) != 9 || len(after.Theaters) != 8 {
+	if err != nil || len(after.Showtimes) != 10 || len(after.Theaters) != 9 {
 		t.Fatal("Megarama replacement damaged other providers")
 	}
 	assertMegaramaEnd(0)
@@ -911,9 +911,413 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatal("invalid batch published")
 	}
 	after, _, err = store.Load(ctx)
-	if err != nil || len(after.Showtimes) != 9 {
+	if err != nil || len(after.Showtimes) != 10 {
 		t.Fatal("failed publication damaged active snapshot")
 	}
+	assertCineville := func(runtime int) {
+		t.Helper()
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "cineville-film--693091020261", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatalf("Cineville alias: %v", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if !r.EndTime.Equal(r.StartTime) || r.Movie.RuntimeMinutes != runtime || r.ID != "cineville-showing-639-1" || !strings.HasPrefix(r.Movie.Slug, "film-") {
+			t.Fatalf("Cineville materialization: %+v", r)
+		}
+		if runtime == 0 {
+			if r.EstimatedEndTime != nil || r.EstimatedEndAdsMinutes != nil {
+				t.Fatal("Cineville estimate without runtime")
+			}
+		} else if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+schedule.DefaultBufferAdsMinutes)*time.Minute)) || r.EstimatedEndAdsMinutes == nil || *r.EstimatedEndAdsMinutes != schedule.DefaultBufferAdsMinutes {
+			t.Fatalf("Cineville enriched estimate: %+v", r)
+		}
+		loaded, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range loaded.Showtimes {
+			if s.Provider == schedule.ProviderCineville && (s.Movie.RuntimeMinutes != 0 || !s.EndTime.Equal(s.StartTime)) {
+				t.Fatal("source end/runtime overwritten")
+			}
+		}
+	}
+	assertCineville(0)
+	cinevilleMatch := match(enrichment.SourceCineville, "-693091020261")
+	cinevilleMatch.SourceRuntimeMinutes, cinevilleMatch.MetadataMovieID = 0, 44
+	cinevilleMatch.Candidates = []enrichment.Candidate{{ID: 44, Title: "Event", Runtime: 123, Score: 1}}
+	cinevilleMetadata := metadata
+	cinevilleMetadata.ProviderMovieID, cinevilleMetadata.RuntimeMinutes = 44, 123
+	if err := enrichmentStore.Publish(ctx, cinevilleMatch, cinevilleMetadata); err != nil {
+		t.Fatal(err)
+	}
+	assertCineville(123)
+	if _, err := store.Replace(ctx, []Dataset{cineville}); err != nil {
+		t.Fatal(err)
+	}
+	assertCineville(123)
+	invalidCineville := cinevilleTestDataset()
+	invalidCineville.Showtimes[0].EndTime = invalidCineville.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{invalidCineville}); err == nil {
+		t.Fatal("invented end published")
+	}
+	assertCineville(123)
+	mk2 := mk2TestDataset()
+	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe, cgr, megarama, cineville, mk2})
+	if err != nil || len(publication.Providers) != 7 {
+		t.Fatalf("seven-provider publication=%+v err=%v", publication, err)
+	}
+	assertMK2 := func(runtime int) {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != 10 || len(loaded.Showtimes) != 11 {
+			t.Fatalf("MK2 roundtrip theaters=%d showtimes=%d err=%v", len(loaded.Theaters), len(loaded.Showtimes), err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider == schedule.ProviderMK2 && (r.Movie.RuntimeMinutes != 0 || r.Language != "" || r.Room != "" || !r.EndTime.Equal(r.StartTime)) {
+				t.Fatal("MK2 source facts overwritten")
+			}
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "mk2-film-HO00006568", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatalf("MK2 alias err=%v", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if r.ID != "mk2-showing-0004-140350" || r.Movie.RuntimeMinutes != runtime || r.BookingURL == nil || *r.BookingURL != schedule.MK2BookingPrefix+"0004&sessionId=140350" || !r.EndTime.Equal(r.StartTime) {
+			t.Fatalf("MK2 DTO=%+v", r)
+		}
+		if runtime == 0 {
+			if r.EstimatedEndTime != nil {
+				t.Fatal("estimate without runtime")
+			}
+		} else if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+15)*time.Minute)) {
+			t.Fatal("missing MK2 estimate")
+		}
+	}
+	assertMK2(0)
+	mk2Match := match(enrichment.SourceMK2, "HO00006568")
+	mk2Match.SourceRuntimeMinutes, mk2Match.MetadataMovieID = 0, 45
+	mk2Match.Candidates = []enrichment.Candidate{{ID: 45, Title: "Silent", Runtime: 123, Score: 1}}
+	mk2Metadata := metadata
+	mk2Metadata.ProviderMovieID, mk2Metadata.RuntimeMinutes = 45, 123
+	if err := enrichmentStore.Publish(ctx, mk2Match, mk2Metadata); err != nil {
+		t.Fatal(err)
+	}
+	assertMK2(123)
+	if _, err := store.Replace(ctx, []Dataset{mk2}); err != nil {
+		t.Fatal(err)
+	}
+	assertMK2(123)
+	_, beforeRevision, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidMK2 := mk2TestDataset()
+	invalidMK2.Showtimes[0].EndTime = invalidMK2.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{ugc, invalidMK2}); err == nil {
+		t.Fatal("invalid MK2 batch published")
+	}
+	_, afterRevision, err := store.Load(ctx)
+	if err != nil || beforeRevision != afterRevision {
+		t.Fatal("invalid MK2 batch changed revision")
+	}
+	assertMK2(123)
+	grand := grandecranTestDataset()
+	publication, err = store.Replace(ctx, []Dataset{grand})
+	if err != nil || len(publication.Providers) != 1 {
+		t.Fatalf("Grand Ecran publication err=%v", err)
+	}
+	assertGrand := func(runtime int) {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != 11 || len(loaded.Showtimes) != 12 {
+			t.Fatalf("Grand Ecran reload theaters=%d showtimes=%d err=%v", len(loaded.Theaters), len(loaded.Showtimes), err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider == schedule.ProviderGrandEcran && (r.Movie.RuntimeMinutes != 0 || r.Room != "" || r.Movie.PosterURL != "" || !r.EndTime.Equal(r.StartTime)) {
+				t.Fatal("Grand Ecran source facts overwritten")
+			}
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "grandecran-film-cEvent_1", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatalf("Grand Ecran alias err=%v", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if r.ID != grand.Showtimes[0].ID || r.Movie.RuntimeMinutes != runtime || r.BookingURL == nil || *r.BookingURL != grand.Showtimes[0].BookingURL || !r.StartTime.Equal(r.EndTime) {
+			t.Fatal("Grand Ecran DTO")
+		}
+		if runtime == 0 {
+			if r.EstimatedEndTime != nil {
+				t.Fatal("estimate without runtime")
+			}
+		} else if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+15)*time.Minute)) {
+			t.Fatal("missing Grand Ecran estimate")
+		}
+	}
+	assertGrand(0)
+	grandMatch := match(enrichment.SourceGrandEcran, "cEvent_1")
+	grandMatch.SourceRuntimeMinutes, grandMatch.MetadataMovieID = 0, 46
+	grandMatch.Candidates = []enrichment.Candidate{{ID: 46, Title: "Event", Runtime: 123, Score: 1}}
+	grandMetadata := metadata
+	grandMetadata.ProviderMovieID, grandMetadata.RuntimeMinutes = 46, 123
+	if err := enrichmentStore.Publish(ctx, grandMatch, grandMetadata); err != nil {
+		t.Fatal(err)
+	}
+	assertGrand(123)
+	if _, err := store.Replace(ctx, []Dataset{grand}); err != nil {
+		t.Fatal(err)
+	}
+	assertGrand(123)
+	_, beforeRevision, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidGrand := grandecranTestDataset()
+	invalidGrand.Showtimes[0].EndTime = invalidGrand.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{ugc, invalidGrand}); err == nil {
+		t.Fatal("invalid Grand Ecran batch published")
+	}
+	_, afterRevision, err = store.Load(ctx)
+	if err != nil || beforeRevision != afterRevision {
+		t.Fatal("invalid Grand Ecran batch changed revision")
+	}
+	assertGrand(123)
+	assertCinewestStore(t, store)
+	noe := noecinemasTestDataset()
+	if _, err := store.Replace(ctx, []Dataset{noe}); err != nil {
+		t.Fatal(err)
+	}
+	assertNoe := func(runtime int) {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		providers := map[schedule.Provider]bool{}
+		var noeMovie, ugcMovie int64
+		for _, r := range loaded.Showtimes {
+			providers[r.Provider] = true
+			if r.Provider == schedule.ProviderNoeCinemas {
+				noeMovie = r.Movie.PublicMovieID
+				if r.Movie.RuntimeMinutes != 0 || r.Room != "" || r.Movie.PosterURL != "" || !r.EndTime.Equal(r.StartTime) {
+					t.Fatal("Noé source facts changed")
+				}
+			}
+			if r.Provider == schedule.ProviderUGC && r.Movie.ProviderID == "200" {
+				ugcMovie = r.Movie.PublicMovieID
+			}
+		}
+		if len(providers) != 10 || noeMovie == 0 || ugcMovie == 0 || noeMovie == ugcMovie {
+			t.Fatal("provider coexistence or numeric identity collision")
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "noecinemas-film-200", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatal("Noé durable alias", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if r.Movie.RuntimeMinutes != runtime || r.ID != noe.Showtimes[0].ID || !r.EndTime.Equal(r.StartTime) || r.BookingURL == nil || *r.BookingURL != noe.Showtimes[0].BookingURL {
+			t.Fatal("Noé public record")
+		}
+		if runtime == 0 && r.EstimatedEndTime != nil || runtime > 0 && (r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+15)*time.Minute))) {
+			t.Fatal("Noé estimate")
+		}
+	}
+	assertNoe(0)
+	noeMatch := match(enrichment.SourceNoeCinemas, "200")
+	noeMatch.SourceRuntimeMinutes, noeMatch.MetadataMovieID = 0, 47
+	noeMatch.Candidates = []enrichment.Candidate{{ID: 47, Title: "Noé independent film", Runtime: 123, Score: 1}}
+	noeMetadata := metadata
+	noeMetadata.ProviderMovieID, noeMetadata.RuntimeMinutes = 47, 123
+	if err := enrichmentStore.Publish(ctx, noeMatch, noeMetadata); err != nil {
+		t.Fatal(err)
+	}
+	assertNoe(123)
+	if _, err := store.Replace(ctx, []Dataset{noe}); err != nil {
+		t.Fatal(err)
+	}
+	assertNoe(123)
+	_, beforeRevision, err = store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badNoe := noecinemasTestDataset()
+	badNoe.Showtimes[0].EndTime = badNoe.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{ugc, badNoe}); err == nil {
+		t.Fatal("invalid Noé batch published")
+	}
+	_, afterRevision, err = store.Load(ctx)
+	if err != nil || beforeRevision != afterRevision {
+		t.Fatal("invalid Noé batch changed generation")
+	}
+	assertNoe(123)
+}
+
+func assertCinewestStore(t *testing.T, store *Store) {
+	t.Helper()
+	ctx := t.Context()
+	d := cinewestTestDataset()
+	all := []Dataset{testDataset(), kinepolisTestDataset(), patheTestDataset(), cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset(), mk2TestDataset(), d, grandecranTestDataset()}
+	publication, err := store.Replace(ctx, all)
+	if err != nil || len(publication.Providers) != 9 {
+		t.Fatalf("nine-provider publication: %v", err)
+	}
+	loaded, _, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	theaterCount, showCount := len(loaded.Theaters), len(loaded.Showtimes)
+	assert := func() {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != theaterCount || len(loaded.Showtimes) != showCount {
+			t.Fatal("other providers damaged", err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider != schedule.ProviderCinewest {
+				continue
+			}
+			for _, want := range d.Showtimes {
+				if r.ID == want.ID && (!r.EndTime.Equal(want.EndTime) || !r.StartTime.Equal(want.StartTime) || r.FirstPartDurationMinutes != want.FirstPartDurationMinutes || r.Language != want.Language || r.BookingURL != want.BookingURL) {
+					t.Fatal("Cinewest source facts overwritten")
+				}
+			}
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return d.GeneratedAt.Add(-time.Hour) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range d.Showtimes {
+			detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: want.Movie.Slug, Date: want.ServiceDate})
+			if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+				t.Fatal("Cinewest durable alias", err)
+			}
+			r := detail.Theaters[0].Showtimes[0]
+			if !r.EndTime.Equal(want.EndTime) || r.BookingURL == nil || *r.BookingURL != want.BookingURL {
+				t.Fatal("Cinewest public time/link changed")
+			}
+			if strings.HasPrefix(want.ProviderShowingID, "webediamovies-") {
+				if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(105*time.Minute)) {
+					t.Fatal("Capitole response estimate missing")
+				}
+			} else if r.EstimatedEndTime != nil {
+				t.Fatal("published/computed end estimated")
+			}
+		}
+	}
+	assert()
+	if _, err := store.Replace(ctx, []Dataset{d}); err != nil {
+		t.Fatal(err)
+	}
+	assert()
+	_, revision, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := cinewestTestDataset()
+	bad.Showtimes[0].EndTime = bad.Showtimes[0].StartTime
+	if _, err := store.Replace(ctx, []Dataset{all[0], bad}); err == nil {
+		t.Fatal("invalid aggregate published")
+	}
+	_, after, err := store.Load(ctx)
+	if err != nil || after != revision {
+		t.Fatal("failed replacement changed revision")
+	}
+	assert()
+}
+
+func cinewestTestDataset() Dataset {
+	d := cinevilleTestDataset()
+	d.Provider = schedule.ProviderCinewest
+	base := d.Showtimes[0]
+	d.Theaters, d.Showtimes = nil, nil
+	for _, item := range []struct{ theater, movie string }{{"cineoffice-royanlelido", "cineoffice-1"}, {"ticketingcine-EMS1185", "ticketingcine-ABCDE"}, {"webediamovies-W8400", "webediamovies-1"}} {
+		id, _ := schedule.CinewestShowingID(item.theater, "1")
+		c := TheaterRecord{Provider: schedule.ProviderCinewest, ID: "cinewest-" + item.theater, ProviderID: item.theater, Slug: "cinewest-" + item.theater, Name: "Cinewest Cinema", Address: "1 Rue", City: "Royan", PostalCode: "17200", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}
+		r := base
+		r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderCinewest, "cinewest-showing-"+id, id, c.ID
+		r.Movie = MovieRecord{Provider: schedule.ProviderCinewest, ProviderID: item.movie, Slug: "cinewest-film-" + item.movie, Title: "Film " + item.movie, RuntimeMinutes: 90}
+		r.StartTime = r.StartTime.Add(123456 * time.Microsecond)
+		r.EndTime = r.StartTime
+		r.Language, r.ProviderVersion, r.Room, r.Format, r.BookingURL = schedule.LanguageVF, "VF", "Salle 1", schedule.Format2D, schedule.CinewestWebsite(item.theater)
+		if strings.HasPrefix(item.theater, "cineoffice-") {
+			r.EndTime = r.StartTime.Add(187 * time.Minute)
+			r.Language, r.ProviderVersion = "", "VERSION_MUET"
+		} else if strings.HasPrefix(item.theater, "ticketingcine-") {
+			r.FirstPartDurationMinutes = 15
+			r.EndTime = r.StartTime.Add(105 * time.Minute)
+		}
+		d.Theaters, d.Showtimes = append(d.Theaters, c), append(d.Showtimes, r)
+	}
+	return d
+}
+
+func grandecranTestDataset() Dataset {
+	d := mk2TestDataset()
+	d.Provider = schedule.ProviderGrandEcran
+	d.Theaters = []TheaterRecord{{Provider: schedule.ProviderGrandEcran, ID: "grandecran-G028P", ProviderID: "G028P", Slug: "grandecran-G028P", Name: "Grand Ecran Test", Address: "1 rue Test", City: "Paris", PostalCode: "75001", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}
+	r := &d.Showtimes[0]
+	id := "G028P-" + strings.Repeat("a", 64)
+	r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderGrandEcran, "grandecran-showing-"+id, id, "grandecran-G028P"
+	r.Movie = MovieRecord{Provider: schedule.ProviderGrandEcran, ProviderID: "cEvent_1", Slug: "grandecran-film-cEvent_1", Title: "Event"}
+	r.Language, r.ProviderVersion, r.Room, r.BookingURL = LanguageVOSTFR, "VOSTFR", "", "https://achat.grandecran.fr/test/r/123"
+	return d
+}
+
+func mk2TestDataset() Dataset {
+	d := cinevilleTestDataset()
+	d.Provider = schedule.ProviderMK2
+	d.Theaters = []TheaterRecord{{Provider: schedule.ProviderMK2, ID: "mk2-0004", ProviderID: "0004", Slug: "mk2-0004", Name: "MK2 Bibliothèque", Address: "128 avenue de France", City: "Paris", PostalCode: "75013", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}
+	r := &d.Showtimes[0]
+	r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderMK2, "mk2-showing-0004-140350", "0004-140350", "mk2-0004"
+	r.Movie = MovieRecord{Provider: schedule.ProviderMK2, ProviderID: "HO00006568", Slug: "mk2-film-HO00006568", Title: "Silent", PosterURL: schedule.MK2PosterPrefix + "HO00006568"}
+	r.Language, r.ProviderVersion, r.Room, r.BookingURL = "", "Muet", "", schedule.MK2BookingPrefix+"0004&sessionId=140350"
+	return d
+}
+
+func cinevilleTestDataset() Dataset {
+	d := megaramaTestDataset()
+	d.Provider = schedule.ProviderCineville
+	d.Theaters = []TheaterRecord{{Provider: schedule.ProviderCineville, ID: "cineville-639", ProviderID: "639", Slug: "cineville-639", Name: "Katorza", City: "Quimper", PostalCode: "29000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}
+	r := &d.Showtimes[0]
+	r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderCineville, "cineville-showing-639-1", "639-1", "cineville-639"
+	r.Movie = MovieRecord{Provider: schedule.ProviderCineville, ProviderID: "-693091020261", Slug: "cineville-film--693091020261", Title: "Event"}
+	r.FirstPartDurationMinutes, r.Room, r.BookingURL = 0, "4", "https://www.cineville.fr/vad/639/1/9"
+	return d
 }
 
 func megaramaTestDataset() Dataset {

@@ -6,19 +6,21 @@ test('brand-only cinema names include the city', () => {
   for (const city of ['Annecy', 'Boulogne sur Mer']) {
     assert.equal(theaterDisplayName({ name: 'Megarama', city }), `Megarama ${city}`)
   }
-  for (const name of ['UGC', 'CGR', 'IMAX', 'Kinepolis', 'Pathé', 'Pathe']) {
+  for (const name of ['UGC', 'CGR', 'IMAX', 'Kinepolis', 'Pathé', 'Pathe', 'Cinéville', 'Cineville', 'MK2', 'Cinewest']) {
     assert.equal(theaterDisplayName({ name, city: 'Paris' }), `${name} Paris`)
   }
 })
 
 test('existing cinema names remain unchanged', () => {
-  for (const name of ['Megarama Le Palace Cambrai', 'Megarama Annecy', 'Le Palace', 'MegaramaX']) {
+  for (const name of ['Megarama Le Palace Cambrai', 'Megarama Annecy', 'Le Palace', 'MegaramaX', 'Katorza', 'Cinéville Laval', 'CinevilleX', 'Cinewest Royan', 'CinewestX', 'Capitole Studios']) {
     assert.equal(theaterDisplayName({ name, city: 'Cambrai' }), name)
   }
 })
 
 test('brand matching ignores case and surrounding whitespace', () => {
   assert.equal(theaterDisplayName({ name: ' megarama ', city: ' Annecy ' }), 'megarama Annecy')
+  assert.equal(theaterDisplayName({ name: ' cinéville ', city: ' Laval ' }), 'cinéville Laval')
+  assert.equal(theaterDisplayName({ name: ' cinewest ', city: ' Royan ' }), 'cinewest Royan')
 })
 
 test('missing city does not add whitespace or alter the name', () => {

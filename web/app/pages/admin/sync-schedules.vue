@@ -46,7 +46,7 @@ interface TargetSectionState {
   entries: ScheduleEntryState[]
 }
 
-const providers = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'] as const
+const providers = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran', 'noecinemas'] as const
 const targets = [...providers, 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'] as const
 const api = useMesSeancesApi()
 const schedulesPending = ref(true)
@@ -69,6 +69,11 @@ const targetLabels = {
   pathe: 'Pathé',
   cgr: 'CGR',
   megarama: 'Megarama',
+  cineville: 'Cinéville',
+  mk2: 'MK2',
+  cinewest: 'Cinewest',
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas',
   tmdb_metadata_refresh: 'Actualiser toutes les métadonnées TMDB',
   tmdb_upcoming_movies: 'TMDB - Prochainement'
 } satisfies Record<AdminSyncScheduleTarget, string>
@@ -114,7 +119,12 @@ const latestRuns = computed<Record<Provider, AdminSyncJob | null>>(() => ({
   kinepolis: selectLatestProviderRun('kinepolis', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
   pathe: selectLatestProviderRun('pathe', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
   cgr: selectLatestProviderRun('cgr', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
-  megarama: selectLatestProviderRun('megarama', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? [])
+  megarama: selectLatestProviderRun('megarama', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  cineville: selectLatestProviderRun('cineville', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  mk2: selectLatestProviderRun('mk2', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  cinewest: selectLatestProviderRun('cinewest', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  grandecran: selectLatestProviderRun('grandecran', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? []),
+  noecinemas: selectLatestProviderRun('noecinemas', syncStatus.value?.job ?? null, syncStatus.value?.runs ?? [])
 }))
 
 function newClientKey(): string {

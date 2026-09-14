@@ -8,6 +8,8 @@ defineOptions({ inheritAttrs: false })
 const props = defineProps<{
   url?: string | null
   provider?: Provider | null
+  showtimeId?: string | null
+  theaterId?: string | null
   ariaLabel?: string
   availableClass?: string
   unavailableClass?: string
@@ -19,7 +21,7 @@ defineSlots<{
 }>()
 
 const reservation = computed(() => {
-  const booking = safeBookingUrl(props.url, props.provider)
+  const booking = safeBookingUrl(props.url, props.provider, props.showtimeId, props.theaterId)
   if (!booking) return null
 
   const labels = {
@@ -27,12 +29,19 @@ const reservation = computed(() => {
     kinepolis: 'Réserver sur Kinepolis.fr',
     pathe: 'Réserver sur Pathé.fr',
     cgr: 'Réserver sur CGR Cinémas',
-    megarama: 'Réserver sur Megarama'
+    megarama: 'Réserver sur Megarama',
+    cineville: 'Réserver sur Cinéville',
+    mk2: 'Réserver sur MK2',
+    cinewest: 'Réserver sur Cinewest',
+    grandecran: 'Réserver sur Grand Ecran',
+    noecinemas: 'Réserver sur Noé Cinémas'
   } satisfies Record<Provider, string>
   return {
     url: booking.url,
     kind: booking.kind,
-    label: booking.kind === 'website' ? 'Site du cinéma Megarama' : labels[booking.provider]
+    label: booking.kind === 'website'
+      ? booking.provider === 'cinewest' ? 'Site du cinéma Cinewest' : 'Site du cinéma Megarama'
+      : labels[booking.provider]
   }
 })
 </script>

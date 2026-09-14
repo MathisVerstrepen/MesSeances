@@ -328,6 +328,11 @@ function onMapLoad() {
           'pathe', THEATER_PROVIDER_COLORS.pathe,
           'cgr', THEATER_PROVIDER_COLORS.cgr,
           'megarama', THEATER_PROVIDER_COLORS.megarama,
+          'cineville', THEATER_PROVIDER_COLORS.cineville,
+          'mk2', THEATER_PROVIDER_COLORS.mk2,
+          'cinewest', THEATER_PROVIDER_COLORS.cinewest,
+          'grandecran', THEATER_PROVIDER_COLORS.grandecran,
+          'noecinemas', THEATER_PROVIDER_COLORS.noecinemas,
           '#52525b'
         ],
         'circle-stroke-color': '#ffffff',
@@ -446,7 +451,7 @@ onBeforeUnmount(() => {
           <div class="flex items-start justify-between gap-4">
             <div>
               <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.09em]">{{ THEATER_PROVIDER_LABELS[selectedTheater.provider] }}</p>
-              <h3 id="selected-theater-heading" ref="detailHeading" tabindex="-1" class="mt-[0.35rem] text-[clamp(1.35rem,3vw,2rem)] leading-none font-black tracking-[-0.04em] focus-visible:outline-[3px] focus-visible:outline-offset-4 focus-visible:outline-accent">{{ selectedTheater.name }}</h3>
+              <h3 id="selected-theater-heading" ref="detailHeading" tabindex="-1" class="mt-[0.35rem] text-[clamp(1.35rem,3vw,2rem)] leading-none font-black tracking-[-0.04em] focus-visible:outline-[3px] focus-visible:outline-offset-4 focus-visible:outline-accent"><TheaterName :name="selectedTheater.name" :provider="selectedTheater.provider" /></h3>
             </div>
             <button type="button" class="min-h-11 p-[0.4rem] font-mono text-[0.65rem] font-black uppercase underline underline-offset-[3px] focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent" aria-label="Fermer les détails du cinéma" @click="closeDetails">Fermer</button>
           </div>

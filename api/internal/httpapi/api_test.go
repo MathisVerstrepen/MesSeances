@@ -1046,7 +1046,7 @@ func TestSearchSlotExplicitAdsBufferTransport(t *testing.T) {
 		{"omitted defaults to 15", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:45&finish_before=15:00&include_ads=false", 15, 15 * time.Minute},
 		{"explicit zero", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:30&finish_before=15:00&include_ads=false&buffer_ads=0", 0, 0},
 		{"explicit 20", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=12:50&finish_before=15:00&include_ads=false&buffer_ads=20", 20, 20 * time.Minute},
-		{"explicit 120", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=14:30&finish_before=15:00&include_ads=false&buffer_ads=120", 120, 120 * time.Minute},
+		{"ads exceed canonical end", "/api/v1/search/slot?theaters=ugc-99&date=2026-08-15&start_after=14:30&finish_before=15:00&include_ads=false&buffer_ads=120", 120, 120 * time.Minute},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -1057,6 +1057,12 @@ func TestSearchSlotExplicitAdsBufferTransport(t *testing.T) {
 			var results []schedule.SlotResult
 			if err := json.Unmarshal(response.Body.Bytes(), &results); err != nil {
 				t.Fatal(err)
+			}
+			if test.wantBuffer == 120 {
+				if len(results) != 0 {
+					t.Fatalf("reversed attendance interval returned: %+v", results)
+				}
+				return
 			}
 			if len(results) != 1 || results[0].BufferAdsMinutes != test.wantBuffer || !results[0].EffectiveStartTime.Equal(results[0].Showtime.StartTime.Add(test.wantShift)) || !results[0].EffectiveEndTime.Equal(results[0].Showtime.EndTime) {
 				t.Fatalf("results=%+v", results)

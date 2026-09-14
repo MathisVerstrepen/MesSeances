@@ -20,6 +20,7 @@ const (
 const (
 	DefaultRequestTimeout           = 20 * time.Second
 	DefaultKinepolisRequestInterval = 2 * time.Second
+	DefaultCinevilleRequestInterval = 2 * time.Second
 	DefaultOperationTimeout         = 2 * time.Minute
 )
 
@@ -40,6 +41,7 @@ type Config struct {
 	Sync     struct {
 		RequestTimeout           time.Duration
 		KinepolisRequestInterval time.Duration
+		CinevilleRequestInterval time.Duration
 		OperationTimeout         time.Duration
 	}
 }
@@ -92,6 +94,9 @@ func Load(profile Profile, getenv func(string) string) (Config, error) {
 		}
 		if err := loadKinepolisInterval(&result, getenv); err != nil {
 			return Config{}, err
+		}
+		if err := parseDuration(getenv("SYNC_CINEVILLE_REQUEST_INTERVAL"), DefaultCinevilleRequestInterval, &result.Sync.CinevilleRequestInterval); err != nil || result.Sync.CinevilleRequestInterval < time.Second {
+			return Config{}, configurationError()
 		}
 		if err := loadOperationTimeout(&result, getenv); err != nil {
 			return Config{}, err

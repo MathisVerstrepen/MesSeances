@@ -44,7 +44,7 @@ onMounted(() => nextTick(() => {
 </script>
 
 <template>
-  <article v-if="movie" :data-movie-slug="scope === 'single-theater' ? movie.movieSlug : undefined" class="border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]" :class="scope === 'multi-theater' ? 'overflow-hidden' : undefined">
+  <article v-if="movie" :data-movie-slug="scope === 'single-theater' ? movie.movieSlug : undefined" class="border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]">
     <header
       v-if="scope === 'single-theater'"
       class="relative isolate grid min-h-48 grid-cols-[96px_minmax(0,1fr)] items-end gap-5 overflow-hidden border-b-2 border-ink p-4 sm:min-h-56 sm:grid-cols-[120px_minmax(0,1fr)] sm:p-5"

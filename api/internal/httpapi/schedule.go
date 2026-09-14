@@ -167,7 +167,7 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	buffer := 15
+	buffer := schedule.DefaultBufferAdsMinutes
 	if query.Has("buffer_ads") {
 		rawBuffer := query.Get("buffer_ads")
 		parsed, err := strconv.Atoi(rawBuffer)

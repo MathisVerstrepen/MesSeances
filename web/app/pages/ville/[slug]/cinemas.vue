@@ -290,7 +290,7 @@ useHead(() => ({
         <EditorialStatePanel v-if="detail.theaters.length === 0" size="standard" shadow="large" class="city-state mx-auto mt-8 max-w-3xl font-bold"><template #icon><Building2 :size="36" aria-hidden="true" /></template><template #heading><h3 class="text-2xl font-black">Aucun cinéma disponible</h3></template><p>La programmation actuelle ne contient aucun cinéma dans cette ville.</p></EditorialStatePanel>
         <ul v-else class="mt-8 grid gap-5 md:grid-cols-2">
           <li v-for="theater in detail.theaters" :key="theater.id" class="border-2 border-ink bg-surface p-5 shadow-[6px_6px_0_#27272a]">
-            <h3 class="text-2xl font-black tracking-[-0.04em]"><NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary"><BrandedText :text="theater.name" /></NuxtLink></h3>
+            <h3 class="text-2xl font-black tracking-[-0.04em]"><NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary"><TheaterName :name="theater.name" :provider="theater.provider" /></NuxtLink></h3>
             <p v-if="theater.address || theater.postal_code" class="mt-3 break-words text-sm font-semibold leading-6"><span v-if="theater.address">{{ theater.address }}<br /></span>{{ theater.postal_code }} {{ theater.city }}</p>
           </li>
         </ul>

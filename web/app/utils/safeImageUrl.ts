@@ -1,3 +1,5 @@
+import { isSafeCinewestPoster } from './cinewest.ts'
+
 function hasSafePath(url: string, origin: string) {
   const pathEnd = url.search(/[?#]/)
   let decodedPath = url.slice(origin.length, pathEnd === -1 ? undefined : pathEnd)
@@ -20,6 +22,7 @@ function hasSafePath(url: string, origin: string) {
 
 export function safePosterUrl(url: string | null | undefined) {
   if (!url || url.includes('\\')) return null
+  if (isSafeCinewestPoster(url)) return url
 
   try {
     const parsed = new URL(url)
@@ -40,6 +43,13 @@ export function safePosterUrl(url: string | null | undefined) {
     const isMegaramaPoster = url === parsed.href
       && url.length <= 2048
       && /^https:\/\/images\.monnaie-services\.com\/(?:movie_poster\/(?:120|600)\/FR[A-Z0-9]{5}\/[A-Z0-9]{8}\.webp|ems_spectacle\/120\/[0-9]{4}\/HC[0-9]+\.jpg(?:\?ts=[0-9]+)?)$/.test(url)
+    const isCinevillePoster = url === parsed.href
+      && url.length <= 2048
+      && !parsed.pathname.includes('..')
+      && /^https:\/\/storage\.googleapis\.com\/cineville-files-prod\/images\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(url)
+    const isMk2Poster = url === parsed.href
+      && url.length <= 2048
+      && /^https:\/\/srv-web-vista\.mk2\.com\/CDN\/media\/entity\/get\/FilmPosterGraphic\/HO[0-9]{1,117}$/.test(url)
 
     if (
       parsed.protocol !== 'https:'
@@ -48,7 +58,7 @@ export function safePosterUrl(url: string | null | undefined) {
       || parsed.password
       || (parsed.search && !isMegaramaPoster)
       || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster)
+      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster && !isCinevillePoster && !isMk2Poster)
       || !hasSafePath(url, parsed.origin)
     ) return null
 

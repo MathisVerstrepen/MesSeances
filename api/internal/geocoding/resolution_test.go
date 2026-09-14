@@ -6,7 +6,22 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"messeances/api/internal/schedule"
 )
+
+func TestCinewestLocationIdentities(t *testing.T) {
+	for _, id := range schedule.CinewestTheaterIDs() {
+		if !ValidProviderTheaterID("cinewest", id) {
+			t.Fatal("Cinewest location rejected")
+		}
+	}
+	for _, id := range []string{"royanlelido", "cineoffice-cinewest", "ticketingcine-EMS9999", "webediamovies-W0000"} {
+		if ValidProviderTheaterID("cinewest", id) {
+			t.Fatal("unknown location accepted")
+		}
+	}
+}
 
 type resolutionMemoryStore struct {
 	items          []PendingLocation
@@ -87,9 +102,14 @@ func TestResolutionServiceValidatesKeysCoordinatesAndVersionToken(t *testing.T) 
 }
 
 func TestValidProviderTheaterIDMirrorsCurrentProviderIdentities(t *testing.T) {
-	for _, input := range []struct{ provider, id string }{{"ugc", "25"}, {"kinepolis", "FR-Lomme_1"}, {"pathe", "lille"}, {"cgr", "A1234"}, {"megarama", "EMS0565"}} {
+	for _, input := range []struct{ provider, id string }{{"ugc", "25"}, {"kinepolis", "FR-Lomme_1"}, {"pathe", "lille"}, {"cgr", "A1234"}, {"megarama", "EMS0565"}, {"cineville", "639"}, {"mk2", "0004"}, {"cinewest", "webediamovies-W8400"}, {"grandecran", "G028P"}, {"noecinemas", "P8088"}} {
 		if !ValidProviderTheaterID(input.provider, input.id) {
 			t.Fatalf("valid key rejected: %+v", input)
+		}
+	}
+	for _, id := range []string{"0", "01", "-1", "9223372036854775808"} {
+		if ValidProviderTheaterID("cineville", id) {
+			t.Fatal("invalid Cineville theater identity")
 		}
 	}
 }

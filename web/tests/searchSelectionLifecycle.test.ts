@@ -45,6 +45,7 @@ const response: SlotResult[] = [12, 13].map((id, index) => ({
     provider: 'ugc', id: `ugc-showing-${id}`,
     movie: { slug: `film-${id}`, title: `Film ${id}`, runtime_minutes: 90, updated_at: '2026-09-13T00:00:00Z' },
     start_time: `2026-09-13T${18 + index * 2}:00:00+02:00`, end_time: `2026-09-13T${20 + index * 2}:00:00+02:00`,
+    estimated_end_time: null, estimated_end_ads_minutes: null,
     language: 'VF', format: '2D', room: '', booking_url: null
   },
   theater: { provider: 'ugc', id: 'ugc-25', name: 'UGC', city: 'Lille' },

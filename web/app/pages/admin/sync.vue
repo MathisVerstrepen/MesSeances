@@ -20,7 +20,7 @@ let active = false
 const job = computed(() => status.value?.job ?? null)
 const now = ref(Date.now())
 const controlsDisabled = computed(() => initialPending.value || startingTarget.value !== null || status.value === null || job.value?.state === 'running')
-const providers = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'] as const
+const providers = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran', 'noecinemas'] as const
 const targets = ['all', ...providers] as const
 const activeJob = computed(() => job.value?.state === 'running' ? job.value : null)
 const history = computed(() => {
@@ -56,7 +56,12 @@ const targetLabels = {
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
   cgr: 'CGR',
-  megarama: 'Megarama'
+  megarama: 'Megarama',
+  cineville: 'Cinéville',
+  mk2: 'MK2',
+  cinewest: 'Cinewest',
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas'
 } satisfies Record<AdminSyncTarget, string>
 
 const providerLabels = {
@@ -64,7 +69,12 @@ const providerLabels = {
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
   cgr: 'CGR',
-  megarama: 'Megarama'
+  megarama: 'Megarama',
+  cineville: 'Cinéville',
+  mk2: 'MK2',
+  cinewest: 'Cinewest',
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas'
 } satisfies Record<Provider, string>
 
 const triggerLabels = {

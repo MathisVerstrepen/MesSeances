@@ -52,16 +52,16 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 			if !matchesLanguage(record.Language, query.Language) || !matchesFormat(record.Format, query.Format) {
 				continue
 			}
-			showtime := materializeRecord(view, record)
-			if showtime.Provider == ProviderMegarama && !showtime.EndTime.After(showtime.StartTime) {
+			showtime := materializeRecordWithAds(view, record, query.BufferAds)
+			effectiveEnd, usable := usableShowtimeEnd(showtime)
+			if !usable {
 				continue
 			}
 			effectiveStart := showtime.StartTime
 			if !query.IncludeAds {
 				effectiveStart = effectiveStart.Add(time.Duration(query.BufferAds) * time.Minute)
 			}
-			effectiveEnd := showtime.EndTime
-			if effectiveStart.Before(start) || effectiveEnd.After(finish) {
+			if !effectiveEnd.After(effectiveStart) || effectiveStart.Before(start) || effectiveEnd.After(finish) {
 				continue
 			}
 			poster, backdrop := materializeMovieMedia(view, record.Movie)

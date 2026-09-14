@@ -16,14 +16,19 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"messeances/api/internal/cgr"
+	"messeances/api/internal/cineville"
+	"messeances/api/internal/cinewest"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/geocoding"
+	"messeances/api/internal/grandecran"
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/megarama"
+	"messeances/api/internal/mk2"
+	"messeances/api/internal/noecinemas"
 	"messeances/api/internal/observability"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
@@ -453,6 +458,21 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewMegarama: func() (megarama.Getter, error) {
 			return megarama.NewClient(megarama.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCineville: func() (cineville.Fetcher, error) {
+			return cineville.NewClient(cineville.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.CinevilleRequestInterval, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewMK2: func() (mk2.Fetcher, error) {
+			return mk2.NewClient(mk2.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCinewest: func() (cinewest.Fetcher, error) {
+			return cinewest.NewClient(cinewest.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewGrandEcran: func() (grandecran.Getter, error) {
+			return grandecran.NewClient(grandecran.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewNoeCinemas: func() (noecinemas.Getter, error) {
+			return noecinemas.NewClient(noecinemas.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

@@ -9,6 +9,12 @@ test('builds French city descriptions with stored counts and correct plurals', (
 
 test('builds cinema descriptions from provider, location, and available-date count', () => {
   assert.equal(cinemaDescription({
+    name: 'Capitole Studios', provider: 'cinewest', city: 'Le Pontet', address: '', postalCode: '84130', availableDateCount: 2
+  }), 'Capitole Studios est un cinéma Cinewest à 84130, Le Pontet. Sa programmation compte 2 dates disponibles.')
+  assert.equal(cinemaDescription({
+    name: 'Katorza', provider: 'cineville', city: 'Quimper', address: '', postalCode: '29000', availableDateCount: 2
+  }), 'Katorza est un cinéma Cinéville à 29000, Quimper. Sa programmation compte 2 dates disponibles.')
+  assert.equal(cinemaDescription({
     name: 'Megarama Bordeaux', provider: 'megarama', city: 'Bordeaux', address: '', postalCode: '', availableDateCount: 0
   }), 'Megarama Bordeaux est un cinéma Megarama à Bordeaux. Sa programmation compte 0 dates disponibles.')
   assert.equal(cinemaDescription({

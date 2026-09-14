@@ -10,7 +10,12 @@ function providerLabel(provider: Provider): string {
     kinepolis: 'Kinepolis',
     pathe: 'Pathé',
     cgr: 'CGR',
-    megarama: 'Megarama'
+    megarama: 'Megarama',
+    cineville: 'Cinéville',
+    mk2: 'MK2',
+    cinewest: 'Cinewest',
+    grandecran: 'Grand Ecran',
+    noecinemas: 'Noé Cinémas'
   } satisfies Record<Provider, string>
   return labels[provider]
 }

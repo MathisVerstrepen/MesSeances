@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	Timezone = "Europe/Paris"
+	Timezone                = "Europe/Paris"
+	DefaultBufferAdsMinutes = 15
 )
 
 type MovieCatalogSort string
@@ -62,15 +63,17 @@ type Movie struct {
 }
 
 type Showtime struct {
-	Provider   Provider  `json:"provider"`
-	ID         string    `json:"id"`
-	Movie      Movie     `json:"movie"`
-	StartTime  time.Time `json:"start_time"`
-	EndTime    time.Time `json:"end_time"`
-	Language   Language  `json:"language"`
-	Format     Format    `json:"format"`
-	Room       string    `json:"room"`
-	BookingURL *string   `json:"booking_url"`
+	Provider               Provider   `json:"provider"`
+	ID                     string     `json:"id"`
+	Movie                  Movie      `json:"movie"`
+	StartTime              time.Time  `json:"start_time"`
+	EndTime                time.Time  `json:"end_time"`
+	EstimatedEndTime       *time.Time `json:"estimated_end_time"`
+	EstimatedEndAdsMinutes *int       `json:"estimated_end_ads_minutes"`
+	Language               Language   `json:"language"`
+	Format                 Format     `json:"format"`
+	Room                   string     `json:"room"`
+	BookingURL             *string    `json:"booking_url"`
 }
 
 type TimelineShowtime struct {

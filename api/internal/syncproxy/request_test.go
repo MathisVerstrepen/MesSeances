@@ -15,6 +15,37 @@ import (
 
 const requestTestURL = "https://example.test/data"
 
+func TestRequestRedirectOptInPreservesFinalPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		allow, no bool
+		final     string
+		valid     bool
+	}{
+		{"default rejects change", false, false, "https://example.test/final", false},
+		{"opt in permits change", true, false, "https://example.test/final", true},
+		{"opt in still validates host", true, false, "https://evil.test/final", false},
+		{"conflicting flags", true, true, requestTestURL, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := requestClient(requestRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				r := requestJSONResponse(200, `{}`)
+				u, _ := url.Parse(tc.final)
+				r.Request = &http.Request{URL: u}
+				return r, nil
+			}))
+			executor, err := NewExecutor(ExecutorConfig{Clients: []*http.Client{client}, ProxyBacked: true, ValidURL: func(u *url.URL) bool { return u != nil && u.Scheme == "https" && u.Host == "example.test" }, MaxResponseBytes: 1024})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, failure := executor.Do(t.Context(), Request{Method: http.MethodGet, URL: requestTestURL, AllowRedirect: tc.allow, NoRedirect: tc.no}, requestPolicy())
+			if (failure == nil) != tc.valid {
+				t.Fatalf("failure=%v", failure)
+			}
+		})
+	}
+}
+
 type requestRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f requestRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

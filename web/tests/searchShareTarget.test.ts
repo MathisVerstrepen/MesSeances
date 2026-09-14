@@ -44,6 +44,40 @@ test('shares Megarama theater identities and selected sessions through the exist
   assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
 })
 
+test('shares Cinéville theater IDs and colliding source session IDs without losing cinema scope', () => {
+  const theaterIds = ['cineville-707', 'cineville-709']
+  const selectedShowtimeKeys = ['cineville:cineville-showing-707-149056', 'cineville:cineville-showing-709-149056']
+  const target = buildCompleteSearchShareTarget({
+    theaterIds, date: '2027-07-01', startAfter: '00:00', finishBefore: '23:30',
+    language: 'VOSTFR', format: 'IMAX', includeAds: false, bufferAds: 15,
+    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys, selectedOnly: true
+  })
+  const shared = withSharedTheaterSelection(target, theaterIds)!
+  assert.equal(isValidShortLinkTarget(shared), true)
+  const query = new URL(shared, 'https://messeances.fr').searchParams
+  assert.equal(query.get('shared_theaters'), 'cineville-707,cineville-709')
+  assert.equal(query.get('selected'), 'v707-149056,v709-149056')
+  assert.equal(query.get('selected_only'), '1')
+  assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
+})
+
+test('shares MK2 leading-zero cinema identities and selection token x', () => {
+  const theaterIds = ['mk2-0004', 'mk2-0005']
+  const selectedShowtimeKeys = ['mk2:mk2-showing-0004-140350', 'mk2:mk2-showing-0005-140350']
+  const target = buildCompleteSearchShareTarget({
+    theaterIds, date: '2027-06-28', startAfter: '00:00', finishBefore: '23:30',
+    language: 'ALL', format: 'ALL', includeAds: false, bufferAds: 15,
+    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys, selectedOnly: true
+  })
+  const shared = withSharedTheaterSelection(target, theaterIds)!
+  assert.equal(isValidShortLinkTarget(shared), true)
+  const query = new URL(shared, 'https://messeances.fr').searchParams
+  assert.equal(query.get('shared_theaters'), 'mk2-0004,mk2-0005')
+  assert.equal(query.get('selected'), 'x0004-140350,x0005-140350')
+  assert.equal(query.get('selected_only'), '1')
+  assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
+})
+
 test('omits an empty normalized screening selection', () => {
   const target = buildCompleteSearchShareTarget({
     theaterIds: ['ugc-25'],

@@ -6,12 +6,17 @@ type Language string
 type Format string
 
 const (
-	ProviderUGC       Provider = "ugc"
-	ProviderKinepolis Provider = "kinepolis"
-	ProviderPathe     Provider = "pathe"
-	ProviderCGR       Provider = "cgr"
-	ProviderMegarama  Provider = "megarama"
-	ProviderCombined  Provider = "combined"
+	ProviderUGC        Provider = "ugc"
+	ProviderKinepolis  Provider = "kinepolis"
+	ProviderPathe      Provider = "pathe"
+	ProviderCGR        Provider = "cgr"
+	ProviderMegarama   Provider = "megarama"
+	ProviderCineville  Provider = "cineville"
+	ProviderMK2        Provider = "mk2"
+	ProviderCinewest   Provider = "cinewest"
+	ProviderGrandEcran Provider = "grandecran"
+	ProviderNoeCinemas Provider = "noecinemas"
+	ProviderCombined   Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"
 	ScopeSingle Scope = "single_cinema"

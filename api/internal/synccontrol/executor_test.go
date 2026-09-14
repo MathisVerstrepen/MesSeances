@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"messeances/api/internal/cgr"
+	"messeances/api/internal/cineville"
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/grandecran"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/megarama"
 	"messeances/api/internal/pathe"
@@ -138,7 +140,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
-			if len(datasets) != 5 || datasets[4].Provider != schedule.ProviderMegarama || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
+			if len(datasets) != 10 || datasets[9].Provider != schedule.ProviderNoeCinemas || datasets[8].Provider != schedule.ProviderGrandEcran || datasets[7].Provider != schedule.ProviderCinewest || datasets[6].Provider != schedule.ProviderMK2 || datasets[5].Provider != schedule.ProviderCineville || datasets[4].Provider != schedule.ProviderMegarama || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
 				t.Fatalf("datasets=%+v", datasets)
 			}
 			return 11, nil
@@ -176,9 +178,23 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		},
 	}
 	configureMegaramaTestExecutor(t, executor, window)
+	configureCinevilleTestExecutor(t, executor, window)
+	configureMK2TestExecutor(t, executor, window)
+	configureCinewestTestExecutor(t, executor, window)
+	configureGrandEcranTestExecutor(t, executor, window)
+	configureNoeCinemasTestExecutor(t, executor, window)
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
-	if err != nil || writes != 1 || enrichments != 5 || outcomes[TargetMegarama].Sync.Version != 11 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
+	if err != nil || writes != 1 || enrichments != 10 || outcomes[TargetNoeCinemas].Sync.Version != 11 || outcomes[TargetCinewest].Sync.Version != 11 || outcomes[TargetGrandEcran].Sync.Version != 11 || outcomes[TargetMK2].Sync.Version != 11 || outcomes[TargetCineville].Sync.Version != 11 || outcomes[TargetMegarama].Sync.Version != 11 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
+	}
+	// Failure of Grand Ecran cannot publish the already-prepared snapshots.
+	executor.syncGrandEcran = func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error) {
+		return schedule.Dataset{}, grandecran.SyncSummary{}, errors.New("synthetic acquisition failure")
+	}
+	_, err = executor.Run(t.Context(), TargetAll, window)
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Provider != TargetGrandEcran || writes != 1 || enrichments != 10 {
+		t.Fatalf("late provider failure published partial data: writes=%d enrichments=%d err=%v", writes, enrichments, err)
 	}
 }
 
@@ -333,6 +349,11 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 		enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) { enrichments++; return nil, nil },
 	}
 	configureMegaramaTestExecutor(t, executor, window)
+	configureCinevilleTestExecutor(t, executor, window)
+	configureMK2TestExecutor(t, executor, window)
+	configureCinewestTestExecutor(t, executor, window)
+	configureGrandEcranTestExecutor(t, executor, window)
+	configureNoeCinemasTestExecutor(t, executor, window)
 	_, err := executor.Run(context.Background(), TargetAll, window)
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Provider != TargetKinepolis || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {
@@ -848,5 +869,35 @@ func configureMegaramaTestExecutor(t *testing.T, executor *ProductionExecutor, w
 	executor.newMegarama = func() (megarama.Getter, error) { return unusedMegaramaGetter{}, nil }
 	executor.syncMegarama = func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error) {
 		return validDataset(t, schedule.ProviderMegarama, window), megarama.SyncSummary{Requests: 3}, nil
+	}
+}
+
+type countedCinevilleFetcher struct{ requests int }
+
+func (countedCinevilleFetcher) Fetch(context.Context) ([]byte, error) { return nil, nil }
+func (countedCinevilleFetcher) FetchCinema(context.Context, string, string) ([]byte, error) {
+	return nil, nil
+}
+func (c countedCinevilleFetcher) RequestCount() int { return c.requests }
+
+func cinevilleDataset(t *testing.T, window Window) schedule.Dataset {
+	t.Helper()
+	data := validDataset(t, schedule.ProviderUGC, window)
+	data.Provider = schedule.ProviderCineville
+	data.Theaters[0] = schedule.TheaterRecord{Provider: schedule.ProviderCineville, ID: "cineville-639", ProviderID: "639", Slug: "cineville-639", Name: "Katorza", City: "Quimper", PostalCode: "29000", AvailableDates: []string{window.From}, AcceptedPasses: []string{}}
+	r := &data.Showtimes[0]
+	r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderCineville, "cineville-showing-639-1", "639-1", "cineville-639"
+	r.Movie = schedule.MovieRecord{Provider: schedule.ProviderCineville, ProviderID: "-693091020261", Slug: "cineville-film--693091020261", Title: "Event"}
+	r.EndTime, r.Room, r.BookingURL = r.StartTime, "1", "https://www.cineville.fr/vad/639/1/9"
+	return data
+}
+func configureCinevilleTestExecutor(t *testing.T, executor *ProductionExecutor, window Window) {
+	t.Helper()
+	executor.newCineville = func() (cineville.Fetcher, error) { return countedCinevilleFetcher{requests: 27}, nil }
+	executor.syncCineville = func(_ context.Context, _ cineville.Fetcher, options cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error) {
+		if options.From != window.From || options.Now.IsZero() {
+			t.Fatal("Cineville sync options")
+		}
+		return cinevilleDataset(t, window), cineville.SyncSummary{Requests: 25, Cinemas: 1, Movies: 1, Showtimes: 1}, nil
 	}
 }

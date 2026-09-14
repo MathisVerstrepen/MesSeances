@@ -7,7 +7,12 @@ export const THEATER_PROVIDER_COLORS = {
   kinepolis: '#7e22ce',
   pathe: '#d97706',
   cgr: '#c81e1e',
-  megarama: '#ffff00'
+  megarama: '#ffff00',
+  cineville: '#009bce',
+  mk2: '#e20d13',
+  cinewest: '#e30613',
+  grandecran: '#bd2428',
+  noecinemas: '#8b1e2d'
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -15,7 +20,12 @@ export const THEATER_PROVIDER_LABELS = {
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
   cgr: 'CGR',
-  megarama: 'Megarama'
+  megarama: 'Megarama',
+  cineville: 'Cinéville',
+  mk2: 'MK2',
+  cinewest: 'Cinewest',
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas'
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {
