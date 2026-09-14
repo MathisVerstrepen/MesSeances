@@ -3,6 +3,7 @@ import cgrLogoLarge from '~/assets/imgs/cgr_logo_large.webp?no-inline'
 import cgrLogoSmall from '~/assets/imgs/cgr_logo_small.webp?no-inline'
 import cinevilleLogoLarge from '~/assets/imgs/cineville_logo_large.webp?no-inline'
 import cinevilleLogoSmall from '~/assets/imgs/cineville_logo_small.webp?no-inline'
+import mk2Logo from '~/assets/imgs/mk2_logo.svg?no-inline'
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
@@ -21,7 +22,7 @@ import screenXLogoSmall from '~/assets/imgs/logo_screenx_small.webp?no-inline'
 import ugcLogoLarge from '~/assets/imgs/ugc_logo_large.webp?no-inline'
 import ugcLogoSmall from '~/assets/imgs/ugc_logo_small.webp?no-inline'
 
-type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
 const props = withDefaults(defineProps<{
   brand: Brand
@@ -37,6 +38,7 @@ const sources = {
   CGR: { inline: cgrLogoSmall, display: cgrLogoLarge },
   MEGARAMA: { inline: megaramaLogoSmall, display: megaramaLogoSmall },
   CINEVILLE: { inline: cinevilleLogoSmall, display: cinevilleLogoLarge },
+  MK2: { inline: mk2Logo, display: mk2Logo },
   IMAX: { inline: imaxLogoSmall, display: imaxLogoLarge },
   KINEPOLIS: { inline: kinepolisLogoSmall, display: kinepolisLogoLarge },
   PATHE: { inline: patheLogoSmall, display: patheLogoLarge },
@@ -52,6 +54,7 @@ const accessibleNames = {
   CGR: 'CGR Cinémas',
   MEGARAMA: 'Megarama',
   CINEVILLE: 'Cinéville',
+  MK2: 'MK2',
   IMAX: 'IMAX',
   KINEPOLIS: 'Kinepolis',
   PATHE: 'Pathé',
@@ -75,7 +78,7 @@ const accessibleNames = {
     :aria-hidden="decorative ? 'true' : undefined"
     class="inline-block max-w-full shrink-0 select-none object-contain"
     :class="variant === 'display'
-      ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
-      : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')"
+      ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
+      : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')"
   />
 </template>

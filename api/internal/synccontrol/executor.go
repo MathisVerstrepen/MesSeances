@@ -12,6 +12,7 @@ import (
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/kinepolis"
 	"messeances/api/internal/megarama"
+	"messeances/api/internal/mk2"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
@@ -32,6 +33,7 @@ type ProductionExecutorOptions struct {
 	NewCGR           func() (cgr.Getter, error)
 	NewMegarama      func() (megarama.Getter, error)
 	NewCineville     func() (cineville.Fetcher, error)
+	NewMK2           func() (mk2.Fetcher, error)
 	Enrich           EnrichFunc
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -47,6 +49,7 @@ type ProductionExecutor struct {
 	newCGR           func() (cgr.Getter, error)
 	newMegarama      func() (megarama.Getter, error)
 	newCineville     func() (cineville.Fetcher, error)
+	newMK2           func() (mk2.Fetcher, error)
 	enrich           EnrichFunc
 	now              func() time.Time
 	logger           *slog.Logger
@@ -58,16 +61,18 @@ type ProductionExecutor struct {
 	syncCGR          func(context.Context, cgr.Getter, cgr.SyncOptions) (schedule.Dataset, cgr.SyncSummary, error)
 	syncMegarama     func(context.Context, megarama.Getter, megarama.SyncOptions) (schedule.Dataset, megarama.SyncSummary, error)
 	syncCineville    func(context.Context, cineville.Fetcher, cineville.SyncOptions) (schedule.Dataset, cineville.SyncSummary, error)
+	syncMK2          func(context.Context, mk2.Fetcher, mk2.SyncOptions) (schedule.Dataset, mk2.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
 	return &ProductionExecutor{
 		writer: options.Writer, newUGC: options.NewUGC, newKinepolis: options.NewKinepolis, newPathe: options.NewPathe, newCGR: options.NewCGR,
 		newMegarama: options.NewMegarama, syncMegarama: megarama.Sync,
 		newCineville: options.NewCineville, syncCineville: cineville.Sync,
+		newMK2: options.NewMK2, syncMK2: mk2.Sync,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
 		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
@@ -77,7 +82,7 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	started := time.Now()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville}
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2}
 	} else if !ValidTarget(target) {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
@@ -217,6 +222,22 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		var summary megarama.SyncSummary
 		data, summary, err = e.syncMegarama(ctx, client, megarama.SyncOptions{From: window.From, Now: e.now()})
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+	case TargetMK2:
+		if e.newMK2 == nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+		}
+		client, clientErr := e.newMK2()
+		if clientErr != nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
+		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
+		var summary mk2.SyncSummary
+		data, summary, err = e.syncMK2(ctx, client, mk2.SyncOptions{From: window.From, Now: e.now()})
+		requests := summary.Requests
+		if counter, ok := client.(interface{ RequestCount() int }); ok {
+			requests = max(requests, counter.RequestCount())
+		}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: requests, Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetCineville:
 		if e.newCineville == nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
@@ -474,6 +495,20 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 			details.Category = safeCGRCategory(requestErr.Category)
 			details.HTTPStatus = requestErr.StatusCode
 		}
+	case TargetMK2:
+		var requestErr *mk2.RequestError
+		if errors.As(err, &requestErr) {
+			switch requestErr.Operation {
+			case mk2.OperationCinemas:
+				details.Operation = operationCinemas
+			case mk2.OperationFilms:
+				details.Operation = operationMovies
+			case mk2.OperationComplex:
+				details.Operation = operationProgram
+			}
+			details.Category = safeMegaramaCategory(requestErr.Kind)
+			details.HTTPStatus = requestErr.StatusCode
+		}
 	case TargetCineville:
 		var requestErr *cineville.RequestError
 		if errors.As(err, &requestErr) {
@@ -667,7 +702,7 @@ func safeCGRCategory(category cgr.ErrorCategory) logCategory {
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
-		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetCineville {
+		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetCineville && provider != TargetMK2 {
 			continue
 		}
 		movie, found := unique[showing.Movie.ProviderID]

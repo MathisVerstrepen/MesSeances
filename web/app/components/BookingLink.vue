@@ -8,6 +8,7 @@ defineOptions({ inheritAttrs: false })
 const props = defineProps<{
   url?: string | null
   provider?: Provider | null
+  showtimeId?: string | null
   ariaLabel?: string
   availableClass?: string
   unavailableClass?: string
@@ -19,7 +20,7 @@ defineSlots<{
 }>()
 
 const reservation = computed(() => {
-  const booking = safeBookingUrl(props.url, props.provider)
+  const booking = safeBookingUrl(props.url, props.provider, props.showtimeId)
   if (!booking) return null
 
   const labels = {
@@ -28,7 +29,8 @@ const reservation = computed(() => {
     pathe: 'Réserver sur Pathé.fr',
     cgr: 'Réserver sur CGR Cinémas',
     megarama: 'Réserver sur Megarama',
-    cineville: 'Réserver sur Cinéville'
+    cineville: 'Réserver sur Cinéville',
+    mk2: 'Réserver sur MK2'
   } satisfies Record<Provider, string>
   return {
     url: booking.url,

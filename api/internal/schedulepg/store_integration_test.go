@@ -739,7 +739,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 }
 
-func TestFiveProviderPostgresStoreIntegration(t *testing.T) {
+func TestSevenProviderPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {
 		t.Skip("TEST_DATABASE_URL is not set")
@@ -969,6 +969,85 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatal("invented end published")
 	}
 	assertCineville(123)
+	mk2 := mk2TestDataset()
+	publication, err = store.Replace(ctx, []Dataset{ugc, kinepolis, pathe, cgr, megarama, cineville, mk2})
+	if err != nil || len(publication.Providers) != 7 {
+		t.Fatalf("seven-provider publication=%+v err=%v", publication, err)
+	}
+	assertMK2 := func(runtime int) {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != 10 || len(loaded.Showtimes) != 11 {
+			t.Fatalf("MK2 roundtrip theaters=%d showtimes=%d err=%v", len(loaded.Theaters), len(loaded.Showtimes), err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider == schedule.ProviderMK2 && (r.Movie.RuntimeMinutes != 0 || r.Language != "" || r.Room != "" || !r.EndTime.Equal(r.StartTime)) {
+				t.Fatal("MK2 source facts overwritten")
+			}
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "mk2-film-HO00006568", Date: "2026-08-15"})
+		if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+			t.Fatalf("MK2 alias err=%v", err)
+		}
+		r := detail.Theaters[0].Showtimes[0]
+		if r.ID != "mk2-showing-0004-140350" || r.Movie.RuntimeMinutes != runtime || r.BookingURL == nil || *r.BookingURL != schedule.MK2BookingPrefix+"0004&sessionId=140350" || !r.EndTime.Equal(r.StartTime) {
+			t.Fatalf("MK2 DTO=%+v", r)
+		}
+		if runtime == 0 {
+			if r.EstimatedEndTime != nil {
+				t.Fatal("estimate without runtime")
+			}
+		} else if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+15)*time.Minute)) {
+			t.Fatal("missing MK2 estimate")
+		}
+	}
+	assertMK2(0)
+	mk2Match := match(enrichment.SourceMK2, "HO00006568")
+	mk2Match.SourceRuntimeMinutes, mk2Match.MetadataMovieID = 0, 45
+	mk2Match.Candidates = []enrichment.Candidate{{ID: 45, Title: "Silent", Runtime: 123, Score: 1}}
+	mk2Metadata := metadata
+	mk2Metadata.ProviderMovieID, mk2Metadata.RuntimeMinutes = 45, 123
+	if err := enrichmentStore.Publish(ctx, mk2Match, mk2Metadata); err != nil {
+		t.Fatal(err)
+	}
+	assertMK2(123)
+	if _, err := store.Replace(ctx, []Dataset{mk2}); err != nil {
+		t.Fatal(err)
+	}
+	assertMK2(123)
+	_, beforeRevision, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidMK2 := mk2TestDataset()
+	invalidMK2.Showtimes[0].EndTime = invalidMK2.Showtimes[0].StartTime.Add(time.Minute)
+	if _, err := store.Replace(ctx, []Dataset{ugc, invalidMK2}); err == nil {
+		t.Fatal("invalid MK2 batch published")
+	}
+	_, afterRevision, err := store.Load(ctx)
+	if err != nil || beforeRevision != afterRevision {
+		t.Fatal("invalid MK2 batch changed revision")
+	}
+	assertMK2(123)
+}
+
+func mk2TestDataset() Dataset {
+	d := cinevilleTestDataset()
+	d.Provider = schedule.ProviderMK2
+	d.Theaters = []TheaterRecord{{Provider: schedule.ProviderMK2, ID: "mk2-0004", ProviderID: "0004", Slug: "mk2-0004", Name: "MK2 Bibliothèque", Address: "128 avenue de France", City: "Paris", PostalCode: "75013", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}}
+	r := &d.Showtimes[0]
+	r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderMK2, "mk2-showing-0004-140350", "0004-140350", "mk2-0004"
+	r.Movie = MovieRecord{Provider: schedule.ProviderMK2, ProviderID: "HO00006568", Slug: "mk2-film-HO00006568", Title: "Silent", PosterURL: schedule.MK2PosterPrefix + "HO00006568"}
+	r.Language, r.ProviderVersion, r.Room, r.BookingURL = "", "Muet", "", schedule.MK2BookingPrefix+"0004&sessionId=140350"
+	return d
 }
 
 func cinevilleTestDataset() Dataset {

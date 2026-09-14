@@ -868,6 +868,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                     v-slot="{ available, kind, label }"
                     :url="showtime.booking_url"
                     :provider="showtime.provider"
+                    :showtime-id="showtime.id"
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
                     class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between border-2 p-3 text-left lg:scroll-mt-52"
@@ -881,8 +882,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                       <span v-else-if="showtime.end" class="w-14" aria-hidden="true" />
                     </div>
                     <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-                      <span>{{ showtime.language }}</span>
-                      <span aria-hidden="true">·</span>
+                      <template v-if="showtime.language"><span>{{ showtime.language }}</span><span aria-hidden="true">·</span></template>
                       <ShowtimeFormat :format="showtime.format" />
                       <template v-if="showtime.room">
                         <span aria-hidden="true">·</span>

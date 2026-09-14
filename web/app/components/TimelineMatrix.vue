@@ -326,7 +326,7 @@ onBeforeUnmount(() => {
               isShowtimeUnavailable(item.showtime.start_time) ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
-            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}, ${item.showtime.language}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
+            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${item.showtime.language}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
             @click="selectShowtime(item, $event)"
@@ -345,7 +345,7 @@ onBeforeUnmount(() => {
               class="mt-1 block truncate text-[11px] leading-[15px] text-current"
               :class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'opacity-90' : 'opacity-70'"
             >
-              {{ formatParisTime(item.showtime.start_time) }} · {{ item.showtime.language }} ·
+              {{ formatParisTime(item.showtime.start_time) }} · <template v-if="item.showtime.language">{{ item.showtime.language }} · </template>
               <ShowtimeFormat :format="item.showtime.format" :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''" decorative />
             </span>
           </button>
@@ -429,11 +429,11 @@ onBeforeUnmount(() => {
             <dt class="font-medium text-ink">Salle</dt>
             <dd class="text-right font-medium text-ink">{{ selected.showtime.room }}</dd>
             <dt class="font-medium text-ink">Version</dt>
-            <dd class="text-right font-medium text-ink">{{ selected.showtime.language }} · <ShowtimeFormat :format="selected.showtime.format" /></dd>
+            <dd class="text-right font-medium text-ink"><template v-if="selected.showtime.language">{{ selected.showtime.language }} · </template><ShowtimeFormat :format="selected.showtime.format" /></dd>
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" />
+            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" :showtime-id="selected.showtime.id" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
               class="inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"

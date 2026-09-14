@@ -44,6 +44,9 @@ export function safePosterUrl(url: string | null | undefined) {
       && url.length <= 2048
       && !parsed.pathname.includes('..')
       && /^https:\/\/storage\.googleapis\.com\/cineville-files-prod\/images\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(url)
+    const isMk2Poster = url === parsed.href
+      && url.length <= 2048
+      && /^https:\/\/srv-web-vista\.mk2\.com\/CDN\/media\/entity\/get\/FilmPosterGraphic\/HO[0-9]{1,117}$/.test(url)
 
     if (
       parsed.protocol !== 'https:'
@@ -52,7 +55,7 @@ export function safePosterUrl(url: string | null | undefined) {
       || parsed.password
       || (parsed.search && !isMegaramaPoster)
       || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster && !isCinevillePoster)
+      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster && !isCinevillePoster && !isMk2Poster)
       || !hasSafePath(url, parsed.origin)
     ) return null
 

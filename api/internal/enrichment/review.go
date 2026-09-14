@@ -137,6 +137,9 @@ func validUGCPosterURL(raw string) bool {
 }
 
 func validSourcePosterURL(provider, raw string) bool {
+	if provider == SourceMK2 {
+		return raw == "" || schedule.ValidMK2PosterURL(raw)
+	}
 	if provider == SourceCineville {
 		return raw == "" || schedule.ValidCinevillePosterURL(raw)
 	}

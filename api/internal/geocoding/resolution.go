@@ -126,6 +126,8 @@ func ValidProviderTheaterID(provider, providerTheaterID string) bool {
 		return megaramaTheaterID.MatchString(providerTheaterID)
 	case "cineville":
 		return schedule.ValidCinevilleIdentity("theater", providerTheaterID)
+	case "mk2":
+		return schedule.ValidMK2Identity("theater", providerTheaterID)
 	default:
 		return false
 	}

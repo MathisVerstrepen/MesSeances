@@ -173,13 +173,14 @@ test('keeps unknown Megarama events but omits their endDate without recomputing 
 
 test('estimated and unknown events omit endDate with absent, source and enriched runtime', () => {
   for (const runtime of [0, 93, 118]) {
+    for (const provider of ['cineville', 'mk2'] as const) {
     const schedule = fixture()
     schedule.movie.runtime_minutes = runtime
     const theater = schedule.theaters[0]!
-    theater.provider = 'cineville'
-    theater.id = 'cineville-707'
-    theater.slug = 'cineville-707'
-    const showing = { ...theater.showtimes[0]!, provider: 'cineville' as const, movie: { ...movie, runtime_minutes: runtime } }
+    theater.provider = provider
+    theater.id = provider === 'mk2' ? 'mk2-0004' : 'cineville-707'
+    theater.slug = theater.id
+    const showing = { ...theater.showtimes[0]!, provider, language: provider === 'mk2' ? '' as const : 'VF' as const, room: '', movie: { ...movie, runtime_minutes: runtime } }
     theater.showtimes = [
       { ...showing, end_time: showing.start_time },
       { ...showing, id: 'estimated', end_time: showing.start_time, estimated_end_time: '2026-08-29T18:13:00Z', estimated_end_ads_minutes: 15 },
@@ -195,5 +196,6 @@ test('estimated and unknown events omit endDate with absent, source and enriched
     }
     const movieNode = graph.find((node) => node['@type'] === 'Movie')!
     assert.equal(movieNode.duration, runtime ? `PT${runtime}M` : undefined)
+    }
   }
 })

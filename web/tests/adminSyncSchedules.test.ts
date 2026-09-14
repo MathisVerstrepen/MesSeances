@@ -47,7 +47,8 @@ function job(
       pathe: { state: states.pathe ?? (target === 'pathe' || target === 'all' ? 'succeeded' : 'not_requested') },
       cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') },
       megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') },
-      cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') }
+      cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') },
+      mk2: { state: states.mk2 ?? (target === 'mk2' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -202,6 +203,11 @@ test('selects newest terminal requested provider run across direct and all targe
   assert.equal(selectLatestProviderRun('cineville', null, [allNewest])?.id, 'all-newest')
   assert.equal(selectLatestProviderRun('cineville', null, [job('cineville-only', 'cineville', '2026-08-24T15:30:00Z')])?.id, 'cineville-only')
   assert.equal(selectLatestProviderRun('cineville', null, [otherProvider]), null)
+  assert.equal(selectLatestProviderRun('mk2', null, [allNewest])?.id, 'all-newest')
+  assert.equal(selectLatestProviderRun('mk2', null, [job('mk2-only', 'mk2', '2026-08-24T15:30:00Z')])?.id, 'mk2-only')
+  assert.equal(selectLatestProviderRun('mk2', null, [otherProvider]), null)
+  assert.equal(isAdminSyncScheduleTargetAvailable('mk2', ['mk2']), true)
+  assert.equal(isAdminSyncScheduleTargetAvailable('mk2', []), false)
   assert.equal(selectLatestProviderRun('cgr', null, [job('cgr-only', 'cgr', '2026-08-24T15:30:00Z')])?.id, 'cgr-only')
   assert.equal(selectLatestProviderRun('kinepolis', null, [job('ugc-only', 'ugc', '2026-08-24T15:00:00Z')]), null)
   assert.equal(selectLatestProviderRun('kinepolis', null, [job('failed-all', 'all', '2026-08-24T16:00:00Z', { kinepolis: 'failed' }, 'failed')])?.id, 'failed-all')
