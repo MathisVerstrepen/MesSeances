@@ -104,18 +104,26 @@ func TestLoadAPIBaseParsesAndNormalizesTrustedProxyCIDRs(t *testing.T) {
 
 func TestLoadAPISyncTimingDefaultsAndBounds(t *testing.T) {
 	config, err := Load(APISync, environment(nil))
-	if err != nil || config.Sync.RequestTimeout != 20*time.Second || config.Sync.KinepolisRequestInterval != 2*time.Second || config.Sync.OperationTimeout != 2*time.Minute {
+	if err != nil || config.Sync.RequestTimeout != 20*time.Second || config.Sync.KinepolisRequestInterval != 2*time.Second || config.Sync.CinevilleRequestInterval != 2*time.Second || config.Sync.OperationTimeout != 2*time.Minute {
 		t.Fatalf("config=%+v err=%v", config, err)
 	}
 	for _, values := range []map[string]string{
 		{"SYNC_REQUEST_TIMEOUT": "4999ms"},
 		{"SYNC_REQUEST_TIMEOUT": "61s"},
 		{"SYNC_KINEPOLIS_REQUEST_INTERVAL": "999ms"},
+		{"SYNC_CINEVILLE_REQUEST_INTERVAL": "999ms"},
+		{"SYNC_CINEVILLE_REQUEST_INTERVAL": "secret-duration"},
 		{"SYNC_OPERATION_TIMEOUT": "0s"},
 		{"SYNC_OPERATION_TIMEOUT": "secret-duration"},
 	} {
 		if _, err := Load(APISync, environment(values)); err == nil {
 			t.Fatalf("values=%v accepted", values)
+		}
+	}
+	for _, interval := range []string{"1s", "3s"} {
+		loaded, err := Load(APISync, environment(map[string]string{"SYNC_CINEVILLE_REQUEST_INTERVAL": interval}))
+		if err != nil || loaded.Sync.CinevilleRequestInterval.String() != interval {
+			t.Fatal("Cineville interval override")
 		}
 	}
 }

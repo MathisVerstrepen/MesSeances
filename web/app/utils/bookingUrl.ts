@@ -70,6 +70,11 @@ function isSafeCgrBooking(value: string): boolean {
     && /^https:\/\/achat\.cgrcinemas\.fr\/[a-z0-9-]+\/r\/[1-9][0-9]*$/.test(value)
 }
 
+function isSafeCinevilleBooking(value: string): boolean {
+  const match = /^https:\/\/www\.cineville\.fr\/vad\/([1-9][0-9]{0,18})\/([1-9][0-9]{0,18})\/([1-9][0-9]{0,18})$/.exec(value)
+  return match !== null && match[0] === value && match.slice(1).every((id) => BigInt(id) <= 9223372036854775807n)
+}
+
 export function safeBookingUrl(raw: string | null | undefined, expectedProvider?: Provider | null): SafeBookingUrl | null {
   const value = raw?.trim()
   if (!value) return null
@@ -83,7 +88,7 @@ export function safeBookingUrl(raw: string | null | undefined, expectedProvider?
         ? 'kinepolis'
         : hostname === 's.pathe.fr'
           ? 'pathe'
-          : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : MEGARAMA_HOSTS.has(hostname) || MEGARAMA_BOOKING_HOSTS.has(hostname) ? 'megarama' : null
+          : hostname === 'achat.cgrcinemas.fr' ? 'cgr' : hostname === 'www.cineville.fr' ? 'cineville' : MEGARAMA_HOSTS.has(hostname) || MEGARAMA_BOOKING_HOSTS.has(hostname) ? 'megarama' : null
     const isSafePatheBooking = provider !== 'pathe' || (
       !parsed.search
       && !parsed.hash
@@ -101,6 +106,7 @@ export function safeBookingUrl(raw: string | null | undefined, expectedProvider?
       || parsed.port
       || !isSafePatheBooking
       || !isSafeCgrBookingUrl
+      || (provider === 'cineville' && (raw !== value || parsed.href !== value || !isSafeCinevilleBooking(value)))
       || (provider === 'megarama' && (raw !== value || !isSafeMegaramaBooking(value, hostname)))
     ) return null
 

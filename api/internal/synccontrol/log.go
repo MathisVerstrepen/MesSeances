@@ -442,7 +442,7 @@ func joinedLogBytes(lines []parsedLogLine) int {
 }
 
 func validLogProvider(provider Target) bool {
-	return provider == TargetUGC || provider == TargetKinepolis || provider == TargetPathe || provider == TargetCGR || provider == TargetMegarama
+	return provider == TargetUGC || provider == TargetKinepolis || provider == TargetPathe || provider == TargetCGR || provider == TargetMegarama || provider == TargetCineville
 }
 
 func validLogOperation(operation logOperation) bool {

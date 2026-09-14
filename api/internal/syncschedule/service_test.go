@@ -19,7 +19,7 @@ type memoryScheduleStore struct {
 }
 
 func TestMegaramaTargetOrder(t *testing.T) {
-	if !ValidTarget(TargetMegarama) || TargetOrder(TargetMegarama) != TargetOrder(TargetCGR)+1 || TargetOrder(TargetMetadataRefresh) != TargetOrder(TargetMegarama)+1 {
+	if !ValidTarget(TargetMegarama) || TargetOrder(TargetMegarama) != TargetOrder(TargetCGR)+1 || !ValidTarget(TargetCineville) || TargetOrder(TargetCineville) != TargetOrder(TargetMegarama)+1 || TargetOrder(TargetMetadataRefresh) != TargetOrder(TargetCineville)+1 {
 		t.Fatal("Megarama target ordering")
 	}
 }

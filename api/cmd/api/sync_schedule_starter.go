@@ -33,7 +33,7 @@ type syncScheduleStarter struct {
 func (s syncScheduleStarter) AvailableTargets() []syncschedule.Target {
 	targets := make([]syncschedule.Target, 0, 6)
 	if s.providers != nil {
-		targets = append(targets, syncschedule.TargetUGC, syncschedule.TargetKinepolis, syncschedule.TargetPathe, syncschedule.TargetCGR, syncschedule.TargetMegarama)
+		targets = append(targets, syncschedule.TargetUGC, syncschedule.TargetKinepolis, syncschedule.TargetPathe, syncschedule.TargetCGR, syncschedule.TargetMegarama, syncschedule.TargetCineville)
 	}
 	if s.metadata != nil && s.claimer != nil {
 		targets = append(targets, syncschedule.TargetMetadataRefresh)

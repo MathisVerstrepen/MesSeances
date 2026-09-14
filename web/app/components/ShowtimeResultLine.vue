@@ -3,7 +3,6 @@ import { MapPin } from '@lucide/vue'
 import type { ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
-import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
 
 const props = withDefaults(defineProps<{
   result: ShowtimeResultViewModel
@@ -19,7 +18,6 @@ const emit = defineEmits<{
 }>()
 
 const advertisedStartTooltipId = useId()
-const hasKnownEnd = computed(() => hasKnownShowtimeEnd(props.result.provider, props.result.advertisedStartTime, props.result.endTime))
 const backdropFailed = ref(false)
 const backdropImage = ref<HTMLImageElement | null>(null)
 const posterUrl = computed(() => safePosterUrl(props.result.posterUrl))
@@ -49,7 +47,7 @@ function formatRoom(room: string) {
 </script>
 
 <template>
-  <article v-if="isChronological" class="relative overflow-hidden p-4 hover:bg-[#f1efe8] sm:p-5" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined">
+  <article v-if="isChronological" class="relative p-4 hover:bg-[#f1efe8] sm:p-5" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined">
     <button
       v-if="scope === 'multi-theater'"
       type="button"
@@ -100,7 +98,7 @@ function formatRoom(room: string) {
             <span :aria-describedby="advertisedStartTooltipId" class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
             <span :id="advertisedStartTooltipId" class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100" role="tooltip">Heure de début annoncée, publicités incluses</span>
           </span>
-          <template v-if="hasKnownEnd">→ {{ formatParisTime(result.endTime) }}</template>
+          <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template>
         </p>
       </div>
       <div class="col-start-2 min-w-0 sm:col-start-auto">
@@ -150,7 +148,7 @@ function formatRoom(room: string) {
           <span :aria-describedby="advertisedStartTooltipId" class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
           <span :id="advertisedStartTooltipId" class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100" role="tooltip">Heure de début annoncée, publicités incluses</span>
         </span>
-        <template v-if="hasKnownEnd">→ {{ formatParisTime(result.endTime) }}</template>
+        <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template>
       </p>
       <div v-if="scope === 'multi-theater'" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
         <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <BrandedText :text="result.theaterName" /></span>

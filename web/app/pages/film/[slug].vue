@@ -5,7 +5,7 @@ import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '
 import { isShowtimeFormat } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
-import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
+import { resolveShowtimeEnd, type ResolvedShowtimeEnd } from '~/utils/showtimeEnd'
 import { loadInitialFilmSchedule, NationwideInitialScheduleError } from '~/utils/filmInitialSchedule'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { isIndexableMovie } from '~/utils/movieIndexability'
@@ -169,7 +169,7 @@ function showtimeTimingState(showtime: Showtime): ShowtimeTimingState {
   return 'upcoming'
 }
 
-const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Array<Showtime & { timingState: ShowtimeTimingState }> }>>(() => {
+const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Array<Showtime & { timingState: ShowtimeTimingState; end: ResolvedShowtimeEnd | null }> }>>(() => {
   if (!schedule.value) return []
 
   const favoriteOrder = new Map(preferences.activeTheaterIds.value.map((id, index) => [id, index]))
@@ -179,7 +179,7 @@ const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Arra
       ...theater,
       showtimes: theater.showtimes
         .filter(matchesFilter)
-        .map((showtime) => ({ ...showtime, timingState: showtimeTimingState(showtime) }))
+        .map((showtime) => ({ ...showtime, timingState: showtimeTimingState(showtime), end: resolveShowtimeEnd(showtime) }))
     }))
     .filter((theater) => theater.showtimes.length > 0)
 
@@ -863,21 +863,22 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </div>
 
               <ul class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-6">
-                <li v-for="showtime in theater.showtimes" :key="showtime.id" class="min-w-0">
+                <li v-for="showtime in theater.showtimes" :key="showtime.id" class="relative min-w-0">
                   <BookingLink
                     v-slot="{ available, kind, label }"
                     :url="showtime.booking_url"
                     :provider="showtime.provider"
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
-                    class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between overflow-hidden border-2 p-3 text-left lg:scroll-mt-52"
+                    class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between border-2 p-3 text-left lg:scroll-mt-52"
                     :class="showtime.timingState === 'past' ? 'opacity-60' : showtime.timingState === 'warning' ? 'outline-[3px] outline-offset-2 outline-[#f59e0b]' : undefined"
                     :available-class="showtime.timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]'"
                     unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
                   >
                     <div class="flex w-full items-baseline justify-between gap-2">
                       <span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(showtime.start_time) }}</span>
-                      <span v-if="hasKnownShowtimeEnd(showtime.provider, showtime.start_time, showtime.end_time)" class="font-mono text-[9px] font-bold uppercase text-muted">fin {{ formatParisTime(showtime.end_time) }}</span>
+                      <span v-if="showtime.end && !showtime.end.estimated" class="font-mono text-[9px] font-bold uppercase text-muted">fin <ShowtimeEndTime :end="showtime.end" :advertised-start="showtime.start_time" :runtime-minutes="showtime.movie.runtime_minutes" /></span>
+                      <span v-else-if="showtime.end" class="w-14" aria-hidden="true" />
                     </div>
                     <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
                       <span>{{ showtime.language }}</span>
@@ -905,6 +906,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                       <line x1="0" y1="100" x2="100" y2="0" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
                     </svg>
                   </BookingLink>
+                  <span v-if="showtime.end?.estimated" class="absolute right-3.5 top-6 font-mono text-[9px] font-bold uppercase text-muted">fin <ShowtimeEndTime :end="showtime.end" :advertised-start="showtime.start_time" :runtime-minutes="showtime.movie.runtime_minutes" /></span>
                 </li>
               </ul>
             </section>

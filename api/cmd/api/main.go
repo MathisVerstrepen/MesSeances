@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"messeances/api/internal/cgr"
+	"messeances/api/internal/cineville"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
@@ -453,6 +454,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewMegarama: func() (megarama.Getter, error) {
 			return megarama.NewClient(megarama.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCineville: func() (cineville.Fetcher, error) {
+			return cineville.NewClient(cineville.ClientConfig{Proxies: proxies, RequestInterval: cfg.Sync.CinevilleRequestInterval, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

@@ -12,6 +12,9 @@ func TestReviewSourceDetailURLs(t *testing.T) {
 		name, provider, movieID, showingID, theaterID, stored, want string
 	}{
 		{"ugc", SourceUGC, "200", "", "", "https://evil.example/", "https://www.ugc.fr/film.html?id=200"},
+		{"cineville signed visa", SourceCineville, "-693091020261", "639-1", "639", "https://www.cineville.fr/vad/639/1/9", "https://www.cineville.fr/vad/639/1/9"},
+		{"cineville wrong showing", SourceCineville, "-693091020261", "639-2", "639", "https://www.cineville.fr/vad/639/1/9", ""},
+		{"cineville wrong cinema", SourceCineville, "-693091020261", "707-1", "639", "https://www.cineville.fr/vad/707/1/9", ""},
 		{"kinepolis", SourceKinepolis, "HO00016258", "1234", "FRLIL", "https://kinepolis.fr/direct-vista-redirect/1234/0/FRLIL/0", "https://kinepolis.fr/direct-vista-redirect/1234/0/FRLIL/0"},
 		{"pathe", SourcePathe, "film-a", "V3308S135392", "lille", "https://s.pathe.fr/fr/V3308S135392/booking", "https://s.pathe.fr/fr/V3308S135392/booking"},
 		{"cgr", SourceCGR, "1001", "W8010-" + strings.Repeat("a", 64), "W8010", "https://achat.cgrcinemas.fr/lille/r/12345", "https://achat.cgrcinemas.fr/lille/r/12345"},

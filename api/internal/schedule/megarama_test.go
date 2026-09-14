@@ -58,6 +58,9 @@ func TestMegaramaEffectiveEndSourceTMDBAndUnknown(t *testing.T) {
 		if got.EndTime.Sub(got.StartTime) != time.Duration(test.want)*time.Minute {
 			t.Fatal("runtime precedence or first part")
 		}
+		if test.want > 0 && (got.EstimatedEndTime != nil || got.EstimatedEndAdsMinutes != nil) {
+			t.Fatal("canonical Megarama end gained an ads estimate")
+		}
 		service, err := NewService(testSource{view: view}, ServiceOptions{Now: testServiceNow})
 		if err != nil {
 			t.Fatal(err)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
-type CreditBrand = 'UGC' | 'CGR' | 'MEGARAMA' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type CreditBrand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
 
 interface Credit {
   brand: CreditBrand
@@ -24,7 +24,8 @@ const creditSections: Array<{ id: 'operators' | 'technologies'; title: string; c
       { brand: 'KINEPOLIS', name: 'Kinepolis', url: 'https://kinepolis.fr/' },
       { brand: 'PATHE', name: 'Pathé', url: 'https://www.pathe.fr/' },
       { brand: 'CGR', name: 'CGR Cinémas', url: 'https://www.cgrcinemas.fr/' },
-      { brand: 'MEGARAMA', name: 'Megarama', url: 'https://www.megarama.fr/' }
+      { brand: 'MEGARAMA', name: 'Megarama', url: 'https://www.megarama.fr/' },
+      { brand: 'CINEVILLE', name: 'Cinéville', url: 'https://www.cineville.fr/' }
     ]
   },
   {

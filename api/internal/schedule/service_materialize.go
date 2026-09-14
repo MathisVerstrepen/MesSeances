@@ -24,6 +24,9 @@ func recordProvider(explicit Provider, identity string) Provider {
 	if strings.HasPrefix(identity, string(ProviderCGR)+"-") {
 		return ProviderCGR
 	}
+	if strings.HasPrefix(identity, string(ProviderCineville)+"-") {
+		return ProviderCineville
+	}
 	if strings.HasPrefix(identity, string(ProviderMegarama)+"-") {
 		return ProviderMegarama
 	}
@@ -32,10 +35,16 @@ func recordProvider(explicit Provider, identity string) Provider {
 func invalid(message string) error { return &ValidationError{Message: message} }
 
 func materializeRecord(view *SnapshotView, record ShowtimeRecord) Showtime {
+	return materializeRecordWithAds(view, record, DefaultBufferAdsMinutes)
+}
+
+func materializeRecordWithAds(view *SnapshotView, record ShowtimeRecord, adsMinutes int) Showtime {
 	booking := record.BookingURL
 	provider := recordProvider(record.Provider, record.ID)
 	movie := materializeCatalogMovie(view, record.Movie)
-	return Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	showtime := Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	showtime.EstimatedEndTime, showtime.EstimatedEndAdsMinutes = estimateShowtimeEnd(showtime, adsMinutes)
+	return showtime
 }
 
 func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalogItem {

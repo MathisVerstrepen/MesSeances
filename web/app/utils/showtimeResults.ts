@@ -1,6 +1,6 @@
 import type { SlotResult, TheaterShowtimesResponse } from '../types/api'
 import type { ResultGrouping, ResultLayout, ShowtimeMovieResultGroup, ShowtimeResultViewModel } from '../types/showtimeResults'
-import { hasKnownShowtimeEnd } from './showtimeEnd.ts'
+import { resolveShowtimeEnd } from './showtimeEnd.ts'
 
 export const resultGroupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
   { value: 'movie', label: 'Par film' },
@@ -24,7 +24,7 @@ export function toSlotShowtimeResults(results: readonly SlotResult[]): ShowtimeR
     theaterName: result.theater.name,
     advertisedStartTime: result.showtime.start_time,
     effectiveStartTime: result.effective_start_time,
-    endTime: result.showtime.end_time,
+    end: resolveShowtimeEnd(result.showtime),
     language: result.showtime.language,
     format: result.showtime.format,
     room: result.showtime.room,
@@ -46,7 +46,7 @@ export function toTheaterShowtimeResults(response: TheaterShowtimesResponse): Sh
     theaterName: response.theater.name,
     advertisedStartTime: showtime.start_time,
     effectiveStartTime: showtime.start_time,
-    endTime: showtime.end_time,
+    end: resolveShowtimeEnd(showtime),
     language: showtime.language,
     format: showtime.format,
     room: showtime.room,
@@ -84,6 +84,12 @@ const PATHE_PROVIDER_ID_PATTERN = /^V[1-9][0-9]*S[1-9][0-9]*$/
 const CGR_TOKEN_PATTERN = /^c([A-Z][0-9]{4})-([A-Za-z0-9_-]{43})$/
 const MEGARAMA_SELECTION_KEY_PATTERN = /^megarama:megarama-showing-([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
 const MEGARAMA_TOKEN_PATTERN = /^m([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
+const CINEVILLE_SELECTION_KEY_PATTERN = /^cineville:cineville-showing-([1-9][0-9]{0,18}-[1-9][0-9]{0,18})$/
+const CINEVILLE_TOKEN_PATTERN = /^v([1-9][0-9]{0,18}-[1-9][0-9]{0,18})$/
+
+function isValidCinevilleShowingID(value: string): boolean {
+  return value.split('-').every((id) => BigInt(id) <= 9223372036854775807n)
+}
 
 function isValidUgcProviderID(value: string): boolean {
   if (!/^[0-9]{1,128}$/.test(value)) return false
@@ -143,10 +149,14 @@ function encodeShowtimeSelectionKey(key: string): string | null {
   if (cgrMatch?.[1] && cgrMatch[2]) return `c${cgrMatch[1]}-${hexToBase64Url(cgrMatch[2])}`
   const megaramaMatch = MEGARAMA_SELECTION_KEY_PATTERN.exec(key)
   if (megaramaMatch?.[1] && megaramaMatch[0] === key) return `m${megaramaMatch[1]}`
+  const cinevilleMatch = CINEVILLE_SELECTION_KEY_PATTERN.exec(key)
+  if (cinevilleMatch?.[1] && cinevilleMatch[0] === key && isValidCinevilleShowingID(cinevilleMatch[1])) return `v${cinevilleMatch[1]}`
   return null
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  const cinevilleMatch = CINEVILLE_TOKEN_PATTERN.exec(token)
+  if (cinevilleMatch?.[1] && cinevilleMatch[0] === token && isValidCinevilleShowingID(cinevilleMatch[1])) return `cineville:cineville-showing-${cinevilleMatch[1]}`
   const megaramaMatch = MEGARAMA_TOKEN_PATTERN.exec(token)
   if (megaramaMatch?.[1] && megaramaMatch[0] === token) return `megarama:megarama-showing-${megaramaMatch[1]}`
   if (token.startsWith('u')) {
@@ -191,18 +201,17 @@ export function validShowtimeSelectionKeys(results: readonly ShowtimeResultViewM
 }
 
 function showtimeInterval(result: ShowtimeResultViewModel): readonly [number, number] | null {
+  if (!result.end) return null
   const start = Date.parse(result.effectiveStartTime)
-  const end = Date.parse(result.endTime)
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+  const end = Date.parse(result.end.time)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
   return [start, end]
 }
 
 export function areShowtimeResultsCompatible(first: ShowtimeResultViewModel, second: ShowtimeResultViewModel): boolean {
-  if (!hasKnownShowtimeEnd(first.provider, first.advertisedStartTime, first.endTime)
-    || !hasKnownShowtimeEnd(second.provider, second.advertisedStartTime, second.endTime)) return false
   const firstInterval = showtimeInterval(first)
   const secondInterval = showtimeInterval(second)
-  if (!firstInterval || !secondInterval) return true
+  if (!firstInterval || !secondInterval) return false
   return firstInterval[1] <= secondInterval[0] || firstInterval[0] >= secondInterval[1]
 }
 

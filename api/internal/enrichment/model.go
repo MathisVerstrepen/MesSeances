@@ -16,6 +16,7 @@ const (
 	SourcePathe     = "pathe"
 	SourceCGR       = "cgr"
 	SourceMegarama  = "megarama"
+	SourceCineville = "cineville"
 	ProviderTMDB    = "tmdb"
 	LocaleFrench    = "fr-FR"
 
@@ -134,6 +135,10 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceCineville {
+		movieID, err := strconv.ParseInt(id, 10, 64)
+		return err == nil && movieID != 0 && strconv.FormatInt(movieID, 10) == id
+	}
 	if provider == SourceMegarama {
 		return len(id) <= 114 && (megaramaGlobalID.MatchString(id) || megaramaLocalID.MatchString(id) && id[3:7] == id[12:16])
 	}

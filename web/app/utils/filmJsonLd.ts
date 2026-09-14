@@ -2,7 +2,7 @@ import type { MovieShowtimesResponse } from '../types/api.ts'
 import type { JsonLdDocument, JsonLdNode } from './jsonLd.ts'
 import { safeBackdropUrl, safePosterUrl } from './safeImageUrl.ts'
 import { absoluteSiteUrl } from './siteUrl.ts'
-import { hasKnownShowtimeEnd } from './showtimeEnd.ts'
+import { hasCanonicalShowtimeEnd } from './showtimeEnd.ts'
 
 export interface FilmJsonLdOptions {
   movieUrl: string
@@ -54,7 +54,7 @@ export function buildFilmJsonLd(schedule: MovieShowtimesResponse, options: FilmJ
         location: { '@id': theaterId },
         workPresented: { '@id': movieId }
       }
-      if (hasKnownShowtimeEnd(showtime.provider, showtime.start_time, showtime.end_time)) event.endDate = showtime.end_time
+      if (hasCanonicalShowtimeEnd(showtime.start_time, showtime.end_time)) event.endDate = showtime.end_time
       graph.push(event)
     }
   }

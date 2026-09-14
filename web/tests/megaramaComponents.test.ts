@@ -19,7 +19,7 @@ test('integrates Megarama into admin targets, labels, latest runs, and the label
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /megarama: 'Megarama'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville'\]/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /megarama: selectLatestProviderRun\('megarama'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'megarama', THEATER_PROVIDER_COLORS\.megarama/)
@@ -40,21 +40,19 @@ test('website fallback overrides reservation aria text and all custom slots show
   }
 })
 
-test('every end-time renderer uses the shared sentinel helper, with reachable unknown timeline items', async () => {
+test('every end-time renderer uses shared provenance, with reachable unknown timeline items', async () => {
   for (const path of ['components/ShowtimeResultLine.vue', 'components/ShowtimeResultBox.vue']) {
     const value = await source(path)
-    assert.match(value, /hasKnownShowtimeEnd\(props\.result\.provider, props\.result\.advertisedStartTime, props\.result\.endTime\)/)
-    const endRenderers = value.match(/<(?:template|span) v-if="hasKnownEnd"[^>]*>(?:→|fin) \{\{ formatParisTime\(result\.endTime\) \}\}<\/(?:template|span)>/g) ?? []
-    const allEndRenderers = value.match(/formatParisTime\(result\.endTime\)/g) ?? []
-    assert.equal(endRenderers.length, allEndRenderers.length)
+    const endRenderers = value.match(/<ShowtimeEndTime :end="result\.end"/g) ?? []
+    assert.doesNotMatch(value, /hasKnownShowtimeEnd|result\.endTime/)
     assert.ok(endRenderers.length >= 2)
   }
-  assert.match(await source('pages/film/[slug].vue'), /v-if="hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\)"/)
+  assert.match(await source('pages/film/[slug].vue'), /<ShowtimeEndTime :end="showtime\.end"/)
   const timeline = await source('components/TimelineMatrix.vue')
-  assert.match(timeline, /v-if="hasKnownShowtimeEnd\(selected\.showtime\.provider, selected\.showtime\.start_time, selected\.showtime\.end_time\)"/)
+  assert.match(timeline, /<ShowtimeEndTime :end="selectedEnd"/)
   assert.match(timeline, /Math\.max\(durationMinutes \* pixelsPerMinute\.value, 56\)/)
   assert.match(timeline, /showtimeWidth\(0\) \/ pixelsPerMinute\.value/)
   const cinema = await source('pages/cinema/[slug].vue')
-  assert.match(cinema, /unknownMegaramaEnd = showtime\.provider === 'megarama' && end === start/)
-  assert.match(cinema, /if \(hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\)\) event\.endDate = showtime\.end_time/)
+  assert.match(cinema, /unknownEnd = end === start/)
+  assert.match(cinema, /if \(hasCanonicalShowtimeEnd\(showtime\.start_time, showtime\.end_time\)\) event\.endDate = showtime\.end_time/)
 })

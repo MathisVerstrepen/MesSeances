@@ -4,7 +4,7 @@ import type { QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater }
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
-import { hasKnownShowtimeEnd } from '~/utils/showtimeEnd'
+import { resolveShowtimeEnd } from '~/utils/showtimeEnd'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
@@ -20,6 +20,7 @@ const props = defineProps<{
 }>()
 
 const selected = ref<PlacedShowtime | null>(null)
+const selectedEnd = computed(() => selected.value ? resolveShowtimeEnd(selected.value.showtime) : null)
 const scroller = ref<HTMLElement | null>(null)
 const inspector = ref<HTMLElement | null>(null)
 const inspectorCloseButton = ref<HTMLButtonElement | null>(null)
@@ -60,7 +61,7 @@ function createRow(id: string, label: string, secondary: string, items: PlacedSh
       const lane = laneEnds.findIndex((end) => end <= start)
       const targetLane = lane === -1 ? laneEnds.length : lane
       // Reserve the visible hit area for unknown ends so adjacent sessions remain reachable.
-      laneEnds[targetLane] = start + (hasKnownShowtimeEnd(item.showtime.provider, item.showtime.start_time, item.showtime.end_time)
+      laneEnds[targetLane] = start + (resolveShowtimeEnd(item.showtime)
         ? item.showtime.duration_minutes : showtimeWidth(0) / pixelsPerMinute.value)
       return { ...item, lane: targetLane, width: showtimeWidth(item.showtime.duration_minutes) }
     })
@@ -419,7 +420,7 @@ onBeforeUnmount(() => {
             <dt class="font-medium text-ink">Horaire</dt>
             <dd class="flex items-center justify-end gap-2 font-semibold text-ink">
               <Clock3 :size="16" class="text-primary" aria-hidden="true" />
-              {{ formatParisTime(selected.showtime.start_time) }} <template v-if="hasKnownShowtimeEnd(selected.showtime.provider, selected.showtime.start_time, selected.showtime.end_time)">→ {{ formatParisTime(selected.showtime.end_time) }}</template>
+              {{ formatParisTime(selected.showtime.start_time) }} <template v-if="selectedEnd">→ <ShowtimeEndTime :end="selectedEnd" :advertised-start="selected.showtime.start_time" :runtime-minutes="selected.showtime.movie.runtime_minutes" /></template>
             </dd>
             <dt class="font-medium text-ink">Cinéma</dt>
             <dd class="text-right font-medium text-ink"><BrandedText :text="selected.theater.name" /></dd>

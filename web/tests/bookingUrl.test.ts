@@ -127,3 +127,25 @@ test('accepts exactly five booking-only aliases for their matching session cinem
   assert.equal(safeBookingUrl('https://royalpalacenogent.fr/#showsession?id=emsx080900123456'), null)
   assert.equal(safeBookingUrl('https://www.jean-jaures.megarama.fr/#showsession?id=emsx120400123456'), null)
 })
+test('accepts only exact Cinéville session booking routes, never a website fallback', () => {
+  const url = 'https://www.cineville.fr/vad/707/149056/1234'
+  assert.deepEqual(safeBookingUrl(url), { provider: 'cineville', url, kind: 'booking' })
+  assert.deepEqual(safeBookingUrl(url, 'cineville'), { provider: 'cineville', url, kind: 'booking' })
+  for (const provider of ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'] as const) {
+    assert.equal(safeBookingUrl(url, provider), null)
+  }
+  assert.equal(safeBookingUrl('https://www.ugc.fr/reservation', 'cineville'), null)
+  const invalid = [
+    url.replace('https:', 'http:'), url.replace('https:', ''), url.replace('www.', ''),
+    url.replace('www.', 'laval.'), url.replace('.fr/', '.fr.evil.test/'), url.replace('www.', 'user@www.'),
+    url.replace('.fr/', '.fr:443/'), url.replace('.fr/', '.fr:8443/'), url.replace('www.', 'WWW.'),
+    `${url}?`, `${url}?redirect=https://evil.test`, `${url}#`, `${url}#booking`, `${url}/`,
+    `${url}/../1234`, url.replace('/vad/', '/other/../vad/'), url.replace('/707/', '/%37%30%37/'),
+    url.replace('/707/', '/707%2F/'), url.replace('/707/', '/707\\/'), url.replace('/707/', '/707\n/'),
+    ` ${url}`, `${url}\n`, 'https://www.cineville.fr/', 'https://www.cineville.fr/programmes/laval'
+  ]
+  for (const component of ['0', '-1', '+1', '01', '1.5', '1e3', '', '9223372036854775808', '12345678901234567890']) {
+    for (const value of ['707', '149056', '1234']) invalid.push(url.replace(`/${value}`, `/${component}`))
+  }
+  for (const value of invalid) assert.equal(safeBookingUrl(value), null, value)
+})

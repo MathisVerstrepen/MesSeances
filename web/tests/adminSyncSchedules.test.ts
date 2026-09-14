@@ -46,7 +46,8 @@ function job(
       kinepolis: { state: states.kinepolis ?? (target === 'kinepolis' || target === 'all' ? 'succeeded' : 'not_requested') },
       pathe: { state: states.pathe ?? (target === 'pathe' || target === 'all' ? 'succeeded' : 'not_requested') },
       cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') },
-      megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') }
+      megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') },
+      cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -106,7 +107,9 @@ test('creates independent blank and persisted drafts for repeated targets', () =
 })
 
 test('reports target availability without treating disabled configuration as unavailable data', () => {
-  const available = ['ugc', 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'] as const
+  const available = ['ugc', 'cineville', 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'] as const
+  assert.equal(isAdminSyncScheduleTargetAvailable('cineville', available), true)
+  assert.equal(isAdminSyncScheduleTargetAvailable('cineville', []), false)
   assert.equal(isAdminSyncScheduleTargetAvailable('ugc', available), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_metadata_refresh', available), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('cgr', available), false)
@@ -196,6 +199,9 @@ test('selects newest terminal requested provider run across direct and all targe
   assert.equal(selectLatestProviderRun('pathe', null, [allNewest])?.id, 'all-newest')
   assert.equal(selectLatestProviderRun('pathe', null, [job('pathe-only', 'pathe', '2026-08-24T15:00:00Z')])?.id, 'pathe-only')
   assert.equal(selectLatestProviderRun('cgr', null, [allNewest])?.id, 'all-newest')
+  assert.equal(selectLatestProviderRun('cineville', null, [allNewest])?.id, 'all-newest')
+  assert.equal(selectLatestProviderRun('cineville', null, [job('cineville-only', 'cineville', '2026-08-24T15:30:00Z')])?.id, 'cineville-only')
+  assert.equal(selectLatestProviderRun('cineville', null, [otherProvider]), null)
   assert.equal(selectLatestProviderRun('cgr', null, [job('cgr-only', 'cgr', '2026-08-24T15:30:00Z')])?.id, 'cgr-only')
   assert.equal(selectLatestProviderRun('kinepolis', null, [job('ugc-only', 'ugc', '2026-08-24T15:00:00Z')]), null)
   assert.equal(selectLatestProviderRun('kinepolis', null, [job('failed-all', 'all', '2026-08-24T16:00:00Z', { kinepolis: 'failed' }, 'failed')])?.id, 'failed-all')

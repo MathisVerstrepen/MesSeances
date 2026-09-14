@@ -87,9 +87,14 @@ func TestResolutionServiceValidatesKeysCoordinatesAndVersionToken(t *testing.T) 
 }
 
 func TestValidProviderTheaterIDMirrorsCurrentProviderIdentities(t *testing.T) {
-	for _, input := range []struct{ provider, id string }{{"ugc", "25"}, {"kinepolis", "FR-Lomme_1"}, {"pathe", "lille"}, {"cgr", "A1234"}, {"megarama", "EMS0565"}} {
+	for _, input := range []struct{ provider, id string }{{"ugc", "25"}, {"kinepolis", "FR-Lomme_1"}, {"pathe", "lille"}, {"cgr", "A1234"}, {"megarama", "EMS0565"}, {"cineville", "639"}} {
 		if !ValidProviderTheaterID(input.provider, input.id) {
 			t.Fatalf("valid key rejected: %+v", input)
+		}
+	}
+	for _, id := range []string{"0", "01", "-1", "9223372036854775808"} {
+		if ValidProviderTheaterID("cineville", id) {
+			t.Fatal("invalid Cineville theater identity")
 		}
 	}
 }

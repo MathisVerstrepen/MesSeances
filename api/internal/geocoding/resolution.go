@@ -7,6 +7,8 @@ import (
 	"math"
 	"regexp"
 	"time"
+
+	"messeances/api/internal/schedule"
 )
 
 var (
@@ -122,6 +124,8 @@ func ValidProviderTheaterID(provider, providerTheaterID string) bool {
 		return cgrTheaterID.MatchString(providerTheaterID)
 	case "megarama":
 		return megaramaTheaterID.MatchString(providerTheaterID)
+	case "cineville":
+		return schedule.ValidCinevilleIdentity("theater", providerTheaterID)
 	default:
 		return false
 	}
