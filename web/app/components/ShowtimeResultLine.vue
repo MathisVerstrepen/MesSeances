@@ -106,7 +106,7 @@ function formatRoom(room: string) {
           <NuxtLink :to="`/film/${encodeURIComponent(result.movieSlug)}`" class="relative z-20 underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ result.movieTitle }}</NuxtLink>
         </h3>
         <div v-if="scope === 'multi-theater'" class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-          <span class="flex items-center gap-1.5"><MapPin :size="14" aria-hidden="true" /> <BrandedText :text="result.theaterName" /></span>
+          <span class="flex items-center gap-1.5"><MapPin :size="14" aria-hidden="true" /> <TheaterName :name="result.theaterName" :provider="result.provider" /></span>
           <span v-if="result.room">{{ result.room }}</span>
           <span v-if="result.language" class="font-medium text-muted">{{ result.language }}</span>
           <ShowtimeFormat :format="result.format" class="font-medium text-muted" />
@@ -153,7 +153,7 @@ function formatRoom(room: string) {
         <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template>
       </p>
       <div v-if="scope === 'multi-theater'" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-        <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <BrandedText :text="result.theaterName" /></span>
+        <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <TheaterName :name="result.theaterName" :provider="result.provider" /></span>
         <span v-if="result.room">{{ result.room }}</span>
         <span v-if="result.language" class="font-medium text-muted">{{ result.language }}</span>
         <ShowtimeFormat :format="result.format" class="font-medium text-muted" />
