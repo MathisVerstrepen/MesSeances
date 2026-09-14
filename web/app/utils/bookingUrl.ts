@@ -77,6 +77,51 @@ function isSafeGrandEcranBooking(value: string): boolean {
   return value.length <= 4096 && match !== null && match[0] === value
 }
 
+// Frozen default:DESKTOP entries. Room-enrichment redirect destinations are not public links.
+const NOE_CINEMAS_BOOKING_PREFIXES = {
+  B0158: 'https://achat.noecinemas.com/domont-ermitage/r/',
+  B0181: 'https://achat.cinepal.fr/reserver/r/',
+  P0089: 'https://achat.noecinemas.com/pithiviers/reserver/r/',
+  P0101: 'https://achat.omnia-cinemas.com/reserver/r/',
+  P0276: 'https://achat.cinemamorny.fr/reserver/r/',
+  P0290: 'https://achat.les-arts-cinema.com/reserver/r/',
+  P0297: 'https://achat.cinema-nogent-le-rotrou.fr/reserver/r/',
+  P0542: 'https://achat.noecinemas.com/houlgate/reserver/r/',
+  P0613: 'https://achat.noecinemas.com/elbeuf/reserver/r/',
+  P0713: 'https://achat.noecinemas.com/fecamp/reserver/r/',
+  P0714: 'https://achat.3colombiers-gravenchon.fr/r/',
+  P0733: 'https://achat.noecinemas.com/caudebec-en-caux/reserver/r/',
+  P0975: 'https://achat.cinemas-vernon.fr/reserver/r/',
+  P0997: 'https://achat.noecinemas.com/les-andelys/reserver/r/',
+  P2132: 'https://achat.noecinemas.com/gisors/r/',
+  P2425: 'https://achat.cinema-senonches.com/reserver/r/',
+  P2478: 'https://achat.noecinemas.com/carentan/reserver/r/',
+  P7898: 'https://achat.cinema-altkirch.com/reserver/r/',
+  P8088: 'https://achat.cinema-laigle.com/reserver/r/',
+  P9554: 'https://achat.cinemas-bernay.fr/reserver/r/',
+  W2750: 'https://achat.noecinemas.com/pont-audemer/reserver/r/',
+  W5200: 'https://achat.chaumont-cinemas.com/reserver/r/',
+  W7619: 'https://achat.noecinemas.com/yvetot-arches-lumiere/reserver/r/',
+  W8390: 'https://achat.cinemasdulavandou.fr/grand-bleu/reserver/r/'
+}
+
+function isSafeNoeCinemasBooking(value: string, showtimeId?: string | null, theaterId?: string | null): boolean {
+  if (value.length > 4096) return false
+  const entry = Object.entries(NOE_CINEMAS_BOOKING_PREFIXES).find(([, prefix]) => value.startsWith(prefix))
+  if (!entry) return false
+  const [theater, prefix] = entry
+  const session = value.slice(prefix.length)
+  const match = /^[1-9][0-9]*$/.exec(session)
+  if (!match || match[0] !== session) return false
+  if (theaterId !== undefined && theaterId !== `noecinemas-${theater}`) return false
+  if (showtimeId !== undefined) {
+    if (showtimeId === null) return false
+    const showing = /^noecinemas-showing-([A-Z0-9]{5})-([a-f0-9]{64})$/.exec(showtimeId)
+    if (!showing || showing[0] !== showtimeId || showing[1] !== theater) return false
+  }
+  return true
+}
+
 function isSafeCinevilleBooking(value: string): boolean {
   const match = /^https:\/\/www\.cineville\.fr\/vad\/([1-9][0-9]{0,18})\/([1-9][0-9]{0,18})\/([1-9][0-9]{0,18})$/.exec(value)
   return match !== null && match[0] === value && match.slice(1).every((id) => BigInt(id) <= 9223372036854775807n)
@@ -91,6 +136,11 @@ function isSafeMk2Booking(value: string, showtimeId?: string | null): boolean {
 }
 
 export function safeBookingUrl(raw: string | null | undefined, expectedProvider?: Provider | null, showtimeId?: string | null, theaterId?: string | null): SafeBookingUrl | null {
+  // Validate original bytes before generic URL normalization or shared-platform inference.
+  if (raw && (expectedProvider === 'noecinemas' || !expectedProvider) && isSafeNoeCinemasBooking(raw, showtimeId, theaterId)) {
+    return { provider: 'noecinemas', url: raw, kind: 'booking' }
+  }
+  if (expectedProvider === 'noecinemas') return null
   // Resolve Cinewest before generic shared-platform host inference. Never trim it.
   if (raw && (expectedProvider === 'cinewest' || !expectedProvider)) {
     const cinewest = safeCinewestBooking(raw, showtimeId, theaterId)

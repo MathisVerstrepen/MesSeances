@@ -140,3 +140,34 @@ func TestAdminSyncSchedulesUnavailableController(t *testing.T) {
 		assertAPIError(t, adminRequest(handler, request.method, request.path, request.body, request.origin, cookie), http.StatusServiceUnavailable, "sync_schedule_unavailable", "Planification des synchronisations indisponible.")
 	}
 }
+
+func TestAdminNoeCinemasScheduleCRUDAndOrder(t *testing.T) {
+	now := time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)
+	c := &fakeSyncScheduleController{now: now, available: []syncschedule.Target{syncschedule.TargetGrandEcran, syncschedule.TargetNoeCinemas, syncschedule.TargetMetadataRefresh}}
+	for i, target := range []syncschedule.Target{syncschedule.TargetMetadataRefresh, syncschedule.TargetNoeCinemas, syncschedule.TargetGrandEcran} {
+		c.list = append(c.list, syncschedule.Schedule{ID: int64(i + 1), Target: target, Revision: 1, Definition: syncschedule.Definition{Kind: syncschedule.KindDaily, Time: "10:00"}, UpdatedAt: now})
+	}
+	h := syncScheduleAdminHandler(t, c)
+	origin := "http://localhost:3000"
+	path := "/api/v1/admin/sync-schedules/noecinemas"
+	body := `{"enabled":false,"schedule":{"kind":"daily","time":"10:00"}}`
+	assertAPIError(t, adminRequest(h, http.MethodPost, path, body, origin, nil), http.StatusUnauthorized, "unauthorized", "Authentification requise.")
+	cookie := loginAdmin(t, h, "password")
+	assertAPIError(t, adminRequest(h, http.MethodPost, path, body, "https://evil.example", cookie), http.StatusForbidden, "origin_forbidden", "Origine non autorisée.")
+	list := adminRequest(h, http.MethodGet, "/api/v1/admin/sync-schedules", "", "", cookie)
+	text := list.Body.String()
+	if list.Code != 200 || strings.Index(text, `"id":"3"`) > strings.Index(text, `"id":"2"`) || strings.Index(text, `"id":"2"`) > strings.Index(text, `"id":"1"`) || !strings.Contains(text, `"available_targets":["grandecran","noecinemas","tmdb_metadata_refresh"]`) {
+		t.Fatalf("list=%s", text)
+	}
+	for _, tc := range []struct {
+		method, path, body string
+		status             int
+	}{{http.MethodPost, path, body, 201}, {http.MethodPut, path + "/41", body, 200}, {http.MethodDelete, path + "/41", "", 204}} {
+		r := adminRequest(h, tc.method, tc.path, tc.body, origin, cookie)
+		if r.Code != tc.status || c.lastTarget != syncschedule.TargetNoeCinemas {
+			t.Fatalf("mutation status=%d target=%s", r.Code, c.lastTarget)
+		}
+	}
+	c.err = syncschedule.ErrTargetUnavailable
+	assertAPIError(t, adminRequest(h, http.MethodPost, path, body, origin, cookie), http.StatusServiceUnavailable, "sync_schedule_target_unavailable", "Cette synchronisation n'est pas disponible.")
+}

@@ -50,7 +50,8 @@ function job(
       cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') },
       mk2: { state: states.mk2 ?? (target === 'mk2' || target === 'all' ? 'succeeded' : 'not_requested') },
       cinewest: { state: states.cinewest ?? (target === 'cinewest' || target === 'all' ? 'succeeded' : 'not_requested') },
-      grandecran: { state: states.grandecran ?? (target === 'grandecran' || target === 'all' ? 'succeeded' : 'not_requested') }
+      grandecran: { state: states.grandecran ?? (target === 'grandecran' || target === 'all' ? 'succeeded' : 'not_requested') },
+      noecinemas: { state: states.noecinemas ?? (target === 'noecinemas' || target === 'all' ? 'succeeded' : 'not_requested') }
     }
   }
 }
@@ -251,6 +252,23 @@ test('Grand Ecran schedules retain availability and latest direct, all and sched
   }
   assert.equal(isAdminSyncScheduleTargetAvailable('grandecran', ['grandecran']), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('grandecran', []), false)
+})
+
+test('Noé schedules retain availability and latest direct, all and scheduled outcomes', () => {
+  const direct = job('direct', 'noecinemas', '2026-09-14T08:00:00Z')
+  const all = job('all', 'all', '2026-09-14T09:00:00Z')
+  const scheduled = { ...job('scheduled', 'noecinemas', '2026-09-14T10:00:00Z'), trigger: 'scheduled' as const }
+  const notRequested = job('not-requested', 'all', '2026-09-14T11:00:00Z', { noecinemas: 'not_requested' })
+  const running = job('running', 'noecinemas', '2026-09-14T12:00:00Z', {}, 'running')
+  assert.equal(selectLatestProviderRun('noecinemas', null, [direct])?.id, 'direct')
+  assert.equal(selectLatestProviderRun('noecinemas', null, [direct, all])?.id, 'all')
+  assert.equal(selectLatestProviderRun('noecinemas', running, [direct, all, scheduled, notRequested])?.id, 'scheduled')
+  assert.equal(selectLatestProviderRun('noecinemas', null, [job('other', 'grandecran', '2026-09-14T13:00:00Z')]), null)
+  for (const state of ['failed', 'skipped'] as const) assert.equal(selectLatestProviderRun('noecinemas', null, [job(state, 'all', '2026-09-14T14:00:00Z', { noecinemas: state }, 'failed')])?.id, state)
+  assert.equal(isAdminSyncScheduleTargetAvailable('noecinemas', ['noecinemas']), true)
+  assert.equal(isAdminSyncScheduleTargetAvailable('noecinemas', ['grandecran']), false)
+  assert.equal(isAdminSyncScheduleTargetAvailable('noecinemas', []), false)
+  assert.equal(blankAdminSyncScheduleDraft().enabled, false)
 })
 
 test('calculates whole-run duration from finished or supplied current time', () => {

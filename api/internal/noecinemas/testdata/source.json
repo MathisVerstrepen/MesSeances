@@ -1,0 +1,23 @@
+{
+  "cinemas": {"data":{"allTheater":{"nodes":[
+    {"id":"P8088","name":"Le cinéma Noé L'Aigle","timeZone":"Europe/Paris","practicalInfo":{"location":{"address":"1 rue Test","city":"L'Aigle","zip":"61300"}}},
+    {"id":"B0181","name":"Cinépal","timeZone":"Europe/Paris","practicalInfo":{"location":{"address":"2 rue Test","city":"Palaiseau","zip":"91120"}}},
+    {"id":"W8391","name":"Cinéma vide","timeZone":"Europe/Paris","practicalInfo":{"location":{"address":"3 rue Test","city":"Le Lavandou","zip":"83980"}}}
+  ]}}},
+  "programs": {
+    "P8088":{"movieIds":{"titleAsc":["1","cEvent_1"],"releaseAsc":["1","cEvent_1"]},"scheduledDays":{"1":["2026-09-14"],"cEvent_1":["2028-07-15"]}},
+    "B0181":{"movieIds":{"titleAsc":["1"],"releaseAsc":["1"]},"scheduledDays":{"1":["2026-09-14"]}},
+    "W8391":{"movieIds":{"titleAsc":[],"releaseAsc":[]},"scheduledDays":{}}
+  },
+  "movies": [
+    {"id":1,"title":"Film synthétique","runtime":5700,"poster":"https://fr.web.img.acsta.net/test.jpg","synopsis":"Une histoire.","genres":["Drame"],"releaseDate":"2026-09-01"},
+    {"id":"cEvent_1","title":"Événement synthétique","runtime":null,"poster":null,"genres":"Concert, Musique"}
+  ],
+  "schedules": {
+    "P8088":{"P8088":{"schedule":{
+      "1":{"2026-09-14":[{"id":"shared opaque session","startsAt":"2026-09-15T01:00:00","tags":["Localization.Language.French","Showtime.Accessibility.OpenCaption","Auditorium.Experience.DolbyAtmos","Format.Projection.3d"],"screen":null,"data":{"ticketing":[{"provider":"relay","type":"DESKTOP","urls":["https://untrusted.invalid/?ignored=1"]},{"provider":"default","type":"DESKTOP","urls":["https://achat.cinema-laigle.com/reserver/r/123"]}]}}]},
+      "cEvent_1":{"2028-07-15":[{"id":"event session","startsAt":"2028-07-15T20:00:00","tags":["Localization.Version.Original","Format.Projection.3d"],"screen":{"name":" Salle source "},"data":{"ticketing":[{"provider":"default","type":"DESKTOP","urls":["https://achat.cinema-laigle.com/reserver/r/124"]}]}}]}
+    }}},
+    "B0181":{"B0181":{"schedule":{"1":{"2026-09-14":[{"id":"shared opaque session","startsAt":"2026-09-14T20:00:00","tags":["Showtime.Accessibility.Dubbed","Format.Projection.Laser","Format.Projection.4k","Format.Projection.HFR","Format.Projection.Analog"],"screen":{"name":"Salle 3"},"data":{"ticketing":[{"provider":"default","type":"DESKTOP","urls":["https://achat.cinepal.fr/reserver/r/123"]}]}}]}}}}
+  }
+}

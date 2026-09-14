@@ -33,7 +33,8 @@ const reservation = computed(() => {
     cineville: 'Réserver sur Cinéville',
     mk2: 'Réserver sur MK2',
     cinewest: 'Réserver sur Cinewest',
-    grandecran: 'Réserver sur Grand Ecran'
+    grandecran: 'Réserver sur Grand Ecran',
+    noecinemas: 'Réserver sur Noé Cinémas'
   } satisfies Record<Provider, string>
   return {
     url: booking.url,
