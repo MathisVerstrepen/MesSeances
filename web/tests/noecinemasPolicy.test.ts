@@ -136,7 +136,7 @@ test('Noé results preserve event IDs, VFSTF, source rooms and unknown metadata 
       assert.equal(response.showtimes[0]!.end_time, start)
     }
     assert.equal(THEATER_PROVIDER_LABELS.noecinemas, 'Noé Cinémas')
-    assert.equal(THEATER_PROVIDER_COLORS.noecinemas, '#8b1e2d')
+    assert.equal(THEATER_PROVIDER_COLORS.noecinemas, '#795548')
     assert.deepEqual(buildTheaterFeatureCollection([response.theater], new Set([response.theater.id])).features[0]?.properties, { id: 'noecinemas-P8088', provider: 'noecinemas', favorite: true })
   }
   assert.deepEqual(availableLanguageOptions(['VOSTFR', 'VF', 'VFSTF']).map((option) => option.value), ['ALL', 'VOSTFR', 'VF', 'VFSTF'])
