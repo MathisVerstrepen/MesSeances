@@ -11,6 +11,10 @@ func TestReviewSourceDetailURLs(t *testing.T) {
 	for _, test := range []struct {
 		name, provider, movieID, showingID, theaterID, stored, want string
 	}{
+		{"cinewest office root", SourceCinewest, "cineoffice-1", "cineoffice-" + strings.Repeat("a", 64), "cineoffice-royanlelido", "https://www.cine-royan.com/", "https://www.cine-royan.com/"},
+		{"cinewest office token", SourceCinewest, "cineoffice-1", "", "cineoffice-royanlelido", "https://cinewest.cineoffice.fr/vad/shows?api_token=synthetic", ""},
+		{"cinewest wrong cinema", SourceCinewest, "cineoffice-1", "", "cineoffice-royanlelido", "https://www.cine-cognac.com/", ""},
+		{"cinewest capitole", SourceCinewest, "webediamovies-1", "webediamovies-" + strings.Repeat("a", 64), "webediamovies-W8400", "https://www.capitolestudios-reserver.cotecine.fr/reserver/r/123", "https://www.capitolestudios-reserver.cotecine.fr/reserver/r/123"},
 		{"ugc", SourceUGC, "200", "", "", "https://evil.example/", "https://www.ugc.fr/film.html?id=200"},
 		{"cineville signed visa", SourceCineville, "-693091020261", "639-1", "639", "https://www.cineville.fr/vad/639/1/9", "https://www.cineville.fr/vad/639/1/9"},
 		{"mk2 booking", SourceMK2, "HO00006568", "0004-140350", "0004", "https://www.mk2.com/panier/seance/tickets?cinemaId=0004&sessionId=140350", "https://www.mk2.com/panier/seance/tickets?cinemaId=0004&sessionId=140350"},

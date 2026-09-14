@@ -23,6 +23,7 @@ export function toSlotShowtimeResults(results: readonly SlotResult[]): ShowtimeR
     movieTitle: result.showtime.movie.title,
     movieRuntimeMinutes: result.showtime.movie.runtime_minutes,
     theaterName: result.theater.name,
+    theaterId: result.theater.id,
     advertisedStartTime: result.showtime.start_time,
     effectiveStartTime: result.effective_start_time,
     end: resolveShowtimeEnd(result.showtime),
@@ -45,6 +46,7 @@ export function toTheaterShowtimeResults(response: TheaterShowtimesResponse): Sh
     movieTitle: showtime.movie.title,
     movieRuntimeMinutes: showtime.movie.runtime_minutes,
     theaterName: response.theater.name,
+    theaterId: response.theater.id,
     advertisedStartTime: showtime.start_time,
     effectiveStartTime: showtime.start_time,
     end: resolveShowtimeEnd(showtime),
@@ -87,6 +89,8 @@ const MEGARAMA_SELECTION_KEY_PATTERN = /^megarama:megarama-showing-([A-Za-z0-9][
 const MEGARAMA_TOKEN_PATTERN = /^m([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
 const CINEVILLE_SELECTION_KEY_PATTERN = /^cineville:cineville-showing-([1-9][0-9]{0,18}-[1-9][0-9]{0,18})$/
 const CINEVILLE_TOKEN_PATTERN = /^v([1-9][0-9]{0,18}-[1-9][0-9]{0,18})$/
+const CINEWEST_SELECTION_KEY_PATTERN = /^cinewest:cinewest-showing-(cineoffice|ticketingcine|webediamovies)-([a-f0-9]{64})$/
+const CINEWEST_TOKEN_PATTERN = /^w(cineoffice|ticketingcine|webediamovies)-([A-Za-z0-9_-]{43})$/
 
 function isValidCinevilleShowingID(value: string): boolean {
   return value.split('-').every((id) => BigInt(id) <= 9223372036854775807n)
@@ -137,6 +141,8 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const cinewest = CINEWEST_SELECTION_KEY_PATTERN.exec(key)
+  if (cinewest?.[0] === key) return `w${cinewest[1]}-${hexToBase64Url(cinewest[2]!)}`
   const mk2Prefix = 'mk2:mk2-showing-'
   if (key.startsWith(mk2Prefix) && isValidMk2ShowingId(key.slice(mk2Prefix.length))) return `x${key.slice(mk2Prefix.length)}`
   const ugcMatch = UGC_SELECTION_KEY_PATTERN.exec(key)
@@ -158,6 +164,12 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  const cinewest = CINEWEST_TOKEN_PATTERN.exec(token)
+  if (cinewest?.[0] === token) {
+    const hash = base64UrlToHex(cinewest[2]!)
+    if (!hash || hash.length !== 64 || hexToBase64Url(hash) !== cinewest[2]) return null
+    return `cinewest:cinewest-showing-${cinewest[1]}-${hash}`
+  }
   if (token.startsWith('x')) return isValidMk2ShowingId(token.slice(1)) ? `mk2:mk2-showing-${token.slice(1)}` : null
   const cinevilleMatch = CINEVILLE_TOKEN_PATTERN.exec(token)
   if (cinevilleMatch?.[1] && cinevilleMatch[0] === token && isValidCinevilleShowingID(cinevilleMatch[1])) return `cineville:cineville-showing-${cinevilleMatch[1]}`

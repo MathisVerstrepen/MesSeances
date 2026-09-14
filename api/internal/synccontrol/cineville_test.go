@@ -73,7 +73,7 @@ func TestCinevilleManagerStatusCloning(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForTerminal(t, manager)
-	if status.State != StateSucceeded || status.Providers["cineville"].State != ProviderSucceeded || status.Providers["ugc"].State != ProviderNotRequested || len(status.Providers) != 7 {
+	if status.State != StateSucceeded || status.Providers["cineville"].State != ProviderSucceeded || status.Providers["ugc"].State != ProviderNotRequested || len(status.Providers) != 8 {
 		t.Fatal("Cineville status")
 	}
 	status.Providers["cineville"] = ProviderStatus{State: "mutated"}

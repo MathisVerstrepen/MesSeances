@@ -355,7 +355,7 @@ useHead(() => ({
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
           <div class="min-w-0 p-5 sm:p-8 lg:p-10">
             <p class="flex items-center gap-2 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]"><MapPin :size="16" aria-hidden="true" /> {{ response.theater.city }}</p>
-            <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ response.theater.name }}</h1>
+            <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]"><TheaterName :name="response.theater.name" :provider="response.theater.provider" /></h1>
           </div>
 
           <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">

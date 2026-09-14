@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Clock3, Film, MapPin, X } from '@lucide/vue'
-import type { QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
+import type { Provider, QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
@@ -10,7 +10,7 @@ type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
 type PlacedShowtime = { showtime: TimelineShowtime; theater: TimelineTheater }
 type PositionedShowtime = PlacedShowtime & { lane: number; width: number }
-type TimelineRow = { id: string; label: string; secondary: string; height: number; showtimes: PositionedShowtime[] }
+type TimelineRow = { id: string; label: string; provider?: Provider; secondary: string; height: number; showtimes: PositionedShowtime[] }
 
 const props = defineProps<{
   timeline: TimelineResponse
@@ -52,7 +52,7 @@ function matchesFormat(format: string) {
   return format.toUpperCase() === props.formatFilter
 }
 
-function createRow(id: string, label: string, secondary: string, items: PlacedShowtime[]): TimelineRow {
+function createRow(id: string, label: string, secondary: string, items: PlacedShowtime[], provider?: Provider): TimelineRow {
   const laneEnds: number[] = []
   const showtimes = [...items]
     .sort((a, b) => a.showtime.start_offset_minutes - b.showtime.start_offset_minutes || a.showtime.duration_minutes - b.showtime.duration_minutes)
@@ -65,14 +65,14 @@ function createRow(id: string, label: string, secondary: string, items: PlacedSh
         ? item.showtime.duration_minutes : showtimeWidth(0) / pixelsPerMinute.value)
       return { ...item, lane: targetLane, width: showtimeWidth(item.showtime.duration_minutes) }
     })
-  return { id, label, secondary, showtimes, height: 32 + Math.max(1, laneEnds.length) * 80 }
+  return { id, label, provider, secondary, showtimes, height: 32 + Math.max(1, laneEnds.length) * 80 }
 }
 
 const rows = computed<TimelineRow[]>(() => {
   const placed = props.timeline.theaters.flatMap((theater) => theater.showtimes.filter((showtime) => matchesFormat(showtime.format)).map((showtime) => ({ showtime, theater })))
   if (props.mode === 'theater') {
     return props.timeline.theaters
-      .map((theater) => createRow(theater.id, theater.name, theater.city, placed.filter((item) => item.theater.id === theater.id)))
+      .map((theater) => createRow(theater.id, theater.name, theater.city, placed.filter((item) => item.theater.id === theater.id), theater.provider))
       .filter((row) => row.showtimes.length > 0)
   }
 
@@ -307,7 +307,7 @@ onBeforeUnmount(() => {
           }"
         >
           <div class="left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:sticky sm:px-4" style="width: var(--timeline-label-width)">
-            <strong class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"><BrandedText :text="row.label" /></strong>
+            <strong class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"><TheaterName v-if="row.provider" :name="row.label" :provider="row.provider" /><BrandedText v-else :text="row.label" /></strong>
             <span class="mt-1 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-ink">
               <MapPin v-if="mode === 'theater'" :size="12" aria-hidden="true" />
               <Film v-else :size="12" aria-hidden="true" />
@@ -336,7 +336,15 @@ onBeforeUnmount(() => {
               :class="item.width >= 120 ? 'line-clamp-2' : 'block truncate'"
             >
               <BrandedText
-                :text="mode === 'theater' ? item.showtime.movie.title : item.theater.name"
+                v-if="mode === 'theater'"
+                :text="item.showtime.movie.title"
+                :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''"
+                decorative
+              />
+              <TheaterName
+                v-else
+                :name="item.theater.name"
+                :provider="item.theater.provider"
                 :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''"
                 decorative
               />
@@ -423,7 +431,7 @@ onBeforeUnmount(() => {
               {{ formatParisTime(selected.showtime.start_time) }} <template v-if="selectedEnd">→ <ShowtimeEndTime :end="selectedEnd" :advertised-start="selected.showtime.start_time" :runtime-minutes="selected.showtime.movie.runtime_minutes" /></template>
             </dd>
             <dt class="font-medium text-ink">Cinéma</dt>
-            <dd class="text-right font-medium text-ink"><BrandedText :text="selected.theater.name" /></dd>
+            <dd class="text-right font-medium text-ink"><TheaterName :name="selected.theater.name" :provider="selected.theater.provider" /></dd>
             <dt class="font-medium text-ink">Ville</dt>
             <dd class="text-right font-medium text-ink">{{ selected.theater.city }}</dd>
             <dt class="font-medium text-ink">Salle</dt>
@@ -433,7 +441,7 @@ onBeforeUnmount(() => {
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" :showtime-id="selected.showtime.id" />
+            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" :showtime-id="selected.showtime.id" :theater-id="selected.theater.id" />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
               class="inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"

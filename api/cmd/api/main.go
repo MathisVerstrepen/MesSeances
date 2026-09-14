@@ -17,6 +17,7 @@ import (
 
 	"messeances/api/internal/cgr"
 	"messeances/api/internal/cineville"
+	"messeances/api/internal/cinewest"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/database"
 	"messeances/api/internal/enrichment"
@@ -461,6 +462,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewMK2: func() (mk2.Fetcher, error) {
 			return mk2.NewClient(mk2.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCinewest: func() (cinewest.Fetcher, error) {
+			return cinewest.NewClient(cinewest.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

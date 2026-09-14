@@ -139,7 +139,7 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 		now: time.Now, logger: slog.New(slog.DiscardHandler),
 		writer: writerFunc(func(_ context.Context, datasets []schedule.Dataset) (int64, error) {
 			writes++
-			if len(datasets) != 7 || datasets[6].Provider != schedule.ProviderMK2 || datasets[5].Provider != schedule.ProviderCineville || datasets[4].Provider != schedule.ProviderMegarama || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
+			if len(datasets) != 8 || datasets[7].Provider != schedule.ProviderCinewest || datasets[6].Provider != schedule.ProviderMK2 || datasets[5].Provider != schedule.ProviderCineville || datasets[4].Provider != schedule.ProviderMegarama || datasets[0].Provider != schedule.ProviderUGC || datasets[1].Provider != schedule.ProviderKinepolis || datasets[2].Provider != schedule.ProviderPathe || datasets[3].Provider != schedule.ProviderCGR || datasets[0].Window.Through != "2027-01-10" || datasets[1].Window.Through != "2026-11-20" || datasets[2].Window.Through != "2026-12-15" || datasets[3].Window.Through != "2026-10-30" {
 				t.Fatalf("datasets=%+v", datasets)
 			}
 			return 11, nil
@@ -179,8 +179,9 @@ func TestProductionExecutorPublishesTargetAllOnce(t *testing.T) {
 	configureMegaramaTestExecutor(t, executor, window)
 	configureCinevilleTestExecutor(t, executor, window)
 	configureMK2TestExecutor(t, executor, window)
+	configureCinewestTestExecutor(t, executor, window)
 	outcomes, err := executor.Run(context.Background(), TargetAll, window)
-	if err != nil || writes != 1 || enrichments != 7 || outcomes[TargetMK2].Sync.Version != 11 || outcomes[TargetCineville].Sync.Version != 11 || outcomes[TargetMegarama].Sync.Version != 11 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
+	if err != nil || writes != 1 || enrichments != 8 || outcomes[TargetCinewest].Sync.Version != 11 || outcomes[TargetMK2].Sync.Version != 11 || outcomes[TargetCineville].Sync.Version != 11 || outcomes[TargetMegarama].Sync.Version != 11 || outcomes[TargetUGC].Sync.Version != 11 || outcomes[TargetKinepolis].Sync.Version != 11 || outcomes[TargetPathe].Sync.Version != 11 || outcomes[TargetCGR].Sync.Version != 11 || outcomes[TargetUGC].Sync.Through != "2027-01-10" || outcomes[TargetKinepolis].Sync.Through != "2026-11-20" || outcomes[TargetPathe].Sync.Through != "2026-12-15" || outcomes[TargetCGR].Sync.Through != "2026-10-30" || outcomes[TargetPathe].Sync.Requests != 17 || outcomes[TargetCGR].Sync.Requests != 8 {
 		t.Fatalf("outcomes=%+v writes=%d enrichments=%d err=%v", outcomes, writes, enrichments, err)
 	}
 }
@@ -338,6 +339,7 @@ func TestProductionExecutorTargetAllSecondPreparationAndPublicationFailuresAreAt
 	configureMegaramaTestExecutor(t, executor, window)
 	configureCinevilleTestExecutor(t, executor, window)
 	configureMK2TestExecutor(t, executor, window)
+	configureCinewestTestExecutor(t, executor, window)
 	_, err := executor.Run(context.Background(), TargetAll, window)
 	var runErr *RunError
 	if !errors.As(err, &runErr) || runErr.Provider != TargetKinepolis || runErr.Stage != StageProviderFetch || writes != 0 || enrichments != 0 {

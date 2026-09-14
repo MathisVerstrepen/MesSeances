@@ -383,7 +383,7 @@ useHead(() => ({
                   <span class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(row.theater.id)" :size="18" stroke-width="3" /></span>
                 </label>
                 <NuxtLink :to="`/cinema/${encodeURIComponent(row.theater.slug)}`" :aria-label="`Voir les séances : ${theaterDisplayName(row.theater)}`" class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent">
-                  <span class="min-w-0 flex-1"><BrandedText :text="theaterDisplayName(row.theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
+                  <span class="min-w-0 flex-1"><TheaterName :name="theaterDisplayName(row.theater)" :provider="row.theater.provider" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="row.theater.address">{{ row.theater.address }}, </template>{{ row.theater.postal_code }} {{ row.theater.city }}</span></span>
                   <ArrowRight :size="22" class="mt-0.5 shrink-0 text-ink group-hover:text-primary" aria-hidden="true" />
                 </NuxtLink>
               </div>
@@ -440,7 +440,7 @@ useHead(() => ({
                       <span class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent" aria-hidden="true"><Check v-if="selectedIds.has(theater.id)" :size="18" stroke-width="3" /></span>
                     </label>
                     <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" :aria-label="`Voir les séances : ${theaterDisplayName(theater)}`" class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent">
-                      <span class="min-w-0 flex-1"><BrandedText :text="theaterDisplayName(theater)" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
+                      <span class="min-w-0 flex-1"><TheaterName :name="theaterDisplayName(theater)" :provider="theater.provider" class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg" /><span class="mt-2 block text-sm font-medium leading-relaxed text-ink"><template v-if="theater.address">{{ theater.address }}, </template>{{ theater.postal_code }} {{ theater.city }}</span></span>
                       <ArrowRight :size="22" class="mt-0.5 shrink-0 text-ink group-hover:text-primary" aria-hidden="true" />
                     </NuxtLink>
                   </div>

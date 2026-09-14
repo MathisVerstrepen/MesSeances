@@ -66,6 +66,7 @@ function formatRoom(room: string) {
     :url="result.bookingUrl"
     :provider="result.provider"
     :showtime-id="result.showtimeId"
+    :theater-id="result.theaterId"
     :aria-label="bookingLabel()"
     :data-showtime-id="result.showtimeId"
     unstyled
@@ -132,6 +133,7 @@ function formatRoom(room: string) {
       :url="result.bookingUrl"
       :provider="result.provider"
       :showtime-id="result.showtimeId"
+      :theater-id="result.theaterId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled
@@ -171,7 +173,7 @@ function formatRoom(room: string) {
       <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template>
     </p>
 
-    <div class="mt-4 flex min-w-0 items-start gap-1.5 text-xs font-bold text-ink"><MapPin :size="13" class="mt-0.5 shrink-0" aria-hidden="true" /><BrandedText :text="result.theaterName" /></div>
+    <div class="mt-4 flex min-w-0 items-start gap-1.5 text-xs font-bold text-ink"><MapPin :size="13" class="mt-0.5 shrink-0" aria-hidden="true" /><TheaterName :name="result.theaterName" :provider="result.provider" /></div>
     <div class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
       <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
       <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
@@ -180,6 +182,7 @@ function formatRoom(room: string) {
       :url="result.bookingUrl"
       :provider="result.provider"
       :showtime-id="result.showtimeId"
+      :theater-id="result.theaterId"
       :aria-label="bookingLabel()"
       :data-showtime-id="result.showtimeId"
       unstyled

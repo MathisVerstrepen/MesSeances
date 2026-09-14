@@ -856,7 +856,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-6">
                 <h3 :id="`theater-${theater.id}`" class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl">
                   <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">
-                    <BrandedText :text="theater.name" />
+                    <TheaterName :name="theater.name" :provider="theater.provider" />
                   </NuxtLink>
                 </h3>
                 <NuxtLink :to="`/ville/${encodeURIComponent(theater.city_slug)}/cinemas`" class="flex min-h-11 items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink underline decoration-2 underline-offset-4 hover:text-primary"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</NuxtLink>
@@ -869,6 +869,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                     :url="showtime.booking_url"
                     :provider="showtime.provider"
                     :showtime-id="showtime.id"
+                    :theater-id="theater.id"
                     :aria-label="bookingLabel(showtime, theater, showtime.timingState)"
                     unstyled
                     class="showtime-card group relative flex h-full min-h-32 w-full scroll-mt-[19rem] flex-col items-start justify-between border-2 p-3 text-left lg:scroll-mt-52"

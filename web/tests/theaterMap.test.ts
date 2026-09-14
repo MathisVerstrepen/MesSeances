@@ -4,7 +4,8 @@ import type { Provider, Theater } from '../app/types/api.ts'
 import {
   buildTheaterFeatureCollection,
   theaterFeatureBounds,
-  THEATER_PROVIDER_COLORS
+  THEATER_PROVIDER_COLORS,
+  THEATER_PROVIDER_LABELS
 } from '../app/utils/theaterMap.ts'
 import { haversineDistanceKm } from '../app/utils/theaterDistance.ts'
 
@@ -26,7 +27,7 @@ function theater(overrides: Partial<Theater> & Pick<Theater, 'id'>): Theater {
 }
 
 test('defines an exhaustive provider palette', () => {
-  const providers: Provider[] = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2']
+  const providers: Provider[] = ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest']
   assert.deepEqual(Object.keys(THEATER_PROVIDER_COLORS), providers)
   assert.deepEqual(THEATER_PROVIDER_COLORS, {
     ugc: '#0b5cad',
@@ -35,8 +36,17 @@ test('defines an exhaustive provider palette', () => {
     cgr: '#c81e1e',
     megarama: '#ffff00',
     cineville: '#009bce',
-    mk2: '#e20d13'
+    mk2: '#e20d13',
+    cinewest: '#e30613'
   })
+  assert.deepEqual(Object.keys(THEATER_PROVIDER_LABELS), providers)
+  assert.equal(THEATER_PROVIDER_LABELS.cinewest, 'Cinewest')
+})
+
+test('Cinewest partners keep their provider and namespaced map identity', () => {
+  const id = 'cinewest-webediamovies-W8400'
+  const collection = buildTheaterFeatureCollection([theater({ id, provider: 'cinewest', name: 'Capitole Studios' })], new Set([id]))
+  assert.deepEqual(collection.features[0]?.properties, { id, provider: 'cinewest', favorite: true })
 })
 
 test('excludes invalid coordinate pairs and keeps longitude-latitude order', () => {

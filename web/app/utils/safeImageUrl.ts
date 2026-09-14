@@ -1,3 +1,5 @@
+import { isSafeCinewestPoster } from './cinewest.ts'
+
 function hasSafePath(url: string, origin: string) {
   const pathEnd = url.search(/[?#]/)
   let decodedPath = url.slice(origin.length, pathEnd === -1 ? undefined : pathEnd)
@@ -20,6 +22,7 @@ function hasSafePath(url: string, origin: string) {
 
 export function safePosterUrl(url: string | null | undefined) {
   if (!url || url.includes('\\')) return null
+  if (isSafeCinewestPoster(url)) return url
 
   try {
     const parsed = new URL(url)

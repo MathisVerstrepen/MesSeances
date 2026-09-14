@@ -1037,6 +1037,110 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		t.Fatal("invalid MK2 batch changed revision")
 	}
 	assertMK2(123)
+	assertCinewestStore(t, store)
+}
+
+func assertCinewestStore(t *testing.T, store *Store) {
+	t.Helper()
+	ctx := t.Context()
+	d := cinewestTestDataset()
+	all := []Dataset{testDataset(), kinepolisTestDataset(), patheTestDataset(), cgrTestDataset(), megaramaTestDataset(), cinevilleTestDataset(), mk2TestDataset(), d}
+	publication, err := store.Replace(ctx, all)
+	if err != nil || len(publication.Providers) != 8 {
+		t.Fatalf("eight-provider publication: %v", err)
+	}
+	loaded, _, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	theaterCount, showCount := len(loaded.Theaters), len(loaded.Showtimes)
+	assert := func() {
+		t.Helper()
+		loaded, _, err := store.Load(ctx)
+		if err != nil || len(loaded.Theaters) != theaterCount || len(loaded.Showtimes) != showCount {
+			t.Fatal("other providers damaged", err)
+		}
+		for _, r := range loaded.Showtimes {
+			if r.Provider != schedule.ProviderCinewest {
+				continue
+			}
+			for _, want := range d.Showtimes {
+				if r.ID == want.ID && (!r.EndTime.Equal(want.EndTime) || !r.StartTime.Equal(want.StartTime) || r.FirstPartDurationMinutes != want.FirstPartDurationMinutes || r.Language != want.Language || r.BookingURL != want.BookingURL) {
+					t.Fatal("Cinewest source facts overwritten")
+				}
+			}
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return d.GeneratedAt.Add(-time.Hour) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range d.Showtimes {
+			detail, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: want.Movie.Slug, Date: want.ServiceDate})
+			if err != nil || len(detail.Theaters) != 1 || len(detail.Theaters[0].Showtimes) != 1 {
+				t.Fatal("Cinewest durable alias", err)
+			}
+			r := detail.Theaters[0].Showtimes[0]
+			if !r.EndTime.Equal(want.EndTime) || r.BookingURL == nil || *r.BookingURL != want.BookingURL {
+				t.Fatal("Cinewest public time/link changed")
+			}
+			if strings.HasPrefix(want.ProviderShowingID, "webediamovies-") {
+				if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(105*time.Minute)) {
+					t.Fatal("Capitole response estimate missing")
+				}
+			} else if r.EstimatedEndTime != nil {
+				t.Fatal("published/computed end estimated")
+			}
+		}
+	}
+	assert()
+	if _, err := store.Replace(ctx, []Dataset{d}); err != nil {
+		t.Fatal(err)
+	}
+	assert()
+	_, revision, err := store.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad := cinewestTestDataset()
+	bad.Showtimes[0].EndTime = bad.Showtimes[0].StartTime
+	if _, err := store.Replace(ctx, []Dataset{all[0], bad}); err == nil {
+		t.Fatal("invalid aggregate published")
+	}
+	_, after, err := store.Load(ctx)
+	if err != nil || after != revision {
+		t.Fatal("failed replacement changed revision")
+	}
+	assert()
+}
+
+func cinewestTestDataset() Dataset {
+	d := cinevilleTestDataset()
+	d.Provider = schedule.ProviderCinewest
+	base := d.Showtimes[0]
+	d.Theaters, d.Showtimes = nil, nil
+	for _, item := range []struct{ theater, movie string }{{"cineoffice-royanlelido", "cineoffice-1"}, {"ticketingcine-EMS1185", "ticketingcine-ABCDE"}, {"webediamovies-W8400", "webediamovies-1"}} {
+		id, _ := schedule.CinewestShowingID(item.theater, "1")
+		c := TheaterRecord{Provider: schedule.ProviderCinewest, ID: "cinewest-" + item.theater, ProviderID: item.theater, Slug: "cinewest-" + item.theater, Name: "Cinewest Cinema", Address: "1 Rue", City: "Royan", PostalCode: "17200", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}
+		r := base
+		r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderCinewest, "cinewest-showing-"+id, id, c.ID
+		r.Movie = MovieRecord{Provider: schedule.ProviderCinewest, ProviderID: item.movie, Slug: "cinewest-film-" + item.movie, Title: "Film " + item.movie, RuntimeMinutes: 90}
+		r.StartTime = r.StartTime.Add(123456 * time.Microsecond)
+		r.EndTime = r.StartTime
+		r.Language, r.ProviderVersion, r.Room, r.Format, r.BookingURL = schedule.LanguageVF, "VF", "Salle 1", schedule.Format2D, schedule.CinewestWebsite(item.theater)
+		if strings.HasPrefix(item.theater, "cineoffice-") {
+			r.EndTime = r.StartTime.Add(187 * time.Minute)
+			r.Language, r.ProviderVersion = "", "VERSION_MUET"
+		} else if strings.HasPrefix(item.theater, "ticketingcine-") {
+			r.FirstPartDurationMinutes = 15
+			r.EndTime = r.StartTime.Add(105 * time.Minute)
+		}
+		d.Theaters, d.Showtimes = append(d.Theaters, c), append(d.Showtimes, r)
+	}
+	return d
 }
 
 func mk2TestDataset() Dataset {

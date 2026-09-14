@@ -1,5 +1,6 @@
 import type { Provider } from '../types/api'
 import { isValidMk2ShowingId } from './mk2.ts'
+import { safeCinewestBooking } from './cinewest.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -84,7 +85,13 @@ function isSafeMk2Booking(value: string, showtimeId?: string | null): boolean {
     && (showtimeId === undefined || showtimeId === `mk2-showing-${showingId}`)
 }
 
-export function safeBookingUrl(raw: string | null | undefined, expectedProvider?: Provider | null, showtimeId?: string | null): SafeBookingUrl | null {
+export function safeBookingUrl(raw: string | null | undefined, expectedProvider?: Provider | null, showtimeId?: string | null, theaterId?: string | null): SafeBookingUrl | null {
+  // Resolve Cinewest before generic shared-platform host inference. Never trim it.
+  if (raw && (expectedProvider === 'cinewest' || !expectedProvider)) {
+    const cinewest = safeCinewestBooking(raw, showtimeId, theaterId)
+    if (cinewest) return { provider: 'cinewest', ...cinewest }
+  }
+  if (expectedProvider === 'cinewest') return null
   const value = raw?.trim()
   if (!value) return null
 
