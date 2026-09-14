@@ -27,7 +27,7 @@ test('MK2 appears in individual, all-run and schedule provider surfaces without 
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /mk2: selectLatestProviderRun\('mk2'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'mk2', THEATER_PROVIDER_COLORS\.mk2/)
-  assert.match(await source('utils/theaterMap.ts'), /mk2: '#e20d13'/)
+  assert.match(await source('utils/theaterMap.ts'), /mk2: '#334155'/)
   assert.match(await source('utils/theaterMap.ts'), /mk2: 'MK2'/)
   assert.match(await source('components/BookingLink.vue'), /mk2: 'Réserver sur MK2'/)
 })
