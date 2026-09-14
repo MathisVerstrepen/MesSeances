@@ -932,6 +932,13 @@ WHERE source.source_provider='pathe' AND source.source_movie_id='film-b'`).Scan(
 		if !r.EndTime.Equal(r.StartTime) || r.Movie.RuntimeMinutes != runtime || r.ID != "cineville-showing-639-1" || !strings.HasPrefix(r.Movie.Slug, "film-") {
 			t.Fatalf("Cineville materialization: %+v", r)
 		}
+		if runtime == 0 {
+			if r.EstimatedEndTime != nil || r.EstimatedEndAdsMinutes != nil {
+				t.Fatal("Cineville estimate without runtime")
+			}
+		} else if r.EstimatedEndTime == nil || !r.EstimatedEndTime.Equal(r.StartTime.Add(time.Duration(runtime+schedule.DefaultBufferAdsMinutes)*time.Minute)) || r.EstimatedEndAdsMinutes == nil || *r.EstimatedEndAdsMinutes != schedule.DefaultBufferAdsMinutes {
+			t.Fatalf("Cineville enriched estimate: %+v", r)
+		}
 		loaded, _, err := store.Load(ctx)
 		if err != nil {
 			t.Fatal(err)

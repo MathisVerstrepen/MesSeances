@@ -1,4 +1,5 @@
 import type { Provider, ShowtimeFormat, ShowtimeLanguage } from './api'
+import type { ResolvedShowtimeEnd } from '../utils/showtimeEnd'
 
 export type ResultGrouping = 'movie' | 'chronological'
 export type ResultLayout = 'lines' | 'boxes'
@@ -15,7 +16,7 @@ export interface ShowtimeResultViewModel {
   theaterName: string
   advertisedStartTime: string
   effectiveStartTime: string
-  endTime: string
+  end: ResolvedShowtimeEnd | null
   language: ShowtimeLanguage
   format: ShowtimeFormat
   room: string

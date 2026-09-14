@@ -45,13 +45,21 @@ func TestCinevillePublicDTOChainTimelineAndAlias(t *testing.T) {
 		if got.Provider != schedule.ProviderCineville || got.ID != r.ID || got.Room != "4" || got.Language != schedule.LanguageVFSTF || got.Format != schedule.FormatIMAX || !got.EndTime.Equal(got.StartTime) || got.Movie.RuntimeMinutes != 123 || got.BookingURL == nil || *got.BookingURL != r.BookingURL {
 			t.Fatalf("contract=%+v", got)
 		}
+		if got.EstimatedEndTime == nil || !got.EstimatedEndTime.Equal(start.Add(138*time.Minute)) || got.EstimatedEndAdsMinutes == nil || *got.EstimatedEndAdsMinutes != 15 {
+			t.Fatalf("enriched estimate=%+v", got)
+		}
 	}
 	timeline := performRequest(t, handler, "/api/v1/timeline?date=2026-08-15&theaters=cineville-639")
-	if timeline.Code != http.StatusOK || !strings.Contains(timeline.Body.String(), `"duration_minutes":0`) || !strings.Contains(timeline.Body.String(), `"provider":"cineville"`) {
+	if timeline.Code != http.StatusOK || !strings.Contains(timeline.Body.String(), `"duration_minutes":138`) || !strings.Contains(timeline.Body.String(), `"provider":"cineville"`) || !strings.Contains(timeline.Body.String(), `"estimated_end_time":"2026-08-15T19:18:00Z"`) || !strings.Contains(timeline.Body.String(), `"estimated_end_ads_minutes":15`) {
 		t.Fatalf("timeline=%s", timeline.Body.String())
 	}
 	slots := performRequest(t, handler, "/api/v1/search/slot?theaters=cineville-639&date=2026-08-15&start_after=18:00&finish_before=23:00&buffer_ads=0")
-	if slots.Code != http.StatusOK || strings.TrimSpace(slots.Body.String()) != "[]" {
-		t.Fatalf("unknown end offered as fit=%s", slots.Body.String())
+	var results []schedule.SlotResult
+	if slots.Code != http.StatusOK || json.Unmarshal(slots.Body.Bytes(), &results) != nil || len(results) != 1 {
+		t.Fatalf("estimated end not offered as fit=%s", slots.Body.String())
+	}
+	got := results[0]
+	if !got.EffectiveEndTime.Equal(start.Add(123*time.Minute)) || !got.Showtime.EndTime.Equal(start) || got.Showtime.EstimatedEndTime == nil || !got.Showtime.EstimatedEndTime.Equal(got.EffectiveEndTime) || got.Showtime.EstimatedEndAdsMinutes == nil || *got.Showtime.EstimatedEndAdsMinutes != 0 {
+		t.Fatalf("zero ads estimate=%+v", got)
 	}
 }

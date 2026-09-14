@@ -25,6 +25,8 @@ function showtime(id: string, start: string): Showtime {
     movie,
     start_time: start,
     end_time: start.replace(':00:00+02:00', ':58:00+02:00'),
+    estimated_end_time: null,
+    estimated_end_ads_minutes: null,
     language: 'VOSTFR',
     format: '2D',
     room: '1',
@@ -169,7 +171,7 @@ test('keeps unknown Megarama events but omits their endDate without recomputing 
   assert.equal(events[1]!.endDate, '2026-08-29T20:10:00+02:00')
 })
 
-test('Cinéville events omit endDate with absent, source and enriched runtime, even with invalid end input', () => {
+test('estimated and unknown events omit endDate with absent, source and enriched runtime', () => {
   for (const runtime of [0, 93, 118]) {
     const schedule = fixture()
     schedule.movie.runtime_minutes = runtime
@@ -178,7 +180,11 @@ test('Cinéville events omit endDate with absent, source and enriched runtime, e
     theater.id = 'cineville-707'
     theater.slug = 'cineville-707'
     const showing = { ...theater.showtimes[0]!, provider: 'cineville' as const, movie: { ...movie, runtime_minutes: runtime } }
-    theater.showtimes = [showing.start_time, '2026-08-29T20:00:00+02:00', 'invalid'].map((end_time, index) => ({ ...showing, id: `cineville-showing-707-${index + 1}`, end_time }))
+    theater.showtimes = [
+      { ...showing, end_time: showing.start_time },
+      { ...showing, id: 'estimated', end_time: showing.start_time, estimated_end_time: '2026-08-29T18:13:00Z', estimated_end_ads_minutes: 15 },
+      { ...showing, id: 'invalid', end_time: 'invalid' }
+    ]
     schedule.theaters = [theater]
     const graph = buildFilmJsonLd(schedule, { movieUrl: 'https://messeances.fr/film/film-42', siteUrl: 'https://messeances.fr' })['@graph']
     const events = graph.filter((node) => node['@type'] === 'ScreeningEvent')

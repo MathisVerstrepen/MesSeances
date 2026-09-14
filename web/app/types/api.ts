@@ -34,6 +34,8 @@ export interface Showtime {
   movie: Movie
   start_time: string
   end_time: string
+  estimated_end_time: string | null
+  estimated_end_ads_minutes: number | null
   language: ShowtimeLanguage
   format: ShowtimeFormat
   room: string

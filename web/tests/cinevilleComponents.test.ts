@@ -36,20 +36,20 @@ test('Cinéville appears in every existing admin provider surface, map and booki
   assert.match(await source('components/BookingLink.vue'), /cineville: 'Réserver sur Cinéville'/)
 })
 
-test('Cinéville ends stay behind the shared helper in results, film, timeline and cinema JSON-LD', async () => {
+test('Cinéville ends use resolved provenance and shared rendering, with canonical-only cinema JSON-LD', async () => {
   for (const path of ['components/ShowtimeResultLine.vue', 'components/ShowtimeResultBox.vue']) {
     const value = await source(path)
-    assert.match(value, /hasKnownShowtimeEnd\(props\.result\.provider, props\.result\.advertisedStartTime, props\.result\.endTime\)/)
-    const renderers = value.match(/<(?:template|span) v-if="hasKnownEnd"[^>]*>(?:→|fin) \{\{ formatParisTime\(result\.endTime\) \}\}<\/(?:template|span)>/g) ?? []
+    const renderers = value.match(/<ShowtimeEndTime :end="result\.end"/g) ?? []
     assert.ok(renderers.length >= 2)
-    assert.equal(renderers.length, (value.match(/formatParisTime\(result\.endTime\)/g) ?? []).length)
+    assert.doesNotMatch(value, /hasKnownShowtimeEnd|result\.endTime/)
   }
-  assert.match(await source('pages/film/[slug].vue'), /v-if="hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\)"/)
+  assert.match(await source('pages/film/[slug].vue'), /<ShowtimeEndTime :end="showtime\.end"/)
   const timeline = await source('components/TimelineMatrix.vue')
-  assert.match(timeline, /v-if="hasKnownShowtimeEnd\(selected\.showtime\.provider, selected\.showtime\.start_time, selected\.showtime\.end_time\)"/)
+  assert.match(timeline, /<ShowtimeEndTime :end="selectedEnd"/)
+  assert.match(timeline, /resolveShowtimeEnd\(item\.showtime\)/)
   assert.match(timeline, /Math\.max\(durationMinutes \* pixelsPerMinute\.value, 56\)/)
   assert.match(timeline, /showtimeWidth\(0\) \/ pixelsPerMinute\.value/)
   const cinema = await source('pages/cinema/[slug].vue')
-  assert.match(cinema, /unknownEnd = !hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\) && end === start/)
-  assert.match(cinema, /if \(hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\)\) event\.endDate = showtime\.end_time/)
+  assert.match(cinema, /unknownEnd = end === start/)
+  assert.match(cinema, /if \(hasCanonicalShowtimeEnd\(showtime\.start_time, showtime\.end_time\)\) event\.endDate = showtime\.end_time/)
 })

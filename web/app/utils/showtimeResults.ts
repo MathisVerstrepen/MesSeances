@@ -1,6 +1,6 @@
 import type { SlotResult, TheaterShowtimesResponse } from '../types/api'
 import type { ResultGrouping, ResultLayout, ShowtimeMovieResultGroup, ShowtimeResultViewModel } from '../types/showtimeResults'
-import { hasKnownShowtimeEnd } from './showtimeEnd.ts'
+import { resolveShowtimeEnd } from './showtimeEnd.ts'
 
 export const resultGroupingOptions: [{ value: ResultGrouping; label: string }, { value: ResultGrouping; label: string }] = [
   { value: 'movie', label: 'Par film' },
@@ -24,7 +24,7 @@ export function toSlotShowtimeResults(results: readonly SlotResult[]): ShowtimeR
     theaterName: result.theater.name,
     advertisedStartTime: result.showtime.start_time,
     effectiveStartTime: result.effective_start_time,
-    endTime: result.showtime.end_time,
+    end: resolveShowtimeEnd(result.showtime),
     language: result.showtime.language,
     format: result.showtime.format,
     room: result.showtime.room,
@@ -46,7 +46,7 @@ export function toTheaterShowtimeResults(response: TheaterShowtimesResponse): Sh
     theaterName: response.theater.name,
     advertisedStartTime: showtime.start_time,
     effectiveStartTime: showtime.start_time,
-    endTime: showtime.end_time,
+    end: resolveShowtimeEnd(showtime),
     language: showtime.language,
     format: showtime.format,
     room: showtime.room,
@@ -201,18 +201,17 @@ export function validShowtimeSelectionKeys(results: readonly ShowtimeResultViewM
 }
 
 function showtimeInterval(result: ShowtimeResultViewModel): readonly [number, number] | null {
+  if (!result.end) return null
   const start = Date.parse(result.effectiveStartTime)
-  const end = Date.parse(result.endTime)
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null
+  const end = Date.parse(result.end.time)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
   return [start, end]
 }
 
 export function areShowtimeResultsCompatible(first: ShowtimeResultViewModel, second: ShowtimeResultViewModel): boolean {
-  if (!hasKnownShowtimeEnd(first.provider, first.advertisedStartTime, first.endTime)
-    || !hasKnownShowtimeEnd(second.provider, second.advertisedStartTime, second.endTime)) return false
   const firstInterval = showtimeInterval(first)
   const secondInterval = showtimeInterval(second)
-  if (!firstInterval || !secondInterval) return true
+  if (!firstInterval || !secondInterval) return false
   return firstInterval[1] <= secondInterval[0] || firstInterval[0] >= secondInterval[1]
 }
 

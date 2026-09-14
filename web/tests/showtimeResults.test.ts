@@ -8,12 +8,12 @@ const movie = { slug: 'film-1', title: 'Film 1', runtime_minutes: 101, updated_a
 
 test('adapts slot results without mutation and preserves effective time, raw end, theater, and top-level media', () => {
   const source: SlotResult[] = [{
-    showtime: { provider: 'ugc', id: 'slot-1', movie, start_time: '2026-08-24T18:00:00+02:00', end_time: '2026-08-24T20:01:00+02:00', language: 'VOSTFR', format: 'IMAX', room: '4', booking_url: 'https://www.ugc.fr/reservation' },
+    showtime: { provider: 'ugc', id: 'slot-1', movie, start_time: '2026-08-24T18:00:00+02:00', end_time: '2026-08-24T20:01:00+02:00', estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VOSTFR', format: 'IMAX', room: '4', booking_url: 'https://www.ugc.fr/reservation' },
     theater: { provider: 'ugc', id: 'ugc-1', name: 'UGC Lille', city: 'Lille' },
     poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
     backdrop_url: 'https://image.tmdb.org/t/p/w780/backdrop.jpg',
     effective_start_time: '2026-08-24T18:15:00+02:00',
-    effective_end_time: '2026-08-24T20:16:00+02:00',
+    effective_end_time: '2026-08-24T20:01:00+02:00',
     buffer_ads_minutes: 15,
     slack_before_minutes: 0,
     slack_after_minutes: 0
@@ -25,7 +25,7 @@ test('adapts slot results without mutation and preserves effective time, raw end
   assert.deepEqual(source, before)
   assert.deepEqual(result, {
     key: 'ugc:slot-1', showtimeId: 'slot-1', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101,
-    theaterName: 'UGC Lille', advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00', endTime: '2026-08-24T20:01:00+02:00',
+    theaterName: 'UGC Lille', advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00', end: canonical('2026-08-24T20:01:00+02:00'),
     language: 'VOSTFR', format: 'IMAX', room: '4', bookingUrl: 'https://www.ugc.fr/reservation', posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg', backdropUrl: 'https://image.tmdb.org/t/p/w780/backdrop.jpg'
   })
 })
@@ -34,7 +34,7 @@ test('adapts theater showtimes without mutation and injects theater while mappin
   const source = {
     generated_at: '2026-08-24T00:00:00Z', timezone: 'Europe/Paris', date: '2026-08-24',
     theater: { provider: 'kinepolis', id: 'k-1', slug: 'kinepolis-lille', name: 'Kinepolis Lille', address: 'Rue du film', city: 'Lille', city_slug: 'lille', postal_code: '59000', available_dates: ['2026-08-24'], accepted_passes: [] },
-    showtimes: [{ provider: 'kinepolis', id: 'show-1', movie, start_time: '2026-08-24T19:00:00+02:00', end_time: '2026-08-24T21:01:00+02:00', language: 'VF', format: '2D', room: 'Salle 2', booking_url: null, start_offset_minutes: 0, duration_minutes: 121, poster_url: 'poster', backdrop_url: 'backdrop' }]
+    showtimes: [{ provider: 'kinepolis', id: 'show-1', movie, start_time: '2026-08-24T19:00:00+02:00', end_time: '2026-08-24T21:01:00+02:00', estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VF', format: '2D', room: 'Salle 2', booking_url: null, start_offset_minutes: 0, duration_minutes: 121, poster_url: 'poster', backdrop_url: 'backdrop' }]
   } satisfies TheaterShowtimesResponse
   const before = structuredClone(source)
 
@@ -43,15 +43,53 @@ test('adapts theater showtimes without mutation and injects theater while mappin
   assert.deepEqual(source, before)
   assert.equal(result?.theaterName, 'Kinepolis Lille')
   assert.equal(result?.effectiveStartTime, result?.advertisedStartTime)
-  assert.equal(result?.endTime, source.showtimes[0].end_time)
+  assert.deepEqual(result?.end, canonical(source.showtimes[0].end_time))
   assert.equal(result?.posterUrl, 'poster')
   assert.equal(result?.backdropUrl, 'backdrop')
+})
+
+function canonical(time: string) {
+  return { time, estimated: false, adsMinutes: null }
+}
+
+test('normalizers preserve explicit estimated provenance including custom zero ads and never infer from runtime', () => {
+  for (const ads of [0, 15, 30, 120]) {
+    const start = '2026-09-14T18:00:00+02:00'
+    const time = new Date(Date.parse(start) + (93 + ads) * 60_000).toISOString()
+    const showtime = { provider: 'cineville' as const, id: 'cineville-showing-4670-1', movie: { ...movie, runtime_minutes: 93 }, start_time: start, end_time: start, estimated_end_time: time, estimated_end_ads_minutes: ads, language: 'VF' as const, format: '2D' as const, room: '', booking_url: null }
+    const slot: SlotResult = { showtime, theater: { provider: 'cineville', id: 'cineville-4670', name: 'Cinéville', city: 'Laval' }, poster_url: null, backdrop_url: null, effective_start_time: new Date(Date.parse(start) + ads * 60_000).toISOString(), effective_end_time: time, buffer_ads_minutes: ads, slack_before_minutes: 0, slack_after_minutes: 0 }
+    const theater: TheaterShowtimesResponse = { generated_at: start, timezone: 'Europe/Paris', date: '2026-09-14', theater: { ...slot.theater, slug: 'cineville-4670', address: '', city_slug: 'laval', postal_code: '53000', available_dates: ['2026-09-14'], accepted_passes: [] }, showtimes: [{ ...showtime, start_offset_minutes: 600, duration_minutes: 93 + ads, poster_url: null, backdrop_url: null }] }
+    const before = structuredClone({ slot, theater })
+    for (const result of [toSlotShowtimeResults([slot])[0]!, toTheaterShowtimeResults(theater)[0]!]) {
+      assert.deepEqual(result.end, { time, estimated: true, adsMinutes: ads })
+      assert.equal(result.movieRuntimeMinutes, 93)
+    }
+    assert.equal(toSlotShowtimeResults([slot])[0]!.effectiveStartTime, slot.effective_start_time)
+    assert.deepEqual({ slot, theater }, before)
+    slot.showtime = { ...showtime, estimated_end_ads_minutes: null }
+    assert.equal(toSlotShowtimeResults([slot])[0]!.end, null)
+    slot.showtime = { ...showtime, end_time: '2026-09-14T19:40:00+02:00' }
+    assert.deepEqual(toSlotShowtimeResults([slot])[0]!.end, canonical(slot.showtime.end_time))
+  }
+})
+
+test('estimated compatibility uses returned ends and effective starts, with touching boundaries and invalid intervals', () => {
+  const selected = view({ provider: 'cineville', key: 'cineville:cineville-showing-4670-1', movieRuntimeMinutes: 93, effectiveStartTime: '2026-08-24T18:30:00+02:00', end: { time: '2026-08-24T20:03:00+02:00', estimated: true, adsMinutes: 30 } })
+  const touching = view({ effectiveStartTime: '2026-08-24T20:03:00+02:00', end: canonical('2026-08-24T22:00:00+02:00') })
+  assert.equal(areShowtimeResultsCompatible(selected, touching), true)
+  assert.equal(areShowtimeResultsCompatible(selected, { ...touching, effectiveStartTime: '2026-08-24T20:02:00+02:00' }), false)
+  // Ends between advertised and effective start are compatible, preserving attendance semantics.
+  assert.equal(areShowtimeResultsCompatible(selected, view({ effectiveStartTime: '2026-08-24T16:00:00+02:00', end: canonical('2026-08-24T18:30:00+02:00') })), true)
+  for (const end of [null, canonical('invalid'), canonical(selected.effectiveStartTime), canonical(selected.advertisedStartTime)]) {
+    assert.equal(areShowtimeResultsCompatible({ ...selected, end }, touching), false)
+  }
+  assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection([selected.key])), [selected.key])
 })
 
 function view(overrides: Partial<ShowtimeResultViewModel>): ShowtimeResultViewModel {
   return {
     key: 'ugc:id', showtimeId: 'id', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101, theaterName: 'UGC',
-    advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:00:00+02:00', endTime: '2026-08-24T20:00:00+02:00',
+    advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:00:00+02:00', end: canonical('2026-08-24T20:00:00+02:00'),
     language: 'VF', format: '2D', room: '', bookingUrl: null, posterUrl: null, backdropUrl: null, ...overrides
   }
 }
@@ -67,17 +105,17 @@ test('Cinéville selection tokens preserve cinema-scoped IDs and reject noncanon
   }
 })
 
-test('Cinéville source and enriched runtime never turn unknown ends into compatible sessions', () => {
-  const known = view({ key: 'ugc:ugc-showing-1', advertisedStartTime: '2026-08-24T22:00:00+02:00', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+test('runtime alone never turns unknown ends into compatible sessions', () => {
+  const known = view({ key: 'ugc:ugc-showing-1', advertisedStartTime: '2026-08-24T22:00:00+02:00', effectiveStartTime: '2026-08-24T22:00:00+02:00', end: canonical('2026-08-24T23:00:00+02:00') })
   for (const runtime of [0, 93, 118]) {
-    const unknown = view({ provider: 'cineville', key: 'cineville:cineville-showing-707-149056', movieRuntimeMinutes: runtime, endTime: '2026-08-24T18:00:00+02:00' })
+    const unknown = view({ provider: 'cineville', key: 'cineville:cineville-showing-707-149056', movieRuntimeMinutes: runtime, end: null })
     assert.equal(areShowtimeResultsCompatible(unknown, known), false)
     assert.equal(areShowtimeResultsCompatible(known, unknown), false)
     assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], []), [unknown, known])
     assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key]), [unknown])
     assert.deepEqual(filterSelectedShowtimeResults([unknown, known], [unknown.key]), [unknown])
     assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection([unknown.key])), [unknown.key])
-    assert.equal(areShowtimeResultsCompatible({ ...unknown, endTime: '2026-08-24T20:00:00+02:00' }, known), false)
+    assert.equal(areShowtimeResultsCompatible({ ...unknown, end: { time: '2026-08-24T19:48:00+02:00', estimated: true, adsMinutes: 15 } }, known), true)
   }
 })
 
@@ -87,7 +125,7 @@ test('Cinéville theater results retain source fields, missing metadata and zero
     const response: TheaterShowtimesResponse = {
       generated_at: '2026-09-14T12:00:00Z', timezone: 'Europe/Paris', date: '2027-07-01',
       theater: { provider: 'cineville', id: 'cineville-639', slug: 'cineville-639', name: 'Katorza', city: 'Quimper', city_slug: 'quimper', postal_code: '29000', address: '', available_dates: ['2027-07-01'], accepted_passes: [] },
-      showtimes: [{ provider: 'cineville', id: 'cineville-showing-639-149056', movie: { ...movie, slug: 'cineville-film--693091020261', runtime_minutes: runtime }, start_time: start, end_time: start, language: 'VFSTF', format: 'DOLBY', room: '4', booking_url: 'https://www.cineville.fr/vad/639/149056/1234', start_offset_minutes: 15, duration_minutes: 0, poster_url: null, backdrop_url: null }]
+      showtimes: [{ provider: 'cineville', id: 'cineville-showing-639-149056', movie: { ...movie, slug: 'cineville-film--693091020261', runtime_minutes: runtime }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VFSTF', format: 'DOLBY', room: '4', booking_url: 'https://www.cineville.fr/vad/639/149056/1234', start_offset_minutes: 15, duration_minutes: 0, poster_url: null, backdrop_url: null }]
     }
     const before = structuredClone(response)
     const [result] = toTheaterShowtimeResults(response)
@@ -96,7 +134,7 @@ test('Cinéville theater results retain source fields, missing metadata and zero
     assert.equal(result?.movieSlug, 'cineville-film--693091020261')
     assert.equal(result?.movieRuntimeMinutes, runtime)
     assert.equal(result?.advertisedStartTime, start)
-    assert.equal(result?.endTime, start)
+    assert.equal(result?.end, null)
     assert.equal(result?.language, 'VFSTF')
     assert.equal(result?.format, 'DOLBY')
     assert.equal(result?.room, '4')
@@ -211,8 +249,8 @@ test('round-trips exact Megarama case and ASCII identity limits while rejecting 
 })
 
 test('unknown Megarama ends remain selectable but never prove compatibility', () => {
-  const unknown = view({ provider: 'megarama', key: 'megarama:megarama-showing-emsx056500123456', endTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00' })
-  const known = view({ key: 'known', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  const unknown = view({ provider: 'megarama', key: 'megarama:megarama-showing-emsx056500123456', end: null, effectiveStartTime: '2026-08-24T18:15:00+02:00' })
+  const known = view({ key: 'known', effectiveStartTime: '2026-08-24T22:00:00+02:00', end: canonical('2026-08-24T23:00:00+02:00') })
   assert.equal(areShowtimeResultsCompatible(unknown, known), false)
   assert.equal(areShowtimeResultsCompatible(known, unknown), false)
   assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], []), [unknown, known])
@@ -220,7 +258,7 @@ test('unknown Megarama ends remain selectable but never prove compatibility', ()
   assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [known.key]), [known])
   assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key, known.key]), [unknown, known])
   assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection([unknown.key])), [unknown.key])
-  const resolved = { ...unknown, endTime: '2026-08-24T20:10:00+02:00' }
+  const resolved = { ...unknown, end: canonical('2026-08-24T20:10:00+02:00') }
   assert.equal(areShowtimeResultsCompatible(resolved, known), true)
 })
 
@@ -230,10 +268,10 @@ test('keeps only available selection keys in deterministic order', () => {
 })
 
 test('treats touching effective-start-to-end intervals as compatible', () => {
-  const selected = view({ key: 'selected', effectiveStartTime: '2026-08-24T18:15:00+02:00', endTime: '2026-08-24T20:00:00+02:00' })
-  const before = view({ key: 'before', effectiveStartTime: '2026-08-24T16:00:00+02:00', endTime: '2026-08-24T18:15:00+02:00' })
-  const after = view({ key: 'after', effectiveStartTime: '2026-08-24T20:00:00+02:00', endTime: '2026-08-24T22:00:00+02:00' })
-  const overlapping = view({ key: 'overlap', effectiveStartTime: '2026-08-24T19:59:00+02:00', endTime: '2026-08-24T21:00:00+02:00' })
+  const selected = view({ key: 'selected', effectiveStartTime: '2026-08-24T18:15:00+02:00', end: canonical('2026-08-24T20:00:00+02:00') })
+  const before = view({ key: 'before', effectiveStartTime: '2026-08-24T16:00:00+02:00', end: canonical('2026-08-24T18:15:00+02:00') })
+  const after = view({ key: 'after', effectiveStartTime: '2026-08-24T20:00:00+02:00', end: canonical('2026-08-24T22:00:00+02:00') })
+  const overlapping = view({ key: 'overlap', effectiveStartTime: '2026-08-24T19:59:00+02:00', end: canonical('2026-08-24T21:00:00+02:00') })
 
   assert.equal(areShowtimeResultsCompatible(selected, before), true)
   assert.equal(areShowtimeResultsCompatible(selected, after), true)
@@ -242,11 +280,11 @@ test('treats touching effective-start-to-end intervals as compatible', () => {
 
 test('shows selections and only candidates compatible with every selection', () => {
   const source = [
-    view({ key: 'early', effectiveStartTime: '2026-08-24T16:00:00+02:00', endTime: '2026-08-24T18:00:00+02:00' }),
-    view({ key: 'middle', effectiveStartTime: '2026-08-24T18:00:00+02:00', endTime: '2026-08-24T20:00:00+02:00' }),
-    view({ key: 'late', effectiveStartTime: '2026-08-24T20:00:00+02:00', endTime: '2026-08-24T22:00:00+02:00' }),
-    view({ key: 'overlap-early', effectiveStartTime: '2026-08-24T17:00:00+02:00', endTime: '2026-08-24T18:30:00+02:00' }),
-    view({ key: 'overlap-late', effectiveStartTime: '2026-08-24T19:30:00+02:00', endTime: '2026-08-24T21:00:00+02:00' })
+    view({ key: 'early', effectiveStartTime: '2026-08-24T16:00:00+02:00', end: canonical('2026-08-24T18:00:00+02:00') }),
+    view({ key: 'middle', effectiveStartTime: '2026-08-24T18:00:00+02:00', end: canonical('2026-08-24T20:00:00+02:00') }),
+    view({ key: 'late', effectiveStartTime: '2026-08-24T20:00:00+02:00', end: canonical('2026-08-24T22:00:00+02:00') }),
+    view({ key: 'overlap-early', effectiveStartTime: '2026-08-24T17:00:00+02:00', end: canonical('2026-08-24T18:30:00+02:00') }),
+    view({ key: 'overlap-late', effectiveStartTime: '2026-08-24T19:30:00+02:00', end: canonical('2026-08-24T21:00:00+02:00') })
   ]
   const before = source.map((result) => result.key)
 
@@ -256,18 +294,18 @@ test('shows selections and only candidates compatible with every selection', () 
   assert.deepEqual(source.map((result) => result.key), before)
 })
 
-test('ignores stale selections and fails open for invalid intervals', () => {
+test('ignores stale selections and fails closed for invalid intervals while retaining selected entries', () => {
   const valid = view({ key: 'valid' })
   const invalid = view({ key: 'invalid', effectiveStartTime: 'not-a-date' })
 
   assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['stale:key']).map((result) => result.key), ['valid', 'invalid'])
-  assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['invalid']).map((result) => result.key), ['valid', 'invalid'])
+  assert.deepEqual(filterCompatibleShowtimeResults([valid, invalid], ['invalid']).map((result) => result.key), ['invalid'])
 })
 
 test('selected-only results keep exact sessions, not other screenings of selected movies', () => {
   const selected = view({ key: 'ugc:ugc-showing-12' })
-  const sameMovie = view({ key: 'ugc:ugc-showing-13', effectiveStartTime: '2026-08-24T20:00:00+02:00', endTime: '2026-08-24T22:00:00+02:00' })
-  const otherMovie = view({ key: 'kinepolis:kinepolis-showing-42', provider: 'kinepolis', movieKey: 'kinepolis:film-2', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  const sameMovie = view({ key: 'ugc:ugc-showing-13', effectiveStartTime: '2026-08-24T20:00:00+02:00', end: canonical('2026-08-24T22:00:00+02:00') })
+  const otherMovie = view({ key: 'kinepolis:kinepolis-showing-42', provider: 'kinepolis', movieKey: 'kinepolis:film-2', effectiveStartTime: '2026-08-24T22:00:00+02:00', end: canonical('2026-08-24T23:00:00+02:00') })
   const source = [selected, sameMovie, otherMovie]
   const before = structuredClone(source)
 

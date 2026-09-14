@@ -57,7 +57,7 @@ func cinevilleValidationDataset() Dataset {
 	r := ShowtimeRecord{Provider: ProviderCineville, ID: "cineville-showing-639-1", ProviderShowingID: "639-1", TheaterID: "cineville-639", ServiceDate: "2026-08-15", Movie: MovieRecord{Provider: ProviderCineville, ProviderID: "-693091020261", Slug: "cineville-film--693091020261", Title: "Event", PublicMovieID: 1}, StartTime: start, EndTime: start, Language: LanguageVF, ProviderVersion: "VF", Format: Format2D, Room: "4", BookingURL: "https://www.cineville.fr/vad/639/1/9"}
 	return Dataset{SchemaVersion: SchemaVersion, Provider: ProviderCineville, Scope: ScopeAll, Timezone: Timezone, GeneratedAt: start.UTC(), Window: Window{From: r.ServiceDate, Through: r.ServiceDate}, Showtimes: []ShowtimeRecord{r}, Theaters: []TheaterRecord{{Provider: ProviderCineville, ID: r.TheaterID, ProviderID: "639", Slug: r.TheaterID, Name: "Katorza", City: "Quimper", PostalCode: "29000", AvailableDates: []string{r.ServiceDate}, AcceptedPasses: []string{}}}, PublicMovies: []PublicMovieRecord{{ID: 1, IdentityAnchorProvider: ProviderCineville, IdentityAnchorSourceID: r.Movie.ProviderID, Title: r.Movie.Title, UpdatedAt: start.UTC()}}, MovieSources: []PublicMovieSourceRecord{{Provider: ProviderCineville, SourceMovieID: r.Movie.ProviderID, SourceSlug: r.Movie.Slug, PublicMovieID: 1, Title: r.Movie.Title}}}
 }
-func TestCinevilleEndRemainsUnknownAfterMaterialization(t *testing.T) {
+func TestEstimatedEndCinevillePreservesCanonicalAfterMaterialization(t *testing.T) {
 	for _, runtime := range []int{0, 93} {
 		d := cinevilleValidationDataset()
 		d.Showtimes[0].Movie.RuntimeMinutes = runtime
@@ -74,13 +74,16 @@ func TestCinevilleEndRemainsUnknownAfterMaterialization(t *testing.T) {
 		if !got.EndTime.Equal(got.StartTime) {
 			t.Fatal("end manufactured")
 		}
+		if got.EstimatedEndTime == nil || !got.EstimatedEndTime.Equal(got.StartTime.Add(135*time.Minute)) || got.EstimatedEndAdsMinutes == nil || *got.EstimatedEndAdsMinutes != DefaultBufferAdsMinutes {
+			t.Fatalf("resolved catalog runtime not used: %+v", got)
+		}
 		service, err := NewService(testSource{view: view}, ServiceOptions{Now: testServiceNow})
 		if err != nil {
 			t.Fatal(err)
 		}
 		slots, err := service.SearchSlot(SlotQuery{TheaterIDs: []string{r.TheaterID}, Date: r.ServiceDate, StartAfter: "18:00", FinishBefore: "23:00", Language: LanguageVF})
-		if err != nil || len(slots) != 0 {
-			t.Fatal("unknown end offered as fit")
+		if err != nil || len(slots) != 1 || !slots[0].EffectiveEndTime.Equal(got.StartTime.Add(120*time.Minute)) {
+			t.Fatalf("estimate not offered with explicit zero ads: %+v, %v", slots, err)
 		}
 	}
 }
