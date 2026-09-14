@@ -53,7 +53,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 				continue
 			}
 			showtime := materializeRecord(view, record)
-			if showtime.Provider == ProviderMegarama && !showtime.EndTime.After(showtime.StartTime) {
+			if showtime.Provider == ProviderCineville || showtime.Provider == ProviderMegarama && !showtime.EndTime.After(showtime.StartTime) {
 				continue
 			}
 			effectiveStart := showtime.StartTime

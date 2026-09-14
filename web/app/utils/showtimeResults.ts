@@ -84,6 +84,12 @@ const PATHE_PROVIDER_ID_PATTERN = /^V[1-9][0-9]*S[1-9][0-9]*$/
 const CGR_TOKEN_PATTERN = /^c([A-Z][0-9]{4})-([A-Za-z0-9_-]{43})$/
 const MEGARAMA_SELECTION_KEY_PATTERN = /^megarama:megarama-showing-([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
 const MEGARAMA_TOKEN_PATTERN = /^m([A-Za-z0-9][A-Za-z0-9_-]{0,110})$/
+const CINEVILLE_SELECTION_KEY_PATTERN = /^cineville:cineville-showing-([1-9][0-9]{0,18}-[1-9][0-9]{0,18})$/
+const CINEVILLE_TOKEN_PATTERN = /^v([1-9][0-9]{0,18}-[1-9][0-9]{0,18})$/
+
+function isValidCinevilleShowingID(value: string): boolean {
+  return value.split('-').every((id) => BigInt(id) <= 9223372036854775807n)
+}
 
 function isValidUgcProviderID(value: string): boolean {
   if (!/^[0-9]{1,128}$/.test(value)) return false
@@ -143,10 +149,14 @@ function encodeShowtimeSelectionKey(key: string): string | null {
   if (cgrMatch?.[1] && cgrMatch[2]) return `c${cgrMatch[1]}-${hexToBase64Url(cgrMatch[2])}`
   const megaramaMatch = MEGARAMA_SELECTION_KEY_PATTERN.exec(key)
   if (megaramaMatch?.[1] && megaramaMatch[0] === key) return `m${megaramaMatch[1]}`
+  const cinevilleMatch = CINEVILLE_SELECTION_KEY_PATTERN.exec(key)
+  if (cinevilleMatch?.[1] && cinevilleMatch[0] === key && isValidCinevilleShowingID(cinevilleMatch[1])) return `v${cinevilleMatch[1]}`
   return null
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  const cinevilleMatch = CINEVILLE_TOKEN_PATTERN.exec(token)
+  if (cinevilleMatch?.[1] && cinevilleMatch[0] === token && isValidCinevilleShowingID(cinevilleMatch[1])) return `cineville:cineville-showing-${cinevilleMatch[1]}`
   const megaramaMatch = MEGARAMA_TOKEN_PATTERN.exec(token)
   if (megaramaMatch?.[1] && megaramaMatch[0] === token) return `megarama:megarama-showing-${megaramaMatch[1]}`
   if (token.startsWith('u')) {

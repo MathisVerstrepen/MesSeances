@@ -11,6 +11,7 @@ const (
 	ProviderPathe     Provider = "pathe"
 	ProviderCGR       Provider = "cgr"
 	ProviderMegarama  Provider = "megarama"
+	ProviderCineville Provider = "cineville"
 	ProviderCombined  Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"

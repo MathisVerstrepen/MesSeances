@@ -292,8 +292,8 @@ const cinemaJsonLd = computed(() => {
     const movieId = movieIds.get(showtime.movie.slug)
     const start = Date.parse(showtime.start_time)
     const end = Date.parse(showtime.end_time)
-    const unknownMegaramaEnd = showtime.provider === 'megarama' && end === start
-    if (!id || seen.has(id) || !movieId || !showtime.movie.title.trim() || !Number.isFinite(start) || !Number.isFinite(end) || (end <= start && !unknownMegaramaEnd)) continue
+    const unknownEnd = !hasKnownShowtimeEnd(showtime.provider, showtime.start_time, showtime.end_time) && end === start
+    if (!id || seen.has(id) || !movieId || !showtime.movie.title.trim() || !Number.isFinite(start) || !Number.isFinite(end) || (end <= start && !unknownEnd)) continue
     seen.add(id)
     const event: JsonLdNode = {
       '@type': 'ScreeningEvent',

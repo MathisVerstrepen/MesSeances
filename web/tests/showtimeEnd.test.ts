@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { hasKnownShowtimeEnd } from '../app/utils/showtimeEnd.ts'
 
-test('recognizes only Megarama unknown ends and trusts server-side source or TMDB effective ends', () => {
+test('recognizes Megarama unknown ends and trusts its server-side source or TMDB effective ends', () => {
   const start = '2026-09-12T18:00:00Z'
   assert.equal(hasKnownShowtimeEnd('megarama', start, start), false)
   assert.equal(hasKnownShowtimeEnd('megarama', start, '2026-09-12T20:00:00+02:00'), false)
@@ -12,5 +12,13 @@ test('recognizes only Megarama unknown ends and trusts server-side source or TMD
   assert.equal(hasKnownShowtimeEnd('megarama', 'invalid', start), false)
   for (const provider of ['ugc', 'kinepolis', 'pathe', 'cgr'] as const) {
     assert.equal(hasKnownShowtimeEnd(provider, start, start), true)
+  }
+})
+
+test('Cineville never has a known end, including malformed input and runtime-derived times', () => {
+  const start = '2026-09-14T18:00:00+02:00'
+  for (const end of [start, '2026-09-14T16:00:00Z', '2026-09-14T20:00:00+02:00', '2026-09-14T17:00:00+02:00', '', 'invalid']) {
+    assert.equal(hasKnownShowtimeEnd('cineville', start, end), false)
+    assert.equal(hasKnownShowtimeEnd('cineville', 'invalid', end), false)
   }
 })

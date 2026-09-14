@@ -19,7 +19,7 @@ test('integrates Megarama into admin targets, labels, latest runs, and the label
   for (const page of ['sync', 'sync-schedules', 'tmdb-matches', 'theater-locations']) {
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /megarama: 'Megarama'/)
-    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama'\]/)
+    if (page.startsWith('sync')) assert.match(value, /\['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville'\]/)
   }
   assert.match(await source('pages/admin/sync-schedules.vue'), /megarama: selectLatestProviderRun\('megarama'/)
   assert.match(await source('components/CinemaTheaterMap.client.vue'), /'megarama', THEATER_PROVIDER_COLORS\.megarama/)
@@ -55,6 +55,6 @@ test('every end-time renderer uses the shared sentinel helper, with reachable un
   assert.match(timeline, /Math\.max\(durationMinutes \* pixelsPerMinute\.value, 56\)/)
   assert.match(timeline, /showtimeWidth\(0\) \/ pixelsPerMinute\.value/)
   const cinema = await source('pages/cinema/[slug].vue')
-  assert.match(cinema, /unknownMegaramaEnd = showtime\.provider === 'megarama' && end === start/)
+  assert.match(cinema, /unknownEnd = !hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\) && end === start/)
   assert.match(cinema, /if \(hasKnownShowtimeEnd\(showtime\.provider, showtime\.start_time, showtime\.end_time\)\) event\.endDate = showtime\.end_time/)
 })

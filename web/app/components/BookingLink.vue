@@ -27,7 +27,8 @@ const reservation = computed(() => {
     kinepolis: 'Réserver sur Kinepolis.fr',
     pathe: 'Réserver sur Pathé.fr',
     cgr: 'Réserver sur CGR Cinémas',
-    megarama: 'Réserver sur Megarama'
+    megarama: 'Réserver sur Megarama',
+    cineville: 'Réserver sur Cinéville'
   } satisfies Record<Provider, string>
   return {
     url: booking.url,

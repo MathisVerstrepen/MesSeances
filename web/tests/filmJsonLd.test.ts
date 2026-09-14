@@ -168,3 +168,26 @@ test('keeps unknown Megarama events but omits their endDate without recomputing 
   assert.equal(Object.hasOwn(events[0]!, 'endDate'), false)
   assert.equal(events[1]!.endDate, '2026-08-29T20:10:00+02:00')
 })
+
+test('Cinéville events omit endDate with absent, source and enriched runtime, even with invalid end input', () => {
+  for (const runtime of [0, 93, 118]) {
+    const schedule = fixture()
+    schedule.movie.runtime_minutes = runtime
+    const theater = schedule.theaters[0]!
+    theater.provider = 'cineville'
+    theater.id = 'cineville-707'
+    theater.slug = 'cineville-707'
+    const showing = { ...theater.showtimes[0]!, provider: 'cineville' as const, movie: { ...movie, runtime_minutes: runtime } }
+    theater.showtimes = [showing.start_time, '2026-08-29T20:00:00+02:00', 'invalid'].map((end_time, index) => ({ ...showing, id: `cineville-showing-707-${index + 1}`, end_time }))
+    schedule.theaters = [theater]
+    const graph = buildFilmJsonLd(schedule, { movieUrl: 'https://messeances.fr/film/film-42', siteUrl: 'https://messeances.fr' })['@graph']
+    const events = graph.filter((node) => node['@type'] === 'ScreeningEvent')
+    assert.equal(events.length, 3)
+    for (const event of events) {
+      assert.equal(event.startDate, showing.start_time)
+      assert.equal(Object.hasOwn(event, 'endDate'), false)
+    }
+    const movieNode = graph.find((node) => node['@type'] === 'Movie')!
+    assert.equal(movieNode.duration, runtime ? `PT${runtime}M` : undefined)
+  }
+})

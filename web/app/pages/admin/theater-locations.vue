@@ -60,7 +60,8 @@ const providerLabels = {
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
   cgr: 'CGR',
-  megarama: 'Megarama'
+  megarama: 'Megarama',
+  cineville: 'Cinéville'
 } satisfies Record<Provider, string>
 
 const geocodingFailureLabels = {

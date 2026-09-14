@@ -56,6 +56,55 @@ function view(overrides: Partial<ShowtimeResultViewModel>): ShowtimeResultViewMo
   }
 }
 
+test('Cinéville selection tokens preserve cinema-scoped IDs and reject noncanonical numbers', () => {
+  const ids = ['707-149056', '709-149056', '7-7149056', '9223372036854775807-9223372036854775807']
+  const keys = ids.map((id) => `cineville:cineville-showing-${id}`)
+  assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection(keys)), keys.toSorted())
+  assert.equal(new Set(parseShowtimeSelection(serializeShowtimeSelection(keys))).size, ids.length)
+  for (const id of ['0-1', '1-0', '01-1', '1-01', '-1-2', '1--2', '+1-2', '1-2-3', '1', '1-2\n', '1.5-2', '1e3-2', '1-2/3', '9223372036854775808-1', '1-9223372036854775808', `${'1'.repeat(20)}-1`]) {
+    assert.deepEqual(parseShowtimeSelection(`v${id}`), [], id)
+    assert.equal(serializeShowtimeSelection([`cineville:cineville-showing-${id}`]), undefined, id)
+  }
+})
+
+test('Cinéville source and enriched runtime never turn unknown ends into compatible sessions', () => {
+  const known = view({ key: 'ugc:ugc-showing-1', advertisedStartTime: '2026-08-24T22:00:00+02:00', effectiveStartTime: '2026-08-24T22:00:00+02:00', endTime: '2026-08-24T23:00:00+02:00' })
+  for (const runtime of [0, 93, 118]) {
+    const unknown = view({ provider: 'cineville', key: 'cineville:cineville-showing-707-149056', movieRuntimeMinutes: runtime, endTime: '2026-08-24T18:00:00+02:00' })
+    assert.equal(areShowtimeResultsCompatible(unknown, known), false)
+    assert.equal(areShowtimeResultsCompatible(known, unknown), false)
+    assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], []), [unknown, known])
+    assert.deepEqual(filterCompatibleShowtimeResults([unknown, known], [unknown.key]), [unknown])
+    assert.deepEqual(filterSelectedShowtimeResults([unknown, known], [unknown.key]), [unknown])
+    assert.deepEqual(parseShowtimeSelection(serializeShowtimeSelection([unknown.key])), [unknown.key])
+    assert.equal(areShowtimeResultsCompatible({ ...unknown, endTime: '2026-08-24T20:00:00+02:00' }, known), false)
+  }
+})
+
+test('Cinéville theater results retain source fields, missing metadata and zero duration without fabrication', () => {
+  const start = '2027-07-01T00:15:00+02:00'
+  for (const runtime of [0, 93, 118]) {
+    const response: TheaterShowtimesResponse = {
+      generated_at: '2026-09-14T12:00:00Z', timezone: 'Europe/Paris', date: '2027-07-01',
+      theater: { provider: 'cineville', id: 'cineville-639', slug: 'cineville-639', name: 'Katorza', city: 'Quimper', city_slug: 'quimper', postal_code: '29000', address: '', available_dates: ['2027-07-01'], accepted_passes: [] },
+      showtimes: [{ provider: 'cineville', id: 'cineville-showing-639-149056', movie: { ...movie, slug: 'cineville-film--693091020261', runtime_minutes: runtime }, start_time: start, end_time: start, language: 'VFSTF', format: 'DOLBY', room: '4', booking_url: 'https://www.cineville.fr/vad/639/149056/1234', start_offset_minutes: 15, duration_minutes: 0, poster_url: null, backdrop_url: null }]
+    }
+    const before = structuredClone(response)
+    const [result] = toTheaterShowtimeResults(response)
+    assert.deepEqual(response, before)
+    assert.equal(result?.key, 'cineville:cineville-showing-639-149056')
+    assert.equal(result?.movieSlug, 'cineville-film--693091020261')
+    assert.equal(result?.movieRuntimeMinutes, runtime)
+    assert.equal(result?.advertisedStartTime, start)
+    assert.equal(result?.endTime, start)
+    assert.equal(result?.language, 'VFSTF')
+    assert.equal(result?.format, 'DOLBY')
+    assert.equal(result?.room, '4')
+    assert.equal(result?.bookingUrl, response.showtimes[0]!.booking_url)
+    assert.equal(result?.posterUrl, null)
+  }
+})
+
 test('sorts non-mutatively by advertised start then showtime ID', () => {
   const source = [
     view({ key: 'late', showtimeId: 'z', advertisedStartTime: '2026-08-24T19:00:00+02:00' }),
@@ -88,13 +137,14 @@ test('round-trips compact selection tokens for every provider in canonical key o
   const kinepolis = 'kinepolis:kinepolis-showing-Vista_Session-42'
   const pathe = 'pathe:pathe-showing-V3001S170227'
   const megarama = 'megarama:megarama-showing-emsx056500123456'
+  const cineville = 'cineville:cineville-showing-707-149056'
   const ugc = 'ugc:ugc-showing-330660140434'
-  const keys = [pathe, ugc, cgr, kinepolis, cgr, megarama]
-  const compact = 'cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w,kVista_Session-42,memsx056500123456,pV3001S170227,u330660140434'
+  const keys = [pathe, ugc, cgr, kinepolis, cgr, megarama, cineville]
+  const compact = 'cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w,v707-149056,kVista_Session-42,memsx056500123456,pV3001S170227,u330660140434'
 
   assert.equal(serializeShowtimeSelection(keys), compact)
-  assert.deepEqual(parseShowtimeSelection(compact), [cgr, kinepolis, megarama, pathe, ugc])
-  assert.deepEqual(parseShowtimeSelection(`${compact},${compact}`), [cgr, kinepolis, megarama, pathe, ugc])
+  assert.deepEqual(parseShowtimeSelection(compact), [cgr, cineville, kinepolis, megarama, pathe, ugc])
+  assert.deepEqual(parseShowtimeSelection(`${compact},${compact}`), [cgr, cineville, kinepolis, megarama, pathe, ugc])
   assert.deepEqual(parseShowtimeSelection(undefined), [])
   assert.equal(serializeShowtimeSelection([]), undefined)
 })

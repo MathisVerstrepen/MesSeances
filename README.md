@@ -106,7 +106,9 @@ When admin access is enabled, configure both `ADMIN_PASSWORD` and an independent
 
 `INTERNAL_API_SHARED_SECRET` is optional for local development. Leaving it blank disables internal service identity and keeps Nuxt on public API routes and quotas. A configured value must be exactly 64 lowercase hexadecimal characters, and server-side Nuxt must receive the same value as private `NUXT_INTERNAL_API_SHARED_SECRET`.
 
-Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, CGR, and Megarama and must be between 5s and 60s. Kinepolis interval must be at least 1s, and operation timeout must be positive.
+Sync timing defaults are `SYNC_REQUEST_TIMEOUT=20s`, `SYNC_KINEPOLIS_REQUEST_INTERVAL=2s`, `SYNC_CINEVILLE_REQUEST_INTERVAL=2s`, and `SYNC_OPERATION_TIMEOUT=2m`. Request timeout applies to UGC, Kinepolis, Pathé, CGR, Megarama, and Cinéville and must be between 5s and 60s. Kinepolis and Cinéville intervals must be at least 1s, and operation timeout must be positive.
+
+Cinéville supports manual, all-provider, and scheduled sync through the existing admin controls. Proxy-only acquisition discovers the current Next.js build and actual cinema routes, excludes the test headquarters, and imports real sessions from both program arrays across the entire advertised future range. One stale-build refresh restarts acquisition without mixing builds. Cinema-scoped showing IDs and signed int64 film visas are preserved. Missing source metadata stays missing; all Cinéville ends remain unknown (`end_time == start_time`), even after TMDB enrichment, and are excluded from finish-before planning. Malformed or incomplete acquisition never replaces the previous snapshot.
 
 `PORT` must be a decimal port from 1 through 65535. `WEB_ORIGIN` must be an exact `http` or `https` origin without credentials, path, query, or fragment.
 

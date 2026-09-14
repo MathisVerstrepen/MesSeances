@@ -24,6 +24,9 @@ func recordProvider(explicit Provider, identity string) Provider {
 	if strings.HasPrefix(identity, string(ProviderCGR)+"-") {
 		return ProviderCGR
 	}
+	if strings.HasPrefix(identity, string(ProviderCineville)+"-") {
+		return ProviderCineville
+	}
 	if strings.HasPrefix(identity, string(ProviderMegarama)+"-") {
 		return ProviderMegarama
 	}

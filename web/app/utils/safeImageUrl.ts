@@ -40,6 +40,10 @@ export function safePosterUrl(url: string | null | undefined) {
     const isMegaramaPoster = url === parsed.href
       && url.length <= 2048
       && /^https:\/\/images\.monnaie-services\.com\/(?:movie_poster\/(?:120|600)\/FR[A-Z0-9]{5}\/[A-Z0-9]{8}\.webp|ems_spectacle\/120\/[0-9]{4}\/HC[0-9]+\.jpg(?:\?ts=[0-9]+)?)$/.test(url)
+    const isCinevillePoster = url === parsed.href
+      && url.length <= 2048
+      && !parsed.pathname.includes('..')
+      && /^https:\/\/storage\.googleapis\.com\/cineville-files-prod\/images\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(url)
 
     if (
       parsed.protocol !== 'https:'
@@ -48,7 +52,7 @@ export function safePosterUrl(url: string | null | undefined) {
       || parsed.password
       || (parsed.search && !isMegaramaPoster)
       || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster)
+      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster && !isCinevillePoster)
       || !hasSafePath(url, parsed.origin)
     ) return null
 
