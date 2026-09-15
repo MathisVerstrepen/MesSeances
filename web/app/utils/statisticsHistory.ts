@@ -4,7 +4,7 @@ import { createStatisticsRequest, parseStatisticsQuery, statisticsDraft, statist
 
 export const statisticsPeriods = [
   { value: 'next7', label: '7 prochains jours' },
-  { value: 'last30', label: '30 derniers jours' },
+  { value: 'next30', label: '30 prochains jours' },
   { value: 'all', label: 'Depuis le début de la collecte' },
   { value: 'custom', label: 'Période personnalisée' }
 ] as const
@@ -26,7 +26,7 @@ export function statisticsPeriodRange(period: StatisticsPeriod, today: string): 
     return date.toISOString().slice(0, 10)
   }
   if (period === 'next7') return { from: today, through: shift(6) }
-  if (period === 'last30') return { from: shift(-29), through: today }
+  if (period === 'next30') return { from: today, through: shift(29) }
   return null
 }
 export function historyDateError(date?: string, through?: string) {

@@ -9,19 +9,19 @@ import { createStatisticsRequest, statisticsBars } from '../app/utils/statistics
 import { createHistoryOptionsRequest, historyDateError, historySelectionOptions, parseHistoryStatisticsQuery, parseStatisticsPageQuery, statisticsCustomDraft, statisticsParisToday, statisticsPeriod, statisticsPeriodRange, statisticsPeriods, statisticsPageDraft, statisticsPageDraftQuery, statisticsPageRoute, statisticsPageSignature } from '../app/utils/statisticsHistory.ts'
 
 test('four named presets resolve inclusive Paris calendar dates across DST, leap days and years', () => {
-  assert.deepEqual(statisticsPeriods.map(choice => choice.label), ['7 prochains jours', '30 derniers jours', 'Depuis le début de la collecte', 'Période personnalisée'])
+  assert.deepEqual(statisticsPeriods.map(choice => choice.label), ['7 prochains jours', '30 prochains jours', 'Depuis le début de la collecte', 'Période personnalisée'])
   assert.deepEqual(statisticsPeriod({}), { period: 'next7', error: '' })
-  for (const [today, nextEnd, lastStart] of [
-    ['2026-03-27', '2026-04-02', '2026-02-26'],
-    ['2026-10-23', '2026-10-29', '2026-09-24'],
-    ['2028-02-27', '2028-03-04', '2028-01-29'],
-    ['2028-03-01', '2028-03-07', '2028-02-01'],
-    ['2026-12-29', '2027-01-04', '2026-11-30'],
-    ['2027-01-02', '2027-01-08', '2026-12-04']
+  for (const [today, nextEnd, next30End] of [
+    ['2026-03-27', '2026-04-02', '2026-04-25'],
+    ['2026-10-23', '2026-10-29', '2026-11-21'],
+    ['2028-02-27', '2028-03-04', '2028-03-27'],
+    ['2028-03-01', '2028-03-07', '2028-03-30'],
+    ['2026-12-29', '2027-01-04', '2027-01-27'],
+    ['2027-01-02', '2027-01-08', '2027-01-31']
   ] as const) {
     assert.deepEqual(statisticsPeriodRange('next7', today), { from: today, through: nextEnd })
     assert.deepEqual(parseStatisticsPageQuery({}, today), { query: { date: today, date_to: nextEnd }, error: '' })
-    assert.deepEqual(parseStatisticsPageQuery({ period: 'last30' }, today).query, { date: lastStart, date_to: today })
+    assert.deepEqual(parseStatisticsPageQuery({ period: 'next30' }, today).query, { date: today, date_to: next30End })
   }
   for (const [instant, day] of [['2026-03-28T23:30:00Z', '2026-03-29'], ['2026-03-29T22:30:00Z', '2026-03-30'], ['2026-10-24T22:30:00Z', '2026-10-25'], ['2026-10-25T23:30:00Z', '2026-10-26'], ['2026-12-31T23:30:00Z', '2027-01-01']]) assert.equal(statisticsParisToday(new Date(instant!)), day)
   assert.deepEqual(parseStatisticsPageQuery({ period: 'all', date: 'stale', date_to: ['ignored'], city: 'paris' }).query, { city: ['paris'] })
@@ -50,11 +50,11 @@ test('period drafts, reset and back/forward preserve filters, strip obsolete mod
   const route = { period: 'custom', date: '2020-01-01', date_to: '2030-01-01', city: ['paris', 'unknown'], theater: ['other'], campaign: ['footer', 'test'], mode: 'history' }
   const before = structuredClone(route)
   const draft = statisticsPageDraft(route, today)
-  draft.period = 'last30'
+  draft.period = 'next30'
   const parsed = statisticsPageDraftQuery(draft, today)
-  assert.deepEqual(parsed.query, { date: '2026-08-17', date_to: today, city: ['paris', 'unknown'], theater: ['other'] })
+  assert.deepEqual(parsed.query, { date: today, date_to: '2026-10-14', city: ['paris', 'unknown'], theater: ['other'] })
   const next = statisticsPageRoute(route, draft.period, parsed.query)
-  assert.deepEqual(next, { period: 'last30', city: ['paris', 'unknown'], theater: ['other'], campaign: ['footer', 'test'] })
+  assert.deepEqual(next, { period: 'next30', city: ['paris', 'unknown'], theater: ['other'], campaign: ['footer', 'test'] })
   assert.deepEqual(route, before)
   assert.deepEqual(statisticsPageRoute(route), { campaign: ['footer', 'test'] })
   assert.deepEqual(statisticsPageRoute({ mode: 'invalid', period: ['bad'], date: 'bad' }), {})

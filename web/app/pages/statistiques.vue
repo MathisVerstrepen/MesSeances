@@ -98,7 +98,7 @@ function refreshCalendarDay() {
   if (today.value === current) return
   today.value = current
   const { period } = statisticsPeriod(route.query)
-  if (period === 'next7' || period === 'last30') void reload()
+  if (period === 'next7' || period === 'next30') void reload()
 }
 onMounted(() => { document.addEventListener('visibilitychange', refreshCalendarDay); refreshCalendarDay() })
 onBeforeUnmount(() => { initialActive = false; initialController.abort(); request.cancel(); clearTimeout(skeletonTimer); document.removeEventListener('visibilitychange', refreshCalendarDay) })
@@ -112,7 +112,7 @@ async function apply() {
   const query = statisticsPageRoute(route.query, draft.value.period, parsed.query)
   const changed = statisticsPageSignature(query) !== signature.value
   if (!queriesEqual(route.query, query)) await router.push({ query })
-  if (!changed && (error.value || (dayChanged && (draft.value.period === 'next7' || draft.value.period === 'last30')))) await reload()
+  if (!changed && (error.value || (dayChanged && (draft.value.period === 'next7' || draft.value.period === 'next30')))) await reload()
 }
 async function reset() {
   const query = statisticsPageRoute(route.query)
