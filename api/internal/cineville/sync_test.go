@@ -91,6 +91,32 @@ func singleFetcher(t *testing.T, page pageProps) *fixtureFetcher {
 	return &fixtureFetcher{t: t, builds: []string{"build-1"}, catalog: []cinema{c}, pages: map[string]pageProps{c.Route: page}}
 }
 
+func TestSyncNormalizesPostalCode(t *testing.T) {
+	for _, test := range []struct {
+		name, postal, want string
+	}{
+		{name: "normal", postal: "29600", want: "29600"},
+		{name: "internal space", postal: "29 600", want: "29600"},
+		{name: "ASCII whitespace", postal: " \t29\n600\r ", want: "29600"},
+		{name: "nonbreaking space", postal: "29\u00a0600", want: "29600"},
+		{name: "narrow nonbreaking space", postal: "29\u202f600", want: "29600"},
+		{name: "leading zero", postal: "01 000", want: "01000"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := fixtureCinema()
+			c.Postal = test.postal
+			fetcher := &fixtureFetcher{t: t, builds: []string{"build-1"}, catalog: []cinema{c}, pages: map[string]pageProps{c.Route: fixturePage(c)}}
+			data, summary, err := Sync(t.Context(), fetcher, fixtureOptions())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(data.Theaters) != 1 || data.Theaters[0].PostalCode != test.want || summary.Cinemas != 1 || summary.Requests != 2 {
+				t.Fatalf("theaters=%+v summary=%+v", data.Theaters, summary)
+			}
+		})
+	}
+}
+
 func TestSyncUnionMetadataAndUnknownEnds(t *testing.T) {
 	c := fixtureCinema()
 	p := fixturePage(c)
