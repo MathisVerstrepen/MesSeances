@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"messeances/api/internal/schedule"
 )
 
 type RunOptions struct {
@@ -110,6 +112,7 @@ func evaluate(theater Theater, hash string, candidates []Candidate, updatedAt ti
 	}
 	bestMatch := -1
 	bestAmbiguous := -1
+	postalCode := schedule.NormalizePostalCode(theater.PostalCode)
 	for index, candidate := range candidates {
 		parseable := strings.TrimSpace(candidate.Label) != "" && candidate.HasScore && !math.IsNaN(candidate.Score) && !math.IsInf(candidate.Score, 0) && candidate.Score >= 0 && candidate.Score <= 1
 		if parseable && (bestAmbiguous < 0 || candidate.Score > candidates[bestAmbiguous].Score) {
@@ -117,7 +120,7 @@ func evaluate(theater Theater, hash string, candidates []Candidate, updatedAt ti
 		}
 		validCoordinates := validCandidateCoordinates(candidate)
 		acceptedType := candidate.Type == "housenumber" || candidate.Type == "street" && acceptsStreetCandidate(theater)
-		accepted := parseable && validCoordinates && strings.TrimSpace(candidate.PostalCode) == strings.TrimSpace(theater.PostalCode) && cityKey(candidate.City) == cityKey(theater.City) && acceptedType && candidate.Score >= 0.70
+		accepted := parseable && validCoordinates && schedule.NormalizePostalCode(candidate.PostalCode) == postalCode && cityKey(candidate.City) == cityKey(theater.City) && acceptedType && candidate.Score >= 0.70
 		if accepted && (bestMatch < 0 || candidate.Score > candidates[bestMatch].Score) {
 			bestMatch = index
 		}

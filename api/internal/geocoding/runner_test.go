@@ -60,6 +60,44 @@ func TestRunnerMatchesSkipsAndWritesAddressChanges(t *testing.T) {
 	}
 }
 
+func TestRunnerNormalizesStoredAndCandidatePostalCodes(t *testing.T) {
+	for _, test := range []struct {
+		name, stored, candidate, candidateType string
+		want                                   Status
+	}{
+		{name: "normal", stored: "29600", candidate: "29600", candidateType: "housenumber", want: StatusMatched},
+		{name: "stored internal space", stored: "29 600", candidate: "29600", candidateType: "housenumber", want: StatusMatched},
+		{name: "candidate internal space", stored: "29600", candidate: "29 600", candidateType: "housenumber", want: StatusMatched},
+		{name: "ASCII whitespace", stored: " \t29\n600\r ", candidate: "29\t600", candidateType: "housenumber", want: StatusMatched},
+		{name: "nonbreaking spaces", stored: "29\u00a0600", candidate: "29\u202f600", candidateType: "housenumber", want: StatusMatched},
+		{name: "leading zero", stored: "01 000", candidate: "01000", candidateType: "housenumber", want: StatusMatched},
+		{name: "postcode mismatch", stored: "29 600", candidate: "29 610", candidateType: "housenumber", want: StatusAmbiguous},
+		{name: "punctuation is not whitespace", stored: "29-600", candidate: "29600", candidateType: "housenumber", want: StatusAmbiguous},
+		{name: "Cineville street remains ambiguous", stored: "29 600", candidate: "29600", candidateType: "street", want: StatusAmbiguous},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			theater := Theater{Provider: "cineville", ProviderID: "4672", Address: "ZAC Saint-Fiacre Rue Karine Ruby", PostalCode: test.stored, City: "Plourin-Lès-Morlaix"}
+			store := &memoryStore{theaters: []Theater{theater}}
+			provider := &fakeProvider{candidates: []Candidate{{Longitude: -3.83, Latitude: 48.57, HasCoordinates: true, Label: "Rue Saint Fiacre 29600 Plourin-lès-Morlaix", Score: .8, HasScore: true, PostalCode: test.candidate, City: theater.City, Type: test.candidateType}}}
+			runner, err := NewRunner(store, provider, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			summary, err := runner.Run(t.Context(), RunOptions{})
+			if err != nil || summary.Selected != 1 || summary.Failed != 0 || summary.Written != 1 || len(store.saved) != 1 || provider.calls != 1 {
+				t.Fatalf("summary=%+v saved=%+v calls=%d err=%v", summary, store.saved, provider.calls, err)
+			}
+			location := store.saved[0]
+			if location.Status != test.want || location.AddressHash != AddressHash(theater.Address, test.stored, theater.City) || store.theaters[0].PostalCode != test.stored {
+				t.Fatalf("location=%+v stored postcode=%q", location, store.theaters[0].PostalCode)
+			}
+			if test.want == StatusAmbiguous && location.Suggestion == nil {
+				t.Fatal("ambiguous location has no reviewable suggestion")
+			}
+		})
+	}
+}
+
 func TestRunnerPreserveMatchedSelectionMatrix(t *testing.T) {
 	address, postalCode, city := "40 rue de Béthune", "59000", "Lille"
 	currentHash := AddressHash(address, postalCode, city)
