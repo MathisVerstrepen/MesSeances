@@ -415,11 +415,11 @@ func statisticsFinishRanks(result *Statistics, movies map[string]*statisticsMovi
 	}
 	sort.Slice(result.Local.Cities, func(i, j int) bool {
 		a, b := result.Local.Cities[i], result.Local.Cities[j]
-		return statisticsLocalLess(a.MovieCount, b.MovieCount, a.ShowtimeCount, b.ShowtimeCount, a.Name, b.Name, a.Slug, b.Slug)
+		return statisticsLocalLess(a.ShowtimeCount, b.ShowtimeCount, a.MovieCount, b.MovieCount, a.Name, b.Name, a.Slug, b.Slug)
 	})
 	sort.Slice(result.Local.Theaters, func(i, j int) bool {
 		a, b := result.Local.Theaters[i], result.Local.Theaters[j]
-		return statisticsLocalLess(a.MovieCount, b.MovieCount, a.ShowtimeCount, b.ShowtimeCount, a.Name, b.Name, a.ID, b.ID)
+		return statisticsLocalLess(a.ShowtimeCount, b.ShowtimeCount, a.MovieCount, b.MovieCount, a.Name, b.Name, a.ID, b.ID)
 	})
 	result.Totals.Cities, result.Totals.Theaters = len(cities), len(theaters)
 }

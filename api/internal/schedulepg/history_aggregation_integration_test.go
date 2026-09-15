@@ -48,8 +48,8 @@ func TestHistoryAggregationIntegration(t *testing.T) {
 	if city.Slug != "lille" || city.ShowtimeCount != 5 || city.MovieCount != 2 || city.TheaterCount != 2 {
 		t.Fatal("city distinct identities", city)
 	}
-	// Local ranking prioritizes distinct movies, not the pair's screening weight.
-	if r.Local.Theaters[0].ID != "ugc-26" || r.Local.Theaters[0].MovieCount != 2 || r.Local.Theaters[0].ShowtimeCount != 2 || r.Local.Theaters[1].ID != "ugc-25" || r.Local.Theaters[1].MovieCount != 1 || r.Local.Theaters[1].ShowtimeCount != 3 {
+	// Local ranking prioritizes screenings while preserving distinct movie counts.
+	if r.Local.Theaters[0].ID != "ugc-25" || r.Local.Theaters[0].MovieCount != 1 || r.Local.Theaters[0].ShowtimeCount != 3 || r.Local.Theaters[1].ID != "ugc-26" || r.Local.Theaters[1].MovieCount != 2 || r.Local.Theaters[1].ShowtimeCount != 2 {
 		t.Fatal("theater distinct identities", r.Local.Theaters)
 	}
 	if len(r.Genres) != 2 || r.Genres[0].Value != "drame" || r.Genres[0].Count != 3 || r.Genres[1].Value != "action" || r.Genres[1].Count != 1 || r.Runtimes[3].Count != 1 {

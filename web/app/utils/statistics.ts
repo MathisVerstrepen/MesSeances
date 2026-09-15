@@ -173,6 +173,12 @@ export function statisticsHeatmapRows(cells: readonly StatisticsHeatmapCell[]) {
 }
 
 export type StatisticsLocalRow = StatisticsCityRank | StatisticsTheaterRank
+const cityNameParticles = new Set(['à', 'au', 'aux', 'd', 'de', 'des', 'du', 'en', 'et', 'l', 'la', 'le', 'les', 'lès', 'près', 'sous', 'sur'])
+// Display only: provider spelling must not change city identities or grouping.
+export function statisticsCityName(value: string) {
+  return value.trim().toLocaleLowerCase('fr-FR').replace(/\p{L}[\p{L}\p{M}]*/gu, (word: string, offset: number) =>
+    offset > 0 && cityNameParticles.has(word) ? word : word.charAt(0).toLocaleUpperCase('fr-FR') + word.slice(1))
+}
 export type StatisticsLocalColumn = 'name' | 'movie_count' | 'showtime_count' | 'theater_count' | 'city'
 export interface StatisticsLocalSort { column: StatisticsLocalColumn; direction: 'ascending' | 'descending' }
 const normalized = (value: string) => value.trim().toLocaleLowerCase('fr-FR')
@@ -184,12 +190,13 @@ function localValue(row: StatisticsLocalRow, column: StatisticsLocalColumn): str
   return row[column]
 }
 export function nextStatisticsSort(current: StatisticsLocalSort | null, column: StatisticsLocalColumn): StatisticsLocalSort {
+  current ??= { column: 'showtime_count', direction: 'descending' }
   return { column, direction: current?.column === column ? current.direction === 'ascending' ? 'descending' : 'ascending' : column === 'name' || column === 'city' ? 'ascending' : 'descending' }
 }
 export function statisticsLocalPage(rows: readonly StatisticsLocalRow[], sort: StatisticsLocalSort | null, page: number) {
   const sorted = [...rows].sort((left, right) => {
     const tie = compareText(normalized(left.name), normalized(right.name)) || compareText(localID(left), localID(right))
-    if (!sort) return right.movie_count - left.movie_count || right.showtime_count - left.showtime_count || tie
+    if (!sort) return right.showtime_count - left.showtime_count || right.movie_count - left.movie_count || tie
     const a = localValue(left, sort.column)
     const b = localValue(right, sort.column)
     const comparison = sort.column === 'name' || sort.column === 'city' ? compareText(normalized(String(a)), normalized(String(b))) : Number(a) - Number(b)

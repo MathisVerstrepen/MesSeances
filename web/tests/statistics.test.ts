@@ -3,10 +3,26 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { createFetch } from 'ofetch'
 import type { LocationQuery } from 'vue-router'
-import { statisticsHeatmapColors, statisticsHeatmapLevel, statisticsHeatmapStyle } from '../app/utils/statistics.ts'
+import { statisticsCityName, statisticsHeatmapColors, statisticsHeatmapLevel, statisticsHeatmapStyle } from '../app/utils/statistics.ts'
 import type { StatisticsCityRank, StatisticsResponse, StatisticsTheaterRank } from '../app/types/api.ts'
 import { useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import { createStatisticsRequest, nextStatisticsSort, parseStatisticsQuery, statisticsBars, statisticsBucketLabel, statisticsDateError, statisticsDraft, statisticsDraftQuery, statisticsHeatmapRows, statisticsHours, statisticsLocalPage, statisticsMaxSelections, statisticsOptionsWithSelection, statisticsQuerySignature, statisticsRouteQuery, statisticsSearchOptions, statisticsSelectionSummary, statisticsShare, toggleStatisticsSelection } from '../app/utils/statistics.ts'
+
+test('local city names use consistent French casing without changing cinema names', async () => {
+  for (const [input, expected] of [
+    ['PARIS', 'Paris'], ['bOrDeAuX', 'Bordeaux'], ['LYON', 'Lyon'], ['MÂCON', 'Mâcon'],
+    ['FONTENAY-LE-COMTE', 'Fontenay-le-Comte'], ['LA ROCHELLE', 'La Rochelle'],
+    ['LOMME (LILLE)', 'Lomme (Lille)'], ['VILLENEUVE-D’ASCQ', 'Villeneuve-d’Ascq'],
+    ["L'HAŸ-LES-ROSES", "L'Haÿ-les-Roses"], ['ÉVRY-COURCOURONNES', 'Évry-Courcouronnes'],
+    ['  CLERMONT-FERRAND  ', 'Clermont-Ferrand'], ['', '']
+  ]) {
+    assert.equal(statisticsCityName(input!), expected)
+    assert.equal(statisticsCityName(expected!), expected)
+  }
+  const component = await readFile(new URL('../app/components/StatisticsLocalTable.vue', import.meta.url), 'utf8')
+  assert.ok(component.includes("'theater_count' in row ? statisticsCityName(row.name) : row.name"))
+  assert.ok(component.includes('statisticsCityName(row.city)'))
+})
 
 test('heatmap distinguishes typical counts despite peaks and reserves white for zero', () => {
   assert.equal(statisticsHeatmapLevel(0, 1957), 0)
@@ -230,12 +246,27 @@ test('local sorting acts before 20-row slicing, supports whole catalog and never
 })
 
 test('sort defaults numeric descending and text ascending, toggles, ties by name then stable identity', () => {
+  assert.deepEqual(nextStatisticsSort(null, 'showtime_count'), { column: 'showtime_count', direction: 'ascending' })
   assert.deepEqual(nextStatisticsSort(null, 'movie_count'), { column: 'movie_count', direction: 'descending' })
   assert.deepEqual(nextStatisticsSort(nextStatisticsSort(null, 'movie_count'), 'movie_count'), { column: 'movie_count', direction: 'ascending' })
   assert.deepEqual(nextStatisticsSort(null, 'city'), { column: 'city', direction: 'ascending' })
   const rows: StatisticsTheaterRank[] = ['z', 'b', 'a'].map(id => ({ id, slug: id, name: id === 'z' ? 'Zoo' : 'Alpha', city: 'Paris', city_slug: 'paris', chain: 'ugc', movie_count: 2, showtime_count: 3 }))
   assert.deepEqual(statisticsLocalPage(rows, nextStatisticsSort(null, 'showtime_count'), 1).rows.map(row => row.slug), ['a', 'b', 'z'])
   assert.deepEqual(statisticsLocalPage(rows, null, 1).rows.map(row => row.slug), ['a', 'b', 'z'])
+})
+
+test('local default ranks screenings before films for cities and theaters', () => {
+  const cities: StatisticsCityRank[] = [
+    { slug: 'many-films', name: 'Alpha', movie_count: 9, showtime_count: 10, theater_count: 1 },
+    { slug: 'many-shows', name: 'Zulu', movie_count: 1, showtime_count: 20, theater_count: 1 },
+    { slug: 'tie-more-films', name: 'Beta', movie_count: 2, showtime_count: 20, theater_count: 1 }
+  ]
+  const theaters: StatisticsTheaterRank[] = cities.map(({ theater_count: _count, ...row }) => ({ ...row, id: row.slug, city: 'Paris', city_slug: 'paris', chain: 'ugc' }))
+  for (const rows of [cities, theaters]) {
+    assert.deepEqual(statisticsLocalPage(rows, null, 1).rows.map(row => row.slug), ['tie-more-films', 'many-shows', 'many-films'])
+    assert.equal(statisticsLocalPage(rows, nextStatisticsSort(null, 'showtime_count'), 1).rows[0]?.slug, 'many-films')
+    assert.equal(statisticsLocalPage(rows, nextStatisticsSort(null, 'movie_count'), 1).rows[0]?.slug, 'many-films')
+  }
 })
 
 function deferred<T>() {

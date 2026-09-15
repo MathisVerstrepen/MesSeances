@@ -235,13 +235,13 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
  SELECT t.city_slug slug,min(t.city_name COLLATE "C") name,sum(h.showtime_count) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT t.id) theater_count
  FROM movie_theaters h JOIN theaters t ON t.id=h.theater_id GROUP BY t.city_slug
 ), city_ranks AS (
- SELECT * FROM city_counts ORDER BY movie_count DESC,showtime_count DESC,lower(btrim(name,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",slug COLLATE "C" LIMIT 100
+ SELECT * FROM city_counts ORDER BY showtime_count DESC,movie_count DESC,lower(btrim(name,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",slug COLLATE "C" LIMIT 100
 ), theater_counts AS MATERIALIZED (
  SELECT t.id,t.slug,t.name,t.city_name city,t.city_slug,t.provider chain,c.showtime_count,c.movie_count
  FROM (SELECT theater_id,sum(showtime_count) showtime_count,count(*) movie_count FROM movie_theaters GROUP BY theater_id) c
  JOIN theaters t ON t.id=c.theater_id
 ), theater_ranks AS (
- SELECT * FROM theater_counts ORDER BY movie_count DESC,showtime_count DESC,lower(btrim(name,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",id COLLATE "C" LIMIT 100
+ SELECT * FROM theater_counts ORDER BY showtime_count DESC,movie_count DESC,lower(btrim(name,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",id COLLATE "C" LIMIT 100
 ), genre_counts AS MATERIALIZED (
  SELECT g.value,CASE WHEN g.value='unknown' THEN 'Non renseigné' ELSE (SELECT min(all_genres.label COLLATE "C") FROM movie_genres all_genres WHERE all_genres.value=g.value) END label,count(DISTINCT m.id) count
  FROM movie_counts m JOIN movie_genres g ON g.id=m.id GROUP BY g.value

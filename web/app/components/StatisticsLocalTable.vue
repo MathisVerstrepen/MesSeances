@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { StatisticsResponse } from '~/types/api'
-import { nextStatisticsSort, statisticsCount, statisticsLocalPage, type StatisticsLocalColumn, type StatisticsLocalSort } from '~/utils/statistics'
+import { nextStatisticsSort, statisticsCityName, statisticsCount, statisticsLocalPage, type StatisticsLocalColumn, type StatisticsLocalSort } from '~/utils/statistics'
 
 const props = defineProps<{ local: StatisticsResponse['local']; limits?: { cities: boolean; theaters: boolean } }>()
 const mode = ref<'cities' | 'theaters'>('cities')
@@ -30,23 +30,23 @@ const buttonClass = 'min-h-11 border-2 border-ink px-4 py-2 text-sm font-extrabo
         <input v-model="mode" type="radio" name="statistics-local-mode" :value="option.value" class="size-5 accent-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" />{{ option.label }}
       </label>
     </fieldset>
-    <p v-if="limits?.[mode]" class="mb-5 text-sm"><strong>{{ mode === 'cities' ? '100 premières villes' : '100 premiers cinémas' }}</strong>. Tri et pagination limités à ces 100 résultats, classés initialement par films puis séances. Les totaux portent sur tous les résultats filtrés.</p>
+    <p v-if="limits?.[mode]" class="mb-5 text-sm"><strong>{{ mode === 'cities' ? '100 premières villes' : '100 premiers cinémas' }}</strong>. Tri et pagination limités à ces 100 résultats, classés initialement par séances puis films. Les totaux portent sur tous les résultats filtrés.</p>
     <div class="max-w-full overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" role="region" :aria-label="`Offre par ${mode === 'cities' ? 'ville' : 'cinéma'}, tableau défilant`" tabindex="0">
       <table class="w-full min-w-[36rem] border-collapse text-left text-sm">
-        <caption class="sr-only">Offre locale. Activer un en-tête pour trier les résultats affichés. Tri initial : films puis séances, par ordre décroissant.</caption>
+        <caption class="sr-only">Offre locale. Activer un en-tête pour trier les résultats affichés. Tri initial : séances puis films, par ordre décroissant.</caption>
         <thead class="border-y-2 border-ink bg-[#e8e6de]">
           <tr>
-            <th v-for="column in columns" :key="column.key" scope="col" :aria-sort="sort?.column === column.key ? sort.direction : !sort && column.key === 'movie_count' ? 'descending' : 'none'" class="px-3">
-              <button type="button" class="min-h-11 py-2 font-extrabold underline decoration-dotted underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="sortBy(column.key)">{{ column.label }} <span aria-hidden="true">{{ sort?.column === column.key ? sort.direction === 'ascending' ? '↑' : '↓' : !sort && column.key === 'movie_count' ? '↓' : '↕' }}</span></button>
+            <th v-for="column in columns" :key="column.key" scope="col" :aria-sort="sort?.column === column.key ? sort.direction : !sort && column.key === 'showtime_count' ? 'descending' : 'none'" class="px-3">
+              <button type="button" class="min-h-11 py-2 font-extrabold underline decoration-dotted underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" @click="sortBy(column.key)">{{ column.label }} <span aria-hidden="true">{{ sort?.column === column.key ? sort.direction === 'ascending' ? '↑' : '↓' : !sort && column.key === 'showtime_count' ? '↓' : '↕' }}</span></button>
             </th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="row in result.rows" :key="'id' in row ? row.id : row.slug" class="border-b border-ink/20">
-            <th scope="row" class="max-w-96 px-3 py-4 font-bold">{{ row.name }}</th>
+            <th scope="row" class="max-w-96 px-3 py-4 font-bold">{{ 'theater_count' in row ? statisticsCityName(row.name) : row.name }}</th>
             <td class="px-3 py-4 font-mono tabular-nums">{{ statisticsCount(row.movie_count) }}</td>
             <td class="px-3 py-4 font-mono tabular-nums">{{ statisticsCount(row.showtime_count) }}</td>
-            <td class="px-3 py-4" :class="'theater_count' in row ? 'font-mono tabular-nums' : ''">{{ 'theater_count' in row ? statisticsCount(row.theater_count) : row.city }}</td>
+            <td class="px-3 py-4" :class="'theater_count' in row ? 'font-mono tabular-nums' : ''">{{ 'theater_count' in row ? statisticsCount(row.theater_count) : statisticsCityName(row.city) }}</td>
           </tr>
           <tr v-if="!result.rows.length"><td colspan="4" class="p-4">Aucune donnée pour ces filtres.</td></tr>
         </tbody>

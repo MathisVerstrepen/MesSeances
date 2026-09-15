@@ -419,6 +419,78 @@ func TestStatisticsConcentrationAndDeterministicTies(t *testing.T) {
 	}
 }
 
+func TestStatisticsLocalRanksByShowtimesThenMovies(t *testing.T) {
+	result := Statistics{}
+	cities, theaters := make(map[string]*statisticsLocalCount), make(map[string]*statisticsLocalCount)
+	inventory := make(map[string]StatisticsTheaterOption)
+	// Input opposes the desired order, including normalized-name and ID ties.
+	rows := []struct {
+		id, name          string
+		showtimes, movies int
+	}{
+		{"many-movies", "A", 3, 3},
+		{"name-last", "Z", 4, 2},
+		{"tie-b", "\u2003ALPHA\u00a0", 4, 2},
+		{"tie-a", "alpha", 4, 2},
+		{"secondary", "Z", 4, 3},
+		{"most-showtimes", "Z", 5, 1},
+	}
+	for _, row := range rows {
+		count := &statisticsLocalCount{showtimes: row.showtimes, movies: make(map[string]bool), theaters: map[string]bool{row.id: true}}
+		for i := range row.movies {
+			count.movies[fmt.Sprint(i)] = true
+		}
+		cities[row.id], theaters[row.id] = count, count
+		result.Options.Cities = append(result.Options.Cities, City{Slug: row.id, Name: row.name})
+		inventory[row.id] = StatisticsTheaterOption{ID: row.id, Name: row.name, CitySlug: row.id}
+	}
+	statisticsFinishRanks(&result, nil, cities, theaters, inventory)
+	want := []string{"most-showtimes", "secondary", "tie-a", "tie-b", "name-last", "many-movies"}
+	if len(result.Local.Cities) != len(want) || len(result.Local.Theaters) != len(want) {
+		t.Fatalf("local rows=%+v", result.Local)
+	}
+	for i, id := range want {
+		city, theater := result.Local.Cities[i], result.Local.Theaters[i]
+		if city.Slug != id || theater.ID != id {
+			t.Fatalf("position %d: city=%+v theater=%+v want=%s", i, city, theater, id)
+		}
+		count := cities[id]
+		if city.ShowtimeCount != count.showtimes || theater.ShowtimeCount != count.showtimes || city.MovieCount != len(count.movies) || theater.MovieCount != len(count.movies) || city.TheaterCount != 1 {
+			t.Fatalf("counts changed: city=%+v theater=%+v", city, theater)
+		}
+	}
+	if result.Totals.Cities != len(rows) || result.Totals.Theaters != len(rows) {
+		t.Fatalf("totals=%+v", result.Totals)
+	}
+}
+
+func TestStatisticsMovieRankingPrioritiesUnchanged(t *testing.T) {
+	rows := []StatisticsMovieRank{
+		{Slug: "film-1", Title: "A", ShowtimeCount: 3, TheaterCount: 3},
+		{Slug: "film-2", Title: "Z", ShowtimeCount: 5, TheaterCount: 1},
+		{Slug: "film-3", Title: "Z", ShowtimeCount: 5, TheaterCount: 2},
+		{Slug: "film-4", Title: "Z", ShowtimeCount: 4, TheaterCount: 3},
+	}
+	for _, tc := range []struct {
+		name       string
+		byTheaters bool
+		want       []string
+	}{
+		{"showtimes", false, []string{"film-3", "film-2", "film-4", "film-1"}},
+		{"theaters", true, []string{"film-4", "film-1", "film-3", "film-2"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			movies := slices.Clone(rows)
+			statisticsSortMovies(movies, tc.byTheaters)
+			for i, slug := range tc.want {
+				if movies[i].Slug != slug {
+					t.Fatalf("position %d: got=%s want=%s", i, movies[i].Slug, slug)
+				}
+			}
+		})
+	}
+}
+
 func TestStatisticsDSTRepeatedHourAndServiceWeekday(t *testing.T) {
 	data := testDataset()
 	data.Window = Window{"2026-10-24", "2026-10-25"}
