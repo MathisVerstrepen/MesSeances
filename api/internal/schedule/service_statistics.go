@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const statisticsUnknown = "unknown"
@@ -43,6 +44,11 @@ func (s *Service) Statistics(ctx context.Context, query StatisticsQuery) (Statis
 		return Statistics{}, err
 	}
 	filters := statisticsFilters{query: query, cities: statisticsSelectionSet(query.City), theaters: statisticsSelectionSet(query.Theater)}
+	// Match the same alias-first identity used for retained showtimes below.
+	film := query.Film
+	if canonical, ok := view.movieAlias[film]; ok {
+		film = canonical
+	}
 	result := newStatistics(view, now, window)
 	options, theaterOptions, err := statisticsInventory(ctx, view)
 	if err != nil {
@@ -87,6 +93,9 @@ func (s *Service) Statistics(ctx context.Context, query StatisticsQuery) (Statis
 		}
 		language, format := statisticsLanguage(showing.Language), statisticsFormat(showing.Format)
 		languages[language], formats[format] = true, true
+		if query.Film != "" && slug != film {
+			continue
+		}
 		theater, ok := theaterOptions[showing.TheaterID]
 		if !ok || !statisticsMatches(filters, window, showing, theater, movie, language, format) {
 			continue
@@ -136,6 +145,11 @@ func (s *Service) Statistics(ctx context.Context, query StatisticsQuery) (Statis
 }
 
 func (s *Service) statisticsQuery(query StatisticsQuery, now time.Time) (StatisticsQuery, Window, error) {
+	film, err := statisticsNormalizeFilm(query.Film)
+	if err != nil {
+		return query, Window{}, err
+	}
+	query.Film = film
 	for _, selection := range []*[]string{&query.City, &query.Theater} {
 		values, err := statisticsNormalizeSelection(*selection)
 		if err != nil {
@@ -178,6 +192,13 @@ func (s *Service) statisticsQuery(query StatisticsQuery, now time.Time) (Statist
 		return query, Window{}, invalid("La période doit contenir de 1 à 31 jours.")
 	}
 	return query, Window{From: from.Format(dateLayout), Through: through.Format(dateLayout)}, nil
+}
+
+func statisticsNormalizeFilm(value string) (string, error) {
+	if len(value) > 200 || !utf8.ValidString(value) || strings.ContainsRune(value, '\x00') || value != "" && strings.TrimSpace(value) == "" {
+		return "", invalid("Les filtres statistiques sont invalides.")
+	}
+	return strings.TrimSpace(value), nil
 }
 
 func statisticsNormalizeSelection(values []string) ([]string, error) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
+import { AlertTriangle, ArrowDownUp, CalendarDays, ChartNoAxesCombined, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { isShowtimeFormat } from '~/utils/formats'
@@ -565,9 +565,20 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           @error="backdropFailed = true"
         />
         <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
-        <MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule.movie.title" />
+        <div class="absolute right-4 top-4 z-20 flex flex-col-reverse items-center gap-3 sm:right-6 sm:top-6 sm:flex-row lg:right-8 lg:top-8">
+          <NuxtLink
+            :to="{ path: '/statistiques', query: { period: 'all', film: schedule.movie.slug } }"
+            aria-label="Statistiques"
+            title="Statistiques"
+            class="inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink shadow-[3px_3px_0_#27272a] hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3"
+            :class="backdropAvailable ? 'focus-visible:outline-white' : 'focus-visible:outline-ink'"
+          >
+            <ChartNoAxesCombined :size="20" aria-hidden="true" />
+          </NuxtLink>
+          <MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule.movie.title" />
+        </div>
         <div
-          class="relative z-10 mx-auto aspect-[2/3] w-40 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] lg:w-[220px]"
+          class="relative z-10 mx-auto aspect-[2/3] w-40 max-w-[calc(100%_-_7rem)] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] sm:max-w-none lg:w-[220px]"
         >
           <PosterImage
             :src="schedule.movie.poster_url"
@@ -580,8 +591,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             :fallback-icon-size="32"
           />
         </div>
-        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-16' : undefined]">
-          <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase max-sm:[overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
+        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-28' : 'sm:pr-16']">
+          <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase [overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
           <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
             <span v-if="schedule.movie.runtime_minutes > 0" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ schedule.movie.runtime_minutes }} min</span>
             <time v-if="isUpcomingFilm && frenchReleaseLabel" :datetime="schedule.movie.french_release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">Sortie le {{ frenchReleaseLabel }}</time>

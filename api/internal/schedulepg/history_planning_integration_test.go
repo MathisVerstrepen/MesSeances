@@ -28,6 +28,8 @@ func TestHistoryPreparedReuseIntegration(t *testing.T) {
 		{},
 		{Chain: "ugc", Language: "VF", Format: "2D", Pass: "UGC_ILLIMITE"},
 		{City: []string{"lille", "lyon"}, Theater: []string{"ugc-25", "ugc-26"}},
+		{Film: "ugc-film-200"},
+		{Film: "unknown-film"},
 	} {
 		var want schedule.HistoryStatistics
 		for i := range 8 {

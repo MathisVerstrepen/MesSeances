@@ -4,8 +4,8 @@ import { calendarDate, enumQueryValue, mergeOwnedQuery } from './routeQuery.ts'
 import { formatLabel, formatOptions } from './formats.ts'
 import { languageLabel, showtimeLanguageValues } from './showtimeFilters.ts'
 
-export const statisticsQueryKeys = ['date', 'date_to', 'city', 'theater', 'chain', 'language', 'format', 'genre', 'pass'] as const
-export type StatisticsFilterKey = Exclude<typeof statisticsQueryKeys[number], 'date' | 'date_to'>
+export const statisticsQueryKeys = ['date', 'date_to', 'city', 'theater', 'chain', 'language', 'format', 'genre', 'pass', 'film'] as const
+export type StatisticsFilterKey = Exclude<typeof statisticsQueryKeys[number], 'date' | 'date_to' | 'film'>
 export type StatisticsMultiFilterKey = 'city' | 'theater'
 export type StatisticsScalarFilterKey = Exclude<StatisticsFilterKey, StatisticsMultiFilterKey>
 export type StatisticsDraft = Record<Exclude<typeof statisticsQueryKeys[number], StatisticsMultiFilterKey>, string> & Record<StatisticsMultiFilterKey, string[]> & { explicitDates: boolean }
@@ -44,6 +44,8 @@ export function parseStatisticsQuery(route: LocationQuery, today?: string, valid
     const normalized: string[] = []
     for (const entry of entries) {
       if (entry === null) return { query: {}, error: invalidFilters }
+      // Reject NUL and lone UTF-16 surrogates before UTF-8 encoding can replace them.
+      if (key === 'film' && (entry.includes('\0') || /[\uD800-\uDFFF]/u.test(entry))) return { query: {}, error: invalidFilters }
       const isDate = key === 'date' || key === 'date_to'
       if (!isDate && new TextEncoder().encode(entry).length > 200) return { query: {}, error: invalidFilters }
       const value = isDate ? entry : entry.trim()
@@ -60,7 +62,7 @@ export function parseStatisticsQuery(route: LocationQuery, today?: string, valid
   const dateError = validateDates(values.date, values.date_to, today)
   if (dateError) return { query: {}, error: dateError }
   const query: StatisticsQuery = { ...selections }
-  for (const key of ['date', 'date_to', 'genre', 'pass'] as const) {
+  for (const key of ['date', 'date_to', 'genre', 'pass', 'film'] as const) {
     if (values[key] !== undefined) query[key] = values[key]
   }
   if (values.chain) query.chain = enumQueryValue(values.chain, ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran', 'noecinemas'])
@@ -70,7 +72,7 @@ export function parseStatisticsQuery(route: LocationQuery, today?: string, valid
 }
 
 export function statisticsDraft(route: LocationQuery, range?: StatisticsDateRange | null, parse = parseStatisticsQuery): StatisticsDraft {
-  const draft: StatisticsDraft = { date: '', date_to: '', city: [], theater: [], chain: '', language: '', format: '', genre: '', pass: '', explicitDates: route.date !== undefined || route.date_to !== undefined }
+  const draft: StatisticsDraft = { date: '', date_to: '', city: [], theater: [], chain: '', language: '', format: '', genre: '', pass: '', film: '', explicitDates: route.date !== undefined || route.date_to !== undefined }
   const parsed = parse(route)
   const source = parsed.error ? route : statisticsRouteQuery({}, parsed.query)
   for (const key of statisticsQueryKeys) {

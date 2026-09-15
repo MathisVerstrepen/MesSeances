@@ -9,6 +9,7 @@ export type MovieDurationFilter = 'short' | 'medium' | 'long'
 export type Language = QueryLanguage
 
 export interface StatisticsQuery {
+  film?: string
   date?: string
   date_to?: string
   city?: string[]

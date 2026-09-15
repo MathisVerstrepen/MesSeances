@@ -8,6 +8,7 @@ type StatisticsQuery struct {
 	Date, DateTo                         string
 	City, Theater                        []string
 	Chain, Language, Format, Genre, Pass string
+	Film                                 string
 }
 
 type Statistics struct {

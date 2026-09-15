@@ -87,6 +87,10 @@ type HistoryOptions struct {
 // unlike upcoming queries it imposes no today or duration boundary.
 func NormalizeHistoryQuery(query StatisticsQuery) (StatisticsQuery, error) {
 	var err error
+	query.Film, err = statisticsNormalizeFilm(query.Film)
+	if err != nil {
+		return query, err
+	}
 	for _, values := range []*[]string{&query.City, &query.Theater} {
 		for _, value := range *values {
 			if !utf8.ValidString(value) {

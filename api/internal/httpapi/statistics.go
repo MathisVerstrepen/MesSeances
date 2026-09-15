@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"messeances/api/internal/schedule"
 )
@@ -40,7 +41,7 @@ func parseStatisticsQuery(raw string) (schedule.StatisticsQuery, error) {
 	if err != nil {
 		return invalid()
 	}
-	owned := map[string]*string{"date": &query.Date, "date_to": &query.DateTo, "chain": &query.Chain, "language": &query.Language, "format": &query.Format, "genre": &query.Genre, "pass": &query.Pass}
+	owned := map[string]*string{"date": &query.Date, "date_to": &query.DateTo, "chain": &query.Chain, "language": &query.Language, "format": &query.Format, "genre": &query.Genre, "pass": &query.Pass, "film": &query.Film}
 	selections := map[string]*[]string{"city": &query.City, "theater": &query.Theater}
 	for key, entries := range values {
 		if target, ok := selections[key]; ok {
@@ -68,6 +69,9 @@ func parseStatisticsQuery(raw string) (schedule.StatisticsQuery, error) {
 			return invalid()
 		}
 		value := entries[0]
+		if key == "film" && (!utf8.ValidString(value) || strings.ContainsRune(value, '\x00')) {
+			return invalid()
+		}
 		if key != "date" && key != "date_to" {
 			if len(value) > 200 {
 				return invalid()

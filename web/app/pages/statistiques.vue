@@ -207,6 +207,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </header>
     <div class="mx-auto min-w-0 max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
       <form class="border-2 border-ink bg-[#f1efe8] p-4 shadow-[5px_5px_0_#27272a] sm:p-6" aria-label="Filtres des statistiques" novalidate @submit.prevent="apply">
+        <div v-if="draft.film" class="mb-5 flex min-w-0 flex-wrap items-center gap-3">
+          <p class="min-w-0 font-bold [overflow-wrap:anywhere]">Film : {{ draft.film }}</p>
+          <button type="button" :class="[buttonClass, 'bg-surface hover:bg-highlight']" @click="draft.film = ''">Retirer le film</button>
+        </div>
         <div class="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <label :class="labelClass">Période
             <select v-model="draft.period" :class="controlClass" @change="changePeriod"><option v-for="choice in statisticsPeriods" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select>

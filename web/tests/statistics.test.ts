@@ -110,7 +110,7 @@ test('back and forward reconstruct applied drafts without dependent filter clear
 })
 
 test('rejects repeated scalars, empty, oversized and unknown enum selections instead of silently dropping filters', () => {
-  for (const key of ['date', 'date_to', 'city', 'theater', 'chain', 'language', 'format', 'genre', 'pass']) {
+  for (const key of ['date', 'date_to', 'city', 'theater', 'chain', 'language', 'format', 'genre', 'pass', 'film']) {
     for (const value of [null, '', ' '.repeat(3), 'é'.repeat(101)]) assert.ok(parseStatisticsQuery({ [key]: value }).error, `${key}: ${value}`)
     if (key !== 'city' && key !== 'theater') for (const value of [['VF', 'VO'], ['VF', 'VF'], ['VF'], []]) assert.ok(parseStatisticsQuery({ [key]: value }).error, `${key}: repeated scalar`)
   }
@@ -135,6 +135,23 @@ test('list bounds apply before deduplication, byte trimming and total owned quer
   assert.ok(parseStatisticsQuery({ city: [...exactly4096.city.slice(0, -1), 'b'.repeat(178)] }).error)
   assert.ok(parseStatisticsQuery({ city: Array(50).fill('界'.repeat(66)) }).error)
   assert.equal(parseStatisticsQuery({ city: ['paris'], unrelated: 'x'.repeat(10000) }).error, '')
+})
+
+test('film is an exact bounded scalar, never split, case folded or silently removed', () => {
+  assert.deepEqual(parseStatisticsQuery({}).query, {})
+  for (const film of ['film-42', 'Film-42', 'unknown-film', 'film-9223372036854775808', 'registered,alias', 'é'.repeat(100), '😀'.repeat(50), ' '.repeat(199) + 'x', '<b>&/+?#,é']) {
+    assert.deepEqual(parseStatisticsQuery({ film }), { query: { film: film.trim() }, error: '' })
+    assert.equal(statisticsDraftQuery(statisticsDraft({ film })).query.film, film.trim())
+  }
+  for (const film of ['\0film', 'film\0', '\ud800', '\udfff', 'x\ud800y', 'é'.repeat(100) + ' ', '😀'.repeat(50) + 'x', ' '.repeat(200) + 'x']) {
+    assert.ok(parseStatisticsQuery({ film }).error)
+    assert.equal(statisticsDraft({ film }).film, film)
+  }
+  const route = { film: 'film-42', campaign: ['footer', 'test'] }
+  assert.deepEqual(statisticsRouteQuery(route), { campaign: ['footer', 'test'] })
+  assert.deepEqual(route, { film: 'film-42', campaign: ['footer', 'test'] })
+  assert.notEqual(statisticsQuerySignature(route), statisticsQuerySignature({ ...route, film: 'film-43' }))
+  assert.ok(parseStatisticsQuery({ city: [...Array(19).fill('a'.repeat(200)), 'b'.repeat(177)], film: 'x' }).error)
 })
 
 test('draft, route and query arrays are independent, invalid lists remain recoverable and empty arrays disappear', () => {
@@ -345,10 +362,12 @@ test('installed ofetch serializes client arrays as repeated keys without CSV or 
     const api = useMesSeancesApi()
     const city = ['créteil', 'paris & lille', 'comma,id']
     const theater = ['ugc-1', 'pathé/+?#,2']
-    await api.statistics({ city, theater, language: 'VF' })
+    const film = 'alias &+/?#,é'
+    await api.statistics({ city, theater, language: 'VF', film })
     assert.deepEqual(urls[0]!.searchParams.getAll('city'), city)
     assert.deepEqual(urls[0]!.searchParams.getAll('theater'), theater)
-    assert.deepEqual([...urls[0]!.searchParams.keys()], ['city', 'city', 'city', 'theater', 'theater', 'language'])
+    assert.deepEqual(urls[0]!.searchParams.getAll('film'), [film])
+    assert.deepEqual([...urls[0]!.searchParams.keys()], ['city', 'city', 'city', 'theater', 'theater', 'language', 'film'])
     await api.statistics({ city: [], theater: [] })
     assert.equal(urls[1]!.search, '')
     await api.statistics({ city: ['paris'], theater: ['ugc-1'] })

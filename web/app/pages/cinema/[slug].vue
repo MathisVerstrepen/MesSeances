@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, Building2, CalendarDays, ChartNoAxesCombined, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { CatalogMovie, MovieSort, TheaterShowtimesResponse } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
@@ -373,8 +373,16 @@ useHead(() => ({
           </dl>
         </div>
 
-        <div class="border-t-2 border-ink bg-[#f1efe8] px-5 py-4 sm:px-8 sm:py-5 lg:px-10">
-          <p class="max-w-4xl text-sm font-semibold leading-6 sm:text-base sm:leading-7">{{ pageDescription }}</p>
+        <div class="flex items-center justify-between gap-4 border-t-2 border-ink bg-[#f1efe8] px-5 py-4 sm:px-8 sm:py-5 lg:px-10">
+          <p class="min-w-0 max-w-4xl break-words text-sm font-semibold leading-6 sm:text-base sm:leading-7">{{ pageDescription }}</p>
+          <NuxtLink
+            :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
+            aria-label="Statistiques"
+            title="Statistiques"
+            class="inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+          >
+            <ChartNoAxesCombined :size="20" aria-hidden="true" />
+          </NuxtLink>
         </div>
       </header>
 

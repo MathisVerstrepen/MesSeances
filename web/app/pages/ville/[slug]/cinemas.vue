@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, Building2, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, Building2, ChartNoAxesCombined, Film, LoaderCircle, MapPin, RefreshCw } from '@lucide/vue'
 import type { CityDetailResponse, MoviesResponse, MovieSort } from '~/types/api'
 import { cityDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
@@ -260,12 +260,22 @@ useHead(() => ({
       />
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
-          <div class="flex min-w-0 items-end justify-between gap-4 p-5 sm:p-8 lg:p-10">
+          <div class="min-w-0 p-5 sm:p-8 lg:p-10">
             <div class="min-w-0">
               <p class="font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]">Cinémas · ville</p>
               <h1 class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]">{{ detail.city.name }}<span class="text-primary">.</span></h1>
             </div>
-            <ShareButton class="shrink-0" />
+            <div class="mt-6 flex flex-wrap items-center gap-3">
+              <NuxtLink
+                :to="{ path: '/statistiques', query: { period: 'all', city: [detail.city.slug] } }"
+                aria-label="Statistiques"
+                title="Statistiques"
+                class="inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+              >
+                <ChartNoAxesCombined :size="20" aria-hidden="true" />
+              </NuxtLink>
+              <ShareButton class="shrink-0" />
+            </div>
           </div>
 
           <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">

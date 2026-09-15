@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -180,7 +182,11 @@ func (s *Store) HistoryStatistics(ctx context.Context, query schedule.Statistics
 		if query.Date != "" {
 			result.Range = &schedule.Window{From: query.Date, Through: query.DateTo}
 		}
-		if err := tx.QueryRow(ctx, historyStatisticsSQL, query.Date, query.DateTo, query.City, query.Theater, query.Chain, query.Language, query.Format, query.Genre, query.Pass).Scan(&data); err != nil {
+		filmID, err := historyFilmID(ctx, tx, query.Film)
+		if err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, historyStatisticsSQL, query.Date, query.DateTo, query.City, query.Theater, query.Chain, query.Language, query.Format, query.Genre, query.Pass, filmID).Scan(&data); err != nil {
 			return err
 		}
 		// Unmarshal only aggregate fields, preserving coverage and request range.
@@ -193,6 +199,25 @@ func (s *Store) HistoryStatistics(ctx context.Context, query schedule.Statistics
 		return schedule.HistoryStatistics{}, err
 	}
 	return result, nil
+}
+
+// NULL means no filter; zero means an unknown identity, never an unrestricted read.
+// Registered aliases target only nonredirecting rows and take precedence, just
+// like SnapshotView.movieAlias. Canonical IDs follow at most one redirect.
+func historyFilmID(ctx context.Context, tx pgx.Tx, slug string) (*int64, error) {
+	if slug == "" {
+		return nil, nil
+	}
+	var lookupID int64
+	if id, err := strconv.ParseInt(strings.TrimPrefix(slug, "film-"), 10, 64); err == nil && id > 0 && slug == "film-"+strconv.FormatInt(id, 10) {
+		lookupID = id
+	}
+	var id int64
+	err := tx.QueryRow(ctx, `SELECT coalesce(
+ (SELECT p.id FROM movie_slug_aliases a JOIN public_movies p ON p.id=a.public_movie_id WHERE a.slug=$1 AND p.redirect_to_id IS NULL),
+ (SELECT c.id FROM public_movies p JOIN public_movies c ON c.id=coalesce(p.redirect_to_id,p.id) WHERE p.id=$2 AND c.redirect_to_id IS NULL),
+ 0)::bigint`, slug, lookupID).Scan(&id)
+	return &id, err
 }
 
 const historyCoverageSQL = `SELECT transaction_timestamp(),jsonb_build_object(
@@ -218,6 +243,7 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
  FROM screening_history_showtimes h JOIN source_movies s USING(provider,movie_provider_id)
  WHERE ($1::text='' OR h.service_date>=nullif($1,'')::date) AND ($2::text='' OR h.service_date<=nullif($2,'')::date)
  AND h.theater_id IN (SELECT id FROM matched_theaters)
+ AND ($10::bigint IS NULL OR s.movie_id=$10)
  AND ($6='' OR CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END=$6)
  AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN h.format ELSE 'unknown' END=$7)
  AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))

@@ -227,6 +227,92 @@ func TestStatisticsSelectionOrderAndImmutability(t *testing.T) {
 	}
 }
 
+func TestStatisticsFilmIdentityAndIntersections(t *testing.T) {
+	data := statisticsDataset()
+	data.MovieAliases = []MovieSlugAliasRecord{
+		{Slug: "É &+/?#,alias", PublicMovieID: 1},
+		{Slug: "ineligible", PublicMovieID: 6},
+		{Slug: "film-9223372036854775808", PublicMovieID: 1},
+	}
+	data.Showtimes = append(data.Showtimes, data.Showtimes[0])
+	service := statisticsService(t, data, testServiceNow())
+	base := getStatistics(t, service, StatisticsQuery{})
+	canonical := getStatistics(t, service, StatisticsQuery{Film: "film-1"})
+	if canonical.Totals != (StatisticsTotals{Showtimes: 4, Movies: 1, Theaters: 3, Cities: 3}) || canonical.TopMovies.ByShowtimes[0].Slug != "film-1" {
+		t.Fatal(canonical.Totals, canonical.TopMovies)
+	}
+	for _, film := range []string{" film-1 ", "film-6", "É &+/?#,alias", "film-9223372036854775808"} {
+		if got := getStatistics(t, service, StatisticsQuery{Film: film}); !reflect.DeepEqual(got, canonical) {
+			t.Fatalf("alias %q differs from canonical", film)
+		}
+	}
+	for _, tc := range []struct {
+		query StatisticsQuery
+		count int
+	}{
+		{StatisticsQuery{Film: "film-2"}, 1},
+		{StatisticsQuery{Film: "film-7"}, 0},
+		{StatisticsQuery{Film: "ineligible"}, 0},
+		{StatisticsQuery{Film: "missing"}, 0},
+		{StatisticsQuery{Film: "FILM-1"}, 0},
+		{StatisticsQuery{Film: "film-01"}, 0},
+		{StatisticsQuery{Film: "film-+1"}, 0},
+		{StatisticsQuery{Film: "film-0"}, 0},
+		{StatisticsQuery{Film: "Même titre"}, 0},
+		{StatisticsQuery{Film: "film-1,film-2"}, 0},
+		{StatisticsQuery{Film: "film-1", City: []string{"lille"}}, 2},
+		{StatisticsQuery{Film: "film-1", Theater: []string{"ugc-26"}}, 1},
+		{StatisticsQuery{Film: "film-1", Chain: "kinepolis"}, 1},
+		{StatisticsQuery{Film: "film-1", Language: "VOSTFR"}, 3},
+		{StatisticsQuery{Film: "film-1", Format: "IMAX"}, 1},
+		{StatisticsQuery{Film: "film-1", Genre: "action"}, 4},
+		{StatisticsQuery{Film: "film-1", Pass: "UGC_ILLIMITE"}, 3},
+		{StatisticsQuery{Film: "film-1", Genre: "comédie"}, 0},
+		{StatisticsQuery{Film: "film-1", Date: "2026-09-01"}, 0},
+		{StatisticsQuery{Film: "film-6", Date: "2026-08-15", City: []string{"lille"}, Theater: []string{"ugc-25"}, Chain: "ugc", Language: "VOSTFR", Format: "2D", Genre: "action", Pass: "UGC_ILLIMITE"}, 2},
+	} {
+		got := getStatistics(t, service, tc.query)
+		if got.Totals.Showtimes != tc.count {
+			t.Errorf("query=%+v totals=%+v want=%d", tc.query, got.Totals, tc.count)
+		}
+		if !reflect.DeepEqual(got.Options, base.Options) || got.Coverage.SnapshotWindow != base.Coverage.SnapshotWindow {
+			t.Fatal("film changed inventory or global coverage")
+		}
+	}
+}
+
+func TestStatisticsDirectFilmBounds(t *testing.T) {
+	service := statisticsService(t, statisticsDataset(), testServiceNow())
+	for _, tc := range []struct {
+		value   string
+		invalid bool
+	}{
+		{"", false}, {" film-1 ", false}, {"É &+/?#,film-1", false},
+		{strings.Repeat("x", 200), false}, {strings.Repeat("é", 100), false}, {"x" + strings.Repeat(" ", 199), false},
+		{" \t\n", true}, {"film-1\x00", true}, {"\xff", true},
+		{strings.Repeat("x", 201), true}, {strings.Repeat("é", 100) + "x", true}, {"x" + strings.Repeat(" ", 200), true},
+	} {
+		query := StatisticsQuery{Film: tc.value}
+		for name, normalize := range map[string]func(StatisticsQuery) (StatisticsQuery, error){
+			"history": NormalizeHistoryQuery,
+			"snapshot": func(q StatisticsQuery) (StatisticsQuery, error) {
+				q, _, err := service.statisticsQuery(q, testServiceNow())
+				return q, err
+			},
+		} {
+			got, err := normalize(query)
+			var validation *ValidationError
+			if tc.invalid {
+				if !errors.As(err, &validation) {
+					t.Fatalf("%s accepted %q: %v", name, tc.value, err)
+				}
+			} else if err != nil || got.Film != strings.TrimSpace(tc.value) {
+				t.Fatalf("%s film=%q err=%v", name, got.Film, err)
+			}
+		}
+	}
+}
+
 func TestStatisticsDirectSelectionBounds(t *testing.T) {
 	service := statisticsService(t, statisticsDataset(), testServiceNow())
 	for _, dimension := range []string{"city", "theater"} {

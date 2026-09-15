@@ -134,6 +134,61 @@ func TestStatisticsHTTPParsingScalarsAndBounds(t *testing.T) {
 	}
 }
 
+func TestStatisticsHTTPFilmScalar(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw, film string
+		invalid         bool
+	}{
+		{"absent", "", "", false},
+		{"canonical trimmed", "film=+film-1+", "film-1", false},
+		{"opaque", "film=" + url.QueryEscape("É &+/?#,film-1"), "É &+/?#,film-1", false},
+		{"200 bytes", "film=" + strings.Repeat("x", 200), strings.Repeat("x", 200), false},
+		{"200 UTF8 bytes", "film=" + url.QueryEscape(strings.Repeat("é", 100)), strings.Repeat("é", 100), false},
+		{"padded boundary", "film=x" + strings.Repeat("+", 199), "x", false},
+		{"raw boundary", "film=film-1" + strings.Repeat("&", 4085), "film-1", false},
+		{"bare", "film", "", true},
+		{"empty", "film=", "", true},
+		{"blank", "film=+%09", "", true},
+		{"duplicate", "film=film-1&film=film-1", "", true},
+		{"array", "film[]=film-1", "", true},
+		{"NUL", "film=film-1%00", "", true},
+		{"invalid UTF8", "film=%FF", "", true},
+		{"invalid escape", "film=%zz", "", true},
+		{"201 bytes before trim", "film=x" + strings.Repeat("+", 200), "", true},
+		{"201 UTF8 bytes", "film=" + url.QueryEscape(strings.Repeat("é", 100)+"x"), "", true},
+		{"raw overflow", "film=film-1" + strings.Repeat("&", 4086), "", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, history := range []bool{false, true} {
+				reader := &fakeHistoryReader{}
+				handler, path := testHandler(t), "/api/v1/statistics"
+				parse := parseStatisticsQuery
+				if history {
+					handler = NewHandlerWithOptions(nil, "", HandlerOptions{History: reader})
+					path, parse = path+"/history", parseHistoryStatisticsQuery
+				}
+				q, err := parse(tc.raw)
+				if (err != nil) != tc.invalid || !tc.invalid && q.Film != tc.film {
+					t.Fatalf("history=%t query=%+v err=%v", history, q, err)
+				}
+				r := performRequest(t, handler, path+"?"+tc.raw)
+				want := http.StatusOK
+				if tc.invalid {
+					want = http.StatusBadRequest
+					if !strings.Contains(r.Body.String(), `"code":"invalid_query"`) || reader.calls != 0 {
+						t.Fatal(r.Body.String(), reader.calls)
+					}
+				} else if history && (reader.calls != 1 || reader.stats.Film != tc.film) {
+					t.Fatal("film not forwarded", reader.stats, reader.calls)
+				}
+				if r.Code != want || r.Header().Get("Cache-Control") != "no-store" {
+					t.Fatal(history, r.Code, r.Body.String())
+				}
+			}
+		})
+	}
+}
+
 func TestStatisticsHTTPParsingSelections(t *testing.T) {
 	values := url.Values{
 		"city":    {" lyon ", "lille", "lyon", "é&=,+/", "removed"},
