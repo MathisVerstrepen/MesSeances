@@ -1,9 +1,11 @@
 package synccontrol
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,87 @@ import (
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
 )
+
+type cinevillePayloadFetcher struct {
+	bootstrap, page string
+	requests        int
+}
+
+func (f *cinevillePayloadFetcher) Fetch(context.Context) ([]byte, error) {
+	f.requests++
+	return []byte(f.bootstrap), nil
+}
+
+func (f *cinevillePayloadFetcher) FetchCinema(context.Context, string, string) ([]byte, error) {
+	f.requests++
+	return []byte(f.page), nil
+}
+
+func (f *cinevillePayloadFetcher) RequestCount() int { return f.requests }
+
+func TestCinevilleExecutorPayloadAndFinalValidationFailures(t *testing.T) {
+	const catalog = `[{"id":639,"cine":"katorzaquimper","nom_cine_public":"Katorza","adresse_ville":"Quimper","code_postal_1":"29000"}]`
+	const bootstrap = `<html><script id="__NEXT_DATA__" type="application/json">{"buildId":"build-1","props":{"pageProps":{"cinemas":` + catalog + `}}}</script></html>`
+	const emptyPage = `{"pageProps":{"cines":` + catalog + `,"cinemaId":639,"prog":[],"progWithEvents":[],"attributs":[]}}`
+	const sensitive = "synthetic-private-body"
+	for _, test := range []struct {
+		name, bootstrap, page, operation, category string
+		stage                                      FailureStage
+		code                                       FailureCode
+		requests                                   int
+	}{
+		{"malformed bootstrap", "<html>" + sensitive + "</html>", "", "cinemas", "invalid_payload", StageProviderFetch, FailureProviderSync, 1},
+		{"malformed page", bootstrap, `{"pageProps":{"cinemaId":"` + sensitive + `"}}`, "program", "invalid_payload", StageProviderFetch, FailureProviderSync, 2},
+		{"final empty dataset", bootstrap, emptyPage, "dataset_validation", "validation", StageDatasetValidation, FailureDatasetRejected, 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			fetcher := &cinevillePayloadFetcher{bootstrap: test.bootstrap, page: test.page}
+			executor, err := NewProductionExecutor(ProductionExecutorOptions{
+				Writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
+					t.Fatal("invalid provider data reached publication")
+					return 0, nil
+				}),
+				NewCineville: func() (cineville.Fetcher, error) { return fetcher, nil },
+				Enrich: func(context.Context, []enrichment.Movie) (*enrichment.Summary, error) {
+					t.Fatal("invalid provider data reached enrichment")
+					return nil, nil
+				},
+				Now:    func() time.Time { return time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC) },
+				Logger: slog.New(slog.NewJSONHandler(&logs, nil)), OperationTimeout: time.Second,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = executor.Run(t.Context(), TargetCineville, Window{From: "2026-09-14"})
+			var re *RunError
+			if !errors.As(err, &re) || re.Stage != test.stage || re.Code != test.code || re.Provider != TargetCineville {
+				t.Fatalf("failure=%v", err)
+			}
+			operational := strings.Join(re.logs[TargetCineville], "\n")
+			for _, want := range []string{"event=provider_failed stage=" + string(test.stage), "operation=" + test.operation + " category=" + test.category, "requests=" + strconv.Itoa(test.requests)} {
+				if !strings.Contains(operational, want) {
+					t.Fatalf("missing %q: %s", want, operational)
+				}
+			}
+			finalValidation := test.stage == StageDatasetValidation
+			if strings.Contains(operational, "event=fetch_succeeded") != finalValidation || fetcher.requests != test.requests {
+				t.Fatal("misleading fetch success or unexpected retry")
+			}
+			if !finalValidation {
+				if strings.Contains(operational+logs.String(), "dataset_validation") || !strings.Contains(logs.String(), `"fetch_category":"invalid_payload"`) || !strings.Contains(logs.String(), `"request_operation":"`+test.operation+`"`) {
+					t.Fatal("payload classification lost in logs")
+				}
+			}
+			combined := operational + logs.String() + err.Error()
+			for _, forbidden := range []string{sensitive, "__NEXT_DATA__", "pageProps", "event=validation_succeeded", "event=publication_started"} {
+				if strings.Contains(combined, forbidden) {
+					t.Fatalf("output contains %q", forbidden)
+				}
+			}
+		})
+	}
+}
 
 func TestCinevilleExecutorManualMetricsAndFailures(t *testing.T) {
 	window := Window{From: "2026-08-17"}

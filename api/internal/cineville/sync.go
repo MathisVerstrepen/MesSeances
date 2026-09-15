@@ -27,7 +27,7 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (schedule.D
 	fail := func(err error) (schedule.Dataset, SyncSummary, error) { return schedule.Dataset{}, SyncSummary{}, err }
 	from, err := time.Parse(time.DateOnly, options.From)
 	if err != nil || from.Format(time.DateOnly) != options.From || options.Now.IsZero() {
-		return fail(payloadError(OperationBootstrap))
+		return fail(schedule.ErrDatasetValidation)
 	}
 	build, catalog, err := bootstrap(ctx, fetcher)
 	if err != nil {
@@ -92,15 +92,12 @@ func bootstrap(ctx context.Context, fetcher Fetcher) (string, []cinema, error) {
 	return build, catalog, nil
 }
 func payloadError(op Operation) error {
-	return &RequestError{Operation: op, Kind: syncproxy.FailureInvalidJSON, cause: schedule.ErrDatasetValidation}
+	return &RequestError{Operation: op, Kind: syncproxy.FailureInvalidJSON}
 }
 func typedError(err error, op Operation) error {
 	var re *RequestError
 	if errors.As(err, &re) {
 		safe := &RequestError{Operation: op, Kind: re.Kind, StatusCode: re.StatusCode}
-		if errors.Is(err, schedule.ErrDatasetValidation) {
-			safe.cause = schedule.ErrDatasetValidation
-		}
 		if errors.Is(err, context.Canceled) {
 			safe.cause = context.Canceled
 		}
@@ -209,7 +206,7 @@ func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options
 		data.Theaters = append(data.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderCineville, ID: theaterID, ProviderID: string(c.ID), Slug: theaterID, Name: c.Name, Address: c.Address, City: c.City, PostalCode: c.Postal, AvailableDates: available, AcceptedPasses: []string{}})
 	}
 	if schedule.ValidateDataset(data, true) != nil {
-		return schedule.Dataset{}, 0, payloadError(OperationCinema)
+		return schedule.Dataset{}, 0, schedule.ErrDatasetValidation
 	}
 	return data, len(usedMovies), nil
 }
