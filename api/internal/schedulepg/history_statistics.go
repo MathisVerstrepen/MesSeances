@@ -39,7 +39,10 @@ func (s *Store) historyRead(ctx context.Context, read func(context.Context, pgx.
 		return schedule.ErrHistoryUnavailable
 	}
 	defer rollbackScheduleTx(tx)
-	if _, err = tx.Exec(ctx, `SET LOCAL statement_timeout='2s'; SET LOCAL timezone='UTC'`); err == nil {
+	// Filter selectivity varies widely. A cached generic plan can turn these
+	// bounded reads into nested-loop scans after repeated prepared executions.
+	// Replan within this transaction only; do not alter pooled session defaults.
+	if _, err = tx.Exec(ctx, `SET LOCAL statement_timeout='2s'; SET LOCAL timezone='UTC'; SET LOCAL plan_cache_mode='force_custom_plan'`); err == nil {
 		err = read(ctx, tx)
 	}
 	if err == nil {
@@ -129,13 +132,20 @@ const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
  SELECT t.* FROM screening_history_theaters t WHERE EXISTS (SELECT 1 FROM screening_history_showtimes h WHERE h.theater_id=t.id)
 )`
 
+// Validate each retained association once rather than joining every screening.
+// Source and movie keys are unique, so absence of a valid one-hop canonical
+// target is equivalent to any broken association in the original screening set.
 const historyIntegritySQL = `SELECT EXISTS (
- SELECT 1 FROM screening_history_showtimes h
- LEFT JOIN screening_history_theaters t ON (t.provider,t.id)=(h.provider,h.theater_id)
- LEFT JOIN public_movie_sources s ON (s.source_provider,s.source_movie_id)=(h.provider,h.movie_provider_id)
- LEFT JOIN public_movies p ON p.id=s.public_movie_id
- LEFT JOIN public_movies c ON c.id=coalesce(p.redirect_to_id,p.id)
- WHERE t.id IS NULL OR s.public_movie_id IS NULL OR c.id IS NULL OR c.redirect_to_id IS NOT NULL
+ SELECT 1 FROM (SELECT DISTINCT provider,theater_id FROM screening_history_showtimes) h
+ WHERE NOT EXISTS (SELECT 1 FROM screening_history_theaters t WHERE (t.provider,t.id)=(h.provider,h.theater_id))
+) OR EXISTS (
+ SELECT 1 FROM (SELECT DISTINCT provider,movie_provider_id FROM screening_history_showtimes) h
+ WHERE NOT EXISTS (
+  SELECT 1 FROM public_movie_sources s
+  JOIN public_movies p ON p.id=s.public_movie_id
+  JOIN public_movies c ON c.id=coalesce(p.redirect_to_id,p.id)
+  WHERE (s.source_provider,s.source_movie_id)=(h.provider,h.movie_provider_id) AND c.redirect_to_id IS NULL
+ )
 )`
 
 func checkHistoryIntegrity(ctx context.Context, tx pgx.Tx) error {
@@ -191,17 +201,23 @@ const historyCoverageSQL = `SELECT transaction_timestamp(),jsonb_build_object(
  'recorded_window',(SELECT CASE WHEN min(service_date) IS NULL THEN NULL ELSE jsonb_build_object('from',min(service_date)::text,'through',max(service_date)::text) END FROM screening_history_showtimes),
  'completeness','unknown','bootstrap','none','providers',coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY provider) FROM (SELECT provider,collection_started_at,last_publication_at,source_generated_at FROM screening_history_providers ORDER BY provider LIMIT 10) p),'[]'))`
 
-const historyStatisticsSQL = historyCanonicalCTE + `, matched AS MATERIALIZED (
- SELECT h.service_date,h.start_time,t.id theater_id,t.city_slug,s.movie_id,
+// Select theater keys once and semi-join them. Joining the materialized theater
+// inventory here can rescan it for every screening when combined filters are
+// underestimated; membership preserves the same unique-theater semantics.
+const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERIALIZED (
+ SELECT t.id FROM theaters t
+ WHERE (coalesce(cardinality($3::text[]),0)=0 OR t.city_slug=ANY($3)) AND (coalesce(cardinality($4::text[]),0)=0 OR t.id=ANY($4))
+ AND ($5='' OR t.provider=$5) AND ($9='' OR $9=ANY(t.passes))
+), matched AS MATERIALIZED (
+ SELECT h.service_date,h.start_time,h.theater_id,s.movie_id,
  CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END language,
  CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN h.format ELSE 'unknown' END format
  FROM screening_history_showtimes h JOIN source_movies s USING(provider,movie_provider_id)
- JOIN theaters t ON t.id=h.theater_id
  WHERE ($1::text='' OR h.service_date>=nullif($1,'')::date) AND ($2::text='' OR h.service_date<=nullif($2,'')::date)
- AND (coalesce(cardinality($3::text[]),0)=0 OR t.city_slug=ANY($3)) AND (coalesce(cardinality($4::text[]),0)=0 OR t.id=ANY($4))
- AND ($5='' OR t.provider=$5) AND ($6='' OR CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END=$6)
+ AND h.theater_id IN (SELECT id FROM matched_theaters)
+ AND ($6='' OR CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END=$6)
  AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN h.format ELSE 'unknown' END=$7)
- AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8)) AND ($9='' OR $9=ANY(t.passes))
+ AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))
 ), movie_counts AS MATERIALIZED (
  SELECT 'film-'||m.id slug,m.id,m.title,m.runtime,count(*) showtime_count,count(DISTINCT h.theater_id) theater_count
  FROM matched h JOIN movies m ON m.id=h.movie_id GROUP BY m.id,m.title,m.runtime
