@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, RefreshCw } from '@lucide/vue'
+import { AlertTriangle, RefreshCw, X } from '@lucide/vue'
 import type { HistoryStatisticsResponse, StatisticsBucket, StatisticsMovieRank, StatisticsOptions } from '~/types/api'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { queriesEqual } from '~/utils/routeQuery'
@@ -207,9 +207,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </header>
     <div class="mx-auto min-w-0 max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
       <form class="border-2 border-ink bg-[#f1efe8] p-4 shadow-[5px_5px_0_#27272a] sm:p-6" aria-label="Filtres des statistiques" novalidate @submit.prevent="apply">
-        <div v-if="draft.film" class="mb-5 flex min-w-0 flex-wrap items-center gap-3">
+        <div v-if="draft.film" class="mb-5 flex min-w-0 items-center gap-1">
           <p class="min-w-0 font-bold [overflow-wrap:anywhere]">Film : {{ draft.film }}</p>
-          <button type="button" :class="[buttonClass, 'bg-surface hover:bg-highlight']" @click="draft.film = ''">Retirer le film</button>
+          <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" aria-label="Retirer le film" title="Retirer le film" @click="draft.film = ''">
+            <X :size="16" aria-hidden="true" />
+          </button>
         </div>
         <div class="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           <label :class="labelClass">Période
