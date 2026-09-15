@@ -278,12 +278,12 @@ useHead(() => ({
             </div>
           </div>
 
-          <dl class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
+          <dl class="grid grid-cols-2 border-t-2 border-ink lg:grid-cols-1 lg:border-l-2 lg:border-t-0">
             <div class="min-w-0 p-5 sm:p-6">
               <dt class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"><Building2 :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Cinémas</dt>
               <dd class="mt-2 pl-8 text-2xl font-black leading-none">{{ detail.theaters.length }}</dd>
             </div>
-            <div class="min-w-0 border-t-2 border-ink p-5 sm:border-l-2 sm:border-t-0 sm:p-6 lg:border-l-0 lg:border-t-2">
+            <div class="min-w-0 border-l-2 border-ink p-5 sm:p-6 lg:border-l-0 lg:border-t-2">
               <dt class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"><Film :size="20" class="shrink-0 text-primary" aria-hidden="true" /> Films</dt>
               <dd class="mt-2 pl-8 text-2xl font-black leading-none">{{ detail.movies.length }}</dd>
             </div>
