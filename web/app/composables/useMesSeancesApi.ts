@@ -48,6 +48,9 @@ import type {
   ShortLinkResponse,
   StatisticsQuery,
   StatisticsResponse,
+  HistoryStatisticsResponse,
+  HistoryOptionsQuery,
+  HistoryOptionsResponse,
   Theater,
   TheaterShowtimesResponse,
   TheaterQuery,
@@ -94,6 +97,14 @@ export function useMesSeancesApi() {
     statistics(query: StatisticsQuery = {}, signal?: AbortSignal) {
       const values = Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)))
       return apiFetch<StatisticsResponse>(`${apiBase}/api/v1/statistics`, { query: values, signal, retry: false })
+    },
+    historyStatistics(query: StatisticsQuery = {}, signal?: AbortSignal) {
+      const values = Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)))
+      return apiFetch<HistoryStatisticsResponse>(`${apiBase}/api/v1/statistics/history`, { query: values, signal, retry: false })
+    },
+    historyStatisticsOptions(query: HistoryOptionsQuery, signal?: AbortSignal) {
+      const values = Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)))
+      return apiFetch<HistoryOptionsResponse>(`${apiBase}/api/v1/statistics/history/options`, { query: values, signal, retry: false })
     },
     timeline(query: TimelineQuery) {
       return apiFetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, { query: queryValues(query) })

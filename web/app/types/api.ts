@@ -52,6 +52,37 @@ export interface StatisticsResponse {
   concentration: { top_movie_count: number; top_showtime_count: number; other_showtime_count: number }
 }
 
+export type HistoryOptionKind = 'city' | 'theater' | 'genre' | 'pass'
+export interface HistoryOptionsQuery { kind: HistoryOptionKind; q?: string; selected?: string[] }
+export interface HistoryOptionsResponse {
+  items: { value: string; label: string }[]
+  selected: { value: string; label: string }[]
+  has_more: boolean
+}
+export interface HistoryProviderCoverage {
+  provider: Provider
+  collection_started_at: string
+  last_publication_at: string
+  source_generated_at: string
+}
+export interface HistoryStatisticsResponse extends Omit<StatisticsResponse, 'range' | 'coverage'> {
+  mode: 'history'
+  range: StatisticsDateRange | null
+  coverage: {
+    collection_started_at: string | null
+    last_publication_at: string | null
+    recorded_window: StatisticsDateRange | null
+    completeness: 'unknown'
+    bootstrap: 'none'
+    providers: HistoryProviderCoverage[]
+  }
+  limits: {
+    options: { cities: boolean; theaters: boolean; genres: boolean; passes: boolean }
+    genres: boolean
+    local: { cities: boolean; theaters: boolean }
+  }
+}
+
 export interface Movie {
   slug: string
   title: string

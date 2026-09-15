@@ -229,7 +229,7 @@ func run(ctx context.Context) error {
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, httpapi.ReadinessOptions{
+		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, httpapi.ReadinessOptions{
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
@@ -498,11 +498,12 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, readiness httpapi.ReadinessOptions) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, readiness httpapi.ReadinessOptions) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
 		Admin:                adminOptions,
 		Readiness:            readiness,
 		Shortlinks:           shortlinks,
+		History:              history,
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})

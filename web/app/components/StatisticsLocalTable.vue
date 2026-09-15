@@ -2,7 +2,7 @@
 import type { StatisticsResponse } from '~/types/api'
 import { nextStatisticsSort, statisticsCount, statisticsLocalPage, type StatisticsLocalColumn, type StatisticsLocalSort } from '~/utils/statistics'
 
-const props = defineProps<{ local: StatisticsResponse['local'] }>()
+const props = defineProps<{ local: StatisticsResponse['local']; limits?: { cities: boolean; theaters: boolean } }>()
 const mode = ref<'cities' | 'theaters'>('cities')
 const sort = ref<StatisticsLocalSort | null>(null)
 const page = ref(1)
@@ -30,9 +30,10 @@ const buttonClass = 'min-h-11 border-2 border-ink px-4 py-2 text-sm font-extrabo
         <input v-model="mode" type="radio" name="statistics-local-mode" :value="option.value" class="size-5 accent-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" />{{ option.label }}
       </label>
     </fieldset>
+    <p v-if="limits?.[mode]" class="mb-5 text-sm"><strong>{{ mode === 'cities' ? '100 premières villes' : '100 premiers cinémas' }}</strong>. Tri et pagination limités à ces 100 résultats, classés initialement par films puis séances. Les totaux portent sur tous les résultats filtrés.</p>
     <div class="max-w-full overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" role="region" :aria-label="`Offre par ${mode === 'cities' ? 'ville' : 'cinéma'}, tableau défilant`" tabindex="0">
       <table class="w-full min-w-[36rem] border-collapse text-left text-sm">
-        <caption class="sr-only">Offre locale. Activer un en-tête pour trier tout le tableau. Tri initial : films puis séances, par ordre décroissant.</caption>
+        <caption class="sr-only">Offre locale. Activer un en-tête pour trier les résultats affichés. Tri initial : films puis séances, par ordre décroissant.</caption>
         <thead class="border-y-2 border-ink bg-[#e8e6de]">
           <tr>
             <th v-for="column in columns" :key="column.key" scope="col" :aria-sort="sort?.column === column.key ? sort.direction : !sort && column.key === 'movie_count' ? 'descending' : 'none'" class="px-3">

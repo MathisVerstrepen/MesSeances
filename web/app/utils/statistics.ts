@@ -31,7 +31,7 @@ export function statisticsDateError(date: string | undefined, through: string | 
 }
 
 export interface ParsedStatisticsQuery { query: StatisticsQuery; error: string }
-export function parseStatisticsQuery(route: LocationQuery, today?: string): ParsedStatisticsQuery {
+export function parseStatisticsQuery(route: LocationQuery, today?: string, validateDates = statisticsDateError): ParsedStatisticsQuery {
   const values: Record<string, string> = {}
   const selections: Partial<Record<StatisticsMultiFilterKey, string[]>> = {}
   const encoded = new URLSearchParams()
@@ -57,7 +57,7 @@ export function parseStatisticsQuery(route: LocationQuery, today?: string): Pars
   }
   if (new TextEncoder().encode(encoded.toString()).length > 4096) return { query: {}, error: invalidFilters }
   if ((values.chain && !chains.includes(values.chain)) || (values.language && !languages.some(value => value === values.language)) || (values.format && !formats.includes(values.format))) return { query: {}, error: invalidFilters }
-  const dateError = statisticsDateError(values.date, values.date_to, today)
+  const dateError = validateDates(values.date, values.date_to, today)
   if (dateError) return { query: {}, error: dateError }
   const query: StatisticsQuery = { ...selections }
   for (const key of ['date', 'date_to', 'genre', 'pass'] as const) {
@@ -69,9 +69,9 @@ export function parseStatisticsQuery(route: LocationQuery, today?: string): Pars
   return { query, error: '' }
 }
 
-export function statisticsDraft(route: LocationQuery, range?: StatisticsDateRange): StatisticsDraft {
+export function statisticsDraft(route: LocationQuery, range?: StatisticsDateRange | null, parse = parseStatisticsQuery): StatisticsDraft {
   const draft: StatisticsDraft = { date: '', date_to: '', city: [], theater: [], chain: '', language: '', format: '', genre: '', pass: '', explicitDates: route.date !== undefined || route.date_to !== undefined }
-  const parsed = parseStatisticsQuery(route)
+  const parsed = parse(route)
   const source = parsed.error ? route : statisticsRouteQuery({}, parsed.query)
   for (const key of statisticsQueryKeys) {
     const value = source[key]
@@ -85,7 +85,7 @@ export function statisticsDraft(route: LocationQuery, range?: StatisticsDateRang
   return draft
 }
 
-export function statisticsDraftQuery(draft: StatisticsDraft, today?: string) {
+export function statisticsDraftQuery(draft: StatisticsDraft, today?: string, parse = parseStatisticsQuery) {
   const values: LocationQuery = {}
   for (const key of statisticsQueryKeys) {
     if (key === 'date' || key === 'date_to') {
@@ -94,7 +94,7 @@ export function statisticsDraftQuery(draft: StatisticsDraft, today?: string) {
       if (draft[key].length) values[key] = [...draft[key]]
     } else if (draft[key]) values[key] = draft[key]
   }
-  return parseStatisticsQuery(values, today)
+  return parse(values, today)
 }
 
 export function statisticsRouteQuery(route: LocationQuery, query: StatisticsQuery = {}): LocationQuery {

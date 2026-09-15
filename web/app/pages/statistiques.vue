@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { AlertTriangle, RefreshCw } from '@lucide/vue'
-import type { StatisticsBucket, StatisticsMovieRank, StatisticsOptions, StatisticsResponse } from '~/types/api'
+import type { HistoryStatisticsResponse, StatisticsBucket, StatisticsMovieRank, StatisticsOptions } from '~/types/api'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { queriesEqual } from '~/utils/routeQuery'
-import { createStatisticsRequest, parseStatisticsQuery, statisticsBucketLabel, statisticsChainLabels, statisticsCount, statisticsDraft, statisticsDraftQuery, statisticsMaxSelections, statisticsOptionsWithSelection, statisticsQueryKeys, statisticsQuerySignature, statisticsRouteQuery, statisticsShare, type StatisticsFilterKey, type StatisticsMultiFilterKey, type StatisticsScalarFilterKey } from '~/utils/statistics'
+import { createStatisticsRequest, statisticsBucketLabel, statisticsChainLabels, statisticsCount, statisticsOptionsWithSelection, statisticsQueryKeys, statisticsShare, type StatisticsFilterKey, type StatisticsMultiFilterKey, type StatisticsScalarFilterKey } from '~/utils/statistics'
+import { parseStatisticsPageQuery, statisticsCustomDraft, statisticsParisToday, statisticsPeriod, statisticsPeriods, statisticsPageDraft, statisticsPageDraftQuery, statisticsPageRoute, statisticsPageSignature } from '~/utils/statisticsHistory'
 
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
-const today = useState('statistics-paris-today', () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()))
-const signature = computed(() => statisticsQuerySignature(route.query))
+const today = useState('statistics-paris-today', () => statisticsParisToday())
+const signature = computed(() => statisticsPageSignature(route.query))
 
 function errorMessage(cause: unknown) {
   const status = getApiErrorStatus(cause)
+  if (getApiErrorCode(cause) === 'history_query_timeout') return 'La recherche historique prend trop de temps. Réduisez la période ou réessayez.'
+  if (getApiErrorCode(cause) === 'history_busy') return 'Le service historique est occupé. Patientez un instant avant de réessayer.'
+  if (getApiErrorCode(cause) === 'history_unavailable') return 'L’historique est temporairement indisponible. Réessayez plus tard.'
   if (status === 400) return 'Filtres invalides. Vérifiez les dates et les sélections, ou réinitialisez les filtres.'
   if (status === 429) return 'Trop de demandes. Patientez un instant avant de réessayer.'
   if (status === 503) return 'Les statistiques ne sont pas encore disponibles. Réessayez plus tard.'
@@ -21,20 +25,24 @@ function errorMessage(cause: unknown) {
 }
 
 async function fetchStatistics(signal?: AbortSignal) {
-  const parsed = parseStatisticsQuery(route.query, today.value)
+  today.value = statisticsParisToday()
+  const parsed = parseStatisticsPageQuery(route.query, today.value)
   if (parsed.error) return { response: null, message: parsed.error, status: 400 }
   try {
-    return { response: await api.statistics(parsed.query, signal), message: '', status: 200 }
+    return { response: await api.historyStatistics(parsed.query, signal), message: '', status: 200 }
   } catch (cause) {
     return { response: null, message: errorMessage(cause), status: getApiErrorStatus(cause) === 400 ? 400 : 502 }
   }
 }
 
-const initial = await useAsyncData(`statistics:${signature.value}`, () => fetchStatistics(), { lazy: true })
-const data = shallowRef<StatisticsResponse | null>(initial.data.value?.response ?? null)
+const initialController = new AbortController()
+const initial = await useAsyncData(`statistics:${signature.value}`, () => fetchStatistics(initialController.signal), { lazy: true })
+const data = shallowRef<HistoryStatisticsResponse | null>(initial.data.value?.response ?? null)
+const historyData = computed(() => data.value)
 const error = ref(initial.data.value?.message ?? '')
 const options = shallowRef<StatisticsOptions | null>(data.value?.options ?? null)
-const draft = ref(statisticsDraft(route.query, data.value?.range))
+const draft = ref(statisticsPageDraft(route.query, today.value))
+const optionLimits = shallowRef<HistoryStatisticsResponse['limits']['options'] | undefined>(historyData.value?.limits.options)
 const validationError = ref('')
 const pending = ref(initial.pending.value)
 const showSkeleton = ref(false)
@@ -50,10 +58,7 @@ function acceptResult(result: Awaited<ReturnType<typeof fetchStatistics>>) {
   error.value = result.message
   if (result.response) {
     options.value = result.response.options
-    if (!draft.value.explicitDates) {
-      draft.value.date = result.response.range.from
-      draft.value.date_to = result.response.range.through
-    }
+    optionLimits.value = result.response.limits.options
   }
 }
 watch(pending, (loading) => {
@@ -70,6 +75,7 @@ watch(initial.pending, (loading) => { if (initialActive) pending.value = loading
 const request = createStatisticsRequest<Awaited<ReturnType<typeof fetchStatistics>>>({
   start() {
     initialActive = false
+    initialController.abort()
     data.value = null
     error.value = ''
     pending.value = true
@@ -82,26 +88,43 @@ const request = createStatisticsRequest<Awaited<ReturnType<typeof fetchStatistic
 })
 function reload() { return request.run(signal => fetchStatistics(signal)) }
 watch(signature, () => {
-  draft.value = statisticsDraft(route.query, data.value?.range)
+  draft.value = statisticsPageDraft(route.query, statisticsParisToday())
   validationError.value = ''
   void reload()
 }, { flush: 'sync' })
-onBeforeUnmount(() => { request.cancel(); clearTimeout(skeletonTimer) })
+function refreshCalendarDay() {
+  if (document.visibilityState !== 'visible') return
+  const current = statisticsParisToday()
+  if (today.value === current) return
+  today.value = current
+  const { period } = statisticsPeriod(route.query)
+  if (period === 'next7' || period === 'last30') void reload()
+}
+onMounted(() => { document.addEventListener('visibilitychange', refreshCalendarDay); refreshCalendarDay() })
+onBeforeUnmount(() => { initialActive = false; initialController.abort(); request.cancel(); clearTimeout(skeletonTimer); document.removeEventListener('visibilitychange', refreshCalendarDay) })
 
 async function apply() {
-  const parsed = statisticsDraftQuery(draft.value, today.value)
+  const current = statisticsParisToday()
+  const dayChanged = today.value !== current
+  const parsed = statisticsPageDraftQuery(draft.value, current)
   validationError.value = parsed.error
   if (parsed.error) return
-  const query = statisticsRouteQuery(route.query, parsed.query)
+  const query = statisticsPageRoute(route.query, draft.value.period, parsed.query)
+  const changed = statisticsPageSignature(query) !== signature.value
   if (!queriesEqual(route.query, query)) await router.push({ query })
-  else if (error.value) await reload()
+  if (!changed && (error.value || (dayChanged && (draft.value.period === 'next7' || draft.value.period === 'last30')))) await reload()
 }
 async function reset() {
-  const query = statisticsRouteQuery(route.query)
-  draft.value = statisticsDraft(query)
+  const query = statisticsPageRoute(route.query)
+  const changed = statisticsPageSignature(query) !== signature.value
+  draft.value = statisticsPageDraft(query, statisticsParisToday())
   validationError.value = ''
   if (!queriesEqual(route.query, query)) await router.push({ query })
-  else await reload()
+  if (!changed) await reload()
+}
+function changePeriod() {
+  validationError.value = ''
+  if (draft.value.period === 'custom') draft.value = statisticsCustomDraft(draft.value, data.value?.range)
 }
 
 const primaryFilters: { key: StatisticsMultiFilterKey; label: string; all: string }[] = [
@@ -116,10 +139,13 @@ const advancedFilters: { key: StatisticsScalarFilterKey; label: string; all: str
   { key: 'pass', label: 'Pass accepté', all: 'Tous les pass' }
 ]
 const advancedOpen = ref(advancedFilters.some(filter => Boolean(draft.value[filter.key])))
-watch(signature, () => { if (advancedFilters.some(filter => Boolean(draft.value[filter.key]))) advancedOpen.value = true })
-const filterOptions = computed(() => {
+watch(signature, () => {
+  const selected = advancedFilters.some(filter => Boolean(draft.value[filter.key]))
+  advancedOpen.value = selected
+})
+const rawFilterOptions = computed(() => {
   const source = options.value
-  const values = {
+  return {
     city: source?.cities.map(city => ({ value: city.slug, label: city.name })) ?? [],
     theater: source?.theaters.map(theater => ({ value: theater.id, label: `${theater.name} · ${theater.city}` })) ?? [],
     chain: source?.chains.map(chain => ({ value: chain, label: statisticsChainLabels[chain] })) ?? [],
@@ -128,6 +154,9 @@ const filterOptions = computed(() => {
     genre: source?.genres ?? [],
     pass: source?.passes.map(value => ({ value, label: value })) ?? []
   } satisfies Record<StatisticsFilterKey, { value: string; label: string }[]>
+})
+const filterOptions = computed(() => {
+  const values = rawFilterOptions.value
   return Object.fromEntries([
     ...primaryFilters.map(filter => [filter.key, statisticsOptionsWithSelection(values[filter.key], draft.value[filter.key])]),
     ...advancedFilters.map(filter => [filter.key, statisticsOptionsWithSelection(values[filter.key], draft.value[filter.key] ? [draft.value[filter.key]] : [])])
@@ -144,7 +173,6 @@ const totals = computed(() => data.value ? [
   { label: 'Séances', count: data.value.totals.showtimes }, { label: 'Films', count: data.value.totals.movies },
   { label: 'Cinémas', count: data.value.totals.theaters }, { label: 'Villes', count: data.value.totals.cities }
 ] : [])
-const incompleteWindow = computed(() => data.value && (data.value.coverage.intersection?.from !== data.value.range.from || data.value.coverage.intersection?.through !== data.value.range.through))
 const concentration = computed(() => data.value ? [
   { value: 'top', label: `Les ${data.value.concentration.top_movie_count} films les plus programmés`, count: data.value.concentration.top_showtime_count },
   { value: 'other', label: 'Les autres films', count: data.value.concentration.other_showtime_count }
@@ -153,6 +181,7 @@ function dateLabel(value: string) {
   return new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${value}T12:00:00Z`))
 }
 const generatedLabel = computed(() => data.value ? new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'long', timeStyle: 'short' }).format(new Date(data.value.generated_at)) : '')
+function timestampLabel(value: string) { return new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'long', timeStyle: 'short' }).format(new Date(value)) }
 const controlClass = 'mt-2 h-12 w-full min-w-0 rounded-none border-2 border-ink bg-surface px-3 text-sm font-bold focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink'
 const labelClass = 'min-w-0 text-xs font-extrabold uppercase tracking-wide'
 const buttonClass = 'inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink px-4 py-3 text-sm font-extrabold focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40'
@@ -162,7 +191,7 @@ const canonicalUrl = absoluteSiteUrl(useRuntimeConfig().public.siteUrl, '/statis
 useSeoMeta({
   title: 'Statistiques cinéma | MesSeances',
   description: 'Explorez les séances collectées par MesSeances : films, horaires, versions, formats et offre locale.',
-  robots: () => !data.value || error.value || statisticsQueryKeys.some(key => route.query[key] !== undefined) ? 'noindex,follow' : 'index,follow',
+  robots: () => !data.value || error.value || route.query.period !== undefined || route.query.mode !== undefined || statisticsQueryKeys.some(key => route.query[key] !== undefined) ? 'noindex,follow' : 'index,follow',
   ogTitle: 'Statistiques cinéma | MesSeances', ogUrl: canonicalUrl, ogType: 'website'
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
@@ -178,21 +207,29 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </header>
     <div class="mx-auto min-w-0 max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
       <form class="border-2 border-ink bg-[#f1efe8] p-4 shadow-[5px_5px_0_#27272a] sm:p-6" aria-label="Filtres des statistiques" novalidate @submit.prevent="apply">
-        <div class="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <label :class="labelClass">Du
-            <input v-model="draft.date" type="date" :min="today" :class="controlClass" :aria-invalid="Boolean(validationError)" :aria-describedby="validationError ? 'statistics-date-error' : undefined" @input="draft.explicitDates = true" />
+        <div class="grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <label :class="labelClass">Période
+            <select v-model="draft.period" :class="controlClass" @change="changePeriod"><option v-for="choice in statisticsPeriods" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select>
           </label>
-          <label :class="labelClass">Au
-            <input v-model="draft.date_to" type="date" :min="draft.date || today" :class="controlClass" :aria-invalid="Boolean(validationError)" :aria-describedby="validationError ? 'statistics-date-error' : undefined" @input="draft.explicitDates = true" />
-          </label>
-          <StatisticsMultiSelect v-for="filter in primaryFilters" :id="`statistics-${filter.key}`" :key="filter.key" v-model="draft[filter.key]" :label="filter.label" :all-label="filter.all" :options="filterOptions[filter.key] ?? []" :max-selections="statisticsMaxSelections" />
+          <template v-if="draft.period === 'custom'">
+            <label :class="labelClass">Du
+              <input v-model="draft.date" type="date" required :class="controlClass" :aria-invalid="Boolean(validationError)" :aria-describedby="validationError ? 'statistics-date-error' : undefined" />
+            </label>
+            <label :class="labelClass">Au
+              <input v-model="draft.date_to" type="date" required :class="controlClass" :aria-invalid="Boolean(validationError)" :aria-describedby="validationError ? 'statistics-date-error' : undefined" />
+            </label>
+          </template>
+          <StatisticsHistorySelect v-for="filter in primaryFilters" :id="`statistics-${filter.key}`" :key="`${signature}:${filter.key}`" v-model="draft[filter.key]" :kind="filter.key" :label="filter.label" :all-label="filter.all" :options="rawFilterOptions[filter.key]" :has-more="optionLimits?.[filter.key === 'city' ? 'cities' : 'theaters']" />
         </div>
         <details class="mt-5" :open="advancedOpen">
           <summary class="w-fit cursor-pointer py-3 text-sm font-extrabold underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">Filtres avancés</summary>
           <div class="mt-3 grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            <label v-for="filter in advancedFilters" :key="filter.key" :class="labelClass">{{ filter.label }}
+            <template v-for="filter in advancedFilters" :key="`${signature}:${filter.key}`">
+              <StatisticsHistorySelect v-if="filter.key === 'genre' || filter.key === 'pass'" :id="`statistics-${filter.key}`" :model-value="draft[filter.key] ? [draft[filter.key]] : []" :kind="filter.key" :label="filter.label" :all-label="filter.all" :options="rawFilterOptions[filter.key]" :has-more="optionLimits?.[filter.key === 'genre' ? 'genres' : 'passes']" single @update:model-value="draft[filter.key] = $event[0] ?? ''" />
+            <label v-else :class="labelClass">{{ filter.label }}
               <select v-model="draft[filter.key]" :class="controlClass"><option value="">{{ filter.all }}</option><option v-for="option in filterOptions[filter.key]" :key="option.value" :value="option.value">{{ option.label }}</option></select>
             </label>
+            </template>
           </div>
         </details>
         <p v-if="validationError" id="statistics-date-error" role="alert" class="mt-4 font-bold text-primary-hover">{{ validationError }}</p>
@@ -220,15 +257,27 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </EditorialStatePanel>
         <template v-else-if="data">
           <div class="mb-8 space-y-3 text-sm leading-relaxed">
-            <p class="text-base font-extrabold">Du {{ dateLabel(data.range.from) }} au {{ dateLabel(data.range.through) }}</p>
-            <p>Instantané généré le <time :datetime="data.generated_at">{{ generatedLabel }}</time> (Europe/Paris). Fenêtre collectée : du {{ dateLabel(data.coverage.snapshot_window.from) }} au {{ dateLabel(data.coverage.snapshot_window.through) }}.</p>
-            <p v-if="data.coverage.stale" role="status" class="flex items-start gap-3 border-2 border-primary bg-primary-soft p-4 font-extrabold text-primary-hover"><AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />Données anciennes : cet instantané n’est plus à jour. La programmation peut avoir changé.</p>
-            <p v-if="incompleteWindow" class="border-l-4 border-ink bg-highlight/30 p-4 font-bold">{{ data.coverage.intersection ? 'Une partie de la période sélectionnée est hors de la fenêtre collectée.' : 'La période sélectionnée est entièrement hors de la fenêtre collectée.' }} Cela ne permet pas de conclure à une absence de séances.</p>
+            <p v-if="data.range" class="text-base font-extrabold">Du {{ dateLabel(data.range.from) }} au {{ dateLabel(data.range.through) }}</p>
+            <template v-if="historyData">
+              <p v-if="!historyData.coverage.collection_started_at">La collecte historique n’a pas encore commencé.</p>
+              <p v-else>Début de la collecte : <time :datetime="historyData.coverage.collection_started_at">{{ timestampLabel(historyData.coverage.collection_started_at) }}</time>.<template v-if="historyData.coverage.last_publication_at"> Dernière réception réussie : <time :datetime="historyData.coverage.last_publication_at">{{ timestampLabel(historyData.coverage.last_publication_at) }}</time>.</template></p>
+              <p>Ces annonces observées ne prouvent pas que les séances ont eu lieu. Exhaustivité inconnue.</p>
+              <p>Statistiques calculées le <time :datetime="data.generated_at">{{ generatedLabel }}</time> (Europe/Paris).</p>
+            </template>
             <details>
               <summary class="w-fit cursor-pointer py-2 font-extrabold underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">Périmètre et méthode</summary>
               <div class="mt-3 max-w-4xl space-y-3">
-                <p>Ces chiffres décrivent uniquement les séances actuellement collectées par MesSeances, y compris celles déjà commencées aujourd’hui. La couverture varie selon le cinéma, la date et le fournisseur ; son exhaustivité est inconnue. Une séance absente ne prouve pas une absence de programmation. Ce n’est ni un total national, ni une série historique, ni une mesure de fréquentation.</p>
-                <p>Une séance est comptée une fois par identifiant et fournisseur. Des séances simultanées distinctes restent comptées. L’identité publique d’un film regroupe ses copies chez les fournisseurs, sans fusionner les films sur leur seul titre. Villes et cinémas sont comptés uniquement lorsqu’ils ont des séances correspondantes.</p>
+                <template v-if="historyData">
+                  <p>Toutes les séances enregistrées par MesSéances depuis le début de la collecte historique sont conservées. « Depuis le début de la collecte » inclut les séances passées et futures enregistrées, sans filtre de date.</p>
+                  <p>Aucune donnée antérieure au début de la collecte n’a été importée. La couverture varie selon le cinéma, la date et le fournisseur ; son exhaustivité et sa continuité sont inconnues. Les annonces disparues restent conservées : leur absence ne signifie pas une annulation connue. Ce n’est ni un total national ni une mesure de fréquentation.</p>
+                  <p>Une séance est comptée une fois par fournisseur, identifiant source, cinéma et jour de programmation. Les dernières valeurs reçues remplacent les précédentes pour cette identité, sans ajouter une séance. Un identifiant source différent peut compter séparément une annonce corrigée ; aucune fusion n’est déduite du film et de l’horaire. Des séances simultanées distinctes restent comptées.</p>
+                  <p>Les métadonnées utilisent les dernières informations conservées des cinémas et la classification publique actuelle des films. Une correction peut donc changer les statistiques passées sans ajouter de séance. L’identité des films suit les identifiants durables des fournisseurs ; leur éventuelle réutilisation n’est pas résolue par cet historique.</p>
+                  <p>Les dates de réception indiquent une publication réussie, pas un nouveau relevé chez le fournisseur. La date source indique la génération annoncée par le fournisseur.</p>
+                  <ul class="space-y-2">
+                    <li v-for="provider in historyData.coverage.providers" :key="provider.provider"><strong>{{ statisticsChainLabels[provider.provider] }}</strong> : début {{ timestampLabel(provider.collection_started_at) }} ; dernière réception {{ timestampLabel(provider.last_publication_at) }} ; génération source {{ timestampLabel(provider.source_generated_at) }}.</li>
+                  </ul>
+                  <p>L’identité publique d’un film regroupe ses copies chez les fournisseurs, sans fusionner les films sur leur seul titre. Villes et cinémas sont comptés uniquement lorsqu’ils ont des séances correspondantes.</p>
+                </template>
                 <p>Les dates sont des jours de programmation, en Europe/Paris. Les séances après minuit restent rattachées au jour de programmation précédent. Toutes les dimensions de filtre se croisent ; chaque version et format reste distinct, sans déduction d’équipement.</p>
                 <p>Le filtre de pass désigne les cinémas qui l’acceptent. Il ne garantit pas l’éligibilité de chaque séance, ni l’absence de supplément.</p>
               </div>
@@ -244,7 +293,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             </dl>
           </section>
           <EditorialStatePanel v-if="data.totals.showtimes === 0" size="tall" class="my-8" semantic="status">
-            <p class="font-extrabold">Aucune séance pour ces filtres</p>
+            <p class="font-extrabold">Aucune séance enregistrée pour ces filtres.</p>
             <p class="text-sm">Part des films les plus programmés : {{ statisticsShare(0, 0) }}.</p>
             <template #actions><button type="button" :class="[buttonClass, 'bg-ink text-white hover:bg-primary']" @click="reset">Réinitialiser</button></template>
           </EditorialStatePanel>
@@ -263,11 +312,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               <h2 id="statistics-genres" :class="headingClass">Genres et durées</h2>
               <p class="mb-7 text-sm">Parts calculées sur les films distincts. Un film peut avoir plusieurs genres : leurs parts peuvent dépasser 100 % au total.</p>
               <div class="grid min-w-0 gap-10 lg:grid-cols-2 lg:gap-16">
-                <div class="min-w-0"><h3 class="mb-6 text-lg font-extrabold">Genres</h3><StatisticsBarChart :rows="buckets(data.genres)" :total="data.totals.movies" label="Genres, part des films" unit="films" /></div>
+                <div class="min-w-0"><h3 class="mb-6 text-lg font-extrabold">{{ historyData?.limits.genres ? '100 premiers genres' : 'Genres' }}</h3><StatisticsBarChart :rows="buckets(data.genres)" :total="data.totals.movies" label="Genres, part des films" unit="films" /></div>
                 <div class="min-w-0"><h3 class="mb-6 text-lg font-extrabold">Durées</h3><StatisticsBarChart :rows="buckets(data.runtimes)" :total="data.totals.movies" label="Durées, part des films" unit="films" /></div>
               </div>
             </section>
-            <section :class="sectionClass" aria-labelledby="statistics-local"><h2 id="statistics-local" :class="headingClass">L’offre locale</h2><StatisticsLocalTable :local="data.local" /></section>
+            <section :class="sectionClass" aria-labelledby="statistics-local"><h2 id="statistics-local" :class="headingClass">L’offre locale</h2><StatisticsLocalTable :key="signature" :local="data.local" :limits="historyData?.limits.local" /></section>
             <section :class="sectionClass" aria-labelledby="statistics-concentration"><h2 id="statistics-concentration" :class="headingClass">Concentration des séances</h2><StatisticsBarChart :rows="concentration" :total="data.totals.showtimes" label="Films les plus programmés et autres films, part des séances" unit="séances" /></section>
           </template>
         </template>

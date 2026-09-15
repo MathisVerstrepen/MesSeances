@@ -1150,8 +1150,8 @@ func TestCityIndexPreservesEqualFoldAliasSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := direct.Theaters(TheaterCatalogQuery{City: " Lille "}); len(got) != 0 {
-		t.Fatalf("trimmed direct request matched padded stored city: %+v", got)
+	if got := direct.Theaters(TheaterCatalogQuery{City: " Lille "}); len(got) != 1 || got[0].ID != "ugc-25" || got[0].CitySlug != "lille" {
+		t.Fatalf("trimmed direct request must match normalized stored city: %+v", got)
 	}
 	service, err := NewService(newTestSource(data), ServiceOptions{CityAliases: map[string][]string{
 		"ZONE": {"ÉVRY", "Lyon"},

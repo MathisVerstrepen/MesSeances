@@ -27,6 +27,10 @@ func ValidInclusiveDateWindow(from, through time.Time) bool {
 }
 
 func ValidateDataset(data Dataset, requireComplete bool) error {
+	return validateDataset(data, requireComplete, false)
+}
+
+func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) error {
 	if data.SchemaVersion != SchemaVersion || !validProvider(data.Provider, true) || data.Timezone != Timezone {
 		return fmt.Errorf("invalid schedule dataset metadata")
 	}
@@ -48,7 +52,7 @@ func ValidateDataset(data Dataset, requireComplete bool) error {
 	if err != nil || through.Format(dateLayout) != data.Window.Through || !ValidInclusiveDateWindow(from, through) {
 		return fmt.Errorf("invalid dataset window")
 	}
-	if len(data.Theaters) == 0 || len(data.Showtimes) == 0 {
+	if !allowEmptyPublication && (len(data.Theaters) == 0 || len(data.Showtimes) == 0) {
 		return fmt.Errorf("complete dataset must contain theaters and showtimes")
 	}
 	theaters := make(map[string]TheaterRecord, len(data.Theaters))

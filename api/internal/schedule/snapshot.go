@@ -131,7 +131,7 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 		view.theaterBySlug[theater.Slug] = position
 		view.theaterPositions[position] = position
 		view.theaterCatalog[position] = position
-		cityKey := foldKey(theater.City)
+		cityKey := foldKey(strings.TrimSpace(theater.City))
 		bucket, exists := view.cityBucketByFold[cityKey]
 		if !exists {
 			view.cityBuckets = append(view.cityBuckets, cityBucket{city: theater.City})
@@ -160,7 +160,7 @@ func NewSnapshotView(data Dataset, revisions ...SnapshotRevision) *SnapshotView 
 	})
 	for rank, position := range view.theaterCatalog {
 		view.theaterRank[position] = rank
-		cityKey := foldKey(view.data.Theaters[position].City)
+		cityKey := foldKey(strings.TrimSpace(view.data.Theaters[position].City))
 		bucket := view.cityBucketByFold[cityKey]
 		view.cityBuckets[bucket].catalogPositions = append(view.cityBuckets[bucket].catalogPositions, position)
 	}
@@ -280,7 +280,7 @@ func (v *SnapshotView) positionsForCities(cities []string) []int {
 	positions := make([]int, 0)
 	seen := make(map[int]bool)
 	for _, city := range cities {
-		bucketPosition, matched := v.cityBucketByFold[foldKey(city)]
+		bucketPosition, matched := v.cityBucketByFold[foldKey(strings.TrimSpace(city))]
 		if !matched {
 			continue
 		}
@@ -303,7 +303,7 @@ func (v *SnapshotView) catalogPositionsForCities(cities []string) []int {
 	positions := make([]int, 0)
 	matchedBuckets := 0
 	for _, city := range cities {
-		bucketPosition, matched := v.cityBucketByFold[foldKey(city)]
+		bucketPosition, matched := v.cityBucketByFold[foldKey(strings.TrimSpace(city))]
 		if !matched {
 			continue
 		}

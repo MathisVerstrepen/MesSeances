@@ -73,6 +73,10 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", snapshotWriterLockID); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("lock schedule replacement failed")
 	}
+	var receivedAt time.Time
+	if err := tx.QueryRow(ctx, `SELECT greatest(clock_timestamp(), coalesce(max(last_publication_at), '-infinity'::timestamptz)) FROM screening_history_providers`).Scan(&receivedAt); err != nil {
+		return schedule.PublicationResult{}, fmt.Errorf("read history receipt time failed")
+	}
 	version, current := int64(1), int64(0)
 	err = tx.QueryRow(ctx, "SELECT version FROM schedule_snapshot WHERE singleton = true").Scan(&current)
 	if err == nil {
@@ -211,6 +215,13 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 	}
 	if err := publicmoviepg.Reconcile(ctx, tx); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("reconcile public movies during schedule replacement: %w", err)
+	}
+	refreshed := make([]string, 0, len(datasets))
+	for _, data := range datasets {
+		refreshed = append(refreshed, string(data.Provider))
+	}
+	if err := retainHistory(ctx, tx, version, refreshed, receivedAt); err != nil {
+		return schedule.PublicationResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("commit schedule replacement failed")
