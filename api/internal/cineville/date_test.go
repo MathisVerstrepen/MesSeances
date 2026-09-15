@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncproxy"
 )
 
 // Independent wire fixture keeps JSON number/string choices separate from Go model types.
@@ -61,8 +62,9 @@ func TestSyncRejectsMalformedWireDatesInBothProgramArrays(t *testing.T) {
 				}
 				f := wireDateFetcher{singleFetcher(t, fixturePage(fixtureCinema())), wireDatePage(program, event)}
 				data, _, err := Sync(t.Context(), f, fixtureOptions())
-				if !errors.Is(err, schedule.ErrDatasetValidation) || len(data.Showtimes) != 0 || strings.Contains(err.Error(), "private-synthetic-sentinel") {
-					t.Fatal("malformed date not rejected with bounded validation error")
+				var re *RequestError
+				if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || errors.Is(err, schedule.ErrDatasetValidation) || len(data.Showtimes) != 0 || strings.Contains(err.Error(), "private-synthetic-sentinel") {
+					t.Fatal("malformed date not rejected with bounded payload error")
 				}
 			})
 		}

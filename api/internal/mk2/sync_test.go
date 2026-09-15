@@ -156,10 +156,14 @@ func TestSyncRejectsOtherMovieConflictsDespiteSynopsisDifference(t *testing.T) {
 		"title":                     func(f *film) { f.Title = "Other title" },
 		"title internal whitespace": func(f *film) { f.Title = "Ev ent" },
 		"runtime":                   func(f *film) { runtime := 109; f.Runtime = &runtime },
+		"invalid runtime":           func(f *film) { runtime := -1; f.Runtime = &runtime },
 		"release date":              func(f *film) { f.OpeningDate = "2026-01-07T00:00:00Z" },
 		"genres":                    func(f *film) { f.Genres[0].Name = "Comedy" },
 	} {
-		for _, source := range []string{"catalog", "embedded"} {
+		for _, source := range []string{"catalog", "embedded duplicate", "catalog versus embedded"} {
+			if source == "catalog versus embedded" && strings.HasPrefix(name, "title") {
+				continue // Cross-source titles are covered by the catalog precedence tests.
+			}
 			t.Run(name+"/"+source, func(t *testing.T) {
 				f, p, options := fixture(t)
 				original := p.Types[0].Groups[0].Film
@@ -172,12 +176,18 @@ func TestSyncRejectsOtherMovieConflictsDespiteSynopsisDifference(t *testing.T) {
 				}{}, original.Genres...)
 				changed.Synopsis = "Different synopsis"
 				mutate(&changed)
+				if source == "catalog versus embedded" {
+					changed.Title = "Event label"
+				}
 				catalog := []film{original}
 				p.Types[0].Groups[0].Film = original
 				wantCalls := map[string]int{"cinemas": 1, "films": 1}
 				if source == "catalog" {
 					catalog = append(catalog, changed)
 				} else {
+					if source == "embedded duplicate" {
+						p.Types[0].Groups = append(p.Types[0].Groups, p.Types[0].Groups[0])
+					}
 					p.Types[0].Groups[0].Film = changed
 					wantCalls[p.Slug] = 1
 				}
@@ -186,6 +196,86 @@ func TestSyncRejectsOtherMovieConflictsDespiteSynopsisDifference(t *testing.T) {
 				d, summary, err := Sync(t.Context(), f, options)
 				if !errors.Is(err, schedule.ErrDatasetValidation) || !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) || !reflect.DeepEqual(f.calls, wantCalls) {
 					t.Fatalf("data=%+v summary=%+v calls=%v err=%v", d, summary, f.calls, err)
+				}
+			})
+		}
+	}
+}
+
+func TestSyncCatalogTitleWinsOverEmbeddedEventLabel(t *testing.T) {
+	for _, tc := range []struct {
+		id, catalog, embedded string
+	}{
+		{"HO00000105", "Nomadland", "Comment habiter le monde ?"},
+		{"HO00006416", "Messidor", "Comment mettre en œuvre son\u00a0émancipation ?"},
+		{"HO00006417", "Network", "Que faire de nos colères ?"},
+		{"HO00006418", "Sur la planche", "La parole peut-elle libérer ?"},
+		{"HO1", "Le triangle d'or", "Le  triangle d'or"},
+		{"HO2", "Le triangle d'or", "Le\ttriangle d'or"},
+		{"HO3", "Le triangle d'or", "Le triangle d’or"},
+	} {
+		t.Run(tc.id, func(t *testing.T) {
+			f, p, options := fixture(t)
+			g := &p.Types[0].Groups[0]
+			g.Film.ID, g.Film.Title = tc.id, tc.catalog
+			g.Film.Poster = schedule.MK2PosterPrefix + tc.id
+			g.Sessions[0].FilmID = tc.id
+			g.Sessions[0].ScheduledFilmID = g.Cinema.ID + "-" + tc.id
+			canonical := g.Film
+			f.films = encode(t, map[string]any{"data": []film{canonical}})
+			g.Film.Title, g.Film.Synopsis = tc.embedded, "Event synopsis"
+			// Duplicate event groups must still deduplicate their shared session.
+			p.Types = append(p.Types, p.Types[0])
+			f.pages[p.Slug] = encode(t, p)
+			d, summary, err := Sync(t.Context(), f, options)
+			if err != nil || summary.Movies != 1 || summary.Showtimes != 1 || summary.Requests != 3 || len(d.Showtimes) != 1 {
+				t.Fatalf("data=%+v summary=%+v err=%v", d, summary, err)
+			}
+			want, err := parseMovie(canonical)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(d.Showtimes[0].Movie, want) {
+				t.Fatalf("movie=%+v want=%+v", d.Showtimes[0].Movie, want)
+			}
+		})
+	}
+}
+
+func TestSyncCatalogAndEmbeddedComplementMissingMovieMetadata(t *testing.T) {
+	for _, source := range []string{"catalog", "embedded"} {
+		for _, missingTitle := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/missing-title=%t", source, missingTitle), func(t *testing.T) {
+				f, p, options := fixture(t)
+				full := p.Types[0].Groups[0].Film
+				full.Title = "Canonical title"
+				full.Genres = []struct {
+					Name string `json:"name"`
+				}{{Name: "Drama"}}
+				partial := film{ID: full.ID, Title: "Event label"}
+				if missingTitle {
+					partial.Title = "  "
+				}
+				catalog, embedded := full, partial
+				if source == "catalog" {
+					catalog, embedded = partial, full
+				}
+				f.films = encode(t, map[string]any{"data": []film{catalog}})
+				p.Types[0].Groups[0].Film = embedded
+				f.pages[p.Slug] = encode(t, p)
+				d, summary, err := Sync(t.Context(), f, options)
+				if err != nil || summary.Movies != 1 || len(d.Showtimes) != 1 {
+					t.Fatalf("data=%+v summary=%+v err=%v", d, summary, err)
+				}
+				want, err := parseMovie(full)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if source == "catalog" && !missingTitle {
+					want.Title = partial.Title
+				}
+				if !reflect.DeepEqual(d.Showtimes[0].Movie, want) {
+					t.Fatalf("movie=%+v want=%+v", d.Showtimes[0].Movie, want)
 				}
 			})
 		}
@@ -218,9 +308,9 @@ func TestSyncTitleCasePreservesFirstSpelling(t *testing.T) {
 			f, p, options := fixture(t)
 			catalog := p.Types[0].Groups[0].Film
 			catalog.Title = "Le triangle d'or"
-			f.films = encode(t, map[string]any{"data": []film{catalog}})
-			p.Types[0].Groups[0].Film.Title = title
-			f.pages[p.Slug] = encode(t, p)
+			duplicate := catalog
+			duplicate.Title = title
+			f.films = encode(t, map[string]any{"data": []film{catalog, duplicate}})
 			d, summary, err := Sync(t.Context(), f, options)
 			if !errors.Is(err, schedule.ErrDatasetValidation) || !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) {
 				t.Fatalf("data=%+v summary=%+v err=%v", d, summary, err)
@@ -304,7 +394,7 @@ func TestSyncRejectsPartialOrConflictingData(t *testing.T) {
 		"missing catalog member": func(_ *fixtureFetcher, p *complex) { p.Cinemas = p.Cinemas[:1] },
 		"orphan cinema":          func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.ID = "9" },
 		"orphan film":            func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Film.ID = "HO9" },
-		"conflicting film":       func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Film.Title = "Other" },
+		"conflicting film":       func(_ *fixtureFetcher, p *complex) { runtime := 109; p.Types[0].Groups[0].Film.Runtime = &runtime },
 		"conflicting cinema":     func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.Address = "Other" },
 		"wrong showing cinema":   func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].CinemaID = "0005" },
 		"wrong showing film":     func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].FilmID = "HO9" },

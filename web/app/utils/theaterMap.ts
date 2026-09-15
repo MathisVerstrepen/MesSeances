@@ -8,11 +8,11 @@ export const THEATER_PROVIDER_COLORS = {
   pathe: '#d97706',
   cgr: '#c81e1e',
   megarama: '#ffff00',
-  cineville: '#009bce',
-  mk2: '#e20d13',
-  cinewest: '#e30613',
-  grandecran: '#bd2428',
-  noecinemas: '#8b1e2d'
+  cineville: '#00bfa5',
+  mk2: '#334155',
+  cinewest: '#15803d',
+  grandecran: '#ec4899',
+  noecinemas: '#795548'
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {

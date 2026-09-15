@@ -234,7 +234,15 @@ FOR UPDATE`, item.provider, item.id).Scan(&publicID)
     last_seen_at=CURRENT_TIMESTAMP
 FROM movies movie, schedule_snapshot snapshot
 WHERE snapshot.singleton=true AND movie.generation_id=snapshot.version
-  AND source.source_provider=movie.provider AND source.source_movie_id=movie.provider_id`)
+  AND source.source_provider=movie.provider AND source.source_movie_id=movie.provider_id
+  AND ROW(source.source_slug, source.title, source.runtime_minutes, source.poster_url,
+      source.overview, source.release_date, source.genres, source.last_seen_at)
+      IS DISTINCT FROM ROW(movie.slug, movie.title, movie.runtime_minutes,
+          COALESCE(movie.poster_url, source.poster_url),
+          COALESCE(NULLIF(btrim(movie.source_overview), ''), source.overview),
+          COALESCE(movie.source_release_date, source.release_date),
+          CASE WHEN cardinality(movie.source_genres)>0 THEN movie.source_genres ELSE source.genres END,
+          CURRENT_TIMESTAMP)`)
 	if err != nil {
 		return fmt.Errorf("refresh active public movie sources failed")
 	}
@@ -719,26 +727,30 @@ func persistAssignments(ctx context.Context, tx pgx.Tx, components []*component,
 	oldTargets := make(map[int64]map[int64]bool)
 	anchorTargets := make(map[int64]int64)
 	desiredTMDB := make(map[int64]int64)
-	for _, component := range components {
+	assignments := make([]movieAssignment, 0, len(components))
+	sourceAssignments := make([]sourceAssignment, 0)
+	seenAssignments := make([]sourceAssignment, 0)
+	catalogAssignments := make([]idAssignment, 0)
+	componentOrder := make(map[int64]int, len(components))
+	for i, component := range components {
 		desiredTMDB[component.publicID] = component.metadata.tmdbID
+		componentOrder[component.publicID] = i
 	}
+	clearIDs := make([]int64, 0)
 	for id, movie := range movies {
 		if movie.redirectTo == 0 && movie.confirmedTMDB > 0 && movie.confirmedTMDB != desiredTMDB[id] {
-			if _, err := tx.Exec(ctx, "UPDATE public_movies SET confirmed_tmdb_id=NULL, imdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL WHERE id=$1", id); err != nil {
-				return fmt.Errorf("clear corrected public movie TMDB identity failed")
-			}
+			clearIDs = append(clearIDs, id)
 		}
 	}
-	for _, component := range components {
+	for i, component := range components {
 		assigned[component.publicID] = true
+		assignments = append(assignments, newMovieAssignment(component))
 		if component.catalogOwner > 0 {
 			if oldTargets[component.catalogOwner] == nil {
 				oldTargets[component.catalogOwner] = make(map[int64]bool)
 			}
 			oldTargets[component.catalogOwner][component.publicID] = true
-			if _, err := tx.Exec(ctx, "UPDATE tmdb_upcoming_movies SET public_movie_id=$2 WHERE tmdb_id=$1", component.tmdbID, component.publicID); err != nil {
-				return fmt.Errorf("transfer catalog evidence failed")
-			}
+			catalogAssignments = append(catalogAssignments, idAssignment{ID: component.tmdbID, Target: component.publicID})
 		}
 		for _, member := range component.members {
 			if movies[member.publicID].anchor == member.key {
@@ -748,33 +760,19 @@ func persistAssignments(ctx context.Context, tx pgx.Tx, components []*component,
 				oldTargets[member.publicID] = make(map[int64]bool)
 			}
 			oldTargets[member.publicID][component.publicID] = true
-			if _, err := tx.Exec(ctx, `UPDATE public_movie_sources SET public_movie_id=$3
-WHERE source_provider=$1 AND source_movie_id=$2`, member.key.provider, member.key.id, component.publicID); err != nil {
-				return fmt.Errorf("assign public movie source failed")
+			assignment := sourceAssignment{Provider: member.key.provider, SourceID: member.key.id, Target: component.publicID}
+			sourceAssignments = append(sourceAssignments, assignment)
+			seenAssignments = append(seenAssignments, assignment)
+			// The sequential implementation observed incoming members plus old
+			// members whose transfer occurred later. Preserve that last-seen
+			// aggregation even though metadata and transfers are now set based.
+			if oldOrder, ok := componentOrder[member.publicID]; ok && oldOrder < i {
+				assignment.Target = member.publicID
+				seenAssignments = append(seenAssignments, assignment)
 			}
 		}
-		if _, err := tx.Exec(ctx, `UPDATE public_movies SET
-    title=$2, runtime_minutes=$3, poster_url=$4, backdrop_url=$5, trailer_vf_youtube_key=$6, trailer_vo_youtube_key=$7, overview=$8,
-    release_date=$9, genres=$10, confirmed_tmdb_id=$11, imdb_id=$12,
-    updated_at=CASE WHEN title IS DISTINCT FROM $2::varchar
-        OR runtime_minutes IS DISTINCT FROM $3::integer
-        OR poster_url IS DISTINCT FROM $4::varchar
-        OR backdrop_url IS DISTINCT FROM $5::varchar
-        OR trailer_vf_youtube_key IS DISTINCT FROM $6::varchar
-        OR trailer_vo_youtube_key IS DISTINCT FROM $7::varchar
-        OR overview IS DISTINCT FROM $8::varchar
-        OR release_date IS DISTINCT FROM $9::date
-        OR genres IS DISTINCT FROM $10::text[]
-        OR confirmed_tmdb_id IS DISTINCT FROM $11::bigint
-        OR imdb_id IS DISTINCT FROM $12::varchar
-        THEN CURRENT_TIMESTAMP ELSE updated_at END,
-    last_seen_at=GREATEST(last_seen_at, (SELECT max(last_seen_at) FROM public_movie_sources WHERE public_movie_id=$1))
-WHERE id=$1 AND redirect_to_id IS NULL`, component.publicID, component.metadata.title, component.metadata.runtime,
-			component.metadata.poster, component.metadata.backdrop, component.metadata.trailerVFYouTubeKey, component.metadata.trailerVOYouTubeKey, component.metadata.overview, component.metadata.releaseDate,
-			component.metadata.genres, nullableID(component.metadata.tmdbID), component.metadata.imdbID); err != nil {
-			return fmt.Errorf("update canonical public movie failed")
-		}
 	}
+	redirects := make([]idAssignment, 0)
 	for oldID, targets := range oldTargets {
 		if assigned[oldID] {
 			continue
@@ -789,13 +787,10 @@ WHERE id=$1 AND redirect_to_id IS NULL`, component.publicID, component.metadata.
 			target = anchorTargets[oldID]
 			oldTargets[oldID] = map[int64]bool{target: true}
 		}
-		if _, err := tx.Exec(ctx, `UPDATE public_movies SET redirect_to_id=$2, confirmed_tmdb_id=NULL, imdb_id=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL,
-    updated_at=CASE WHEN redirect_to_id IS DISTINCT FROM $2 THEN CURRENT_TIMESTAMP ELSE updated_at END
-WHERE id=$1 AND redirect_to_id IS NULL`, oldID, target); err != nil {
-			return fmt.Errorf("write public movie redirect tombstone failed")
-		}
+		redirects = append(redirects, idAssignment{ID: oldID, Target: target})
 	}
 	// Flatten prior tombstones and aliases if their direct target became a loser.
+	flattened := make([]idAssignment, 0)
 	for id, movie := range movies {
 		if movie.redirectTo == 0 {
 			continue
@@ -809,65 +804,31 @@ WHERE id=$1 AND redirect_to_id IS NULL`, oldID, target); err != nil {
 			for target = range next {
 			}
 		}
-		if _, err := tx.Exec(ctx, "UPDATE public_movies SET redirect_to_id=$2 WHERE id=$1", id, target); err != nil {
-			return fmt.Errorf("flatten public movie redirect failed")
+		if movie.redirectTo != target {
+			flattened = append(flattened, idAssignment{ID: id, Target: target})
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE movie_slug_aliases alias SET public_movie_id=movie.redirect_to_id,
-    retargeted_at=CASE WHEN alias.public_movie_id<>movie.redirect_to_id THEN CURRENT_TIMESTAMP ELSE alias.retargeted_at END
-FROM public_movies movie WHERE alias.public_movie_id=movie.id AND movie.redirect_to_id IS NOT NULL`); err != nil {
-		return fmt.Errorf("flatten public movie aliases failed")
-	}
-	return nil
+	return writeAssignments(ctx, tx, clearIDs, assignments, sourceAssignments, seenAssignments, catalogAssignments, redirects, flattened)
 }
 
 func persistAliases(ctx context.Context, tx pgx.Tx, components []*component) error {
+	aliases := make([]aliasAssignment, 0)
+	sources := make([]sourceAssignment, 0)
 	for _, component := range components {
 		for _, member := range component.members {
-			command, err := tx.Exec(ctx, `INSERT INTO movie_slug_aliases (
-    slug, public_movie_id, alias_kind, source_provider, source_movie_id
-) VALUES ($1,$2,'source',$3,$4)
-ON CONFLICT (slug) DO UPDATE SET
-    public_movie_id=EXCLUDED.public_movie_id,
-    retargeted_at=CASE WHEN movie_slug_aliases.public_movie_id<>EXCLUDED.public_movie_id THEN CURRENT_TIMESTAMP ELSE movie_slug_aliases.retargeted_at END
-WHERE movie_slug_aliases.alias_kind='source'
-  AND movie_slug_aliases.source_provider=EXCLUDED.source_provider
-  AND movie_slug_aliases.source_movie_id=EXCLUDED.source_movie_id`, member.slug, component.publicID, member.key.provider, member.key.id)
-			if err != nil || command.RowsAffected() != 1 {
-				return fmt.Errorf("write source movie alias failed")
-			}
-			if _, err := tx.Exec(ctx, `UPDATE movie_slug_aliases SET public_movie_id=$3,
-    retargeted_at=CASE WHEN public_movie_id<>$3 THEN CURRENT_TIMESTAMP ELSE retargeted_at END
-WHERE alias_kind='source' AND source_provider=$1 AND source_movie_id=$2`, member.key.provider, member.key.id, component.publicID); err != nil {
-				return fmt.Errorf("retarget source movie aliases failed")
-			}
+			aliases = append(aliases, aliasAssignment{Slug: member.slug, Target: component.publicID, Kind: "source", Provider: member.key.provider, SourceID: member.key.id})
+			sources = append(sources, sourceAssignment{Provider: member.key.provider, SourceID: member.key.id, Target: component.publicID})
 		}
 		if component.localGroupID > 0 {
 			slug := fmt.Sprintf("local-film-%d", component.localGroupID)
-			if err := upsertEvidenceAlias(ctx, tx, slug, "local", component.publicID); err != nil {
-				return err
-			}
+			aliases = append(aliases, aliasAssignment{Slug: slug, Target: component.publicID, Kind: "local"})
 		}
 		if component.tmdbID > 0 {
 			slug := fmt.Sprintf("tmdb-film-%d", component.tmdbID)
-			if err := upsertEvidenceAlias(ctx, tx, slug, "tmdb", component.publicID); err != nil {
-				return err
-			}
+			aliases = append(aliases, aliasAssignment{Slug: slug, Target: component.publicID, Kind: "tmdb"})
 		}
 	}
-	return nil
-}
-
-func upsertEvidenceAlias(ctx context.Context, tx pgx.Tx, slug, kind string, publicID int64) error {
-	command, err := tx.Exec(ctx, `INSERT INTO movie_slug_aliases (slug,public_movie_id,alias_kind)
-VALUES ($1,$2,$3)
-ON CONFLICT (slug) DO UPDATE SET public_movie_id=EXCLUDED.public_movie_id,
-    retargeted_at=CASE WHEN movie_slug_aliases.public_movie_id<>EXCLUDED.public_movie_id THEN CURRENT_TIMESTAMP ELSE movie_slug_aliases.retargeted_at END
-WHERE movie_slug_aliases.alias_kind=EXCLUDED.alias_kind`, slug, publicID, kind)
-	if err != nil || command.RowsAffected() != 1 {
-		return fmt.Errorf("write movie evidence alias failed")
-	}
-	return nil
+	return writeAliases(ctx, tx, aliases, sources)
 }
 
 func validateTargets(ctx context.Context, tx pgx.Tx) error {
@@ -941,11 +902,4 @@ func nonblank(value *string) *string {
 		return nil
 	}
 	return value
-}
-
-func nullableID(id int64) any {
-	if id <= 0 {
-		return nil
-	}
-	return id
 }

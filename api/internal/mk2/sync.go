@@ -139,6 +139,7 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 	fail := func() (schedule.Dataset, int, error) { return schedule.Dataset{}, 0, payloadError(OperationComplex) }
 	data := schedule.Dataset{Provider: schedule.ProviderMK2, SchemaVersion: schedule.SchemaVersion, Scope: schedule.ScopeAll, Timezone: schedule.Timezone, GeneratedAt: options.Now.UTC(), Window: schedule.Window{From: options.From, Through: options.From}}
 	theaters := map[string]schedule.TheaterRecord{}
+	embeddedMovies := map[string]schedule.MovieRecord{}
 	// Join complete cinema identities and all movie metadata before emitting sessions.
 	for _, p := range pages {
 		for _, row := range p.Cinemas {
@@ -159,21 +160,34 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 					return fail()
 				}
 				m, err := parseMovie(g.Film)
-				if err != nil || movies[m.ProviderID].ProviderID == "" && m.Title == "" {
+				if err != nil || movies[m.ProviderID].ProviderID == "" && embeddedMovies[m.ProviderID].ProviderID == "" && m.Title == "" {
 					return fail()
 				}
-				// Embedded records can supply films missing from the catalog. Merge
-				// every occurrence before emitting sessions to keep conflicts atomic.
-				m, err = mergeMovie(movies[m.ProviderID], m)
+				// Validate embedded duplicates independently of the catalog so a
+				// canonical title cannot hide conflicts within the same source.
+				m, err = mergeMovie(embeddedMovies[m.ProviderID], m)
 				if err != nil {
 					return fail()
 				}
-				movies[m.ProviderID] = m
+				embeddedMovies[m.ProviderID] = m
 			}
 		}
 	}
 	if len(theaters) != len(catalog) {
 		return fail()
+	}
+	for id, embedded := range embeddedMovies {
+		canonical := movies[id]
+		// Complex pages can use an event label for a catalog film ID. Keep
+		// the catalog title while retaining all other metadata conflict checks.
+		if canonical.Title != "" {
+			embedded.Title = canonical.Title
+		}
+		merged, err := mergeMovie(canonical, embedded)
+		if err != nil {
+			return fail()
+		}
+		movies[id] = merged
 	}
 	location, err := time.LoadLocation(schedule.Timezone)
 	if err != nil {

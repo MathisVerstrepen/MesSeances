@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -243,9 +245,53 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := fixturePage(fixtureCinema())
 			mutate(&p)
-			d, _, err := Sync(t.Context(), singleFetcher(t, p), fixtureOptions())
-			if !errors.Is(err, schedule.ErrDatasetValidation) || len(d.Showtimes) != 0 {
+			fetcher := singleFetcher(t, p)
+			d, summary, err := Sync(t.Context(), fetcher, fixtureOptions())
+			if !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) || fetcher.RequestCount() != 2 {
+				t.Fatal("partial dataset or unexpected retry")
+			}
+			if name == "empty dataset" {
+				var re *RequestError
+				if !errors.Is(err, schedule.ErrDatasetValidation) || errors.As(err, &re) {
+					t.Fatalf("final validation err=%v", err)
+				}
+				return
+			}
+			var re *RequestError
+			if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || errors.Is(err, schedule.ErrDatasetValidation) {
 				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}
+
+func TestSyncMalformedResponsesArePayloadFailures(t *testing.T) {
+	for _, op := range []Operation{OperationBootstrap, OperationCinema} {
+		t.Run(string(op), func(t *testing.T) {
+			client := testClient(t, func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() == BootstrapURL {
+					body := "<html>synthetic-private-body</html>"
+					if op == OperationCinema {
+						body = string(bootstrapBytes(t, "build-1", []cinema{fixtureCinema()}))
+					}
+					return response(http.StatusOK, "text/html", body), nil
+				}
+				return response(http.StatusOK, "application/json", `{"pageProps":{"cinemaId":"synthetic-private-body"}}`), nil
+			})
+			data, summary, err := Sync(t.Context(), client, fixtureOptions())
+			var re *RequestError
+			if !errors.As(err, &re) || re.Operation != op || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 || errors.Is(err, schedule.ErrDatasetValidation) {
+				t.Fatalf("payload classification: %v", err)
+			}
+			wantRequests := 1
+			if op == OperationCinema {
+				wantRequests++
+			}
+			if client.RequestCount() != wantRequests || !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) {
+				t.Fatal("partial dataset or unexpected retry")
+			}
+			if strings.Contains(err.Error(), "synthetic-private-body") || errors.Unwrap(err) != nil {
+				t.Fatal("payload error retained provider data")
 			}
 		})
 	}
