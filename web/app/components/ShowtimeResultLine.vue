@@ -134,7 +134,7 @@ function formatRoom(room: string) {
     </div>
   </article>
 
-  <li v-else class="relative grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined">
+  <li v-else class="relative grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5" :class="[scope === 'multi-theater' ? 'grid-cols-[minmax(0,1fr)_auto] items-center' : undefined, scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined]">
     <button
       v-if="scope === 'multi-theater'"
       type="button"
