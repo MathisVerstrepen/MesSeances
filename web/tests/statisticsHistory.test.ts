@@ -358,7 +358,7 @@ test('all three actual entity links use loaded IDs, fresh all-history routes and
 test('visible escaped film selection is outside result states and uses draft removal plus existing Apply/SEO guards', async () => {
   const page = await readFile(new URL('../app/pages/statistiques.vue', import.meta.url), 'utf8')
   const selection = page.slice(page.indexOf('<div v-if="draft.film"'), page.indexOf('<div class="grid min-w-0 gap-5'))
-  assert.match(selection, /Film : \{\{ draft.film \}\}/)
+  assert.match(selection, /Film : \{\{ selectedFilmLabel \}\}/)
   assert.match(selection, /overflow-wrap:anywhere/)
   assert.match(selection, /<button type="button"[^>]*aria-label="Retirer le film"[^>]*@click="draft.film = ''">\s*<X :size="16" aria-hidden="true" \/>\s*<\/button>/)
   assert.match(selection, /size-11 shrink-0/)
@@ -374,7 +374,8 @@ test('visible escaped film selection is outside result states and uses draft rem
   assert.match(page, /statisticsQueryKeys.some\(key => route.query\[key\] !== undefined\) \? 'noindex,follow'/)
   assert.match(page, /absoluteSiteUrl\(useRuntimeConfig\(\).public.siteUrl, '\/statistiques'\)/)
   assert.match(page, /rel: 'canonical', href: canonicalUrl/)
-  assert.doesNotMatch(page, /v-html|api\.movie|filmOptions|key: 'film'/)
+  assert.match(page, /api\.movieShowtimes\(film, \{ date: statisticsParisToday\(\) \}\)/)
+  assert.doesNotMatch(page, /v-html|api\.movies\(|filmOptions|key: 'film'/)
 })
 
 test('city header counts stay side by side on mobile with a vertical divider', async () => {

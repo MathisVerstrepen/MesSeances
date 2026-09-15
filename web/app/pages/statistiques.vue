@@ -3,7 +3,8 @@ import { AlertTriangle, RefreshCw, X } from '@lucide/vue'
 import type { HistoryStatisticsResponse, StatisticsBucket, StatisticsMovieRank, StatisticsOptions } from '~/types/api'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { queriesEqual } from '~/utils/routeQuery'
-import { createStatisticsRequest, statisticsBucketLabel, statisticsChainLabels, statisticsCount, statisticsOptionsWithSelection, statisticsQueryKeys, statisticsShare, type StatisticsFilterKey, type StatisticsMultiFilterKey, type StatisticsScalarFilterKey } from '~/utils/statistics'
+import { safeBackdropUrl } from '~/utils/safeImageUrl'
+import { createStatisticsRequest, parseStatisticsQuery, statisticsBucketLabel, statisticsChainLabels, statisticsCount, statisticsOptionsWithSelection, statisticsQueryKeys, statisticsShare, type StatisticsFilterKey, type StatisticsMultiFilterKey, type StatisticsScalarFilterKey } from '~/utils/statistics'
 import { parseStatisticsPageQuery, statisticsCustomDraft, statisticsParisToday, statisticsPeriod, statisticsPeriods, statisticsPageDraft, statisticsPageDraftQuery, statisticsPageRoute, statisticsPageSignature } from '~/utils/statisticsHistory'
 
 const api = useMesSeancesApi()
@@ -127,6 +128,30 @@ function changePeriod() {
   if (draft.value.period === 'custom') draft.value = statisticsCustomDraft(draft.value, data.value?.range)
 }
 
+// Resolve the film independently of history rows, dates and intersecting filters.
+const selectedFilm = computed(() => route.query.film === undefined ? '' : parseStatisticsQuery({ film: route.query.film }).query.film ?? '')
+const selectedFilmKey = computed(() => `statistics-film:${selectedFilm.value}`)
+const { data: selectedMovie } = await useAsyncData(selectedFilmKey, async () => {
+  const film = selectedFilm.value
+  if (!film) return { film, title: '', backdrop: null }
+  try {
+    const response = await api.movieShowtimes(film, { date: statisticsParisToday() })
+    return { film, title: response.movie.title.trim(), backdrop: safeBackdropUrl(response.backdrop_url) }
+  } catch {
+    return { film, title: '', backdrop: null }
+  }
+}, { lazy: true })
+// Nuxt can retain the previous key's data while loading; never label a new film with it.
+const selectedFilmLabel = computed(() => selectedFilm.value && selectedMovie.value?.film === selectedFilm.value
+  ? selectedMovie.value.title || 'Titre indisponible'
+  : 'Titre indisponible')
+const backdropUrl = computed(() => draft.value.film && draft.value.film === selectedFilm.value && selectedMovie.value?.film === selectedFilm.value
+  ? selectedMovie.value.backdrop
+  : null)
+const backdropFailed = ref(false)
+watch([selectedFilm, backdropUrl], () => { backdropFailed.value = false }, { flush: 'sync' })
+const backdropAvailable = computed(() => Boolean(backdropUrl.value) && !backdropFailed.value)
+
 const primaryFilters: { key: StatisticsMultiFilterKey; label: string; all: string }[] = [
   { key: 'city', label: 'Ville', all: 'Toutes les villes' },
   { key: 'theater', label: 'Cinéma', all: 'Tous les cinémas' }
@@ -182,8 +207,8 @@ function dateLabel(value: string) {
 }
 const generatedLabel = computed(() => data.value ? new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'long', timeStyle: 'short' }).format(new Date(data.value.generated_at)) : '')
 function timestampLabel(value: string) { return new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'long', timeStyle: 'short' }).format(new Date(value)) }
-const controlClass = 'mt-2 h-12 w-full min-w-0 rounded-none border-2 border-ink bg-surface px-3 text-sm font-bold focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink'
-const labelClass = 'min-w-0 text-xs font-extrabold uppercase tracking-wide'
+const controlClass = computed(() => `mt-2 h-12 w-full min-w-0 rounded-none border-2 border-ink bg-surface px-3 text-sm font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 ${backdropAvailable.value ? 'focus-visible:outline-white' : 'focus-visible:outline-ink'}`)
+const labelClass = computed(() => `min-w-0 text-xs font-extrabold uppercase tracking-wide ${backdropAvailable.value ? 'text-white' : ''}`)
 const buttonClass = 'inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink px-4 py-3 text-sm font-extrabold focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40'
 const headingClass = 'mb-7 text-2xl font-black tracking-tight sm:text-3xl'
 const sectionClass = 'min-w-0 border-t-2 border-ink py-8 sm:py-12'
@@ -206,10 +231,12 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       </div>
     </header>
     <div class="mx-auto min-w-0 max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
-      <form class="border-2 border-ink bg-[#f1efe8] p-4 shadow-[5px_5px_0_#27272a] sm:p-6" aria-label="Filtres des statistiques" novalidate @submit.prevent="apply">
-        <div v-if="draft.film" class="mb-5 flex min-w-0 items-center gap-1">
-          <p class="min-w-0 font-bold [overflow-wrap:anywhere]">Film : {{ draft.film }}</p>
-          <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink" aria-label="Retirer le film" title="Retirer le film" @click="draft.film = ''">
+      <form class="relative isolate border-2 border-ink bg-[#f1efe8] p-4 shadow-[5px_5px_0_#27272a] [&_:focus-visible]:outline-solid sm:p-6" aria-label="Filtres des statistiques" novalidate @submit.prevent="apply">
+        <img v-if="backdropAvailable" :key="`${selectedFilm}:${backdropUrl}`" :src="backdropUrl ?? undefined" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 -z-20 size-full object-cover" @error="backdropFailed = true" />
+        <div v-if="backdropAvailable" class="pointer-events-none absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
+        <div v-if="draft.film" class="mb-5 flex min-w-0 items-center gap-1" :class="backdropAvailable ? 'text-white' : undefined">
+          <p class="min-w-0 font-bold [overflow-wrap:anywhere]">Film : {{ selectedFilmLabel }}</p>
+          <button type="button" class="inline-flex size-11 shrink-0 items-center justify-center focus-visible:outline-3 focus-visible:outline-offset-3" :class="backdropAvailable ? 'text-white hover:bg-white/20 focus-visible:outline-white' : 'text-ink hover:bg-highlight focus-visible:outline-ink'" aria-label="Retirer le film" title="Retirer le film" @click="draft.film = ''">
             <X :size="16" aria-hidden="true" />
           </button>
         </div>
@@ -225,21 +252,21 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               <input v-model="draft.date_to" type="date" required :class="controlClass" :aria-invalid="Boolean(validationError)" :aria-describedby="validationError ? 'statistics-date-error' : undefined" />
             </label>
           </template>
-          <StatisticsHistorySelect v-for="filter in primaryFilters" :id="`statistics-${filter.key}`" :key="`${signature}:${filter.key}`" v-model="draft[filter.key]" :kind="filter.key" :label="filter.label" :all-label="filter.all" :options="rawFilterOptions[filter.key]" :has-more="optionLimits?.[filter.key === 'city' ? 'cities' : 'theaters']" />
+          <StatisticsHistorySelect v-for="filter in primaryFilters" :id="`statistics-${filter.key}`" :key="`${signature}:${filter.key}`" v-model="draft[filter.key]" :class="backdropAvailable ? '[&_legend]:text-white [&_summary:focus-visible]:outline-white' : undefined" :kind="filter.key" :label="filter.label" :all-label="filter.all" :options="rawFilterOptions[filter.key]" :has-more="optionLimits?.[filter.key === 'city' ? 'cities' : 'theaters']" />
         </div>
         <details class="mt-5" :open="advancedOpen">
-          <summary class="w-fit cursor-pointer py-3 text-sm font-extrabold underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">Filtres avancés</summary>
+          <summary class="w-fit cursor-pointer py-3 text-sm font-extrabold underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3" :class="backdropAvailable ? 'text-white focus-visible:outline-white' : 'focus-visible:outline-ink'">Filtres avancés</summary>
           <div class="mt-3 grid min-w-0 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <template v-for="filter in advancedFilters" :key="`${signature}:${filter.key}`">
-              <StatisticsHistorySelect v-if="filter.key === 'genre' || filter.key === 'pass'" :id="`statistics-${filter.key}`" :model-value="draft[filter.key] ? [draft[filter.key]] : []" :kind="filter.key" :label="filter.label" :all-label="filter.all" :options="rawFilterOptions[filter.key]" :has-more="optionLimits?.[filter.key === 'genre' ? 'genres' : 'passes']" single @update:model-value="draft[filter.key] = $event[0] ?? ''" />
+              <StatisticsHistorySelect v-if="filter.key === 'genre' || filter.key === 'pass'" :id="`statistics-${filter.key}`" :model-value="draft[filter.key] ? [draft[filter.key]] : []" :class="backdropAvailable ? '[&_legend]:text-white [&_summary:focus-visible]:outline-white' : undefined" :kind="filter.key" :label="filter.label" :all-label="filter.all" :options="rawFilterOptions[filter.key]" :has-more="optionLimits?.[filter.key === 'genre' ? 'genres' : 'passes']" single @update:model-value="draft[filter.key] = $event[0] ?? ''" />
             <label v-else :class="labelClass">{{ filter.label }}
               <select v-model="draft[filter.key]" :class="controlClass"><option value="">{{ filter.all }}</option><option v-for="option in filterOptions[filter.key]" :key="option.value" :value="option.value">{{ option.label }}</option></select>
             </label>
             </template>
           </div>
         </details>
-        <p v-if="validationError" id="statistics-date-error" role="alert" class="mt-4 font-bold text-primary-hover">{{ validationError }}</p>
-        <div class="mt-5 flex flex-wrap gap-3">
+        <p v-if="validationError" id="statistics-date-error" role="alert" class="mt-4 font-bold text-primary-hover" :class="backdropAvailable ? 'w-fit bg-surface px-3 py-2' : undefined">{{ validationError }}</p>
+        <div class="mt-5 flex flex-wrap gap-3" :class="backdropAvailable ? '[&_button:focus-visible]:outline-white' : undefined">
           <button type="submit" :class="[buttonClass, 'bg-ink text-white hover:bg-primary']">Appliquer</button>
           <button type="button" :class="[buttonClass, 'bg-surface hover:bg-highlight']" @click="reset">Réinitialiser</button>
         </div>
