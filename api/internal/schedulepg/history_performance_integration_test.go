@@ -3,6 +3,7 @@ package schedulepg
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -71,6 +72,18 @@ func TestHistoryPerformanceIntegration(t *testing.T) {
 			}
 			if len(r.TopMovies.ByShowtimes) != 10 || r.Concentration.OtherShowtimeCount <= 0 {
 				t.Fatal("top10 truncation")
+			}
+			// The first 40 theaters have one extra screening. Within both tied
+			// groups the display-name order must survive weighted aggregation.
+			for _, boundary := range []struct{ position, id int }{{0, 1001}, {39, 1040}, {40, 1000}, {99, 1099}} {
+				if r.Local.Theaters[boundary.position].ID != fmt.Sprintf("ugc-%d", boundary.id) || r.Local.Cities[boundary.position].Slug != fmt.Sprintf("ville-%d", boundary.id) {
+					t.Fatal("top100 tied order", boundary, r.Local)
+				}
+			}
+			for i, movie := range r.TopMovies.ByShowtimes {
+				if movie.Title != fmt.Sprintf("Film %04d", 1001+i) || movie.ShowtimeCount != 411 || movie.TheaterCount != 1 {
+					t.Fatal("top10 weighted order", i, movie)
+				}
 			}
 		}
 		if tc.name == "selected-outside-initial" {

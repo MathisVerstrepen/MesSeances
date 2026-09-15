@@ -204,6 +204,9 @@ const historyCoverageSQL = `SELECT transaction_timestamp(),jsonb_build_object(
 // Select theater keys once and semi-join them. Joining the materialized theater
 // inventory here can rescan it for every screening when combined filters are
 // underestimated; membership preserves the same unique-theater semantics.
+// Count narrow canonical movie/theater pairs before joining display metadata.
+// Reuse their weights for rankings without multiplying screenings by genres,
+// passes or the number of source identities mapped to one public movie.
 const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERIALIZED (
  SELECT t.id FROM theaters t
  WHERE (coalesce(cardinality($3::text[]),0)=0 OR t.city_slug=ANY($3)) AND (coalesce(cardinality($4::text[]),0)=0 OR t.id=ANY($4))
@@ -218,21 +221,25 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
  AND ($6='' OR CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END=$6)
  AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN h.format ELSE 'unknown' END=$7)
  AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))
+), movie_theaters AS MATERIALIZED (
+ SELECT movie_id,theater_id,count(*) showtime_count FROM matched GROUP BY movie_id,theater_id
 ), movie_counts AS MATERIALIZED (
- SELECT 'film-'||m.id slug,m.id,m.title,m.runtime,count(*) showtime_count,count(DISTINCT h.theater_id) theater_count
- FROM matched h JOIN movies m ON m.id=h.movie_id GROUP BY m.id,m.title,m.runtime
+ SELECT 'film-'||m.id slug,m.id,m.title,m.runtime,c.showtime_count,c.theater_count
+ FROM (SELECT movie_id,sum(showtime_count) showtime_count,count(*) theater_count FROM movie_theaters GROUP BY movie_id) c
+ JOIN movies m ON m.id=c.movie_id
 ), top_showtimes AS (
  SELECT slug,title,showtime_count,theater_count FROM movie_counts ORDER BY showtime_count DESC,theater_count DESC,lower(btrim(title,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",slug COLLATE "C" LIMIT 10
 ), top_theaters AS (
  SELECT slug,title,showtime_count,theater_count FROM movie_counts ORDER BY theater_count DESC,showtime_count DESC,lower(btrim(title,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",slug COLLATE "C" LIMIT 10
 ), city_counts AS MATERIALIZED (
- SELECT t.city_slug slug,min(t.city_name COLLATE "C") name,count(*) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT t.id) theater_count
- FROM matched h JOIN theaters t ON t.id=h.theater_id GROUP BY t.city_slug
+ SELECT t.city_slug slug,min(t.city_name COLLATE "C") name,sum(h.showtime_count) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT t.id) theater_count
+ FROM movie_theaters h JOIN theaters t ON t.id=h.theater_id GROUP BY t.city_slug
 ), city_ranks AS (
  SELECT * FROM city_counts ORDER BY movie_count DESC,showtime_count DESC,lower(btrim(name,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",slug COLLATE "C" LIMIT 100
 ), theater_counts AS MATERIALIZED (
- SELECT t.id,t.slug,t.name,t.city_name city,t.city_slug,t.provider chain,count(*) showtime_count,count(DISTINCT h.movie_id) movie_count
- FROM matched h JOIN theaters t ON t.id=h.theater_id GROUP BY t.id,t.slug,t.name,t.city_name,t.city_slug,t.provider
+ SELECT t.id,t.slug,t.name,t.city_name city,t.city_slug,t.provider chain,c.showtime_count,c.movie_count
+ FROM (SELECT theater_id,sum(showtime_count) showtime_count,count(*) movie_count FROM movie_theaters GROUP BY theater_id) c
+ JOIN theaters t ON t.id=c.theater_id
 ), theater_ranks AS (
  SELECT * FROM theater_counts ORDER BY movie_count DESC,showtime_count DESC,lower(btrim(name,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",id COLLATE "C" LIMIT 100
 ), genre_counts AS MATERIALIZED (
