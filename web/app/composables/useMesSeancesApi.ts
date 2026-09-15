@@ -46,6 +46,8 @@ import type {
   SlotQuery,
   SlotResult,
   ShortLinkResponse,
+  StatisticsQuery,
+  StatisticsResponse,
   Theater,
   TheaterShowtimesResponse,
   TheaterQuery,
@@ -89,6 +91,10 @@ export function useMesSeancesApi() {
 
   return {
     hasInternalApiIdentity,
+    statistics(query: StatisticsQuery = {}, signal?: AbortSignal) {
+      const values = Object.fromEntries(Object.entries(query).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)))
+      return apiFetch<StatisticsResponse>(`${apiBase}/api/v1/statistics`, { query: values, signal, retry: false })
+    },
     timeline(query: TimelineQuery) {
       return apiFetch<TimelineResponse>(`${apiBase}/api/v1/timeline`, { query: queryValues(query) })
     },

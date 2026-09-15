@@ -152,6 +152,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/timeline", api.timeline)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/statistics", api.statistics)
 	router.With(api.requireSchedule).Get("/api/v1/theaters", api.theaters)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)

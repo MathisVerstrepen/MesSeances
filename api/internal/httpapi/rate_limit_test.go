@@ -231,6 +231,7 @@ func TestProtectedRouteMatrixSharesExpensiveReadQuota(t *testing.T) {
 	handler := testHandlerWithOptions(t, HandlerOptions{Shortlinks: service, RateLimitClock: func() time.Time { return now }})
 	protected := []string{
 		"/api/v1/timeline?date=2026-08-15",
+		"/api/v1/statistics?date=2026-08-15",
 		"/api/v1/theaters/ugc-lille/showtimes?date=2026-08-15",
 		"/api/v1/movies?page_size=1",
 		"/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15",
