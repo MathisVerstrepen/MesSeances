@@ -631,17 +631,16 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
         <p v-if="isUpcomingFilm && frenchReleaseLabel" class="mt-4 font-mono text-sm font-bold">Sortie le <time :datetime="schedule.movie.french_release_date!">{{ frenchReleaseLabel }}</time></p>
         <NuxtLink v-if="isUpcomingFilm" to="/films/prochainement" class="mt-6 inline-flex min-h-11 items-center font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink">Voir les prochaines sorties</NuxtLink>
       </section>
-      <section v-else class="schedule-section mt-12 border-t-2 border-ink pt-8 sm:mt-16 sm:pt-10" aria-labelledby="schedule-heading">
-        <div class="flex flex-col gap-3 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-          <div>
-            <p class="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">Programmation</p>
-            <h2 id="schedule-heading" class="mt-2 flex flex-wrap items-baseline gap-x-3 text-4xl font-black tracking-[-0.05em] text-ink sm:text-5xl">
+      <section v-else class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10" aria-labelledby="schedule-heading">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b-2 border-ink pb-3 sm:flex sm:items-end sm:gap-6 sm:pb-5">
+          <div class="min-w-0 sm:mr-auto">
+            <h2 id="schedule-heading" class="flex flex-wrap items-baseline gap-x-3 text-3xl font-black tracking-[-0.05em] text-ink sm:text-5xl">
               <span>Séances</span>
               <span class="font-mono text-xs font-bold uppercase tracking-[0.1em] text-muted">{{ visibleShowtimeCount }} horaire{{ visibleShowtimeCount === 1 ? '' : 's' }}</span>
             </h2>
-            <p class="mt-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted">{{ formatLongDate(selectedDate) }}</p>
+            <p class="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted sm:mt-2">{{ formatLongDate(selectedDate) }}</p>
           </div>
-          <div class="flex flex-wrap items-center gap-3 self-start sm:justify-end sm:self-end">
+          <div class="col-start-1 row-start-2 flex min-h-11 min-w-0 flex-wrap items-center gap-3 sm:min-h-0 sm:justify-end sm:self-end">
             <SharedTheaterAction
               v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value"
               v-slot="{ pending: restorePending, errorMessage: restoreError, restoreSavedTheaters }"
@@ -660,11 +659,11 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </div>
             </SharedTheaterAction>
             <NuxtLink v-else to="/cinemas" class="inline-block shrink-0 border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase">Modifier mes cinémas</NuxtLink>
-            <ShareButton class="shrink-0" />
           </div>
+          <ShareButton class="col-start-2 row-start-1 row-span-2 shrink-0" />
         </div>
 
-        <div class="filter-dock sticky top-0 z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 lg:hidden">
+        <div class="filter-dock sticky top-0 z-20 -mx-4 mt-3 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:mt-5 lg:hidden">
           <div class="grid grid-cols-3 divide-x-2 divide-ink">
             <button
               id="mobile-date-trigger"
@@ -676,7 +675,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               :aria-label="`Choisir une date, sélection actuelle : ${formatDateLabel(selectedDate)}`"
               @click="toggleMobilePanel('date')"
             >
-              <CalendarDays :size="17" aria-hidden="true" />
+              <CalendarDays :size="17" class="shrink-0" aria-hidden="true" />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Date</span>
                 <span class="truncate text-[0.58rem] text-muted">{{ formatDateLabel(selectedDate) }}</span>
@@ -692,7 +691,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               :aria-label="`Filtres, sélection actuelle : ${activeFilterSummary}`"
               @click="toggleMobilePanel('filters')"
             >
-              <SlidersHorizontal :size="17" aria-hidden="true" />
+              <SlidersHorizontal :size="17" class="shrink-0" aria-hidden="true" />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Filtres</span>
                 <span class="truncate text-[0.58rem] text-muted">{{ activeFilterSummary }}</span>
@@ -706,7 +705,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               aria-label="Trier les cinémas par prochain horaire"
               @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
             >
-              <ArrowDownUp :size="17" aria-hidden="true" />
+              <ArrowDownUp :size="17" class="shrink-0" aria-hidden="true" />
               <span class="min-w-0 truncate">Horaire</span>
             </button>
           </div>
