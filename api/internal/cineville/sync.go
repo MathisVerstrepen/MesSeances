@@ -203,7 +203,7 @@ func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options
 			available = append(available, date)
 		}
 		sort.Strings(available)
-		data.Theaters = append(data.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderCineville, ID: theaterID, ProviderID: string(c.ID), Slug: theaterID, Name: c.Name, Address: c.Address, City: c.City, PostalCode: c.Postal, AvailableDates: available, AcceptedPasses: []string{}})
+		data.Theaters = append(data.Theaters, schedule.TheaterRecord{Provider: schedule.ProviderCineville, ID: theaterID, ProviderID: string(c.ID), Slug: theaterID, Name: c.Name, Address: c.Address, City: c.City, PostalCode: schedule.NormalizePostalCode(c.Postal), AvailableDates: available, AcceptedPasses: []string{}})
 	}
 	if schedule.ValidateDataset(data, true) != nil {
 		return schedule.Dataset{}, 0, schedule.ErrDatasetValidation

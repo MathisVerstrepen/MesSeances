@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"messeances/api/internal/geocoding"
+	"messeances/api/internal/schedule"
 )
 
 const (
@@ -75,8 +76,9 @@ func (c *Client) Search(ctx context.Context, query geocoding.Query) ([]geocoding
 	}
 	requestURL := *c.endpoint
 	values := requestURL.Query()
-	values.Set("q", strings.Join([]string{query.Address, query.PostalCode, query.City}, " "))
-	values.Set("postcode", query.PostalCode)
+	postalCode := schedule.NormalizePostalCode(query.PostalCode)
+	values.Set("q", strings.Join([]string{query.Address, postalCode, query.City}, " "))
+	values.Set("postcode", postalCode)
 	values.Set("index", "address")
 	values.Set("autocomplete", "0")
 	values.Set("limit", "3")

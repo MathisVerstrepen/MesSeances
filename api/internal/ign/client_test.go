@@ -53,6 +53,39 @@ func TestClientExactQueryMappingRateAndRetry(t *testing.T) {
 	}
 }
 
+func TestClientNormalizesPostalCode(t *testing.T) {
+	for _, test := range []struct {
+		name, postal, want string
+	}{
+		{name: "normal", postal: "29600", want: "29600"},
+		{name: "internal space", postal: "29 600", want: "29600"},
+		{name: "ASCII whitespace", postal: " \t29\n600\r ", want: "29600"},
+		{name: "nonbreaking space", postal: "29\u00a0600", want: "29600"},
+		{name: "narrow nonbreaking space", postal: "29\u202f600", want: "29600"},
+		{name: "leading zero", postal: "01 000", want: "01000"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			transport := roundTripper(func(request *http.Request) (*http.Response, error) {
+				calls++
+				query := request.URL.Query()
+				if query.Get("postcode") != test.want || query.Get("q") != "ZAC Saint-Fiacre Rue Karine Ruby "+test.want+" Plourin-Lès-Morlaix" {
+					t.Fatalf("query=%v", query)
+				}
+				return response(200, "application/json", `{"type":"FeatureCollection","features":[]}`), nil
+			})
+			client, err := NewClient(Config{Timeout: 5 * time.Second, Transport: transport})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.Search(t.Context(), geocoding.Query{Address: "ZAC Saint-Fiacre Rue Karine Ruby", PostalCode: test.postal, City: "Plourin-Lès-Morlaix"})
+			if err != nil || calls != 1 {
+				t.Fatalf("calls=%d err=%v", calls, err)
+			}
+		})
+	}
+}
+
 func TestClientKeepsFreeFormCityOnlyInQueryText(t *testing.T) {
 	transport := roundTripper(func(request *http.Request) (*http.Response, error) {
 		query := request.URL.Query()
