@@ -260,9 +260,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <p v-if="data.range" class="text-base font-extrabold">Du {{ dateLabel(data.range.from) }} au {{ dateLabel(data.range.through) }}</p>
             <template v-if="historyData">
               <p v-if="!historyData.coverage.collection_started_at">La collecte historique n’a pas encore commencé.</p>
-              <p v-else>Début de la collecte : <time :datetime="historyData.coverage.collection_started_at">{{ timestampLabel(historyData.coverage.collection_started_at) }}</time>.<template v-if="historyData.coverage.last_publication_at"> Dernière réception réussie : <time :datetime="historyData.coverage.last_publication_at">{{ timestampLabel(historyData.coverage.last_publication_at) }}</time>.</template></p>
-              <p>Ces annonces observées ne prouvent pas que les séances ont eu lieu. Exhaustivité inconnue.</p>
-              <p>Statistiques calculées le <time :datetime="data.generated_at">{{ generatedLabel }}</time> (Europe/Paris).</p>
+              <p v-else>Début de la collecte : <time :datetime="historyData.coverage.collection_started_at">{{ timestampLabel(historyData.coverage.collection_started_at) }}</time>.<template v-if="historyData.coverage.last_publication_at"> Dernière réception réussie : <time :datetime="historyData.coverage.last_publication_at">{{ timestampLabel(historyData.coverage.last_publication_at) }}</time>. Calculées le <time :datetime="data.generated_at">{{ generatedLabel }}</time>.</template></p>
             </template>
             <details>
               <summary class="w-fit cursor-pointer py-2 font-extrabold underline underline-offset-4 focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">Périmètre et méthode</summary>
@@ -279,7 +277,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                   <p>L’identité publique d’un film regroupe ses copies chez les fournisseurs, sans fusionner les films sur leur seul titre. Villes et cinémas sont comptés uniquement lorsqu’ils ont des séances correspondantes.</p>
                 </template>
                 <p>Les dates sont des jours de programmation, en Europe/Paris. Les séances après minuit restent rattachées au jour de programmation précédent. Toutes les dimensions de filtre se croisent ; chaque version et format reste distinct, sans déduction d’équipement.</p>
-                <p>Le filtre de pass désigne les cinémas qui l’acceptent. Il ne garantit pas l’éligibilité de chaque séance, ni l’absence de supplément.</p>
               </div>
             </details>
           </div>
