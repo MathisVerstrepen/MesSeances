@@ -203,7 +203,7 @@ func (f executorFunc) Run(ctx context.Context, target Target, window Window) (ma
 
 func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	now := time.Date(2026, 8, 17, 23, 30, 0, 0, time.FixedZone("test", -4*60*60))
-	started := make(chan Target, 1)
+	started := make(chan Target, 10)
 	release := make(chan struct{})
 	manager, err := newTestManager(context.Background(), func() time.Time { return now }, executorFunc(func(_ context.Context, target Target, window Window) (ProviderOutcome, error) {
 		if window != (Window{From: "2026-08-18"}) {
@@ -229,19 +229,25 @@ func TestManagerOrdersAllAndRejectsOverlap(t *testing.T) {
 	if _, err := manager.Start(TargetUGC); !errors.Is(err, ErrInProgress) {
 		t.Fatalf("overlap err=%v", err)
 	}
-	if target := <-started; target != TargetAll {
+	if target := <-started; target != TargetUGC {
 		t.Fatalf("target=%s", target)
 	}
 	status := manager.Status()
-	if status.Providers["ugc"].State != ProviderRunning || status.Providers["kinepolis"].State != ProviderRunning || status.Providers["pathe"].State != ProviderRunning || status.Providers["cgr"].State != ProviderRunning {
+	if status.Providers["ugc"].State != ProviderRunning || status.Providers["kinepolis"].State != ProviderPending || status.Providers["pathe"].State != ProviderPending || status.Providers["cgr"].State != ProviderPending {
 		t.Fatalf("status=%+v", status)
 	}
 	status.Providers["ugc"] = ProviderStatus{State: "mutated"}
 	if manager.Status().Providers["ugc"].State == "mutated" {
 		t.Fatal("status snapshot mutated manager state")
 	}
-	release <- struct{}{}
+	close(release)
 	status = waitForTerminal(t, manager)
+	manager.Close()
+	for _, want := range []Target{TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas} {
+		if got := <-started; got != want {
+			t.Fatalf("provider order: got=%s want=%s", got, want)
+		}
+	}
 	if status.State != StateSucceeded || status.FinishedAt == nil {
 		t.Fatalf("terminal=%+v", status)
 	}
@@ -280,9 +286,9 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 		wantPathe ProviderState
 		wantCGR   ProviderState
 	}{
-		{name: "failure skips other provider", target: TargetAll, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
+		{name: "single provider fails", target: TargetUGC, executor: func(context.Context, Target, Window) (ProviderOutcome, error) {
 			return ProviderOutcome{}, newProviderRunError(TargetUGC, StageDatasetValidation, FailureDatasetRejected, errors.New("secret"))
-		}, wantUGC: ProviderFailed, wantKin: ProviderSkipped, wantPathe: ProviderSkipped, wantCGR: ProviderSkipped},
+		}, wantUGC: ProviderFailed, wantKin: ProviderNotRequested, wantPathe: ProviderNotRequested, wantCGR: ProviderNotRequested},
 		{name: "panic becomes failure", target: TargetKinepolis, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { panic("secret") }, wantUGC: ProviderNotRequested, wantKin: ProviderFailed, wantPathe: ProviderNotRequested, wantCGR: ProviderNotRequested},
 		{name: "single provider succeeds", target: TargetPathe, executor: func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }, wantUGC: ProviderNotRequested, wantKin: ProviderNotRequested, wantPathe: ProviderSucceeded, wantCGR: ProviderNotRequested},
 	}
@@ -509,7 +515,7 @@ func TestManagerTargetAllUsesLatestProviderEnd(t *testing.T) {
 	}
 }
 
-func TestManagerMarksEveryProviderFailedOnSharedPublicationFailure(t *testing.T) {
+func TestManagerMarksEveryProviderFailedWhenEveryPublicationFails(t *testing.T) {
 	manager, err := newTestManager(context.Background(), time.Now, executorMapFunc(func(context.Context, Target, Window) (map[Target]ProviderOutcome, error) {
 		return nil, newProviderRunError("", StagePublication, FailureReplacement, errors.New("secret"))
 	}))
