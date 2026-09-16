@@ -73,6 +73,57 @@ func TestSyncDynamicHorizonEmptyCinemaStableRecovery(t *testing.T) {
 		t.Fatal("event lost")
 	}
 }
+func TestSyncFontenayBookingRoute(t *testing.T) {
+	for _, tc := range []struct {
+		route string
+		valid bool
+	}{{"r/12345", true}, {"reserver/r/12345", true}, {"reserver/reserver/r/12345", false}} {
+		t.Run(tc.route, func(t *testing.T) {
+			const theaterID = "G034G"
+			booking := "https://achat.grandecran.fr/fontenay-le-comte/" + tc.route
+			var rooms atomic.Int64
+			g := &fakeGetter{get: func(_ context.Context, op Operation, raw string) ([]byte, error) {
+				switch op {
+				case OperationCinemas:
+					return testJSON(t, map[string]any{"data": map[string]any{"allTheater": map[string]any{"nodes": []cinema{testCinema(theaterID)}}}}), nil
+				case OperationProgram:
+					return []byte(`{"movieIds":{"titleAsc":[1]},"scheduledDays":{"1":["2026-09-16"]}}`), nil
+				case OperationMovies:
+					return []byte(`[{"id":1,"title":"Film","runtime":7200}]`), nil
+				case OperationSchedule:
+					s := testSession(t, "fontenay-session", "2026-09-16T20:00:00", booking)
+					return testJSON(t, scheduleResponse{theaterID: {Schedule: map[string]map[string][]showtimeResponse{"1": {"2026-09-16": {s}}}}}), nil
+				case OperationRoom:
+					rooms.Add(1)
+					u, err := url.Parse(raw)
+					if err != nil || raw != booking || !operationMatchesURL(op, u) {
+						return nil, errors.New("unexpected room booking URL")
+					}
+					return []byte(`{"auditorium_showtime":"salle-2"}`), nil
+				default:
+					return nil, errors.New("unexpected operation")
+				}
+			}}
+			d, s, err := Sync(t.Context(), g, SyncOptions{From: "2026-09-16", Now: time.Date(2026, 9, 16, 12, 0, 0, 0, time.UTC)})
+			if !tc.valid {
+				if err == nil || len(d.Showtimes) != 0 || rooms.Load() != 0 {
+					t.Fatal("invalid booking must abort acquisition before room enrichment")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.Cinemas != 1 || s.Movies != 1 || s.Showtimes != 1 || len(d.Theaters) != 1 || len(d.Showtimes) != 1 || rooms.Load() != 1 || s.RoomsRecovered != 1 {
+				t.Fatalf("incomplete acquisition: summary=%+v room_requests=%d", s, rooms.Load())
+			}
+			if r := d.Showtimes[0]; r.TheaterID != "grandecran-"+theaterID || r.BookingURL != booking || r.Room != "Salle 2" {
+				t.Fatal("Fontenay showing or booking URL not preserved")
+			}
+		})
+	}
+}
+
 func TestDiscoveryFallbackRetryAndCoverageAtomicity(t *testing.T) {
 	for _, mode := range []string{"asset", "stale", "coverage", "block"} {
 		t.Run(mode, func(t *testing.T) {

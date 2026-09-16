@@ -362,38 +362,36 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	if target == TargetAll {
 		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas}
 	}
+	state := StateSucceeded
 	for _, provider := range providers {
+		if target == TargetAll && m.ctx.Err() != nil {
+			return m.markFailure(FailureCanceled, StageOrchestration)
+		}
 		m.setProvider(provider, ProviderRunning)
+		// Publish each provider independently while retaining the run's global lease.
+		result := m.executeProvider(provider, window)
+		if result.State == ProviderFailed {
+			state = StateFailed
+		}
+		m.mu.Lock()
+		m.status.Providers[string(provider)] = result
+		if result.Outcome != nil && result.Outcome.Sync.Through > m.status.Through {
+			m.status.Through = result.Outcome.Sync.Through
+		}
+		status := cloneStatus(m.status)
+		m.mu.Unlock()
+		if target == TargetAll {
+			m.persistIntermediate(status)
+		}
+		if result.ErrorCode == FailureCanceled {
+			return m.markFailure(FailureCanceled, StageOrchestration)
+		}
 	}
-	outcomes, err := m.executor.Run(m.ctx, target, window)
-	if err != nil {
-		code, stage, failedProvider := FailureInternal, StageOrchestration, Target("")
-		var logs map[Target][]string
-		var runError *RunError
-		if errors.As(err, &runError) {
-			code, stage, failedProvider, logs = runError.Code, runError.Stage, runError.Provider, runError.logs
-		} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || m.ctx.Err() != nil {
-			code = FailureCanceled
-		}
-		return m.markOperationFailure(code, stage, failedProvider, logs)
-	}
-	latestThrough := window.From
-	for _, provider := range providers {
-		outcome, ok := outcomes[provider]
-		if !ok || !validDiscoveredThrough(window.From, outcome.Sync.Through) {
-			return m.markOperationFailure(FailureInternal, StageOrchestration, "", nil)
-		}
-		if outcome.Sync.Through > latestThrough {
-			latestThrough = outcome.Sync.Through
-		}
+	if target == TargetAll && m.ctx.Err() != nil {
+		return m.markFailure(FailureCanceled, StageOrchestration)
 	}
 	m.mu.Lock()
-	for _, provider := range providers {
-		outcome := outcomes[provider]
-		m.status.Providers[string(provider)] = ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
-	}
-	m.status.Through = latestThrough
-	m.status.State = StateSucceeded
+	m.status.State = state
 	finished := m.now().UTC()
 	m.status.FinishedAt = &finished
 	terminal = cloneStatus(m.status)
@@ -401,30 +399,41 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	return terminal
 }
 
-func (m *Manager) markOperationFailure(code FailureCode, stage FailureStage, failedProvider Target, logs map[Target][]string) Status {
+func (m *Manager) executeProvider(provider Target, window Window) (result ProviderStatus) {
+	defer func() {
+		if recover() != nil {
+			result = m.providerFailure(provider, NewRunError(FailureInternal, nil))
+		}
+	}()
+	outcomes, err := m.executor.Run(m.ctx, provider, window)
+	if err != nil {
+		return m.providerFailure(provider, err)
+	}
+	outcome, ok := outcomes[provider]
+	if !ok || !validDiscoveredThrough(window.From, outcome.Sync.Through) {
+		return m.providerFailure(provider, NewRunError(FailureInternal, nil))
+	}
+	return ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
+}
+
+func (m *Manager) providerFailure(provider Target, err error) ProviderStatus {
+	code, stage := FailureInternal, StageOrchestration
+	var lines []string
+	var runError *RunError
+	if errors.As(err, &runError) {
+		code, stage = runError.Code, runError.Stage
+		lines = append(lines, runError.logs[provider]...)
+	} else if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || m.ctx.Err() != nil {
+		code = FailureCanceled
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	finished := m.now().UTC()
-	for provider, status := range m.status.Providers {
-		if status.State != ProviderRunning && status.State != ProviderPending {
-			continue
-		}
-		if failedProvider == "" || provider == string(failedProvider) || code == FailureReplacement {
-			target := Target(provider)
-			lines := append([]string(nil), logs[target]...)
-			if len(lines) == 0 {
-				lines = []string{failureLog(finished, target, stage, fallbackFailure(stage, code))}
-			}
-			finishedAt := finished
-			lines = normalizeProviderLog(target, lines, m.status.StartedAt, &finishedAt)
-			m.status.Providers[provider] = ProviderStatus{State: ProviderFailed, ErrorCode: code, Log: lines}
-		} else {
-			m.status.Providers[provider] = ProviderStatus{State: ProviderSkipped}
-		}
+	if len(lines) == 0 {
+		lines = []string{failureLog(finished, provider, stage, fallbackFailure(stage, code))}
 	}
-	m.status.State = StateFailed
-	m.status.FinishedAt = &finished
-	return cloneStatus(m.status)
+	lines = normalizeProviderLog(provider, lines, m.status.StartedAt, &finished)
+	return ProviderStatus{State: ProviderFailed, ErrorCode: code, Log: lines}
 }
 
 func (m *Manager) setProvider(provider Target, state ProviderState) {

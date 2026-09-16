@@ -273,7 +273,7 @@ function reservationUrl(showtime) {
       && /^https:\/\/achat\.cgrcinemas\.fr\/[a-z0-9-]+\/r\/[1-9][0-9]*$/.test(value)
     )
     if (hostProvider === 'grandecran') {
-      const match = /^https:\/\/achat\.grandecran\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/r\/[1-9][0-9]*$/.exec(value)
+      const match = /^https:\/\/achat\.grandecran\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:reserver\/)?r\/[1-9][0-9]*$/.exec(value)
       if (!match || match[0] !== value || showtime.booking_url !== value || parsed.href !== value || value.length > 4096) return null
     }
     if (hostProvider === 'mk2') {

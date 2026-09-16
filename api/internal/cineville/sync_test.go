@@ -188,8 +188,22 @@ func TestSyncDynamicCatalogAliasesAndScopedIDs(t *testing.T) {
 }
 
 func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
-	for _, mode := range []string{"new build", "same build", "second 404"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		failure    RequestError
+		sameBuild  bool
+		persistent bool
+		wantError  bool
+	}{
+		{name: "404 new build", failure: RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}},
+		{name: "404 same build", failure: RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, sameBuild: true, wantError: true},
+		{name: "second 404", failure: RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}, persistent: true, wantError: true},
+		{name: "content type new build", failure: RequestError{Kind: syncproxy.FailureContentType}},
+		{name: "content type same build", failure: RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true},
+		{name: "persistent content type new build", failure: RequestError{Kind: syncproxy.FailureContentType}, persistent: true, wantError: true},
+		{name: "persistent content type same build", failure: RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true, persistent: true, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			c := fixtureCinema()
 			c2 := c
 			c2.ID, c2.Route = "707", "laval"
@@ -197,22 +211,81 @@ func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
 			f.catalog = append(f.catalog, c2)
 			f.pages[c2.Route] = fixturePage(c2)
 			f.builds = append(f.builds, "build-2")
-			if mode == "same build" {
+			if test.sameBuild {
 				f.builds[1] = "build-1"
 			}
-			f.fail = func(build, route string) error {
-				if route == c2.Route && (build == "build-1" || mode == "second 404") {
-					return &RequestError{Kind: syncproxy.FailureStatus, StatusCode: 404}
+			failed := false
+			f.fail = func(_, route string) error {
+				if route == c2.Route && (!failed || test.persistent) {
+					failed = true
+					// The already acquired first page must not survive the restart.
+					fresh := fixturePage(c)
+					fresh.Program[0].Visa = "123"
+					fresh.Program[0].Dates[0].Showtimes[0].ID = "2"
+					f.pages[c.Route] = fresh
+					return fmt.Errorf("synthetic-private-body: %w", &test.failure)
 				}
 				return nil
 			}
-			d, _, err := Sync(t.Context(), f, fixtureOptions())
-			if mode == "new build" {
-				if err != nil || len(d.Showtimes) != 2 || strings.Join(f.calls, ",") != "bootstrap,build-1:katorzaquimper,build-1:laval,bootstrap,build-2:katorzaquimper,build-2:laval" {
-					t.Fatalf("calls=%v err=%v", f.calls, err)
+			d, summary, err := Sync(t.Context(), f, fixtureOptions())
+			wantCalls := []string{"bootstrap", "build-1:" + c.Route, "build-1:" + c2.Route, "bootstrap"}
+			if !test.sameBuild || test.failure.Kind == syncproxy.FailureContentType {
+				wantCalls = append(wantCalls, f.builds[1]+":"+c.Route, f.builds[1]+":"+c2.Route)
+			}
+			if !reflect.DeepEqual(f.calls, wantCalls) {
+				t.Fatalf("calls=%v want=%v", f.calls, wantCalls)
+			}
+			if test.wantError {
+				var re *RequestError
+				if !errors.As(err, &re) || re.Kind != test.failure.Kind || re.StatusCode != test.failure.StatusCode || re.Operation != OperationCinema {
+					t.Fatalf("err=%v", err)
 				}
-			} else if err == nil || len(d.Showtimes) != 0 {
-				t.Fatal("partial dataset on refresh failure")
+				if !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) || strings.Contains(err.Error(), "synthetic-private-body") || errors.Unwrap(err) != nil {
+					t.Fatal("partial dataset or unredacted error on refresh failure")
+				}
+				return
+			}
+			if err != nil || len(d.Showtimes) != 2 || summary.Cinemas != 2 || summary.Movies != 2 || summary.Showtimes != 2 || summary.Requests != 6 {
+				t.Fatalf("summary=%+v err=%v", summary, err)
+			}
+			if d.Showtimes[0].ProviderShowingID != string(c.ID)+"-2" || d.Showtimes[0].Movie.ProviderID != "123" {
+				t.Fatal("stale page survived restart")
+			}
+		})
+	}
+}
+
+func TestSyncContentTypeRecoveryFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status int
+		media  string
+		body   string
+		kind   syncproxy.FailureKind
+	}{
+		{name: "persistent content type", status: http.StatusOK, media: "text/html", body: "<html>synthetic-private-body</html>", kind: syncproxy.FailureContentType},
+		{name: "challenge", status: http.StatusOK, media: "text/html", body: "<html>cf-chl challenge-platform</html>", kind: syncproxy.FailureChallenge},
+		{name: "forbidden", status: http.StatusForbidden, media: "text/html", body: "synthetic-private-body", kind: syncproxy.FailureChallenge},
+		{name: "rate limited", status: http.StatusTooManyRequests, media: "text/html", body: "synthetic-private-body", kind: syncproxy.FailureChallenge},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := testClient(t, func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() == BootstrapURL {
+					return response(http.StatusOK, "text/html", string(bootstrapBytes(t, "build-1", []cinema{fixtureCinema()}))), nil
+				}
+				return response(test.status, test.media, test.body), nil
+			})
+			data, summary, err := Sync(t.Context(), client, fixtureOptions())
+			var re *RequestError
+			if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != test.kind {
+				t.Fatalf("err=%v", err)
+			}
+			wantRequests := 2
+			if test.kind == syncproxy.FailureContentType {
+				wantRequests = 4
+			}
+			if client.RequestCount() != wantRequests || !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) {
+				t.Fatal("partial dataset or unexpected retry")
 			}
 		})
 	}

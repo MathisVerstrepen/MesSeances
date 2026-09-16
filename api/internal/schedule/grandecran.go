@@ -10,7 +10,7 @@ import (
 var grandEcranTheater = regexp.MustCompile(`^[A-Z0-9]{5}$`)
 var grandEcranMovie = regexp.MustCompile(`^([1-9][0-9]{0,111}|c[A-Za-z0-9_-]{1,111})$`)
 var grandEcranShowing = regexp.MustCompile(`^[A-Z0-9]{5}-[a-f0-9]{64}$`)
-var grandEcranBooking = regexp.MustCompile(`^https://achat\.grandecran\.fr/[a-z0-9]+(-[a-z0-9]+)*/r/[1-9][0-9]*$`)
+var grandEcranBooking = regexp.MustCompile(`^https://achat\.grandecran\.fr/[a-z0-9]+(-[a-z0-9]+)*/(?:reserver/)?r/[1-9][0-9]*$`)
 
 // ValidGrandEcranIdentity preserves opaque event IDs without numeric coercion.
 func ValidGrandEcranIdentity(kind, value string) bool {

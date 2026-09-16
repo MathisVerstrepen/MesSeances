@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowDownUp, CalendarDays, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
+import { AlertTriangle, ArrowDownUp, CalendarDays, ChartNoAxesCombined, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
 import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
 import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { isShowtimeFormat } from '~/utils/formats'
@@ -565,9 +565,20 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           @error="backdropFailed = true"
         />
         <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
-        <MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule.movie.title" />
+        <div class="absolute right-4 top-4 z-20 flex flex-col-reverse items-center gap-3 sm:right-6 sm:top-6 sm:flex-row lg:right-8 lg:top-8">
+          <NuxtLink
+            :to="{ path: '/statistiques', query: { period: 'all', film: schedule.movie.slug } }"
+            aria-label="Statistiques"
+            title="Statistiques"
+            class="inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink shadow-[3px_3px_0_#27272a] hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3"
+            :class="backdropAvailable ? 'focus-visible:outline-white' : 'focus-visible:outline-ink'"
+          >
+            <ChartNoAxesCombined :size="20" aria-hidden="true" />
+          </NuxtLink>
+          <MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule.movie.title" />
+        </div>
         <div
-          class="relative z-10 mx-auto aspect-[2/3] w-40 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] lg:w-[220px]"
+          class="relative z-10 mx-auto aspect-[2/3] w-40 max-w-[calc(100%_-_7rem)] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] sm:max-w-none lg:w-[220px]"
         >
           <PosterImage
             :src="schedule.movie.poster_url"
@@ -580,8 +591,8 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             :fallback-icon-size="32"
           />
         </div>
-        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-16' : undefined]">
-          <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase max-sm:[overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
+        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-28' : 'sm:pr-16']">
+          <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase [overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
           <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
             <span v-if="schedule.movie.runtime_minutes > 0" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ schedule.movie.runtime_minutes }} min</span>
             <time v-if="isUpcomingFilm && frenchReleaseLabel" :datetime="schedule.movie.french_release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">Sortie le {{ frenchReleaseLabel }}</time>
@@ -631,17 +642,16 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
         <p v-if="isUpcomingFilm && frenchReleaseLabel" class="mt-4 font-mono text-sm font-bold">Sortie le <time :datetime="schedule.movie.french_release_date!">{{ frenchReleaseLabel }}</time></p>
         <NuxtLink v-if="isUpcomingFilm" to="/films/prochainement" class="mt-6 inline-flex min-h-11 items-center font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink">Voir les prochaines sorties</NuxtLink>
       </section>
-      <section v-else class="schedule-section mt-12 border-t-2 border-ink pt-8 sm:mt-16 sm:pt-10" aria-labelledby="schedule-heading">
-        <div class="flex flex-col gap-3 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between sm:gap-6">
-          <div>
-            <p class="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted">Programmation</p>
-            <h2 id="schedule-heading" class="mt-2 flex flex-wrap items-baseline gap-x-3 text-4xl font-black tracking-[-0.05em] text-ink sm:text-5xl">
+      <section v-else class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10" aria-labelledby="schedule-heading">
+        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b-2 border-ink pb-3 sm:flex sm:items-end sm:gap-6 sm:pb-5">
+          <div class="min-w-0 sm:mr-auto">
+            <h2 id="schedule-heading" class="flex flex-wrap items-baseline gap-x-3 text-3xl font-black tracking-[-0.05em] text-ink sm:text-5xl">
               <span>Séances</span>
               <span class="font-mono text-xs font-bold uppercase tracking-[0.1em] text-muted">{{ visibleShowtimeCount }} horaire{{ visibleShowtimeCount === 1 ? '' : 's' }}</span>
             </h2>
-            <p class="mt-2 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted">{{ formatLongDate(selectedDate) }}</p>
+            <p class="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted sm:mt-2">{{ formatLongDate(selectedDate) }}</p>
           </div>
-          <div class="flex flex-wrap items-center gap-3 self-start sm:justify-end sm:self-end">
+          <div class="col-start-1 row-start-2 flex min-h-11 min-w-0 flex-wrap items-center gap-3 sm:min-h-0 sm:justify-end sm:self-end">
             <SharedTheaterAction
               v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value"
               v-slot="{ pending: restorePending, errorMessage: restoreError, restoreSavedTheaters }"
@@ -660,11 +670,11 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               </div>
             </SharedTheaterAction>
             <NuxtLink v-else to="/cinemas" class="inline-block shrink-0 border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase">Modifier mes cinémas</NuxtLink>
-            <ShareButton class="shrink-0" />
           </div>
+          <ShareButton class="col-start-2 row-start-1 row-span-2 shrink-0" />
         </div>
 
-        <div class="filter-dock sticky top-0 z-20 -mx-4 mt-5 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 lg:hidden">
+        <div class="filter-dock sticky top-0 z-20 -mx-4 mt-3 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:mt-5 lg:hidden">
           <div class="grid grid-cols-3 divide-x-2 divide-ink">
             <button
               id="mobile-date-trigger"
@@ -676,7 +686,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               :aria-label="`Choisir une date, sélection actuelle : ${formatDateLabel(selectedDate)}`"
               @click="toggleMobilePanel('date')"
             >
-              <CalendarDays :size="17" aria-hidden="true" />
+              <CalendarDays :size="17" class="shrink-0" aria-hidden="true" />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Date</span>
                 <span class="truncate text-[0.58rem] text-muted">{{ formatDateLabel(selectedDate) }}</span>
@@ -692,7 +702,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               :aria-label="`Filtres, sélection actuelle : ${activeFilterSummary}`"
               @click="toggleMobilePanel('filters')"
             >
-              <SlidersHorizontal :size="17" aria-hidden="true" />
+              <SlidersHorizontal :size="17" class="shrink-0" aria-hidden="true" />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Filtres</span>
                 <span class="truncate text-[0.58rem] text-muted">{{ activeFilterSummary }}</span>
@@ -706,7 +716,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               aria-label="Trier les cinémas par prochain horaire"
               @click="updateFilmQuery({ sort: sortByNextShowtime ? undefined : 'next' })"
             >
-              <ArrowDownUp :size="17" aria-hidden="true" />
+              <ArrowDownUp :size="17" class="shrink-0" aria-hidden="true" />
               <span class="min-w-0 truncate">Horaire</span>
             </button>
           </div>

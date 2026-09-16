@@ -24,6 +24,7 @@ type API struct {
 	schedule   *schedule.Service
 	admin      *adminAPI
 	shortlinks ShortlinkService
+	history    HistoryReader
 	origin     string
 }
 
@@ -36,6 +37,7 @@ type HandlerOptions struct {
 	Admin                AdminOptions
 	Readiness            ReadinessOptions
 	Shortlinks           ShortlinkService
+	History              HistoryReader
 	TrustedProxyCIDRs    []netip.Prefix
 	InternalSharedSecret string
 	RateLimitClock       func() time.Time
@@ -118,7 +120,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.RateLimitClock == nil {
 		options.RateLimitClock = time.Now
 	}
-	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, origin: webOrigin}
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, origin: webOrigin}
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
 	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
 	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
@@ -152,6 +154,9 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	})
 	router.Get("/metrics", options.Admin.Metrics.Handler().ServeHTTP)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/timeline", api.timeline)
+	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/statistics", api.statistics)
+	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history", api.historyStatistics)
+	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history/options", api.historyOptions)
 	router.With(api.requireSchedule).Get("/api/v1/theaters", api.theaters)
 	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
 	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)

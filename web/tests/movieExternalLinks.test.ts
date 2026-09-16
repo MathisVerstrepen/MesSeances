@@ -53,6 +53,8 @@ test('menu exposes safe links and accessible menu-button semantics', async () =>
   assert.match(component, /rel="noopener noreferrer"/u)
   assert.match(component, /dans un nouvel onglet/u)
   assert.match(component, /<ExternalLink/u)
+  assert.match(component, /ref="root"\s+class="relative shrink-0"/u)
+  assert.doesNotMatch(component, /class="absolute right-4 top-4/u)
 })
 
 test('menu renders every service logo decoratively beside its visible label', async () => {
@@ -95,7 +97,7 @@ test('movie page integrates menu while passing only TMDB external identity to fi
 
   assert.match(page, /buildMovieExternalLinks\(schedule\.value\?\.movie\.tmdb_id, schedule\.value\?\.movie\.imdb_id\)/u)
   assert.match(page, /<MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule\.movie\.title" \/>/u)
-  assert.match(page, /externalLinks\.length \? 'sm:pr-16'/u)
+  assert.match(page, /externalLinks\.length \? 'sm:pr-28' : 'sm:pr-16'/u)
   assert.match(page, /tmdbUrl: tmdbUrl\.value \|\| undefined/u)
   assert.doesNotMatch(page, /logo_tmdb/u)
   assert.doesNotMatch(page, /(?:sameAs|tmdbUrl): externalLinks/u)

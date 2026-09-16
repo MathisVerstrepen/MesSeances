@@ -8,6 +8,82 @@ export type MovieDurationFilter = 'short' | 'medium' | 'long'
 
 export type Language = QueryLanguage
 
+export interface StatisticsQuery {
+  film?: string
+  date?: string
+  date_to?: string
+  city?: string[]
+  theater?: string[]
+  chain?: Provider
+  language?: Exclude<ShowtimeLanguage, ''> | 'unknown'
+  format?: ShowtimeFormat | 'unknown'
+  genre?: string
+  pass?: string
+}
+
+export interface StatisticsDateRange { from: string; through: string }
+export interface StatisticsBucket { value: string; label: string; count: number }
+export interface StatisticsMovieRank { slug: string; title: string; showtime_count: number; theater_count: number }
+export interface StatisticsCityRank { slug: string; name: string; showtime_count: number; movie_count: number; theater_count: number }
+export interface StatisticsTheaterRank { id: string; slug: string; name: string; city: string; city_slug: string; chain: Provider; showtime_count: number; movie_count: number }
+export interface StatisticsHeatmapCell { weekday: number; hour: number; showtime_count: number }
+export interface StatisticsOptions {
+  cities: { slug: string; name: string }[]
+  theaters: { id: string; slug: string; name: string; city: string; city_slug: string; chain: Provider; passes: string[] }[]
+  chains: Provider[]
+  languages: string[]
+  formats: string[]
+  genres: { value: string; label: string }[]
+  passes: string[]
+}
+export interface StatisticsResponse {
+  generated_at: string
+  timezone: 'Europe/Paris'
+  range: StatisticsDateRange
+  coverage: { snapshot_window: StatisticsDateRange; intersection: StatisticsDateRange | null; completeness: 'unknown'; stale: boolean }
+  options: StatisticsOptions
+  totals: { showtimes: number; movies: number; theaters: number; cities: number }
+  top_movies: { by_showtimes: StatisticsMovieRank[]; by_theaters: StatisticsMovieRank[] }
+  heatmap: StatisticsHeatmapCell[]
+  versions: StatisticsBucket[]
+  formats: StatisticsBucket[]
+  genres: StatisticsBucket[]
+  runtimes: StatisticsBucket[]
+  local: { cities: StatisticsCityRank[]; theaters: StatisticsTheaterRank[] }
+  concentration: { top_movie_count: number; top_showtime_count: number; other_showtime_count: number }
+}
+
+export type HistoryOptionKind = 'city' | 'theater' | 'genre' | 'pass'
+export interface HistoryOptionsQuery { kind: HistoryOptionKind; q?: string; selected?: string[] }
+export interface HistoryOptionsResponse {
+  items: { value: string; label: string }[]
+  selected: { value: string; label: string }[]
+  has_more: boolean
+}
+export interface HistoryProviderCoverage {
+  provider: Provider
+  collection_started_at: string
+  last_publication_at: string
+  source_generated_at: string
+}
+export interface HistoryStatisticsResponse extends Omit<StatisticsResponse, 'range' | 'coverage'> {
+  mode: 'history'
+  range: StatisticsDateRange | null
+  coverage: {
+    collection_started_at: string | null
+    last_publication_at: string | null
+    recorded_window: StatisticsDateRange | null
+    completeness: 'unknown'
+    bootstrap: 'none'
+    providers: HistoryProviderCoverage[]
+  }
+  limits: {
+    options: { cities: boolean; theaters: boolean; genres: boolean; passes: boolean }
+    genres: boolean
+    local: { cities: boolean; theaters: boolean }
+  }
+}
+
 export interface Movie {
   slug: string
   title: string

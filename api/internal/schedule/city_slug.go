@@ -18,6 +18,25 @@ type cityIdentity struct {
 	hash    string
 }
 
+// TheaterCityIdentities derives inventory-dependent cities without constructing a
+// schedule snapshot. The returned entries correspond to the supplied theaters.
+func TheaterCityIdentities(theaters []TheaterRecord) []City {
+	labels := make(map[string][]string)
+	for _, theater := range theaters {
+		name := strings.TrimSpace(theater.City)
+		labels[foldKey(name)] = append(labels[foldKey(name)], name)
+	}
+	byFold := make(map[string]City)
+	for _, identity := range buildCityIdentities(labels) {
+		byFold[identity.foldKey] = City{Name: identity.name, Slug: identity.slug}
+	}
+	result := make([]City, len(theaters))
+	for i, theater := range theaters {
+		result[i] = byFold[foldKey(strings.TrimSpace(theater.City))]
+	}
+	return result
+}
+
 func buildCityIdentities(labelsByFold map[string][]string) []cityIdentity {
 	identities := make([]cityIdentity, 0, len(labelsByFold))
 	for key, labels := range labelsByFold {

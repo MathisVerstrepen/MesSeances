@@ -40,6 +40,27 @@ type testHTTPServer struct {
 
 type testShortlinkService struct{}
 
+type testHistoryReader struct{}
+
+func (testHistoryReader) HistoryStatistics(context.Context, schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
+	return schedule.HistoryStatistics{Mode: "history"}, nil
+}
+
+func (testHistoryReader) HistoryOptions(context.Context, schedule.HistoryOptionsQuery) (schedule.HistoryOptions, error) {
+	return schedule.HistoryOptions{Items: []schedule.HistoryOption{}, Selected: []schedule.HistoryOption{}}, nil
+}
+
+func TestAPIHistoryRuntimeInjection(t *testing.T) {
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, httpapi.ReadinessOptions{})
+	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history/options?kind=city"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("history runtime injection %s: %d %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
 type testTMDBProvider struct{}
 
 type testCloseableWorker struct {
@@ -230,7 +251,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 		t.Fatalf("admin options manager=%v err=%v", manager, err)
 	}
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions, nil, httpapi.ReadinessOptions{})
+	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -246,7 +267,7 @@ func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
 	var cfg runtimeconfig.Config
 	cfg.Server.Origin = "http://localhost:3000"
 	cfg.Internal.SharedSecret = secret
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, httpapi.ReadinessOptions{})
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, httpapi.ReadinessOptions{})
 	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Paris"
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
@@ -392,7 +413,7 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, httpapi.ReadinessOptions{})
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, httpapi.ReadinessOptions{})
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)

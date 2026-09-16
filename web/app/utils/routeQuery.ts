@@ -24,7 +24,7 @@ export function enumQueryValue<const T extends string>(value: string | undefined
 export function mergeOwnedQuery(
   query: LocationQuery,
   ownedKeys: readonly string[],
-  values: Readonly<Record<string, string | null | undefined>>
+  values: Readonly<Record<string, LocationQueryValue | LocationQueryValue[] | undefined>>
 ): LocationQuery {
   const next: LocationQuery = { ...query }
   for (const key of ownedKeys) delete next[key]
