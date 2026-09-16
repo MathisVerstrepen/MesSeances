@@ -73,7 +73,7 @@ function isSafeCgrBooking(value: string): boolean {
 }
 
 function isSafeGrandEcranBooking(value: string): boolean {
-  const match = /^https:\/\/achat\.grandecran\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/r\/[1-9][0-9]*$/.exec(value)
+  const match = /^https:\/\/achat\.grandecran\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:reserver\/)?r\/[1-9][0-9]*$/.exec(value)
   return value.length <= 4096 && match !== null && match[0] === value
 }
 
