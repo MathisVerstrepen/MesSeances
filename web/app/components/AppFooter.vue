@@ -9,7 +9,8 @@ const explorerLinks = [
   { to: '/recherche', label: 'Trouver une séance' },
   { to: '/planning', label: 'Planning' },
   { to: '/films', label: 'Films' },
-  { to: '/cinemas', label: 'Cinémas' }
+  { to: '/cinemas', label: 'Cinémas' },
+  { to: '/statistiques', label: 'Statistiques' }
 ]
 
 function scrollToTop() {

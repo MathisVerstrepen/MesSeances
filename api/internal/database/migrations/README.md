@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [038_noecinemas_provider.sql](038_noecinemas_provider.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [039_screening_history.sql](039_screening_history.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -180,6 +180,22 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | `booking_url` | `varchar(4096)` | Nonblank after trimming; no URL pattern check |
 
 Foreign keys: `(generation_id, provider, movie_provider_id)` references `movies(generation_id, provider, provider_id)`; `(generation_id, theater_id, service_date)` references `theater_dates(generation_id, theater_id, service_date)`. Neither cascades on deletion. The database does not check that the showtime provider matches the referenced theater provider.
+
+## Durable screening history
+
+Migration 039 creates empty tables without importing either surviving schedule generation. Successful provider publications retain their own screenings in the same writer transaction as schedule replacement and public-movie reconciliation. Generation pruning never deletes these tables. Copied providers are not reobserved. Failed publications roll back history, collection state, reconciliation and pruning together.
+
+| Table | Columns and constraints |
+| --- | --- |
+| `screening_history_providers` | `provider varchar(32)` PK with the ten-provider allowlist; nonnull `collection_started_at`, `last_publication_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last publication >= collection start. No generation FK. Successful empty publications also start collection. |
+| `screening_history_theaters` | Schedule theater scalar columns/types and provider checks as of 038, excluding `generation_id`; PK `id`, unique `(provider,id)`; nonnull `city_slug text`, `city_name varchar(256)`, `passes text[]` (empty or exactly `{UGC_ILLIMITE}`), `last_observed_at timestamptz`. No live-theater FK. |
+| `screening_history_showtimes` | Schedule showtime scalar columns/types and provider checks as of 038, excluding `generation_id`; PK `(provider,provider_showing_id,theater_id,service_date)`; nonnull `first_seen_at`, `last_seen_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last seen >= first seen. Durable FKs `(provider,theater_id)` to history theaters and `(provider,movie_provider_id)` to public movie sources, neither cascading. Display `id` is not globally unique. |
+
+The migration uses `LIKE ... INCLUDING CONSTRAINTS` to preserve all 038 scalar/identity checks, not its indexes, defaults or generation-scoped FKs. Future providers or changes to those checks must explicitly update the history tables too. Secondary B-tree indexes: history showtimes `(service_date,theater_id)`, `(theater_id,service_date)`, `(provider,movie_provider_id,service_date)`; history theaters `(city_slug,id)`.
+
+Receipt timestamps describe successful database publication, not scraping freshness or proof that a screening occurred. Repeated identities preserve first receipt and replace mutable fields; missing identities remain. Latest retained theater metadata applies to all its history. City identities use the same inventory-based Go algorithm as upcoming cities. Films resolve through durable source keys to current canonical public metadata, so merges, splits and overrides can reclassify past counts. Booking URLs stay internal. There is no edit log, bootstrap, cancellation inference or reconstruction of pruned data.
+
+Old binaries embedding only 038 reject the newer migration ledger. Rollback requires a compatible corrective build retaining 039 or an explicitly approved consistent restore, not dropping history or deleting migration history. Writers must be updated together to avoid unrecorded publications.
 
 ## Movie enrichment and grouping
 

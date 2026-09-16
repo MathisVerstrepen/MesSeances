@@ -12,7 +12,9 @@ type Publication struct {
 }
 
 func PreparePublication(data Dataset) (Publication, error) {
-	if err := ValidateDataset(data, true); err != nil {
+	// A successful empty publication is still a receipt, but ordinary dataset
+	// validation keeps its nonempty guard for provider ingestion and snapshots.
+	if err := validateDataset(data, true, len(data.Showtimes) == 0); err != nil {
 		return Publication{}, err
 	}
 	data = cloneDataset(data)

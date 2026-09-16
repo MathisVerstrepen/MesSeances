@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -14,7 +15,10 @@ import (
 
 const snapshotWriterLockID int64 = 6211428337968315
 
-type Store struct{ pool *pgxpool.Pool }
+type Store struct {
+	pool         *pgxpool.Pool
+	historyCalls atomic.Int32
+}
 
 var _ schedule.SnapshotReader = (*Store)(nil)
 var _ schedule.SnapshotWriter = (*Store)(nil)
