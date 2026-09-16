@@ -43,14 +43,16 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (schedule.D
 			body, err := fetcher.FetchCinema(ctx, build, c.Route)
 			if err != nil {
 				var re *RequestError
-				if attempt == 0 && errors.As(err, &re) && re.Kind == syncproxy.FailureStatus && re.StatusCode == 404 {
+				if attempt == 0 && errors.As(err, &re) && (re.Kind == syncproxy.FailureContentType || (re.Kind == syncproxy.FailureStatus && re.StatusCode == 404)) {
 					freshBuild, freshCatalog, refreshErr := bootstrap(ctx, fetcher)
 					if refreshErr != nil {
 						return fail(refreshErr)
 					}
-					if freshBuild == build {
+					if freshBuild == build && re.Kind != syncproxy.FailureContentType {
 						return fail(typedError(err, OperationCinema))
 					}
+					// A transient content-type mismatch can recover without a new build.
+					// Discard every prior page and allow only one full restart.
 					build, catalog, restart = freshBuild, freshCatalog, true
 					break
 				}
