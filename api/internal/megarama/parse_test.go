@@ -28,6 +28,9 @@ func TestConfigAndProgramShapes(t *testing.T) {
 	if err != nil || len(p.Events) != 1 || p.Events[0].Duration != 100 {
 		t.Fatalf("synthetic program: %v", err)
 	}
+	if _, err := parseProgram([]byte(strings.Replace(programFixture, "ST,OCAP", "ST,OCAP,LAZER", 1)), c); err != nil {
+		t.Fatalf("laser program rejected: %v", err)
+	}
 	for _, replacement := range []struct{ from, to string }{
 		{`"events":[`, `"other":[`}, {`"id":"123"`, `"id":"EMS0565"`}, {`"id":1`, `"id":2`}, {`"result":`, `"error":`}, {`"VF"`, `"UNKNOWN"`}, {`"ST,OCAP"`, `"ST,UNKNOWN"`}, {`"emsx056500000001"`, `"emsx131500000001"`}, {`"duration":"100"`, `"duration":-1`}, {`"first_part_duration":10`, `"first_part_duration":1.5`},
 	} {
@@ -72,6 +75,12 @@ func TestAttributesAndParisTimes(t *testing.T) {
 		language         schedule.Language
 		format           schedule.Format
 	}{
+		{"VF", "LAZER", nil, schedule.LanguageVF, schedule.Format2D},
+		{"VO", "ST, LAZER,4K,ATMOS,HFR", nil, schedule.LanguageVOSTFR, schedule.Format2D},
+		{"VF", "LAZER,ST,OCAP", nil, schedule.LanguageVFSTF, schedule.Format2D},
+		{"VF", "LAZER,3D", nil, schedule.LanguageVF, schedule.Format3D},
+		{"VF", "LAZER,3D", []string{"video_motion"}, schedule.LanguageVF, schedule.Format4DX},
+		{"VO", "LAZER", []string{"video_imax", "video_motion"}, schedule.LanguageVO, schedule.FormatIMAX},
 		{"VF", "", nil, schedule.LanguageVF, schedule.Format2D}, {"VO", "", nil, schedule.LanguageVO, schedule.Format2D}, {"VO", "ST", nil, schedule.LanguageVOSTFR, schedule.Format2D}, {"VF", "ST,OCAP", nil, schedule.LanguageVFSTF, schedule.Format2D}, {"VO", "", []string{"subtitle", "video_imax", "video_motion"}, schedule.LanguageVOSTFR, schedule.FormatIMAX}, {"VF", "3D", []string{"video_motion"}, schedule.LanguageVF, schedule.Format4DX}, {"VF", "3D", nil, schedule.LanguageVF, schedule.Format3D},
 	} {
 		language, format, err := attributes(session{Version: test.version, Formats: test.formats, Features: test.features})

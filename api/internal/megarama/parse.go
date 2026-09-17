@@ -91,7 +91,7 @@ func attributes(s session) (schedule.Language, schedule.Format, error) {
 	for _, token := range strings.Split(s.Formats, ",") {
 		token = strings.TrimSpace(token)
 		switch token {
-		case "", "ST", "OCAP", "3D", "4K", "7.1", "ATMOS", "HFR":
+		case "", "ST", "OCAP", "3D", "4K", "7.1", "ATMOS", "HFR", "LAZER":
 		default:
 			return "", "", fmt.Errorf("%w: session format", errShape)
 		}
