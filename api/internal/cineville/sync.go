@@ -41,26 +41,29 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (schedule.D
 				return fail(typedError(err, OperationCinema))
 			}
 			body, err := fetcher.FetchCinema(ctx, build, c.Route)
+			var p pageProps
+			if err == nil {
+				p, err = parsePage(body, c)
+				if err != nil {
+					err = payloadError(OperationCinema)
+				}
+			}
 			if err != nil {
 				var re *RequestError
-				if attempt == 0 && errors.As(err, &re) && (re.Kind == syncproxy.FailureContentType || (re.Kind == syncproxy.FailureStatus && re.StatusCode == 404)) {
+				if attempt == 0 && errors.As(err, &re) && (re.Kind == syncproxy.FailureContentType || re.Kind == syncproxy.FailureInvalidJSON || (re.Kind == syncproxy.FailureStatus && re.StatusCode == 404)) {
 					freshBuild, freshCatalog, refreshErr := bootstrap(ctx, fetcher)
 					if refreshErr != nil {
 						return fail(refreshErr)
 					}
-					if freshBuild == build && re.Kind != syncproxy.FailureContentType {
+					if freshBuild == build && re.Kind == syncproxy.FailureStatus {
 						return fail(typedError(err, OperationCinema))
 					}
-					// A transient content-type mismatch can recover without a new build.
+					// Transient content-type or page payload failures can recover on the same build.
 					// Discard every prior page and allow only one full restart.
 					build, catalog, restart = freshBuild, freshCatalog, true
 					break
 				}
 				return fail(typedError(err, OperationCinema))
-			}
-			p, err := parsePage(body, c)
-			if err != nil {
-				return fail(payloadError(OperationCinema))
 			}
 			pages = append(pages, p)
 		}

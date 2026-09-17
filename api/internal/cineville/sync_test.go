@@ -202,6 +202,10 @@ func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
 		{name: "content type same build", failure: RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true},
 		{name: "persistent content type new build", failure: RequestError{Kind: syncproxy.FailureContentType}, persistent: true, wantError: true},
 		{name: "persistent content type same build", failure: RequestError{Kind: syncproxy.FailureContentType}, sameBuild: true, persistent: true, wantError: true},
+		{name: "invalid JSON new build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}},
+		{name: "invalid JSON same build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}, sameBuild: true},
+		{name: "persistent invalid JSON new build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}, persistent: true, wantError: true},
+		{name: "persistent invalid JSON same build", failure: RequestError{Kind: syncproxy.FailureInvalidJSON}, sameBuild: true, persistent: true, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			c := fixtureCinema()
@@ -229,7 +233,7 @@ func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
 			}
 			d, summary, err := Sync(t.Context(), f, fixtureOptions())
 			wantCalls := []string{"bootstrap", "build-1:" + c.Route, "build-1:" + c2.Route, "bootstrap"}
-			if !test.sameBuild || test.failure.Kind == syncproxy.FailureContentType {
+			if !test.sameBuild || test.failure.Kind != syncproxy.FailureStatus {
 				wantCalls = append(wantCalls, f.builds[1]+":"+c.Route, f.builds[1]+":"+c2.Route)
 			}
 			if !reflect.DeepEqual(f.calls, wantCalls) {
@@ -252,6 +256,93 @@ func TestSyncRefreshRestartsEntireAcquisition(t *testing.T) {
 				t.Fatal("stale page survived restart")
 			}
 		})
+	}
+}
+
+func TestSyncPagePayloadRecovery(t *testing.T) {
+	for _, body := range []string{`{"synthetic-private-body":`, `{"pageProps":{"cinemaId":"synthetic-private-body"}}`} {
+		for _, sameBuild := range []bool{false, true} {
+			for _, persistent := range []bool{false, true} {
+				t.Run(fmt.Sprintf("validJSON=%t/sameBuild=%t/persistent=%t", json.Valid([]byte(body)), sameBuild, persistent), func(t *testing.T) {
+					c := fixtureCinema()
+					c2 := c
+					c2.ID, c2.Route = "707", "laval"
+					freshBuild := "build-2"
+					if sameBuild {
+						freshBuild = "build-1"
+					}
+					bootstraps := 0
+					var calls []string
+					client := testClient(t, func(r *http.Request) (*http.Response, error) {
+						if r.URL.String() == BootstrapURL {
+							bootstraps++
+							calls = append(calls, "bootstrap")
+							build := "build-1"
+							if bootstraps > 1 {
+								build = freshBuild
+							}
+							return response(http.StatusOK, "text/html", string(bootstrapBytes(t, build, []cinema{c, c2}))), nil
+						}
+						calls = append(calls, r.URL.Path)
+						p := fixturePage(c)
+						if strings.HasSuffix(r.URL.Path, "/"+c2.Route+".json") {
+							if bootstraps == 1 || persistent {
+								return response(http.StatusOK, "application/json", body), nil
+							}
+							p = fixturePage(c2)
+						} else if bootstraps > 1 {
+							p.Program[0].Visa = "123"
+							p.Program[0].Dates[0].Showtimes[0].ID = "2"
+						}
+						return response(http.StatusOK, "application/json", string(jsonBytes(t, map[string]any{"pageProps": p}))), nil
+					})
+					data, summary, err := Sync(t.Context(), client, fixtureOptions())
+					path := func(build, route string) string { return "/_next/data/" + build + "/programmes/" + route + ".json" }
+					want := []string{"bootstrap", path("build-1", c.Route), path("build-1", c2.Route), "bootstrap", path(freshBuild, c.Route), path(freshBuild, c2.Route)}
+					if !reflect.DeepEqual(calls, want) || client.RequestCount() != 6 {
+						t.Fatalf("unexpected recovery requests: %v", calls)
+					}
+					if persistent {
+						var re *RequestError
+						if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 {
+							t.Fatalf("payload classification: %v", err)
+						}
+						if !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) || strings.Contains(err.Error(), "synthetic-private-body") || errors.Unwrap(err) != nil {
+							t.Fatal("partial dataset or unredacted payload error")
+						}
+						return
+					}
+					if err != nil || summary.Requests != 6 || summary.Cinemas != 2 || summary.Movies != 2 || summary.Showtimes != 2 {
+						t.Fatalf("summary=%+v err=%v", summary, err)
+					}
+					if data.Showtimes[0].ProviderShowingID != string(c.ID)+"-2" || data.Showtimes[0].Movie.ProviderID != "123" {
+						t.Fatal("stale page survived restart")
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestSyncPagePayloadRefreshBootstrapFailsClosed(t *testing.T) {
+	bootstraps := 0
+	client := testClient(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() == BootstrapURL {
+			bootstraps++
+			if bootstraps == 1 {
+				return response(http.StatusOK, "text/html", string(bootstrapBytes(t, "build-1", []cinema{fixtureCinema()}))), nil
+			}
+			return response(http.StatusOK, "text/html", "<html>synthetic-private-body</html>"), nil
+		}
+		return response(http.StatusOK, "application/json", `{"pageProps":null}`), nil
+	})
+	data, summary, err := Sync(t.Context(), client, fixtureOptions())
+	var re *RequestError
+	if !errors.As(err, &re) || re.Operation != OperationBootstrap || re.Kind != syncproxy.FailureInvalidJSON {
+		t.Fatalf("refresh classification: %v", err)
+	}
+	if client.RequestCount() != 3 || !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) {
+		t.Fatal("partial dataset or unexpected retry")
 	}
 }
 
@@ -345,8 +436,14 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 			p := fixturePage(fixtureCinema())
 			mutate(&p)
 			fetcher := singleFetcher(t, p)
+			wantRequests := 2
+			switch name {
+			case "wrong page cinema", "missing catalog", "wrong catalog identity", "missing program", "missing events", "missing attributes":
+				fetcher.builds = append(fetcher.builds, "build-1")
+				wantRequests = 4
+			}
 			d, summary, err := Sync(t.Context(), fetcher, fixtureOptions())
-			if !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) || fetcher.RequestCount() != 2 {
+			if !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) || fetcher.RequestCount() != wantRequests {
 				t.Fatal("partial dataset or unexpected retry")
 			}
 			if name == "empty dataset" {
@@ -384,7 +481,7 @@ func TestSyncMalformedResponsesArePayloadFailures(t *testing.T) {
 			}
 			wantRequests := 1
 			if op == OperationCinema {
-				wantRequests++
+				wantRequests = 4
 			}
 			if client.RequestCount() != wantRequests || !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) {
 				t.Fatal("partial dataset or unexpected retry")
