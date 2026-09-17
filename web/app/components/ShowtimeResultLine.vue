@@ -74,7 +74,7 @@ function formatRoom(room: string) {
     >
     <div class="pointer-events-none absolute inset-0" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3]/90' : 'bg-surface/80'" aria-hidden="true" />
 
-    <div class="relative grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+    <div class="relative grid gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4" :class="scope === 'single-theater' ? 'grid-cols-[3rem_minmax(0,1fr)_auto]' : 'grid-cols-[3rem_minmax(0,1fr)]'">
       <div class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]">
         <PosterImage
           :src="posterUrl"
@@ -124,8 +124,8 @@ function formatRoom(room: string) {
         :aria-label="bookingLabel()"
         :data-showtime-id="result.showtimeId"
         unstyled
-        class="col-span-2 mt-1 inline-flex items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em] sm:col-span-1 sm:mt-0"
-        :class="scope === 'single-theater' ? 'min-h-11' : 'min-h-10'"
+        class="inline-flex items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em]"
+        :class="scope === 'single-theater' ? 'col-start-3 row-start-1 row-span-2 min-h-11 max-w-28 self-center text-right sm:col-start-auto sm:row-start-auto sm:row-span-1 sm:max-w-none' : 'col-span-2 mt-1 min-h-10 sm:col-span-1 sm:mt-0'"
         :available-class="scope === 'multi-theater' ? 'relative z-20 text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2' : 'text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2'"
         :unavailable-class="scope === 'multi-theater' ? 'pointer-events-none text-muted' : 'text-muted'"
       >
@@ -134,7 +134,7 @@ function formatRoom(room: string) {
     </div>
   </article>
 
-  <li v-else class="relative grid gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5" :class="[scope === 'multi-theater' ? 'grid-cols-[minmax(0,1fr)_auto] items-center' : undefined, scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined]">
+  <li v-else class="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:px-5" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined">
     <button
       v-if="scope === 'multi-theater'"
       type="button"
@@ -172,7 +172,7 @@ function formatRoom(room: string) {
       :data-showtime-id="result.showtimeId"
       unstyled
       class="inline-flex items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em]"
-      :class="scope === 'single-theater' ? 'min-h-11' : 'min-h-10'"
+      :class="scope === 'single-theater' ? 'min-h-11 max-w-28 text-right sm:max-w-none' : 'min-h-10'"
       :available-class="scope === 'multi-theater' ? 'relative z-20 text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2' : 'text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2'"
       :unavailable-class="scope === 'multi-theater' ? 'pointer-events-none text-muted' : 'text-muted'"
     >
