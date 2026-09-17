@@ -164,7 +164,7 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 					return fail()
 				}
 				// Validate embedded duplicates independently of the catalog so a
-				// canonical title cannot hide conflicts within the same source.
+				// canonical metadata cannot hide conflicts within the same source.
 				m, err = mergeMovie(embeddedMovies[m.ProviderID], m)
 				if err != nil {
 					return fail()
@@ -178,10 +178,13 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 	}
 	for id, embedded := range embeddedMovies {
 		canonical := movies[id]
-		// Complex pages can use an event label for a catalog film ID. Keep
-		// the catalog title while retaining all other metadata conflict checks.
+		// Complex pages can use event labels and different runtimes for a
+		// catalog film ID. Prefer nonempty catalog values only at this join.
 		if canonical.Title != "" {
 			embedded.Title = canonical.Title
+		}
+		if canonical.RuntimeMinutes != 0 {
+			embedded.RuntimeMinutes = canonical.RuntimeMinutes
 		}
 		merged, err := mergeMovie(canonical, embedded)
 		if err != nil {

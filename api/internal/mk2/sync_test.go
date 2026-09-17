@@ -161,8 +161,8 @@ func TestSyncRejectsOtherMovieConflictsDespiteSynopsisDifference(t *testing.T) {
 		"genres":                    func(f *film) { f.Genres[0].Name = "Comedy" },
 	} {
 		for _, source := range []string{"catalog", "embedded duplicate", "catalog versus embedded"} {
-			if source == "catalog versus embedded" && strings.HasPrefix(name, "title") {
-				continue // Cross-source titles are covered by the catalog precedence tests.
+			if source == "catalog versus embedded" && (strings.HasPrefix(name, "title") || name == "runtime") {
+				continue // Cross-source titles and runtimes have catalog precedence tests.
 			}
 			t.Run(name+"/"+source, func(t *testing.T) {
 				f, p, options := fixture(t)
@@ -237,6 +237,62 @@ func TestSyncCatalogTitleWinsOverEmbeddedEventLabel(t *testing.T) {
 			}
 			if !reflect.DeepEqual(d.Showtimes[0].Movie, want) {
 				t.Fatalf("movie=%+v want=%+v", d.Showtimes[0].Movie, want)
+			}
+		})
+	}
+}
+
+func TestSyncCatalogRuntimePrecedenceAndUnknownEnd(t *testing.T) {
+	for _, tc := range []struct {
+		name, id            string
+		catalog, embedded   int
+		want                int
+		missingCatalogFilm  bool
+		nullCatalogRuntime  bool
+		nullEmbeddedRuntime bool
+	}{
+		{name: "live 92 versus 93", id: "HO00006100", catalog: 92, embedded: 93, want: 92},
+		{name: "live 119 versus 117", id: "HO00006112", catalog: 119, embedded: 117, want: 119},
+		{name: "zero catalog", catalog: 0, embedded: 93, want: 93},
+		{name: "null catalog", nullCatalogRuntime: true, embedded: 93, want: 93},
+		{name: "zero embedded", catalog: 92, embedded: 0, want: 92},
+		{name: "null embedded", catalog: 92, nullEmbeddedRuntime: true, want: 92},
+		{name: "both unknown", want: 0},
+		{name: "embedded only", missingCatalogFilm: true, embedded: 93, want: 93},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, p, options := fixture(t)
+			g := &p.Types[0].Groups[0]
+			if tc.id != "" {
+				g.Film.ID = tc.id
+				g.Film.Poster = schedule.MK2PosterPrefix + tc.id
+				g.Sessions[0].FilmID = tc.id
+				g.Sessions[0].ScheduledFilmID = g.Cinema.ID + "-" + tc.id
+			}
+			canonical := g.Film
+			canonical.Runtime = &tc.catalog
+			if tc.nullCatalogRuntime {
+				canonical.Runtime = nil
+			}
+			catalog := []film{canonical}
+			if tc.missingCatalogFilm {
+				catalog = []film{}
+			}
+			g.Film.Runtime = &tc.embedded
+			if tc.nullEmbeddedRuntime {
+				g.Film.Runtime = nil
+			}
+			// Equal embedded duplicates remain valid despite catalog drift.
+			p.Types = append(p.Types, p.Types[0])
+			f.films = encode(t, map[string]any{"data": catalog})
+			f.pages[p.Slug] = encode(t, p)
+			d, summary, err := Sync(t.Context(), f, options)
+			if err != nil || summary.Movies != 1 || summary.Showtimes != 1 || summary.Requests != 3 || len(d.Showtimes) != 1 {
+				t.Fatalf("summary=%+v err=%v", summary, err)
+			}
+			r := d.Showtimes[0]
+			if r.Movie.RuntimeMinutes != tc.want || !r.EndTime.Equal(r.StartTime) {
+				t.Fatalf("runtime=%d want=%d unknown_end=%t", r.Movie.RuntimeMinutes, tc.want, r.EndTime.Equal(r.StartTime))
 			}
 		})
 	}
@@ -394,7 +450,7 @@ func TestSyncRejectsPartialOrConflictingData(t *testing.T) {
 		"missing catalog member": func(_ *fixtureFetcher, p *complex) { p.Cinemas = p.Cinemas[:1] },
 		"orphan cinema":          func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.ID = "9" },
 		"orphan film":            func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Film.ID = "HO9" },
-		"conflicting film":       func(_ *fixtureFetcher, p *complex) { runtime := 109; p.Types[0].Groups[0].Film.Runtime = &runtime },
+		"conflicting film":       func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Film.OpeningDate = "2026-01-07T00:00:00Z" },
 		"conflicting cinema":     func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.Address = "Other" },
 		"wrong showing cinema":   func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].CinemaID = "0005" },
 		"wrong showing film":     func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].FilmID = "HO9" },
