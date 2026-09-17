@@ -45,7 +45,7 @@ func TestCinevilleExecutorPayloadAndFinalValidationFailures(t *testing.T) {
 		requests                                   int
 	}{
 		{"malformed bootstrap", "<html>" + sensitive + "</html>", "", "cinemas", "invalid_payload", StageProviderFetch, FailureProviderSync, 1},
-		{"malformed page", bootstrap, `{"pageProps":{"cinemaId":"` + sensitive + `"}}`, "program", "invalid_payload", StageProviderFetch, FailureProviderSync, 2},
+		{"malformed page", bootstrap, `{"pageProps":{"cinemaId":"` + sensitive + `"}}`, "program", "invalid_payload", StageProviderFetch, FailureProviderSync, 4},
 		{"final empty dataset", bootstrap, emptyPage, "dataset_validation", "validation", StageDatasetValidation, FailureDatasetRejected, 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {

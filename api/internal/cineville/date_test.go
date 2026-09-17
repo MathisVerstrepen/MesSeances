@@ -61,7 +61,16 @@ func TestSyncRejectsMalformedWireDatesInBothProgramArrays(t *testing.T) {
 					event = malformed
 				}
 				f := wireDateFetcher{singleFetcher(t, fixturePage(fixtureCinema())), wireDatePage(program, event)}
+				wantRequests := 2
+				if malformed == "null" {
+					// Null fails page decoding; other date values fail normalization.
+					f.builds = append(f.builds, "build-1")
+					wantRequests = 4
+				}
 				data, _, err := Sync(t.Context(), f, fixtureOptions())
+				if f.RequestCount() != wantRequests {
+					t.Fatal("unexpected acquisition retry")
+				}
 				var re *RequestError
 				if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || errors.Is(err, schedule.ErrDatasetValidation) || len(data.Showtimes) != 0 || strings.Contains(err.Error(), "private-synthetic-sentinel") {
 					t.Fatal("malformed date not rejected with bounded payload error")
