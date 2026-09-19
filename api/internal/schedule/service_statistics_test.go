@@ -156,7 +156,7 @@ func TestStatisticsGenreAliases(t *testing.T) {
 			data := statisticsDataset()
 			aliases := append(slices.Clone(tc.aliases), "\u2003"+strings.ToUpper(tc.aliases[0])+"\u00a0")
 			originalGenres := slices.Clone(aliases)
-			unrelated := []string{"Comédie dramatique", "Comédie romantique", "Musique", "Musical", "Crime", "Policier", "Fantastique", "Biopic"}
+			unrelated := []string{"Comédie musicale", "Spectacle", "Musique", "Musical", "Crime", "Policier", "Fantastique", "Biopic"}
 			data.PublicMovies[0].Genres = aliases
 			data.PublicMovies[1].Genres = []string{tc.aliases[len(tc.aliases)-1]}
 			data.PublicMovies[2].Genres = unrelated
@@ -195,6 +195,81 @@ func TestStatisticsGenreAliases(t *testing.T) {
 			again := getStatistics(t, statisticsService(t, data, testServiceNow()), StatisticsQuery{})
 			if !reflect.DeepEqual(result, again) {
 				t.Fatal("alias/showtime order changed statistics")
+			}
+		})
+	}
+}
+
+func TestStatisticsCompoundGenres(t *testing.T) {
+	for _, tc := range []struct{ compound, parent string }{
+		{"Comédie dramatique", "Drame"},
+		{"Comédie romantique", "Romance"},
+		{"Comédie d'action", "Action"},
+	} {
+		t.Run(tc.compound, func(t *testing.T) {
+			data := statisticsDataset()
+			data.PublicMovies[0].Genres = []string{"\u2003" + strings.ToUpper(tc.compound) + "\u00a0"}
+			data.PublicMovies[1].Genres = []string{"Comédie dramatique", "Comédie romantique", "Comédie d'action", "comédie", "Drame", "romance", "Action", "Amour", "amour"}
+			data.PublicMovies[2].Genres = []string{"Comédie musicale"}
+			data.PublicMovies[3].Genres = []string{"COMÉDIE", "DRAME", "ROMANCE", "ACTION"}
+			originalGenres := make([][]string, len(data.PublicMovies))
+			for i, movie := range data.PublicMovies {
+				originalGenres[i] = slices.Clone(movie.Genres)
+			}
+			service := statisticsService(t, data, testServiceNow())
+			base := getStatistics(t, service, StatisticsQuery{})
+			if base.Totals.Movies != 5 || base.Totals.Showtimes != 8 || len(base.Genres) != 6 || len(base.Options.Genres) != 6 {
+				t.Fatalf("totals=%+v genres=%+v options=%+v", base.Totals, base.Genres, base.Options.Genres)
+			}
+			for _, parent := range []string{"Comédie", "Drame", "Romance", "Action"} {
+				movies, showtimes := 2, 2
+				if parent == "Comédie" || parent == tc.parent {
+					movies, showtimes = 3, 6
+				}
+				want := StatisticsCountBucket{Value: strings.ToLower(parent), Label: parent, Count: movies}
+				if !slices.Contains(base.Genres, want) || !slices.Contains(base.Options.Genres, StatisticsGenreOption{Value: want.Value, Label: parent}) {
+					t.Fatalf("missing canonical parent %+v in %+v", want, base.Genres)
+				}
+				filters := []string{want.Value, "\u2003" + strings.ToUpper(parent) + "\u00a0"}
+				if parent == "Romance" {
+					filters = append(filters, "Amour")
+				}
+				for _, filter := range filters {
+					filtered := getStatistics(t, service, StatisticsQuery{Genre: filter})
+					if filtered.Totals.Movies != movies || filtered.Totals.Showtimes != showtimes || !slices.Contains(filtered.Genres, want) || !reflect.DeepEqual(filtered.Options, base.Options) {
+						t.Fatalf("filter %q: totals=%+v genres=%+v", filter, filtered.Totals, filtered.Genres)
+					}
+				}
+			}
+			for _, label := range []string{"Comédie musicale", "Non renseigné"} {
+				value := strings.ToLower(label)
+				if label == "Non renseigné" {
+					value = "unknown"
+				}
+				if !slices.Contains(base.Genres, StatisticsCountBucket{Value: value, Label: label, Count: 1}) {
+					t.Fatalf("unrelated/unknown bucket changed: %+v", base.Genres)
+				}
+			}
+			// Compound values are no longer options, not a new multi-genre filter syntax.
+			if filtered := getStatistics(t, service, StatisticsQuery{Genre: tc.compound}); filtered.Totals.Movies != 0 || !reflect.DeepEqual(filtered.Options, base.Options) {
+				t.Fatalf("compound filter unexpectedly matched: %+v", filtered.Totals)
+			}
+			view := service.source.Snapshot()
+			for i, movie := range data.PublicMovies {
+				if !slices.Equal(movie.Genres, originalGenres[i]) || !slices.Equal(view.data.PublicMovies[i].Genres, originalGenres[i]) {
+					t.Fatal("statistics changed movie metadata")
+				}
+				if movie.ID <= 5 {
+					resolved := statisticsResolveMovie(view, fmt.Sprintf("film-%d", movie.ID), MovieRecord{})
+					if !slices.Equal(resolved.item.Genres, originalGenres[i]) {
+						t.Fatal("statistics changed display genres")
+					}
+				}
+				slices.Reverse(data.PublicMovies[i].Genres)
+			}
+			slices.Reverse(data.Showtimes)
+			if again := getStatistics(t, statisticsService(t, data, testServiceNow()), StatisticsQuery{}); !reflect.DeepEqual(again, base) {
+				t.Fatal("genre/showtime order changed statistics")
 			}
 		})
 	}

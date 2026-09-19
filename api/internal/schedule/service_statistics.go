@@ -309,9 +309,11 @@ func statisticsResolveMovie(view *SnapshotView, slug string, record MovieRecord)
 	item.Slug = slug
 	movie := &statisticsMovie{item: item, genres: make(map[string]string), theaters: make(map[string]bool)}
 	for _, genre := range item.Genres {
-		value, label := statisticsGenre(genre)
-		if label != "" {
-			statisticsGenreLabel(movie.genres, value, label)
+		for _, parent := range statisticsGenreParents(genre) {
+			value, label := statisticsGenre(parent)
+			if label != "" {
+				statisticsGenreLabel(movie.genres, value, label)
+			}
 		}
 	}
 	if len(movie.genres) == 0 {
@@ -320,7 +322,22 @@ func statisticsResolveMovie(view *SnapshotView, slug string, record MovieRecord)
 	return movie
 }
 
-// statisticsGenre merges only statistics aliases, never stored movie metadata.
+// statisticsGenreParents replaces compound statistics genres with their parents.
+// Keep the SQL expansion in schedulepg.historyCanonicalCTE in sync.
+func statisticsGenreParents(genre string) []string {
+	switch normalized(genre) {
+	case "comédie dramatique":
+		return []string{"Comédie", "Drame"}
+	case "comédie romantique":
+		return []string{"Comédie", "Romance"}
+	case "comédie d'action":
+		return []string{"Comédie", "Action"}
+	default:
+		return []string{genre}
+	}
+}
+
+// statisticsGenre canonicalizes statistics aliases and parents, never stored metadata.
 // Keep the SQL mapping in schedulepg.historyCanonicalCTE in sync.
 func statisticsGenre(genre string) (value, label string) {
 	label = strings.TrimSpace(genre)
@@ -339,6 +356,12 @@ func statisticsGenre(genre string) (value, label string) {
 		label = "Romance"
 	case "animation", "dessin animé":
 		label = "Animation"
+	case "comédie":
+		label = "Comédie"
+	case "drame":
+		label = "Drame"
+	case "action":
+		label = "Action"
 	}
 	return normalized(label), label
 }
