@@ -133,15 +133,51 @@ func TestValidateDatasetEarlyStartsArePatheOnly(t *testing.T) {
 						t.Fatalf("combined=%t error=%v", combined, err)
 					}
 				}
-				if test.accepted {
-					showing.StartTime = showing.StartTime.AddDate(0, 0, 1)
-					showing.EndTime = showing.EndTime.AddDate(0, 0, 1)
-					if err := ValidateDataset(data, true); err == nil {
-						t.Fatal("early start with wrong service date accepted")
-					}
-				}
 			})
 		}
+	}
+}
+
+func TestValidateDatasetPatheAdvertisedDateReconciliation(t *testing.T) {
+	location, err := time.LoadLocation(Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, start string
+		accepted    bool
+	}{
+		{"same-day midnight", "2026-08-15 00:00:00", true},
+		{"overnight midnight", "2026-08-16 00:00:00", true},
+		{"existing overnight", "2026-08-16 02:59:59", true},
+		{"overnight 03:00", "2026-08-16 03:00:00", true},
+		{"overnight 03:30", "2026-08-16 03:30:00", true},
+		{"overnight premiere", "2026-08-16 06:00:00", true},
+		{"overnight upper bound", "2026-08-16 07:59:59", true},
+		{"same-day upper bound", "2026-08-15 07:59:59", true},
+		{"overnight cutoff", "2026-08-16 08:00:00", false},
+		{"same-day cutoff", "2026-08-15 08:00:00", true},
+		{"two days later", "2026-08-17 03:00:00", false},
+		{"preceding day", "2026-08-14 03:00:00", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			data := patheTestDataset()
+			showing := &data.Showtimes[0]
+			showing.StartTime, err = time.ParseInLocation("2006-01-02 15:04:05", test.start, location)
+			if err != nil {
+				t.Fatal(err)
+			}
+			showing.EndTime = showing.StartTime.Add(time.Duration(showing.Movie.RuntimeMinutes) * time.Minute)
+			for _, combined := range []bool{false, true} {
+				if combined {
+					data.Provider = ProviderCombined
+				}
+				err := ValidateDataset(data, true)
+				if (err == nil) != test.accepted {
+					t.Fatalf("combined=%t accepted=%t error=%v", combined, test.accepted, err)
+				}
+			}
+		})
 	}
 }
 

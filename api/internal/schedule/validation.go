@@ -211,7 +211,12 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 			return fmt.Errorf("showing timestamp does not use Europe/Paris offset")
 		}
 		expectedDate := localStart.Format(dateLayout)
-		if localStart.Hour() <= 2 && provider != ProviderCineville && provider != ProviderMK2 {
+		if provider == ProviderPathe {
+			// Pathé advertises both same-day early premieres and overnight sessions.
+			if expectedDate != showing.ServiceDate && localStart.Hour() < 8 {
+				expectedDate = localStart.AddDate(0, 0, -1).Format(dateLayout)
+			}
+		} else if localStart.Hour() <= 2 && provider != ProviderCineville && provider != ProviderMK2 {
 			expectedDate = localStart.AddDate(0, 0, -1).Format(dateLayout)
 		} else if localStart.Hour() < 8 && provider != ProviderPathe && provider != ProviderMegarama && provider != ProviderCineville && provider != ProviderMK2 && provider != ProviderCinewest && provider != ProviderGrandEcran && provider != ProviderNoeCinemas {
 			return fmt.Errorf("showing outside cinema day")
