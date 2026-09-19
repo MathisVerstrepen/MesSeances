@@ -162,7 +162,7 @@ func (api *API) searchSlot(w http.ResponseWriter, r *http.Request) {
 	if query.Has("format") {
 		format = schedule.Format(query.Get("format"))
 		if format == "" {
-			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE.")
+			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX, ICE ou INFINITY_VISION.")
 			return
 		}
 	}

@@ -91,6 +91,34 @@ func singleFetcher(t *testing.T, page pageProps) *fixtureFetcher {
 	return &fixtureFetcher{t: t, builds: []string{"build-1"}, catalog: []cinema{c}, pages: map[string]pageProps{c.Route: page}}
 }
 
+func TestSyncInfinityVisionSessionIsolation(t *testing.T) {
+	p := fixturePage(fixtureCinema())
+	p.Attributes = []json.RawMessage{json.RawMessage(`{"id_attribut":10008,"nom":"Infinity Vision"}`)}
+	one := p.Program[0].Dates[0].Showtimes[0]
+	one.Attributes = "21,10008"
+	two := one
+	two.ID, two.Attributes = "2", ""
+	p.Program[0].Title = "Infinity Vision"
+	p.Program[0].Dates[0].Showtimes = []session{one, two}
+	event := fixtureFilm("-73")
+	event.Title = "Infinity Vision"
+	event.Dates[0].Showtimes[0].ID = "3"
+	p.Events = []film{event}
+	data, _, err := Sync(t.Context(), singleFetcher(t, p), fixtureOptions())
+	if err != nil || len(data.Showtimes) != 3 {
+		t.Fatal(data, err)
+	}
+	for _, showing := range data.Showtimes {
+		want := schedule.Format2D
+		if showing.ProviderShowingID == "639-1" {
+			want = schedule.FormatInfinityVision
+		}
+		if showing.Format != want || showing.Room != "4" || showing.Language != schedule.LanguageVF || !showing.EndTime.Equal(showing.StartTime) {
+			t.Fatal(showing)
+		}
+	}
+}
+
 func TestSyncNormalizesPostalCode(t *testing.T) {
 	for _, test := range []struct {
 		name, postal, want string

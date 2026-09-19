@@ -1,7 +1,9 @@
 package cgr
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -177,6 +179,50 @@ func TestNormalizeCGRTags(t *testing.T) {
 		if err != nil || language != test.language || normalizeFormat(test.tags) != test.format {
 			t.Fatalf("tags=%v language=%q format=%q err=%v", test.tags, language, normalizeFormat(test.tags), err)
 		}
+	}
+}
+
+func TestParseInfinityVisionSessionTags(t *testing.T) {
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const infinity = "Auditorium.Experience.InfinityVision"
+	const ice = "Auditorium.Experience.Ice"
+	for _, tc := range []struct {
+		name string
+		tags []string
+		want schedule.Format
+	}{
+		{"alone", []string{infinity}, schedule.FormatInfinityVision},
+		{"before ICE", []string{infinity, ice}, schedule.FormatInfinityVision},
+		{"after ICE", []string{ice, infinity}, schedule.FormatInfinityVision},
+		{"Dolby and 3D", []string{"Auditorium.Experience.DolbyAtmos", "Format.Projection.3d", infinity}, schedule.FormatInfinityVision},
+		{"case and trim", []string{" auditorium.experience.infinityvision "}, schedule.FormatInfinityVision},
+		{"ICE only", []string{ice}, schedule.FormatICE},
+		{"unmarked", nil, schedule.Format2D},
+		{"similar tag", []string{infinity + "Extra"}, schedule.Format2D},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tags, err := json.Marshal(append([]string{"Localization.Language.French"}, tc.tags...))
+			if err != nil {
+				t.Fatal(err)
+			}
+			body := []byte(fmt.Sprintf(`{"W8010":{"moviesTags":{"1001":["Auditorium.Experience.InfinityVision"]},"schedule":{"1001":{"2026-08-25":[{"id":"marked","startsAt":"2026-08-25T20:00:00+02:00","tags":%s,"screen":{"name":"Salle 1"},"data":{"ticketing":[{"provider":"default","type":"DESKTOP","urls":["https://achat.cgrcinemas.fr/synthetic/r/101"]}]}},{"id":"sibling","startsAt":"2026-08-25T20:00:00+02:00","tags":["Localization.Language.French","Auditorium.Experience.Ice"],"screen":{"name":"Salle 1"},"data":{"ticketing":[{"provider":"default","type":"DESKTOP","urls":["https://achat.cgrcinemas.fr/synthetic/r/102"]}]}}]}}}}`, tags))
+			records, err := parseSchedule(body, cinema{id: "W8010", timeZone: schedule.Timezone}, map[string][]string{"1001": {"2026-08-25"}}, map[string]movie{"1001": {id: "1001", title: "Infinity Vision", runtime: 90}}, location, "")
+			if err != nil || len(records) != 2 {
+				t.Fatal(records, err)
+			}
+			for _, record := range records {
+				want := tc.want
+				if record.BookingURL == "https://achat.cgrcinemas.fr/synthetic/r/102" {
+					want = schedule.FormatICE
+				}
+				if record.Format != want || record.Language != schedule.LanguageVF || record.Room != "Salle 1" || record.StartTime.Hour() != 20 {
+					t.Fatal(record)
+				}
+			}
+		})
 	}
 }
 

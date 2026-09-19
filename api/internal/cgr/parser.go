@@ -322,7 +322,7 @@ func normalizeFormat(tags []string) schedule.Format {
 	for _, mapping := range []struct {
 		tag    string
 		format schedule.Format
-	}{{"Auditorium.Experience.Ice", schedule.FormatICE}, {"Auditorium.Experience.DolbyAtmos", schedule.FormatDolby}, {"Format.Projection.3d", schedule.Format3D}} {
+	}{{"Auditorium.Experience.InfinityVision", schedule.FormatInfinityVision}, {"Auditorium.Experience.Ice", schedule.FormatICE}, {"Auditorium.Experience.DolbyAtmos", schedule.FormatDolby}, {"Format.Projection.3d", schedule.Format3D}} {
 		for _, tag := range tags {
 			if strings.EqualFold(strings.TrimSpace(tag), mapping.tag) {
 				return mapping.format

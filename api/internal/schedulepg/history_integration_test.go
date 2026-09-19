@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,57 @@ func historyGet(t *testing.T, s *Store, q schedule.StatisticsQuery) schedule.His
 		t.Fatal(err)
 	}
 	return r
+}
+
+func TestInfinityVisionPublicationIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	s := NewStore(pool)
+	data := testDataset()
+	one := data.Showtimes[0]
+	one.Format = schedule.FormatInfinityVision
+	two := one
+	two.ID, two.ProviderShowingID, two.Format = "ugc-showing-999", "999", schedule.FormatICE
+	two.BookingURL = "https://www.ugc.fr/reservationSeances.html?id=999"
+	data.Showtimes = []ShowtimeRecord{one, two}
+	historyPublish(t, s, data)
+	loaded, _, err := s.Load(t.Context())
+	if err != nil || len(loaded.Showtimes) != 2 {
+		t.Fatal("snapshot roundtrip", err)
+	}
+	for _, showing := range loaded.Showtimes {
+		want := schedule.FormatInfinityVision
+		if showing.ID == two.ID {
+			want = schedule.FormatICE
+		} else if showing.ID != one.ID {
+			t.Fatal(showing.ID)
+		}
+		if showing.Format != want {
+			t.Fatal(showing.ID, showing.Format)
+		}
+	}
+	historyCount(t, pool, `SELECT count(*) FROM screening_history_showtimes WHERE format='INFINITY_VISION'`, 1)
+	historyCount(t, pool, `SELECT count(*) FROM screening_history_showtimes WHERE format='ICE'`, 1)
+	for _, tc := range []struct {
+		format string
+		count  int
+	}{{"", 2}, {"INFINITY_VISION", 1}, {"ICE", 1}, {"unknown", 0}, {"3D", 0}} {
+		got := historyGet(t, s, schedule.StatisticsQuery{Format: tc.format})
+		if got.Totals.Showtimes != tc.count || !slices.Contains(got.Options.Formats, "INFINITY_VISION") || !slices.Contains(got.Options.Formats, "ICE") {
+			t.Fatal(tc, got.Totals, got.Options.Formats)
+		}
+		for _, bucket := range got.Formats {
+			if bucket.Value != "INFINITY_VISION" && bucket.Value != "ICE" || bucket.Count != 1 || tc.format != "" && bucket.Value != tc.format {
+				t.Fatal(tc, got.Formats)
+			}
+		}
+	}
+	// Upsert changes only the explicitly reobserved session, without duplicate history.
+	data.Showtimes[0].Format = schedule.Format2D
+	historyPublish(t, s, data)
+	data.Showtimes[0].Format = schedule.FormatInfinityVision
+	historyPublish(t, s, data)
+	historyCount(t, pool, `SELECT count(*) FROM screening_history_showtimes`, 2)
+	historyCount(t, pool, `SELECT count(*) FROM screening_history_showtimes WHERE format='INFINITY_VISION'`, 1)
 }
 
 func TestHistoryRetentionIntegration(t *testing.T) {

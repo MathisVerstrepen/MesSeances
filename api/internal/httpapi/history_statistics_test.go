@@ -38,11 +38,11 @@ func (f *fakeHistoryReader) HistoryOptions(ctx context.Context, q schedule.Histo
 func TestHistoryHTTPContract(t *testing.T) {
 	f := &fakeHistoryReader{}
 	handler := NewHandlerWithOptions(nil, "http://localhost:3000", HandlerOptions{History: f})
-	response := performRequest(t, handler, "/api/v1/statistics/history?date=0001-01-01&date_to=9999-12-31&city=lille&city=lyon&city=lille&genre=+DRAME+&language=VF_SME&film=+film-1+")
+	response := performRequest(t, handler, "/api/v1/statistics/history?date=0001-01-01&date_to=9999-12-31&city=lille&city=lyon&city=lille&genre=+DRAME+&language=VF_SME&film=+film-1+&format=INFINITY_VISION")
 	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" || !strings.Contains(response.Body.String(), `"mode":"history"`) {
 		t.Fatal(response.Code, response.Body.String())
 	}
-	want := schedule.StatisticsQuery{Date: "0001-01-01", DateTo: "9999-12-31", City: []string{"lille", "lyon"}, Theater: []string{}, Genre: "drame", Language: "VF_SME", Film: "film-1"}
+	want := schedule.StatisticsQuery{Date: "0001-01-01", DateTo: "9999-12-31", City: []string{"lille", "lyon"}, Theater: []string{}, Genre: "drame", Language: "VF_SME", Film: "film-1", Format: "INFINITY_VISION"}
 	if !reflect.DeepEqual(f.stats, want) {
 		t.Fatal("parsed", f.stats)
 	}
@@ -67,6 +67,7 @@ func TestHistoryHTTPInvalidBounds(t *testing.T) {
 	for _, key := range []string{"date", "date_to", "chain", "language", "format", "genre", "pass"} {
 		stats = append(stats, key+"=", key+"=x&"+key+"=x")
 	}
+	stats = append(stats, "format=infinity_vision", "format=Infinity+Vision", "format=invented", "format=ALL")
 	for _, key := range []string{"city", "theater"} {
 		stats = append(stats, key+"=x&"+key+"=", strings.Repeat(key+"=x&", 51), key+"="+url.QueryEscape(strings.Repeat("é", 100)+"x"))
 	}

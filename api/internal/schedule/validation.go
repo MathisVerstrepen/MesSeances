@@ -211,7 +211,12 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 			return fmt.Errorf("showing timestamp does not use Europe/Paris offset")
 		}
 		expectedDate := localStart.Format(dateLayout)
-		if localStart.Hour() <= 2 && provider != ProviderCineville && provider != ProviderMK2 {
+		if provider == ProviderPathe {
+			// Pathé advertises both same-day early premieres and overnight sessions.
+			if expectedDate != showing.ServiceDate && localStart.Hour() < 8 {
+				expectedDate = localStart.AddDate(0, 0, -1).Format(dateLayout)
+			}
+		} else if localStart.Hour() <= 2 && provider != ProviderCineville && provider != ProviderMK2 {
 			expectedDate = localStart.AddDate(0, 0, -1).Format(dateLayout)
 		} else if localStart.Hour() < 8 && provider != ProviderPathe && provider != ProviderMegarama && provider != ProviderCineville && provider != ProviderMK2 && provider != ProviderCinewest && provider != ProviderGrandEcran && provider != ProviderNoeCinemas {
 			return fmt.Errorf("showing outside cinema day")
@@ -407,7 +412,7 @@ func validLanguage(v Language) bool {
 	return v != LanguageAll && providerLanguage.MatchString(string(v))
 }
 func validFormat(v Format) bool {
-	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE
+	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE || v == FormatInfinityVision
 }
 
 func validUGCURL(raw string, allowAssets bool) bool {

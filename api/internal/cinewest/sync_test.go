@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -86,6 +87,67 @@ func syncFixture(t *testing.T, f *fixtureFetcher) (schedule.Dataset, error) {
 	t.Helper()
 	d, _, err := Sync(t.Context(), f, SyncOptions{From: "2026-09-14", Now: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)})
 	return d, err
+}
+
+func TestWebediaInfinityVisionSessionIsolation(t *testing.T) {
+	const infinity = "Auditorium.Experience.InfinityVision"
+	const ice = "Auditorium.Experience.Ice"
+	const dolby = "Auditorium.Experience.DolbyAtmos"
+	cases := []struct {
+		tags []string
+		want schedule.Format
+	}{
+		{[]string{infinity}, schedule.FormatInfinityVision},
+		{[]string{infinity, dolby}, schedule.FormatInfinityVision},
+		{[]string{dolby, infinity, "Format.Projection.3d"}, schedule.FormatInfinityVision},
+		{[]string{ice, infinity}, schedule.FormatInfinityVision},
+		{[]string{infinity, ice}, schedule.FormatInfinityVision},
+		{[]string{dolby}, schedule.FormatDolby},
+		{[]string{ice}, schedule.FormatICE},
+		{nil, schedule.Format2D},
+		{[]string{infinity + "Extra"}, schedule.Format2D},
+		{[]string{"auditorium.experience.infinityvision"}, schedule.Format2D},
+	}
+	f := newFixture()
+	baseline, err := syncFixture(t, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := make([]map[string]any, 0, len(cases))
+	wantByRoom := make(map[string]schedule.Format, len(cases))
+	for i, tc := range cases {
+		wantByRoom["Salle "+fmt.Sprint(i+1)] = tc.want
+		sessions = append(sessions, map[string]any{"id": fmt.Sprint(i + 1), "startsAt": "2026-09-14T20:00:00+02:00", "tags": append([]string{"Localization.Language.French"}, tc.tags...), "screen": map[string]string{"name": fmt.Sprint(i + 1)}})
+	}
+	f.calendar = jsonFixture(map[string]any{"W8400": map[string]any{"moviesTags": map[string]any{"1": []string{infinity}}, "schedule": map[string]any{"1": map[string]any{"2026-09-14": sessions}}}})
+	d, err := syncFixture(t, f)
+	if err != nil || len(d.Showtimes) != 12+len(cases) {
+		t.Fatal(d, err)
+	}
+	seen := 0
+	for _, showing := range d.Showtimes {
+		if strings.HasPrefix(showing.ProviderShowingID, "webediamovies-") {
+			seen++
+			want, ok := wantByRoom[showing.Room]
+			if !ok || showing.Format != want || showing.Language != schedule.LanguageVF || !showing.EndTime.Equal(showing.StartTime) {
+				t.Fatal(showing)
+			}
+			delete(wantByRoom, showing.Room)
+			continue
+		}
+		matched := false
+		for _, before := range baseline.Showtimes {
+			if before.ID == showing.ID {
+				matched = reflect.DeepEqual(before, showing)
+			}
+		}
+		if !matched {
+			t.Fatal("other adapter changed", showing)
+		}
+	}
+	if seen != len(cases) || len(wantByRoom) != 0 {
+		t.Fatal("Webedia sessions missing", seen)
+	}
 }
 
 func TestSyncThirteenVenuesAndPlatformEnds(t *testing.T) {

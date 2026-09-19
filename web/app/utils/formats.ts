@@ -1,6 +1,6 @@
 import type { QueryFormat, ShowtimeFormat } from '~/types/api'
 
-export type FormatBrand = 'IMAX' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+export type FormatBrand = 'IMAX' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'INFINITY_VISION'
 
 export const formatOptions: ReadonlyArray<{ value: QueryFormat; label: string; brand?: FormatBrand }> = [
   { value: 'ALL', label: 'Tous les formats' },
@@ -11,7 +11,8 @@ export const formatOptions: ReadonlyArray<{ value: QueryFormat; label: string; b
   { value: 'SCREENX', label: 'ScreenX', brand: 'SCREENX' },
   { value: 'LASER_ULTRA', label: 'Laser ULTRA by Kinepolis', brand: 'LASER_ULTRA' },
   { value: '4DX', label: '4DX', brand: '4DX' },
-  { value: 'ICE', label: 'ICE' }
+  { value: 'ICE', label: 'ICE' },
+  { value: 'INFINITY_VISION', label: 'Infinity Vision', brand: 'INFINITY_VISION' }
 ]
 
 export function formatLabel(format: string): string {

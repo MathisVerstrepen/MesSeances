@@ -44,6 +44,13 @@ func normalizeLanguage(value string) (schedule.Language, error) {
 	}
 }
 func showingFormat(button *html.Node, cache *showingsParseCache) schedule.Format {
+	for _, node := range descendants(button, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "screening-bottom") && hasClass(node, "bg--dark-blue")
+	}) {
+		if strings.EqualFold(collapse(text(node)), "Infinity Vision") {
+			return schedule.FormatInfinityVision
+		}
+	}
 	for ancestor := button.Parent; ancestor != nil; ancestor = ancestor.Parent {
 		if node := cache.firstDescendantWithClass(ancestor, "screening-2D3D"); node != nil {
 			value := strings.ToUpper(collapse(cache.text(node)))

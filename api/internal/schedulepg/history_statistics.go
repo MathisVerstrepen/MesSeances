@@ -115,6 +115,9 @@ func checkHistoryNumbers(value any) error {
 // of database locale and UNION-derived C collations. Sorting remains bytewise.
 const historyWhitespace = `U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000'`
 
+// Genre expansion and aliases mirror schedule.statisticsGenreParents and
+// schedule.statisticsGenre before per-film deduplication. This read-only
+// projection also supplies history options/filters.
 const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
  SELECT DISTINCT provider,movie_provider_id FROM screening_history_showtimes
 ), source_movies AS MATERIALIZED (
@@ -128,7 +131,24 @@ const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
  FROM source_movies s JOIN public_movies c ON c.id=s.movie_id LEFT JOIN public_movie_metadata_overrides o ON o.public_movie_id=c.id
 ), movie_genres AS MATERIALIZED (
  SELECT m.id,coalesce(lower(g.label COLLATE pg_catalog.pg_c_utf8),'unknown') value,coalesce(min(g.label COLLATE "C"),'Non renseigné') label
- FROM movies m LEFT JOIN LATERAL (SELECT btrim(genre,` + historyWhitespace + `) label FROM unnest(m.genres) genre WHERE btrim(genre,` + historyWhitespace + `)<>'') g ON true
+  FROM movies m LEFT JOIN LATERAL (
+   SELECT unnest(CASE
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie dramatique' THEN ARRAY['Comédie','Drame']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie romantique' THEN ARRAY['Comédie','Romance']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie d''action' THEN ARRAY['Comédie','Action']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('familial','famille','famille/enfants') THEN ARRAY['Famille']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('opéra','opera') THEN ARRAY['Opéra']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('science-fiction','science fiction') THEN ARRAY['Science-fiction']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('histoire','historique') THEN ARRAY['Histoire']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('horreur','horreur / épouvante') THEN ARRAY['Horreur']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('romance','amour') THEN ARRAY['Romance']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8) IN ('animation','dessin animé') THEN ARRAY['Animation']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='comédie' THEN ARRAY['Comédie']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='drame' THEN ARRAY['Drame']
+    WHEN lower(label COLLATE pg_catalog.pg_c_utf8)='action' THEN ARRAY['Action']
+    ELSE ARRAY[label] END) label
+   FROM (SELECT btrim(genre,` + historyWhitespace + `) label FROM unnest(m.genres) genre) raw WHERE label<>''
+  ) g ON true
  GROUP BY m.id,lower(g.label COLLATE pg_catalog.pg_c_utf8)
 ), theaters AS MATERIALIZED (
  SELECT t.* FROM screening_history_theaters t WHERE EXISTS (SELECT 1 FROM screening_history_showtimes h WHERE h.theater_id=t.id)
@@ -239,13 +259,13 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
 ), matched AS MATERIALIZED (
  SELECT h.service_date,h.start_time,h.theater_id,s.movie_id,
  CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END language,
- CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN h.format ELSE 'unknown' END format
+ CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END format
  FROM screening_history_showtimes h JOIN source_movies s USING(provider,movie_provider_id)
  WHERE ($1::text='' OR h.service_date>=nullif($1,'')::date) AND ($2::text='' OR h.service_date<=nullif($2,'')::date)
  AND h.theater_id IN (SELECT id FROM matched_theaters)
  AND ($10::bigint IS NULL OR s.movie_id=$10)
  AND ($6='' OR CASE WHEN h.language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN h.language ELSE 'unknown' END=$6)
- AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN h.format ELSE 'unknown' END=$7)
+ AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END=$7)
  AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))
 ), movie_theaters AS MATERIALIZED (
  SELECT movie_id,theater_id,count(*) showtime_count FROM matched GROUP BY movie_id,theater_id
