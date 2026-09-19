@@ -163,7 +163,7 @@ func (s *Service) statisticsQuery(query StatisticsQuery, now time.Time) (Statist
 		}
 		*value = strings.TrimSpace(*value)
 	}
-	query.Genre = normalized(query.Genre)
+	query.Genre, _ = statisticsGenre(query.Genre)
 	if query.Chain != "" && !validProvider(Provider(query.Chain), false) ||
 		query.Language != "" && query.Language != statisticsUnknown && statisticsLanguage(Language(query.Language)) == statisticsUnknown ||
 		query.Format != "" && query.Format != statisticsUnknown && statisticsFormat(Format(query.Format)) == statisticsUnknown {
@@ -309,15 +309,38 @@ func statisticsResolveMovie(view *SnapshotView, slug string, record MovieRecord)
 	item.Slug = slug
 	movie := &statisticsMovie{item: item, genres: make(map[string]string), theaters: make(map[string]bool)}
 	for _, genre := range item.Genres {
-		label := strings.TrimSpace(genre)
+		value, label := statisticsGenre(genre)
 		if label != "" {
-			statisticsGenreLabel(movie.genres, normalized(label), label)
+			statisticsGenreLabel(movie.genres, value, label)
 		}
 	}
 	if len(movie.genres) == 0 {
 		movie.genres[statisticsUnknown] = "Non renseigné"
 	}
 	return movie
+}
+
+// statisticsGenre merges only statistics aliases, never stored movie metadata.
+// Keep the SQL mapping in schedulepg.historyCanonicalCTE in sync.
+func statisticsGenre(genre string) (value, label string) {
+	label = strings.TrimSpace(genre)
+	switch normalized(label) {
+	case "familial", "famille", "famille/enfants":
+		label = "Famille"
+	case "opéra", "opera":
+		label = "Opéra"
+	case "science-fiction", "science fiction":
+		label = "Science-fiction"
+	case "histoire", "historique":
+		label = "Histoire"
+	case "horreur", "horreur / épouvante":
+		label = "Horreur"
+	case "romance", "amour":
+		label = "Romance"
+	case "animation", "dessin animé":
+		label = "Animation"
+	}
+	return normalized(label), label
 }
 
 func statisticsGenreLabel(labels map[string]string, value, label string) {

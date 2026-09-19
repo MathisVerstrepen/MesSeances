@@ -108,7 +108,7 @@ func NormalizeHistoryQuery(query StatisticsQuery) (StatisticsQuery, error) {
 		}
 		*value = strings.TrimSpace(*value)
 	}
-	query.Genre = normalized(query.Genre)
+	query.Genre, _ = statisticsGenre(query.Genre)
 	if query.Chain != "" && !validProvider(Provider(query.Chain), false) ||
 		query.Language != "" && query.Language != statisticsUnknown && statisticsLanguage(Language(query.Language)) == statisticsUnknown ||
 		query.Format != "" && query.Format != statisticsUnknown && statisticsFormat(Format(query.Format)) == statisticsUnknown {

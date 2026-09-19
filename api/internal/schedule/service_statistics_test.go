@@ -139,6 +139,67 @@ func TestStatisticsAggregatesPublicIdentityAndUnknowns(t *testing.T) {
 	}
 }
 
+func TestStatisticsGenreAliases(t *testing.T) {
+	for _, tc := range []struct {
+		label   string
+		aliases []string
+	}{
+		{"Famille", []string{"Familial", "Famille", "Famille/Enfants"}},
+		{"Opéra", []string{"Opéra", "Opera"}},
+		{"Science-fiction", []string{"Science-Fiction", "Science fiction"}},
+		{"Histoire", []string{"Histoire", "Historique"}},
+		{"Horreur", []string{"Horreur", "Horreur / Épouvante"}},
+		{"Romance", []string{"Romance", "Amour"}},
+		{"Animation", []string{"Animation", "Dessin animé"}},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			data := statisticsDataset()
+			aliases := append(slices.Clone(tc.aliases), "\u2003"+strings.ToUpper(tc.aliases[0])+"\u00a0")
+			originalGenres := slices.Clone(aliases)
+			unrelated := []string{"Comédie dramatique", "Comédie romantique", "Musique", "Musical", "Crime", "Policier", "Fantastique", "Biopic"}
+			data.PublicMovies[0].Genres = aliases
+			data.PublicMovies[1].Genres = []string{tc.aliases[len(tc.aliases)-1]}
+			data.PublicMovies[2].Genres = unrelated
+			data.PublicMovies[3].Genres = nil
+			service := statisticsService(t, data, testServiceNow())
+			result := getStatistics(t, service, StatisticsQuery{})
+			want := StatisticsCountBucket{Value: strings.ToLower(tc.label), Label: tc.label, Count: 2}
+			if len(result.Genres) != len(unrelated)+2 || !slices.Contains(result.Genres, want) || !slices.Contains(result.Genres, StatisticsCountBucket{Value: "unknown", Label: "Non renseigné", Count: 2}) {
+				t.Fatalf("genres=%+v want canonical=%+v and unchanged unknowns", result.Genres, want)
+			}
+			if len(result.Options.Genres) != len(unrelated)+2 || !slices.Contains(result.Options.Genres, StatisticsGenreOption{Value: want.Value, Label: want.Label}) {
+				t.Fatalf("options=%+v", result.Options.Genres)
+			}
+			for _, label := range unrelated {
+				if !slices.Contains(result.Genres, StatisticsCountBucket{Value: strings.ToLower(label), Label: label, Count: 1}) {
+					t.Fatalf("unrelated genre changed: %s", label)
+				}
+			}
+			for _, alias := range append(slices.Clone(aliases), tc.label, want.Value) {
+				filtered := getStatistics(t, service, StatisticsQuery{Genre: alias})
+				if filtered.Totals.Movies != 2 || filtered.Totals.Showtimes != 5 || !reflect.DeepEqual(filtered.Genres, []StatisticsCountBucket{want}) || !reflect.DeepEqual(filtered.Options, result.Options) {
+					t.Fatalf("filter %q: totals=%+v genres=%+v", alias, filtered.Totals, filtered.Genres)
+				}
+				historyQuery, err := NormalizeHistoryQuery(StatisticsQuery{Genre: alias})
+				if err != nil || historyQuery.Genre != want.Value {
+					t.Fatalf("history filter %q: %+v %v", alias, historyQuery, err)
+				}
+			}
+			view := service.source.Snapshot()
+			movie := statisticsResolveMovie(view, "film-1", MovieRecord{})
+			if !slices.Equal(movie.item.Genres, originalGenres) || !slices.Equal(view.data.PublicMovies[0].Genres, originalGenres) || !slices.Equal(data.PublicMovies[0].Genres, originalGenres) {
+				t.Fatal("statistics changed movie metadata")
+			}
+			slices.Reverse(data.Showtimes)
+			slices.Reverse(data.PublicMovies[0].Genres)
+			again := getStatistics(t, statisticsService(t, data, testServiceNow()), StatisticsQuery{})
+			if !reflect.DeepEqual(result, again) {
+				t.Fatal("alias/showtime order changed statistics")
+			}
+		})
+	}
+}
+
 func TestStatisticsFiltersIntersectWithoutChangingOptions(t *testing.T) {
 	service := statisticsService(t, statisticsDataset(), testServiceNow())
 	options := getStatistics(t, service, StatisticsQuery{}).Options
