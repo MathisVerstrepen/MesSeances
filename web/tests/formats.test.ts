@@ -13,6 +13,18 @@ test('labels the unfiltered format option explicitly', () => {
   assert.equal(formatLabel('ALL'), 'Tous les formats')
 })
 
+test('exposes Infinity Vision as a branded canonical format after ICE', () => {
+  assert.deepEqual(formatOptions.at(-1), { value: 'INFINITY_VISION', label: 'Infinity Vision', brand: 'INFINITY_VISION' })
+  assert.equal(formatOptions.at(-2)?.value, 'ICE')
+  assert.equal(formatLabel('INFINITY_VISION'), 'Infinity Vision')
+  assert.equal(formatLabel('infinity_vision'), 'Infinity Vision')
+  assert.equal(formatBrand('INFINITY_VISION'), 'INFINITY_VISION')
+  assert.equal(isShowtimeFormat('INFINITY_VISION'), true)
+  for (const value of ['infinity_vision', 'Infinity Vision', ' INFINITY_VISION ', 'INFINITY_VISION+ICE', '', 'ALL']) {
+    assert.equal(isShowtimeFormat(value), false, value)
+  }
+})
+
 test('formats movie runtime without changing missing-duration copy', () => {
   assert.equal(formatRuntime(125), '2h 5min')
   assert.equal(formatRuntime(120), '2h')

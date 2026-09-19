@@ -1090,6 +1090,55 @@ func TestSearchSlotFormatTransport(t *testing.T) {
 	}
 }
 
+func infinityVisionHandler(t *testing.T) http.Handler {
+	t.Helper()
+	data := fixtureDataset(t)
+	one := data.Showtimes[0]
+	one.Format = schedule.FormatInfinityVision
+	two := one
+	two.ID, two.ProviderShowingID, two.Format = "ugc-showing-999", "999", schedule.FormatICE
+	two.BookingURL = "https://www.ugc.fr/reservationSeances.html?id=999"
+	data.Showtimes = []schedule.ShowtimeRecord{one, two}
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewHandlerWithOptions(service, "", HandlerOptions{})
+}
+
+func TestInfinityVisionSlotTransport(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		ids   []string
+	}{
+		{"", []string{"ugc-showing-100", "ugc-showing-999"}},
+		{"&format=ALL", []string{"ugc-showing-100", "ugc-showing-999"}},
+		{"&format=INFINITY_VISION", []string{"ugc-showing-100"}},
+		{"&format=ICE", []string{"ugc-showing-999"}},
+	} {
+		r := performRequest(t, infinityVisionHandler(t), "/api/v1/search/slot?theaters=ugc-25&date=2026-08-15&start_after=11:00&finish_before=21:00"+tc.query)
+		var got []schedule.SlotResult
+		if r.Code != http.StatusOK || json.Unmarshal(r.Body.Bytes(), &got) != nil || len(got) != len(tc.ids) {
+			t.Fatal(r.Code, r.Body.String())
+		}
+		for i, id := range tc.ids {
+			wantFormat := schedule.FormatInfinityVision
+			if id == "ugc-showing-999" {
+				wantFormat = schedule.FormatICE
+			}
+			if got[i].Showtime.ID != id || got[i].Showtime.Format != wantFormat {
+				t.Fatal(got)
+			}
+		}
+	}
+	for _, format := range []string{"", "infinity_vision", "Infinity+Vision", "invented"} {
+		r := performRequest(t, infinityVisionHandler(t), "/api/v1/search/slot?theaters=ugc-25&date=2026-08-15&start_after=11:00&finish_before=21:00&format="+format)
+		if r.Code != http.StatusBadRequest {
+			t.Fatal(format, r.Code, r.Body.String())
+		}
+	}
+}
+
 func TestInvalidQueriesTransport(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1125,8 +1174,8 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"slot duplicate scopes", "/api/v1/search/slot?city=Lille&theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=15:00", "Les paramètres city et theaters sont mutuellement exclusifs."},
 		{"slot empty theater", "/api/v1/search/slot?theaters=&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"slot unknown theater", "/api/v1/search/slot?theaters=inconnu&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
-		{"slot empty format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE."},
-		{"slot invalid format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=screenx", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE."},
+		{"slot empty format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX, ICE ou INFINITY_VISION."},
+		{"slot invalid format", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&format=screenx", "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX, ICE ou INFINITY_VISION."},
 		{"slot invalid include ads", "/api/v1/search/slot?city=Lille&date=2026-08-15&start_after=12:00&finish_before=15:00&include_ads=0", "Le paramètre include_ads doit être true ou false."},
 	}
 	for _, test := range tests {

@@ -10,6 +10,8 @@ import noeCinemasLogoSmall from '~/assets/imgs/noe_cinema_logo_small.webp?no-inl
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
+import infinityVisionLogoLarge from '~/assets/imgs/infinity_vision_logo_large.png?no-inline'
+import infinityVisionLogoSmall from '~/assets/imgs/infinity_vision_logo_small.png?no-inline'
 import kinepolisLogoLarge from '~/assets/imgs/kinepolis_logo_large.webp?no-inline'
 import kinepolisLogoSmall from '~/assets/imgs/kinepolis_logo_small.webp?no-inline'
 import logo4DXLarge from '~/assets/imgs/logo_4DX_large.webp?no-inline'
@@ -25,7 +27,7 @@ import screenXLogoSmall from '~/assets/imgs/logo_screenx_small.webp?no-inline'
 import ugcLogoLarge from '~/assets/imgs/ugc_logo_large.webp?no-inline'
 import ugcLogoSmall from '~/assets/imgs/ugc_logo_small.webp?no-inline'
 
-type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'Noé Cinémas' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX'
+type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'Noé Cinémas' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'INFINITY_VISION'
 
 const props = withDefaults(defineProps<{
   brand: Brand
@@ -51,7 +53,8 @@ const sources = {
   DOLBY: { inline: logoDolbySmall, display: logoDolbyLarge },
   SCREENX: { inline: screenXLogoSmall, display: screenXLogoLarge },
   LASER_ULTRA: { inline: laserUltraLogoSmall, display: laserUltraLogoLarge },
-  '4DX': { inline: logo4DXSmall, display: logo4DXLarge }
+  '4DX': { inline: logo4DXSmall, display: logo4DXLarge },
+  INFINITY_VISION: { inline: infinityVisionLogoSmall, display: infinityVisionLogoLarge }
 } satisfies Record<Exclude<Brand, '3D'>, Record<'inline' | 'display', string>>
 
 const source = computed(() => props.brand === '3D' ? '' : sources[props.brand][props.variant])
@@ -71,7 +74,8 @@ const accessibleNames = {
   DOLBY: 'Dolby',
   SCREENX: 'ScreenX',
   LASER_ULTRA: 'Laser ULTRA by Kinepolis',
-  '4DX': '4DX'
+  '4DX': '4DX',
+  INFINITY_VISION: 'Infinity Vision'
 } satisfies Record<Brand, string>
 </script>
 

@@ -7,6 +7,17 @@ import (
 )
 
 func TestHistoryDirectValidation(t *testing.T) {
+	for _, format := range []string{"INFINITY_VISION", "ICE"} {
+		q, err := NormalizeHistoryQuery(StatisticsQuery{Format: format})
+		if err != nil || q.Format != format {
+			t.Fatal(q, err)
+		}
+	}
+	for _, format := range []string{"infinity_vision", "Infinity Vision", "invented", "ALL"} {
+		if _, err := NormalizeHistoryQuery(StatisticsQuery{Format: format}); err == nil {
+			t.Fatal("accepted", format)
+		}
+	}
 	for _, q := range []StatisticsQuery{{Date: "0001-01-01", DateTo: "9999-12-31"}, {Date: "1900-01-01"}, {Genre: strings.Repeat("é", 100)}, {Language: "VF_SME"}, {Pass: "unknown"}} {
 		if _, err := NormalizeHistoryQuery(q); err != nil {
 			t.Fatal(q, err)

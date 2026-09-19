@@ -245,7 +245,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		if !nullPosterFound {
 			t.Fatal("NULL poster did not round trip")
 		}
-		for _, format := range []schedule.Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX} {
+		for _, format := range []schedule.Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX, FormatICE, schedule.FormatInfinityVision} {
 			if _, err := pool.Exec(ctx, "UPDATE showtimes SET format=$1 WHERE id='ugc-showing-100'", string(format)); err != nil {
 				t.Fatalf("canonical database format %q rejected: %v", format, err)
 			}

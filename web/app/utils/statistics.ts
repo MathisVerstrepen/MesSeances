@@ -67,7 +67,7 @@ export function parseStatisticsQuery(route: LocationQuery, today?: string, valid
   }
   if (values.chain) query.chain = enumQueryValue(values.chain, ['ugc', 'kinepolis', 'pathe', 'cgr', 'megarama', 'cineville', 'mk2', 'cinewest', 'grandecran', 'noecinemas'])
   if (values.language) query.language = enumQueryValue(values.language, languages)
-  if (values.format) query.format = enumQueryValue(values.format, ['2D', '3D', 'IMAX', 'DOLBY', 'SCREENX', 'LASER_ULTRA', '4DX', 'ICE', 'unknown'])
+  if (values.format) query.format = enumQueryValue(values.format, ['2D', '3D', 'IMAX', 'DOLBY', 'SCREENX', 'LASER_ULTRA', '4DX', 'ICE', 'INFINITY_VISION', 'unknown'])
   return { query, error: '' }
 }
 

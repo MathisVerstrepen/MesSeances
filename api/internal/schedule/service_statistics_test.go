@@ -761,12 +761,12 @@ func TestStatisticsExactStoredBucketsAndRuntimeBoundaries(t *testing.T) {
 			t.Fatalf("language %s: %+v", language, result.Versions)
 		}
 	}
-	for _, format := range []Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX, FormatICE} {
+	for _, format := range []Format{Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX, FormatICE, FormatInfinityVision} {
 		data := testDataset()
 		data.Showtimes = data.Showtimes[:1]
 		data.Showtimes[0].Format = format
 		result := getStatistics(t, statisticsService(t, data, testServiceNow()), StatisticsQuery{Format: string(format)})
-		if result.Totals.Showtimes != 1 || result.Formats[0].Value != string(format) {
+		if result.Totals.Showtimes != 1 || result.Formats[0].Value != string(format) || !slices.Contains(result.Options.Formats, string(format)) {
 			t.Fatalf("format %s: %+v", format, result.Formats)
 		}
 	}

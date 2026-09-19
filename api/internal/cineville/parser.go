@@ -339,5 +339,8 @@ func parseAttributes(s session) (schedule.Language, schedule.Format, error) {
 	if attrs["21"] {
 		format = schedule.FormatIMAX
 	}
+	if attrs["10008"] {
+		format = schedule.FormatInfinityVision
+	}
 	return language, format, nil
 }

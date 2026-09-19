@@ -109,6 +109,18 @@ test('back and forward reconstruct applied drafts without dependent filter clear
   assert.equal(statisticsOptionsWithSelection(available, []), available)
 })
 
+test('Infinity Vision remains canonical through statistics URL, draft and bucket labels', () => {
+  const query = { format: 'INFINITY_VISION' } as const
+  assert.deepEqual(parseStatisticsQuery(query), { query, error: '' })
+  assert.deepEqual(statisticsDraftQuery(statisticsDraft(query)), { query, error: '' })
+  assert.deepEqual(statisticsRouteQuery({ format: 'ICE', campaign: 'footer' }, query), { campaign: 'footer', ...query })
+  assert.equal(statisticsBucketLabel(query.format, query.format, 'format'), 'Infinity Vision')
+  assert.notEqual(statisticsQuerySignature(query), statisticsQuerySignature({ format: 'ICE' }))
+  for (const format of ['infinity_vision', 'Infinity Vision', 'INFINITY_VISION+ICE', '', ['INFINITY_VISION', 'ICE']]) {
+    assert.ok(parseStatisticsQuery({ format }).error)
+  }
+})
+
 test('rejects repeated scalars, empty, oversized and unknown enum selections instead of silently dropping filters', () => {
   for (const key of ['date', 'date_to', 'city', 'theater', 'chain', 'language', 'format', 'genre', 'pass', 'film']) {
     for (const value of [null, '', ' '.repeat(3), 'é'.repeat(101)]) assert.ok(parseStatisticsQuery({ [key]: value }).error, `${key}: ${value}`)
@@ -343,6 +355,11 @@ test('typed client uses one statistics endpoint, query-only fields, abort signal
     const cities = ['paris', 'lille']
     await api.statistics({ city: cities })
     assert.equal(calls[3]?.options.query.city, cities)
+    await api.statistics(parseStatisticsQuery({ format: 'INFINITY_VISION' }).query)
+    assert.deepEqual(calls[4]?.options.query, { format: 'INFINITY_VISION' })
+    await api.historyStatistics(parseStatisticsQuery({ format: 'INFINITY_VISION' }).query)
+    assert.equal(calls[5]?.url, 'http://localhost:8080/api/v1/statistics/history')
+    assert.deepEqual(calls[5]?.options.query, { format: 'INFINITY_VISION' })
   } finally {
     Reflect.deleteProperty(globalThis, '$fetch')
     Reflect.deleteProperty(globalThis, 'useRuntimeConfig')
