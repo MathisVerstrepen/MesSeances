@@ -962,7 +962,7 @@ func isShowingBlockBoundary(node *html.Node) bool {
 
 func validShowingFormat(v schedule.Format) bool {
 	switch v {
-	case "2D", "3D", "IMAX", "DOLBY", "4DX":
+	case "2D", "3D", "IMAX", "DOLBY", "4DX", schedule.FormatInfinityVision:
 		return true
 	}
 	return false

@@ -166,6 +166,8 @@ func webAttributes(tags []string) (schedule.Language, string, schedule.Format, e
 	}
 	format := schedule.Format2D
 	switch {
+	case flags["Auditorium.Experience.InfinityVision"]:
+		format = schedule.FormatInfinityVision
 	case flags["Auditorium.Experience.Ice"]:
 		format = schedule.FormatICE
 	case flags["Auditorium.Experience.DolbyAtmos"]:

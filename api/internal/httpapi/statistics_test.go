@@ -77,6 +77,33 @@ func TestStatisticsHTTPContract(t *testing.T) {
 	}
 }
 
+func TestInfinityVisionStatisticsTransport(t *testing.T) {
+	for _, tc := range []struct {
+		query string
+		count int
+	}{{"", 2}, {"format=INFINITY_VISION", 1}, {"format=ICE", 1}, {"format=unknown", 0}} {
+		r := performRequest(t, infinityVisionHandler(t), "/api/v1/statistics?"+tc.query)
+		var got schedule.Statistics
+		if r.Code != http.StatusOK || json.Unmarshal(r.Body.Bytes(), &got) != nil || got.Totals.Showtimes != tc.count {
+			t.Fatal(r.Code, r.Body.String())
+		}
+		if !slices.Contains(got.Options.Formats, "INFINITY_VISION") || !slices.Contains(got.Options.Formats, "ICE") {
+			t.Fatal(got.Options.Formats)
+		}
+		for _, bucket := range got.Formats {
+			if bucket.Value != "INFINITY_VISION" && bucket.Value != "ICE" || bucket.Count != 1 {
+				t.Fatal(got.Formats)
+			}
+		}
+	}
+	for _, format := range []string{"", "infinity_vision", "Infinity+Vision", "invented", "ALL"} {
+		r := performRequest(t, infinityVisionHandler(t), "/api/v1/statistics?format="+format)
+		if r.Code != http.StatusBadRequest {
+			t.Fatal(format, r.Code, r.Body.String())
+		}
+	}
+}
+
 func TestStatisticsHTTPRejectsInvalidQuery(t *testing.T) {
 	queries := []string{
 		"city=%zz", "city=lille&city=%zz", "theater=ugc-25&theater=%zz", "city=lille;theater=ugc-25", "unsupported=1", "city[]=lille", "theater[]=ugc-25", "date=", "date_to=", "city=", "city=+", "date=2026-08-15&date=2026-08-15", "language=VF&language=VO",

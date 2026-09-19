@@ -179,6 +179,59 @@ func TestParseShowings(t *testing.T) {
 	}
 }
 
+func TestParseShowingsInfinityVisionButtonIsolation(t *testing.T) {
+	const marker = `<div class="screening-bottom bg--dark-blue">Infinity Vision</div>`
+	for _, tc := range []struct {
+		name, inside, outside, legacy string
+		want                          schedule.Format
+	}{
+		{"explicit no legacy format", marker, "", "", schedule.FormatInfinityVision},
+		{"case whitespace visible children", `<div class="extra bg--dark-blue screening-bottom"> iNfInItY <strong> VISION </strong> </div>`, "", "", schedule.FormatInfinityVision},
+		{"before 3D fallback", marker, "", "3D", schedule.FormatInfinityVision},
+		{"before IMAX fallback", marker, "", "IMAX", schedule.FormatInfinityVision},
+		{"absent", "", "", "", schedule.Format2D},
+		{"different label", `<div class="screening-bottom bg--dark-blue">Avant première</div>`, "", "", schedule.Format2D},
+		{"substring", `<div class="screening-bottom bg--dark-blue">Infinity Vision exclusive</div>`, "", "", schedule.Format2D},
+		{"missing color class", `<div class="screening-bottom">Infinity Vision</div>`, "", "", schedule.Format2D},
+		{"missing bottom class", `<div class="bg--dark-blue">Infinity Vision</div>`, "", "", schedule.Format2D},
+		{"inert text", `<div class="screening-bottom bg--dark-blue"><script>Infinity Vision</script></div>`, "", "", schedule.Format2D},
+		{"outside button", "", marker, "3D", schedule.Format3D},
+	} {
+		for _, markedFirst := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/markedFirst=%t", tc.name, markedFirst), func(t *testing.T) {
+				button := func(id, clock, content string) string {
+					return fmt.Sprintf(`<button data-showing="%s" data-film="1" data-cinema="25" data-version="VF" data-seancedate="15/08/2026" data-seancehour="%s"><span class="screening-time-end">(fin 16:00)</span>%s</button>`, id, clock, content)
+				}
+				first, second := button("10", "12:00", tc.inside), button("11", "13:00", "")
+				if !markedFirst {
+					first, second = second, first
+				}
+				legacy := ""
+				if tc.legacy != "" {
+					legacy = `<span class="screening-2D3D">` + tc.legacy + `</span>`
+				}
+				body := `<article id="bloc-showing-film-1"><a data-film="1" title="Infinity Vision">Infinity Vision</a><span>(2h)</span>` + tc.outside + `<div class="session"><span class="screening-room">Salle 7</span>` + legacy + first + second + `</div></article>`
+				got, err := ParseShowings(strings.NewReader(body), Cinema{ProviderID: "25"}, "2026-08-15")
+				if err != nil || len(got) != 2 {
+					t.Fatal(got, err)
+				}
+				for _, showing := range got {
+					want, hour := tc.want, 12
+					if showing.ProviderShowingID == "11" {
+						want, hour = schedule.Format2D, 13
+						if tc.legacy != "" {
+							want = schedule.Format(tc.legacy)
+						}
+					}
+					if showing.Format != want || showing.Room != "Salle 7" || showing.Language != schedule.LanguageVF || showing.StartTime.Hour() != hour || showing.EndTime.Hour() != 16 || showing.BookingURL != "https://www.ugc.fr/reservationSeances.html?id="+showing.ProviderShowingID {
+						t.Fatal(showing)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestParseShowingsOriginalLanguageVersions(t *testing.T) {
 	body := `<article id="bloc-showing-film-1"><a data-film="1" title="Film">Film</a><span>(2h)</span><button data-showing="10" data-film="1" data-cinema="25" data-version="SUBENG" data-seancedate="15/08/2026" data-seancehour="12:00"><span class="screening-time-end">(fin 14:00)</span></button></article>`
 	for _, version := range []string{"VO", "SUBENG", "VOSST"} {

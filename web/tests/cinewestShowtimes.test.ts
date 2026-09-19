@@ -109,12 +109,16 @@ test('Cinewest language and format options reuse existing filters and do not inv
     showing('cineoffice', { language: '', format: '2D', end_time: publishedEnd }),
     showing('ticketingcine', { language: 'VFSTF', format: '4DX', end_time: runtimeEnd }),
     showing('webediamovies', { language: 'VO', format: 'ICE' }),
-    showing('webediamovies', { language: 'VF', format: 'DOLBY' })
+    showing('webediamovies', { language: 'VF', format: 'DOLBY' }),
+    showing('webediamovies', { id: `cinewest-showing-webediamovies-${'c'.repeat(64)}`, language: 'VF', format: 'INFINITY_VISION' })
   ]
   const results = toTheaterShowtimeResults(theaterResponse(showtimes))
   assert.equal(results[1]!.language, '')
   assert.deepEqual(availableLanguageOptions(results.map((result) => result.language)).map((option) => option.value), ['ALL', 'VOSTFR', 'VF', 'VO', 'VFSTF'])
-  assert.deepEqual(availableFormatOptions(results.map((result) => result.format)).map((option) => option.value), ['ALL', '2D', 'DOLBY', 'SCREENX', '4DX', 'ICE'])
+  assert.deepEqual(availableFormatOptions(results.map((result) => result.format)).map((option) => option.value), ['ALL', '2D', 'DOLBY', 'SCREENX', '4DX', 'ICE', 'INFINITY_VISION'])
+  assert.equal(results[3]!.format, 'ICE')
+  assert.equal(results[5]!.format, 'INFINITY_VISION')
+  assert.notEqual(results[3]!.key, results[5]!.key)
 })
 
 test('Cinewest film JSON-LD preserves published ends and omits estimated or unknown endDate', () => {
@@ -141,4 +145,24 @@ test('Cinewest film JSON-LD preserves published ends and omits estimated or unkn
   }
   assert.equal(graph.find((node) => node['@type'] === 'MovieTheater')?.name, 'Capitole Studios')
   assert.deepEqual(schedule, before)
+})
+
+test('Infinity Vision and ICE sessions of the same movie retain distinct formats in timeline and slot results', () => {
+  const showtimes = [
+    showing('webediamovies', { format: 'INFINITY_VISION', end_time: publishedEnd }),
+    showing('webediamovies', { id: `cinewest-showing-webediamovies-${'b'.repeat(64)}`, format: 'ICE', end_time: publishedEnd })
+  ]
+  const response = theaterResponse(showtimes)
+  const slots: SlotResult[] = showtimes.map(showtime => ({
+    showtime, theater: response.theater, poster_url: null, backdrop_url: null,
+    effective_start_time: start, effective_end_time: publishedEnd,
+    buffer_ads_minutes: 0, slack_before_minutes: 0, slack_after_minutes: 0
+  }))
+  const before = structuredClone({ response, slots })
+  for (const results of [toTheaterShowtimeResults(response), toSlotShowtimeResults(slots)]) {
+    assert.deepEqual(results.map(result => result.format), ['INFINITY_VISION', 'ICE'])
+    assert.equal(new Set(results.map(result => result.key)).size, 2)
+    assert.equal(new Set(results.map(result => result.movieSlug)).size, 1)
+  }
+  assert.deepEqual({ response, slots }, before)
 })

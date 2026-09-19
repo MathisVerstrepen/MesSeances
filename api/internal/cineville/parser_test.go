@@ -117,15 +117,29 @@ func TestLanguageFormatPrecedence(t *testing.T) {
 		{"VO", "false", "", "3D", schedule.LanguageVOSTFR, schedule.Format3D},
 		{"VF", "true", "32,25", "3D", schedule.LanguageVFSTF, schedule.FormatDolby},
 		{"VF", "0", " 32;25|21 ", "3D", schedule.LanguageVF, schedule.FormatIMAX},
+		{"VF", "0", "10008", "2D", schedule.LanguageVF, schedule.FormatInfinityVision},
+		{"VO", "0", "10008", "3D", schedule.LanguageVOSTFR, schedule.FormatInfinityVision},
+		{"VF", "true", "32,25;21|10008", "3D", schedule.LanguageVFSTF, schedule.FormatInfinityVision},
+		{"VF", "0", " 10008\t21\n25\r32 ", "2D", schedule.LanguageVF, schedule.FormatInfinityVision},
+		{"VF", "0", "110008,100081", "2D", schedule.LanguageVF, schedule.Format2D},
 	} {
 		l, f, err := parseAttributes(session{Version: v.version, Subtitles: v.flag, Attributes: v.attrs, Relief: v.relief})
 		if err != nil || l != v.lang || f != v.format {
 			t.Fatalf("attributes=%+v got=%s/%s err=%v", v, l, f, err)
 		}
 	}
-	for _, attrs := range []string{"x21", "21x", "-21", "[21]", "2.1"} {
+	for _, attrs := range []string{"x21", "21x", "-21", "[21]", "2.1", "10008x", "10008,invalid", "010008"} {
 		if _, _, err := parseAttributes(session{Version: "VF", Subtitles: "0", Attributes: attrs, Relief: "2D"}); err == nil {
 			t.Fatal("malformed attribute accepted")
+		}
+	}
+	for _, s := range []session{
+		{Version: "invalid", Subtitles: "0", Relief: "2D", Attributes: "10008"},
+		{Version: "VF", Subtitles: "invalid", Relief: "2D", Attributes: "10008"},
+		{Version: "VF", Subtitles: "0", Relief: "invalid", Attributes: "10008"},
+	} {
+		if _, _, err := parseAttributes(s); err == nil {
+			t.Fatal("certification bypassed validation", s)
 		}
 	}
 }

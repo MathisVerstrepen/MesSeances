@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [039_screening_history.sql](039_screening_history.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [040_infinity_vision_format.sql](040_infinity_vision_format.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -175,7 +175,7 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | `first_part_duration_minutes` | `integer` | Default `0`; nonnegative; must be zero except for Megarama and Cinewest ticketingcine |
 | `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be `ALL`. Empty language requires MK2 `provider_version = 'Muet'` or Cinewest Cine Office `provider_version = 'VERSION_MUET'`; these silent markers require empty language |
 | `provider_version` | `varchar(256)` | Nonblank after trimming |
-| `format` | `varchar(16)` | `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, or `ICE` |
+| `format` | `varchar(16)` | `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, `ICE`, or `INFINITY_VISION` |
 | `room` | `varchar(256)` | Empty string permitted except Cinewest; required empty for MK2 |
 | `booking_url` | `varchar(4096)` | Nonblank after trimming; no URL pattern check |
 
@@ -192,6 +192,8 @@ Migration 039 creates empty tables without importing either surviving schedule g
 | `screening_history_showtimes` | Schedule showtime scalar columns/types and provider checks as of 038, excluding `generation_id`; PK `(provider,provider_showing_id,theater_id,service_date)`; nonnull `first_seen_at`, `last_seen_at`, `source_generated_at` timestamptz; nonnull positive `last_generation bigint`; last seen >= first seen. Durable FKs `(provider,theater_id)` to history theaters and `(provider,movie_provider_id)` to public movie sources, neither cascading. Display `id` is not globally unique. |
 
 The migration uses `LIKE ... INCLUDING CONSTRAINTS` to preserve all 038 scalar/identity checks, not its indexes, defaults or generation-scoped FKs. Future providers or changes to those checks must explicitly update the history tables too. Secondary B-tree indexes: history showtimes `(service_date,theater_id)`, `(theater_id,service_date)`, `(provider,movie_provider_id,service_date)`; history theaters `(city_slug,id)`.
+
+Both showtime tables accept the same scalar formats, including `INFINITY_VISION`. Explicit session certification takes priority over other formats during ingestion; existing rows are not reclassified or backfilled.
 
 Receipt timestamps describe successful database publication, not scraping freshness or proof that a screening occurred. Repeated identities preserve first receipt and replace mutable fields; missing identities remain. Latest retained theater metadata applies to all its history. City identities use the same inventory-based Go algorithm as upcoming cities. Films resolve through durable source keys to current canonical public metadata, so merges, splits and overrides can reclassify past counts. Booking URLs stay internal. There is no edit log, bootstrap, cancellation inference or reconstruction of pruned data.
 

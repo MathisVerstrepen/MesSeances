@@ -392,7 +392,7 @@ func statisticsLanguage(language Language) string {
 
 func statisticsFormat(format Format) string {
 	switch format {
-	case Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX, FormatICE:
+	case Format2D, Format3D, FormatIMAX, FormatDolby, FormatScreenX, FormatLaserUltra, Format4DX, FormatICE, FormatInfinityVision:
 		return string(format)
 	}
 	return statisticsUnknown

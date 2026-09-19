@@ -412,7 +412,7 @@ func validLanguage(v Language) bool {
 	return v != LanguageAll && providerLanguage.MatchString(string(v))
 }
 func validFormat(v Format) bool {
-	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE
+	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE || v == FormatInfinityVision
 }
 
 func validUGCURL(raw string, allowAssets bool) bool {

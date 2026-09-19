@@ -63,7 +63,7 @@ const historyStatisticsOptionsSQL = historyOptionsCTE + `, ranked AS MATERIALIZE
  SELECT * FROM ranked WHERE position<=100 OR (kind='city' AND value=ANY($1::text[])) OR (kind='theater' AND value=ANY($2::text[])) OR (kind='genre' AND value=$3) OR (kind='pass' AND value=$4)
 ), observed AS MATERIALIZED (
  SELECT DISTINCT CASE WHEN language IN ('VF','VOSTFR','VO','VF_SME','VFSTF') THEN language ELSE 'unknown' END language,
- CASE WHEN format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE') THEN format ELSE 'unknown' END format FROM screening_history_showtimes
+ CASE WHEN format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN format ELSE 'unknown' END format FROM screening_history_showtimes
 )
 SELECT jsonb_build_object('options',jsonb_build_object(
  'cities',coalesce((SELECT jsonb_agg(item ORDER BY position) FROM chosen WHERE kind='city'),'[]'),

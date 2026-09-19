@@ -364,8 +364,44 @@ func TestSearchSlotFormatFilteringAndValidation(t *testing.T) {
 		})
 	}
 	base.Format = "screenx"
-	if _, err := service.SearchSlot(base); err == nil || err.Error() != "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX ou ICE." {
+	if _, err := service.SearchSlot(base); err == nil || err.Error() != "Le paramètre format doit être ALL, 2D, 3D, IMAX, DOLBY, SCREENX, LASER_ULTRA, 4DX, ICE ou INFINITY_VISION." {
 		t.Fatalf("invalid format error=%v", err)
+	}
+}
+
+func TestSearchSlotInfinityVisionExactFiltering(t *testing.T) {
+	data := testDataset()
+	one := data.Showtimes[0]
+	one.Format = FormatInfinityVision
+	two := one
+	two.ID, two.ProviderShowingID, two.Format = "ugc-showing-999", "999", FormatICE
+	two.BookingURL = "https://www.ugc.fr/reservationSeances.html?id=999"
+	data.Showtimes = []ShowtimeRecord{one, two}
+	service, err := NewService(newTestSource(data), ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		format Format
+		ids    []string
+	}{
+		{"", []string{one.ID, two.ID}}, {FormatAll, []string{one.ID, two.ID}},
+		{FormatInfinityVision, []string{one.ID}}, {FormatICE, []string{two.ID}}, {Format3D, []string{}},
+	} {
+		got, err := service.SearchSlot(SlotQuery{TheaterIDs: []string{one.TheaterID}, Date: one.ServiceDate, StartAfter: "11:00", FinishBefore: "21:00", Language: LanguageAll, Format: tc.format})
+		if err != nil || len(got) != len(tc.ids) {
+			t.Fatalf("format %q: results=%+v err=%v", tc.format, got, err)
+		}
+		for i, id := range tc.ids {
+			if got[i].Showtime.ID != id {
+				t.Fatalf("format %q: got %s want %s", tc.format, got[i].Showtime.ID, id)
+			}
+		}
+	}
+	for _, format := range []Format{"infinity_vision", "Infinity Vision", "invented"} {
+		if err := validateSlotFormat(format); err == nil {
+			t.Fatalf("accepted %q", format)
+		}
 	}
 }
 
