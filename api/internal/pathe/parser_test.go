@@ -228,9 +228,6 @@ func TestSessionServiceDateAndStrictFields(t *testing.T) {
 		if err != nil || record.ServiceDate != "2026-08-16" || record.StartTime.Format(providerTimeLayout) != session.Time {
 			t.Fatalf("early session changed: record=%+v err=%v", record, err)
 		}
-		if _, err := parseSession(session, movie, theater, "2026-08-15", location); err == nil {
-			t.Fatal("early session accepted under previous advertised date")
-		}
 	}
 	session.Time = "2026-08-16 08:00:00"
 	session.Version = "unknown"
@@ -246,6 +243,51 @@ func TestSessionServiceDateAndStrictFields(t *testing.T) {
 	session.AuditoriumName = nil
 	if _, err := parseSession(session, movie, theater, "2026-08-16", location); err == nil {
 		t.Fatal("empty room accepted")
+	}
+}
+
+func TestSessionAdvertisedDateReconciliation(t *testing.T) {
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, start, advertisedDate string
+		accepted                    bool
+	}{
+		{"observed overnight", "2026-09-24 03:00:00", "2026-09-23", true},
+		{"live overnight", "2026-09-24 03:30:00", "2026-09-23", true},
+		{"same-day midnight", "2026-09-24 00:00:00", "2026-09-24", true},
+		{"overnight midnight", "2026-09-24 00:00:00", "2026-09-23", true},
+		{"existing overnight", "2026-09-24 02:59:59", "2026-09-23", true},
+		{"same-day premiere", "2026-09-24 06:00:00", "2026-09-24", true},
+		{"overnight upper bound", "2026-09-24 07:59:59", "2026-09-23", true},
+		{"same-day upper bound", "2026-09-24 07:59:59", "2026-09-24", true},
+		{"overnight cutoff", "2026-09-24 08:00:00", "2026-09-23", false},
+		{"same-day cutoff", "2026-09-24 08:00:00", "2026-09-24", true},
+		{"two days later", "2026-09-25 03:00:00", "2026-09-23", false},
+		{"preceding day", "2026-09-22 03:00:00", "2026-09-23", false},
+		{"month rollover", "2026-10-01 03:00:00", "2026-09-30", true},
+		{"year rollover", "2027-01-01 03:00:00", "2026-12-31", true},
+		{"spring DST", "2026-03-29 03:00:00", "2026-03-28", true},
+		{"autumn DST", "2026-10-25 07:59:59", "2026-10-24", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			session := sessionResponse{Time: test.start, Version: "vf", RefCmd: "https://s.pathe.fr/fr/V1S42/booking", AuditoriumName: json.RawMessage(`"1"`)}
+			record, err := parseSession(session, show{slug: "film", title: "Film", runtime: 90}, cinema{slug: "lille"}, test.advertisedDate, location)
+			if !test.accepted {
+				if err == nil {
+					t.Fatal("unrelated advertised date accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if record.ServiceDate != test.advertisedDate || record.StartTime.Format(providerTimeLayout) != test.start || record.StartTime.Location() != location || record.EndTime.Sub(record.StartTime) != 90*time.Minute {
+				t.Fatalf("session changed: %+v", record)
+			}
+		})
 	}
 }
 
