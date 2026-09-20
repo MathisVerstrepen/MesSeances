@@ -129,6 +129,9 @@ func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options
 				if err := ctx.Err(); err != nil {
 					return schedule.Dataset{}, 0, typedError(err, OperationCinema)
 				}
+				if f.alternateVAD {
+					continue
+				}
 				if f.Dates == nil {
 					return schedule.Dataset{}, 0, payloadError(OperationCinema)
 				}
@@ -161,6 +164,12 @@ func normalize(ctx context.Context, catalog []cinema, pages []pageProps, options
 		dates := map[string]bool{}
 		for _, films := range [][]film{pages[i].Program, pages[i].Events} {
 			for _, f := range films {
+				if err := ctx.Err(); err != nil {
+					return schedule.Dataset{}, 0, typedError(err, OperationCinema)
+				}
+				if f.alternateVAD {
+					continue
+				}
 				for _, d := range f.Dates {
 					if d.Showtimes == nil {
 						return schedule.Dataset{}, 0, payloadError(OperationCinema)
