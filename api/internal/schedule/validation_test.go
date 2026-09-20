@@ -31,10 +31,12 @@ func TestValidateDatasetOriginalLanguage(t *testing.T) {
 			}
 		}
 	}
-	data := testDataset()
-	data.Showtimes[0].Language = LanguageOriginal
-	if err := ValidateDataset(data, true); err == nil {
-		t.Fatal("query-only ORIGINAL accepted as stored language")
+	for _, language := range []Language{LanguageOriginal, LanguageVOF} {
+		data := testDataset()
+		data.Showtimes[0].Language = language
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("query-only %s accepted as stored language", language)
+		}
 	}
 }
 

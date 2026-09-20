@@ -4,6 +4,7 @@ import test from 'node:test'
 import { createFetch } from 'ofetch'
 import { useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import { isShowtimeFormat } from '../app/utils/formats.ts'
+import { enumQueryValue, singularQueryValue } from '../app/utils/routeQuery.ts'
 import {
   availableFormatOptions,
   availableLanguageOptions,
@@ -26,10 +27,16 @@ const [planning, search, film] = await Promise.all([
 ])
 
 test('keeps canonical language and format ordering with explicit ALL labels', () => {
-  assert.deepEqual(queryLanguageOptions.map((option) => option.value), ['ALL', 'ORIGINAL', 'VOSTFR', 'VF'])
-  assert.deepEqual(queryLanguageValues, ['ALL', 'ORIGINAL', 'VOSTFR', 'VF'])
-  assert.deepEqual(filmLanguageValues, ['ORIGINAL', 'VOSTFR', 'VF', 'VO', 'VF_SME', 'VFSTF'])
-  assert.equal(showtimeLanguageValues.some((value: string) => value === 'ORIGINAL'), false)
+  assert.deepEqual(queryLanguageOptions, [
+    { value: 'ALL', label: 'Toutes les langues' },
+    { value: 'ORIGINAL', label: 'Version originale (VOF & VOSTFR)' },
+    { value: 'VOF', label: 'VOF' },
+    { value: 'VOSTFR', label: 'VOSTFR' },
+    { value: 'VF', label: 'VF' }
+  ])
+  assert.deepEqual(queryLanguageValues, ['ALL', 'ORIGINAL', 'VOF', 'VOSTFR', 'VF'])
+  assert.deepEqual(filmLanguageValues, ['ORIGINAL', 'VOF', 'VOSTFR', 'VF', 'VO', 'VF_SME', 'VFSTF'])
+  assert.equal(showtimeLanguageValues.some((value: string) => value === 'ORIGINAL' || value === 'VOF'), false)
   assert.deepEqual(showtimeLanguageOptions.map((option) => option.value), ['ALL', 'VOSTFR', 'VF', 'VO', 'VF_SME', 'VFSTF'])
   assert.deepEqual(queryFormatOptions.map((option) => option.value), ['ALL', '2D', '3D', 'IMAX', 'DOLBY', 'SCREENX', 'LASER_ULTRA', '4DX', 'ICE', 'INFINITY_VISION'])
   assert.equal(queryLanguageOptions[0].label, 'Toutes les langues')
@@ -58,17 +65,18 @@ test('planning, recherche, and film consume shared presentation contracts', () =
   assert.match(planning, /queryFormatOptions/)
   assert.match(search, /languageLabel\(search\.language\)/)
   assert.match(search, /formatLabel\(search\.format\)/)
-  assert.match(film, /availableFilmLanguageOptions\(languages\.value, schedule\.value\?\.movie\.original_language\)/)
+  assert.match(film, /availableFilmLanguageOptions\(languages\.value\)/)
   assert.match(film, /availableFormatOptions\(technologyFormats\.value\)/)
   assert.doesNotMatch(film, />Technologie</)
 })
 
-test('ORIGINAL matches explicit original sessions and only confirmed French VF-family sessions', () => {
+test('ORIGINAL keeps all original audio while VOF matches only confirmed French VF-family sessions', () => {
   for (const original of ['fr', 'en', null, undefined]) {
-    for (const language of ['VO', 'VOSTFR', 'VF', 'VF_SME', 'VFSTF', '', 'UNKNOWN']) {
+    for (const language of ['VO', 'VOSTFR', 'VF', 'VF_SME', 'VFSTF', '', 'UNKNOWN', 'VOF']) {
       const expected = language === 'VO' || language === 'VOSTFR'
         || (original === 'fr' && ['VF', 'VF_SME', 'VFSTF'].includes(language))
       assert.equal(matchesFilmLanguageFilter(language, 'ORIGINAL', original), expected, `${language}/${original}`)
+      assert.equal(matchesFilmLanguageFilter(language, 'VOF', original), original === 'fr' && ['VF', 'VF_SME', 'VFSTF'].includes(language), `VOF: ${language}/${original}`)
       assert.equal(matchesFilmLanguageFilter(language, 'ALL', original), true)
       for (const concrete of showtimeLanguageValues) {
         assert.equal(matchesFilmLanguageFilter(language, concrete, original), language === concrete)
@@ -83,21 +91,23 @@ test('context changes plain VF label only, preserving accessibility, silence and
     for (const [value, label] of [['VF_SME', 'VF SME'], ['VFSTF', 'VFSTF'], ['VO', 'VO'], ['VOSTFR', 'VOSTFR'], ['', ''], ['UNKNOWN', 'UNKNOWN']]) {
       assert.equal(languageLabel(value!, original), label)
     }
-    assert.equal(languageLabel('ORIGINAL', original), 'Version originale')
+    assert.equal(languageLabel('ORIGINAL', original), 'Version originale (VOF & VOSTFR)')
+    assert.equal(languageLabel('VOF', original), 'VOF')
   }
   assert.equal(languageLabel('VF'), 'VF')
   assert.equal(showtimeFilterSummary('VF', 'ALL', 'fr'), 'VOF')
-  assert.equal(showtimeFilterSummary('ORIGINAL', '3D', 'fr'), 'Version originale · 3D')
+  assert.equal(showtimeFilterSummary('ORIGINAL', '3D', 'fr'), 'Version originale (VOF & VOSTFR) · 3D')
+  assert.equal(showtimeFilterSummary('VOF', '3D', 'fr'), 'VOF · 3D')
   assert.equal(queryLanguageOptions.find((option) => option.value === 'VF')?.label, 'VF')
 })
 
-test('film keeps ORIGINAL available with zero or one concrete language and contextual VF value unchanged', () => {
+test('film keeps ORIGINAL and VOF available with zero or one concrete language and distinct VF labels', () => {
   for (const available of [[], [''], ['VF']] as const) {
-    assert.deepEqual(availableFilmLanguageOptions(available).slice(0, 2), queryLanguageOptions.slice(0, 2))
+    assert.deepEqual(availableFilmLanguageOptions(available).slice(0, 3), queryLanguageOptions.slice(0, 3))
   }
-  assert.deepEqual(availableFilmLanguageOptions(['VFSTF', 'VF_SME', 'VF', 'VO', 'VOSTFR'], 'fr'), [
-    ...queryLanguageOptions.slice(0, 2),
-    { value: 'VOSTFR', label: 'VOSTFR' }, { value: 'VF', label: 'VOF' },
+  assert.deepEqual(availableFilmLanguageOptions(['VFSTF', 'VF_SME', 'VF', 'VO', 'VOSTFR']), [
+    ...queryLanguageOptions.slice(0, 3),
+    { value: 'VOSTFR', label: 'VOSTFR' }, { value: 'VF', label: 'VF' },
     { value: 'VO', label: 'VO' }, { value: 'VF_SME', label: 'VF SME' }, { value: 'VFSTF', label: 'VFSTF' }
   ])
 })
@@ -117,7 +127,18 @@ test('every result layout, film, timeline and timeline accessible name use conte
   assert.match(film, /v-else-if="visibleTheaters\.length === 0"/)
 })
 
-test('planning and slot APIs serialize ORIGINAL once without changing existing language tokens', async () => {
+test('planning hydrates shared query languages including VOF without accepting display or composite tokens', () => {
+  assert.match(planning, /enumQueryValue\(singularQueryValue\(route\.query\.language\), queryLanguageValues\)/)
+  assert.match(planning, /language: language\.value === 'ALL' \? undefined : language\.value/)
+  for (const language of queryLanguageValues) {
+    assert.equal(enumQueryValue(singularQueryValue(language), queryLanguageValues), language)
+  }
+  for (const language of ['vof', ' VOF ', 'VO', 'VOF,VOSTFR', 'UNKNOWN']) {
+    assert.equal(enumQueryValue(singularQueryValue(language), queryLanguageValues), undefined)
+  }
+})
+
+test('planning and slot APIs serialize ORIGINAL and VOF once without changing existing language tokens', async () => {
   const urls: URL[] = []
   Object.assign(globalThis, {
     useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080' } }),

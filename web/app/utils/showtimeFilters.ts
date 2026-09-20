@@ -8,7 +8,8 @@ export interface ShowtimeFilterOption<Value extends string> {
 
 export const queryLanguageOptions = [
   { value: 'ALL', label: 'Toutes les langues' },
-  { value: 'ORIGINAL', label: 'Version originale' },
+  { value: 'ORIGINAL', label: 'Version originale (VOF & VOSTFR)' },
+  { value: 'VOF', label: 'VOF' },
   { value: 'VOSTFR', label: 'VOSTFR' },
   { value: 'VF', label: 'VF' }
 ] as const satisfies readonly ShowtimeFilterOption<QueryLanguage>[]
@@ -24,8 +25,8 @@ export const showtimeLanguageOptions = [
 
 export const queryLanguageValues = queryLanguageOptions.map((option) => option.value)
 export const showtimeLanguageValues = ['VOSTFR', 'VF', 'VO', 'VF_SME', 'VFSTF'] as const satisfies readonly ShowtimeLanguage[]
-export type FilmLanguageFilter = 'ALL' | 'ORIGINAL' | ShowtimeLanguage
-export const filmLanguageValues = ['ORIGINAL', ...showtimeLanguageValues] as const
+export type FilmLanguageFilter = 'ALL' | 'ORIGINAL' | 'VOF' | ShowtimeLanguage
+export const filmLanguageValues = ['ORIGINAL', 'VOF', ...showtimeLanguageValues] as const
 export const queryFormatOptions = formatOptions
 export const queryFormatValues = queryFormatOptions.map((option) => option.value)
 
@@ -42,20 +43,19 @@ export function availableLanguageOptions(available: readonly ShowtimeLanguage[])
   return showtimeLanguageOptions.filter((option) => option.value === 'ALL' || values.has(option.value))
 }
 
-export function availableFilmLanguageOptions(available: readonly ShowtimeLanguage[], originalLanguage?: string | null): readonly ShowtimeFilterOption<FilmLanguageFilter>[] {
+export function availableFilmLanguageOptions(available: readonly ShowtimeLanguage[]): readonly ShowtimeFilterOption<FilmLanguageFilter>[] {
   return [
     queryLanguageOptions[0],
     queryLanguageOptions[1],
-    ...availableLanguageOptions(available)
-      .filter((option) => option.value !== 'ALL')
-      .map((option) => ({ ...option, label: languageLabel(option.value, originalLanguage) }))
+    queryLanguageOptions[2],
+    ...availableLanguageOptions(available).filter((option) => option.value !== 'ALL')
   ]
 }
 
 export function matchesFilmLanguageFilter(language: string, requested: FilmLanguageFilter, originalLanguage?: string | null): boolean {
   if (requested === 'ALL') return true
-  if (requested !== 'ORIGINAL') return language === requested
-  return language === 'VO' || language === 'VOSTFR'
+  if (requested !== 'ORIGINAL' && requested !== 'VOF') return language === requested
+  return (requested === 'ORIGINAL' && (language === 'VO' || language === 'VOSTFR'))
     || (originalLanguage === 'fr' && (language === 'VF' || language === 'VF_SME' || language === 'VFSTF'))
 }
 

@@ -419,7 +419,7 @@ func validLanguage(v Language) bool {
 	if v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME {
 		return true
 	}
-	return v != LanguageAll && v != LanguageOriginal && providerLanguage.MatchString(string(v))
+	return v != LanguageAll && v != LanguageOriginal && v != LanguageVOF && providerLanguage.MatchString(string(v))
 }
 func validFormat(v Format) bool {
 	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE || v == FormatInfinityVision

@@ -106,5 +106,5 @@ test('MK2 silent sessions retain source fields, future local date, empty room an
   }
   assert.deepEqual(availableLanguageOptions(['']), [{ value: 'ALL', label: 'Toutes les langues' }])
   assert.deepEqual(availableLanguageOptions(['', 'VF']).map((option) => option.value), ['ALL', 'VF'])
-  assert.deepEqual(queryLanguageValues, ['ALL', 'ORIGINAL', 'VOSTFR', 'VF'])
+  assert.deepEqual(queryLanguageValues, ['ALL', 'ORIGINAL', 'VOF', 'VOSTFR', 'VF'])
 })

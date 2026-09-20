@@ -1,4 +1,4 @@
-export type QueryLanguage = 'ALL' | 'ORIGINAL' | 'VOSTFR' | 'VF'
+export type QueryLanguage = 'ALL' | 'ORIGINAL' | 'VOF' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = '' | 'VOSTFR' | 'VF' | 'VO' | 'VF_SME' | 'VFSTF'
 export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'ICE' | 'INFINITY_VISION'
 export type QueryFormat = 'ALL' | ShowtimeFormat

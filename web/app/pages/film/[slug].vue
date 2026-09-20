@@ -100,7 +100,7 @@ const languages = computed<Array<Showtime['language']>>(() => {
   return [...new Set(values)]
 })
 const languageOptions = computed<Array<{ value: LanguageFilter; label: string }>>(() => [
-  ...availableFilmLanguageOptions(languages.value, schedule.value?.movie.original_language)
+  ...availableFilmLanguageOptions(languages.value)
 ])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
   const formats = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.format)) ?? []
@@ -239,7 +239,7 @@ function hydrateRoute() {
 
 async function normalizeDynamicFilters() {
   const values: Record<string, string | undefined> = {}
-  if (activeLanguage.value !== 'ALL' && activeLanguage.value !== 'ORIGINAL' && !languages.value.includes(activeLanguage.value)) values.language = undefined
+  if (activeLanguage.value !== 'ALL' && activeLanguage.value !== 'ORIGINAL' && activeLanguage.value !== 'VOF' && !languages.value.includes(activeLanguage.value)) values.language = undefined
   if (activeTechnology.value !== 'ALL' && !technologyFormats.value.includes(activeTechnology.value)) values.format = undefined
   if (Object.keys(values).length === 0) return
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)

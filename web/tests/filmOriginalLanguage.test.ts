@@ -57,47 +57,61 @@ function harness(query: LocationQuery, initialResponse: MovieShowtimesResponse) 
   return { page, route, activeTheaterIds, setResponse: (value: MovieShowtimesResponse) => { currentResponse = value } }
 }
 
-test('film accepts and shares ORIGINAL, retaining it through empty matches, date and cinema changes', async () => {
-  const { page, route, activeTheaterIds, setResponse } = harness({ language: 'ORIGINAL', shared_theaters: 'ugc-25' }, response(['VF']))
-  await page.applyRoute()
-  assert.equal(page.activeLanguage.value, 'ORIGINAL')
-  assert.equal(page.visibleShowtimeCount.value, 0)
-  assert.equal(page.activeFilterSummary.value, 'Version originale')
-  assert.deepEqual(page.languageOptions.value.map((option) => option.value), ['ALL', 'ORIGINAL', 'VF'])
-  await page.normalizeDynamicFilters()
-  assert.equal(route.query.language, 'ORIGINAL')
+for (const language of ['ORIGINAL', 'VOF'] as const) {
+  test(`film accepts and shares ${language}, retaining it through empty matches, date and cinema changes`, async () => {
+    const { page, route, activeTheaterIds, setResponse } = harness({ language, shared_theaters: 'ugc-25' }, response(['VF']))
+    await page.applyRoute()
+    assert.equal(page.activeLanguage.value, language)
+    assert.equal(page.visibleShowtimeCount.value, 0)
+    assert.equal(page.activeFilterSummary.value, language === 'ORIGINAL' ? 'Version originale (VOF & VOSTFR)' : 'VOF')
+    assert.deepEqual(page.languageOptions.value.map((option) => option.value), ['ALL', 'ORIGINAL', 'VOF', 'VF'])
+    await page.normalizeDynamicFilters()
+    assert.equal(route.query.language, language)
 
-  route.query = { ...route.query, date: '2027-06-28' }
-  await page.applyRoute()
-  assert.equal(page.selectedDate.value, '2027-06-28')
-  assert.equal(route.query.language, 'ORIGINAL')
+    route.query = { ...route.query, date: '2027-06-28' }
+    await page.applyRoute()
+    assert.equal(page.selectedDate.value, '2027-06-28')
+    assert.equal(route.query.language, language)
 
-  setResponse(response([], null, []))
-  activeTheaterIds.value = ['ugc-26']
-  await page.applyRoute()
-  assert.equal(page.visibleShowtimeCount.value, 0)
-  assert.equal(page.activeLanguage.value, 'ORIGINAL')
-  assert.equal(route.query.language, 'ORIGINAL')
-  assert.deepEqual(page.languageOptions.value.map((option) => option.value), ['ALL', 'ORIGINAL'])
-  const query = new URLSearchParams()
-  for (const [key, value] of Object.entries(page.filmQuery())) {
-    const scalar = routeQuery.singularQueryValue(value)
-    if (scalar !== undefined) query.set(key, scalar)
-  }
-  const shared = withSharedTheaterSelection(`/film/film-1?${query}`, activeTheaterIds.value)!
-  assert.equal(isValidShortLinkTarget(shared), true)
-  assert.deepEqual(new URL(shared, 'https://messeances.fr').searchParams.getAll('language'), ['ORIGINAL'])
-  page.resetFilters()
-  page.hydrateRoute()
-  assert.equal(page.activeLanguage.value, 'ALL')
-  assert.equal(route.query.language, undefined)
-})
+    setResponse(response([], null, []))
+    activeTheaterIds.value = ['ugc-26']
+    await page.applyRoute()
+    assert.equal(page.visibleShowtimeCount.value, 0)
+    assert.equal(page.activeLanguage.value, language)
+    assert.equal(route.query.language, language)
+    assert.deepEqual(page.languageOptions.value.map((option) => option.value), ['ALL', 'ORIGINAL', 'VOF'])
+    const query = new URLSearchParams()
+    for (const [key, value] of Object.entries(page.filmQuery())) {
+      const scalar = routeQuery.singularQueryValue(value)
+      if (scalar !== undefined) query.set(key, scalar)
+    }
+    const shared = withSharedTheaterSelection(`/film/film-1?${query}`, activeTheaterIds.value)!
+    assert.equal(isValidShortLinkTarget(shared), true)
+    const sharedQuery = new URL(shared, 'https://messeances.fr').searchParams
+    assert.deepEqual(sharedQuery.getAll('language'), [language])
+    assert.equal(sharedQuery.get('shared_theaters'), 'ugc-26')
+    const reloaded = harness(Object.fromEntries(sharedQuery), response([], null, []))
+    await reloaded.page.applyRoute()
+    assert.equal(reloaded.page.activeLanguage.value, language)
+    assert.equal(reloaded.page.filmQuery().language, language)
+    page.resetFilters()
+    page.hydrateRoute()
+    assert.equal(page.activeLanguage.value, 'ALL')
+    assert.equal(route.query.language, undefined)
+  })
+}
 
 test('film uses French-original metadata for matches and contextual VF labels without broadening concrete VF', async () => {
   const { page, route } = harness({ language: 'ORIGINAL' }, response(['VF', 'VF_SME', 'VFSTF', 'VO', 'VOSTFR', ''], 'fr'))
   await page.applyRoute()
   assert.equal(page.visibleShowtimeCount.value, 5)
-  assert.deepEqual(page.languageOptions.value.find((option) => option.value === 'VF'), { value: 'VF', label: 'VOF' })
+  assert.deepEqual(page.languageOptions.value.find((option) => option.value === 'VF'), { value: 'VF', label: 'VF' })
+  assert.deepEqual(page.languageOptions.value.find((option) => option.value === 'VOF'), { value: 'VOF', label: 'VOF' })
+  route.query.language = 'VOF'
+  page.hydrateRoute()
+  assert.equal(page.visibleShowtimeCount.value, 3)
+  assert.equal(page.activeFilterSummary.value, 'VOF')
+  assert.equal(page.filmQuery().language, 'VOF')
   route.query.language = 'VF'
   page.hydrateRoute()
   assert.equal(page.activeFilterSummary.value, 'VOF')
@@ -105,11 +119,11 @@ test('film uses French-original metadata for matches and contextual VF labels wi
   assert.equal(page.filmQuery().language, 'VF')
 })
 
-test('film still clears unavailable concrete languages and rejects query-only display labels', async () => {
+test('film still clears unavailable concrete languages and rejects unknown or lowercase query values', async () => {
   const { page, route } = harness({ language: 'VF_SME' }, response(['VF']))
   await page.applyRoute()
   assert.equal(route.query.language, undefined)
-  for (const language of ['VOF', 'UNKNOWN']) {
+  for (const language of ['vof', 'UNKNOWN']) {
     route.query.language = language
     assert.equal(page.hydrateRoute().language, undefined)
     assert.equal(page.activeLanguage.value, 'ALL')

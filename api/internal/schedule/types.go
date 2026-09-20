@@ -24,11 +24,13 @@ const (
 	LanguageAll Language = "ALL"
 	// LanguageOriginal is a query filter, never a stored screening language.
 	LanguageOriginal Language = "ORIGINAL"
-	LanguageVOSTFR   Language = "VOSTFR"
-	LanguageVF       Language = "VF"
-	LanguageVO       Language = "VO"
-	LanguageVFSME    Language = "VF_SME"
-	LanguageVFSTF    Language = "VFSTF"
+	// LanguageVOF is a French-original query filter, never a stored screening language.
+	LanguageVOF    Language = "VOF"
+	LanguageVOSTFR Language = "VOSTFR"
+	LanguageVF     Language = "VF"
+	LanguageVO     Language = "VO"
+	LanguageVFSME  Language = "VF_SME"
+	LanguageVFSTF  Language = "VFSTF"
 
 	FormatAll            Format = "ALL"
 	Format2D             Format = "2D"

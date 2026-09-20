@@ -5,17 +5,20 @@ import { withSharedTheaterSelection } from '../app/utils/sharedTheaterSelection.
 import { isValidShortLinkTarget } from '../app/utils/shortLinkTarget.ts'
 import { parseShowtimeSelection } from '../app/utils/showtimeResults.ts'
 
-test('ORIGINAL survives complete and short-link sharing without expanding into concrete languages', () => {
-  const theaterIds = ['ugc-25']
-  const target = buildCompleteSearchShareTarget({
-    theaterIds, date: '2027-06-27', startAfter: '18:00', finishBefore: '23:30',
-    language: 'ORIGINAL', format: 'ALL', includeAds: false, bufferAds: 15,
-    grouping: 'movie', layout: 'lines', selectedShowtimeKeys: [], selectedOnly: false
+for (const language of ['ORIGINAL', 'VOF'] as const) {
+  test(`${language} survives complete and short-link sharing without expanding into concrete languages`, () => {
+    const theaterIds = ['ugc-25']
+    const target = buildCompleteSearchShareTarget({
+      theaterIds, date: '2027-06-27', startAfter: '18:00', finishBefore: '23:30',
+      language, format: 'ALL', includeAds: false, bufferAds: 15,
+      grouping: 'movie', layout: 'lines', selectedShowtimeKeys: [], selectedOnly: false
+    })
+    const shared = withSharedTheaterSelection(target, theaterIds)!
+    assert.deepEqual(new URL(target, 'https://messeances.fr').searchParams.getAll('language'), [language])
+    assert.equal(isValidShortLinkTarget(shared), true)
+    assert.deepEqual(new URL(shared, 'https://messeances.fr').searchParams.getAll('language'), [language])
   })
-  const shared = withSharedTheaterSelection(target, theaterIds)!
-  assert.equal(isValidShortLinkTarget(shared), true)
-  assert.deepEqual(new URL(shared, 'https://messeances.fr').searchParams.getAll('language'), ['ORIGINAL'])
-})
+}
 
 test('builds a deterministic complete target with explicit default values', () => {
   const target = buildCompleteSearchShareTarget({

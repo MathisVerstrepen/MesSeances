@@ -224,7 +224,8 @@ func TestOriginalLanguageQueryTransport(t *testing.T) {
 			{"&language=ORIGINAL", 200, true}, {"", 200, true}, {"&language=ALL", 200, true},
 			{"&language=VF", 200, true}, {"&language=VOSTFR", 200, false},
 			{"&language=original", 400, false}, {"&language=", 400, false},
-			{"&language=VOF", 400, false}, {"&language=VO", 400, false}, {"&language=invalid", 400, false},
+			{"&language=VOF", 200, true}, {"&language=VO", 400, false}, {"&language=invalid", 400, false},
+			{"&language=vof", 400, false}, {"&language=%20VOF%20", 400, false}, {"&language=VOF,VOSTFR", 400, false},
 		} {
 			response := performRequest(t, originalLanguageHandler(t, "fr", true), path+query.suffix)
 			if response.Code != query.status || strings.Contains(response.Body.String(), `"id":"ugc-showing-100"`) != query.present {
@@ -235,9 +236,11 @@ func TestOriginalLanguageQueryTransport(t *testing.T) {
 			}
 		}
 		for _, original := range []string{"en", ""} {
-			response := performRequest(t, originalLanguageHandler(t, original, true), path+"&language=ORIGINAL")
-			if response.Code != 200 || strings.Contains(response.Body.String(), `"id":"ugc-showing-100"`) {
-				t.Fatalf("canonical %q should exclude VF: %d %s", original, response.Code, response.Body)
+			for _, language := range []string{"ORIGINAL", "VOF"} {
+				response := performRequest(t, originalLanguageHandler(t, original, true), path+"&language="+language)
+				if response.Code != 200 || strings.Contains(response.Body.String(), `"id":"ugc-showing-100"`) {
+					t.Fatalf("canonical %q query %s should exclude VF: %d %s", original, language, response.Code, response.Body)
+				}
 			}
 		}
 	}
@@ -246,6 +249,10 @@ func TestOriginalLanguageQueryTransport(t *testing.T) {
 func TestOriginalLanguageMovieWireContract(t *testing.T) {
 	for _, canonical := range []bool{false, true} {
 		for _, original := range []string{"fr", "en", ""} {
+			vofMovies := 0
+			if original == "fr" {
+				vofMovies = 1
+			}
 			slug := "tmdb-film-42"
 			if canonical {
 				slug = "film-1"
@@ -259,6 +266,8 @@ func TestOriginalLanguageMovieWireContract(t *testing.T) {
 				{"/api/v1/theaters/ugc-25/showtimes?date=2026-08-15", 1},
 				{"/api/v1/timeline?date=2026-08-15&theaters=ugc-25", 1},
 				{"/api/v1/search/slot?date=2026-08-15&theaters=ugc-25&start_after=08:00&finish_before=02:00", 1},
+				{"/api/v1/timeline?date=2026-08-15&theaters=ugc-25&language=VOF", vofMovies},
+				{"/api/v1/search/slot?date=2026-08-15&theaters=ugc-25&start_after=08:00&finish_before=02:00&language=VOF", vofMovies},
 			} {
 				response := performRequest(t, originalLanguageHandler(t, original, canonical), route.path)
 				if response.Code != 200 {

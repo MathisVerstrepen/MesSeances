@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { LocationQuery } from 'vue-router'
-import type { SlotResult } from '../app/types/api.ts'
+import type { SlotQuery, SlotResult } from '../app/types/api.ts'
 import type { ShowtimeResultViewModel } from '../app/types/showtimeResults.ts'
 import * as date from '../app/utils/date.ts'
 import * as routeQuery from '../app/utils/routeQuery.ts'
@@ -13,6 +13,7 @@ import * as showtimeFilters from '../app/utils/showtimeFilters.ts'
 import * as showtimeResults from '../app/utils/showtimeResults.ts'
 import { buildCompleteSearchShareTarget } from '../app/utils/searchShareTarget.ts'
 import { absoluteSiteUrl } from '../app/utils/siteUrl.ts'
+import { isValidShortLinkTarget } from '../app/utils/shortLinkTarget.ts'
 
 // Execute the page's actual setup and route watchers without mounting Nuxt or a DOM.
 const source = await readFile(new URL('../app/pages/recherche.vue', import.meta.url), 'utf8')
@@ -55,7 +56,7 @@ const response: SlotResult[] = [12, 13].map((id, index) => ({
   buffer_ads_minutes: 15, slack_before_minutes: 0, slack_after_minutes: 0
 }))
 
-function harness(query: LocationQuery, searchSlot: () => Promise<SlotResult[]> = async () => response) {
+function harness(query: LocationQuery, searchSlot: (query: SlotQuery) => Promise<SlotResult[]> = async () => response) {
   const route = reactive({ query })
   const navigate = async ({ query: nextQuery }: { query: LocationQuery }) => { route.query = nextQuery }
   let searchCalls = 0
@@ -64,7 +65,7 @@ function harness(query: LocationQuery, searchSlot: () => Promise<SlotResult[]> =
     computed, reactive, ref, watch, nextTick, buildCompleteSearchShareTarget, absoluteSiteUrl,
     useRoute: () => route,
     useRouter: () => ({ replace: navigate, push: navigate }),
-    useMesSeancesApi: () => ({ searchSlot: () => { searchCalls++; return searchSlot() } }),
+    useMesSeancesApi: () => ({ searchSlot: (query: SlotQuery) => { searchCalls++; return searchSlot(query) } }),
     usePageCinemaSelection: () => ({
       activeTheaterIds: ref(['ugc-25']), activeTheaters: ref([{ available_dates: ['2026-09-13'] }]),
       isInitialized: ref(true), isLoading: ref(false), error: ref(''), initialize: async () => {}, isSharedSelectionDifferent: ref(false)
@@ -178,6 +179,45 @@ test('absent, stale and malformed selections or flags canonicalize to the normal
     assert.equal(page.selectedOnly.value, false)
     assert.equal(page.visibleResults.value.length, 2)
   }
+})
+
+test('VOF hydrates, submits and shares as one scalar while preserving selection-reset semantics', async (context) => {
+  const requests: SlotQuery[] = []
+  const { page, route, stop } = harness({ ...searchQuery, language: 'VOF', selected: 'u12', selected_only: '1', campaign: 'test' }, async (query) => {
+    requests.push(query)
+    return response
+  })
+  context.after(stop)
+  await page.initializePreferences()
+  await settle()
+  assert.equal(page.form.language, 'VOF')
+  assert.equal(route.query.language, 'VOF')
+  assert.equal(requests.at(-1)?.language, 'VOF')
+  assert.deepEqual(new URL(page.shareTarget.value!, 'https://messeances.fr').searchParams.getAll('language'), ['VOF'])
+  assert.equal(isValidShortLinkTarget(page.shareTarget.value!), true)
+  await page.submitSearch()
+  await settle()
+  assert.equal(route.query.selected, 'u12')
+  assert.equal(route.query.selected_only, '1')
+
+  page.form.language = 'VF'
+  await page.submitSearch()
+  await settle()
+  assert.equal(route.query.selected, undefined)
+  assert.equal(route.query.selected_only, undefined)
+  assert.equal(requests.at(-1)?.language, 'VF')
+  await page.toggleShowtimeSelection('ugc:ugc-showing-12')
+  await page.setSelectedOnly({ target: { checked: true } })
+  await settle()
+  page.form.language = 'VOF'
+  await page.submitSearch()
+  await settle()
+  assert.equal(route.query.language, 'VOF')
+  assert.equal(route.query.campaign, 'test')
+  assert.equal(route.query.selected, undefined)
+  assert.equal(route.query.selected_only, undefined)
+  assert.equal(requests.at(-1)?.language, 'VOF')
+  assert.deepEqual(new URL(page.shareTarget.value!, 'https://messeances.fr').searchParams.getAll('language'), ['VOF'])
 })
 
 test('changed search submission and bare-route navigation clear both selection query keys', async (context) => {

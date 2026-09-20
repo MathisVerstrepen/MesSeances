@@ -69,6 +69,7 @@ func TestOriginalLanguageMatchingAndServices(t *testing.T) {
 					want     bool
 				}{
 					{LanguageOriginal, wantOriginal}, {LanguageAll, true}, {LanguageVF, tc.vf}, {LanguageVOSTFR, tc.vostfr},
+					{LanguageVOF, original == "fr" && tc.vf},
 				} {
 					if got := matchesLanguage(tc.language, query.language, original); got != query.want {
 						t.Fatalf("matcher stored=%q original=%q query=%s got=%v", tc.language, original, query.language, got)

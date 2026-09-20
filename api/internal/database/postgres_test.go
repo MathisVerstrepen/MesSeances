@@ -98,6 +98,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{39, "039_screening_history.sql"},
 		{40, "040_infinity_vision_format.sql"},
 		{41, "041_movie_original_language.sql"},
+		{42, "042_query_only_vof_language.sql"},
 	}
 
 	items, err := embeddedMigrations()
