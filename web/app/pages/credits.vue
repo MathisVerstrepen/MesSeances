@@ -17,6 +17,7 @@ type CreditBrand =
   | 'SCREENX'
   | 'LASER_ULTRA'
   | '4DX'
+  | 'INFINITY_VISION'
 
 interface Credit {
   brand: CreditBrand
@@ -80,6 +81,11 @@ const creditSections: Array<{
         url: 'https://kinepolis.fr/laser-ultra/',
       },
       { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' },
+      {
+        brand: 'INFINITY_VISION',
+        name: 'Infinity Vision',
+        url: 'https://www.infinityvisiontickets.com/',
+      },
     ],
   },
 ]
@@ -122,9 +128,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 <template>
   <StaticPageLayout eyebrow="Attributions · Sources" title="Crédits">
-    <template #header-actions><ShareButton class="shrink-0" /></template>
     <div
-      class="mx-auto max-w-[1440px] px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16"
+      class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-14 lg:px-10 lg:py-16"
     >
       <section
         class="tmdb-panel grid border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a] lg:grid-cols-[minmax(18rem,0.8fr)_minmax(0,1.2fr)]"
@@ -132,7 +137,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       >
         <a
           href="https://www.themoviedb.org"
-          class="flex min-h-48 items-center justify-center border-b-2 border-ink p-8 hover:bg-[#f1efe8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset lg:border-b-0 lg:border-r-2"
+          class="flex min-h-40 items-center justify-center border-b-2 border-ink p-6 hover:bg-[#f1efe8] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset sm:min-h-48 sm:p-8 lg:border-b-0 lg:border-r-2"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Site officiel The Movie Database (TMDB), ouverture dans un nouvel onglet"
@@ -144,13 +149,13 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           >
         </a>
         <div
-          class="relative flex min-h-48 flex-col justify-between overflow-hidden bg-ink p-6 text-white sm:p-8 lg:p-10"
+          class="relative flex min-h-40 flex-col justify-between overflow-hidden bg-ink p-5 text-white sm:min-h-48 sm:p-8 lg:p-10"
         >
           <span
             class="absolute -top-8 -right-8 aspect-square w-32 rotate-12 border-2 border-ink bg-highlight"
             aria-hidden="true"
           />
-          <div class="relative z-10 mt-5">
+          <div class="relative z-10 mt-2 sm:mt-5">
             <h2
               id="tmdb-heading"
               class="text-2xl font-black uppercase tracking-[-0.03em] sm:text-3xl"
@@ -168,7 +173,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       <section
         v-for="section in creditSections"
         :key="section.id"
-        class="mt-14 sm:mt-20"
+        class="mt-10 sm:mt-20"
         :aria-labelledby="`${section.id}-heading`"
       >
         <header
@@ -184,7 +189,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
         <div
           class="provider-grid grid border-l-2 border-t-2 border-ink sm:grid-cols-2"
-          :class="section.id === 'technologies' ? 'xl:grid-cols-5' : 'xl:grid-cols-4'"
+          :class="section.id === 'technologies' ? 'xl:grid-cols-6' : 'xl:grid-cols-4'"
         >
           <section
             v-for="credit in section.credits"
@@ -204,7 +209,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             </div>
             <a
               :href="credit.url"
-              class="provider-link flex min-h-40 items-center justify-center px-6 py-8 hover:bg-[#f1efe8] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset"
+              class="provider-link flex min-h-32 items-center justify-center px-4 py-6 hover:bg-[#f1efe8] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset sm:min-h-40 sm:px-6 sm:py-8"
               target="_blank"
               rel="noopener noreferrer"
               :aria-label="`Site officiel ${credit.name}, ouverture dans un nouvel onglet`"
@@ -216,7 +221,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               </span>
             </a>
             <p
-              class="mt-auto border-t-2 border-ink px-4 py-5 text-xs leading-5 text-ink"
+              class="mt-auto border-t-2 border-ink px-4 py-4 text-xs leading-5 text-ink sm:py-5"
             >
               La marque et le logo {{ credit.name }} appartiennent à leurs
               propriétaires respectifs. Leur présence n’implique ni affiliation
@@ -226,7 +231,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </div>
       </section>
 
-      <section class="mt-14 sm:mt-20" aria-labelledby="cartography-heading">
+      <section class="mt-10 sm:mt-20" aria-labelledby="cartography-heading">
         <header
           class="mb-5 flex items-end justify-between gap-5 border-b-2 border-ink pb-4"
         >
@@ -245,7 +250,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             v-for="credit in cartographyCredits"
             :key="credit.name"
             :href="credit.url"
-            class="flex min-h-40 min-w-0 flex-col border-r-2 border-b-2 border-ink bg-surface p-5 hover:bg-[#f1efe8] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset [&:nth-child(3n+1)]:shadow-[inset_0_-4px_0_var(--color-highlight)] [&:nth-child(3n+2)]:shadow-[inset_0_-4px_0_#ffcf3f] [&:nth-child(3n)]:shadow-[inset_0_-4px_0_var(--color-accent)] sm:last:col-span-2 sm:p-6 xl:last:col-span-1"
+            class="flex min-h-32 min-w-0 flex-col border-r-2 border-b-2 border-ink bg-surface p-4 hover:bg-[#f1efe8] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-accent focus-visible:ring-inset [&:nth-child(3n+1)]:shadow-[inset_0_-4px_0_var(--color-highlight)] [&:nth-child(3n+2)]:shadow-[inset_0_-4px_0_#ffcf3f] [&:nth-child(3n)]:shadow-[inset_0_-4px_0_var(--color-accent)] sm:min-h-40 sm:last:col-span-2 sm:p-6 xl:last:col-span-1"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -254,12 +259,12 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               >Attribution</span
             >
             <span
-              class="mt-8 text-xl font-black uppercase leading-tight tracking-[-0.03em] text-ink sm:text-2xl"
+              class="mt-6 text-xl font-black uppercase leading-tight tracking-[-0.03em] text-ink sm:mt-8 sm:text-2xl"
               >{{
                 credit.name
               }}</span
             >
-            <span class="mt-auto pt-6 text-xs leading-5 text-ink"
+            <span class="mt-auto pt-4 text-xs leading-5 text-ink sm:pt-6"
               >{{ credit.role
               }}<span class="sr-only"
                 >, ouverture dans un nouvel onglet</span
