@@ -48,6 +48,7 @@ type PublicMovieRecord struct {
 	TMDBID                 int64
 	TMDBRuntimeMinutes     int
 	IMDBID                 string
+	OriginalLanguage       string
 	UpdatedAt              time.Time
 }
 
@@ -105,6 +106,7 @@ type MovieRecord struct {
 
 type MovieEnrichment struct {
 	TMDBID              int64
+	OriginalLanguage    string
 	IMDBID              string
 	Overview            string
 	ReleaseDate         string

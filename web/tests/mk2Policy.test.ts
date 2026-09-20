@@ -87,7 +87,7 @@ test('MK2 silent sessions retain source fields, future local date, empty room an
     const response: TheaterShowtimesResponse = {
       generated_at: '2026-09-14T12:00:00Z', timezone: 'Europe/Paris', date: '2027-06-28',
       theater: { provider: 'mk2', id: 'mk2-0004', slug: 'mk2-0004', name: 'MK2 Bibliothèque', city: 'Paris', city_slug: 'paris', postal_code: '75013', address: '128 avenue de France', available_dates: ['2027-06-28'], accepted_passes: [] },
-      showtimes: [{ provider: 'mk2', id: showingId, movie: { slug: 'mk2-film-HO00006568', title: 'Film muet', runtime_minutes: runtime, updated_at: start }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: '', format: '2D', room: '', booking_url: booking, start_offset_minutes: 15, duration_minutes: 0, poster_url: poster, backdrop_url: null }]
+      showtimes: [{ provider: 'mk2', id: showingId, movie: { slug: 'mk2-film-HO00006568', title: 'Film muet', original_language: null, runtime_minutes: runtime, updated_at: start }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: '', format: '2D', room: '', booking_url: booking, start_offset_minutes: 15, duration_minutes: 0, poster_url: poster, backdrop_url: null }]
     }
     const before = structuredClone(response)
     const result = toTheaterShowtimeResults(response)[0]!
@@ -106,5 +106,5 @@ test('MK2 silent sessions retain source fields, future local date, empty room an
   }
   assert.deepEqual(availableLanguageOptions(['']), [{ value: 'ALL', label: 'Toutes les langues' }])
   assert.deepEqual(availableLanguageOptions(['', 'VF']).map((option) => option.value), ['ALL', 'VF'])
-  assert.deepEqual(queryLanguageValues, ['ALL', 'VOSTFR', 'VF'])
+  assert.deepEqual(queryLanguageValues, ['ALL', 'ORIGINAL', 'VOSTFR', 'VF'])
 })

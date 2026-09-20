@@ -13,9 +13,9 @@ import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
-import { availableFormatOptions, availableLanguageOptions, showtimeFilterSummary, showtimeLanguageValues } from '~/utils/showtimeFilters'
+import { availableFormatOptions, availableFilmLanguageOptions, filmLanguageValues, languageLabel, matchesFilmLanguageFilter, showtimeFilterSummary, type FilmLanguageFilter } from '~/utils/showtimeFilters'
 
-type LanguageFilter = 'ALL' | Showtime['language']
+type LanguageFilter = FilmLanguageFilter
 type TechnologyFilter = 'ALL' | ShowtimeFormat
 type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
 type MobileControlPanel = 'date' | 'filters'
@@ -100,7 +100,7 @@ const languages = computed<Array<Showtime['language']>>(() => {
   return [...new Set(values)]
 })
 const languageOptions = computed<Array<{ value: LanguageFilter; label: string }>>(() => [
-  ...availableLanguageOptions(languages.value)
+  ...availableFilmLanguageOptions(languages.value, schedule.value?.movie.original_language)
 ])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
   const formats = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.format)) ?? []
@@ -109,7 +109,7 @@ const technologyFormats = computed<ShowtimeFormat[]>(() => {
 const technologyOptions = computed<Array<{ value: TechnologyFilter; label: string }>>(() => [
   ...availableFormatOptions(technologyFormats.value)
 ])
-const activeFilterSummary = computed(() => showtimeFilterSummary(activeLanguage.value, activeTechnology.value))
+const activeFilterSummary = computed(() => showtimeFilterSummary(activeLanguage.value, activeTechnology.value, schedule.value?.movie.original_language))
 
 function toggleMobilePanel(panel: MobileControlPanel) {
   openMobilePanel.value = openMobilePanel.value === panel ? null : panel
@@ -150,7 +150,7 @@ function selectMobileDate(date: string) {
 }
 
 function matchesFilter(showtime: Showtime): boolean {
-  const matchesLanguage = activeLanguage.value === 'ALL' || showtime.language === activeLanguage.value
+  const matchesLanguage = matchesFilmLanguageFilter(showtime.language, activeLanguage.value, showtime.movie.original_language)
   const matchesTechnology = activeTechnology.value === 'ALL' || showtime.format === activeTechnology.value
   return matchesLanguage && matchesTechnology
 }
@@ -227,7 +227,7 @@ function hydrateRoute() {
   const requestedLanguage = singularQueryValue(route.query.language)
   activeLanguage.value = requestedLanguage === 'ALL'
     ? 'ALL'
-    : enumQueryValue(requestedLanguage, showtimeLanguageValues) ?? 'ALL'
+    : enumQueryValue(requestedLanguage, filmLanguageValues) ?? 'ALL'
 
   const requestedFormat = singularQueryValue(route.query.format)
   activeTechnology.value = requestedFormat === 'ALL'
@@ -239,7 +239,7 @@ function hydrateRoute() {
 
 async function normalizeDynamicFilters() {
   const values: Record<string, string | undefined> = {}
-  if (activeLanguage.value !== 'ALL' && !languages.value.includes(activeLanguage.value)) values.language = undefined
+  if (activeLanguage.value !== 'ALL' && activeLanguage.value !== 'ORIGINAL' && !languages.value.includes(activeLanguage.value)) values.language = undefined
   if (activeTechnology.value !== 'ALL' && !technologyFormats.value.includes(activeTechnology.value)) values.format = undefined
   if (Object.keys(values).length === 0) return
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
@@ -737,7 +737,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             class="space-y-3 border-t-2 border-ink px-4 py-3 sm:px-6"
             @keydown.esc.stop="closeMobilePanel($event)"
           >
-            <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <span id="mobile-language-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Langue</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-language-filter-label">
                 <button
@@ -769,7 +769,6 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                 </button>
               </div>
             </div>
-            <p v-if="languages.length <= 1 && technologyFormats.length <= 1" class="font-mono text-xs font-bold uppercase">Aucun filtre disponible</p>
           </div>
         </div>
 
@@ -791,7 +790,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           </div>
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
-            <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <span id="language-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Langue</span>
               <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="language-filter-label">
                 <button
@@ -893,7 +892,7 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                       <span v-else-if="showtime.end" class="w-14" aria-hidden="true" />
                     </div>
                     <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-                      <template v-if="showtime.language"><span>{{ showtime.language }}</span><span aria-hidden="true">·</span></template>
+                      <template v-if="showtime.language"><span>{{ languageLabel(showtime.language, showtime.movie.original_language) }}</span><span aria-hidden="true">·</span></template>
                       <ShowtimeFormat :format="showtime.format" />
                       <template v-if="showtime.room">
                         <span aria-hidden="true">·</span>

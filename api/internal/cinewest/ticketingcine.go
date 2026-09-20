@@ -71,7 +71,11 @@ func loadTicketProgram(ctx context.Context, f Fetcher, site string, location *ti
 			if err != nil {
 				return cinemaProgram{}, err
 			}
-			row, err := showing(id, s.ID, m, start, end, language, string(language), format, s.Room, s.Booking, int(s.FirstPart))
+			version := string(language)
+			if s.Version == "VOF" {
+				version = s.Version
+			}
+			row, err := showing(id, s.ID, m, start, end, language, version, format, s.Room, s.Booking, int(s.FirstPart))
 			if err != nil {
 				return cinemaProgram{}, err
 			}
@@ -81,7 +85,7 @@ func loadTicketProgram(ctx context.Context, f Fetcher, site string, location *ti
 	return result, nil
 }
 func ticketAttributes(s ticketSession) (schedule.Language, schedule.Format, error) {
-	if s.Version != "VF" && s.Version != "VO" {
+	if s.Version != "VF" && s.Version != "VO" && s.Version != "VOF" {
 		return "", "", errShape
 	}
 	flags := map[string]bool{}
@@ -98,6 +102,9 @@ func ticketAttributes(s ticketSession) (schedule.Language, schedule.Format, erro
 		flags[f] = true
 	}
 	language := schedule.Language(s.Version)
+	if s.Version == "VOF" {
+		language = schedule.LanguageVO
+	}
 	if flags["ST"] || flags["subtitle"] {
 		if language == schedule.LanguageVF {
 			language = schedule.LanguageVFSTF

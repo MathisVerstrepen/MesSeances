@@ -278,7 +278,7 @@ func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMo
 	       COALESCE(CASE WHEN override.overview_overridden THEN override.overview ELSE movie.overview END,''),
 	       COALESCE((CASE WHEN override.release_date_overridden THEN override.release_date ELSE movie.release_date END)::text,''),
 	       CASE WHEN override.genres_overridden THEN override.genres ELSE movie.genres END,
-	       COALESCE(movie.confirmed_tmdb_id,0), COALESCE(movie.imdb_id,''),
+	       COALESCE(movie.confirmed_tmdb_id,0), COALESCE(movie.imdb_id,''), COALESCE(movie.original_language,''),
 	       COALESCE(CASE WHEN override.trailer_vf_youtube_key_overridden THEN override.trailer_vf_youtube_key ELSE movie.trailer_vf_youtube_key END,''),
 	       COALESCE(CASE WHEN override.trailer_vo_youtube_key_overridden THEN override.trailer_vo_youtube_key ELSE movie.trailer_vo_youtube_key END,''),
 	       movie.updated_at, COALESCE(tmdb.runtime_minutes, 0), COALESCE(movie.identity_anchor_tmdb_id,0), COALESCE(upcoming.french_release_date::text,''), upcoming.tmdb_id IS NOT NULL, COALESCE(upcoming.active,false), COALESCE(upcoming.decision='excluded',false)
@@ -293,7 +293,7 @@ ORDER BY movie.id`)
 	for rows.Next() {
 		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.OriginalLanguage, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded); err != nil {
 			rows.Close()
 			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}

@@ -49,7 +49,7 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 		theater := view.data.Theaters[theaterPosition]
 		for _, showingPosition := range view.theaterDate[theaterDateKey{theaterID: theater.ID, date: query.Date}] {
 			record := view.data.Showtimes[showingPosition]
-			if !matchesLanguage(record.Language, query.Language) || !matchesFormat(record.Format, query.Format) {
+			if !matchesLanguage(record.Language, query.Language, movieOriginalLanguage(view, record.Movie)) || !matchesFormat(record.Format, query.Format) {
 				continue
 			}
 			showtime := materializeRecordWithAds(view, record, query.BufferAds)

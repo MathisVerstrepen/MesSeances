@@ -1,4 +1,4 @@
-export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
+export type QueryLanguage = 'ALL' | 'ORIGINAL' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = '' | 'VOSTFR' | 'VF' | 'VO' | 'VF_SME' | 'VFSTF'
 export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'ICE' | 'INFINITY_VISION'
 export type QueryFormat = 'ALL' | ShowtimeFormat
@@ -87,6 +87,7 @@ export interface HistoryStatisticsResponse extends Omit<StatisticsResponse, 'ran
 export interface Movie {
   slug: string
   title: string
+  original_language: string | null
   runtime_minutes: number
   updated_at: string
 }

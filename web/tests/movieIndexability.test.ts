@@ -7,6 +7,7 @@ function movie(overrides: Partial<CatalogMovie> = {}): CatalogMovie {
   return {
     slug: 'film-42',
     title: 'Film test',
+    original_language: null,
     runtime_minutes: 100,
     updated_at: '2026-08-30T10:00:00Z',
     poster_url: ' https://example.test/poster.jpg ',

@@ -10,7 +10,7 @@ import { upcomingSitemapEntry } from '../server/utils/sitemap.ts'
 
 function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
   return {
-    slug, title: 'Film à venir', runtime_minutes: 0, updated_at: '2026-09-13T12:00:00Z',
+    slug, title: 'Film à venir', original_language: null, runtime_minutes: 0, updated_at: '2026-09-13T12:00:00Z',
     poster_url: null, tmdb_id: 42, imdb_id: null, overview: null, genres: ['Drame'],
     release_date: '2000-01-01', french_release_date: date
   }

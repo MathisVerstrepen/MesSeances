@@ -107,7 +107,7 @@ test('Noé results preserve event IDs, VFSTF, source rooms and unknown metadata 
     const response: TheaterShowtimesResponse = {
       generated_at: '2026-09-14T12:00:00Z', timezone: 'Europe/Paris', date: '2027-06-30',
       theater: { provider: 'noecinemas', id: 'noecinemas-P8088', slug: 'noecinemas-P8088', name: "Cinéma L'Aigle", city: "L'Aigle", city_slug: 'l-aigle', postal_code: '61300', address: '1 rue du cinéma', available_dates: ['2027-06-30'], accepted_passes: [], latitude: 48.76, longitude: 0.63 },
-      showtimes: [{ provider: 'noecinemas', id: showingId, movie: { slug: 'noecinemas-film-cEvent_2027-1', title: 'Événement local', runtime_minutes: runtime, updated_at: start }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VFSTF', format: 'DOLBY', room: '', booking_url: booking, start_offset_minutes: 1275, duration_minutes: 0, poster_url: null, backdrop_url: null }]
+      showtimes: [{ provider: 'noecinemas', id: showingId, movie: { slug: 'noecinemas-film-cEvent_2027-1', title: 'Événement local', original_language: null, runtime_minutes: runtime, updated_at: start }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VFSTF', format: 'DOLBY', room: '', booking_url: booking, start_offset_minutes: 1275, duration_minutes: 0, poster_url: null, backdrop_url: null }]
     }
     const slot: SlotResult = { showtime: response.showtimes[0]!, theater: response.theater, poster_url: null, backdrop_url: null, effective_start_time: start, effective_end_time: start, buffer_ads_minutes: 0, slack_before_minutes: 0, slack_after_minutes: 0 }
     const before = structuredClone({ response, slot })

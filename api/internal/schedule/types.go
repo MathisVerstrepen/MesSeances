@@ -21,12 +21,14 @@ const (
 	ScopeAll    Scope = "all_cinemas"
 	ScopeSingle Scope = "single_cinema"
 
-	LanguageAll    Language = "ALL"
-	LanguageVOSTFR Language = "VOSTFR"
-	LanguageVF     Language = "VF"
-	LanguageVO     Language = "VO"
-	LanguageVFSME  Language = "VF_SME"
-	LanguageVFSTF  Language = "VFSTF"
+	LanguageAll Language = "ALL"
+	// LanguageOriginal is a query filter, never a stored screening language.
+	LanguageOriginal Language = "ORIGINAL"
+	LanguageVOSTFR   Language = "VOSTFR"
+	LanguageVF       Language = "VF"
+	LanguageVO       Language = "VO"
+	LanguageVFSME    Language = "VF_SME"
+	LanguageVFSTF    Language = "VFSTF"
 
 	FormatAll            Format = "ALL"
 	Format2D             Format = "2D"

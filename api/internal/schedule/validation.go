@@ -236,6 +236,9 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 			return fmt.Errorf("invalid provider URL")
 		}
 		if showing.Movie.Enrichment != nil {
+			if invalidOriginalLanguage(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.OriginalLanguage) {
+				return fmt.Errorf("invalid enrichment original language")
+			}
 			if showing.Movie.Enrichment.BackdropURL != "" && !validTMDBBackdropURL(showing.Movie.Enrichment.BackdropURL) {
 				return fmt.Errorf("invalid enrichment backdrop URL")
 			}
@@ -259,6 +262,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
+		if invalidOriginalLanguage(movie.TMDBID, movie.OriginalLanguage) {
+			return fmt.Errorf("invalid public movie original language")
+		}
 		providerAnchor := movie.IdentityAnchorTMDBID == 0 && validProvider(movie.IdentityAnchorProvider, false) && validProviderIdentity(movie.IdentityAnchorProvider, "movie", movie.IdentityAnchorSourceID)
 		tmdbAnchor := movie.IdentityAnchorTMDBID > 0 && movie.IdentityAnchorProvider == "" && movie.IdentityAnchorSourceID == "" && (movie.RedirectToID != 0 || movie.TMDBID == movie.IdentityAnchorTMDBID)
 		if movie.ID <= 0 || !providerAnchor && !tmdbAnchor || movie.Title == "" || movie.RuntimeMinutes < 0 || movie.TMDBRuntimeMinutes < 0 || movie.RuntimeMinutes == 0 && !tmdbAnchor && movie.IdentityAnchorProvider != ProviderCGR && movie.IdentityAnchorProvider != ProviderMegarama && movie.IdentityAnchorProvider != ProviderCineville && movie.IdentityAnchorProvider != ProviderMK2 && movie.IdentityAnchorProvider != ProviderCinewest && movie.IdentityAnchorProvider != ProviderGrandEcran && movie.IdentityAnchorProvider != ProviderNoeCinemas || invalidTrailerKeys(movie.TMDBID, movie.TrailerVFYouTubeKey, movie.TrailerVOYouTubeKey) || invalidIMDBID(movie.TMDBID, movie.IMDBID) || movie.UpdatedAt.IsZero() || movie.UpdatedAt.Location() != time.UTC || publicMovies[movie.ID].ID != 0 {
@@ -330,6 +336,10 @@ func validatePublicMovieCatalog(data Dataset) error {
 
 func invalidTrailerKeys(tmdbID int64, vf, vo string) bool {
 	return vf != "" && (tmdbID <= 0 || !validYouTubeKey(vf)) || vo != "" && (tmdbID <= 0 || !validYouTubeKey(vo)) || vf != "" && vf == vo
+}
+
+func invalidOriginalLanguage(tmdbID int64, language string) bool {
+	return language != "" && (tmdbID <= 0 || len(language) != 2 || language[0] < 'a' || language[0] > 'z' || language[1] < 'a' || language[1] > 'z')
 }
 
 func invalidIMDBID(tmdbID int64, imdbID string) bool {
@@ -409,7 +419,7 @@ func validLanguage(v Language) bool {
 	if v == LanguageVOSTFR || v == LanguageVF || v == LanguageVO || v == LanguageVFSME {
 		return true
 	}
-	return v != LanguageAll && providerLanguage.MatchString(string(v))
+	return v != LanguageAll && v != LanguageOriginal && providerLanguage.MatchString(string(v))
 }
 func validFormat(v Format) bool {
 	return v == Format2D || v == Format3D || v == FormatIMAX || v == FormatDolby || v == FormatScreenX || v == FormatLaserUltra || v == Format4DX || v == FormatICE || v == FormatInfinityVision

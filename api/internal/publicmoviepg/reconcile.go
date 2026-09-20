@@ -42,6 +42,7 @@ type publicMovie struct {
 }
 
 type metadata struct {
+	originalLanguage    *string
 	title               string
 	runtime             int
 	imdbID              *string
@@ -56,6 +57,7 @@ type metadata struct {
 }
 
 type tmdbMetadata struct {
+	originalLanguage    *string
 	title               string
 	runtime             int
 	imdbID              *string
@@ -393,7 +395,7 @@ func loadTMDBMetadata(ctx context.Context, tx pgx.Tx, components []*component) (
 		return map[int64]tmdbMetadata{}, nil
 	}
 	rows, err := tx.Query(ctx, `SELECT provider_movie_id, localized_title, runtime_minutes, imdb_id, poster_url,
-       backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, overview, release_date, genres
+       backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, overview, release_date, genres, original_language
 FROM movie_metadata_cache WHERE provider='tmdb' AND locale='fr-FR' AND provider_movie_id=ANY($1)`, ids)
 	if err != nil {
 		return nil, fmt.Errorf("read canonical TMDB metadata failed")
@@ -403,7 +405,7 @@ FROM movie_metadata_cache WHERE provider='tmdb' AND locale='fr-FR' AND provider_
 	for rows.Next() {
 		var id int64
 		var item tmdbMetadata
-		if err := rows.Scan(&id, &item.title, &item.runtime, &item.imdbID, &item.poster, &item.backdrop, &item.trailerVFYouTubeKey, &item.trailerVOYouTubeKey, &item.overview, &item.releaseDate, &item.genres); err != nil {
+		if err := rows.Scan(&id, &item.title, &item.runtime, &item.imdbID, &item.poster, &item.backdrop, &item.trailerVFYouTubeKey, &item.trailerVOYouTubeKey, &item.overview, &item.releaseDate, &item.genres, &item.originalLanguage); err != nil {
 			return nil, fmt.Errorf("read canonical TMDB metadata failed")
 		}
 		result[id] = item
@@ -435,6 +437,9 @@ func chooseMetadata(component *component, tmdb tmdbMetadata) metadata {
 		return lessSourceKey(ordered[i].key, ordered[j].key)
 	})
 	result := metadata{genres: []string{}, tmdbID: component.tmdbID}
+	if component.tmdbID > 0 {
+		result.originalLanguage = tmdb.originalLanguage
+	}
 	if strings.TrimSpace(tmdb.title) != "" {
 		result.title = tmdb.title
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -428,6 +429,12 @@ func collectStrings(value any, destination *[]string) {
 }
 func language(v string) schedule.Language {
 	lower := strings.ReplaceAll(strings.ToLower(v), "î", "i")
+	if slices.Contains(strings.Fields(lower), "vof") {
+		if strings.Contains(lower, "sme") || strings.Contains(lower, "vost") || strings.Contains(lower, "sous-titr") {
+			return schedule.LanguageVOSTFR
+		}
+		return schedule.LanguageVO
+	}
 	if strings.Contains(lower, "sme") {
 		return schedule.LanguageVFSME
 	}

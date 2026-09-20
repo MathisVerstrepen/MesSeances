@@ -111,7 +111,7 @@ func infinityMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM showtimes s),(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM screening_history_showtimes h))::text`).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)::text FROM pg_constraint WHERE conrelid IN ('showtimes'::regclass,'screening_history_showtimes'::regclass) AND conname <> 'showtimes_format_check'`).Scan(&constraints); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)::text FROM pg_constraint WHERE conrelid IN ('showtimes'::regclass,'screening_history_showtimes'::regclass) AND conname NOT IN ('showtimes_format_check', 'showtimes_language_original_check', 'screening_history_showtimes_language_original_check')`).Scan(&constraints); err != nil {
 		t.Fatal(err)
 	}
 	return rows, constraints

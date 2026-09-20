@@ -16,7 +16,7 @@ const [card, controls, pagination, films, city, cinema, film] = await Promise.al
 
 function movie(overrides: Partial<CatalogMovie>): CatalogMovie {
   return {
-    slug: 'film', title: 'Film', runtime_minutes: 90, updated_at: '', poster_url: null,
+    slug: 'film', title: 'Film', original_language: null, runtime_minutes: 90, updated_at: '', poster_url: null,
     tmdb_id: null, imdb_id: null, overview: null, release_date: null, french_release_date: null, genres: [], ...overrides
   }
 }

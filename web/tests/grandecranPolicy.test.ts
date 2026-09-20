@@ -82,7 +82,7 @@ test('Grand Ecran result adapters keep local events and unknown metadata without
     const response: TheaterShowtimesResponse = {
       generated_at: '2026-09-14T12:00:00Z', timezone: 'Europe/Paris', date: '2027-07-01',
       theater: { provider: 'grandecran', id: 'grandecran-G028P', slug: 'grandecran-G028P', name: 'Grand Ecran Vichy', city: 'Vichy', city_slug: 'vichy', postal_code: '03200', address: '1 rue du cinéma', available_dates: ['2027-07-01'], accepted_passes: [], latitude: 46.1278, longitude: 3.4255 },
-      showtimes: [{ provider: 'grandecran', id: showingId, movie: { slug: 'grandecran-film-cEvent_2027-1', title: 'Événement local', runtime_minutes: runtime, updated_at: start }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VOSTFR', format: 'DOLBY', room: '', booking_url: booking, start_offset_minutes: 15, duration_minutes: 0, poster_url: null, backdrop_url: null }]
+      showtimes: [{ provider: 'grandecran', id: showingId, movie: { slug: 'grandecran-film-cEvent_2027-1', title: 'Événement local', original_language: null, runtime_minutes: runtime, updated_at: start }, start_time: start, end_time: start, estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VOSTFR', format: 'DOLBY', room: '', booking_url: booking, start_offset_minutes: 15, duration_minutes: 0, poster_url: null, backdrop_url: null }]
     }
     const slot: SlotResult = { showtime: response.showtimes[0]!, theater: response.theater, poster_url: null, backdrop_url: null, effective_start_time: start, effective_end_time: start, buffer_ads_minutes: 0, slack_before_minutes: 0, slack_after_minutes: 0 }
     const before = structuredClone({ response, slot })

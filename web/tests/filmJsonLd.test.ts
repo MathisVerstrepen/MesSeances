@@ -8,6 +8,7 @@ const movie = {
   slug: 'film-42',
   title: 'Film </script> &\u2028 séance',
   runtime_minutes: 118,
+  original_language: null,
   updated_at: '2026-08-29T00:00:00Z',
   poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
   tmdb_id: 42,

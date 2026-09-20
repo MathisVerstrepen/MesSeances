@@ -407,6 +407,11 @@ func parseAttributes(s session) (schedule.Language, schedule.Format, error) {
 		}
 	case "VO":
 		language = schedule.LanguageVOSTFR
+	case "VOF":
+		language = schedule.LanguageVO
+		if s.Subtitles == "1" || s.Subtitles == "true" {
+			language = schedule.LanguageVOSTFR
+		}
 	default:
 		return "", "", errPayload
 	}

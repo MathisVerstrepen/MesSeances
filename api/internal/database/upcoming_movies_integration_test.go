@@ -35,8 +35,8 @@ func TestUpcomingMoviesUpgradeFrom031Integration(t *testing.T) {
 	}
 	assertCompleteMigrationHistory(t, ctx, pool, migrations)
 	var after string
-	// The only new public-row field is a null anchor; all preexisting bytes retain their values.
-	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(s)) FROM showtimes s),(SELECT jsonb_agg(to_jsonb(a)) FROM movie_slug_aliases a),(SELECT jsonb_agg(to_jsonb(o)) FROM public_movie_metadata_overrides o),(SELECT jsonb_agg(to_jsonb(m)-'identity_anchor_tmdb_id') FROM public_movies m))::text`).Scan(&after); err != nil || after != before {
+	// Exclude additive nullable public-row fields; all preexisting bytes retain their values.
+	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(s)) FROM showtimes s),(SELECT jsonb_agg(to_jsonb(a)) FROM movie_slug_aliases a),(SELECT jsonb_agg(to_jsonb(o)) FROM public_movie_metadata_overrides o),(SELECT jsonb_agg(to_jsonb(m)-'identity_anchor_tmdb_id'-'original_language') FROM public_movies m))::text`).Scan(&after); err != nil || after != before {
 		t.Fatalf("existing data changed: err=%v", err)
 	}
 	var count int

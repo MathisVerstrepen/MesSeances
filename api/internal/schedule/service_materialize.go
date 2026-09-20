@@ -54,7 +54,7 @@ func materializeRecordWithAds(view *SnapshotView, record ShowtimeRecord, adsMinu
 	booking := record.BookingURL
 	provider := recordProvider(record.Provider, record.ID)
 	movie := materializeCatalogMovie(view, record.Movie)
-	showtime := Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	showtime := Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt, OriginalLanguage: movie.OriginalLanguage}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 	showtime.EstimatedEndTime, showtime.EstimatedEndAdsMinutes = estimateShowtimeEnd(showtime, adsMinutes)
 	return showtime
 }
@@ -65,6 +65,9 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 	}
 	poster, _ := materializeMovieMedia(view, record)
 	item := MovieCatalogItem{Slug: legacyPublicMovieSlug(record), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, PosterURL: poster, Genres: append([]string{}, record.Genres...)}
+	if language := movieOriginalLanguage(view, record); language != "" {
+		item.OriginalLanguage = &language
+	}
 	if record.Overview != "" {
 		value := record.Overview
 		item.Overview = &value
@@ -105,6 +108,9 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 
 func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 	item := MovieCatalogItem{Slug: publicMovieIDSlug(record.ID), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, UpdatedAt: record.UpdatedAt, Genres: append([]string{}, record.Genres...)}
+	if language := confirmedOriginalLanguage(record.TMDBID, record.OriginalLanguage); language != "" {
+		item.OriginalLanguage = &language
+	}
 	if record.FrenchReleaseDate != "" {
 		value := record.FrenchReleaseDate
 		item.FrenchReleaseDate = &value
@@ -138,6 +144,25 @@ func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 		item.TrailerVOYouTubeKey = &value
 	}
 	return item
+}
+
+// A canonical catalog entry wins even when its language is unknown.
+func movieOriginalLanguage(view *SnapshotView, record MovieRecord) string {
+	if position, ok := view.publicMovieByID[record.PublicMovieID]; ok {
+		movie := view.data.PublicMovies[position]
+		return confirmedOriginalLanguage(movie.TMDBID, movie.OriginalLanguage)
+	}
+	if record.Enrichment != nil {
+		return confirmedOriginalLanguage(record.Enrichment.TMDBID, record.Enrichment.OriginalLanguage)
+	}
+	return ""
+}
+
+func confirmedOriginalLanguage(tmdbID int64, language string) string {
+	if tmdbID <= 0 || invalidOriginalLanguage(tmdbID, language) {
+		return ""
+	}
+	return language
 }
 
 func materializeMovieMedia(view *SnapshotView, record MovieRecord) (*string, *string) {

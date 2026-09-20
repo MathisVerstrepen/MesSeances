@@ -351,6 +351,21 @@ func TestMetadataFromDetailsReturnsNonNilEmptyGenres(t *testing.T) {
 	}
 }
 
+func TestMetadataOriginalLanguageMappingAndValidation(t *testing.T) {
+	for _, language := range []string{"", "fr", "en", "ja", "FR", "Fr", "fra", "f", " fr", "f1", "é", "\nfr"} {
+		t.Run(language, func(t *testing.T) {
+			metadata := metadataFromDetails(tmdb.Details{ID: 42, Title: "Film", OriginalTitle: "Film", OriginalLanguage: language}, 0, matcherNow)
+			if metadata.OriginalLanguage != language {
+				t.Fatalf("mapping lost language: %+v", metadata)
+			}
+			valid := language == "" || language == "fr" || language == "en" || language == "ja"
+			if err := validateMetadata(metadata); (err == nil) != valid {
+				t.Fatalf("language=%q valid=%t error=%v", language, valid, err)
+			}
+		})
+	}
+}
+
 func TestValidateMetadataRejectsMalformedIMDBID(t *testing.T) {
 	base := Metadata{Provider: ProviderTMDB, ProviderMovieID: 42, IMDBID: "tt1234567", Locale: LocaleFrench, ProviderTitle: "Film", LocalizedTitle: "Film", RuntimeMinutes: 90, Genres: []string{}, FetchedAt: matcherNow, RefreshAfter: matcherNow.Add(metadataTTL)}
 	if err := validateMetadata(base); err != nil {

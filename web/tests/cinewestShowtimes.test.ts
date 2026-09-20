@@ -9,7 +9,7 @@ import { areShowtimeResultsCompatible, filterCompatibleShowtimeResults, filterSe
 const start = '2027-06-27T18:00:00+02:00'
 const publishedEnd = '2027-06-27T21:07:42.123+02:00'
 const runtimeEnd = '2027-06-27T20:13:00+02:00'
-const movie = { slug: 'cinewest-film-cineoffice-42', title: 'Événement Cinewest', runtime_minutes: 118, updated_at: '2026-09-14T00:00:00Z' }
+const movie = { slug: 'cinewest-film-cineoffice-42', title: 'Événement Cinewest', original_language: null, runtime_minutes: 118, updated_at: '2026-09-14T00:00:00Z' }
 
 function showing(platform: 'cineoffice' | 'ticketingcine' | 'webediamovies', overrides: Partial<Showtime> = {}): Showtime {
   return {

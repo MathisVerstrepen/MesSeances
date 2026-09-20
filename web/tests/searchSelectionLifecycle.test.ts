@@ -43,7 +43,7 @@ const searchQuery = { theaters: 'ugc-25', date: '2026-09-13', start_after: '18:0
 const response: SlotResult[] = [12, 13].map((id, index) => ({
   showtime: {
     provider: 'ugc', id: `ugc-showing-${id}`,
-    movie: { slug: `film-${id}`, title: `Film ${id}`, runtime_minutes: 90, updated_at: '2026-09-13T00:00:00Z' },
+    movie: { slug: `film-${id}`, title: `Film ${id}`, original_language: null, runtime_minutes: 90, updated_at: '2026-09-13T00:00:00Z' },
     start_time: `2026-09-13T${18 + index * 2}:00:00+02:00`, end_time: `2026-09-13T${20 + index * 2}:00:00+02:00`,
     estimated_end_time: null, estimated_end_ads_minutes: null,
     language: 'VF', format: '2D', room: '', booking_url: null

@@ -132,6 +132,9 @@ func distinctPositiveIDs(ids []int64) []int64 {
 }
 
 func sameMetadataContent(left, right Metadata) bool {
+	if left.OriginalLanguage != right.OriginalLanguage {
+		return false
+	}
 	if left.Provider != right.Provider || left.ProviderMovieID != right.ProviderMovieID || left.IMDBID != right.IMDBID || left.Locale != right.Locale || left.ProviderTitle != right.ProviderTitle || left.LocalizedTitle != right.LocalizedTitle || left.Overview != right.Overview || left.ReleaseDate != right.ReleaseDate || left.PosterURL != right.PosterURL || left.BackdropURL != right.BackdropURL || left.TrailerVFYouTubeKey != right.TrailerVFYouTubeKey || left.TrailerVOYouTubeKey != right.TrailerVOYouTubeKey || left.RuntimeMinutes != right.RuntimeMinutes || len(left.Genres) != len(right.Genres) {
 		return false
 	}

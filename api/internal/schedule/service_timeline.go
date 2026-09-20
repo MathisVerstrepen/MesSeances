@@ -24,7 +24,7 @@ func (s *Service) Timeline(query TimelineQuery) (Timeline, error) {
 		result := TimelineTheater{Provider: recordProvider(theater.Provider, theater.ID), ID: theater.ID, Slug: theater.Slug, Name: theater.Name, City: theater.City, AcceptedPasses: append([]string(nil), theater.AcceptedPasses...), Showtimes: []TimelineShowtime{}}
 		for _, showingPosition := range view.theaterDate[theaterDateKey{theaterID: theater.ID, date: query.Date}] {
 			record := view.data.Showtimes[showingPosition]
-			if !matchesLanguage(record.Language, query.Language) {
+			if !matchesLanguage(record.Language, query.Language, movieOriginalLanguage(view, record.Movie)) {
 				continue
 			}
 			showtime := materializeRecord(view, record)

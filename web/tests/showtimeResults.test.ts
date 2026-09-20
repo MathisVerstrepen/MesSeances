@@ -4,7 +4,7 @@ import type { SlotResult, TheaterShowtimesResponse } from '../app/types/api.ts'
 import type { ShowtimeResultViewModel } from '../app/types/showtimeResults.ts'
 import { areShowtimeResultsCompatible, filterCompatibleShowtimeResults, filterSelectedShowtimeResults, groupShowtimeResults, parseShowtimeSelection, serializeShowtimeSelection, showtimeSelectionQueryValues, sortShowtimeResults, toSlotShowtimeResults, toTheaterShowtimeResults, validShowtimeSelectionKeys } from '../app/utils/showtimeResults.ts'
 
-const movie = { slug: 'film-1', title: 'Film 1', runtime_minutes: 101, updated_at: '2026-08-24T00:00:00Z' }
+const movie = { slug: 'film-1', title: 'Film 1', original_language: null, runtime_minutes: 101, updated_at: '2026-08-24T00:00:00Z' }
 
 test('adapts slot results without mutation and preserves effective time, raw end, theater, and top-level media', () => {
   const source: SlotResult[] = [{
@@ -24,7 +24,7 @@ test('adapts slot results without mutation and preserves effective time, raw end
 
   assert.deepEqual(source, before)
   assert.deepEqual(result, {
-    key: 'ugc:slot-1', showtimeId: 'slot-1', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101,
+    key: 'ugc:slot-1', showtimeId: 'slot-1', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieOriginalLanguage: null, movieRuntimeMinutes: 101,
     theaterName: 'UGC Lille', theaterId: 'ugc-1', advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:15:00+02:00', end: canonical('2026-08-24T20:01:00+02:00'),
     language: 'VOSTFR', format: 'IMAX', room: '4', bookingUrl: 'https://www.ugc.fr/reservation', posterUrl: 'https://image.tmdb.org/t/p/w500/poster.jpg', backdropUrl: 'https://image.tmdb.org/t/p/w780/backdrop.jpg'
   })
@@ -52,6 +52,19 @@ test('adapts theater showtimes without mutation and injects theater while mappin
 function canonical(time: string) {
   return { time, estimated: false, adsMinutes: null }
 }
+
+test('both result adapters propagate original language without rewriting the concrete session language', () => {
+  for (const original_language of ['fr', 'en', null]) {
+    const start = '2027-06-27T18:00:00+02:00'
+    const showtime = { provider: 'ugc' as const, id: 'ugc-showing-1', movie: { ...movie, original_language }, start_time: start, end_time: '2027-06-27T20:00:00+02:00', estimated_end_time: null, estimated_end_ads_minutes: null, language: 'VF' as const, format: '2D' as const, room: '', booking_url: null }
+    const slot: SlotResult = { showtime, theater: { provider: 'ugc', id: 'ugc-25', name: 'UGC', city: 'Lille' }, poster_url: null, backdrop_url: null, effective_start_time: start, effective_end_time: showtime.end_time, buffer_ads_minutes: 0, slack_before_minutes: 0, slack_after_minutes: 0 }
+    const theater: TheaterShowtimesResponse = { generated_at: start, timezone: 'Europe/Paris', date: '2027-06-27', theater: { ...slot.theater, slug: 'ugc-25', address: '', city_slug: 'lille', postal_code: '59000', available_dates: ['2027-06-27'], accepted_passes: [] }, showtimes: [{ ...showtime, start_offset_minutes: 0, duration_minutes: 120, poster_url: null, backdrop_url: null }] }
+    for (const result of [toSlotShowtimeResults([slot])[0]!, toTheaterShowtimeResults(theater)[0]!]) {
+      assert.equal(result.movieOriginalLanguage, original_language)
+      assert.equal(result.language, 'VF')
+    }
+  }
+})
 
 test('normalizers preserve explicit estimated provenance including custom zero ads and never infer from runtime', () => {
   for (const ads of [0, 15, 30, 120]) {
@@ -89,7 +102,7 @@ test('estimated compatibility uses returned ends and effective starts, with touc
 
 function view(overrides: Partial<ShowtimeResultViewModel>): ShowtimeResultViewModel {
   return {
-    key: 'ugc:id', showtimeId: 'id', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieRuntimeMinutes: 101, theaterName: 'UGC', theaterId: 'ugc-25',
+    key: 'ugc:id', showtimeId: 'id', provider: 'ugc', movieKey: 'ugc:film-1', movieSlug: 'film-1', movieTitle: 'Film 1', movieOriginalLanguage: null, movieRuntimeMinutes: 101, theaterName: 'UGC', theaterId: 'ugc-25',
     advertisedStartTime: '2026-08-24T18:00:00+02:00', effectiveStartTime: '2026-08-24T18:00:00+02:00', end: canonical('2026-08-24T20:00:00+02:00'),
     language: 'VF', format: '2D', room: '', bookingUrl: null, posterUrl: null, backdropUrl: null, ...overrides
   }

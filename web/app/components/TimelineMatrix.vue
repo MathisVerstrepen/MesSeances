@@ -3,6 +3,7 @@ import { Clock3, Film, MapPin, X } from '@lucide/vue'
 import type { Provider, QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
+import { languageLabel } from '~/utils/showtimeFilters'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { resolveShowtimeEnd } from '~/utils/showtimeEnd'
 
@@ -326,7 +327,7 @@ onBeforeUnmount(() => {
               isShowtimeUnavailable(item.showtime.start_time) ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
-            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${item.showtime.language}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
+            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${languageLabel(item.showtime.language, item.showtime.movie.original_language)}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
             @click="selectShowtime(item, $event)"
@@ -353,7 +354,7 @@ onBeforeUnmount(() => {
               class="mt-1 block truncate text-[11px] leading-[15px] text-current"
               :class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'opacity-90' : 'opacity-70'"
             >
-              {{ formatParisTime(item.showtime.start_time) }} · <template v-if="item.showtime.language">{{ item.showtime.language }} · </template>
+              {{ formatParisTime(item.showtime.start_time) }} · <template v-if="item.showtime.language">{{ languageLabel(item.showtime.language, item.showtime.movie.original_language) }} · </template>
               <ShowtimeFormat :format="item.showtime.format" :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''" decorative />
             </span>
           </button>
@@ -437,7 +438,7 @@ onBeforeUnmount(() => {
             <dt class="font-medium text-ink">Salle</dt>
             <dd class="text-right font-medium text-ink">{{ selected.showtime.room }}</dd>
             <dt class="font-medium text-ink">Version</dt>
-            <dd class="text-right font-medium text-ink"><template v-if="selected.showtime.language">{{ selected.showtime.language }} · </template><ShowtimeFormat :format="selected.showtime.format" /></dd>
+            <dd class="text-right font-medium text-ink"><template v-if="selected.showtime.language">{{ languageLabel(selected.showtime.language, selected.showtime.movie.original_language) }} · </template><ShowtimeFormat :format="selected.showtime.format" /></dd>
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">

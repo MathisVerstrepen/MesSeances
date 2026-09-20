@@ -188,6 +188,129 @@ func TestProbeContracts(t *testing.T) {
 	}
 }
 
+func originalLanguageHandler(t *testing.T, original string, canonical bool) http.Handler {
+	t.Helper()
+	data := readinessFixtureDataset(t)
+	data.Showtimes = data.Showtimes[:1]
+	record := &data.Showtimes[0]
+	record.Language, record.ProviderVersion = schedule.LanguageVF, "internal-provider-version"
+	record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, OriginalLanguage: original}
+	if canonical {
+		record.Movie.PublicMovieID = 1
+		data.PublicMovies = []schedule.PublicMovieRecord{{ID: 1, IdentityAnchorProvider: schedule.ProviderUGC, IdentityAnchorSourceID: "200", TMDBID: 42, Title: "Film A", RuntimeMinutes: 100, OriginalLanguage: original, UpdatedAt: data.GeneratedAt}}
+		data.MovieSources = []schedule.PublicMovieSourceRecord{{Provider: schedule.ProviderUGC, SourceMovieID: "200", SourceSlug: record.Movie.Slug, PublicMovieID: 1, Title: "Film A", RuntimeMinutes: 100}}
+		record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 99, OriginalLanguage: "fr"}
+	}
+	if err := schedule.ValidateDataset(data, true); err != nil {
+		t.Fatal(err)
+	}
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewHandler(service, "http://localhost:3000")
+}
+
+func TestOriginalLanguageQueryTransport(t *testing.T) {
+	for _, path := range []string{
+		"/api/v1/timeline?date=2026-08-15&theaters=ugc-25",
+		"/api/v1/search/slot?date=2026-08-15&theaters=ugc-25&start_after=08:00&finish_before=02:00",
+	} {
+		for _, query := range []struct {
+			suffix  string
+			status  int
+			present bool
+		}{
+			{"&language=ORIGINAL", 200, true}, {"", 200, true}, {"&language=ALL", 200, true},
+			{"&language=VF", 200, true}, {"&language=VOSTFR", 200, false},
+			{"&language=original", 400, false}, {"&language=", 400, false},
+			{"&language=VOF", 400, false}, {"&language=VO", 400, false}, {"&language=invalid", 400, false},
+		} {
+			response := performRequest(t, originalLanguageHandler(t, "fr", true), path+query.suffix)
+			if response.Code != query.status || strings.Contains(response.Body.String(), `"id":"ugc-showing-100"`) != query.present {
+				t.Fatalf("%s%s: %d %s", path, query.suffix, response.Code, response.Body)
+			}
+			if query.status == 400 && !strings.Contains(response.Body.String(), `"code":"invalid_query"`) {
+				t.Fatalf("invalid query contract: %s", response.Body)
+			}
+		}
+		for _, original := range []string{"en", ""} {
+			response := performRequest(t, originalLanguageHandler(t, original, true), path+"&language=ORIGINAL")
+			if response.Code != 200 || strings.Contains(response.Body.String(), `"id":"ugc-showing-100"`) {
+				t.Fatalf("canonical %q should exclude VF: %d %s", original, response.Code, response.Body)
+			}
+		}
+	}
+}
+
+func TestOriginalLanguageMovieWireContract(t *testing.T) {
+	for _, canonical := range []bool{false, true} {
+		for _, original := range []string{"fr", "en", ""} {
+			slug := "tmdb-film-42"
+			if canonical {
+				slug = "film-1"
+			}
+			for _, route := range []struct {
+				path   string
+				movies int
+			}{
+				{"/api/v1/movies", 1},
+				{"/api/v1/movies/" + slug + "/showtimes?date=2026-08-15", 2},
+				{"/api/v1/theaters/ugc-25/showtimes?date=2026-08-15", 1},
+				{"/api/v1/timeline?date=2026-08-15&theaters=ugc-25", 1},
+				{"/api/v1/search/slot?date=2026-08-15&theaters=ugc-25&start_after=08:00&finish_before=02:00", 1},
+			} {
+				response := performRequest(t, originalLanguageHandler(t, original, canonical), route.path)
+				if response.Code != 200 {
+					t.Fatalf("%s: %d %s", route.path, response.Code, response.Body)
+				}
+				assertOriginalLanguageWire(t, response.Body.Bytes(), original, route.movies)
+				if strings.Contains(response.Body.String(), `"showtimes":[{`) || strings.Contains(response.Body.String(), `"showtime":{`) {
+					if !strings.Contains(response.Body.String(), `"language":"VF"`) {
+						t.Fatalf("canonical language changed: %s", response.Body)
+					}
+				}
+			}
+		}
+	}
+}
+
+func assertOriginalLanguageWire(t *testing.T, body []byte, original string, wantMovies int) {
+	t.Helper()
+	if strings.Contains(string(body), "provider_version") || strings.Contains(string(body), "internal-provider-version") {
+		t.Fatalf("provider version leaked: %s", body)
+	}
+	var decoded any
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	var visit func(any)
+	visit = func(value any) {
+		switch node := value.(type) {
+		case map[string]any:
+			if _, movie := node["runtime_minutes"]; movie {
+				count++
+				language, exists := node["original_language"]
+				if !exists || original == "" && language != nil || original != "" && language != original {
+					t.Fatalf("missing/wrong nullable original_language: want=%q movie=%v", original, node)
+				}
+			}
+			for _, child := range node {
+				visit(child)
+			}
+		case []any:
+			for _, child := range node {
+				visit(child)
+			}
+		}
+	}
+	visit(decoded)
+	if count != wantMovies {
+		t.Fatalf("movie count=%d want=%d body=%s", count, wantMovies, body)
+	}
+}
+
 func TestRequestIDValidationGenerationAndResponsePropagation(t *testing.T) {
 	handler := testHandler(t)
 	valid := strings.Repeat("0123456789abcdef", 2)
