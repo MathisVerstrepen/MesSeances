@@ -32,15 +32,18 @@ test('legal layout composes the shell and retains legal document styling', () =>
   assert.doesNotMatch(legal, /<main/)
 })
 
-test('credits uses shared shell without changing attribution content or crawl policy', () => {
+test('credits uses shared shell with complete attribution content, compact mobile spacing, and no share action', () => {
   assert.match(
     credits,
     /<StaticPageLayout eyebrow="Attributions · Sources" title="Crédits">/,
   )
+  assert.doesNotMatch(credits, /ShareButton|#header-actions/)
   assert.match(
-    credits,
-    /<template #header-actions><ShareButton class="shrink-0"/,
+    credits.replace(/\s+/g, ' '),
+    /brand: 'INFINITY_VISION', name: 'Infinity Vision', url: 'https:\/\/www\.infinityvisiontickets\.com\/',/,
   )
+  assert.match(credits, /py-6 sm:px-6 sm:py-14/)
+  assert.match(credits, /min-h-32 items-center[\s\S]*sm:min-h-40/)
   assert.match(credits, /description: pageDescription/)
   assert.match(credits, /robots: 'noindex,follow'/)
   assert.match(
@@ -50,6 +53,7 @@ test('credits uses shared shell without changing attribution content or crawl po
   assert.match(credits, /rel: 'canonical'/)
   for (const destination of [
     'themoviedb.org',
+    'infinityvisiontickets.com',
     'ugc.fr',
     'kinepolis.fr',
     'pathe.fr',
