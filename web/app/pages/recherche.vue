@@ -67,6 +67,7 @@ const calendarMenu = ref<HTMLElement | null>(null)
 const resultsRegion = ref<HTMLElement | null>(null)
 const isCalendarOpen = ref(false)
 const isCompactCalendarViewport = ref(false)
+const isResolvingInitialSearch = ref(REQUIRED_QUERY_KEYS.every((key) => key in route.query))
 const isCenteredCalendar = computed(() => isFilterSheetOpen.value && isCompactCalendarViewport.value)
 const todayDate = ref(todayInParis())
 const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
@@ -546,9 +547,13 @@ watch(() => route.query, (query, previousQuery) => {
 
 async function initializePreferences() {
   await initialize()
-  if (!isInitialized.value) return
+  if (!isInitialized.value) {
+    isResolvingInitialSearch.value = false
+    return
+  }
   isReady = true
   await applyRoute()
+  isResolvingInitialSearch.value = false
 }
 
 onMounted(() => {
@@ -630,7 +635,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         ref="filterForm"
         class="filter-form min-w-0 scroll-mt-28 lg:sticky lg:top-24 lg:block lg:max-h-none lg:overflow-visible lg:overscroll-auto lg:border-2 lg:border-ink lg:bg-[#f1efe8] lg:p-6 lg:shadow-[7px_7px_0_#27272a]"
         :class="[
-          appliedSearch && !isFilterSheetOpen ? 'hidden' : '',
+          (appliedSearch || isResolvingInitialSearch) && !isFilterSheetOpen ? 'hidden' : '',
           isFilterSheetOpen ? 'fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_0_#27272a] sm:px-6' : ''
         ]"
         :role="isFilterSheetOpen ? 'dialog' : undefined"
@@ -785,7 +790,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </div>
         </div>
 
-        <EditorialStatePanel v-if="pending" semantic="status" size="tall" shadow="medium" class="search-state font-extrabold">
+        <EditorialStatePanel v-if="pending || isResolvingInitialSearch" semantic="status" size="tall" shadow="medium" class="search-state font-extrabold">
           <template #icon><LoaderCircle :size="32" class="animate-spin" aria-hidden="true" /></template>
           <p>Recherche des séances compatibles…</p>
         </EditorialStatePanel>
