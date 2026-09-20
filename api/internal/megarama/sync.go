@@ -145,7 +145,11 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 				if actual := start.Format("2006-01-02"); actual > dataset.Window.Through {
 					dataset.Window.Through = actual
 				}
-				dataset.Showtimes = append(dataset.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderMegarama, ID: "megarama-showing-" + s.ID, ProviderShowingID: s.ID, TheaterID: theaterID, ServiceDate: date, Movie: m, StartTime: start, EndTime: end, FirstPartDurationMinutes: int(s.FirstPartDuration), Language: language, ProviderVersion: string(language), Format: format, Room: clean(s.HallName), BookingURL: booking})
+				version := string(language)
+				if clean(s.Version) == "VOF" {
+					version = clean(s.Version)
+				}
+				dataset.Showtimes = append(dataset.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderMegarama, ID: "megarama-showing-" + s.ID, ProviderShowingID: s.ID, TheaterID: theaterID, ServiceDate: date, Movie: m, StartTime: start, EndTime: end, FirstPartDurationMinutes: int(s.FirstPartDuration), Language: language, ProviderVersion: version, Format: format, Room: clean(s.HallName), BookingURL: booking})
 			}
 		}
 		available := make([]string, 0, len(dates))

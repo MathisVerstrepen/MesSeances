@@ -19,6 +19,117 @@ import (
 	"messeances/api/internal/tmdb"
 )
 
+func TestOriginalLanguageRefreshPersistenceIntegration(t *testing.T) {
+	pool := upcomingIntegrationPool(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	store := NewPostgresStore(pool)
+	if _, err := pool.Exec(ctx, `
+INSERT INTO public_movies(identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes)
+VALUES('ugc','10','Film',90),('ugc','11','Source only',90);
+INSERT INTO public_movie_sources(source_provider,source_movie_id,public_movie_id,source_slug,title,runtime_minutes)
+SELECT identity_anchor_provider,identity_anchor_source_movie_id,id,'ugc-film-'||identity_anchor_source_movie_id,title,runtime_minutes FROM public_movies;
+INSERT INTO public_movies(identity_anchor_tmdb_id,confirmed_tmdb_id,title,runtime_minutes) VALUES(99,99,'Upcoming',90);
+INSERT INTO tmdb_upcoming_movies(tmdb_id,public_movie_id,active,verified_at)
+SELECT 99,id,false,now() FROM public_movies WHERE identity_anchor_tmdb_id=99;`); err != nil {
+		t.Fatal(err)
+	}
+	now := matcherNow
+	matchedDetails := tmdb.Details{ID: 42, Title: "Film", OriginalTitle: "Film", Runtime: 90}
+	upcomingDetails := tmdb.Details{ID: 99, Title: "Upcoming", OriginalTitle: "Upcoming", Runtime: 90}
+	if err := store.RefreshMetadata(ctx, []Metadata{metadataFromDetails(upcomingDetails, 0, now)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Publish(ctx, upcomingMatch(now, 42), metadataFromDetails(matchedDetails, 0, now)); err != nil {
+		t.Fatal(err)
+	}
+	provider := &metadataRefreshProvider{results: map[int64]metadataDetailsResult{}}
+	service := NewMetadataRefreshService(store, provider, func() time.Time { return now }, nil)
+	var previousLanguage string
+	for _, language := range []string{"fr", "en", "fr", "", "", "fr"} {
+		var beforeVersion int64
+		if err := pool.QueryRow(ctx, `SELECT version FROM movie_enrichment_state`).Scan(&beforeVersion); err != nil {
+			t.Fatal(err)
+		}
+		previousTimes := map[int64]time.Time{}
+		for _, id := range []int64{42, 99} {
+			var updated time.Time
+			if err := pool.QueryRow(ctx, `SELECT updated_at FROM public_movies WHERE confirmed_tmdb_id=$1`, id).Scan(&updated); err != nil {
+				t.Fatal(err)
+			}
+			previousTimes[id] = updated
+		}
+		now = now.Add(time.Hour)
+		matchedDetails.OriginalLanguage, upcomingDetails.OriginalLanguage = language, language
+		provider.results[42] = metadataDetailsResult{details: matchedDetails}
+		provider.results[99] = metadataDetailsResult{details: upcomingDetails}
+		summary, err := service.Refresh(ctx)
+		want := MetadataRefreshSummary{Processed: 2, Updated: 2}
+		if language == previousLanguage {
+			want.Updated, want.Unchanged = 0, 2
+		}
+		if err != nil || summary != want {
+			t.Fatalf("language %q summary=%+v want=%+v err=%v", language, summary, want, err)
+		}
+		for _, id := range []int64{42, 99} {
+			loaded, found, err := store.Metadata(ctx, ProviderTMDB, id, LocaleFrench)
+			if err != nil || !found || loaded.OriginalLanguage != language || !loaded.FetchedAt.Equal(now) {
+				t.Fatalf("cache id=%d metadata=%+v found=%t err=%v", id, loaded, found, err)
+			}
+			var cached, public *string
+			var updated time.Time
+			if err := pool.QueryRow(ctx, `SELECT cache.original_language, movie.original_language, movie.updated_at FROM movie_metadata_cache cache JOIN public_movies movie ON movie.confirmed_tmdb_id=cache.provider_movie_id WHERE cache.provider_movie_id=$1`, id).Scan(&cached, &public, &updated); err != nil {
+				t.Fatal(err)
+			}
+			if language == "" {
+				if cached != nil || public != nil {
+					t.Fatalf("unknown language not stored as NULL: cache=%v public=%v", cached, public)
+				}
+			} else if cached == nil || public == nil || *cached != language || *public != language {
+				t.Fatalf("language not published: cache=%v public=%v want=%q", cached, public, language)
+			}
+			if language == previousLanguage && !updated.Equal(previousTimes[id]) || language != previousLanguage && !updated.After(previousTimes[id]) {
+				t.Fatalf("language-only timestamp semantics: before=%v after=%v", previousTimes[id], updated)
+			}
+		}
+		var version int64
+		var sourceUnknown bool
+		if err := pool.QueryRow(ctx, `SELECT version FROM movie_enrichment_state`).Scan(&version); err != nil || version != beforeVersion+1 {
+			t.Fatalf("refresh revision=%d before=%d err=%v", version, beforeVersion, err)
+		}
+		if err := pool.QueryRow(ctx, `SELECT original_language IS NULL AND confirmed_tmdb_id IS NULL FROM public_movies WHERE identity_anchor_source_movie_id='11'`).Scan(&sourceUnknown); err != nil || !sourceUnknown {
+			t.Fatal("source-only movie inferred language", err)
+		}
+		previousLanguage = language
+	}
+
+	// A late reconciliation error must roll back cache writes and publication together.
+	if _, err := pool.Exec(ctx, `UPDATE movie_slug_aliases SET alias_kind='tmdb',source_provider=NULL,source_movie_id=NULL WHERE slug='ugc-film-10'`); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() string {
+		t.Helper()
+		var result string
+		if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
+    (SELECT jsonb_agg(to_jsonb(c) ORDER BY provider_movie_id) FROM movie_metadata_cache c),
+    (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM public_movies m),
+    (SELECT jsonb_agg(to_jsonb(m) ORDER BY source_movie_id) FROM movie_matches m),
+    (SELECT version FROM movie_enrichment_state))::text`).Scan(&result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	before := snapshot()
+	matchedDetails.OriginalLanguage = "en"
+	provider.results[42] = metadataDetailsResult{details: matchedDetails}
+	if _, err := service.Refresh(ctx); err == nil {
+		t.Fatal("refresh with conflicting alias succeeded")
+	}
+	if snapshot() != before {
+		t.Fatal("failed refresh committed metadata, identities, timestamps, or revision")
+	}
+}
+
 func TestPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {

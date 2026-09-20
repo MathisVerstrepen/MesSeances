@@ -339,6 +339,7 @@ test('Noé results preserve event IDs, VFSTF, source rooms and unknown metadata 
           movie: {
             slug: 'noecinemas-film-cEvent_2027-1',
             title: 'Événement local',
+            original_language: null,
             runtime_minutes: runtime,
             updated_at: start,
           },

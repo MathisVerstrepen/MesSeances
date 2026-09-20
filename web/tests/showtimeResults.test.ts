@@ -19,6 +19,7 @@ import {
 const movie = {
   slug: 'film-1',
   title: 'Film 1',
+  original_language: null,
   runtime_minutes: 101,
   updated_at: '2026-08-24T00:00:00Z',
 }
@@ -66,6 +67,7 @@ test('adapts slot results without mutation and preserves effective time, raw end
     movieKey: 'ugc:film-1',
     movieSlug: 'film-1',
     movieTitle: 'Film 1',
+    movieOriginalLanguage: null,
     movieRuntimeMinutes: 101,
     theaterName: 'UGC Lille',
     theaterId: 'ugc-1',
@@ -134,6 +136,66 @@ test('adapts theater showtimes without mutation and injects theater while mappin
 function canonical(time: string) {
   return { time, estimated: false, adsMinutes: null }
 }
+
+test('both result adapters propagate original language without rewriting the concrete session language', () => {
+  for (const original_language of ['fr', 'en', null]) {
+    const start = '2027-06-27T18:00:00+02:00'
+    const showtime = {
+      provider: 'ugc' as const,
+      id: 'ugc-showing-1',
+      movie: { ...movie, original_language },
+      start_time: start,
+      end_time: '2027-06-27T20:00:00+02:00',
+      estimated_end_time: null,
+      estimated_end_ads_minutes: null,
+      language: 'VF' as const,
+      format: '2D' as const,
+      room: '',
+      booking_url: null,
+    }
+    const slot: SlotResult = {
+      showtime,
+      theater: { provider: 'ugc', id: 'ugc-25', name: 'UGC', city: 'Lille' },
+      poster_url: null,
+      backdrop_url: null,
+      effective_start_time: start,
+      effective_end_time: showtime.end_time,
+      buffer_ads_minutes: 0,
+      slack_before_minutes: 0,
+      slack_after_minutes: 0,
+    }
+    const theater: TheaterShowtimesResponse = {
+      generated_at: start,
+      timezone: 'Europe/Paris',
+      date: '2027-06-27',
+      theater: {
+        ...slot.theater,
+        slug: 'ugc-25',
+        address: '',
+        city_slug: 'lille',
+        postal_code: '59000',
+        available_dates: ['2027-06-27'],
+        accepted_passes: [],
+      },
+      showtimes: [
+        {
+          ...showtime,
+          start_offset_minutes: 0,
+          duration_minutes: 120,
+          poster_url: null,
+          backdrop_url: null,
+        },
+      ],
+    }
+    for (const result of [
+      toSlotShowtimeResults([slot])[0]!,
+      toTheaterShowtimeResults(theater)[0]!,
+    ]) {
+      assert.equal(result.movieOriginalLanguage, original_language)
+      assert.equal(result.language, 'VF')
+    }
+  }
+})
 
 test('normalizers preserve explicit estimated provenance including custom zero ads and never infer from runtime', () => {
   for (const ads of [0, 15, 30, 120]) {
@@ -274,6 +336,7 @@ function view(
     movieKey: 'ugc:film-1',
     movieSlug: 'film-1',
     movieTitle: 'Film 1',
+    movieOriginalLanguage: null,
     movieRuntimeMinutes: 101,
     theaterName: 'UGC',
     theaterId: 'ugc-25',

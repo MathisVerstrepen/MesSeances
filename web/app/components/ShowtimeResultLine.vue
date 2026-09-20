@@ -5,6 +5,7 @@ import type {
   ShowtimeResultViewModel,
 } from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
+import { languageLabel } from '~/utils/showtimeFilters'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
 const props = withDefaults(
@@ -178,7 +179,7 @@ function formatRoom(room: string) {
           >
           <span v-if="result.room">{{ result.room }}</span>
           <span v-if="result.language" class="font-medium text-muted">{{
-            result.language
+            languageLabel(result.language, result.movieOriginalLanguage)
           }}</span>
           <ShowtimeFormat
             :format="result.format"
@@ -190,8 +191,9 @@ function formatRoom(room: string) {
           class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
         >
           <template v-if="result.language"
-            ><span>{{ result.language }}</span
-            ><span aria-hidden="true">·</span></template
+            ><span>{{
+              languageLabel(result.language, result.movieOriginalLanguage)
+            }}</span><span aria-hidden="true">·</span></template
           ><ShowtimeFormat :format="result.format" />
           <template v-if="result.room"
             ><span aria-hidden="true">·</span
@@ -274,7 +276,7 @@ function formatRoom(room: string) {
         >
         <span v-if="result.room">{{ result.room }}</span>
         <span v-if="result.language" class="font-medium text-muted">{{
-          result.language
+          languageLabel(result.language, result.movieOriginalLanguage)
         }}</span>
         <ShowtimeFormat
           :format="result.format"
@@ -286,8 +288,9 @@ function formatRoom(room: string) {
         class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
       >
         <template v-if="result.language"
-          ><span>{{ result.language }}</span
-          ><span aria-hidden="true">·</span></template
+          ><span>{{
+            languageLabel(result.language, result.movieOriginalLanguage)
+          }}</span><span aria-hidden="true">·</span></template
         ><ShowtimeFormat :format="result.format" />
         <template v-if="result.room"
           ><span aria-hidden="true">·</span

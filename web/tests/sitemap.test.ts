@@ -31,6 +31,7 @@ function movie(
   return {
     slug,
     title: slug,
+    original_language: null,
     runtime_minutes: 100,
     updated_at: '2026-08-30T09:00:00Z',
     poster_url: 'https://example.test/poster.jpg',

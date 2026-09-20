@@ -222,7 +222,7 @@ func normalizeVersion(raw string) (schedule.Language, string, error) {
 		return schedule.LanguageVF, value, nil
 	case "vost":
 		return schedule.LanguageVOSTFR, value, nil
-	case "vo":
+	case "vo", "vof":
 		return schedule.LanguageVO, value, nil
 	case "vfst":
 		return schedule.LanguageVFSME, value, nil

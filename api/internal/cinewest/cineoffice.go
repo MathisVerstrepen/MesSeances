@@ -183,6 +183,11 @@ func officeAttributes(s officeShow, options map[sourceID]string) (schedule.Langu
 	version := options[s.Language]
 	language := schedule.LanguageVF
 	switch version {
+	case "VOF":
+		language = schedule.LanguageVO
+		if flags["SUBTITLE_NORMAL"] || flags["SUBTITLE_OCAP"] || flags["SUBTITLE_CCAP"] {
+			language = schedule.LanguageVOSTFR
+		}
 	case "VERSION_ORIGINAL":
 		language = schedule.LanguageVOSTFR
 	case "VERSION_LOCAL", "VERSION_ORIGINAL_LOCAL":
@@ -195,7 +200,7 @@ func officeAttributes(s officeShow, options map[sourceID]string) (schedule.Langu
 		return "", "", "", errShape
 	}
 	for flag := range flags {
-		if strings.HasPrefix(flag, "VERSION_") && flag != version {
+		if (strings.HasPrefix(flag, "VERSION_") || flag == "VOF") && flag != version {
 			return "", "", "", errShape
 		}
 	}

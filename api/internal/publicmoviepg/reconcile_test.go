@@ -46,6 +46,29 @@ func TestChooseMetadataPrecedenceAndFieldFallback(t *testing.T) {
 	}
 }
 
+func TestOriginalLanguageAssignmentRequiresTMDB(t *testing.T) {
+	fr := "fr"
+	for _, tc := range []struct {
+		name     string
+		id       int64
+		language *string
+		want     *string
+	}{
+		{name: "matched", id: 42, language: &fr, want: &fr},
+		{name: "unknown", id: 42},
+		{name: "source only", language: &fr},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item := &component{publicID: 1, tmdbID: tc.id}
+			item.metadata = chooseMetadata(item, tmdbMetadata{originalLanguage: tc.language})
+			assignment := newMovieAssignment(item)
+			if !reflect.DeepEqual(assignment.OriginalLanguage, tc.want) {
+				t.Fatalf("assignment language=%v want=%v", assignment.OriginalLanguage, tc.want)
+			}
+		})
+	}
+}
+
 func TestSourceOrderingKeepsUGCFirstThenLexicalProviders(t *testing.T) {
 	keys := []sourceKey{{provider: "pathe", id: "B"}, {provider: "ugc", id: "9"}, {provider: "kinepolis", id: "A"}, {provider: "pathe", id: "A"}}
 	sort.Slice(keys, func(i, j int) bool { return lessSourceKey(keys[i], keys[j]) })
@@ -74,6 +97,77 @@ func TestMetadataOverrideInheritancePrecedence(t *testing.T) {
 	if target.title == nil || *target.title != targetTitle || target.runtime == nil || *target.runtime != lowRuntime || !target.overviewSet || target.overview != nil || target.poster == nil || *target.poster != highPoster {
 		t.Fatalf("inherited target=%+v", target)
 	}
+}
+
+func TestOriginalLanguageIdentityChangesIntegration(t *testing.T) {
+	pool := bulkTestPool(t)
+	ctx := t.Context()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO public_movies(identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes)
+VALUES('ugc','1','First',90),('ugc','2','Second',90);
+INSERT INTO public_movie_sources(source_provider,source_movie_id,public_movie_id,source_slug,title,runtime_minutes)
+SELECT 'ugc',identity_anchor_source_movie_id,id,'ugc-film-'||identity_anchor_source_movie_id,title,runtime_minutes FROM public_movies;
+INSERT INTO movie_metadata_cache(provider,provider_movie_id,locale,provider_title,localized_title,runtime_minutes,original_language,fetched_at,refresh_after)
+VALUES('tmdb',42,'fr-FR','French','French',90,'fr',now(),now()),('tmdb',99,'fr-FR','English','English',90,'en',now(),now());
+INSERT INTO movie_matches(source_provider,source_movie_id,metadata_provider,status,metadata_movie_id,score,normalized_source_title,source_runtime_minutes,evaluated_at,retry_after,updated_at)
+VALUES('ugc','1','tmdb','matched',42,1,'first',90,now(),now(),now()),('ugc','2','tmdb','matched',99,1,'second',90,now(),now(),now());`); err != nil {
+		t.Fatal(err)
+	}
+	assertSource := func(source string, tmdbID int64, language string) int64 {
+		t.Helper()
+		var id, gotTMDB int64
+		var gotLanguage string
+		if err := pool.QueryRow(ctx, `SELECT m.id,COALESCE(m.confirmed_tmdb_id,0),COALESCE(m.original_language,'') FROM public_movie_sources s JOIN public_movies m ON m.id=s.public_movie_id WHERE s.source_provider='ugc' AND s.source_movie_id=$1`, source).Scan(&id, &gotTMDB, &gotLanguage); err != nil || gotTMDB != tmdbID || gotLanguage != language {
+			t.Fatalf("source=%s identity=%d language=%q want=%d/%q err=%v", source, gotTMDB, gotLanguage, tmdbID, language, err)
+		}
+		return id
+	}
+	assertCleared := func(id int64) {
+		t.Helper()
+		var cleared bool
+		if err := pool.QueryRow(ctx, `SELECT confirmed_tmdb_id IS NULL AND original_language IS NULL FROM public_movies WHERE id=$1`, id).Scan(&cleared); err != nil || !cleared {
+			t.Fatalf("identity %d retained stale language: %v", id, err)
+		}
+	}
+	bulkReconcile(t, pool)
+	first := assertSource("1", 42, "fr")
+	loser := assertSource("2", 99, "en")
+	if _, err := pool.Exec(ctx, `UPDATE movie_matches SET metadata_movie_id=42 WHERE source_movie_id='2'`); err != nil {
+		t.Fatal(err)
+	}
+	bulkReconcile(t, pool)
+	if id := assertSource("2", 42, "fr"); id != first {
+		t.Fatal("merge did not preserve first identity")
+	}
+	assertCleared(loser)
+	var redirect int64
+	if err := pool.QueryRow(ctx, `SELECT redirect_to_id FROM public_movies WHERE id=$1`, loser).Scan(&redirect); err != nil || redirect != first {
+		t.Fatal("missing merge redirect", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE movie_matches SET metadata_movie_id=99 WHERE source_movie_id='1'`); err != nil {
+		t.Fatal(err)
+	}
+	bulkReconcile(t, pool)
+	assertSource("1", 99, "en")
+	assertSource("2", 42, "fr")
+	assertCleared(loser)
+	if _, err := pool.Exec(ctx, `DELETE FROM movie_matches WHERE source_movie_id='2'`); err != nil {
+		t.Fatal(err)
+	}
+	bulkReconcile(t, pool)
+	assertSource("2", 0, "")
+
+	// A durable identity whose anchor no longer participates is retained, not redirected.
+	orphan := assertSource("1", 99, "en")
+	if _, err := pool.Exec(ctx, `UPDATE public_movies SET identity_anchor_source_movie_id='777' WHERE id=$1`, orphan); err != nil {
+		t.Fatal(err)
+	}
+	bulkReconcile(t, pool)
+	if id := assertSource("1", 99, "en"); id == orphan {
+		t.Fatal("orphan identity was reused")
+	}
+	assertCleared(orphan)
+	assertCleared(loser)
 }
 
 func TestReconcileMergeSplitIntegration(t *testing.T) {

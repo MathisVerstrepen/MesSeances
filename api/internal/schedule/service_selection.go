@@ -97,13 +97,19 @@ func (s *Service) parseServiceClock(date time.Time, value, parameter string) (ti
 }
 
 func validateLanguage(language Language) error {
-	if language != LanguageAll && language != LanguageVOSTFR && language != LanguageVF {
-		return invalid("Le paramètre language doit être ALL, VOSTFR ou VF.")
+	if language != LanguageAll && language != LanguageOriginal && language != LanguageVOF && language != LanguageVOSTFR && language != LanguageVF {
+		return invalid("Le paramètre language doit être ALL, ORIGINAL, VOF, VOSTFR ou VF.")
 	}
 	return nil
 }
 
-func matchesLanguage(session, requested Language) bool {
+func matchesLanguage(session, requested Language, originalLanguage string) bool {
+	if requested == LanguageVOF {
+		return originalLanguage == "fr" && (session == LanguageVF || session == LanguageVFSME || session == LanguageVFSTF)
+	}
+	if requested == LanguageOriginal {
+		return session == LanguageVOSTFR || session == LanguageVO || originalLanguage == "fr" && (session == LanguageVF || session == LanguageVFSME || session == LanguageVFSTF)
+	}
 	return requested == LanguageAll || requested == session || requested == LanguageVF && (session == LanguageVFSME || session == LanguageVFSTF)
 }
 

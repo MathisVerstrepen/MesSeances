@@ -90,6 +90,47 @@ func TestMetadataRefreshFetchesDistinctIDsAndPublishesAllCurrentFields(t *testin
 	}
 }
 
+func TestMetadataRefreshOriginalLanguage(t *testing.T) {
+	for _, tc := range []struct {
+		name, before, after string
+		failed              bool
+	}{
+		{name: "unknown to French", after: "fr"},
+		{name: "French to English", before: "fr", after: "en"},
+		{name: "French to unknown", before: "fr"},
+		{name: "unchanged French", before: "fr", after: "fr"},
+		{name: "invalid preserves French", before: "fr", after: "FR", failed: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			details := tmdb.Details{ID: 42, Title: "Film", OriginalTitle: "Film", OriginalLanguage: tc.before}
+			cached := metadataFromDetails(details, 0, matcherNow.Add(-time.Hour))
+			store := &metadataRefreshStore{ids: []int64{42}, metadata: map[int64]Metadata{42: cached}}
+			details.OriginalLanguage = tc.after
+			provider := &metadataRefreshProvider{results: map[int64]metadataDetailsResult{42: {details: details}}}
+			summary, err := NewMetadataRefreshService(store, provider, func() time.Time { return matcherNow }, nil).Refresh(t.Context())
+			want := MetadataRefreshSummary{Processed: 1}
+			switch {
+			case tc.failed:
+				want.Failed = 1
+			case tc.before == tc.after:
+				want.Unchanged = 1
+			default:
+				want.Updated = 1
+			}
+			if err != nil || summary != want {
+				t.Fatalf("summary=%+v want=%+v err=%v", summary, want, err)
+			}
+			if tc.failed {
+				if store.publishCalls != 0 || store.metadata[42].OriginalLanguage != tc.before {
+					t.Fatal("failed refresh changed cached metadata")
+				}
+			} else if len(store.published) != 1 || store.published[0].OriginalLanguage != tc.after {
+				t.Fatalf("published=%+v", store.published)
+			}
+		})
+	}
+}
+
 func TestSameMetadataContentComparesBothTrailerVariants(t *testing.T) {
 	base := Metadata{Provider: ProviderTMDB, ProviderMovieID: 1, IMDBID: "tt1234567", Locale: LocaleFrench, ProviderTitle: "Original", LocalizedTitle: "Film", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 90, Genres: []string{}}
 	imdbChanged := base

@@ -210,6 +210,7 @@ test('Grand Ecran result adapters keep local events and unknown metadata without
           movie: {
             slug: 'grandecran-film-cEvent_2027-1',
             title: 'Événement local',
+            original_language: null,
             runtime_minutes: runtime,
             updated_at: start,
           },

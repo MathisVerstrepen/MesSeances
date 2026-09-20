@@ -1,4 +1,4 @@
-export type QueryLanguage = 'ALL' | 'VOSTFR' | 'VF'
+export type QueryLanguage = 'ALL' | 'ORIGINAL' | 'VOF' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = '' | 'VOSTFR' | 'VF' | 'VO' | 'VF_SME' | 'VFSTF'
 export type ShowtimeFormat =
   | '2D'
@@ -40,7 +40,7 @@ export interface StatisticsQuery {
   city?: string[]
   theater?: string[]
   chain?: Provider
-  language?: Exclude<ShowtimeLanguage, ''> | 'unknown'
+  language?: Exclude<ShowtimeLanguage, ''> | 'VOF' | 'unknown'
   format?: ShowtimeFormat | 'unknown'
   genre?: string
   pass?: string
@@ -178,6 +178,7 @@ export interface HistoryStatisticsResponse
 export interface Movie {
   slug: string
   title: string
+  original_language: string | null
   runtime_minutes: number
   updated_at: string
 }

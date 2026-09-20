@@ -19,6 +19,7 @@ function schedule(
     movie: {
       slug: 'film-1',
       title: marker,
+      original_language: null,
       runtime_minutes: 100,
       updated_at: `${date}T00:00:00Z`,
       poster_url: null,

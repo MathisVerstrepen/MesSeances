@@ -217,6 +217,7 @@ test('MK2 silent sessions retain source fields, future local date, empty room an
           movie: {
             slug: 'mk2-film-HO00006568',
             title: 'Film muet',
+            original_language: null,
             runtime_minutes: runtime,
             updated_at: start,
           },
@@ -261,5 +262,11 @@ test('MK2 silent sessions retain source fields, future local date, empty room an
     availableLanguageOptions(['', 'VF']).map((option) => option.value),
     ['ALL', 'VF'],
   )
-  assert.deepEqual(queryLanguageValues, ['ALL', 'VOSTFR', 'VF'])
+  assert.deepEqual(queryLanguageValues, [
+    'ALL',
+    'ORIGINAL',
+    'VOF',
+    'VOSTFR',
+    'VF',
+  ])
 })

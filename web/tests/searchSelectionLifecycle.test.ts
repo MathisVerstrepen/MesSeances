@@ -5,7 +5,7 @@ import ts from 'typescript'
 import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { LocationQuery } from 'vue-router'
-import type { SlotResult } from '../app/types/api.ts'
+import type { SlotQuery, SlotResult } from '../app/types/api.ts'
 import type { ShowtimeResultViewModel } from '../app/types/showtimeResults.ts'
 import * as date from '../app/utils/date.ts'
 import * as routeQuery from '../app/utils/routeQuery.ts'
@@ -13,6 +13,7 @@ import * as showtimeFilters from '../app/utils/showtimeFilters.ts'
 import * as showtimeResults from '../app/utils/showtimeResults.ts'
 import { buildCompleteSearchShareTarget } from '../app/utils/searchShareTarget.ts'
 import { absoluteSiteUrl } from '../app/utils/siteUrl.ts'
+import { isValidShortLinkTarget } from '../app/utils/shortLinkTarget.ts'
 
 // Execute the page's actual setup and route watchers without mounting Nuxt or a DOM.
 const source = await readFile(
@@ -66,6 +67,7 @@ const response: SlotResult[] = [12, 13].map((id, index) => ({
     movie: {
       slug: `film-${id}`,
       title: `Film ${id}`,
+      original_language: null,
       runtime_minutes: 90,
       updated_at: '2026-09-13T00:00:00Z',
     },
@@ -90,7 +92,8 @@ const response: SlotResult[] = [12, 13].map((id, index) => ({
 
 function harness(
   query: LocationQuery,
-  searchSlot: () => Promise<SlotResult[]> = async () => response,
+  searchSlot: (query: SlotQuery) => Promise<SlotResult[]> = async () =>
+    response,
 ) {
   const route = reactive({ query })
   const navigate = async ({ query: nextQuery }: { query: LocationQuery }) => {
@@ -112,9 +115,9 @@ function harness(
     useRoute: () => route,
     useRouter: () => ({ replace: navigate, push: navigate }),
     useMesSeancesApi: () => ({
-      searchSlot: () => {
+      searchSlot: (query: SlotQuery) => {
         searchCalls++
-        return searchSlot()
+        return searchSlot(query)
       },
     }),
     usePageCinemaSelection: () => ({
@@ -289,6 +292,66 @@ test('absent, stale and malformed selections or flags canonicalize to the normal
     assert.equal(page.selectedOnly.value, false)
     assert.equal(page.visibleResults.value.length, 2)
   }
+})
+
+test('VOF hydrates, submits and shares as one scalar while preserving selection-reset semantics', async (context) => {
+  const requests: SlotQuery[] = []
+  const { page, route, stop } = harness(
+    {
+      ...searchQuery,
+      language: 'VOF',
+      selected: 'u12',
+      selected_only: '1',
+      campaign: 'test',
+    },
+    async (query) => {
+      requests.push(query)
+      return response
+    },
+  )
+  context.after(stop)
+  await page.initializePreferences()
+  await settle()
+  assert.equal(page.form.language, 'VOF')
+  assert.equal(route.query.language, 'VOF')
+  assert.equal(requests.at(-1)?.language, 'VOF')
+  assert.deepEqual(
+    new URL(
+      page.shareTarget.value!,
+      'https://messeances.fr',
+    ).searchParams.getAll('language'),
+    ['VOF'],
+  )
+  assert.equal(isValidShortLinkTarget(page.shareTarget.value!), true)
+  await page.submitSearch()
+  await settle()
+  assert.equal(route.query.selected, 'u12')
+  assert.equal(route.query.selected_only, '1')
+
+  page.form.language = 'VF'
+  await page.submitSearch()
+  await settle()
+  assert.equal(route.query.selected, undefined)
+  assert.equal(route.query.selected_only, undefined)
+  assert.equal(requests.at(-1)?.language, 'VF')
+  await page.toggleShowtimeSelection('ugc:ugc-showing-12')
+  await page.setSelectedOnly({ target: { checked: true } })
+  await settle()
+  page.form.language = 'VOF'
+  await page.submitSearch()
+  await settle()
+  assert.equal(route.query.language, 'VOF')
+  assert.equal(route.query.campaign, 'test')
+  assert.equal(route.query.selected, undefined)
+  assert.equal(route.query.selected_only, undefined)
+  assert.equal(requests.at(-1)?.language, 'VOF')
+  assert.deepEqual(
+    new URL(
+      page.shareTarget.value!,
+      'https://messeances.fr',
+    ).searchParams.getAll('language'),
+    ['VOF'],
+  )
 })
 
 test('changed search submission and bare-route navigation clear both selection query keys', async (context) => {

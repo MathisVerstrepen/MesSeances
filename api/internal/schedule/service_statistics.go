@@ -91,7 +91,7 @@ func (s *Service) Statistics(ctx context.Context, query StatisticsQuery) (Statis
 				statisticsGenreLabel(genreLabels, value, label)
 			}
 		}
-		language, format := statisticsLanguage(showing.Language), statisticsFormat(showing.Format)
+		language, format := statisticsEffectiveLanguage(showing.Language, movie.item.OriginalLanguage), statisticsFormat(showing.Format)
 		languages[language], formats[format] = true, true
 		if query.Film != "" && slug != film {
 			continue
@@ -165,7 +165,7 @@ func (s *Service) statisticsQuery(query StatisticsQuery, now time.Time) (Statist
 	}
 	query.Genre, _ = statisticsGenre(query.Genre)
 	if query.Chain != "" && !validProvider(Provider(query.Chain), false) ||
-		query.Language != "" && query.Language != statisticsUnknown && statisticsLanguage(Language(query.Language)) == statisticsUnknown ||
+		query.Language != "" && query.Language != string(LanguageVOF) && query.Language != statisticsUnknown && statisticsLanguage(Language(query.Language)) == statisticsUnknown ||
 		query.Format != "" && query.Format != statisticsUnknown && statisticsFormat(Format(query.Format)) == statisticsUnknown {
 		return query, Window{}, invalid("Les filtres statistiques sont invalides.")
 	}
@@ -380,6 +380,14 @@ func statisticsMatches(filters statisticsFilters, window Window, showing Showtim
 		(query.Chain == "" || query.Chain == string(theater.Chain)) && (query.Language == "" || query.Language == language) &&
 		(query.Format == "" || query.Format == format) && (query.Genre == "" || genre) &&
 		(query.Pass == "" || slices.Contains(theater.Passes, query.Pass))
+}
+
+// Only plain VF moves to VOF; accessibility versions remain distinct buckets.
+func statisticsEffectiveLanguage(language Language, originalLanguage *string) string {
+	if language == LanguageVF && originalLanguage != nil && *originalLanguage == "fr" {
+		return string(LanguageVOF)
+	}
+	return statisticsLanguage(language)
 }
 
 func statisticsLanguage(language Language) string {

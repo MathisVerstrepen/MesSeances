@@ -114,6 +114,28 @@ func TestUpcomingCatalogOnlyWireContract(t *testing.T) {
 	}
 }
 
+func TestUpcomingOriginalLanguageWireContract(t *testing.T) {
+	for _, original := range []string{"fr", "en", ""} {
+		now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+		data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Timezone: schedule.Timezone, GeneratedAt: now, UpcomingCompletedAt: now, PublicMovies: []schedule.PublicMovieRecord{{ID: 1, IdentityAnchorTMDBID: 42, TMDBID: 42, Title: "Upcoming", HasUpcomingRelease: true, UpcomingActive: true, FrenchReleaseDate: "2026-10-07", OriginalLanguage: original, UpdatedAt: now}}}
+		if err := schedule.ValidateCatalogOnlyDataset(data); err != nil {
+			t.Fatal(err)
+		}
+		service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{EnrichmentVersion: 1})}, schedule.ServiceOptions{Now: func() time.Time { return now }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		handler := NewHandler(service, "http://localhost:3000")
+		for _, route := range []string{"/api/v1/movies/upcoming", "/api/v1/movies/film-1/showtimes?date=2026-09-13"} {
+			response := performRequest(t, handler, route)
+			if response.Code != 200 {
+				t.Fatalf("%s: %d %s", route, response.Code, response.Body)
+			}
+			assertOriginalLanguageWire(t, response.Body.Bytes(), original, 1)
+		}
+	}
+}
+
 func TestUpcomingDisplayWindowHTTPMidnight(t *testing.T) {
 	now := time.Date(2026, 9, 15, 21, 59, 59, 0, time.UTC)
 	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Timezone: schedule.Timezone, GeneratedAt: now, UpcomingCompletedAt: now}

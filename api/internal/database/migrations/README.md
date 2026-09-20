@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [040_infinity_vision_format.sql](040_infinity_vision_format.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [042_query_only_vof_language.sql](042_query_only_vof_language.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -173,7 +173,7 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, provider, provider_
 | `theater_id`, `movie_provider_id` | `varchar(128)` | Referenced schedule identities |
 | `start_time`, `end_time` | `timestamptz` | Cineville, MK2, Grand Ecran, and Noé Cinémas require equality (unknown end), regardless of runtime. Cinewest Cine Office requires its published end after start; ticketingcine permits equality or a later computed end; Capitole requires equality. Other providers require end after start, except CGR and Megarama permit equality |
 | `first_part_duration_minutes` | `integer` | Default `0`; nonnegative; must be zero except for Megarama and Cinewest ticketingcine |
-| `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be `ALL`. Empty language requires MK2 `provider_version = 'Muet'` or Cinewest Cine Office `provider_version = 'VERSION_MUET'`; these silent markers require empty language |
+| `language` | `varchar(16)` | Matches `^[A-Z][A-Z0-9_]{0,15}$`; cannot be query-only `ALL`, `ORIGINAL`, or `VOF`. Empty language requires MK2 `provider_version = 'Muet'` or Cinewest Cine Office `provider_version = 'VERSION_MUET'`; these silent markers require empty language |
 | `provider_version` | `varchar(256)` | Nonblank after trimming |
 | `format` | `varchar(16)` | `2D`, `3D`, `IMAX`, `DOLBY`, `SCREENX`, `LASER_ULTRA`, `4DX`, `ICE`, or `INFINITY_VISION` |
 | `room` | `varchar(256)` | Empty string permitted except Cinewest; required empty for MK2 |
@@ -194,6 +194,8 @@ Migration 039 creates empty tables without importing either surviving schedule g
 The migration uses `LIKE ... INCLUDING CONSTRAINTS` to preserve all 038 scalar/identity checks, not its indexes, defaults or generation-scoped FKs. Future providers or changes to those checks must explicitly update the history tables too. Secondary B-tree indexes: history showtimes `(service_date,theater_id)`, `(theater_id,service_date)`, `(provider,movie_provider_id,service_date)`; history theaters `(city_slug,id)`.
 
 Both showtime tables accept the same scalar formats, including `INFINITY_VISION`. Explicit session certification takes priority over other formats during ingestion; existing rows are not reclassified or backfilled.
+
+Both showtime tables explicitly reject the query-only `ORIGINAL` and `VOF` language tokens. Separate validated checks `showtimes_language_vof_check` and `screening_history_showtimes_language_vof_check` exclude `VOF`; existing provider language tokens and silent-screening exceptions remain unchanged. Existing literal `VOF` rows cause migration 042 to fail transactionally without data conversion or backfill. Resolve such data only through a separately approved decision, not by weakening the checks or editing migration history.
 
 Receipt timestamps describe successful database publication, not scraping freshness or proof that a screening occurred. Repeated identities preserve first receipt and replace mutable fields; missing identities remain. Latest retained theater metadata applies to all its history. City identities use the same inventory-based Go algorithm as upcoming cities. Films resolve through durable source keys to current canonical public metadata, so merges, splits and overrides can reclassify past counts. Booking URLs stay internal. There is no edit log, bootstrap, cancellation inference or reconstruction of pruned data.
 
@@ -243,8 +245,11 @@ Primary key: `(provider, provider_movie_id, locale)`.
 | `fetched_at`, `refresh_after` | `timestamptz` | Cache timestamps |
 | `trailer_vf_youtube_key`, `trailer_vo_youtube_key` | `varchar(11)` | Nullable; each matches `^[A-Za-z0-9_-]{11}$`; must differ if both present |
 | `imdb_id` | `varchar(32)` | Nullable; matches `^tt[0-9]{7,30}$` |
+| `original_language` | `varchar(2)` | Nullable; matches `^[a-z]{2}$`; TMDB original audio language, independent of the metadata locale |
 
 Cache backdrops must start with `https://image.tmdb.org/t/p/w780/` and have a nonempty suffix that does not start with `/`. The URL cannot contain `%`, `?`, `#`, a backslash, or `..`. This is not the same check as the public catalog backdrop check. The former single `trailer_youtube_key` column was removed in migration 026.
+
+Existing cache and public movie rows start with unknown (`NULL`) original language. Normal TMDB metadata writes and the existing metadata refresh populate it; a successful refresh with unknown language clears the old value. No title, country, locale, or screening-language inference or data backfill is performed. Ordinary cache users retain the existing freshness policy until refresh succeeds.
 
 ### `movie_enrichment_state` and `theater_location_state`
 
@@ -291,6 +296,7 @@ Primary key: `id`. Public identities survive schedule generations and can redire
 | `created_at`, `updated_at`, `last_seen_at` | `timestamptz` | Each defaults to `CURRENT_TIMESTAMP` |
 | `trailer_vf_youtube_key`, `trailer_vo_youtube_key` | `varchar(11)` | Nullable; YouTube key pattern; must differ if both present; each requires nonnull `confirmed_tmdb_id` |
 | `imdb_id` | `varchar(32)` | Nullable; `^tt[0-9]{7,30}$`; requires nonnull `confirmed_tmdb_id` |
+| `original_language` | `varchar(2)` | Nullable; `^[a-z]{2}$`; requires nonnull `confirmed_tmdb_id`; cleared with removed or changed TMDB identity, including redirect tombstones |
 
 Exactly one anchor shape is required: both provider/source fields nonnull and TMDB anchor null, or both provider/source fields null and a positive nonnull TMDB anchor. Existing provider identity checks remain unchanged. Partial unique indexes enforce unique confirmed TMDB IDs, source anchors, and TMDB anchors among nonredirected rows only. The self-FK prevents dangling redirects and the check prevents direct self-redirection, but neither prevents longer cycles. Timestamp defaults do not automatically update existing rows.
 

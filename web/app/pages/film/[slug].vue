@@ -47,12 +47,15 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
 import {
   availableFormatOptions,
-  availableLanguageOptions,
+  availableFilmLanguageOptions,
+  filmLanguageValues,
+  languageLabel,
+  matchesFilmLanguageFilter,
   showtimeFilterSummary,
-  showtimeLanguageValues,
+  type FilmLanguageFilter,
 } from '~/utils/showtimeFilters'
 
-type LanguageFilter = 'ALL' | Showtime['language']
+type LanguageFilter = FilmLanguageFilter
 type TechnologyFilter = 'ALL' | ShowtimeFormat
 type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
 type MobileControlPanel = 'date' | 'filters'
@@ -168,7 +171,7 @@ const languages = computed<Array<Showtime['language']>>(() => {
 })
 const languageOptions = computed<
   Array<{ value: LanguageFilter; label: string }>
->(() => [...availableLanguageOptions(languages.value)])
+>(() => [...availableFilmLanguageOptions(languages.value)])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
   const formats =
     schedule.value?.theaters.flatMap((theater) =>
@@ -180,7 +183,11 @@ const technologyOptions = computed<
   Array<{ value: TechnologyFilter; label: string }>
 >(() => [...availableFormatOptions(technologyFormats.value)])
 const activeFilterSummary = computed(() =>
-  showtimeFilterSummary(activeLanguage.value, activeTechnology.value),
+  showtimeFilterSummary(
+    activeLanguage.value,
+    activeTechnology.value,
+    schedule.value?.movie.original_language,
+  ),
 )
 
 function toggleMobilePanel(panel: MobileControlPanel) {
@@ -227,8 +234,11 @@ function selectMobileDate(date: string) {
 }
 
 function matchesFilter(showtime: Showtime): boolean {
-  const matchesLanguage =
-    activeLanguage.value === 'ALL' || showtime.language === activeLanguage.value
+  const matchesLanguage = matchesFilmLanguageFilter(
+    showtime.language,
+    activeLanguage.value,
+    showtime.movie.original_language,
+  )
   const matchesTechnology =
     activeTechnology.value === 'ALL' ||
     showtime.format === activeTechnology.value
@@ -349,7 +359,7 @@ function hydrateRoute() {
   activeLanguage.value =
     requestedLanguage === 'ALL'
       ? 'ALL'
-      : (enumQueryValue(requestedLanguage, showtimeLanguageValues) ?? 'ALL')
+      : (enumQueryValue(requestedLanguage, filmLanguageValues) ?? 'ALL')
 
   const requestedFormat = singularQueryValue(route.query.format)
   activeTechnology.value =
@@ -366,6 +376,8 @@ async function normalizeDynamicFilters() {
   const values: Record<string, string | undefined> = {}
   if (
     activeLanguage.value !== 'ALL' &&
+    activeLanguage.value !== 'ORIGINAL' &&
+    activeLanguage.value !== 'VOF' &&
     !languages.value.includes(activeLanguage.value)
   )
     values.language = undefined
@@ -1172,10 +1184,7 @@ if (
             class="space-y-3 border-t-2 border-ink px-4 py-3 sm:px-6"
             @keydown.esc.stop="closeMobilePanel($event)"
           >
-            <div
-              v-if="languages.length > 1"
-              class="flex flex-wrap items-center gap-2"
-            >
+            <div class="flex flex-wrap items-center gap-2">
               <span
                 id="mobile-language-filter-label"
                 class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]"
@@ -1226,12 +1235,6 @@ if (
                 </button>
               </div>
             </div>
-            <p
-              v-if="languages.length <= 1 && technologyFormats.length <= 1"
-              class="font-mono text-xs font-bold uppercase"
-            >
-              Aucun filtre disponible
-            </p>
           </div>
         </div>
 
@@ -1265,10 +1268,7 @@ if (
           </div>
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
-            <div
-              v-if="languages.length > 1"
-              class="flex flex-wrap items-center gap-2"
-            >
+            <div class="flex flex-wrap items-center gap-2">
               <span
                 id="language-filter-label"
                 class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]"
@@ -1514,8 +1514,9 @@ if (
                       class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
                     >
                       <template v-if="showtime.language"
-                        ><span>{{ showtime.language }}</span
-                        ><span aria-hidden="true">·</span></template
+                        ><span>{{
+                          languageLabel(showtime.language, showtime.movie.original_language)
+                        }}</span><span aria-hidden="true">·</span></template
                       >
                       <ShowtimeFormat :format="showtime.format" />
                       <template v-if="showtime.room">

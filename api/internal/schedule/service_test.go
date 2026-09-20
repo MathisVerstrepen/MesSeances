@@ -21,6 +21,106 @@ func testDataset() Dataset {
 	return Dataset{SchemaVersion: 1, Provider: ProviderUGC, Scope: ScopeAll, GeneratedAt: time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC), Timezone: Timezone, Window: Window{From: "2026-08-15", Through: "2026-08-15"}, Theaters: []TheaterRecord{{ID: "ugc-25", ProviderID: "25", Slug: "ugc-25", Name: "UGC Lille", Address: "Lille", City: "Lille", PostalCode: "59000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-26", ProviderID: "26", Slug: "ugc-26", Name: "UGC Villeneuve", Address: "Villeneuve", City: "Villeneuve d'Ascq", PostalCode: "59650", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}, {ID: "ugc-99", ProviderID: "99", Slug: "ugc-99", Name: "UGC Lyon", Address: "Lyon", City: "Lyon", PostalCode: "69000", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{"UGC_ILLIMITE"}}}, Showtimes: []ShowtimeRecord{showing("100", "ugc-25", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "12:00", LanguageVOSTFR, 100), showing("104", "ugc-26", "200", "Film A", "https://static.ugc.fr/posters/200.jpg", "18:00", LanguageVOSTFR, 100), showing("101", "ugc-25", "201", "Film B", "", "14:30", LanguageVFSME, 95), showing("102", "ugc-26", "202", "Film C", "", "00:15", LanguageVO, 75), showing("103", "ugc-99", "203", "Film D", "", "12:30", LanguageVF, 90)}}
 }
 
+func TestOriginalLanguageMatchingAndServices(t *testing.T) {
+	for _, canonical := range []bool{false, true} {
+		for _, original := range []string{"fr", "en", ""} {
+			for _, tc := range []struct {
+				language                                  Language
+				originalFrench, originalOther, vf, vostfr bool
+			}{
+				{LanguageVOSTFR, true, true, false, true},
+				{LanguageVO, true, true, false, false},
+				{LanguageVF, true, false, true, false},
+				{LanguageVFSME, true, false, true, false},
+				{LanguageVFSTF, true, false, true, false},
+				{"", false, false, false, false},
+				{"SPANISH", false, false, false, false},
+			} {
+				data := mk2ValidationDataset()
+				record := &data.Showtimes[0]
+				record.Movie.RuntimeMinutes = 100
+				record.Language = tc.language
+				if tc.language != "" {
+					record.ProviderVersion = string(tc.language)
+				}
+				if canonical {
+					data.PublicMovies[0].TMDBID = 42
+					data.PublicMovies[0].RuntimeMinutes = 100
+					data.PublicMovies[0].OriginalLanguage = original
+					// Stale enrichment must not override corrected or unknown public metadata.
+					record.Movie.Enrichment = &MovieEnrichment{TMDBID: 99, OriginalLanguage: "fr"}
+				} else {
+					data.PublicMovies, data.MovieSources, data.MovieAliases = nil, nil, nil
+					record.Movie.Enrichment = &MovieEnrichment{TMDBID: 42, OriginalLanguage: original}
+				}
+				if err := ValidateDataset(data, true); err != nil {
+					t.Fatal(err)
+				}
+				service, err := NewService(newTestSource(data), ServiceOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantOriginal := tc.originalOther
+				if original == "fr" {
+					wantOriginal = tc.originalFrench
+				}
+				for _, query := range []struct {
+					language Language
+					want     bool
+				}{
+					{LanguageOriginal, wantOriginal}, {LanguageAll, true}, {LanguageVF, tc.vf}, {LanguageVOSTFR, tc.vostfr},
+					{LanguageVOF, original == "fr" && tc.vf},
+				} {
+					if got := matchesLanguage(tc.language, query.language, original); got != query.want {
+						t.Fatalf("matcher stored=%q original=%q query=%s got=%v", tc.language, original, query.language, got)
+					}
+					timeline, err := service.Timeline(TimelineQuery{Date: record.ServiceDate, TheaterIDs: []string{record.TheaterID}, Language: query.language})
+					if err != nil || len(timeline.Theaters) != 1 {
+						t.Fatalf("timeline=%+v err=%v", timeline, err)
+					}
+					slot, err := service.SearchSlot(SlotQuery{Date: record.ServiceDate, TheaterIDs: []string{record.TheaterID}, StartAfter: "08:00", FinishBefore: "02:00", Language: query.language})
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantCount := 0
+					if query.want {
+						wantCount = 1
+					}
+					if len(timeline.Theaters[0].Showtimes) != wantCount || len(slot) != wantCount {
+						t.Fatalf("canonical=%v stored=%q original=%q query=%s: timeline=%d slot=%d want=%d", canonical, tc.language, original, query.language, len(timeline.Theaters[0].Showtimes), len(slot), wantCount)
+					}
+					if query.want {
+						for _, showing := range []Showtime{timeline.Theaters[0].Showtimes[0].Showtime, slot[0].Showtime} {
+							if showing.Language != tc.language || original == "" && showing.Movie.OriginalLanguage != nil || original != "" && (showing.Movie.OriginalLanguage == nil || *showing.Movie.OriginalLanguage != original) {
+								t.Fatalf("canonical=%v original=%q showing=%+v", canonical, original, showing)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestOriginalLanguageLookupFailsClosed(t *testing.T) {
+	for _, canonical := range []bool{false, true} {
+		for _, metadata := range []MovieEnrichment{{}, {OriginalLanguage: "fr"}, {TMDBID: -1, OriginalLanguage: "fr"}, {TMDBID: 42, OriginalLanguage: "FR"}} {
+			data := testDataset()
+			record := data.Showtimes[0].Movie
+			record.Enrichment = &metadata
+			if canonical {
+				record.PublicMovieID = 1
+				data.PublicMovies = []PublicMovieRecord{{ID: 1, TMDBID: metadata.TMDBID, OriginalLanguage: metadata.OriginalLanguage}}
+				record.Enrichment = &MovieEnrichment{TMDBID: 99, OriginalLanguage: "fr"}
+			}
+			view := NewSnapshotView(data)
+			if language := movieOriginalLanguage(view, record); language != "" || materializeCatalogMovie(view, record).OriginalLanguage != nil {
+				t.Fatalf("invalid/unassociated metadata accepted: canonical=%v metadata=%+v language=%q", canonical, metadata, language)
+			}
+		}
+	}
+}
+
 func kinepolisTestDataset() Dataset {
 	location, _ := time.LoadLocation(Timezone)
 	start, _ := time.ParseInLocation("2006-01-02 15:04", "2026-08-15 20:00", location)

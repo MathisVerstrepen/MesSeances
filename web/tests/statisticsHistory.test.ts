@@ -13,6 +13,7 @@ import { useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import {
   createStatisticsRequest,
   statisticsBars,
+  statisticsOptionsWithSelection,
 } from '../app/utils/statistics.ts'
 import {
   createHistoryOptionsRequest,
@@ -314,6 +315,174 @@ function statisticsRouter() {
     ],
   })
 }
+
+test('VOF survives every period, shared reload, API transport and router back/forward', async () => {
+  const today = '2026-09-15'
+  const router = statisticsRouter()
+  const urls: URL[] = []
+  Object.assign(globalThis, {
+    useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080' } }),
+    $fetch: createFetch({
+      fetch: async (input: RequestInfo | URL) => {
+        urls.push(new URL(input instanceof Request ? input.url : String(input)))
+        return new Response('{}', {
+          headers: { 'content-type': 'application/json' },
+        })
+      },
+    }),
+  })
+  await router.push({
+    path: '/statistiques',
+    query: {
+      period: 'all',
+      language: 'VOF',
+      city: ['paris'],
+      film: 'missing-film',
+      campaign: ['footer', 'test'],
+    },
+  })
+  let draft = statisticsPageDraft(router.currentRoute.value.query, today)
+  const stop = watch(
+    () => statisticsPageSignature(router.currentRoute.value.query),
+    () => {
+      draft = statisticsPageDraft(router.currentRoute.value.query, today)
+    },
+    { flush: 'sync' },
+  )
+  const snapshots: string[] = []
+  try {
+    const api = useMesSeancesApi()
+    for (const { value: period } of statisticsPeriods) {
+      draft =
+        period === 'custom'
+          ? statisticsCustomDraft(
+              draft,
+              { from: '2020-01-01', through: '2030-01-01' },
+              today,
+            )
+          : { ...draft, period }
+      const parsed = statisticsPageDraftQuery(draft, today)
+      assert.equal(parsed.error, '')
+      assert.equal(parsed.query.language, 'VOF')
+      await router.push({
+        query: statisticsPageRoute(
+          router.currentRoute.value.query,
+          period,
+          parsed.query,
+        ),
+      })
+      const route = router.currentRoute.value
+      snapshots.push(route.fullPath)
+      assert.equal(draft.period, period)
+      assert.equal(draft.language, 'VOF')
+      assert.deepEqual(route.query.campaign, ['footer', 'test'])
+      assert.equal(route.query.film, 'missing-film')
+      const shared = new URL(route.fullPath, 'http://fixture.invalid')
+      assert.deepEqual(shared.searchParams.getAll('language'), ['VOF'])
+      assert.equal(shared.searchParams.has('date'), period === 'custom')
+      const reloaded = router.resolve(shared.pathname + shared.search)
+      assert.deepEqual(parseStatisticsPageQuery(reloaded.query, today), parsed)
+      assert.deepEqual(
+        statisticsPageDraftQuery(
+          statisticsPageDraft(reloaded.query, today),
+          today,
+        ),
+        parsed,
+      )
+      await api.historyStatistics(parsed.query)
+      const request = urls.at(-1)!
+      assert.equal(request.pathname, '/api/v1/statistics/history')
+      assert.deepEqual(request.searchParams.getAll('language'), ['VOF'])
+      assert.equal(request.searchParams.get('date'), parsed.query.date ?? null)
+      assert.equal(
+        request.searchParams.get('date_to'),
+        parsed.query.date_to ?? null,
+      )
+      for (const key of ['campaign', 'period', 'mode'])
+        assert.equal(request.searchParams.has(key), false)
+      // An empty intersection or absent inventory option must not clear the applied VOF draft.
+      assert.deepEqual(statisticsBars([], 0), [])
+      assert.deepEqual(statisticsOptionsWithSelection([], [draft.language]), [
+        { value: 'VOF', label: 'VOF (indisponible)' },
+      ])
+      assert.equal(statisticsPageDraftQuery(draft, today).query.language, 'VOF')
+    }
+    const go = (delta: number) =>
+      new Promise<void>((resolve) => {
+        const off = router.afterEach(() => {
+          off()
+          resolve()
+        })
+        router.go(delta)
+      })
+    for (const [delta, indices] of [
+      [-1, [2, 1, 0]],
+      [1, [1, 2, 3]],
+    ] as const) {
+      for (const index of indices) {
+        await go(delta)
+        assert.equal(router.currentRoute.value.fullPath, snapshots[index])
+        assert.equal(draft.language, 'VOF')
+        assert.equal(draft.period, statisticsPeriods[index]!.value)
+        assert.deepEqual(
+          statisticsPageDraftQuery(draft, today),
+          parseStatisticsPageQuery(router.currentRoute.value.query, today),
+        )
+      }
+    }
+    draft.language = 'VF'
+    assert.equal(router.currentRoute.value.query.language, 'VOF')
+    await router.push({
+      query: statisticsPageRoute(
+        router.currentRoute.value.query,
+        draft.period,
+        statisticsPageDraftQuery(draft, today).query,
+      ),
+    })
+    assert.equal(draft.language, 'VF')
+    await go(-1)
+    assert.equal(draft.language, 'VOF')
+    await router.push({
+      query: statisticsPageRoute(router.currentRoute.value.query),
+    })
+    assert.equal(draft.language, '')
+    assert.deepEqual(router.currentRoute.value.query, {
+      campaign: ['footer', 'test'],
+    })
+  } finally {
+    stop()
+    Reflect.deleteProperty(globalThis, '$fetch')
+    Reflect.deleteProperty(globalThis, 'useRuntimeConfig')
+  }
+})
+
+test('every statistics period accepts padded VOF but rejects malformed and combined version selectors', () => {
+  for (const { value: period } of statisticsPeriods) {
+    const route = { period, date: '2026-09-15', date_to: '2026-09-21' }
+    assert.equal(
+      parseStatisticsPageQuery({ ...route, language: ' VOF ' }).query.language,
+      'VOF',
+    )
+    for (const language of [
+      'vof',
+      'Vof',
+      'ORIGINAL',
+      'ALL',
+      'VOF,VOSTFR',
+      'VOF+VOSTFR',
+      '',
+      null,
+      ['VOF'],
+      ['VOF', 'VOF'],
+      ['VOF', 'VF'],
+    ]) {
+      assert.ok(
+        parseStatisticsPageQuery({ ...route, language }).error,
+        `${period}: ${JSON.stringify(language)}`,
+      )
+    }
+  }
+})
 
 test('installed router resolves fresh all-history entity links and round-trips reserved characters once', async () => {
   const router = statisticsRouter()

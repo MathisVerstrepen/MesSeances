@@ -35,6 +35,20 @@ func TestHistoryDirectValidation(t *testing.T) {
 	}
 }
 
+func TestHistoryVOFQuery(t *testing.T) {
+	for _, language := range []string{"VOF", " VOF ", strings.Repeat(" ", 197) + "VOF"} {
+		query, err := NormalizeHistoryQuery(StatisticsQuery{Language: language})
+		if err != nil || query.Language != "VOF" {
+			t.Fatalf("language=%q query=%+v err=%v", language, query, err)
+		}
+	}
+	for _, language := range []string{"vof", "ORIGINAL", "ALL", "VOF,VF", "VOF|VOSTFR", "VOF\x00", "\xff", " ", strings.Repeat(" ", 198) + "VOF"} {
+		if _, err := NormalizeHistoryQuery(StatisticsQuery{Language: language}); err == nil {
+			t.Fatalf("accepted %q", language)
+		}
+	}
+}
+
 func TestHistoryEmptyPublicationValidation(t *testing.T) {
 	d := testDataset()
 	d.Theaters = nil

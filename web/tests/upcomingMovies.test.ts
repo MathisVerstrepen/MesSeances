@@ -26,6 +26,7 @@ function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
   return {
     slug,
     title: 'Film à venir',
+    original_language: null,
     runtime_minutes: 0,
     updated_at: '2026-09-13T12:00:00Z',
     poster_url: null,

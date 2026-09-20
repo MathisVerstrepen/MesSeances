@@ -297,6 +297,14 @@ func normalizeVersion(tags []string) (schedule.Language, string, error) {
 	for _, tag := range tags {
 		available[strings.TrimSpace(tag)] = true
 	}
+	for _, tag := range tags {
+		if value, ok := strings.CutPrefix(strings.TrimSpace(tag), "Localization.Language."); ok && strings.EqualFold(strings.TrimSpace(value), "VOF") {
+			if available["Showtime.Accessibility.Subtitled"] {
+				return schedule.LanguageVOSTFR, strings.TrimSpace(tag), nil
+			}
+			return schedule.LanguageVO, strings.TrimSpace(tag), nil
+		}
+	}
 	if available["Localization.Version.Original"] && available["Showtime.Accessibility.Subtitled"] {
 		return schedule.LanguageVOSTFR, "Localization.Version.Original+Showtime.Accessibility.Subtitled", nil
 	}

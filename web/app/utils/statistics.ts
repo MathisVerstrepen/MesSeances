@@ -52,7 +52,7 @@ export const statisticsChainLabels = {
   noecinemas: 'Noé Cinémas',
 } as const satisfies Record<Provider, string>
 const chains = Object.keys(statisticsChainLabels)
-const languages = [...showtimeLanguageValues, 'unknown'] as const
+const languages = [...showtimeLanguageValues, 'VOF', 'unknown'] as const
 const formats = [
   ...formatOptions
     .filter((option) => option.value !== 'ALL')

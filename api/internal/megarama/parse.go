@@ -81,7 +81,7 @@ func parseProgram(body []byte, c cinema) (program, error) {
 
 func attributes(s session) (schedule.Language, schedule.Format, error) {
 	version := clean(s.Version)
-	if version != "VF" && version != "VO" {
+	if version != "VF" && version != "VO" && version != "VOF" {
 		return "", "", fmt.Errorf("%w: session version", errShape)
 	}
 	features := make(map[string]bool, len(s.Features)+3)
@@ -98,6 +98,9 @@ func attributes(s session) (schedule.Language, schedule.Format, error) {
 		features[token] = true
 	}
 	language := schedule.Language(version)
+	if version == "VOF" {
+		language = schedule.LanguageVO
+	}
 	if features["ST"] || features["subtitle"] {
 		if version == "VF" {
 			language = schedule.LanguageVFSTF

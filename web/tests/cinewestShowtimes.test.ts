@@ -26,6 +26,7 @@ const runtimeEnd = '2027-06-27T20:13:00+02:00'
 const movie = {
   slug: 'cinewest-film-cineoffice-42',
   title: 'Événement Cinewest',
+  original_language: null,
   runtime_minutes: 118,
   updated_at: '2026-09-14T00:00:00Z',
 }

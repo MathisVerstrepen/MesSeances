@@ -345,6 +345,128 @@ test('Infinity Vision remains canonical through statistics URL, draft and bucket
   }
 })
 
+test('VOF current statistics survives parsing, draft edits and shared URL reconstruction', () => {
+  const query = { language: 'VOF', city: ['paris'], film: 'film-42' } as const
+  const route = {
+    ...query,
+    city: [...query.city],
+    campaign: ['footer', 'test'],
+  }
+  const before = structuredClone(route)
+  const parsed = parseStatisticsQuery(route)
+  assert.deepEqual(parsed, { query, error: '' })
+  assert.deepEqual(parseStatisticsQuery({ language: ' VOF ' }), {
+    query: { language: 'VOF' },
+    error: '',
+  })
+  const draft = statisticsDraft(route, fixture().range)
+  assert.equal(draft.language, 'VOF')
+  assert.deepEqual(statisticsDraftQuery(draft), parsed)
+  draft.genre = 'drame'
+  const applied = statisticsRouteQuery(route, statisticsDraftQuery(draft).query)
+  assert.deepEqual(applied, { ...route, genre: 'drame' })
+  for (const entry of [route, applied, route, applied]) {
+    assert.deepEqual(
+      statisticsDraftQuery(statisticsDraft(entry)),
+      parseStatisticsQuery(entry),
+    )
+    assert.equal(statisticsDraft(entry).language, 'VOF')
+  }
+  assert.notEqual(
+    statisticsQuerySignature(route),
+    statisticsQuerySignature({ ...route, language: 'VF' }),
+  )
+  assert.deepEqual(statisticsRouteQuery(applied), { campaign: route.campaign })
+  assert.deepEqual(route, before)
+  for (const language of [
+    'vof',
+    'Vof',
+    'ORIGINAL',
+    'ALL',
+    'VOF,VOSTFR',
+    'VOF+VOSTFR',
+    '',
+    null,
+    ['VOF'],
+    ['VOF', 'VOF'],
+    ['VOF', 'VF'],
+  ]) {
+    assert.ok(
+      parseStatisticsQuery({ language }).error,
+      JSON.stringify(language),
+    )
+  }
+})
+
+test('VOF versions preserve backend buckets, separate accessibility, counts and French shares', async () => {
+  const response = fixture()
+  response.totals.showtimes = 15
+  response.versions = [
+    { value: 'VOF', label: 'VOF', count: 5 },
+    { value: 'VF', label: 'VF', count: 4 },
+    { value: 'VF_SME', label: 'VF_SME', count: 2 },
+    { value: 'VFSTF', label: 'VFSTF', count: 1 },
+    { value: 'VOSTFR', label: 'VOSTFR', count: 1 },
+    { value: 'VO', label: 'VO', count: 1 },
+    { value: 'unknown', label: 'Non renseigné', count: 1 },
+  ]
+  response.options.languages = response.versions.map((row) => row.value)
+  const before = structuredClone(response)
+  const rows = response.versions.map((row) => ({
+    ...row,
+    label: statisticsBucketLabel(row.value, row.label, 'language'),
+  }))
+  const bars = statisticsBars(rows, response.totals.showtimes)
+  assert.deepEqual(
+    bars.map((row) => [row.value, row.label, row.count, row.width, row.share]),
+    [
+      ['VOF', 'VOF', 5, 100, '33,3 %'],
+      ['VF', 'VF', 4, 80, '26,7 %'],
+      ['VF_SME', 'VF SME', 2, 40, '13,3 %'],
+      ['VFSTF', 'VFSTF', 1, 20, '6,7 %'],
+      ['VOSTFR', 'VOSTFR', 1, 20, '6,7 %'],
+      ['VO', 'VO', 1, 20, '6,7 %'],
+      ['unknown', 'Non renseigné', 1, 20, '6,7 %'],
+    ],
+  )
+  assert.equal(
+    statisticsBars(rows.slice(0, 1), response.totals.showtimes)[0]?.share,
+    '33,3 %',
+  )
+  assert.equal(statisticsBars(rows.slice(0, 1), 5)[0]?.share, '100,0 %')
+  assert.deepEqual(statisticsBars([], 0), [])
+  assert.equal(statisticsShare(0, 0), 'Non calculable')
+  const options = response.options.languages.map((value) => ({
+    value,
+    label: statisticsBucketLabel(value, value, 'language'),
+  }))
+  assert.equal(statisticsOptionsWithSelection(options, ['VOF']), options)
+  const unavailable = options.filter((option) => option.value !== 'VOF')
+  assert.equal(
+    statisticsOptionsWithSelection(unavailable, []).some(
+      (option) => option.value === 'VOF',
+    ),
+    false,
+  )
+  assert.deepEqual(
+    statisticsOptionsWithSelection(unavailable, ['VOF']).at(-1),
+    { value: 'VOF', label: 'VOF (indisponible)' },
+  )
+  assert.deepEqual(response, before)
+  const page = await readFile(
+    new URL('../app/pages/statistiques.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(
+    page,
+    /:rows="buckets\(\s*data\.versions,\s*'language'\s*\)"\s+:total="data\.totals\.showtimes"/,
+  )
+  assert.match(
+    page,
+    /source\?\.languages\.map\(\s*(?:value|\(\s*value\s*\))\s*=>\s*\(\s*\{\s*value,\s*label:\s*statisticsBucketLabel\(\s*value,\s*value,\s*'language'\s*\),?\s*\}\s*\)\s*\)/,
+  )
+})
+
 test('rejects repeated scalars, empty, oversized and unknown enum selections instead of silently dropping filters', () => {
   for (const key of [
     'date',
@@ -1008,6 +1130,14 @@ test('installed ofetch serializes client arrays as repeated keys without CSV or 
     await api.statistics({ city: ['paris'], theater: ['ugc-1'] })
     assert.deepEqual(urls[2]!.searchParams.getAll('city'), ['paris'])
     assert.deepEqual(urls[2]!.searchParams.getAll('theater'), ['ugc-1'])
+    await api.statistics(
+      parseStatisticsQuery({ language: ' VOF ', campaign: 'footer' }).query,
+    )
+    assert.equal(urls[3]!.pathname, '/api/v1/statistics')
+    assert.deepEqual(
+      [...urls[3]!.searchParams.entries()],
+      [['language', 'VOF']],
+    )
   } finally {
     Reflect.deleteProperty(globalThis, '$fetch')
     Reflect.deleteProperty(globalThis, 'useRuntimeConfig')
