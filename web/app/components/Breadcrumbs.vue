@@ -4,12 +4,15 @@ interface BreadcrumbItem {
   to?: string
 }
 
-withDefaults(defineProps<{
-  items: BreadcrumbItem[]
-  variant?: 'detail' | 'film'
-}>(), {
-  variant: 'detail'
-})
+withDefaults(
+  defineProps<{
+    items: BreadcrumbItem[]
+    variant?: 'detail' | 'film'
+  }>(),
+  {
+    variant: 'detail',
+  },
+)
 </script>
 
 <template>
@@ -20,7 +23,9 @@ withDefaults(defineProps<{
   >
     <ol class="flex flex-wrap items-center gap-2">
       <template v-for="(item, index) in items" :key="`${item.label}-${index}`">
-        <li v-if="index === items.length - 1" aria-current="page">{{ item.label }}</li>
+        <li v-if="index === items.length - 1" aria-current="page">
+          {{ item.label }}
+        </li>
         <li v-else>
           <NuxtLink v-if="item.to" :to="item.to">{{ item.label }}</NuxtLink>
           <span v-else>{{ item.label }}</span>

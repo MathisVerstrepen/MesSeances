@@ -14,7 +14,11 @@ export function useSharedTheaterRestoration() {
     pending.value = true
     const query = mergeOwnedQuery(route.query, [SHARED_THEATERS_QUERY_KEY], {})
     try {
-      const failure = await router.replace({ path: route.path, query, hash: route.hash })
+      const failure = await router.replace({
+        path: route.path,
+        query,
+        hash: route.hash,
+      })
       if (isNavigationFailure(failure)) throw failure
     } catch {
       errorMessage.value = 'Vos cinémas n’ont pas pu être restaurés. Réessayez.'

@@ -8,7 +8,7 @@ import type { MovieExternalLink } from '~/utils/movieExternalLinks'
 const serviceLogos = {
   tmdb: tmdbLogo,
   letterboxd: letterboxdLogo,
-  imdb: imdbLogo
+  imdb: imdbLogo,
 } satisfies Record<MovieExternalLink['destination'], string>
 
 const props = defineProps<{
@@ -21,7 +21,9 @@ const trigger = ref<HTMLButtonElement | null>(null)
 const menuItems = ref<HTMLAnchorElement[]>([])
 const isOpen = ref(false)
 const menuId = useId()
-const triggerLabel = computed(() => `Voir les liens externes de ${props.movieTitle}`)
+const triggerLabel = computed(
+  () => `Voir les liens externes de ${props.movieTitle}`,
+)
 
 function setMenuItem(element: Element | null, index: number) {
   if (element instanceof HTMLAnchorElement) menuItems.value[index] = element
@@ -69,8 +71,10 @@ function handleMenuKeydown(event: KeyboardEvent) {
 
   const currentIndex = focusedItemIndex()
   let nextIndex: number | null = null
-  if (event.key === 'ArrowDown') nextIndex = currentIndex >= props.links.length - 1 ? 0 : currentIndex + 1
-  else if (event.key === 'ArrowUp') nextIndex = currentIndex <= 0 ? props.links.length - 1 : currentIndex - 1
+  if (event.key === 'ArrowDown')
+    nextIndex = currentIndex >= props.links.length - 1 ? 0 : currentIndex + 1
+  else if (event.key === 'ArrowUp')
+    nextIndex = currentIndex <= 0 ? props.links.length - 1 : currentIndex - 1
   else if (event.key === 'Home') nextIndex = 0
   else if (event.key === 'End') nextIndex = props.links.length - 1
   if (nextIndex === null) return
@@ -80,7 +84,12 @@ function handleMenuKeydown(event: KeyboardEvent) {
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
-  if (isOpen.value && event.target instanceof Node && !root.value?.contains(event.target)) closeMenu()
+  if (
+    isOpen.value &&
+    event.target instanceof Node &&
+    !root.value?.contains(event.target)
+  )
+    closeMenu()
 }
 
 function handleDocumentKeydown(event: KeyboardEvent) {
@@ -90,7 +99,11 @@ function handleDocumentKeydown(event: KeyboardEvent) {
 }
 
 function handleFocusOut(event: FocusEvent) {
-  if (event.relatedTarget instanceof Node && root.value?.contains(event.relatedTarget)) return
+  if (
+    event.relatedTarget instanceof Node &&
+    root.value?.contains(event.relatedTarget)
+  )
+    return
   closeMenu()
 }
 
@@ -148,8 +161,15 @@ onBeforeUnmount(() => {
         @click="closeMenu({ restoreFocus: true })"
       >
         <span class="flex min-w-0 items-center gap-2">
-          <span class="flex h-6 w-8 shrink-0 items-center justify-center" aria-hidden="true">
-            <img :src="serviceLogos[link.destination]" alt="" class="max-h-5 max-w-8 object-contain" />
+          <span
+            class="flex h-6 w-8 shrink-0 items-center justify-center"
+            aria-hidden="true"
+          >
+            <img
+              :src="serviceLogos[link.destination]"
+              alt=""
+              class="max-h-5 max-w-8 object-contain"
+            >
           </span>
           <span>{{ link.label }}</span>
         </span>

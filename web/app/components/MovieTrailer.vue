@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { Play, X } from '@lucide/vue'
-import { availableTrailerSelections, youtubeNoCookieTrailerEmbedUrl, type TrailerSelection } from '~/utils/youtubeTrailer'
+import {
+  availableTrailerSelections,
+  youtubeNoCookieTrailerEmbedUrl,
+  type TrailerSelection,
+} from '~/utils/youtubeTrailer'
 
 const props = defineProps<{
   movieTitle: string
@@ -15,13 +19,24 @@ const activeTrailer = ref<TrailerSelection | null>(null)
 const dialogTitleId = useId()
 let activeTrigger: HTMLButtonElement | null = null
 
-const trailerSelections = computed(() => availableTrailerSelections(props.vfYoutubeKey, props.voYoutubeKey))
+const trailerSelections = computed(() =>
+  availableTrailerSelections(props.vfYoutubeKey, props.voYoutubeKey),
+)
 const primaryTrailer = computed(() => trailerSelections.value[0] ?? null)
 const secondaryTrailer = computed(() => trailerSelections.value[1] ?? null)
-const embedUrl = computed(() => isOpen.value ? youtubeNoCookieTrailerEmbedUrl(activeTrailer.value?.youtubeKey) : null)
+const embedUrl = computed(() =>
+  isOpen.value
+    ? youtubeNoCookieTrailerEmbedUrl(activeTrailer.value?.youtubeKey)
+    : null,
+)
 
 async function openModal(trailer: TrailerSelection | null, event: MouseEvent) {
-  if (!trailer || isOpen.value || !(event.currentTarget instanceof HTMLButtonElement)) return
+  if (
+    !trailer ||
+    isOpen.value ||
+    !(event.currentTarget instanceof HTMLButtonElement)
+  )
+    return
 
   activeTrailer.value = trailer
   activeTrigger = event.currentTarget
@@ -46,15 +61,18 @@ function closeModal({ restoreFocus = true } = {}) {
   dialog.value?.close()
   isOpen.value = false
   activeTrailer.value = null
-  if (restoreFocus) nextTick(() => activeTrigger?.focus({ preventScroll: true }))
+  if (restoreFocus)
+    nextTick(() => activeTrigger?.focus({ preventScroll: true }))
   else activeTrigger = null
 }
 
 watch(trailerSelections, (selections) => {
   if (!isOpen.value || !activeTrailer.value) return
-  const selectedTrailerStillExists = selections.some(({ variant, youtubeKey }) => (
-    variant === activeTrailer.value?.variant && youtubeKey === activeTrailer.value.youtubeKey
-  ))
+  const selectedTrailerStillExists = selections.some(
+    ({ variant, youtubeKey }) =>
+      variant === activeTrailer.value?.variant &&
+      youtubeKey === activeTrailer.value.youtubeKey,
+  )
   if (!selectedTrailerStillExists) closeModal({ restoreFocus: false })
 })
 
@@ -85,10 +103,20 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
       @cancel.prevent="closeModal()"
       @click.self="closeModal()"
     >
-      <div class="flex min-h-full items-center justify-center" @click.self="closeModal()">
-        <div class="w-full max-w-6xl border-2 border-white bg-black shadow-[8px_8px_0_#ffcf3f]">
-          <header class="flex items-center justify-between gap-3 border-b-2 border-ink bg-[#f8f7f2] px-4 py-3 text-ink sm:gap-4 sm:px-5">
-            <h2 :id="dialogTitleId" class="min-w-0 truncate text-lg font-black tracking-[-0.035em] sm:text-2xl">
+      <div
+        class="flex min-h-full items-center justify-center"
+        @click.self="closeModal()"
+      >
+        <div
+          class="w-full max-w-6xl border-2 border-white bg-black shadow-[8px_8px_0_#ffcf3f]"
+        >
+          <header
+            class="flex items-center justify-between gap-3 border-b-2 border-ink bg-[#f8f7f2] px-4 py-3 text-ink sm:gap-4 sm:px-5"
+          >
+            <h2
+              :id="dialogTitleId"
+              class="min-w-0 truncate text-lg font-black tracking-[-0.035em] sm:text-2xl"
+            >
               Bande-annonce {{ activeTrailer?.variant }} de {{ movieTitle }}
             </h2>
             <div class="flex shrink-0 items-center gap-2">
