@@ -15,7 +15,7 @@ export interface StatisticsQuery {
   city?: string[]
   theater?: string[]
   chain?: Provider
-  language?: Exclude<ShowtimeLanguage, ''> | 'unknown'
+  language?: Exclude<ShowtimeLanguage, ''> | 'VOF' | 'unknown'
   format?: ShowtimeFormat | 'unknown'
   genre?: string
   pass?: string

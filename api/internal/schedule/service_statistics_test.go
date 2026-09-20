@@ -139,6 +139,106 @@ func TestStatisticsAggregatesPublicIdentityAndUnknowns(t *testing.T) {
 	}
 }
 
+func TestStatisticsVOF(t *testing.T) {
+	data := statisticsDataset()
+	data.PublicMovies = []PublicMovieRecord{
+		{ID: 1, Title: "French", TMDBID: 101, OriginalLanguage: "fr"},
+		{ID: 2, Title: "English", TMDBID: 102, OriginalLanguage: "en"},
+		{ID: 3, Title: "Unknown", TMDBID: 103},
+		{ID: 4, Title: "Redirect to French", RedirectToID: 1, TMDBID: 104, OriginalLanguage: "en"},
+		{ID: 5, Title: "Redirect to unknown", RedirectToID: 3, TMDBID: 105, OriginalLanguage: "fr"},
+	}
+	seed := data.Showtimes[0]
+	data.Showtimes = nil
+	for i, tc := range []struct {
+		movie    int64
+		language Language
+		source   string
+	}{
+		{1, LanguageVF, "en"}, {2, LanguageVF, "fr"}, {3, LanguageVF, "fr"},
+		{1, LanguageVFSME, "fr"}, {1, LanguageVFSTF, "fr"},
+		{1, LanguageVO, "fr"}, {1, LanguageVOSTFR, "fr"},
+		{1, "", "fr"}, {1, "invented", "fr"},
+		{4, LanguageVF, "en"}, {5, LanguageVF, "fr"},
+		{0, LanguageVF, "fr"}, // Confirmed source fallback without a canonical entry.
+		{2, LanguageVO, "en"}, {3, LanguageVOSTFR, ""},
+	} {
+		showing := seed
+		showing.ID, showing.ProviderShowingID = fmt.Sprintf("ugc-showing-%d", 900+i), fmt.Sprint(900+i)
+		showing.Movie.ProviderID, showing.Movie.Slug = fmt.Sprint(900+i), fmt.Sprintf("ugc-film-%d", 900+i)
+		showing.Movie.PublicMovieID = tc.movie
+		showing.Movie.Enrichment = &MovieEnrichment{TMDBID: int64(900 + i), OriginalLanguage: tc.source}
+		showing.Language, showing.ProviderVersion = tc.language, string(tc.language)
+		data.Showtimes = append(data.Showtimes, showing)
+	}
+	before := cloneDataset(data)
+	service := statisticsService(t, data, testServiceNow())
+	all := getStatistics(t, service, StatisticsQuery{})
+	want := []StatisticsCountBucket{
+		{Value: "VF", Label: "VF", Count: 3}, {Value: "VOF", Label: "VOF", Count: 3},
+		{Value: "unknown", Label: "Non renseigné", Count: 2}, {Value: "VO", Label: "VO", Count: 2}, {Value: "VOSTFR", Label: "VOSTFR", Count: 2},
+		{Value: "VF_SME", Label: "VF_SME", Count: 1}, {Value: "VFSTF", Label: "VFSTF", Count: 1},
+	}
+	if !reflect.DeepEqual(all.Versions, want) || !reflect.DeepEqual(all.Options.Languages, []string{"VF", "VFSTF", "VF_SME", "VO", "VOF", "VOSTFR", "unknown"}) {
+		t.Fatalf("versions=%+v options=%v", all.Versions, all.Options.Languages)
+	}
+	for _, bucket := range want {
+		filtered := getStatistics(t, service, StatisticsQuery{Language: bucket.Value})
+		if filtered.Totals.Showtimes != bucket.Count || !reflect.DeepEqual(filtered.Versions, []StatisticsCountBucket{bucket}) || !reflect.DeepEqual(filtered.Options, all.Options) {
+			t.Fatalf("filter %s: totals=%+v versions=%+v options=%+v", bucket.Value, filtered.Totals, filtered.Versions, filtered.Options)
+		}
+	}
+	for _, query := range []StatisticsQuery{{Language: "VOF", Film: "film-2"}, {Language: "VOF", City: []string{"absent"}}, {Language: "VOF", Date: "2026-09-01"}} {
+		empty := getStatistics(t, service, query)
+		if empty.Totals != (StatisticsTotals{}) || len(empty.Versions) != 0 || !reflect.DeepEqual(empty.Options, all.Options) {
+			t.Fatal("empty intersection changed inventory", empty)
+		}
+	}
+	if !reflect.DeepEqual(cloneDataset(data), before) {
+		t.Fatal("statistics mutated input")
+	}
+	// Removing French metadata restores the former plain-VF bucket only.
+	baseline := cloneDataset(data)
+	for i := range baseline.PublicMovies {
+		baseline.PublicMovies[i].OriginalLanguage = ""
+	}
+	for i := range baseline.Showtimes {
+		baseline.Showtimes[i].Movie.Enrichment.OriginalLanguage = ""
+	}
+	baseService := statisticsService(t, baseline, testServiceNow())
+	base := getStatistics(t, baseService, StatisticsQuery{})
+	if base.Versions[0] != (StatisticsCountBucket{Value: "VF", Label: "VF", Count: 6}) || want[0].Count+want[1].Count != base.Versions[0].Count || slices.Contains(base.Options.Languages, "VOF") {
+		t.Fatal("VF partition or unobserved option", base.Versions, base.Options.Languages)
+	}
+	empty := getStatistics(t, baseService, StatisticsQuery{Language: "VOF"})
+	if empty.Totals != (StatisticsTotals{}) || len(empty.Versions) != 0 || !reflect.DeepEqual(empty.Options, base.Options) {
+		t.Fatal("valid unobserved VOF", empty)
+	}
+	all.Versions, base.Versions = nil, nil
+	all.Options.Languages, base.Options.Languages = nil, nil
+	if !reflect.DeepEqual(all, base) {
+		t.Fatal("reclassification changed unrelated aggregates")
+	}
+	if statisticsLanguage(LanguageVOF) != statisticsUnknown {
+		t.Fatal("query-only VOF became a stored version")
+	}
+}
+
+func TestStatisticsVOFQuery(t *testing.T) {
+	service := statisticsService(t, statisticsDataset(), testServiceNow())
+	for _, language := range []string{"VOF", " VOF ", strings.Repeat(" ", 197) + "VOF"} {
+		query, _, err := service.statisticsQuery(StatisticsQuery{Language: language}, testServiceNow())
+		if err != nil || query.Language != "VOF" {
+			t.Fatalf("language=%q query=%+v err=%v", language, query, err)
+		}
+	}
+	for _, language := range []string{"vof", "ORIGINAL", "ALL", "VOF,VF", "VOF|VOSTFR", "VOF\x00", "\xff", strings.Repeat(" ", 198) + "VOF"} {
+		if _, _, err := service.statisticsQuery(StatisticsQuery{Language: language}, testServiceNow()); err == nil {
+			t.Fatalf("accepted %q", language)
+		}
+	}
+}
+
 func TestStatisticsGenreAliases(t *testing.T) {
 	for _, tc := range []struct {
 		label   string

@@ -14,7 +14,7 @@ export const statisticsChainLabels = {
   ugc: 'UGC', kinepolis: 'Kinepolis', pathe: 'Pathé', cgr: 'CGR', megarama: 'Megarama', cineville: 'Cinéville', mk2: 'MK2', cinewest: 'CinéWest', grandecran: 'Grand Écran', noecinemas: 'Noé Cinémas'
 } as const satisfies Record<Provider, string>
 const chains = Object.keys(statisticsChainLabels)
-const languages = [...showtimeLanguageValues, 'unknown'] as const
+const languages = [...showtimeLanguageValues, 'VOF', 'unknown'] as const
 const formats = [...formatOptions.filter(option => option.value !== 'ALL').map(option => option.value), 'unknown']
 const invalidFilters = 'Filtres invalides. Vérifiez les champs ou réinitialisez la sélection.'
 

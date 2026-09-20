@@ -62,6 +62,25 @@ func TestHistoryHTTPContract(t *testing.T) {
 	}
 }
 
+func TestHistoryHTTPVOFContract(t *testing.T) {
+	for _, raw := range []string{"language=VOF", "language=+VOF+", "language=" + strings.Repeat("+", 197) + "VOF", "language=VOF" + strings.Repeat("&", 4096-len("language=VOF"))} {
+		f := &fakeHistoryReader{}
+		h := NewHandlerWithOptions(nil, "", HandlerOptions{History: f})
+		r := performRequest(t, h, "/api/v1/statistics/history?"+raw)
+		if r.Code != http.StatusOK || r.Header().Get("Cache-Control") != "no-store" || f.calls != 1 || f.stats.Language != "VOF" {
+			t.Fatal(raw, r.Code, r.Body.String(), f.calls, f.stats)
+		}
+	}
+	for _, raw := range statisticsVOFInvalidQueries() {
+		f := &fakeHistoryReader{}
+		h := NewHandlerWithOptions(nil, "", HandlerOptions{History: f})
+		r := performRequest(t, h, "/api/v1/statistics/history?"+raw)
+		if r.Code != http.StatusBadRequest || r.Header().Get("Cache-Control") != "no-store" || f.calls != 0 || !strings.Contains(r.Body.String(), `"code":"invalid_query"`) {
+			t.Fatal(raw, r.Code, r.Body.String(), f.calls)
+		}
+	}
+}
+
 func TestHistoryHTTPInvalidBounds(t *testing.T) {
 	stats := []string{"date_to=2026-01-01", "date=0000-01-01", "date=10000-01-01", "date=2026-2-01", "date=2026-02-30", "date=2026-08-16&date_to=2026-08-15", "city=%FF", "city=%zz", "city=x;y=z", "unknown=x", "mode=history", "chain=other", "language=ALL", "language=VFSME", "format=imax", "city[]=lille"}
 	for _, key := range []string{"date", "date_to", "chain", "language", "format", "genre", "pass"} {
