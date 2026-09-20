@@ -29,6 +29,7 @@ interface PageState {
   visibleResults: Ref<ShowtimeResultViewModel[]>
   shareTarget: Ref<string | null>
   isFilterSheetOpen: Ref<boolean>
+  isResolvingInitialSearch: Ref<boolean>
   initializePreferences: () => Promise<void>
   canonicalizeShowtimeSelection: () => Promise<void>
   setSelectedOnly: (event: { target: { checked: boolean } }) => Promise<void>
@@ -75,7 +76,7 @@ function harness(query: LocationQuery, searchSlot: () => Promise<SlotResult[]> =
   }
   const scope = effectScope()
   // SAFETY: The setup wrapper explicitly returns these page bindings; lifecycle tests exercise their runtime shape.
-  const page = scope.run(() => new Function(...Object.keys(bindings), `${compiled}\nreturn { form, pending, selectedOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch }`)(...Object.values(bindings))) as PageState
+  const page = scope.run(() => new Function(...Object.keys(bindings), `${compiled}\nreturn { form, pending, selectedOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch }`)(...Object.values(bindings))) as PageState
   return { page, route, stop: () => scope.stop(), searchCalls: () => searchCalls }
 }
 
@@ -108,6 +109,24 @@ test('shared selected-only state survives loading and validates only after resul
   assert.deepEqual(page.visibleResults.value.map((result) => result.key), ['ugc:ugc-showing-12'])
   assert.equal(new URL(page.shareTarget.value!, 'https://messeances.fr').searchParams.get('selected'), 'u12')
   assert.equal(searchCalls(), 1)
+})
+
+test('complete route search stays in loading state until initial results resolve', async (context) => {
+  let resolveSearch!: (results: SlotResult[]) => void
+  const search = new Promise<SlotResult[]>((resolve) => { resolveSearch = resolve })
+  const { page, stop } = harness(searchQuery, () => search)
+  context.after(stop)
+
+  assert.equal(page.isResolvingInitialSearch.value, true)
+  const initialization = page.initializePreferences()
+  await settle()
+  assert.equal(page.isResolvingInitialSearch.value, true)
+  assert.equal(page.pending.value, true)
+
+  resolveSearch(response)
+  await initialization
+  assert.equal(page.isResolvingInitialSearch.value, false)
+  assert.equal(page.pending.value, false)
 })
 
 test('toggle and same-search navigation preserve selections, draft filters and mobile sheet without refetching', async (context) => {
