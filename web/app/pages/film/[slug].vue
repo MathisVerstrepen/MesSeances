@@ -1,21 +1,61 @@
 <script setup lang="ts">
-import { AlertTriangle, ArrowDownUp, CalendarDays, ChartNoAxesCombined, Film, LoaderCircle, MapPin, RefreshCw, SlidersHorizontal } from '@lucide/vue'
-import type { MovieShowtimesResponse, MovieShowtimesTheater, Showtime, ShowtimeFormat } from '~/types/api'
-import { formatDateLabel, formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
+import {
+  AlertTriangle,
+  ArrowDownUp,
+  CalendarDays,
+  ChartNoAxesCombined,
+  Film,
+  LoaderCircle,
+  MapPin,
+  RefreshCw,
+  SlidersHorizontal,
+} from '@lucide/vue'
+import type {
+  MovieShowtimesResponse,
+  MovieShowtimesTheater,
+  Showtime,
+  ShowtimeFormat,
+} from '~/types/api'
+import {
+  formatDateLabel,
+  formatLongDate,
+  formatParisTime,
+  todayInParis,
+} from '~/utils/date'
 import { isShowtimeFormat } from '~/utils/formats'
-import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import {
+  calendarDate,
+  enumQueryValue,
+  mergeOwnedQuery,
+  queriesEqual,
+  singularQueryValue,
+} from '~/utils/routeQuery'
 import { buildFilmJsonLd } from '~/utils/filmJsonLd'
-import { resolveShowtimeEnd, type ResolvedShowtimeEnd } from '~/utils/showtimeEnd'
-import { loadInitialFilmSchedule, NationwideInitialScheduleError } from '~/utils/filmInitialSchedule'
+import {
+  resolveShowtimeEnd,
+  type ResolvedShowtimeEnd,
+} from '~/utils/showtimeEnd'
+import {
+  loadInitialFilmSchedule,
+  NationwideInitialScheduleError,
+} from '~/utils/filmInitialSchedule'
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
-import { availableFormatOptions, availableLanguageOptions, showtimeFilterSummary, showtimeLanguageValues } from '~/utils/showtimeFilters'
+import {
+  availableFormatOptions,
+  availableFilmLanguageOptions,
+  filmLanguageValues,
+  languageLabel,
+  matchesFilmLanguageFilter,
+  showtimeFilterSummary,
+  type FilmLanguageFilter,
+} from '~/utils/showtimeFilters'
 
-type LanguageFilter = 'ALL' | Showtime['language']
+type LanguageFilter = FilmLanguageFilter
 type TechnologyFilter = 'ALL' | ShowtimeFormat
 type ShowtimeTimingState = 'upcoming' | 'warning' | 'past'
 type MobileControlPanel = 'date' | 'filters'
@@ -46,9 +86,17 @@ const synopsisOverflows = ref(false)
 const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
 const isEndedFilm = computed(() => schedule.value?.release_status === 'ended')
-const isUpcomingFilm = computed(() => schedule.value?.release_status === 'upcoming')
-const hasNoSessions = computed(() => schedule.value !== null && !schedule.value.currently_screened)
-const frenchReleaseLabel = computed(() => schedule.value?.movie.french_release_date ? formatFrenchReleaseDate(schedule.value.movie.french_release_date) : '')
+const isUpcomingFilm = computed(
+  () => schedule.value?.release_status === 'upcoming',
+)
+const hasNoSessions = computed(
+  () => schedule.value !== null && !schedule.value.currently_screened,
+)
+const frenchReleaseLabel = computed(() =>
+  schedule.value?.movie.french_release_date
+    ? formatFrenchReleaseDate(schedule.value.movie.french_release_date)
+    : '',
+)
 let requestId = 0
 let currentTimeTimer: number | undefined
 let dayCheckTimer: number | undefined
@@ -58,7 +106,7 @@ let lastScheduleKey = ''
 
 const slug = computed(() => {
   const value = route.params.slug
-  return Array.isArray(value) ? value[0] ?? '' : value ?? ''
+  return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
 })
 
 function nonPastAvailableDates(response: MovieShowtimesResponse): string[] {
@@ -69,13 +117,19 @@ function nonPastAvailableDates(response: MovieShowtimesResponse): string[] {
 
 function resolvedAvailableDate(dates: string[], requestedDate: string): string {
   if (dates.includes(requestedDate)) return requestedDate
-  return dates.includes(today.value) ? today.value : dates[0] ?? today.value
+  return dates.includes(today.value) ? today.value : (dates[0] ?? today.value)
 }
 
-const availableDates = computed(() => schedule.value ? nonPastAvailableDates(schedule.value) : [])
+const availableDates = computed(() =>
+  schedule.value ? nonPastAvailableDates(schedule.value) : [],
+)
 const hasAvailableDates = computed(() => availableDates.value.length > 0)
-const backdropUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url))
-const backdropAvailable = computed(() => Boolean(backdropUrl.value) && !backdropFailed.value)
+const backdropUrl = computed(() =>
+  safeBackdropUrl(schedule.value?.backdrop_url),
+)
+const backdropAvailable = computed(
+  () => Boolean(backdropUrl.value) && !backdropFailed.value,
+)
 const releaseDateLabel = computed(() => {
   const value = schedule.value?.movie.release_date
   if (!value) return ''
@@ -84,32 +138,57 @@ const releaseDateLabel = computed(() => {
   if (!year || !month || !day) return ''
 
   const date = new Date(Date.UTC(year, month - 1, day, 12))
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return ''
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  )
+    return ''
 
   return new Intl.DateTimeFormat('fr-FR', {
     timeZone: 'Europe/Paris',
     day: 'numeric',
     month: 'long',
-    year: 'numeric'
+    year: 'numeric',
   }).format(date)
 })
-const externalLinks = computed(() => buildMovieExternalLinks(schedule.value?.movie.tmdb_id, schedule.value?.movie.imdb_id))
-const tmdbUrl = computed(() => externalLinks.value.find((link) => link.destination === 'tmdb')?.url ?? '')
+const externalLinks = computed(() =>
+  buildMovieExternalLinks(
+    schedule.value?.movie.tmdb_id,
+    schedule.value?.movie.imdb_id,
+  ),
+)
+const tmdbUrl = computed(
+  () =>
+    externalLinks.value.find((link) => link.destination === 'tmdb')?.url ?? '',
+)
 const languages = computed<Array<Showtime['language']>>(() => {
-  const values = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.language)) ?? []
+  const values =
+    schedule.value?.theaters.flatMap((theater) =>
+      theater.showtimes.map((showtime) => showtime.language),
+    ) ?? []
   return [...new Set(values)]
 })
-const languageOptions = computed<Array<{ value: LanguageFilter; label: string }>>(() => [
-  ...availableLanguageOptions(languages.value)
-])
+const languageOptions = computed<
+  Array<{ value: LanguageFilter; label: string }>
+>(() => [...availableFilmLanguageOptions(languages.value)])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
-  const formats = schedule.value?.theaters.flatMap((theater) => theater.showtimes.map((showtime) => showtime.format)) ?? []
+  const formats =
+    schedule.value?.theaters.flatMap((theater) =>
+      theater.showtimes.map((showtime) => showtime.format),
+    ) ?? []
   return [...new Set(formats)]
 })
-const technologyOptions = computed<Array<{ value: TechnologyFilter; label: string }>>(() => [
-  ...availableFormatOptions(technologyFormats.value)
-])
-const activeFilterSummary = computed(() => showtimeFilterSummary(activeLanguage.value, activeTechnology.value))
+const technologyOptions = computed<
+  Array<{ value: TechnologyFilter; label: string }>
+>(() => [...availableFormatOptions(technologyFormats.value)])
+const activeFilterSummary = computed(() =>
+  showtimeFilterSummary(
+    activeLanguage.value,
+    activeTechnology.value,
+    schedule.value?.movie.original_language,
+  ),
+)
 
 function toggleMobilePanel(panel: MobileControlPanel) {
   openMobilePanel.value = openMobilePanel.value === panel ? null : panel
@@ -119,7 +198,12 @@ function closeMobilePanel(event?: KeyboardEvent) {
   const panel = openMobilePanel.value
   openMobilePanel.value = null
   if (!event || !panel) return
-  nextTick(() => (panel === 'date' ? mobileDateTrigger.value : mobileFilterTrigger.value)?.focus())
+  nextTick(() =>
+    (panel === 'date'
+      ? mobileDateTrigger.value
+      : mobileFilterTrigger.value
+    )?.focus(),
+  )
 }
 
 function updateSynopsisOverflow() {
@@ -150,8 +234,14 @@ function selectMobileDate(date: string) {
 }
 
 function matchesFilter(showtime: Showtime): boolean {
-  const matchesLanguage = activeLanguage.value === 'ALL' || showtime.language === activeLanguage.value
-  const matchesTechnology = activeTechnology.value === 'ALL' || showtime.format === activeTechnology.value
+  const matchesLanguage = matchesFilmLanguageFilter(
+    showtime.language,
+    activeLanguage.value,
+    showtime.movie.original_language,
+  )
+  const matchesTechnology =
+    activeTechnology.value === 'ALL' ||
+    showtime.format === activeTechnology.value
   return matchesLanguage && matchesTechnology
 }
 
@@ -164,40 +254,73 @@ function showtimeTimingState(showtime: Showtime): ShowtimeTimingState {
 
   const startTime = Date.parse(showtime.start_time)
   if (!Number.isFinite(startTime)) return 'upcoming'
-  if (currentTime.value > startTime + SHOWTIME_WARNING_DURATION_MS) return 'past'
+  if (currentTime.value > startTime + SHOWTIME_WARNING_DURATION_MS)
+    return 'past'
   if (currentTime.value >= startTime) return 'warning'
   return 'upcoming'
 }
 
-const visibleTheaters = computed<Array<MovieShowtimesTheater & { showtimes: Array<Showtime & { timingState: ShowtimeTimingState; end: ResolvedShowtimeEnd | null }> }>>(() => {
+const visibleTheaters = computed<
+  Array<
+    MovieShowtimesTheater & {
+      showtimes: Array<
+        Showtime & {
+          timingState: ShowtimeTimingState
+          end: ResolvedShowtimeEnd | null
+        }
+      >
+    }
+  >
+>(() => {
   if (!schedule.value) return []
 
-  const favoriteOrder = new Map(preferences.activeTheaterIds.value.map((id, index) => [id, index]))
-  const sourceOrder = new Map(schedule.value.theaters.map((theater, index) => [theater.id, index]))
+  const favoriteOrder = new Map(
+    preferences.activeTheaterIds.value.map((id, index) => [id, index]),
+  )
+  const sourceOrder = new Map(
+    schedule.value.theaters.map((theater, index) => [theater.id, index]),
+  )
   const theaters = schedule.value.theaters
     .map((theater) => ({
       ...theater,
-      showtimes: theater.showtimes
-        .filter(matchesFilter)
-        .map((showtime) => ({ ...showtime, timingState: showtimeTimingState(showtime), end: resolveShowtimeEnd(showtime) }))
+      showtimes: theater.showtimes.filter(matchesFilter).map((showtime) => ({
+        ...showtime,
+        timingState: showtimeTimingState(showtime),
+        end: resolveShowtimeEnd(showtime),
+      })),
     }))
     .filter((theater) => theater.showtimes.length > 0)
 
   return theaters.sort((left, right) => {
     if (sortByNextShowtime.value) {
-      const earliestTime = (theater: MovieShowtimesTheater) => Math.min(...theater.showtimes.map((showtime) => Date.parse(showtime.start_time)))
+      const earliestTime = (theater: MovieShowtimesTheater) =>
+        Math.min(
+          ...theater.showtimes.map((showtime) =>
+            Date.parse(showtime.start_time),
+          ),
+        )
       const timeDifference = earliestTime(left) - earliestTime(right)
       if (timeDifference !== 0) return timeDifference
     }
 
-    return (favoriteOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (favoriteOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-      || (sourceOrder.get(left.id) ?? 0) - (sourceOrder.get(right.id) ?? 0)
+    return (
+      (favoriteOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+        (favoriteOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER) ||
+      (sourceOrder.get(left.id) ?? 0) - (sourceOrder.get(right.id) ?? 0)
+    )
   })
 })
-const visibleShowtimeCount = computed(() => visibleTheaters.value.reduce((total, theater) => total + theater.showtimes.length, 0))
+const visibleShowtimeCount = computed(() =>
+  visibleTheaters.value.reduce(
+    (total, theater) => total + theater.showtimes.length,
+    0,
+  ),
+)
 
 function fallbackDate(): string {
-  return availableDates.value.includes(today.value) ? today.value : availableDates.value[0] ?? today.value
+  return availableDates.value.includes(today.value)
+    ? today.value
+    : (availableDates.value[0] ?? today.value)
 }
 
 function isAvailableDate(value: string | undefined): value is string {
@@ -208,46 +331,77 @@ function isAvailableDate(value: string | undefined): value is string {
 
 function filmQuery() {
   return mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {
-    date: selectedDate.value === fallbackDate() ? undefined : selectedDate.value,
+    date:
+      selectedDate.value === fallbackDate() ? undefined : selectedDate.value,
     language: activeLanguage.value === 'ALL' ? undefined : activeLanguage.value,
-    format: activeTechnology.value === 'ALL' ? undefined : activeTechnology.value,
-    sort: sortByNextShowtime.value ? 'next' : undefined
+    format:
+      activeTechnology.value === 'ALL' ? undefined : activeTechnology.value,
+    sort: sortByNextShowtime.value ? 'next' : undefined,
   })
 }
 
-function updateFilmQuery(values: Partial<Record<'date' | 'language' | 'format' | 'sort', string | undefined>>) {
+function updateFilmQuery(
+  values: Partial<
+    Record<'date' | 'language' | 'format' | 'sort', string | undefined>
+  >,
+) {
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
   if (!queriesEqual(route.query, query)) router.replace({ query })
 }
 
 function hydrateRoute() {
   const requestedDate = calendarDate(singularQueryValue(route.query.date))
-  selectedDate.value = isAvailableDate(requestedDate) ? requestedDate : fallbackDate()
+  selectedDate.value = isAvailableDate(requestedDate)
+    ? requestedDate
+    : fallbackDate()
 
   const requestedLanguage = singularQueryValue(route.query.language)
-  activeLanguage.value = requestedLanguage === 'ALL'
-    ? 'ALL'
-    : enumQueryValue(requestedLanguage, showtimeLanguageValues) ?? 'ALL'
+  activeLanguage.value =
+    requestedLanguage === 'ALL'
+      ? 'ALL'
+      : (enumQueryValue(requestedLanguage, filmLanguageValues) ?? 'ALL')
 
   const requestedFormat = singularQueryValue(route.query.format)
-  activeTechnology.value = requestedFormat === 'ALL'
-    ? 'ALL'
-    : requestedFormat && isShowtimeFormat(requestedFormat) ? requestedFormat : 'ALL'
+  activeTechnology.value =
+    requestedFormat === 'ALL'
+      ? 'ALL'
+      : requestedFormat && isShowtimeFormat(requestedFormat)
+        ? requestedFormat
+        : 'ALL'
   sortByNextShowtime.value = singularQueryValue(route.query.sort) === 'next'
   return filmQuery()
 }
 
 async function normalizeDynamicFilters() {
   const values: Record<string, string | undefined> = {}
-  if (activeLanguage.value !== 'ALL' && !languages.value.includes(activeLanguage.value)) values.language = undefined
-  if (activeTechnology.value !== 'ALL' && !technologyFormats.value.includes(activeTechnology.value)) values.format = undefined
+  if (
+    activeLanguage.value !== 'ALL' &&
+    activeLanguage.value !== 'ORIGINAL' &&
+    activeLanguage.value !== 'VOF' &&
+    !languages.value.includes(activeLanguage.value)
+  )
+    values.language = undefined
+  if (
+    activeTechnology.value !== 'ALL' &&
+    !technologyFormats.value.includes(activeTechnology.value)
+  )
+    values.format = undefined
   if (Object.keys(values).length === 0) return
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
-function bookingLabel(showtime: Showtime, theater: MovieShowtimesTheater, timingState: ShowtimeTimingState): string {
-  const timingLabel = timingState === 'warning' ? ', séance commencée' : timingState === 'past' ? ', séance passée' : ''
+function bookingLabel(
+  showtime: Showtime,
+  theater: MovieShowtimesTheater,
+  timingState: ShowtimeTimingState,
+): string {
+  const timingLabel =
+    timingState === 'warning'
+      ? ', séance commencée'
+      : timingState === 'past'
+        ? ', séance passée'
+        : ''
   return `Séance de ${formatParisTime(showtime.start_time)} à ${theater.name}${timingLabel}, réserver`
 }
 
@@ -270,21 +424,41 @@ async function loadSchedule() {
 
   try {
     // Resolve nationwide screening evidence before sending saved theater IDs.
-    let response = await api.movieShowtimes(slug.value, { date: selectedDate.value })
+    let response = await api.movieShowtimes(slug.value, {
+      date: selectedDate.value,
+    })
     if (currentRequest !== requestId) return
-    if (response.currently_screened && !preferences.isInitialized.value) await preferences.initialize()
+    if (response.currently_screened && !preferences.isInitialized.value)
+      await preferences.initialize()
     if (currentRequest !== requestId) return
-    const theaterIds = response.currently_screened && preferences.isInitialized.value && preferences.activeTheaterIds.value.length
-      ? preferences.activeTheaterIds.value.join(',') : undefined
-    if (theaterIds) response = await api.movieShowtimes(slug.value, { date: selectedDate.value, theaters: theaterIds })
+    const theaterIds =
+      response.currently_screened &&
+      preferences.isInitialized.value &&
+      preferences.activeTheaterIds.value.length
+        ? preferences.activeTheaterIds.value.join(',')
+        : undefined
+    if (theaterIds)
+      response = await api.movieShowtimes(slug.value, {
+        date: selectedDate.value,
+        theaters: theaterIds,
+      })
     if (response.movie.slug !== slug.value) {
-      await navigateTo({ path: `/film/${encodeURIComponent(response.movie.slug)}`, query: route.query }, { redirectCode: 308, replace: true })
+      await navigateTo(
+        {
+          path: `/film/${encodeURIComponent(response.movie.slug)}`,
+          query: route.query,
+        },
+        { redirectCode: 308, replace: true },
+      )
       return
     }
     if (currentRequest === requestId) {
       schedule.value = response
       const responseDates = nonPastAvailableDates(response)
-      const resolvedDate = resolvedAvailableDate(responseDates, selectedDate.value)
+      const resolvedDate = resolvedAvailableDate(
+        responseDates,
+        selectedDate.value,
+      )
 
       if (resolvedDate !== selectedDate.value && responseDates.length > 0) {
         selectedDate.value = resolvedDate
@@ -293,7 +467,7 @@ async function loadSchedule() {
         if (!queriesEqual(route.query, query)) await router.replace({ query })
         response = await api.movieShowtimes(slug.value, {
           date: resolvedDate,
-          theaters: theaterIds
+          theaters: theaterIds,
         })
       } else if (responseDates.length === 0) {
         selectedDate.value = today.value
@@ -303,7 +477,8 @@ async function loadSchedule() {
       schedule.value = response
       isPersonalizedSchedule.value = Boolean(theaterIds)
       const canonicalQuery = filmQuery()
-      if (!queriesEqual(route.query, canonicalQuery)) await router.replace({ query: canonicalQuery })
+      if (!queriesEqual(route.query, canonicalQuery))
+        await router.replace({ query: canonicalQuery })
       await nextTick()
       await normalizeDynamicFilters()
     }
@@ -359,7 +534,7 @@ async function refreshFilmDay() {
 
 function scheduleDayCheck() {
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
-  const delay = 60_000 - Date.now() % 60_000
+  const delay = 60_000 - (Date.now() % 60_000)
   dayCheckTimer = window.setTimeout(() => {
     dayCheckTimer = undefined
     void refreshFilmDay()
@@ -382,34 +557,66 @@ hydrateRoute()
 const initialScheduleKey = `${slug.value}|${selectedDate.value}`
 const initialRequestedDate = selectedDate.value
 const nationwideSeo: NationwideSeoState = { schedule: null }
-const initialResult = await useAsyncData(`film-schedule:${initialScheduleKey}`, async () => {
-  try {
-    const result = await loadInitialFilmSchedule({
-      requestedDate: initialRequestedDate,
-      today: today.value,
-      fetchScoped: (date) => api.movieShowtimes(slug.value, { date, city: 'Paris' }),
-      fetchNationwide: (date) => api.movieShowtimes(slug.value, { date }),
-      fetchBundle: import.meta.server && api.hasInternalApiIdentity
-        ? (date) => api.movieShowtimesBundle(slug.value, date)
-        : undefined
-    })
-    if (import.meta.server) nationwideSeo.schedule = result.nationwide
-    return { kind: 'success' as const, schedule: result.scoped, selectedDate: result.selectedDate, errorMessage: '' }
-  } catch (error) {
-    if (error instanceof NationwideInitialScheduleError) {
-      return { kind: 'upstream-error' as const, schedule: null, selectedDate: error.selectedDate, errorMessage: getFrenchApiError(error.upstreamCause) }
+const initialResult = await useAsyncData(
+  `film-schedule:${initialScheduleKey}`,
+  async () => {
+    try {
+      const result = await loadInitialFilmSchedule({
+        requestedDate: initialRequestedDate,
+        today: today.value,
+        fetchScoped: (date) =>
+          api.movieShowtimes(slug.value, { date, city: 'Paris' }),
+        fetchNationwide: (date) => api.movieShowtimes(slug.value, { date }),
+        fetchBundle:
+          import.meta.server && api.hasInternalApiIdentity
+            ? (date) => api.movieShowtimesBundle(slug.value, date)
+            : undefined,
+      })
+      if (import.meta.server) nationwideSeo.schedule = result.nationwide
+      return {
+        kind: 'success' as const,
+        schedule: result.scoped,
+        selectedDate: result.selectedDate,
+        errorMessage: '',
+      }
+    } catch (error) {
+      if (error instanceof NationwideInitialScheduleError) {
+        return {
+          kind: 'upstream-error' as const,
+          schedule: null,
+          selectedDate: error.selectedDate,
+          errorMessage: getFrenchApiError(error.upstreamCause),
+        }
+      }
+      if (isNotFoundError(error)) {
+        return {
+          kind: 'not-found' as const,
+          schedule: null,
+          selectedDate: selectedDate.value,
+          errorMessage: '',
+        }
+      }
+      return {
+        kind: 'upstream-error' as const,
+        schedule: null,
+        selectedDate: selectedDate.value,
+        errorMessage: getFrenchApiError(error),
+      }
     }
-    if (isNotFoundError(error)) {
-      return { kind: 'not-found' as const, schedule: null, selectedDate: selectedDate.value, errorMessage: '' }
-    }
-    return { kind: 'upstream-error' as const, schedule: null, selectedDate: selectedDate.value, errorMessage: getFrenchApiError(error) }
-  }
-})
+  },
+)
 
 const initialState = initialResult.data.value
 const responseSlug = initialState?.schedule?.movie.slug
-if (initialState?.kind === 'success' && responseSlug && responseSlug !== slug.value) {
-  await navigateTo({ path: `/film/${encodeURIComponent(responseSlug)}`, query: route.query }, { redirectCode: 308, replace: true })
+if (
+  initialState?.kind === 'success' &&
+  responseSlug &&
+  responseSlug !== slug.value
+) {
+  await navigateTo(
+    { path: `/film/${encodeURIComponent(responseSlug)}`, query: route.query },
+    { redirectCode: 308, replace: true },
+  )
 }
 schedule.value = initialState?.schedule ?? null
 selectedDate.value = initialState?.selectedDate ?? selectedDate.value
@@ -418,24 +625,31 @@ errorMessage.value = initialState?.errorMessage ?? ''
 pending.value = false
 if (import.meta.server && initialState?.kind !== 'success') {
   const event = useRequestEvent()
-  if (event) setResponseStatus(event, initialState?.kind === 'not-found' ? 404 : 502)
+  if (event)
+    setResponseStatus(event, initialState?.kind === 'not-found' ? 404 : 502)
 }
 
 watch(
   () => preferences.activeTheaterIds.value.join(','),
   () => {
     if (isReady) applyRoute()
-  }
+  },
 )
-watch(() => route.query, () => {
-  if (isReady) applyRoute()
-})
-watch(() => schedule.value?.movie.overview, async () => {
-  synopsisExpanded.value = false
-  synopsisOverflows.value = false
-  await nextTick()
-  observeSynopsis()
-})
+watch(
+  () => route.query,
+  () => {
+    if (isReady) applyRoute()
+  },
+)
+watch(
+  () => schedule.value?.movie.overview,
+  async () => {
+    synopsisExpanded.value = false
+    synopsisOverflows.value = false
+    await nextTick()
+    observeSynopsis()
+  },
+)
 watch(slug, () => {
   schedule.value = null
   isPersonalizedSchedule.value = false
@@ -464,26 +678,57 @@ onBeforeUnmount(() => {
 
 const config = useRuntimeConfig()
 const canonicalSlug = computed(() => schedule.value?.movie.slug ?? slug.value)
-const canonicalUrl = computed(() => absoluteSiteUrl(config.public.siteUrl, `/film/${encodeURIComponent(canonicalSlug.value)}`))
-const fallbackImageUrl = absoluteSiteUrl(config.public.siteUrl, '/pwa-512x512.png')
+const canonicalUrl = computed(() =>
+  absoluteSiteUrl(
+    config.public.siteUrl,
+    `/film/${encodeURIComponent(canonicalSlug.value)}`,
+  ),
+)
+const fallbackImageUrl = absoluteSiteUrl(
+  config.public.siteUrl,
+  '/pwa-512x512.png',
+)
 const seoTitle = computed(() => {
   if (!schedule.value) return 'Séances du film - MesSeances'
   const title = schedule.value.movie.title
-  if (isUpcomingFilm.value) return `${title} : prochainement au cinéma - MesSeances`
-  if (schedule.value.release_status === 'unavailable') return `${title} - MesSeances`
+  if (isUpcomingFilm.value)
+    return `${title} : prochainement au cinéma - MesSeances`
+  if (schedule.value.release_status === 'unavailable')
+    return `${title} - MesSeances`
   return `${title} : horaires et séances au cinéma - MesSeances`
 })
 const seoDescription = computed(() => {
   const movie = schedule.value?.movie
-  if (!movie) return 'Consultez les séances, horaires et cinémas disponibles pour ce film sur MesSeances.'
-  if (isUpcomingFilm.value) return movie.overview?.trim() || `${movie.title}, sortie au cinéma le ${frenchReleaseLabel.value}.`
-  if (schedule.value?.release_status === 'unavailable') return movie.overview?.trim() || `Retrouvez ${movie.title} sur MesSeances.`
-  return movie.overview?.trim() || `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
+  if (!movie)
+    return 'Consultez les séances, horaires et cinémas disponibles pour ce film sur MesSeances.'
+  if (isUpcomingFilm.value)
+    return (
+      movie.overview?.trim() ||
+      `${movie.title}, sortie au cinéma le ${frenchReleaseLabel.value}.`
+    )
+  if (schedule.value?.release_status === 'unavailable')
+    return movie.overview?.trim() || `Retrouvez ${movie.title} sur MesSeances.`
+  return (
+    movie.overview?.trim() ||
+    `Retrouvez toutes les séances de ${movie.title} et choisissez votre cinéma sur MesSeances.`
+  )
 })
-const seoImageUrl = computed(() => safeBackdropUrl(schedule.value?.backdrop_url) ?? safePosterUrl(schedule.value?.movie.poster_url) ?? fallbackImageUrl)
-const robots = computed(() => schedule.value && schedule.value.movie.slug === slug.value && Object.keys(route.query).length === 0 && !errorMessage.value && !notFound.value && isIndexableMovie(schedule.value.movie, schedule.value.currently_screened)
-  ? 'index,follow'
-  : 'noindex,follow')
+const seoImageUrl = computed(
+  () =>
+    safeBackdropUrl(schedule.value?.backdrop_url) ??
+    safePosterUrl(schedule.value?.movie.poster_url) ??
+    fallbackImageUrl,
+)
+const robots = computed(() =>
+  schedule.value &&
+  schedule.value.movie.slug === slug.value &&
+  Object.keys(route.query).length === 0 &&
+  !errorMessage.value &&
+  !notFound.value &&
+  isIndexableMovie(schedule.value.movie, schedule.value.currently_screened)
+    ? 'index,follow'
+    : 'noindex,follow',
+)
 useSeoMeta({
   robots,
   title: seoTitle,
@@ -498,48 +743,121 @@ useSeoMeta({
   twitterCard: 'summary_large_image',
   twitterTitle: seoTitle,
   twitterDescription: seoDescription,
-  twitterImage: seoImageUrl
+  twitterImage: seoImageUrl,
 })
 useHead(() => ({ link: [{ rel: 'canonical', href: canonicalUrl.value }] }))
 const serverNationwideSchedule = nationwideSeo.schedule
-if (import.meta.server && initialState?.kind === 'success' && responseSlug === slug.value && serverNationwideSchedule) {
-  const filmJsonLd = serializeJsonLd(buildFilmJsonLd(serverNationwideSchedule, {
-    movieUrl: canonicalUrl.value,
-    siteUrl: config.public.siteUrl,
-    datePublished: releaseDateLabel.value ? serverNationwideSchedule.movie.release_date ?? undefined : undefined,
-    tmdbUrl: tmdbUrl.value || undefined
-  }))
-  useHead({ script: [{ key: 'film-jsonld', type: 'application/ld+json', innerHTML: filmJsonLd }] })
+if (
+  import.meta.server &&
+  initialState?.kind === 'success' &&
+  responseSlug === slug.value &&
+  serverNationwideSchedule
+) {
+  const filmJsonLd = serializeJsonLd(
+    buildFilmJsonLd(serverNationwideSchedule, {
+      movieUrl: canonicalUrl.value,
+      siteUrl: config.public.siteUrl,
+      datePublished: releaseDateLabel.value
+        ? (serverNationwideSchedule.movie.release_date ?? undefined)
+        : undefined,
+      tmdbUrl: tmdbUrl.value || undefined,
+    }),
+  )
+  useHead({
+    script: [
+      {
+        key: 'film-jsonld',
+        type: 'application/ld+json',
+        innerHTML: filmJsonLd,
+      },
+    ],
+  })
 }
 </script>
 
 <template>
-  <main class="mx-auto max-w-[1440px] bg-[#f8f7f2] px-4 py-8 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-10 lg:px-10 lg:py-14">
-    <EditorialStatePanel v-if="pending && !schedule" semantic="status" live="polite" size="detail" shadow="large" class="film-state font-extrabold">
-      <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
+  <main
+    class="mx-auto max-w-[1440px] bg-[#f8f7f2] px-4 py-8 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-10 lg:px-10 lg:py-14"
+  >
+    <EditorialStatePanel
+      v-if="pending && !schedule"
+      semantic="status"
+      live="polite"
+      size="detail"
+      shadow="large"
+      class="film-state font-extrabold"
+    >
+      <template #icon
+        ><LoaderCircle
+          :size="34"
+          class="animate-spin"
+          aria-hidden="true"
+        /></template
+      >
       <p>Chargement des séances…</p>
     </EditorialStatePanel>
 
-    <EditorialStatePanel v-else-if="notFound" semantic="alert" size="detail" shadow="large" class="film-state font-extrabold">
+    <EditorialStatePanel
+      v-else-if="notFound"
+      semantic="alert"
+      size="detail"
+      shadow="large"
+      class="film-state font-extrabold"
+    >
       <template #icon><Film :size="36" aria-hidden="true" /></template>
-      <template #heading><div>
-        <p class="text-2xl font-black tracking-[-0.04em] text-ink">Film introuvable</p>
-        <p class="mt-1 text-sm">Ce film n’est pas disponible dans le catalogue actuel.</p>
-      </div></template>
-      <template #actions><NuxtLink to="/films" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary">Voir les films</NuxtLink></template>
+      <template #heading
+        ><div>
+          <p class="text-2xl font-black tracking-[-0.04em] text-ink">
+            Film introuvable
+          </p>
+          <p class="mt-1 text-sm">
+            Ce film n’est pas disponible dans le catalogue actuel.
+          </p>
+        </div></template
+      >
+      <template #actions
+        ><NuxtLink
+          to="/films"
+          class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary"
+          >Voir les films</NuxtLink
+        ></template
+      >
     </EditorialStatePanel>
 
-    <EditorialStatePanel v-else-if="errorMessage && !schedule" semantic="alert" size="detail" shadow="large" class="film-state font-extrabold">
-      <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
+    <EditorialStatePanel
+      v-else-if="errorMessage && !schedule"
+      semantic="alert"
+      size="detail"
+      shadow="large"
+      class="film-state font-extrabold"
+    >
+      <template #icon
+        ><AlertTriangle
+          :size="34"
+          class="text-primary"
+          aria-hidden="true"
+        /></template
+      >
       <p class="max-w-lg">{{ errorMessage }}</p>
-      <template #actions><div class="flex flex-wrap justify-center gap-3">
-        <button v-if="!preferences.isInitialized.value || preferences.activeTheaterIds.value.length" type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary" @click="retryLoad">
-          <RefreshCw :size="17" aria-hidden="true" /> Réessayer
-        </button>
-        <NuxtLink to="/cinemas" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-ink uppercase hover:bg-highlight">
-          Mes cinémas
-        </NuxtLink>
-      </div></template>
+      <template #actions
+        ><div class="flex flex-wrap justify-center gap-3">
+          <button
+            v-if="!preferences.isInitialized.value || preferences.activeTheaterIds.value.length"
+            type="button"
+            class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary"
+            @click="retryLoad"
+          >
+            <RefreshCw :size="17" aria-hidden="true" />
+            Réessayer
+          </button>
+          <NuxtLink
+            to="/cinemas"
+            class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-ink uppercase hover:bg-highlight"
+          >
+            Mes cinémas
+          </NuxtLink>
+        </div></template
+      >
     </EditorialStatePanel>
 
     <template v-else-if="schedule">
@@ -563,9 +881,15 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           fetchpriority="high"
           class="absolute inset-0 -z-20 size-full object-cover"
           @error="backdropFailed = true"
+        >
+        <div
+          v-if="backdropAvailable"
+          class="absolute inset-0 -z-10 bg-black/80"
+          aria-hidden="true"
         />
-        <div v-if="backdropAvailable" class="absolute inset-0 -z-10 bg-black/80" aria-hidden="true" />
-        <div class="absolute right-4 top-4 z-20 flex flex-col-reverse items-center gap-3 sm:right-6 sm:top-6 sm:flex-row lg:right-8 lg:top-8">
+        <div
+          class="absolute right-4 top-4 z-20 flex flex-col-reverse items-center gap-3 sm:right-6 sm:top-6 sm:flex-row lg:right-8 lg:top-8"
+        >
           <NuxtLink
             :to="{ path: '/statistiques', query: { period: 'all', film: schedule.movie.slug } }"
             aria-label="Statistiques"
@@ -575,7 +899,10 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           >
             <ChartNoAxesCombined :size="20" aria-hidden="true" />
           </NuxtLink>
-          <MovieExternalLinksMenu :links="externalLinks" :movie-title="schedule.movie.title" />
+          <MovieExternalLinksMenu
+            :links="externalLinks"
+            :movie-title="schedule.movie.title"
+          />
         </div>
         <div
           class="relative z-10 mx-auto aspect-[2/3] w-40 max-w-[calc(100%_-_7rem)] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] sm:max-w-none lg:w-[220px]"
@@ -591,20 +918,48 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             :fallback-icon-size="32"
           />
         </div>
-        <div class="min-w-0" :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-28' : 'sm:pr-16']">
-          <h1 class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase [overflow-wrap:anywhere]" :class="backdropAvailable ? 'text-white' : 'text-ink'">{{ schedule.movie.title }}</h1>
-          <div class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]" :class="backdropAvailable ? 'text-white' : 'text-ink'">
-            <span v-if="schedule.movie.runtime_minutes > 0" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ schedule.movie.runtime_minutes }} min</span>
-            <time v-if="isUpcomingFilm && frenchReleaseLabel" :datetime="schedule.movie.french_release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">Sortie le {{ frenchReleaseLabel }}</time>
+        <div
+          class="min-w-0"
+          :class="[backdropAvailable ? 'relative z-10' : undefined, externalLinks.length ? 'sm:pr-28' : 'sm:pr-16']"
+        >
+          <h1
+            class="text-[clamp(3rem,7vw,7rem)] leading-[0.82] font-black tracking-[-0.075em] uppercase [overflow-wrap:anywhere]"
+            :class="backdropAvailable ? 'text-white' : 'text-ink'"
+          >
+            {{ schedule.movie.title }}
+          </h1>
+          <div
+            class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]"
+            :class="backdropAvailable ? 'text-white' : 'text-ink'"
+          >
+            <span
+              v-if="schedule.movie.runtime_minutes > 0"
+              class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink"
+              >{{ schedule.movie.runtime_minutes }}
+              min</span
+            >
+            <time
+              v-if="isUpcomingFilm && frenchReleaseLabel"
+              :datetime="schedule.movie.french_release_date!"
+              class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink"
+              >Sortie le {{ frenchReleaseLabel }}</time
+            >
             <template v-else-if="releaseDateLabel">
-              <time :datetime="schedule.movie.release_date!" class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink">{{ releaseDateLabel }}</time>
+              <time
+                :datetime="schedule.movie.release_date!"
+                class="border-2 border-ink bg-[#ffcf3f] px-[0.55rem] py-[0.35rem] leading-none text-ink"
+                >{{
+                  releaseDateLabel
+                }}</time
+              >
             </template>
           </div>
-          <ul v-if="schedule.movie.genres.length" class="mt-3 flex flex-wrap gap-2" aria-label="Genres">
-            <li
-              v-for="genre in schedule.movie.genres"
-              :key="genre"
-            >
+          <ul
+            v-if="schedule.movie.genres.length"
+            class="mt-3 flex flex-wrap gap-2"
+            aria-label="Genres"
+          >
+            <li v-for="genre in schedule.movie.genres" :key="genre">
               <NuxtLink
                 :to="{ path: isUpcomingFilm ? '/films/prochainement' : '/films', query: { genres: genre }, hash: isUpcomingFilm ? undefined : '#tous-les-films' }"
                 class="block border-2 border-ink bg-surface px-[0.55rem] py-[0.35rem] text-[0.7rem] leading-none font-extrabold text-ink hover:bg-highlight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
@@ -618,8 +973,17 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
             :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
           />
-          <div v-if="schedule.movie.overview?.trim()" class="mt-7 max-w-3xl border-l-2 pl-4" :class="backdropAvailable ? 'border-white' : 'border-ink'">
-            <h2 class="font-mono text-[10px] font-bold uppercase tracking-[0.18em]" :class="backdropAvailable ? 'text-white/70' : 'text-muted'">Synopsis</h2>
+          <div
+            v-if="schedule.movie.overview?.trim()"
+            class="mt-7 max-w-3xl border-l-2 pl-4"
+            :class="backdropAvailable ? 'border-white' : 'border-ink'"
+          >
+            <h2
+              class="font-mono text-[10px] font-bold uppercase tracking-[0.18em]"
+              :class="backdropAvailable ? 'text-white/70' : 'text-muted'"
+            >
+              Synopsis
+            </h2>
             <button
               ref="synopsisText"
               type="button"
@@ -632,31 +996,79 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               :disabled="!synopsisOverflows"
               :aria-expanded="synopsisOverflows ? synopsisExpanded : undefined"
               @click="toggleSynopsis"
-            >{{ schedule.movie.overview }}</button>
+            >
+              {{ schedule.movie.overview }}
+            </button>
           </div>
         </div>
       </header>
 
-      <section v-if="hasNoSessions" class="mt-12 border-t-2 border-ink py-8" aria-labelledby="release-state-heading">
-        <h2 id="release-state-heading" class="text-3xl font-black tracking-tight">{{ isUpcomingFilm ? 'Séances à venir' : schedule.release_status === 'unavailable' ? 'Aucune séance disponible' : 'Aucune séance programmée pour le moment.' }}</h2>
-        <p v-if="isUpcomingFilm && frenchReleaseLabel" class="mt-4 font-mono text-sm font-bold">Sortie le <time :datetime="schedule.movie.french_release_date!">{{ frenchReleaseLabel }}</time></p>
-        <NuxtLink v-if="isUpcomingFilm" to="/films/prochainement" class="mt-6 inline-flex min-h-11 items-center font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink">Voir les prochaines sorties</NuxtLink>
+      <section
+        v-if="hasNoSessions"
+        class="mt-12 border-t-2 border-ink py-8"
+        aria-labelledby="release-state-heading"
+      >
+        <h2
+          id="release-state-heading"
+          class="text-3xl font-black tracking-tight"
+        >
+          {{
+            isUpcomingFilm ? 'Séances à venir' : schedule.release_status === 'unavailable' ? 'Aucune séance disponible' : 'Aucune séance programmée pour le moment.'
+          }}
+        </h2>
+        <p
+          v-if="isUpcomingFilm && frenchReleaseLabel"
+          class="mt-4 font-mono text-sm font-bold"
+        >
+          Sortie le
+          <time :datetime="schedule.movie.french_release_date!">{{
+            frenchReleaseLabel
+          }}</time>
+        </p>
+        <NuxtLink
+          v-if="isUpcomingFilm"
+          to="/films/prochainement"
+          class="mt-6 inline-flex min-h-11 items-center font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink"
+          >Voir les prochaines sorties</NuxtLink
+        >
       </section>
-      <section v-else class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10" aria-labelledby="schedule-heading">
-        <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b-2 border-ink pb-3 sm:flex sm:items-end sm:gap-6 sm:pb-5">
+      <section
+        v-else
+        class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10"
+        aria-labelledby="schedule-heading"
+      >
+        <div
+          class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 border-b-2 border-ink pb-3 sm:flex sm:items-end sm:gap-6 sm:pb-5"
+        >
           <div class="min-w-0 sm:mr-auto">
-            <h2 id="schedule-heading" class="flex flex-wrap items-baseline gap-x-3 text-3xl font-black tracking-[-0.05em] text-ink sm:text-5xl">
+            <h2
+              id="schedule-heading"
+              class="flex flex-wrap items-baseline gap-x-3 text-3xl font-black tracking-[-0.05em] text-ink sm:text-5xl"
+            >
               <span>Séances</span>
-              <span class="font-mono text-xs font-bold uppercase tracking-[0.1em] text-muted">{{ visibleShowtimeCount }} horaire{{ visibleShowtimeCount === 1 ? '' : 's' }}</span>
+              <span
+                class="font-mono text-xs font-bold uppercase tracking-[0.1em] text-muted"
+                >{{ visibleShowtimeCount }}
+                horaire{{ visibleShowtimeCount === 1 ? '' : 's' }}</span
+              >
             </h2>
-            <p class="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted sm:mt-2">{{ formatLongDate(selectedDate) }}</p>
+            <p
+              class="mt-1 font-mono text-[11px] font-bold uppercase tracking-[0.1em] capitalize text-muted sm:mt-2"
+            >
+              {{ formatLongDate(selectedDate) }}
+            </p>
           </div>
-          <div class="col-start-1 row-start-2 flex min-h-11 min-w-0 flex-wrap items-center gap-3 sm:min-h-0 sm:justify-end sm:self-end">
+          <div
+            class="col-start-1 row-start-2 flex min-h-11 min-w-0 flex-wrap items-center gap-3 sm:min-h-0 sm:justify-end sm:self-end"
+          >
             <SharedTheaterAction
               v-if="preferences.isInitialized.value && preferences.isSharedSelectionDifferent.value"
               v-slot="{ pending: restorePending, errorMessage: restoreError, restoreSavedTheaters }"
             >
-              <div class="flex shrink-0 flex-col items-end gap-1" aria-live="polite">
+              <div
+                class="flex shrink-0 flex-col items-end gap-1"
+                aria-live="polite"
+              >
                 <button
                   type="button"
                   class="inline-block border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase disabled:cursor-wait disabled:opacity-[0.65]"
@@ -664,17 +1076,33 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                   :aria-busy="restorePending"
                   @click="restoreSavedTheaters"
                 >
-                  {{ restorePending ? 'Restauration…' : 'Utiliser mes cinémas' }}
+                  {{
+                    restorePending ? 'Restauration…' : 'Utiliser mes cinémas'
+                  }}
                 </button>
-                <span v-if="restoreError" class="max-w-72 text-right text-xs font-bold text-red-800" role="alert">{{ restoreError }}</span>
+                <span
+                  v-if="restoreError"
+                  class="max-w-72 text-right text-xs font-bold text-red-800"
+                  role="alert"
+                  >{{
+                    restoreError
+                  }}</span
+                >
               </div>
             </SharedTheaterAction>
-            <NuxtLink v-else to="/cinemas" class="inline-block shrink-0 border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase">Modifier mes cinémas</NuxtLink>
+            <NuxtLink
+              v-else
+              to="/cinemas"
+              class="inline-block shrink-0 border-b-2 border-current pb-[0.2rem] font-mono text-[0.68rem] font-extrabold tracking-[0.1em] uppercase"
+              >Modifier mes cinémas</NuxtLink
+            >
           </div>
           <ShareButton class="col-start-2 row-start-1 row-span-2 shrink-0" />
         </div>
 
-        <div class="filter-dock sticky top-0 z-20 -mx-4 mt-3 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:mt-5 lg:hidden">
+        <div
+          class="filter-dock sticky top-0 z-20 -mx-4 mt-3 border-y-2 border-ink bg-[#f1efe8]/95 shadow-[0_6px_0_#27272a] backdrop-blur sm:-mx-6 sm:mt-5 lg:hidden"
+        >
           <div class="grid grid-cols-3 divide-x-2 divide-ink">
             <button
               id="mobile-date-trigger"
@@ -689,7 +1117,9 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               <CalendarDays :size="17" class="shrink-0" aria-hidden="true" />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Date</span>
-                <span class="truncate text-[0.58rem] text-muted">{{ formatDateLabel(selectedDate) }}</span>
+                <span class="truncate text-[0.58rem] text-muted">{{
+                  formatDateLabel(selectedDate)
+                }}</span>
               </span>
             </button>
             <button
@@ -702,10 +1132,16 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
               :aria-label="`Filtres, sélection actuelle : ${activeFilterSummary}`"
               @click="toggleMobilePanel('filters')"
             >
-              <SlidersHorizontal :size="17" class="shrink-0" aria-hidden="true" />
+              <SlidersHorizontal
+                :size="17"
+                class="shrink-0"
+                aria-hidden="true"
+              />
               <span class="flex min-w-0 flex-col leading-[1.1]">
                 <span>Filtres</span>
-                <span class="truncate text-[0.58rem] text-muted">{{ activeFilterSummary }}</span>
+                <span class="truncate text-[0.58rem] text-muted">{{
+                  activeFilterSummary
+                }}</span>
               </span>
             </button>
             <button
@@ -727,8 +1163,19 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             class="border-t-2 border-ink px-4 py-3 sm:px-6"
             @keydown.esc.stop="closeMobilePanel($event)"
           >
-            <ShowtimeDateBar v-if="hasAvailableDates" :selected-date="selectedDate" :available-dates="availableDates" :today="today" mobile-tabs="all" @select="selectMobileDate" />
-            <span v-else class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
+            <ShowtimeDateBar
+              v-if="hasAvailableDates"
+              :selected-date="selectedDate"
+              :available-dates="availableDates"
+              :today="today"
+              mobile-tabs="all"
+              @select="selectMobileDate"
+            />
+            <span
+              v-else
+              class="inline-flex h-11 items-center font-mono text-xs font-bold uppercase"
+              >Aucune date disponible</span
+            >
           </div>
 
           <div
@@ -737,9 +1184,17 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             class="space-y-3 border-t-2 border-ink px-4 py-3 sm:px-6"
             @keydown.esc.stop="closeMobilePanel($event)"
           >
-            <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="mobile-language-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Langue</span>
-              <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-language-filter-label">
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                id="mobile-language-filter-label"
+                class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]"
+                >Langue</span
+              >
+              <div
+                class="flex max-w-full gap-1 overflow-x-auto"
+                role="group"
+                aria-labelledby="mobile-language-filter-label"
+              >
                 <button
                   v-for="option in languageOptions"
                   :key="option.value"
@@ -753,9 +1208,20 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                 </button>
               </div>
             </div>
-            <div v-if="technologyFormats.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="mobile-technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Format</span>
-              <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="mobile-technology-filter-label">
+            <div
+              v-if="technologyFormats.length > 1"
+              class="flex flex-wrap items-center gap-2"
+            >
+              <span
+                id="mobile-technology-filter-label"
+                class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]"
+                >Format</span
+              >
+              <div
+                class="flex max-w-full gap-1 overflow-x-auto"
+                role="group"
+                aria-labelledby="mobile-technology-filter-label"
+              >
                 <button
                   v-for="option in technologyOptions"
                   :key="option.value"
@@ -769,14 +1235,25 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                 </button>
               </div>
             </div>
-            <p v-if="languages.length <= 1 && technologyFormats.length <= 1" class="font-mono text-xs font-bold uppercase">Aucun filtre disponible</p>
           </div>
         </div>
 
-        <div class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block">
+        <div
+          class="filter-dock sticky top-[4.5rem] z-20 -mx-10 mt-5 hidden border-y-2 border-ink bg-[#f1efe8]/95 px-10 py-4 shadow-[0_6px_0_#27272a] backdrop-blur lg:block"
+        >
           <div class="flex min-w-0 items-center gap-3">
-            <ShowtimeDateBar v-if="hasAvailableDates" :selected-date="selectedDate" :available-dates="availableDates" :today="today" @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })" />
-            <span v-else class="inline-flex h-10 items-center font-mono text-xs font-bold uppercase">Aucune date disponible</span>
+            <ShowtimeDateBar
+              v-if="hasAvailableDates"
+              :selected-date="selectedDate"
+              :available-dates="availableDates"
+              :today="today"
+              @select="updateFilmQuery({ date: $event === fallbackDate() ? undefined : $event })"
+            />
+            <span
+              v-else
+              class="inline-flex h-10 items-center font-mono text-xs font-bold uppercase"
+              >Aucune date disponible</span
+            >
             <button
               type="button"
               class="ml-auto inline-flex h-10 shrink-0 items-center gap-2 border-2 border-ink px-4 font-mono text-[10px] font-black uppercase tracking-[0.06em] focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -791,9 +1268,17 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           </div>
 
           <div class="mt-3 flex flex-col gap-2 border-t-2 border-ink/30 pt-3">
-            <div v-if="languages.length > 1" class="flex flex-wrap items-center gap-2">
-              <span id="language-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Langue</span>
-              <div class="flex max-w-full gap-1 overflow-x-auto" role="group" aria-labelledby="language-filter-label">
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                id="language-filter-label"
+                class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]"
+                >Langue</span
+              >
+              <div
+                class="flex max-w-full gap-1 overflow-x-auto"
+                role="group"
+                aria-labelledby="language-filter-label"
+              >
                 <button
                   v-for="option in languageOptions"
                   :key="option.value"
@@ -809,8 +1294,16 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
             </div>
             <div class="flex min-w-0 items-center gap-2">
               <template v-if="technologyFormats.length > 1">
-              <span id="technology-filter-label" class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]">Format</span>
-                <div class="flex min-w-0 gap-1 overflow-x-auto" role="group" aria-labelledby="technology-filter-label">
+                <span
+                  id="technology-filter-label"
+                  class="shrink-0 font-mono text-[0.58rem] font-black uppercase tracking-[0.12em]"
+                  >Format</span
+                >
+                <div
+                  class="flex min-w-0 gap-1 overflow-x-auto"
+                  role="group"
+                  aria-labelledby="technology-filter-label"
+                >
                   <button
                     v-for="option in technologyOptions"
                     :key="option.value"
@@ -828,52 +1321,160 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
           </div>
         </div>
 
-        <div id="showtime-panel" role="tabpanel" :aria-label="`Séances du ${formatLongDate(selectedDate)}`" :aria-busy="pending">
-          <EditorialStatePanel v-if="pending" semantic="status" live="polite" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
-            <template #icon><LoaderCircle :size="34" class="animate-spin" aria-hidden="true" /></template>
+        <div
+          id="showtime-panel"
+          role="tabpanel"
+          :aria-label="`Séances du ${formatLongDate(selectedDate)}`"
+          :aria-busy="pending"
+        >
+          <EditorialStatePanel
+            v-if="pending"
+            semantic="status"
+            live="polite"
+            size="detail"
+            shadow="large"
+            class="film-state mt-10 font-extrabold"
+          >
+            <template #icon
+              ><LoaderCircle
+                :size="34"
+                class="animate-spin"
+                aria-hidden="true"
+              /></template
+            >
             <p>Chargement des séances…</p>
           </EditorialStatePanel>
 
-          <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
-            <template #icon><AlertTriangle :size="34" class="text-primary" aria-hidden="true" /></template>
+          <EditorialStatePanel
+            v-else-if="errorMessage"
+            semantic="alert"
+            size="detail"
+            shadow="large"
+            class="film-state mt-10 font-extrabold"
+          >
+            <template #icon
+              ><AlertTriangle
+                :size="34"
+                class="text-primary"
+                aria-hidden="true"
+              /></template
+            >
             <p class="max-w-lg">{{ errorMessage }}</p>
-            <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary" @click="loadSchedule"><RefreshCw :size="17" aria-hidden="true" /> Réessayer</button></template>
+            <template #actions
+              ><button
+                type="button"
+                class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary"
+                @click="loadSchedule"
+              >
+                <RefreshCw :size="17" aria-hidden="true" />
+                Réessayer
+              </button></template
+            >
           </EditorialStatePanel>
 
-          <EditorialStatePanel v-else-if="isEndedFilm" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
-            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
+          <EditorialStatePanel
+            v-else-if="isEndedFilm"
+            size="detail"
+            shadow="large"
+            class="film-state mt-10 font-extrabold"
+          >
+            <template #icon
+              ><CalendarDays :size="36" aria-hidden="true" /></template
+            >
             <p>Aucune séance programmée pour le moment.</p>
           </EditorialStatePanel>
 
-          <EditorialStatePanel v-else-if="!hasAvailableDates" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
-            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
-            <p>Aucune date de séance disponible pour ce film dans ces cinémas.</p>
+          <EditorialStatePanel
+            v-else-if="!hasAvailableDates"
+            size="detail"
+            shadow="large"
+            class="film-state mt-10 font-extrabold"
+          >
+            <template #icon
+              ><CalendarDays :size="36" aria-hidden="true" /></template
+            >
+            <p>
+              Aucune date de séance disponible pour ce film dans ces cinémas.
+            </p>
           </EditorialStatePanel>
 
-          <EditorialStatePanel v-else-if="schedule.theaters.length === 0" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
-            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
-            <p>{{ isPersonalizedSchedule ? 'Aucune séance dans ces cinémas à cette date.' : 'Aucune séance à cette date.' }}</p>
+          <EditorialStatePanel
+            v-else-if="schedule.theaters.length === 0"
+            size="detail"
+            shadow="large"
+            class="film-state mt-10 font-extrabold"
+          >
+            <template #icon
+              ><CalendarDays :size="36" aria-hidden="true" /></template
+            >
+            <p>
+              {{
+                isPersonalizedSchedule ? 'Aucune séance dans ces cinémas à cette date.' : 'Aucune séance à cette date.'
+              }}
+            </p>
           </EditorialStatePanel>
 
-          <EditorialStatePanel v-else-if="visibleTheaters.length === 0" size="detail" shadow="large" class="film-state mt-10 font-extrabold">
-            <template #icon><CalendarDays :size="36" aria-hidden="true" /></template>
+          <EditorialStatePanel
+            v-else-if="visibleTheaters.length === 0"
+            size="detail"
+            shadow="large"
+            class="film-state mt-10 font-extrabold"
+          >
+            <template #icon
+              ><CalendarDays :size="36" aria-hidden="true" /></template
+            >
             <p>Aucune séance ne correspond à ces filtres.</p>
-            <template #actions><button type="button" class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary" @click="resetFilters">Voir toutes les séances</button></template>
+            <template #actions
+              ><button
+                type="button"
+                class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary"
+                @click="resetFilters"
+              >
+                Voir toutes les séances
+              </button></template
+            >
           </EditorialStatePanel>
 
           <div v-else class="mt-10 space-y-10">
-            <section v-for="theater in visibleTheaters" :key="theater.id" class="theater-section border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a]" :aria-labelledby="`theater-${theater.id}`">
-              <div class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-6">
-                <h3 :id="`theater-${theater.id}`" class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl">
-                  <NuxtLink :to="`/cinema/${encodeURIComponent(theater.slug)}`" class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary">
-                    <TheaterName :name="theater.name" :provider="theater.provider" />
+            <section
+              v-for="theater in visibleTheaters"
+              :key="theater.id"
+              class="theater-section border-2 border-ink bg-surface shadow-[7px_7px_0_#27272a]"
+              :aria-labelledby="`theater-${theater.id}`"
+            >
+              <div
+                class="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink bg-[#f1efe8] px-4 py-4 sm:px-6"
+              >
+                <h3
+                  :id="`theater-${theater.id}`"
+                  class="text-xl font-black tracking-[-0.035em] text-ink sm:text-2xl"
+                >
+                  <NuxtLink
+                    :to="`/cinema/${encodeURIComponent(theater.slug)}`"
+                    class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary"
+                  >
+                    <TheaterName
+                      :name="theater.name"
+                      :provider="theater.provider"
+                    />
                   </NuxtLink>
                 </h3>
-                <NuxtLink :to="`/ville/${encodeURIComponent(theater.city_slug)}/cinemas`" class="flex min-h-11 items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink underline decoration-2 underline-offset-4 hover:text-primary"><MapPin :size="15" aria-hidden="true" /> {{ theater.city }}</NuxtLink>
+                <NuxtLink
+                  :to="`/ville/${encodeURIComponent(theater.city_slug)}/cinemas`"
+                  class="flex min-h-11 items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-ink underline decoration-2 underline-offset-4 hover:text-primary"
+                  ><MapPin :size="15" aria-hidden="true" />
+                  {{ theater.city }}</NuxtLink
+                >
               </div>
 
-              <ul class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-6">
-                <li v-for="showtime in theater.showtimes" :key="showtime.id" class="relative min-w-0">
+              <ul
+                class="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 p-4 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 sm:p-6"
+              >
+                <li
+                  v-for="showtime in theater.showtimes"
+                  :key="showtime.id"
+                  class="relative min-w-0"
+                >
                   <BookingLink
                     v-slot="{ available, kind, label }"
                     :url="showtime.booking_url"
@@ -887,25 +1488,64 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                     :available-class="showtime.timingState === 'past' ? 'border-ink bg-surface text-ink' : 'border-ink bg-surface text-ink shadow-[4px_4px_0_#27272a] hover:bg-[#f1efe8]'"
                     unavailable-class="cursor-not-allowed border-dashed border-muted bg-[#e8e6de] text-muted shadow-none"
                   >
-                    <div class="flex w-full items-baseline justify-between gap-2">
-                      <span class="text-2xl font-black tracking-[-0.045em]">{{ formatParisTime(showtime.start_time) }}</span>
-                      <span v-if="showtime.end && !showtime.end.estimated" class="font-mono text-[9px] font-bold uppercase text-muted">fin <ShowtimeEndTime :end="showtime.end" :advertised-start="showtime.start_time" :runtime-minutes="showtime.movie.runtime_minutes" /></span>
-                      <span v-else-if="showtime.end" class="w-14" aria-hidden="true" />
+                    <div
+                      class="flex w-full items-baseline justify-between gap-2"
+                    >
+                      <span class="text-2xl font-black tracking-[-0.045em]">{{
+                        formatParisTime(showtime.start_time)
+                      }}</span>
+                      <span
+                        v-if="showtime.end && !showtime.end.estimated"
+                        class="font-mono text-[9px] font-bold uppercase text-muted"
+                        >fin
+                        <ShowtimeEndTime
+                          :end="showtime.end"
+                          :advertised-start="showtime.start_time"
+                          :runtime-minutes="showtime.movie.runtime_minutes"
+                        /></span
+                      >
+                      <span
+                        v-else-if="showtime.end"
+                        class="w-14"
+                        aria-hidden="true"
+                      />
                     </div>
-                    <div class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-                      <template v-if="showtime.language"><span>{{ showtime.language }}</span><span aria-hidden="true">·</span></template>
+                    <div
+                      class="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
+                    >
+                      <template v-if="showtime.language"
+                        ><span>{{
+                          languageLabel(showtime.language, showtime.movie.original_language)
+                        }}</span><span aria-hidden="true">·</span></template
+                      >
                       <ShowtimeFormat :format="showtime.format" />
                       <template v-if="showtime.room">
                         <span aria-hidden="true">·</span>
                         <span>{{ formatRoom(showtime.room) }}</span>
                       </template>
                     </div>
-                    <span v-if="showtime.timingState === 'warning'" class="mt-2 inline-flex items-center gap-1 text-xs font-black text-amber-800">
-                      <AlertTriangle :size="14" aria-hidden="true" /> Séance commencée
+                    <span
+                      v-if="showtime.timingState === 'warning'"
+                      class="mt-2 inline-flex items-center gap-1 text-xs font-black text-amber-800"
+                    >
+                      <AlertTriangle :size="14" aria-hidden="true" />
+                      Séance commencée
                     </span>
-                    <span v-else-if="showtime.timingState === 'past'" class="sr-only">Séance passée</span>
-                    <span v-if="!available" class="mt-2 text-xs font-black">Réservation indisponible</span>
-                    <span v-else-if="kind === 'website'" class="mt-2 text-xs font-black">{{ label }}</span>
+                    <span
+                      v-else-if="showtime.timingState === 'past'"
+                      class="sr-only"
+                      >Séance passée</span
+                    >
+                    <span v-if="!available" class="mt-2 text-xs font-black"
+                      >Réservation indisponible</span
+                    >
+                    <span
+                      v-else-if="kind === 'website'"
+                      class="mt-2 text-xs font-black"
+                      >{{
+                        label
+                      }}</span
+                    >
                     <svg
                       v-if="showtime.timingState === 'past'"
                       viewBox="0 0 100 100"
@@ -914,10 +1554,27 @@ if (import.meta.server && initialState?.kind === 'success' && responseSlug === s
                       focusable="false"
                       class="pointer-events-none absolute inset-0 size-full text-muted"
                     >
-                      <line x1="0" y1="100" x2="100" y2="0" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+                      <line
+                        x1="0"
+                        y1="100"
+                        x2="100"
+                        y2="0"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        vector-effect="non-scaling-stroke"
+                      />
                     </svg>
                   </BookingLink>
-                  <span v-if="showtime.end?.estimated" class="absolute right-3.5 top-6 font-mono text-[9px] font-bold uppercase text-muted">fin <ShowtimeEndTime :end="showtime.end" :advertised-start="showtime.start_time" :runtime-minutes="showtime.movie.runtime_minutes" /></span>
+                  <span
+                    v-if="showtime.end?.estimated"
+                    class="absolute right-3.5 top-6 font-mono text-[9px] font-bold uppercase text-muted"
+                    >fin
+                    <ShowtimeEndTime
+                      :end="showtime.end"
+                      :advertised-start="showtime.start_time"
+                      :runtime-minutes="showtime.movie.runtime_minutes"
+                    /></span
+                  >
                 </li>
               </ul>
             </section>

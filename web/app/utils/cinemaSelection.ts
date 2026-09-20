@@ -6,7 +6,9 @@ export interface CinemaCityGroup {
   theaters: Theater[]
 }
 
-export function groupTheatersByCityIdentity(theaters: readonly Theater[]): CinemaCityGroup[] {
+export function groupTheatersByCityIdentity(
+  theaters: readonly Theater[],
+): CinemaCityGroup[] {
   const groups = new Map<string, CinemaCityGroup>()
 
   for (const theater of theaters) {
@@ -19,7 +21,7 @@ export function groupTheatersByCityIdentity(theaters: readonly Theater[]): Cinem
     groups.set(theater.city_slug, {
       city: theater.city,
       citySlug: theater.city_slug,
-      theaters: [theater]
+      theaters: [theater],
     })
   }
 
@@ -29,7 +31,7 @@ export function groupTheatersByCityIdentity(theaters: readonly Theater[]): Cinem
 export function updateTheaterSelection(
   currentIds: readonly string[],
   targetTheaters: readonly Pick<Theater, 'id'>[],
-  select: boolean
+  select: boolean,
 ): string[] {
   const targetIds = new Set(targetTheaters.map((theater) => theater.id))
   const nextIds = [...new Set(currentIds)]

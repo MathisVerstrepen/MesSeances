@@ -8,6 +8,38 @@ import (
 	"time"
 )
 
+func TestValidateDatasetOriginalLanguage(t *testing.T) {
+	for _, canonical := range []bool{false, true} {
+		for _, tc := range []struct {
+			language string
+			tmdbID   int64
+			valid    bool
+		}{
+			{"", 0, true}, {"", 42, true}, {"fr", 42, true}, {"en", 42, true},
+			{"fr", 0, false}, {"fr", -1, false}, {"FR", 42, false}, {"Fr", 42, false},
+			{"f", 42, false}, {"fra", 42, false}, {"é", 42, false}, {" f", 42, false}, {"f1", 42, false},
+		} {
+			data := mk2ValidationDataset()
+			if canonical {
+				data.PublicMovies[0].TMDBID = tc.tmdbID
+				data.PublicMovies[0].OriginalLanguage = tc.language
+			} else {
+				data.Showtimes[0].Movie.Enrichment = &MovieEnrichment{TMDBID: tc.tmdbID, OriginalLanguage: tc.language}
+			}
+			if err := ValidateDataset(data, true); (err == nil) != tc.valid {
+				t.Fatalf("canonical=%v language=%q tmdb=%d valid=%v err=%v", canonical, tc.language, tc.tmdbID, tc.valid, err)
+			}
+		}
+	}
+	for _, language := range []Language{LanguageOriginal, LanguageVOF} {
+		data := testDataset()
+		data.Showtimes[0].Language = language
+		if err := ValidateDataset(data, true); err == nil {
+			t.Fatalf("query-only %s accepted as stored language", language)
+		}
+	}
+}
+
 func TestValidateDatasetCoordinatesAndClonePointers(t *testing.T) {
 	validLatitude, validLongitude := 50.6321, 3.0612
 	data := testDataset()

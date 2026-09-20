@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { Clock3, Film, MapPin, X } from '@lucide/vue'
-import type { Provider, QueryFormat, TimelineResponse, TimelineShowtime, TimelineTheater } from '~/types/api'
+import type {
+  Provider,
+  QueryFormat,
+  TimelineResponse,
+  TimelineShowtime,
+  TimelineTheater,
+} from '~/types/api'
 import { formatLongDate, formatParisTime, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
+import { languageLabel } from '~/utils/showtimeFilters'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { resolveShowtimeEnd } from '~/utils/showtimeEnd'
 
@@ -10,7 +17,14 @@ type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
 type PlacedShowtime = { showtime: TimelineShowtime; theater: TimelineTheater }
 type PositionedShowtime = PlacedShowtime & { lane: number; width: number }
-type TimelineRow = { id: string; label: string; provider?: Provider; secondary: string; height: number; showtimes: PositionedShowtime[] }
+type TimelineRow = {
+  id: string
+  label: string
+  provider?: Provider
+  secondary: string
+  height: number
+  showtimes: PositionedShowtime[]
+}
 
 const props = defineProps<{
   timeline: TimelineResponse
@@ -20,7 +34,9 @@ const props = defineProps<{
 }>()
 
 const selected = ref<PlacedShowtime | null>(null)
-const selectedEnd = computed(() => selected.value ? resolveShowtimeEnd(selected.value.showtime) : null)
+const selectedEnd = computed(() =>
+  selected.value ? resolveShowtimeEnd(selected.value.showtime) : null,
+)
 const scroller = ref<HTMLElement | null>(null)
 const inspector = ref<HTMLElement | null>(null)
 const inspectorCloseButton = ref<HTMLButtonElement | null>(null)
@@ -37,14 +53,26 @@ let initialScrollFrame: number | undefined
 
 const pixelsPerMinute = computed(() => 60 / props.zoom)
 const INITIAL_SCROLL_GUTTER = 12
-const windowMinutes = computed(() => Math.max(1, Math.round((new Date(props.timeline.window_end_time).getTime() - new Date(props.timeline.window_start_time).getTime()) / 60_000)))
+const windowMinutes = computed(() =>
+  Math.max(
+    1,
+    Math.round(
+      (new Date(props.timeline.window_end_time).getTime() -
+        new Date(props.timeline.window_start_time).getTime()) /
+        60_000,
+    ),
+  ),
+)
 const railWidth = computed(() => windowMinutes.value * pixelsPerMinute.value)
 const hourLabels = computed(() => {
   const start = new Date(props.timeline.window_start_time)
-  return Array.from({ length: Math.floor(windowMinutes.value / 60) + 1 }, (_, index) => {
-    const value = new Date(start.getTime() + index * 60 * 60_000)
-    return { offset: index * 60, label: formatParisTime(value.toISOString()) }
-  })
+  return Array.from(
+    { length: Math.floor(windowMinutes.value / 60) + 1 },
+    (_, index) => {
+      const value = new Date(start.getTime() + index * 60 * 60_000)
+      return { offset: index * 60, label: formatParisTime(value.toISOString()) }
+    },
+  )
 })
 
 function matchesFormat(format: string) {
@@ -52,27 +80,63 @@ function matchesFormat(format: string) {
   return format.toUpperCase() === props.formatFilter
 }
 
-function createRow(id: string, label: string, secondary: string, items: PlacedShowtime[], provider?: Provider): TimelineRow {
+function createRow(
+  id: string,
+  label: string,
+  secondary: string,
+  items: PlacedShowtime[],
+  provider?: Provider,
+): TimelineRow {
   const laneEnds: number[] = []
   const showtimes = [...items]
-    .sort((a, b) => a.showtime.start_offset_minutes - b.showtime.start_offset_minutes || a.showtime.duration_minutes - b.showtime.duration_minutes)
+    .sort(
+      (a, b) =>
+        a.showtime.start_offset_minutes - b.showtime.start_offset_minutes ||
+        a.showtime.duration_minutes - b.showtime.duration_minutes,
+    )
     .map((item) => {
       const start = item.showtime.start_offset_minutes
       const lane = laneEnds.findIndex((end) => end <= start)
       const targetLane = lane === -1 ? laneEnds.length : lane
       // Reserve the visible hit area for unknown ends so adjacent sessions remain reachable.
-      laneEnds[targetLane] = start + (resolveShowtimeEnd(item.showtime)
-        ? item.showtime.duration_minutes : showtimeWidth(0) / pixelsPerMinute.value)
-      return { ...item, lane: targetLane, width: showtimeWidth(item.showtime.duration_minutes) }
+      laneEnds[targetLane] =
+        start +
+        (resolveShowtimeEnd(item.showtime)
+          ? item.showtime.duration_minutes
+          : showtimeWidth(0) / pixelsPerMinute.value)
+      return {
+        ...item,
+        lane: targetLane,
+        width: showtimeWidth(item.showtime.duration_minutes),
+      }
     })
-  return { id, label, provider, secondary, showtimes, height: 32 + Math.max(1, laneEnds.length) * 80 }
+  return {
+    id,
+    label,
+    provider,
+    secondary,
+    showtimes,
+    height: 32 + Math.max(1, laneEnds.length) * 80,
+  }
 }
 
 const rows = computed<TimelineRow[]>(() => {
-  const placed = props.timeline.theaters.flatMap((theater) => theater.showtimes.filter((showtime) => matchesFormat(showtime.format)).map((showtime) => ({ showtime, theater })))
+  const placed = props.timeline.theaters.flatMap((theater) =>
+    theater.showtimes
+      .filter((showtime) => matchesFormat(showtime.format))
+      .map((showtime) => ({ showtime, theater })),
+  )
   if (props.mode === 'theater') {
     return props.timeline.theaters
-      .map((theater) => createRow(theater.id, theater.name, theater.city, placed.filter((item) => item.theater.id === theater.id), theater.provider))
+      .map((theater) =>
+        createRow(
+          theater.id,
+          theater.name,
+          theater.city,
+          placed.filter((item) => item.theater.id === theater.id),
+          theater.provider,
+        ),
+      )
       .filter((row) => row.showtimes.length > 0)
   }
 
@@ -83,37 +147,61 @@ const rows = computed<TimelineRow[]>(() => {
     if (showtimes) showtimes.push(item)
     else movies.set(key, [item])
   }
-  return [...movies.entries()].map(([id, showtimes]) => {
-    const theaterCount = new Set(showtimes.map((item) => item.theater.id)).size
-    return createRow(id, showtimes[0]!.showtime.movie.title, `${theaterCount} cinéma${theaterCount > 1 ? 's' : ''}`, showtimes)
-  }).sort((a, b) => a.label.localeCompare(b.label, 'fr'))
+  return [...movies.entries()]
+    .map(([id, showtimes]) => {
+      const theaterCount = new Set(showtimes.map((item) => item.theater.id))
+        .size
+      return createRow(
+        id,
+        showtimes[0]!.showtime.movie.title,
+        `${theaterCount} cinéma${theaterCount > 1 ? 's' : ''}`,
+        showtimes,
+      )
+    })
+    .sort((a, b) => a.label.localeCompare(b.label, 'fr'))
 })
 
-watch(rows, (visibleRows) => {
-  if (!selected.value) return
-  const selectedId = selected.value.showtime.id
-  const selectedTheaterId = selected.value.theater.id
-  const isVisible = visibleRows.some((row) => row.showtimes.some((item) => item.showtime.id === selectedId && item.theater.id === selectedTheaterId))
-  if (!isVisible) closeInspector({ restoreFocus: false })
-}, { flush: 'sync' })
+watch(
+  rows,
+  (visibleRows) => {
+    if (!selected.value) return
+    const selectedId = selected.value.showtime.id
+    const selectedTheaterId = selected.value.theater.id
+    const isVisible = visibleRows.some((row) =>
+      row.showtimes.some(
+        (item) =>
+          item.showtime.id === selectedId &&
+          item.theater.id === selectedTheaterId,
+      ),
+    )
+    if (!isVisible) closeInspector({ restoreFocus: false })
+  },
+  { flush: 'sync' },
+)
 
 const currentTimeOffset = computed(() => {
   if (props.timeline.date !== todayInParis()) return null
-  const offset = (now.value.getTime() - new Date(props.timeline.window_start_time).getTime()) / 60_000
+  const offset =
+    (now.value.getTime() -
+      new Date(props.timeline.window_start_time).getTime()) /
+    60_000
   return offset >= 0 && offset <= windowMinutes.value ? offset : null
 })
 
 function selectShowtime(item: PlacedShowtime, event: MouseEvent) {
   const wasOpen = Boolean(selected.value)
   selected.value = item
-  selectionTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
-  if (!wasOpen && event.detail === 0) nextTick(() => inspectorCloseButton.value?.focus())
+  selectionTrigger =
+    event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  if (!wasOpen && event.detail === 0)
+    nextTick(() => inspectorCloseButton.value?.focus())
 }
 
 function closeInspector({ restoreFocus = true } = {}) {
   if (!selected.value) return
   selected.value = null
-  if (restoreFocus && selectionTrigger?.isConnected) nextTick(() => selectionTrigger?.focus())
+  if (restoreFocus && selectionTrigger?.isConnected)
+    nextTick(() => selectionTrigger?.focus())
 }
 
 function handleEscape(event: KeyboardEvent) {
@@ -123,7 +211,11 @@ function handleEscape(event: KeyboardEvent) {
 }
 
 function handleOutsidePointer(event: PointerEvent) {
-  if (!selected.value || (inspector.value && event.composedPath().includes(inspector.value))) return
+  if (
+    !selected.value ||
+    (inspector.value && event.composedPath().includes(inspector.value))
+  )
+    return
   closeInspector({ restoreFocus: false })
 }
 
@@ -149,20 +241,29 @@ function scheduleClock() {
     }
   }
 
-  const nextMinuteDelay = 60_000 - timestamp % 60_000
+  const nextMinuteDelay = 60_000 - (timestamp % 60_000)
   const nextTransitionDelay = nextTransition - timestamp
-  clockTimer = window.setTimeout(scheduleClock, Math.min(nextMinuteDelay, nextTransitionDelay))
+  clockTimer = window.setTimeout(
+    scheduleClock,
+    Math.min(nextMinuteDelay, nextTransitionDelay),
+  )
 }
 
 function handleClockVisibilityChange() {
   if (document.visibilityState === 'visible') scheduleClock()
 }
 
-function planningImageUrl(backdropUrl: string | null, posterUrl: string | null) {
+function planningImageUrl(
+  backdropUrl: string | null,
+  posterUrl: string | null,
+) {
   return safeBackdropUrl(backdropUrl) ?? safePosterUrl(posterUrl)
 }
 
-function planningImageStyle(backdropUrl: string | null, posterUrl: string | null) {
+function planningImageStyle(
+  backdropUrl: string | null,
+  posterUrl: string | null,
+) {
   const safeUrl = planningImageUrl(backdropUrl, posterUrl)
   if (!safeUrl) return {}
 
@@ -172,7 +273,7 @@ function planningImageStyle(backdropUrl: string | null, posterUrl: string | null
     backgroundRepeat: 'no-repeat',
     backgroundSize: 'cover',
     color: '#fff',
-    textShadow: '0 1px 2px rgba(0, 0, 0, 0.72)'
+    textShadow: '0 1px 2px rgba(0, 0, 0, 0.72)',
   }
 }
 
@@ -184,12 +285,18 @@ function selectedBackdropStyle(url: string | null) {
     backgroundImage: `url("${safeUrl}")`,
     backgroundPosition: 'center 35%',
     backgroundRepeat: 'no-repeat',
-    backgroundSize: 'cover'
+    backgroundSize: 'cover',
   }
 }
 
 function pointerDown(event: PointerEvent) {
-  if (event.pointerType === 'touch' || event.button !== 0 || !window.matchMedia('(pointer: fine)').matches || !scroller.value) return
+  if (
+    event.pointerType === 'touch' ||
+    event.button !== 0 ||
+    !window.matchMedia('(pointer: fine)').matches ||
+    !scroller.value
+  )
+    return
   dragPointerId = event.pointerId
   dragStartX = event.clientX
   dragStartScroll = scroller.value.scrollLeft
@@ -211,10 +318,13 @@ function pointerMove(event: PointerEvent) {
 function pointerEnd(event: PointerEvent) {
   if (dragPointerId !== event.pointerId) return
   suppressClick = didDrag
-  if (scroller.value?.hasPointerCapture(event.pointerId)) scroller.value.releasePointerCapture(event.pointerId)
+  if (scroller.value?.hasPointerCapture(event.pointerId))
+    scroller.value.releasePointerCapture(event.pointerId)
   dragPointerId = null
   didDrag = false
-  window.setTimeout(() => { suppressClick = false }, 0)
+  window.setTimeout(() => {
+    suppressClick = false
+  }, 0)
 }
 
 function captureClick(event: MouseEvent) {
@@ -231,8 +341,14 @@ function alignInitialScroll() {
   }, Number.POSITIVE_INFINITY)
   if (!Number.isFinite(earliestOffset)) return
 
-  const maximumScroll = Math.max(0, scroller.value.scrollWidth - scroller.value.clientWidth)
-  scroller.value.scrollLeft = Math.min(Math.max(earliestOffset * pixelsPerMinute.value - INITIAL_SCROLL_GUTTER, 0), maximumScroll)
+  const maximumScroll = Math.max(
+    0,
+    scroller.value.scrollWidth - scroller.value.clientWidth,
+  )
+  scroller.value.scrollLeft = Math.min(
+    Math.max(earliestOffset * pixelsPerMinute.value - INITIAL_SCROLL_GUTTER, 0),
+    maximumScroll,
+  )
 }
 
 watch(() => props.timeline, scheduleClock)
@@ -251,7 +367,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isClockMounted = false
   if (clockTimer) window.clearTimeout(clockTimer)
-  if (initialScrollFrame !== undefined) window.cancelAnimationFrame(initialScrollFrame)
+  if (initialScrollFrame !== undefined)
+    window.cancelAnimationFrame(initialScrollFrame)
   window.removeEventListener('keydown', handleEscape)
   window.removeEventListener('pointerdown', handleOutsidePointer)
   window.removeEventListener('pointerup', pointerEnd)
@@ -263,9 +380,16 @@ onBeforeUnmount(() => {
 <template>
   <section class="timeline-matrix" aria-label="Frise des séances">
     <p class="sr-only" aria-live="polite">
-      {{ selected ? `Détails de la séance ${selected.showtime.movie.title}` : '' }}
+      {{
+        selected ? `Détails de la séance ${selected.showtime.movie.title}` : ''
+      }}
     </p>
-    <EditorialStatePanel v-if="rows.length === 0" size="viewport-compact" shadow="small" class="timeline-state font-extrabold">
+    <EditorialStatePanel
+      v-if="rows.length === 0"
+      size="viewport-compact"
+      shadow="small"
+      class="timeline-state font-extrabold"
+    >
       <template #icon><Film :size="30" aria-hidden="true" /></template>
       <p>Aucune séance pour ce format.</p>
     </EditorialStatePanel>
@@ -281,9 +405,15 @@ onBeforeUnmount(() => {
       @click.capture="captureClick"
       @dragstart.prevent
     >
-      <div class="relative" :style="{ width: `calc(var(--timeline-label-width) + ${railWidth}px)` }">
+      <div
+        class="relative"
+        :style="{ width: `calc(var(--timeline-label-width) + ${railWidth}px)` }"
+      >
         <div class="relative h-11 border-b-2 border-ink bg-[#f1efe8]">
-          <div class="left-0 z-30 flex h-full items-center border-r-2 border-ink bg-[#f1efe8] px-3 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:sticky sm:px-4" style="width: var(--timeline-label-width)">
+          <div
+            class="left-0 z-30 flex h-full items-center border-r-2 border-ink bg-[#f1efe8] px-3 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:sticky sm:px-4"
+            style="width: var(--timeline-label-width)"
+          >
             {{ mode === 'theater' ? 'Cinémas' : 'Films' }}
           </div>
           <span
@@ -306,9 +436,21 @@ onBeforeUnmount(() => {
             backgroundPosition: 'var(--timeline-label-width) 0, var(--timeline-label-width) 0'
           }"
         >
-          <div class="left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:sticky sm:px-4" style="width: var(--timeline-label-width)">
-            <strong class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"><TheaterName v-if="row.provider" :name="row.label" :provider="row.provider" /><BrandedText v-else :text="row.label" /></strong>
-            <span class="mt-1 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-ink">
+          <div
+            class="left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:sticky sm:px-4"
+            style="width: var(--timeline-label-width)"
+          >
+            <strong
+              class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"
+              ><TheaterName
+                v-if="row.provider"
+                :name="row.label"
+                :provider="row.provider"
+              /><BrandedText v-else :text="row.label" /></strong
+            >
+            <span
+              class="mt-1 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-ink"
+            >
               <MapPin v-if="mode === 'theater'" :size="12" aria-hidden="true" />
               <Film v-else :size="12" aria-hidden="true" />
               {{ row.secondary }}
@@ -326,7 +468,7 @@ onBeforeUnmount(() => {
               isShowtimeUnavailable(item.showtime.start_time) ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
             ]"
             :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
-            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${item.showtime.language}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
+            :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${languageLabel(item.showtime.language, item.showtime.movie.original_language)}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
             @click="selectShowtime(item, $event)"
@@ -353,14 +495,32 @@ onBeforeUnmount(() => {
               class="mt-1 block truncate text-[11px] leading-[15px] text-current"
               :class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'opacity-90' : 'opacity-70'"
             >
-              {{ formatParisTime(item.showtime.start_time) }} · <template v-if="item.showtime.language">{{ item.showtime.language }} · </template>
-              <ShowtimeFormat :format="item.showtime.format" :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''" decorative />
+              {{ formatParisTime(item.showtime.start_time) }}
+              ·
+              <template v-if="item.showtime.language"
+                >{{
+                  languageLabel(item.showtime.language, item.showtime.movie.original_language)
+                }}
+                ·
+              </template>
+              <ShowtimeFormat
+                :format="item.showtime.format"
+                :logo-class="planningImageUrl(item.showtime.backdrop_url, item.showtime.poster_url) ? 'brightness-0 invert' : ''"
+                decorative
+              />
             </span>
           </button>
         </div>
 
-        <div v-if="currentTimeOffset !== null" class="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-primary" :style="{ left: `calc(var(--timeline-label-width) + ${currentTimeOffset * pixelsPerMinute}px)` }">
-          <span class="absolute top-1 -translate-x-1/2 border border-ink bg-primary px-1.5 py-0.5 font-mono text-[9px] font-black uppercase text-white">Maintenant</span>
+        <div
+          v-if="currentTimeOffset !== null"
+          class="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-primary"
+          :style="{ left: `calc(var(--timeline-label-width) + ${currentTimeOffset * pixelsPerMinute}px)` }"
+        >
+          <span
+            class="absolute top-1 -translate-x-1/2 border border-ink bg-primary px-1.5 py-0.5 font-mono text-[9px] font-black uppercase text-white"
+            >Maintenant</span
+          >
         </div>
       </div>
     </div>
@@ -387,10 +547,17 @@ onBeforeUnmount(() => {
             :style="selectedBackdropStyle(selected.showtime.backdrop_url)"
             aria-hidden="true"
           />
-          <div v-else class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-ink to-black" aria-hidden="true">
+          <div
+            v-else
+            class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-ink to-black"
+            aria-hidden="true"
+          >
             <Film :size="42" class="text-white/40" />
           </div>
-          <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40" aria-hidden="true" />
+          <div
+            class="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/40"
+            aria-hidden="true"
+          />
           <button
             ref="inspectorCloseButton"
             type="button"
@@ -403,7 +570,9 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="relative flex-1 px-5 pb-6 sm:px-6">
-          <div class="-mt-16 mb-5 h-40 w-[108px] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]">
+          <div
+            class="-mt-16 mb-5 h-40 w-[108px] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]"
+          >
             <PosterImage
               :src="selected.showtime.poster_url"
               :alt="`Affiche de ${selected.showtime.movie.title}`"
@@ -416,32 +585,79 @@ onBeforeUnmount(() => {
             />
           </div>
 
-          <p class="font-mono text-[10px] font-black uppercase tracking-[0.14em] text-primary">Séance sélectionnée</p>
-          <h2 id="timeline-showtime-inspector-title" class="mt-2 text-3xl font-black leading-[0.95] tracking-[-0.045em] text-ink">
+          <p
+            class="font-mono text-[10px] font-black uppercase tracking-[0.14em] text-primary"
+          >
+            Séance sélectionnée
+          </p>
+          <h2
+            id="timeline-showtime-inspector-title"
+            class="mt-2 text-3xl font-black leading-[0.95] tracking-[-0.045em] text-ink"
+          >
             {{ selected.showtime.movie.title }}
           </h2>
-          <p v-if="selected.showtime.movie.runtime_minutes > 0" class="mt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-ink">{{ selected.showtime.movie.runtime_minutes }} min</p>
+          <p
+            v-if="selected.showtime.movie.runtime_minutes > 0"
+            class="mt-3 font-mono text-[10px] font-black uppercase tracking-[0.1em] text-ink"
+          >
+            {{ selected.showtime.movie.runtime_minutes }} min
+          </p>
 
-          <dl class="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-4 border-y-2 border-ink py-5 text-sm">
+          <dl
+            class="mt-6 grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-4 border-y-2 border-ink py-5 text-sm"
+          >
             <dt class="font-medium text-ink">Date</dt>
-            <dd class="text-right font-medium capitalize text-ink">{{ formatLongDate(timeline.date) }}</dd>
+            <dd class="text-right font-medium capitalize text-ink">
+              {{ formatLongDate(timeline.date) }}
+            </dd>
             <dt class="font-medium text-ink">Horaire</dt>
-            <dd class="flex items-center justify-end gap-2 font-semibold text-ink">
+            <dd
+              class="flex items-center justify-end gap-2 font-semibold text-ink"
+            >
               <Clock3 :size="16" class="text-primary" aria-hidden="true" />
-              {{ formatParisTime(selected.showtime.start_time) }} <template v-if="selectedEnd">→ <ShowtimeEndTime :end="selectedEnd" :advertised-start="selected.showtime.start_time" :runtime-minutes="selected.showtime.movie.runtime_minutes" /></template>
+              {{ formatParisTime(selected.showtime.start_time) }}
+              <template v-if="selectedEnd"
+                >→
+                <ShowtimeEndTime
+                  :end="selectedEnd"
+                  :advertised-start="selected.showtime.start_time"
+                  :runtime-minutes="selected.showtime.movie.runtime_minutes"
+                /></template
+              >
             </dd>
             <dt class="font-medium text-ink">Cinéma</dt>
-            <dd class="text-right font-medium text-ink"><TheaterName :name="selected.theater.name" :provider="selected.theater.provider" /></dd>
+            <dd class="text-right font-medium text-ink">
+              <TheaterName
+                :name="selected.theater.name"
+                :provider="selected.theater.provider"
+              />
+            </dd>
             <dt class="font-medium text-ink">Ville</dt>
-            <dd class="text-right font-medium text-ink">{{ selected.theater.city }}</dd>
+            <dd class="text-right font-medium text-ink">
+              {{ selected.theater.city }}
+            </dd>
             <dt class="font-medium text-ink">Salle</dt>
-            <dd class="text-right font-medium text-ink">{{ selected.showtime.room }}</dd>
+            <dd class="text-right font-medium text-ink">
+              {{ selected.showtime.room }}
+            </dd>
             <dt class="font-medium text-ink">Version</dt>
-            <dd class="text-right font-medium text-ink"><template v-if="selected.showtime.language">{{ selected.showtime.language }} · </template><ShowtimeFormat :format="selected.showtime.format" /></dd>
+            <dd class="text-right font-medium text-ink">
+              <template v-if="selected.showtime.language"
+                >{{
+                  languageLabel(selected.showtime.language, selected.showtime.movie.original_language)
+                }}
+                ·
+              </template><ShowtimeFormat :format="selected.showtime.format" />
+            </dd>
           </dl>
 
           <div class="mt-6 flex flex-col gap-3 sm:flex-row">
-            <BookingLink :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url" :provider="selected.showtime.provider" :showtime-id="selected.showtime.id" :theater-id="selected.theater.id" />
+            <BookingLink
+              :url="isShowtimeUnavailable(selected.showtime.start_time) ? null : selected.showtime.booking_url"
+              :provider="selected.showtime.provider"
+              :showtime-id="selected.showtime.id"
+              :theater-id="selected.theater.id"
+            />
             <NuxtLink
               :to="`/film/${selected.showtime.movie.slug}`"
               class="inline-flex h-10 items-center justify-center border-2 border-ink bg-surface px-5 text-sm font-black text-ink hover:bg-[#e8e6de] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"

@@ -15,8 +15,13 @@ export interface CompleteSearchShareState {
   selectedOnly: boolean
 }
 
-export function buildCompleteSearchShareTarget(search: CompleteSearchShareState): string {
-  const selection = showtimeSelectionQueryValues(search.selectedShowtimeKeys, search.selectedOnly)
+export function buildCompleteSearchShareTarget(
+  search: CompleteSearchShareState,
+): string {
+  const selection = showtimeSelectionQueryValues(
+    search.selectedShowtimeKeys,
+    search.selectedOnly,
+  )
   const query = new URLSearchParams([
     ['theaters', search.theaterIds.join(',')],
     ['date', search.date],
@@ -27,11 +32,12 @@ export function buildCompleteSearchShareTarget(search: CompleteSearchShareState)
     ['include_ads', search.includeAds ? '1' : '0'],
     ['buffer_ads', String(search.bufferAds)],
     ['grouping', search.grouping],
-    ['layout', search.layout]
+    ['layout', search.layout],
   ])
 
   if (selection.selected) query.set('selected', selection.selected)
-  if (selection.selected_only) query.set('selected_only', selection.selected_only)
+  if (selection.selected_only)
+    query.set('selected_only', selection.selected_only)
 
   return `/recherche?${query.toString()}`
 }

@@ -1,29 +1,41 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { useAdminUpcomingSync, UPCOMING_SYNC_MAX_POLLS, UPCOMING_SYNC_POLL_DELAY } from '../app/composables/useAdminUpcomingSync.ts'
+import {
+  useAdminUpcomingSync,
+  UPCOMING_SYNC_MAX_POLLS,
+  UPCOMING_SYNC_POLL_DELAY,
+} from '../app/composables/useAdminUpcomingSync.ts'
 import { useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import type { AdminUpcomingSyncResponse } from '../app/types/api.ts'
 
-function response(state: 'running' | 'succeeded' | 'failed' | null): AdminUpcomingSyncResponse {
+function response(
+  state: 'running' | 'succeeded' | 'failed' | null,
+): AdminUpcomingSyncResponse {
   if (state === null) return { job: null }
   const job: NonNullable<AdminUpcomingSyncResponse['job']> = {
     state,
     started_at: '2026-09-13T12:00:00Z',
-    finished_at: state === 'running' ? null : '2026-09-13T12:01:00Z'
+    finished_at: state === 'running' ? null : '2026-09-13T12:01:00Z',
   }
   if (state === 'failed') job.error_code = 'sync_failed'
   return { job }
 }
 
 function failure(status: number, code = 'unknown') {
-  return { status, data: { error: { code, message: 'private upstream details' } } }
+  return {
+    status,
+    data: { error: { code, message: 'private upstream details' } },
+  }
 }
 
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: ReturnType<typeof failure>) => void
-  const promise = new Promise<T>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
+  const promise = new Promise<T>((onResolve, onReject) => {
+    resolve = onResolve
+    reject = onReject
+  })
   return { promise, resolve, reject }
 }
 
@@ -38,8 +50,14 @@ test('loads initial status before allowing a start and guards duplicate status/s
   let reads = 0
   let starts = 0
   const sync = useAdminUpcomingSync({
-    adminUpcomingSyncStatus: () => { reads += 1; return initial.promise },
-    adminStartUpcomingSync: () => { starts += 1; return accepted.promise }
+    adminUpcomingSyncStatus: () => {
+      reads += 1
+      return initial.promise
+    },
+    adminStartUpcomingSync: () => {
+      starts += 1
+      return accepted.promise
+    },
   })
   t.after(sync.dispose)
   assert.equal(sync.canStart.value, false)
@@ -71,8 +89,11 @@ test('polls only running jobs, stops on completion, and does not poll idle or hi
   let reads = 0
   let current = response(null)
   const sync = useAdminUpcomingSync({
-    adminUpcomingSyncStatus: async () => { reads += 1; return current },
-    adminStartUpcomingSync: async () => response('running')
+    adminUpcomingSyncStatus: async () => {
+      reads += 1
+      return current
+    },
+    adminStartUpcomingSync: async () => response('running'),
   })
   t.after(sync.dispose)
   await sync.checkStatus()
@@ -97,8 +118,11 @@ test('initial running job resumes polling with at most one GET in flight', async
   const poll = deferred<AdminUpcomingSyncResponse>()
   let reads = 0
   const sync = useAdminUpcomingSync({
-    adminUpcomingSyncStatus: () => ++reads === 1 ? Promise.resolve(response('running')) : poll.promise,
-    adminStartUpcomingSync: async () => { assert.fail('must not start a running job') }
+    adminUpcomingSyncStatus: () =>
+      ++reads === 1 ? Promise.resolve(response('running')) : poll.promise,
+    adminStartUpcomingSync: async () => {
+      assert.fail('must not start a running job')
+    },
   })
   t.after(sync.dispose)
   await sync.checkStatus()
@@ -121,8 +145,13 @@ test('bounds automatic polling and requires explicit status check to resume with
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let reads = 0
   const sync = useAdminUpcomingSync({
-    adminUpcomingSyncStatus: async () => { reads += 1; return response('running') },
-    adminStartUpcomingSync: async () => { assert.fail('status check must not start a job') }
+    adminUpcomingSyncStatus: async () => {
+      reads += 1
+      return response('running')
+    },
+    adminStartUpcomingSync: async () => {
+      assert.fail('status check must not start a job')
+    },
   })
   t.after(sync.dispose)
   await sync.checkStatus()
@@ -152,7 +181,9 @@ test('status failures stop polling, hide stale success, and require a successful
       if (reads === 2) throw failure(503)
       return response(reads === 1 ? 'running' : 'succeeded')
     },
-    adminStartUpcomingSync: async () => { assert.fail('cannot start with unknown status') }
+    adminStartUpcomingSync: async () => {
+      assert.fail('cannot start with unknown status')
+    },
   })
   t.after(sync.dispose)
   await sync.checkStatus()
@@ -175,12 +206,17 @@ test('unavailable and authentication errors use safe feedback without retry loop
   for (const [status, code, message] of [
     [503, 'tmdb_upcoming_sync_unavailable', /indisponible/],
     [503, 'admin_unavailable', /indisponible/],
-    [401, 'unauthorized', /Session expirée/]
+    [401, 'unauthorized', /Session expirée/],
   ] as const) {
     let reads = 0
     const sync = useAdminUpcomingSync({
-      adminUpcomingSyncStatus: async () => { reads += 1; throw failure(status, code) },
-      adminStartUpcomingSync: async () => { assert.fail('cannot start') }
+      adminUpcomingSyncStatus: async () => {
+        reads += 1
+        throw failure(status, code)
+      },
+      adminStartUpcomingSync: async () => {
+        assert.fail('cannot start')
+      },
     })
     t.after(sync.dispose)
     await sync.checkStatus()
@@ -201,8 +237,12 @@ test('conflict reloads local status, polls a local running job, but never invent
     let reads = 0
     let starts = 0
     const sync = useAdminUpcomingSync({
-      adminUpcomingSyncStatus: async () => response(++reads === 1 ? null : localState),
-      adminStartUpcomingSync: async () => { starts += 1; throw failure(409, 'tmdb_upcoming_sync_in_progress') }
+      adminUpcomingSyncStatus: async () =>
+        response(++reads === 1 ? null : localState),
+      adminStartUpcomingSync: async () => {
+        starts += 1
+        throw failure(409, 'tmdb_upcoming_sync_in_progress')
+      },
     })
     t.after(sync.dispose)
     await sync.checkStatus()
@@ -225,11 +265,18 @@ test('conflict reloads local status, polls a local running job, but never invent
 })
 
 test('failed or uncertain POST admission requires status recovery and never retries the mutation', async (t) => {
-  for (const cause of [failure(502, 'tmdb_upcoming_sync_failed'), failure(403, 'origin_forbidden'), new Error('private timeout')]) {
+  for (const cause of [
+    failure(502, 'tmdb_upcoming_sync_failed'),
+    failure(403, 'origin_forbidden'),
+    new Error('private timeout'),
+  ]) {
     let starts = 0
     const sync = useAdminUpcomingSync({
       adminUpcomingSyncStatus: async () => response(null),
-      adminStartUpcomingSync: async () => { starts += 1; throw cause }
+      adminStartUpcomingSync: async () => {
+        starts += 1
+        throw cause
+      },
     })
     t.after(sync.dispose)
     await sync.checkStatus()
@@ -249,10 +296,14 @@ test('dispose aborts GET and POST and ignores late completion or failure even if
     for (const lateFailure of [false, true]) {
       const pending = deferred<AdminUpcomingSyncResponse>()
       let signal: AbortSignal | undefined
-      const capture = (requestSignal?: AbortSignal) => { signal = requestSignal; return pending.promise }
+      const capture = (requestSignal?: AbortSignal) => {
+        signal = requestSignal
+        return pending.promise
+      }
       const sync = useAdminUpcomingSync({
-        adminUpcomingSyncStatus: kind === 'status' ? capture : async () => response(null),
-        adminStartUpcomingSync: capture
+        adminUpcomingSyncStatus:
+          kind === 'status' ? capture : async () => response(null),
+        adminStartUpcomingSync: capture,
       })
       if (kind === 'start') await sync.checkStatus()
       const loading = kind === 'start' ? sync.start() : sync.checkStatus()
@@ -273,8 +324,11 @@ test('dispose clears scheduled polling', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let reads = 0
   const sync = useAdminUpcomingSync({
-    adminUpcomingSyncStatus: async () => { reads += 1; return response('running') },
-    adminStartUpcomingSync: async () => response('running')
+    adminUpcomingSyncStatus: async () => {
+      reads += 1
+      return response('running')
+    },
+    adminStartUpcomingSync: async () => response('running'),
   })
   await sync.checkStatus()
   sync.dispose()
@@ -285,52 +339,117 @@ test('dispose clears scheduled polling', async (t) => {
 })
 
 test('GET and empty-body POST use frozen path, credentials, cancellation, timeout and no automatic retries', async () => {
-  interface FetchOptions { method?: string, credentials: string, signal?: AbortSignal, retry: false, timeout: number }
-  const calls: Array<{ url: string, options: FetchOptions }> = []
+  interface FetchOptions {
+    method?: string
+    credentials: string
+    signal?: AbortSignal
+    retry: false
+    timeout: number
+  }
+  const calls: Array<{ url: string; options: FetchOptions }> = []
   const controller = new AbortController()
   Object.assign(globalThis, {
     useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080/' } }),
-    $fetch: (url: string, options: FetchOptions) => { calls.push({ url, options }); return Promise.resolve(response(null)) }
+    $fetch: (url: string, options: FetchOptions) => {
+      calls.push({ url, options })
+      return Promise.resolve(response(null))
+    },
   })
   const api = useMesSeancesApi()
   await api.adminUpcomingSyncStatus(controller.signal)
   await api.adminStartUpcomingSync(controller.signal)
-  const options = { credentials: 'include', signal: controller.signal, retry: false, timeout: 15000 }
+  const options = {
+    credentials: 'include',
+    signal: controller.signal,
+    retry: false,
+    timeout: 15000,
+  }
   assert.deepEqual(calls, [
-    { url: 'http://localhost:8080/api/v1/admin/tmdb-upcoming-movies/sync', options },
-    { url: 'http://localhost:8080/api/v1/admin/tmdb-upcoming-movies/sync', options: { method: 'POST', ...options } }
+    {
+      url: 'http://localhost:8080/api/v1/admin/tmdb-upcoming-movies/sync',
+      options,
+    },
+    {
+      url: 'http://localhost:8080/api/v1/admin/tmdb-upcoming-movies/sync',
+      options: { method: 'POST', ...options },
+    },
   ])
 })
 
 test('upcoming review page owns accessible direct action, status recovery, initial load and teardown without schedule mutation', async () => {
-  const page = await readFile(new URL('../app/pages/admin/upcoming-movies.vue', import.meta.url), 'utf8')
-  const api = await readFile(new URL('../app/composables/useMesSeancesApi.ts', import.meta.url), 'utf8')
+  const page = await readFile(
+    new URL('../app/pages/admin/upcoming-movies.vue', import.meta.url),
+    'utf8',
+  )
+  const api = await readFile(
+    new URL('../app/composables/useMesSeancesApi.ts', import.meta.url),
+    'utf8',
+  )
   assert.match(page, /definePageMeta\(\{ middleware: 'admin-auth' \}\)/)
-  assert.match(page, /onMounted\(\(\) => \{ void checkUpcomingStatus\(\) \}\)/)
+  assert.match(
+    page,
+    /onMounted\(\(\) => \{\s*void checkUpcomingStatus\(\)\s*\}\)/,
+  )
   assert.match(page, /onBeforeUnmount\(disposeUpcomingSync\)/)
   assert.equal([...page.matchAll(/useAdminUpcomingSync\(api\)/g)].length, 1)
   assert.equal([...page.matchAll(/void checkUpcomingStatus\(\)/g)].length, 1)
-  assert.match(page, /<button type="button"[^>]+:disabled="!canStartUpcoming"[^>]+aria-describedby="upcoming-sync-status"[^>]+@click="startUpcomingSync"/)
+  assert.match(
+    page,
+    /<button\s+type="button"[^>]+:disabled="!canStartUpcoming"[^>]+aria-describedby="upcoming-sync-status"[^>]+@click="startUpcomingSync"/,
+  )
   assert.match(page, /v-if="upcomingPending \|\| upcomingRunning"/)
-  assert.match(page, /v-if="upcomingNeedsCheck && !upcomingPending"[^>]+:disabled="!canCheckUpcoming"/)
+  assert.match(
+    page,
+    /v-if="upcomingNeedsCheck && !upcomingPending"[^>]+:disabled="!canCheckUpcoming"/,
+  )
   assert.match(page, /Synchroniser TMDB - Prochainement/)
-  assert.match(page, /role="status" aria-live="polite"/)
+  assert.match(page, /role="status"\s+aria-live="polite"/)
   assert.match(page, /v-if="upcomingError"[^>]+role="alert"/)
-  assert.match(page, /@click="checkUpcomingStatus">Vérifier le statut/)
-  assert.doesNotMatch(page, /adminCreateSyncSchedule|adminUpdateSyncSchedule|adminStartSync|v-html|loggingOut|void startUpcomingSync\(/)
-  assert.ok(page.indexOf('Synchroniser TMDB - Prochainement') < page.indexOf('<label for="review-filter"'))
-  const buttonClass = page.match(/<button type="button" class="([^"]+)"[^>]+@click="startUpcomingSync"/)?.[1]?.split(' ') ?? []
-  for (const token of ['inline-flex', 'min-h-11', 'w-full', 'sm:w-auto', 'bg-primary', 'text-white']) assert.ok(buttonClass.includes(token), token)
+  assert.match(page, /@click="checkUpcomingStatus"\s*>\s*Vérifier le statut/)
+  assert.doesNotMatch(
+    page,
+    /adminCreateSyncSchedule|adminUpdateSyncSchedule|adminStartSync|v-html|loggingOut|void startUpcomingSync\(/,
+  )
+  assert.ok(
+    page.indexOf('Synchroniser TMDB - Prochainement') <
+      page.search(/<label\s+for="review-filter"/),
+  )
+  const buttonClass =
+    page
+      .match(
+        /<button\s+type="button"\s+class="([^"]+)"[^>]+@click="startUpcomingSync"/,
+      )?.[1]
+      ?.split(' ') ?? []
+  for (const token of [
+    'inline-flex',
+    'min-h-11',
+    'w-full',
+    'sm:w-auto',
+    'bg-primary',
+    'text-white',
+  ])
+    assert.ok(buttonClass.includes(token), token)
   for (const method of ['adminUpcomingSyncStatus', 'adminStartUpcomingSync']) {
-    assert.match(api, new RegExp(`${method}\\(signal\\?: AbortSignal\\) \\{\\s+return withAdminRedirect`))
+    assert.match(
+      api,
+      new RegExp(
+        `${method}\\(signal\\?: AbortSignal\\) \\{\\s+return withAdminRedirect`,
+      ),
+    )
   }
 })
 
 test('dashboard retains review navigation and logout without instantiating or querying upcoming sync', async () => {
-  const dashboard = await readFile(new URL('../app/pages/admin/index.vue', import.meta.url), 'utf8')
+  const dashboard = await readFile(
+    new URL('../app/pages/admin/index.vue', import.meta.url),
+    'utf8',
+  )
   assert.match(dashboard, /to="\/admin\/upcoming-movies"/)
   assert.match(dashboard, /Revue des sorties à venir/)
   assert.match(dashboard, /@click="logout"/)
   assert.match(dashboard, /await api.adminLogout\(\)/)
-  assert.doesNotMatch(dashboard, /useAdminUpcomingSync|adminUpcomingSyncStatus|adminStartUpcomingSync|checkUpcomingStatus|startUpcomingSync|upcoming-sync-status|Synchroniser TMDB - Prochainement/)
+  assert.doesNotMatch(
+    dashboard,
+    /useAdminUpcomingSync|adminUpcomingSyncStatus|adminStartUpcomingSync|checkUpcomingStatus|startUpcomingSync|upcoming-sync-status|Synchroniser TMDB - Prochainement/,
+  )
 })

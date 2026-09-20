@@ -155,6 +155,11 @@ func webAttributes(tags []string) (schedule.Language, string, schedule.Format, e
 	}
 	language, version := schedule.Language(""), ""
 	switch {
+	case flags["Localization.Language.VOF"]:
+		language, version = schedule.LanguageVO, "Localization.Language.VOF"
+		if flags["Showtime.Accessibility.Subtitled"] {
+			language = schedule.LanguageVOSTFR
+		}
 	case flags["Localization.Version.Original"] && flags["Showtime.Accessibility.Subtitled"]:
 		language, version = schedule.LanguageVOSTFR, "VOSTFR"
 	case flags["Localization.Language.French"]:

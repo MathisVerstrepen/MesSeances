@@ -1,37 +1,65 @@
 import type { QueryFormat, ShowtimeFormat } from '~/types/api'
 
-export type FormatBrand = 'IMAX' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'INFINITY_VISION'
+export type FormatBrand =
+  | 'IMAX'
+  | '3D'
+  | 'DOLBY'
+  | 'SCREENX'
+  | 'LASER_ULTRA'
+  | '4DX'
+  | 'INFINITY_VISION'
 
-export const formatOptions: ReadonlyArray<{ value: QueryFormat; label: string; brand?: FormatBrand }> = [
+export const formatOptions: ReadonlyArray<{
+  value: QueryFormat
+  label: string
+  brand?: FormatBrand
+}> = [
   { value: 'ALL', label: 'Tous les formats' },
   { value: '2D', label: '2D' },
   { value: '3D', label: '3D', brand: '3D' },
   { value: 'IMAX', label: 'IMAX', brand: 'IMAX' },
   { value: 'DOLBY', label: 'Dolby', brand: 'DOLBY' },
   { value: 'SCREENX', label: 'ScreenX', brand: 'SCREENX' },
-  { value: 'LASER_ULTRA', label: 'Laser ULTRA by Kinepolis', brand: 'LASER_ULTRA' },
+  {
+    value: 'LASER_ULTRA',
+    label: 'Laser ULTRA by Kinepolis',
+    brand: 'LASER_ULTRA',
+  },
   { value: '4DX', label: '4DX', brand: '4DX' },
   { value: 'ICE', label: 'ICE' },
-  { value: 'INFINITY_VISION', label: 'Infinity Vision', brand: 'INFINITY_VISION' }
+  {
+    value: 'INFINITY_VISION',
+    label: 'Infinity Vision',
+    brand: 'INFINITY_VISION',
+  },
 ]
 
 export function formatLabel(format: string): string {
-  return formatOptions.find((option) => option.value === format.toUpperCase())?.label ?? format
+  return (
+    formatOptions.find((option) => option.value === format.toUpperCase())
+      ?.label ?? format
+  )
 }
 
 export function formatBrand(format: string): FormatBrand | undefined {
-  return formatOptions.find((option) => option.value === format.toUpperCase())?.brand
+  return formatOptions.find((option) => option.value === format.toUpperCase())
+    ?.brand
 }
 
 export function isShowtimeFormat(format: string): format is ShowtimeFormat {
-  return formatOptions.some((option) => option.value !== 'ALL' && option.value === format)
+  return formatOptions.some(
+    (option) => option.value !== 'ALL' && option.value === format,
+  )
 }
 
 export function formatRuntime(runtimeMinutes: number): string {
-  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0) return 'Durée non renseignée'
+  if (!Number.isInteger(runtimeMinutes) || runtimeMinutes <= 0)
+    return 'Durée non renseignée'
   const hours = Math.floor(runtimeMinutes / 60)
   const minutes = runtimeMinutes % 60
-  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : ''].filter(Boolean).join(' ')
+  return [hours ? `${hours}h` : '', minutes ? `${minutes}min` : '']
+    .filter(Boolean)
+    .join(' ')
 }
 
 export function formatShowtimeCount(showtimeCount: number): string {

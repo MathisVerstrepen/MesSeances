@@ -1,8 +1,18 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { getFrenchAdminApiError, useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
-import type { AdminSaveSyncScheduleRequest, AdminSyncJob, AdminSyncProviderState, AdminSyncScheduleItem, AdminSyncTarget, Provider } from '../app/types/api.ts'
+import {
+  getFrenchAdminApiError,
+  useMesSeancesApi,
+} from '../app/composables/useMesSeancesApi.ts'
+import type {
+  AdminSaveSyncScheduleRequest,
+  AdminSyncJob,
+  AdminSyncProviderState,
+  AdminSyncScheduleItem,
+  AdminSyncTarget,
+  Provider,
+} from '../app/types/api.ts'
 import {
   adminSyncRunDurationMilliseconds,
   adminSyncScheduleDraftFingerprint,
@@ -12,7 +22,7 @@ import {
   isAdminSyncScheduleTargetAvailable,
   selectLatestProviderRun,
   validateAdminSyncScheduleDraft,
-  type AdminSyncScheduleDraft
+  type AdminSyncScheduleDraft,
 } from '../app/utils/adminSyncSchedules.ts'
 
 interface AdminScheduleFetchOptions {
@@ -21,8 +31,17 @@ interface AdminScheduleFetchOptions {
   body?: AdminSaveSyncScheduleRequest
 }
 
-function draft(overrides: Partial<AdminSyncScheduleDraft> = {}): AdminSyncScheduleDraft {
-  return { enabled: false, kind: 'daily', time: '', weekdays: [], expression: '', ...overrides }
+function draft(
+  overrides: Partial<AdminSyncScheduleDraft> = {},
+): AdminSyncScheduleDraft {
+  return {
+    enabled: false,
+    kind: 'daily',
+    time: '',
+    weekdays: [],
+    expression: '',
+    ...overrides,
+  }
 }
 
 function job(
@@ -30,7 +49,7 @@ function job(
   target: AdminSyncTarget,
   startedAt: string,
   states: Partial<Record<Provider, AdminSyncProviderState>> = {},
-  state: AdminSyncJob['state'] = 'succeeded'
+  state: AdminSyncJob['state'] = 'succeeded',
 ): AdminSyncJob {
   return {
     id,
@@ -42,50 +61,155 @@ function job(
     from: '2026-08-24',
     through: '2026-08-30',
     providers: {
-      ugc: { state: states.ugc ?? (target === 'ugc' || target === 'all' ? 'succeeded' : 'not_requested') },
-      kinepolis: { state: states.kinepolis ?? (target === 'kinepolis' || target === 'all' ? 'succeeded' : 'not_requested') },
-      pathe: { state: states.pathe ?? (target === 'pathe' || target === 'all' ? 'succeeded' : 'not_requested') },
-      cgr: { state: states.cgr ?? (target === 'cgr' || target === 'all' ? 'succeeded' : 'not_requested') },
-      megarama: { state: states.megarama ?? (target === 'megarama' || target === 'all' ? 'succeeded' : 'not_requested') },
-      cineville: { state: states.cineville ?? (target === 'cineville' || target === 'all' ? 'succeeded' : 'not_requested') },
-      mk2: { state: states.mk2 ?? (target === 'mk2' || target === 'all' ? 'succeeded' : 'not_requested') },
-      cinewest: { state: states.cinewest ?? (target === 'cinewest' || target === 'all' ? 'succeeded' : 'not_requested') },
-      grandecran: { state: states.grandecran ?? (target === 'grandecran' || target === 'all' ? 'succeeded' : 'not_requested') },
-      noecinemas: { state: states.noecinemas ?? (target === 'noecinemas' || target === 'all' ? 'succeeded' : 'not_requested') }
-    }
+      ugc: {
+        state:
+          states.ugc ??
+          (target === 'ugc' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      kinepolis: {
+        state:
+          states.kinepolis ??
+          (target === 'kinepolis' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      pathe: {
+        state:
+          states.pathe ??
+          (target === 'pathe' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      cgr: {
+        state:
+          states.cgr ??
+          (target === 'cgr' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      megarama: {
+        state:
+          states.megarama ??
+          (target === 'megarama' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      cineville: {
+        state:
+          states.cineville ??
+          (target === 'cineville' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      mk2: {
+        state:
+          states.mk2 ??
+          (target === 'mk2' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      cinewest: {
+        state:
+          states.cinewest ??
+          (target === 'cinewest' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      grandecran: {
+        state:
+          states.grandecran ??
+          (target === 'grandecran' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+      noecinemas: {
+        state:
+          states.noecinemas ??
+          (target === 'noecinemas' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
+    },
   }
 }
 
 test('validates daily and weekly drafts without requiring inactive fields', () => {
   assert.deepEqual(validateAdminSyncScheduleDraft(draft()), {
     valid: false,
-    errors: { time: 'Indiquez une heure.' }
+    errors: { time: 'Indiquez une heure.' },
   })
-  assert.equal(validateAdminSyncScheduleDraft(draft({ time: '23:59' })).valid, true)
-  assert.equal(validateAdminSyncScheduleDraft(draft({ time: '24:00' })).errors.time, 'Utilisez une heure valide au format HH:MM.')
+  assert.equal(
+    validateAdminSyncScheduleDraft(draft({ time: '23:59' })).valid,
+    true,
+  )
+  assert.equal(
+    validateAdminSyncScheduleDraft(draft({ time: '24:00' })).errors.time,
+    'Utilisez une heure valide au format HH:MM.',
+  )
 
   const weekly = draft({ kind: 'weekly', time: '07:45' })
-  assert.equal(validateAdminSyncScheduleDraft(weekly).errors.weekdays, 'Sélectionnez au moins un jour.')
-  assert.equal(validateAdminSyncScheduleDraft({ ...weekly, weekdays: ['fri'] }).valid, true)
+  assert.equal(
+    validateAdminSyncScheduleDraft(weekly).errors.weekdays,
+    'Sélectionnez au moins un jour.',
+  )
+  assert.equal(
+    validateAdminSyncScheduleDraft({ ...weekly, weekdays: ['fri'] }).valid,
+    true,
+  )
 })
 
 test('validates and canonicalizes five-field cron drafts', () => {
-  assert.equal(validateAdminSyncScheduleDraft(draft({ kind: 'cron' })).errors.expression, 'Indiquez une expression cron.')
-  assert.equal(validateAdminSyncScheduleDraft(draft({ kind: 'cron', expression: '30 9 * *' })).errors.expression, 'L’expression cron doit contenir exactement cinq champs.')
-  assert.equal(validateAdminSyncScheduleDraft(draft({ kind: 'cron', expression: '30 9 * * 1 extra' })).valid, false)
-  assert.equal(validateAdminSyncScheduleDraft(draft({ kind: 'cron', expression: `${'é'.repeat(128)} * * * *` })).errors.expression, 'L’expression cron ne peut pas dépasser 255 octets.')
-  assert.equal(validateAdminSyncScheduleDraft(draft({ kind: 'cron', expression: '  30\t9  * * 1  ' })).valid, true)
-  assert.deepEqual(buildAdminSyncScheduleRequest(draft({ enabled: true, kind: 'cron', expression: '  30\t9  * * 1  ' })), {
-    enabled: true,
-    schedule: { kind: 'cron', expression: '30 9 * * 1' }
-  })
+  assert.equal(
+    validateAdminSyncScheduleDraft(draft({ kind: 'cron' })).errors.expression,
+    'Indiquez une expression cron.',
+  )
+  assert.equal(
+    validateAdminSyncScheduleDraft(
+      draft({ kind: 'cron', expression: '30 9 * *' }),
+    ).errors.expression,
+    'L’expression cron doit contenir exactement cinq champs.',
+  )
+  assert.equal(
+    validateAdminSyncScheduleDraft(
+      draft({ kind: 'cron', expression: '30 9 * * 1 extra' }),
+    ).valid,
+    false,
+  )
+  assert.equal(
+    validateAdminSyncScheduleDraft(
+      draft({ kind: 'cron', expression: `${'é'.repeat(128)} * * * *` }),
+    ).errors.expression,
+    'L’expression cron ne peut pas dépasser 255 octets.',
+  )
+  assert.equal(
+    validateAdminSyncScheduleDraft(
+      draft({ kind: 'cron', expression: '  30\t9  * * 1  ' }),
+    ).valid,
+    true,
+  )
+  assert.deepEqual(
+    buildAdminSyncScheduleRequest(
+      draft({ enabled: true, kind: 'cron', expression: '  30\t9  * * 1  ' }),
+    ),
+    {
+      enabled: true,
+      schedule: { kind: 'cron', expression: '30 9 * * 1' },
+    },
+  )
 })
 
 test('builds weekly requests in canonical weekday order without duplicates', () => {
-  assert.deepEqual(buildAdminSyncScheduleRequest(draft({ kind: 'weekly', time: '08:15', weekdays: ['fri', 'mon', 'fri'] })), {
-    enabled: false,
-    schedule: { kind: 'weekly', time: '08:15', weekdays: ['mon', 'fri'] }
-  })
+  assert.deepEqual(
+    buildAdminSyncScheduleRequest(
+      draft({ kind: 'weekly', time: '08:15', weekdays: ['fri', 'mon', 'fri'] }),
+    ),
+    {
+      enabled: false,
+      schedule: { kind: 'weekly', time: '08:15', weekdays: ['mon', 'fri'] },
+    },
+  )
 })
 
 test('creates independent blank and persisted drafts for repeated targets', () => {
@@ -101,37 +225,66 @@ test('creates independent blank and persisted drafts for repeated targets', () =
     enabled: true,
     schedule: { kind: 'weekly', time: '08:15', weekdays: ['mon', 'fri'] },
     next_runs: [],
-    updated_at: '2026-08-29T12:00:00Z'
+    updated_at: '2026-08-29T12:00:00Z',
   }
   const persisted = adminSyncScheduleDraftFromItem(item)
   persisted.weekdays.push('sun')
 
   assert.deepEqual(item.schedule.weekdays, ['mon', 'fri'])
-  assert.notEqual(adminSyncScheduleDraftFingerprint(persisted), adminSyncScheduleDraftFingerprint(adminSyncScheduleDraftFromItem(item)))
+  assert.notEqual(
+    adminSyncScheduleDraftFingerprint(persisted),
+    adminSyncScheduleDraftFingerprint(adminSyncScheduleDraftFromItem(item)),
+  )
 })
 
 test('reports target availability without treating disabled configuration as unavailable data', () => {
-  const available = ['ugc', 'cineville', 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'] as const
+  const available = [
+    'ugc',
+    'cineville',
+    'tmdb_metadata_refresh',
+    'tmdb_upcoming_movies',
+  ] as const
   assert.equal(isAdminSyncScheduleTargetAvailable('cineville', available), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('cineville', []), false)
   assert.equal(isAdminSyncScheduleTargetAvailable('ugc', available), true)
-  assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_metadata_refresh', available), true)
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('tmdb_metadata_refresh', available),
+    true,
+  )
   assert.equal(isAdminSyncScheduleTargetAvailable('cgr', available), false)
-  assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_upcoming_movies', available), true)
-  assert.equal(isAdminSyncScheduleTargetAvailable('tmdb_upcoming_movies', []), false)
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('tmdb_upcoming_movies', available),
+    true,
+  )
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('tmdb_upcoming_movies', []),
+    false,
+  )
 })
 
 test('maps schedule CRUD and availability failures to safe French recovery messages', () => {
   const failure = (code: string) => ({ data: { error: { code } } })
 
-  assert.equal(getFrenchAdminApiError(failure('sync_schedule_not_found')), 'Cette planification n’existe plus. Actualisez la page.')
-  assert.equal(getFrenchAdminApiError(failure('sync_schedule_target_unavailable')), 'Cette synchronisation est temporairement indisponible. Désactivez la planification ou réessayez plus tard.')
-  assert.equal(getFrenchAdminApiError(failure('sync_schedule_failed')), 'La planification n’a pas pu être enregistrée. Vos modifications sont conservées, réessayez plus tard.')
+  assert.equal(
+    getFrenchAdminApiError(failure('sync_schedule_not_found')),
+    'Cette planification n’existe plus. Actualisez la page.',
+  )
+  assert.equal(
+    getFrenchAdminApiError(failure('sync_schedule_target_unavailable')),
+    'Cette synchronisation est temporairement indisponible. Désactivez la planification ou réessayez plus tard.',
+  )
+  assert.equal(
+    getFrenchAdminApiError(failure('sync_schedule_failed')),
+    'La planification n’a pas pu être enregistrée. Vos modifications sont conservées, réessayez plus tard.',
+  )
 })
 
 test('uses create, update, and delete schedule endpoints with credentials and decimal-string IDs', async () => {
-  const calls: Array<{ url: string, options: AdminScheduleFetchOptions }> = []
-  const input: AdminSaveSyncScheduleRequest = { enabled: false, schedule: { kind: 'daily', time: '09:30' } }
+  const calls: Array<{ url: string; options: AdminScheduleFetchOptions }> = []
+  const input: AdminSaveSyncScheduleRequest = {
+    enabled: false,
+    schedule: { kind: 'daily', time: '09:30' },
+  }
   const saved: AdminSyncScheduleItem = {
     id: '9007199254740993',
     target: 'tmdb_metadata_refresh',
@@ -143,50 +296,80 @@ test('uses create, update, and delete schedule endpoints with credentials and de
       '2026-08-31T07:30:00Z',
       '2026-09-01T07:30:00Z',
       '2026-09-02T07:30:00Z',
-      '2026-09-03T07:30:00Z'
+      '2026-09-03T07:30:00Z',
     ],
-    updated_at: '2026-08-29T12:00:00Z'
+    updated_at: '2026-08-29T12:00:00Z',
   }
   Object.assign(globalThis, {
     useRuntimeConfig: () => ({ public: { apiBase: 'http://localhost:8080/' } }),
     $fetch: (url: string, options: AdminScheduleFetchOptions) => {
       calls.push({ url, options })
       return Promise.resolve(saved)
-    }
+    },
   })
 
   const api = useMesSeancesApi()
-  assert.equal((await api.adminCreateSyncSchedule('tmdb_metadata_refresh', input)).id, '9007199254740993')
-  assert.equal((await api.adminUpdateSyncSchedule('tmdb_metadata_refresh', saved.id, input)).id, '9007199254740993')
+  assert.equal(
+    (await api.adminCreateSyncSchedule('tmdb_metadata_refresh', input)).id,
+    '9007199254740993',
+  )
+  assert.equal(
+    (
+      await api.adminUpdateSyncSchedule(
+        'tmdb_metadata_refresh',
+        saved.id,
+        input,
+      )
+    ).id,
+    '9007199254740993',
+  )
   await api.adminDeleteSyncSchedule('tmdb_metadata_refresh', saved.id)
 
   assert.deepEqual(calls, [
     {
       url: 'http://localhost:8080/api/v1/admin/sync-schedules/tmdb_metadata_refresh',
-      options: { method: 'POST', credentials: 'include', body: input }
+      options: { method: 'POST', credentials: 'include', body: input },
     },
     {
       url: 'http://localhost:8080/api/v1/admin/sync-schedules/tmdb_metadata_refresh/9007199254740993',
-      options: { method: 'PUT', credentials: 'include', body: input }
+      options: { method: 'PUT', credentials: 'include', body: input },
     },
     {
       url: 'http://localhost:8080/api/v1/admin/sync-schedules/tmdb_metadata_refresh/9007199254740993',
-      options: { method: 'DELETE', credentials: 'include' }
-    }
+      options: { method: 'DELETE', credentials: 'include' },
+    },
   ])
 })
 
 test('page keeps provider and both TMDB target sections with per-entry CRUD state', async () => {
-  const page = await readFile(new URL('../app/pages/admin/sync-schedules.vue', import.meta.url), 'utf8')
+  const page = await readFile(
+    new URL('../app/pages/admin/sync-schedules.vue', import.meta.url),
+    'utf8',
+  )
 
-  assert.match(page, /const targets = \[\.\.\.providers, 'tmdb_metadata_refresh', 'tmdb_upcoming_movies'\] as const/)
+  assert.match(
+    page,
+    /const targets = \[\s*\.\.\.providers,\s*'tmdb_metadata_refresh',\s*'tmdb_upcoming_movies',?\s*\] as const/,
+  )
   assert.match(page, /tmdb_upcoming_movies: 'TMDB - Prochainement'/)
-  assert.match(page, /return providers\.some\(provider => provider === target\)/)
+  assert.match(
+    page,
+    /return providers\.some\((?:provider|\(provider\)) => provider === target\)/,
+  )
   assert.match(page, /item\.target === section\.target/)
   assert.match(page, /api\.adminCreateSyncSchedule\(entry\.target, request\)/)
-  assert.match(page, /api\.adminUpdateSyncSchedule\(entry\.target, entry\.persisted\.id, request\)/)
-  assert.match(page, /api\.adminDeleteSyncSchedule\(entry\.target, entry\.persisted\.id\)/)
-  assert.match(page, /entry\.draft\.enabled && !targetAvailable\(entry\.target\)/)
+  assert.match(
+    page,
+    /api\.adminUpdateSyncSchedule\(\s*entry\.target,\s*entry\.persisted\.id,\s*request,?\s*\)/,
+  )
+  assert.match(
+    page,
+    /api\.adminDeleteSyncSchedule\(entry\.target, entry\.persisted\.id\)/,
+  )
+  assert.match(
+    page,
+    /entry\.draft\.enabled && !targetAvailable\(entry\.target\)/,
+  )
   assert.match(page, /v-if="isProvider\(section\.target\)"/)
 })
 
@@ -194,45 +377,142 @@ test('selects newest terminal requested provider run across direct and all targe
   const directOld = job('direct-old', 'ugc', '2026-08-24T08:00:00Z')
   const allNewest = job('all-newest', 'all', '2026-08-24T11:00:00Z')
   const otherProvider = job('other', 'kinepolis', '2026-08-24T12:00:00Z')
-  const allNotRequested = job('not-requested', 'all', '2026-08-24T13:00:00Z', { ugc: 'not_requested' })
+  const allNotRequested = job('not-requested', 'all', '2026-08-24T13:00:00Z', {
+    ugc: 'not_requested',
+  })
   const running = job('running', 'ugc', '2026-08-24T14:00:00Z', {}, 'running')
 
-  assert.equal(selectLatestProviderRun('ugc', running, [otherProvider, directOld, allNotRequested, allNewest])?.id, 'all-newest')
-  assert.equal(selectLatestProviderRun('kinepolis', null, [directOld, otherProvider])?.id, 'other')
-  assert.equal(selectLatestProviderRun('kinepolis', null, [allNewest])?.id, 'all-newest')
-  assert.equal(selectLatestProviderRun('pathe', null, [allNewest])?.id, 'all-newest')
-  assert.equal(selectLatestProviderRun('pathe', null, [job('pathe-only', 'pathe', '2026-08-24T15:00:00Z')])?.id, 'pathe-only')
-  assert.equal(selectLatestProviderRun('cgr', null, [allNewest])?.id, 'all-newest')
-  assert.equal(selectLatestProviderRun('cineville', null, [allNewest])?.id, 'all-newest')
-  assert.equal(selectLatestProviderRun('cineville', null, [job('cineville-only', 'cineville', '2026-08-24T15:30:00Z')])?.id, 'cineville-only')
-  assert.equal(selectLatestProviderRun('cineville', null, [otherProvider]), null)
-  assert.equal(selectLatestProviderRun('mk2', null, [allNewest])?.id, 'all-newest')
-  assert.equal(selectLatestProviderRun('mk2', null, [job('mk2-only', 'mk2', '2026-08-24T15:30:00Z')])?.id, 'mk2-only')
+  assert.equal(
+    selectLatestProviderRun('ugc', running, [
+      otherProvider,
+      directOld,
+      allNotRequested,
+      allNewest,
+    ])?.id,
+    'all-newest',
+  )
+  assert.equal(
+    selectLatestProviderRun('kinepolis', null, [directOld, otherProvider])?.id,
+    'other',
+  )
+  assert.equal(
+    selectLatestProviderRun('kinepolis', null, [allNewest])?.id,
+    'all-newest',
+  )
+  assert.equal(
+    selectLatestProviderRun('pathe', null, [allNewest])?.id,
+    'all-newest',
+  )
+  assert.equal(
+    selectLatestProviderRun('pathe', null, [
+      job('pathe-only', 'pathe', '2026-08-24T15:00:00Z'),
+    ])?.id,
+    'pathe-only',
+  )
+  assert.equal(
+    selectLatestProviderRun('cgr', null, [allNewest])?.id,
+    'all-newest',
+  )
+  assert.equal(
+    selectLatestProviderRun('cineville', null, [allNewest])?.id,
+    'all-newest',
+  )
+  assert.equal(
+    selectLatestProviderRun('cineville', null, [
+      job('cineville-only', 'cineville', '2026-08-24T15:30:00Z'),
+    ])?.id,
+    'cineville-only',
+  )
+  assert.equal(
+    selectLatestProviderRun('cineville', null, [otherProvider]),
+    null,
+  )
+  assert.equal(
+    selectLatestProviderRun('mk2', null, [allNewest])?.id,
+    'all-newest',
+  )
+  assert.equal(
+    selectLatestProviderRun('mk2', null, [
+      job('mk2-only', 'mk2', '2026-08-24T15:30:00Z'),
+    ])?.id,
+    'mk2-only',
+  )
   assert.equal(selectLatestProviderRun('mk2', null, [otherProvider]), null)
   assert.equal(isAdminSyncScheduleTargetAvailable('mk2', ['mk2']), true)
   assert.equal(isAdminSyncScheduleTargetAvailable('mk2', []), false)
-  assert.equal(selectLatestProviderRun('cgr', null, [job('cgr-only', 'cgr', '2026-08-24T15:30:00Z')])?.id, 'cgr-only')
-  assert.equal(selectLatestProviderRun('kinepolis', null, [job('ugc-only', 'ugc', '2026-08-24T15:00:00Z')]), null)
-  assert.equal(selectLatestProviderRun('kinepolis', null, [job('failed-all', 'all', '2026-08-24T16:00:00Z', { kinepolis: 'failed' }, 'failed')])?.id, 'failed-all')
+  assert.equal(
+    selectLatestProviderRun('cgr', null, [
+      job('cgr-only', 'cgr', '2026-08-24T15:30:00Z'),
+    ])?.id,
+    'cgr-only',
+  )
+  assert.equal(
+    selectLatestProviderRun('kinepolis', null, [
+      job('ugc-only', 'ugc', '2026-08-24T15:00:00Z'),
+    ]),
+    null,
+  )
+  assert.equal(
+    selectLatestProviderRun('kinepolis', null, [
+      job(
+        'failed-all',
+        'all',
+        '2026-08-24T16:00:00Z',
+        { kinepolis: 'failed' },
+        'failed',
+      ),
+    ])?.id,
+    'failed-all',
+  )
 })
 
 test('deduplicates current and history entries and returns null without eligible terminal runs', () => {
   const current = job('same', 'all', '2026-08-24T10:00:00Z')
   const duplicate = { ...current, started_at: '2026-08-24T15:00:00Z' }
-  assert.equal(selectLatestProviderRun('ugc', current, [duplicate])?.started_at, '2026-08-24T10:00:00Z')
-  assert.equal(selectLatestProviderRun('ugc', null, [job('other', 'kinepolis', '2026-08-24T12:00:00Z')]), null)
+  assert.equal(
+    selectLatestProviderRun('ugc', current, [duplicate])?.started_at,
+    '2026-08-24T10:00:00Z',
+  )
+  assert.equal(
+    selectLatestProviderRun('ugc', null, [
+      job('other', 'kinepolis', '2026-08-24T12:00:00Z'),
+    ]),
+    null,
+  )
 })
 
 test('Cinewest direct and all runs remain independent of partner platform providers and availability', () => {
   const all = job('all', 'all', '2026-09-14T10:00:00Z')
   const direct = job('cinewest', 'cinewest', '2026-09-14T11:00:00Z')
-  const partners = [job('cgr', 'cgr', '2026-09-14T12:00:00Z'), job('megarama', 'megarama', '2026-09-14T12:00:00Z')]
-  assert.equal(selectLatestProviderRun('cinewest', null, [all, ...partners])?.id, 'all')
-  assert.equal(selectLatestProviderRun('cinewest', null, [all, direct, ...partners])?.id, 'cinewest')
+  const partners = [
+    job('cgr', 'cgr', '2026-09-14T12:00:00Z'),
+    job('megarama', 'megarama', '2026-09-14T12:00:00Z'),
+  ]
+  assert.equal(
+    selectLatestProviderRun('cinewest', null, [all, ...partners])?.id,
+    'all',
+  )
+  assert.equal(
+    selectLatestProviderRun('cinewest', null, [all, direct, ...partners])?.id,
+    'cinewest',
+  )
   assert.equal(selectLatestProviderRun('cinewest', null, partners), null)
-  assert.equal(selectLatestProviderRun('cinewest', null, [job('not-requested', 'all', '2026-09-14T13:00:00Z', { cinewest: 'not_requested' })]), null)
-  assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', ['cinewest']), true)
-  assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', ['cgr', 'megarama']), false)
+  assert.equal(
+    selectLatestProviderRun('cinewest', null, [
+      job('not-requested', 'all', '2026-09-14T13:00:00Z', {
+        cinewest: 'not_requested',
+      }),
+    ]),
+    null,
+  )
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('cinewest', ['cinewest']),
+    true,
+  )
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('cinewest', ['cgr', 'megarama']),
+    false,
+  )
   assert.equal(isAdminSyncScheduleTargetAvailable('cinewest', []), false)
   assert.equal(blankAdminSyncScheduleDraft().enabled, false)
 })
@@ -240,43 +520,159 @@ test('Cinewest direct and all runs remain independent of partner platform provid
 test('Grand Ecran schedules retain availability and latest direct, all and scheduled outcomes', () => {
   const direct = job('direct', 'grandecran', '2026-09-14T08:00:00Z')
   const all = job('all', 'all', '2026-09-14T09:00:00Z')
-  const scheduled = { ...job('scheduled', 'grandecran', '2026-09-14T10:00:00Z'), trigger: 'scheduled' as const }
-  const notRequested = job('not-requested', 'all', '2026-09-14T11:00:00Z', { grandecran: 'not_requested' })
-  const running = job('running', 'grandecran', '2026-09-14T12:00:00Z', {}, 'running')
-  assert.equal(selectLatestProviderRun('grandecran', null, [direct])?.id, 'direct')
-  assert.equal(selectLatestProviderRun('grandecran', null, [direct, all])?.id, 'all')
-  assert.equal(selectLatestProviderRun('grandecran', running, [direct, all, scheduled, notRequested])?.id, 'scheduled')
-  assert.equal(selectLatestProviderRun('grandecran', null, [job('other', 'mk2', '2026-09-14T13:00:00Z')]), null)
-  for (const state of ['failed', 'skipped'] as const) {
-    assert.equal(selectLatestProviderRun('grandecran', null, [job(state, 'all', '2026-09-14T14:00:00Z', { grandecran: state }, 'failed')])?.id, state)
+  const scheduled = {
+    ...job('scheduled', 'grandecran', '2026-09-14T10:00:00Z'),
+    trigger: 'scheduled' as const,
   }
-  assert.equal(isAdminSyncScheduleTargetAvailable('grandecran', ['grandecran']), true)
+  const notRequested = job('not-requested', 'all', '2026-09-14T11:00:00Z', {
+    grandecran: 'not_requested',
+  })
+  const running = job(
+    'running',
+    'grandecran',
+    '2026-09-14T12:00:00Z',
+    {},
+    'running',
+  )
+  assert.equal(
+    selectLatestProviderRun('grandecran', null, [direct])?.id,
+    'direct',
+  )
+  assert.equal(
+    selectLatestProviderRun('grandecran', null, [direct, all])?.id,
+    'all',
+  )
+  assert.equal(
+    selectLatestProviderRun('grandecran', running, [
+      direct,
+      all,
+      scheduled,
+      notRequested,
+    ])?.id,
+    'scheduled',
+  )
+  assert.equal(
+    selectLatestProviderRun('grandecran', null, [
+      job('other', 'mk2', '2026-09-14T13:00:00Z'),
+    ]),
+    null,
+  )
+  for (const state of ['failed', 'skipped'] as const) {
+    assert.equal(
+      selectLatestProviderRun('grandecran', null, [
+        job(
+          state,
+          'all',
+          '2026-09-14T14:00:00Z',
+          { grandecran: state },
+          'failed',
+        ),
+      ])?.id,
+      state,
+    )
+  }
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('grandecran', ['grandecran']),
+    true,
+  )
   assert.equal(isAdminSyncScheduleTargetAvailable('grandecran', []), false)
 })
 
 test('Noé schedules retain availability and latest direct, all and scheduled outcomes', () => {
   const direct = job('direct', 'noecinemas', '2026-09-14T08:00:00Z')
   const all = job('all', 'all', '2026-09-14T09:00:00Z')
-  const scheduled = { ...job('scheduled', 'noecinemas', '2026-09-14T10:00:00Z'), trigger: 'scheduled' as const }
-  const notRequested = job('not-requested', 'all', '2026-09-14T11:00:00Z', { noecinemas: 'not_requested' })
-  const running = job('running', 'noecinemas', '2026-09-14T12:00:00Z', {}, 'running')
-  assert.equal(selectLatestProviderRun('noecinemas', null, [direct])?.id, 'direct')
-  assert.equal(selectLatestProviderRun('noecinemas', null, [direct, all])?.id, 'all')
-  assert.equal(selectLatestProviderRun('noecinemas', running, [direct, all, scheduled, notRequested])?.id, 'scheduled')
-  assert.equal(selectLatestProviderRun('noecinemas', null, [job('other', 'grandecran', '2026-09-14T13:00:00Z')]), null)
-  for (const state of ['failed', 'skipped'] as const) assert.equal(selectLatestProviderRun('noecinemas', null, [job(state, 'all', '2026-09-14T14:00:00Z', { noecinemas: state }, 'failed')])?.id, state)
-  assert.equal(isAdminSyncScheduleTargetAvailable('noecinemas', ['noecinemas']), true)
-  assert.equal(isAdminSyncScheduleTargetAvailable('noecinemas', ['grandecran']), false)
+  const scheduled = {
+    ...job('scheduled', 'noecinemas', '2026-09-14T10:00:00Z'),
+    trigger: 'scheduled' as const,
+  }
+  const notRequested = job('not-requested', 'all', '2026-09-14T11:00:00Z', {
+    noecinemas: 'not_requested',
+  })
+  const running = job(
+    'running',
+    'noecinemas',
+    '2026-09-14T12:00:00Z',
+    {},
+    'running',
+  )
+  assert.equal(
+    selectLatestProviderRun('noecinemas', null, [direct])?.id,
+    'direct',
+  )
+  assert.equal(
+    selectLatestProviderRun('noecinemas', null, [direct, all])?.id,
+    'all',
+  )
+  assert.equal(
+    selectLatestProviderRun('noecinemas', running, [
+      direct,
+      all,
+      scheduled,
+      notRequested,
+    ])?.id,
+    'scheduled',
+  )
+  assert.equal(
+    selectLatestProviderRun('noecinemas', null, [
+      job('other', 'grandecran', '2026-09-14T13:00:00Z'),
+    ]),
+    null,
+  )
+  for (const state of ['failed', 'skipped'] as const)
+    assert.equal(
+      selectLatestProviderRun('noecinemas', null, [
+        job(
+          state,
+          'all',
+          '2026-09-14T14:00:00Z',
+          { noecinemas: state },
+          'failed',
+        ),
+      ])?.id,
+      state,
+    )
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('noecinemas', ['noecinemas']),
+    true,
+  )
+  assert.equal(
+    isAdminSyncScheduleTargetAvailable('noecinemas', ['grandecran']),
+    false,
+  )
   assert.equal(isAdminSyncScheduleTargetAvailable('noecinemas', []), false)
   assert.equal(blankAdminSyncScheduleDraft().enabled, false)
 })
 
 test('calculates whole-run duration from finished or supplied current time', () => {
   const completed = job('completed', 'ugc', '2026-08-24T12:00:00Z')
-  assert.equal(adminSyncRunDurationMilliseconds(completed, Date.parse('2026-08-24T13:00:00Z')), 600_000)
+  assert.equal(
+    adminSyncRunDurationMilliseconds(
+      completed,
+      Date.parse('2026-08-24T13:00:00Z'),
+    ),
+    600_000,
+  )
 
   const running = job('running', 'ugc', '2026-08-24T12:00:00Z', {}, 'running')
-  assert.equal(adminSyncRunDurationMilliseconds(running, Date.parse('2026-08-24T12:00:30Z')), 30_000)
-  assert.equal(adminSyncRunDurationMilliseconds({ ...completed, finished_at: '2026-08-24T11:00:00Z' }, Date.now()), 0)
-  assert.equal(adminSyncRunDurationMilliseconds({ ...completed, started_at: 'invalid' }, Date.now()), 0)
+  assert.equal(
+    adminSyncRunDurationMilliseconds(
+      running,
+      Date.parse('2026-08-24T12:00:30Z'),
+    ),
+    30_000,
+  )
+  assert.equal(
+    adminSyncRunDurationMilliseconds(
+      { ...completed, finished_at: '2026-08-24T11:00:00Z' },
+      Date.now(),
+    ),
+    0,
+  )
+  assert.equal(
+    adminSyncRunDurationMilliseconds(
+      { ...completed, started_at: 'invalid' },
+      Date.now(),
+    ),
+    0,
+  )
 })

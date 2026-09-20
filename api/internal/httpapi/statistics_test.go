@@ -77,6 +77,80 @@ func TestStatisticsHTTPContract(t *testing.T) {
 	}
 }
 
+func TestStatisticsVOFHTTPContract(t *testing.T) {
+	data := fixtureDataset(t)
+	data.PublicMovies = []schedule.PublicMovieRecord{
+		{ID: 1, Title: "French", TMDBID: 101, OriginalLanguage: "fr"},
+		{ID: 2, Title: "English", TMDBID: 102, OriginalLanguage: "en"},
+		{ID: 3, Title: "Unknown"},
+	}
+	seed := data.Showtimes[0]
+	data.Showtimes = nil
+	for i, tc := range []struct {
+		movie    int64
+		language schedule.Language
+	}{{1, schedule.LanguageVF}, {2, schedule.LanguageVF}, {3, schedule.LanguageVF}, {1, schedule.LanguageVFSME}, {1, schedule.LanguageVFSTF}, {1, schedule.LanguageVO}, {1, schedule.LanguageVOSTFR}, {1, ""}} {
+		showing := seed
+		showing.ID, showing.ProviderShowingID = fmt.Sprintf("ugc-showing-%d", 900+i), fmt.Sprint(900+i)
+		showing.Movie.PublicMovieID, showing.Language = tc.movie, tc.language
+		data.Showtimes = append(data.Showtimes, showing)
+	}
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		raw, language string
+		count         int
+	}{
+		{"", "", 8}, {"language=VOF", "VOF", 1}, {"language=+VOF+", "VOF", 1},
+		{"language=" + strings.Repeat("+", 197) + "VOF", "VOF", 1},
+		{"language=VOF" + strings.Repeat("&", 4096-len("language=VOF")), "VOF", 1},
+		{"language=VF", "VF", 2}, {"language=VF_SME", "VF_SME", 1}, {"language=VFSTF", "VFSTF", 1},
+		{"language=unknown", "unknown", 1}, {"language=VOF&film=film-2", "VOF", 0},
+	} {
+		t.Run(tc.raw[:min(60, len(tc.raw))], func(t *testing.T) {
+			r := performRequest(t, NewHandler(service, ""), "/api/v1/statistics?"+tc.raw)
+			var got schedule.Statistics
+			if r.Code != http.StatusOK || r.Header().Get("Cache-Control") != "no-store" || json.Unmarshal(r.Body.Bytes(), &got) != nil {
+				t.Fatal(r.Code, r.Header(), r.Body.String())
+			}
+			if got.Totals.Showtimes != tc.count || !reflect.DeepEqual(got.Options.Languages, []string{"VF", "VFSTF", "VF_SME", "VO", "VOF", "VOSTFR", "unknown"}) {
+				t.Fatal(got.Totals, got.Options.Languages)
+			}
+			sum := 0
+			for _, bucket := range got.Versions {
+				sum += bucket.Count
+				label := bucket.Value
+				if label == "unknown" {
+					label = "Non renseigné"
+				}
+				if bucket.Label != label || tc.language != "" && (bucket.Value != tc.language || bucket.Count != tc.count) {
+					t.Fatal("bucket", bucket)
+				}
+			}
+			if sum != got.Totals.Showtimes || tc.count == 0 && len(got.Versions) != 0 {
+				t.Fatal("version totals", got.Versions, got.Totals)
+			}
+		})
+	}
+	for _, raw := range statisticsVOFInvalidQueries() {
+		r := performRequest(t, NewHandler(service, ""), "/api/v1/statistics?"+raw)
+		if r.Code != http.StatusBadRequest || !strings.Contains(r.Body.String(), `"code":"invalid_query"`) || r.Header().Get("Cache-Control") != "no-store" {
+			t.Fatal(raw, r.Code, r.Body.String())
+		}
+	}
+}
+
+func statisticsVOFInvalidQueries() []string {
+	return []string{
+		"language=vof", "language=ORIGINAL", "language=ALL", "language=VOF,VF", "language=VOF%7CVOSTFR",
+		"language=VOF&language=VOF", "language=", "language=+", "language=%zz", "language=%FF", "language=VOF%00",
+		"language=" + strings.Repeat("+", 198) + "VOF",
+		"language=VOF" + strings.Repeat("&", 4097-len("language=VOF")),
+	}
+}
+
 func TestInfinityVisionStatisticsTransport(t *testing.T) {
 	for _, tc := range []struct {
 		query string

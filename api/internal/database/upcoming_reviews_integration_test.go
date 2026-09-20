@@ -26,7 +26,7 @@ func TestUpcomingReviewsUpgradeFrom032Integration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	const snapshot = `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(m)) FROM public_movies m),(SELECT jsonb_agg(to_jsonb(a)) FROM movie_slug_aliases a),(SELECT jsonb_agg(to_jsonb(o)) FROM public_movie_metadata_overrides o),(SELECT jsonb_agg(to_jsonb(s)) FROM tmdb_upcoming_state s),(SELECT jsonb_agg(to_jsonb(s)) FROM showtimes s))::text`
+	const snapshot = `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(m)-'original_language') FROM public_movies m),(SELECT jsonb_agg(to_jsonb(a)) FROM movie_slug_aliases a),(SELECT jsonb_agg(to_jsonb(o)) FROM public_movie_metadata_overrides o),(SELECT jsonb_agg(to_jsonb(s)) FROM tmdb_upcoming_state s),(SELECT jsonb_agg(to_jsonb(s)) FROM showtimes s))::text`
 	var before, after string
 	if err := pool.QueryRow(ctx, snapshot).Scan(&before); err != nil {
 		t.Fatal(err)

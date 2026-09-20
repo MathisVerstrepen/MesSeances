@@ -1,21 +1,69 @@
 <script setup lang="ts">
-import { AlertTriangle, CalendarSearch, LoaderCircle, Search, SlidersHorizontal, X } from '@lucide/vue'
+import {
+  AlertTriangle,
+  CalendarSearch,
+  LoaderCircle,
+  Search,
+  SlidersHorizontal,
+  X,
+} from '@lucide/vue'
 import TimeRangeSlider from '~/components/TimeRangeSlider.vue'
 import type { Language, QueryFormat, SlotResult } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
-import { addCalendarDays, createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
+import {
+  addCalendarDays,
+  createServiceTimeOptions,
+  formatLongDate,
+  todayInParis,
+} from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
-import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import {
+  calendarDate,
+  enumQueryValue,
+  mergeOwnedQuery,
+  queriesEqual,
+  singularQueryValue,
+} from '~/utils/routeQuery'
+import { buildSearchMetaDescription } from '~/utils/searchMetadata'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
-import { languageLabel, queryFormatOptions, queryFormatValues, queryLanguageOptions, queryLanguageValues } from '~/utils/showtimeFilters'
-import { filterCompatibleShowtimeResults, filterSelectedShowtimeResults, parseShowtimeSelection, resultGroupingOptions, resultLayoutOptions, showtimeSelectionQueryValues, toSlotShowtimeResults, validShowtimeSelectionKeys } from '~/utils/showtimeResults'
+import {
+  languageLabel,
+  queryFormatOptions,
+  queryFormatValues,
+  queryLanguageOptions,
+  queryLanguageValues,
+} from '~/utils/showtimeFilters'
+import {
+  filterCompatibleShowtimeResults,
+  filterSelectedShowtimeResults,
+  parseShowtimeSelection,
+  resultGroupingOptions,
+  resultLayoutOptions,
+  showtimeSelectionQueryValues,
+  toSlotShowtimeResults,
+  validShowtimeSelectionKeys,
+} from '~/utils/showtimeResults'
 import type { LocationQuery } from 'vue-router'
 
-const OWNED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before', 'language', 'format', 'include_ads', 'buffer_ads'] as const
+const OWNED_QUERY_KEYS = [
+  'theaters',
+  'date',
+  'start_after',
+  'finish_before',
+  'language',
+  'format',
+  'include_ads',
+  'buffer_ads',
+] as const
 const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
 const SELECTION_QUERY_KEYS = ['selected', 'selected_only'] as const
-const REQUIRED_QUERY_KEYS = ['theaters', 'date', 'start_after', 'finish_before'] as const
+const REQUIRED_QUERY_KEYS = [
+  'theaters',
+  'date',
+  'start_after',
+  'finish_before',
+] as const
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
 const ADS_BUFFER_MINUTES = 15
@@ -30,7 +78,7 @@ const {
   isLoading,
   error: preferencesError,
   initialize,
-  isSharedSelectionDifferent
+  isSharedSelectionDifferent,
 } = usePageCinemaSelection()
 
 interface SearchForm {
@@ -48,7 +96,7 @@ const form = reactive<SearchForm>({
   finishBefore: '15:00',
   language: 'ALL',
   format: 'ALL',
-  includeAds: true
+  includeAds: true,
 })
 const timeOptions = createServiceTimeOptions()
 const validTimes = new Set(timeOptions.map((option) => option.value))
@@ -62,26 +110,60 @@ const isFilterSheetOpen = ref(false)
 const filterForm = ref<HTMLFormElement | null>(null)
 const sheetCloseButton = ref<HTMLButtonElement | null>(null)
 const modifierButton = ref<HTMLButtonElement | null>(null)
-const dateBar = ref<{ getTriggerElement: () => HTMLButtonElement | null } | null>(null)
+const dateBar = ref<{
+  getTriggerElement: () => HTMLButtonElement | null
+} | null>(null)
 const calendarMenu = ref<HTMLElement | null>(null)
 const resultsRegion = ref<HTMLElement | null>(null)
 const isCalendarOpen = ref(false)
 const isCompactCalendarViewport = ref(false)
-const isCenteredCalendar = computed(() => isFilterSheetOpen.value && isCompactCalendarViewport.value)
+const isResolvingInitialSearch = ref(
+  REQUIRED_QUERY_KEYS.every((key) => key in route.query),
+)
+const isCenteredCalendar = computed(
+  () => isFilterSheetOpen.value && isCompactCalendarViewport.value,
+)
 const todayDate = ref(todayInParis())
-const resultGrouping = computed<ResultGrouping>(() => singularQueryValue(route.query.grouping) === 'chronological' ? 'chronological' : 'movie')
-const resultLayout = computed<ResultLayout>(() => singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines')
+const resultGrouping = computed<ResultGrouping>(() =>
+  singularQueryValue(route.query.grouping) === 'chronological'
+    ? 'chronological'
+    : 'movie',
+)
+const resultLayout = computed<ResultLayout>(() =>
+  singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines',
+)
 const groupingOptions = resultGroupingOptions
 const layoutOptions = resultLayoutOptions
-const normalizedResults = computed(() => toSlotShowtimeResults(results.value ?? []))
-const routeSelectedShowtimeKeys = computed(() => parseShowtimeSelection(singularQueryValue(route.query.selected)))
-const selectedShowtimeKeys = computed(() => validShowtimeSelectionKeys(normalizedResults.value, routeSelectedShowtimeKeys.value))
+const normalizedResults = computed(() =>
+  toSlotShowtimeResults(results.value ?? []),
+)
+const routeSelectedShowtimeKeys = computed(() =>
+  parseShowtimeSelection(singularQueryValue(route.query.selected)),
+)
+const selectedShowtimeKeys = computed(() =>
+  validShowtimeSelectionKeys(
+    normalizedResults.value,
+    routeSelectedShowtimeKeys.value,
+  ),
+)
 const selectedCount = computed(() => selectedShowtimeKeys.value.length)
-const routeSelectedOnly = computed(() => singularQueryValue(route.query.selected_only) === '1')
-const selectedOnly = computed(() => selectedCount.value > 0 && routeSelectedOnly.value)
-const visibleResults = computed(() => selectedOnly.value
-  ? filterSelectedShowtimeResults(normalizedResults.value, selectedShowtimeKeys.value)
-  : filterCompatibleShowtimeResults(normalizedResults.value, selectedShowtimeKeys.value))
+const routeSelectedOnly = computed(
+  () => singularQueryValue(route.query.selected_only) === '1',
+)
+const selectedOnly = computed(
+  () => selectedCount.value > 0 && routeSelectedOnly.value,
+)
+const visibleResults = computed(() =>
+  selectedOnly.value
+    ? filterSelectedShowtimeResults(
+        normalizedResults.value,
+        selectedShowtimeKeys.value,
+      )
+    : filterCompatibleShowtimeResults(
+        normalizedResults.value,
+        selectedShowtimeKeys.value,
+      ),
+)
 const shareTarget = computed(() => {
   const search = appliedSearch.value
   if (!search) return null
@@ -90,8 +172,11 @@ const shareTarget = computed(() => {
     ...search,
     grouping: resultGrouping.value,
     layout: resultLayout.value,
-    selectedShowtimeKeys: results.value === null ? routeSelectedShowtimeKeys.value : selectedShowtimeKeys.value,
-    selectedOnly: routeSelectedOnly.value
+    selectedShowtimeKeys:
+      results.value === null
+        ? routeSelectedShowtimeKeys.value
+        : selectedShowtimeKeys.value,
+    selectedOnly: routeSelectedOnly.value,
   })
 })
 const activeFilterSummary = computed(() => {
@@ -101,7 +186,9 @@ const activeFilterSummary = computed(() => {
     formatLongDate(search.date),
     `${search.startAfter.replace(':', 'h')}–${search.finishBefore.replace(':', 'h')}`,
     `${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`,
-    search.includeAds ? 'Publicités incluses' : `Publicités exclues · arrivée +${search.bufferAds} min`
+    search.includeAds
+      ? 'Publicités incluses'
+      : `Publicités exclues · arrivée +${search.bufferAds} min`,
   ]
   if (search.language !== 'ALL') items.push(languageLabel(search.language))
   if (search.format !== 'ALL') items.push(formatLabel(search.format))
@@ -113,11 +200,16 @@ const compactFilterSummary = computed(() => {
   return `${formatCompactDate(search.date)} · ${formatCompactTime(search.startAfter)}–${formatCompactTime(search.finishBefore)} · ${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
 })
 const availableDateOptions = computed(() => {
-  const available = new Set(activeTheaters.value.flatMap((theater) => theater.available_dates ?? []))
+  const available = new Set(
+    activeTheaters.value.flatMap((theater) => theater.available_dates ?? []),
+  )
   return [...available].sort()
 })
 const hasAvailableDates = computed(() => availableDateOptions.value.length > 0)
-const quickDateOptions = computed(() => [todayDate.value, addCalendarDays(todayDate.value, 1)])
+const quickDateOptions = computed(() => [
+  todayDate.value,
+  addCalendarDays(todayDate.value, 1),
+])
 const hasValidSelectedDate = computed(() => Boolean(calendarDate(form.date)))
 const favoriteSummary = computed(() => {
   const count = activeTheaterIds.value.length
@@ -149,15 +241,17 @@ function parisWallMinutes(now: Date): number {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-    hourCycle: 'h23'
+    hourCycle: 'h23',
   }).formatToParts(now)
   const hour = Number(parts.find((part) => part.type === 'hour')?.value)
   const minute = Number(parts.find((part) => part.type === 'minute')?.value)
   const second = Number(parts.find((part) => part.type === 'second')?.value)
-  return (Number.isFinite(hour) ? hour : 0) * 60
-    + (Number.isFinite(minute) ? minute : 0)
-    + (Number.isFinite(second) ? second : 0) / 60
-    + now.getMilliseconds() / 60_000
+  return (
+    (Number.isFinite(hour) ? hour : 0) * 60 +
+    (Number.isFinite(minute) ? minute : 0) +
+    (Number.isFinite(second) ? second : 0) / 60 +
+    now.getMilliseconds() / 60_000
+  )
 }
 
 function serviceMinutes(value: string): number {
@@ -170,21 +264,28 @@ function currentDefaultTimeRange(now: Date) {
   const lastIndex = timeOptions.length - 1
   const firstServiceMinute = serviceMinutes(timeOptions[0]?.value ?? '08:00')
   const wallMinutes = parisWallMinutes(now)
-  const currentMinutes = wallMinutes < firstServiceMinute ? wallMinutes + 24 * 60 : wallMinutes
-  let startIndex = timeOptions.findIndex((option) => serviceMinutes(option.value) >= currentMinutes)
+  const currentMinutes =
+    wallMinutes < firstServiceMinute ? wallMinutes + 24 * 60 : wallMinutes
+  let startIndex = timeOptions.findIndex(
+    (option) => serviceMinutes(option.value) >= currentMinutes,
+  )
   if (startIndex < 0) startIndex = lastIndex
   startIndex = Math.min(startIndex, Math.max(lastIndex - 1, 0))
   const endIndex = Math.min(startIndex + DEFAULT_RANGE_STEPS, lastIndex)
   return {
     start: timeOptions[startIndex]?.value ?? '12:00',
-    end: timeOptions[endIndex]?.value ?? '15:00'
+    end: timeOptions[endIndex]?.value ?? '15:00',
   }
 }
 
 function formatCompactDate(date: string) {
   const [year, month, day] = date.split('-').map(Number)
   if (!year || !month || !day) return date
-  return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', timeZone: 'Europe/Paris' }).format(new Date(Date.UTC(year, month - 1, day, 12)))
+  return new Intl.DateTimeFormat('fr-FR', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'Europe/Paris',
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)))
 }
 
 function formatCompactTime(time: string) {
@@ -195,22 +296,35 @@ function formatCompactTime(time: string) {
 function adsBufferFromQuery(value: string | null | undefined): number {
   if (!value || !/^\d+$/.test(value)) return ADS_BUFFER_MINUTES
   const buffer = Number(value)
-  return Number.isSafeInteger(buffer) && buffer <= 120 ? buffer : ADS_BUFFER_MINUTES
+  return Number.isSafeInteger(buffer) && buffer <= 120
+    ? buffer
+    : ADS_BUFFER_MINUTES
 }
 
 function canonicalDisplayValues(query: LocationQuery) {
   return {
-    grouping: singularQueryValue(query.grouping) === 'chronological' ? 'chronological' : undefined,
-    layout: singularQueryValue(query.layout) === 'boxes' ? 'boxes' : undefined
+    grouping:
+      singularQueryValue(query.grouping) === 'chronological'
+        ? 'chronological'
+        : undefined,
+    layout: singularQueryValue(query.layout) === 'boxes' ? 'boxes' : undefined,
   }
 }
 
 function withCanonicalDisplayQuery(query: LocationQuery) {
-  return mergeOwnedQuery(query, DISPLAY_QUERY_KEYS, canonicalDisplayValues(query))
+  return mergeOwnedQuery(
+    query,
+    DISPLAY_QUERY_KEYS,
+    canonicalDisplayValues(query),
+  )
 }
 
 function bareQuery() {
-  const query = mergeOwnedQuery(mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {}), SELECTION_QUERY_KEYS, {})
+  const query = mergeOwnedQuery(
+    mergeOwnedQuery(route.query, OWNED_QUERY_KEYS, {}),
+    SELECTION_QUERY_KEYS,
+    {},
+  )
   return withCanonicalDisplayQuery(query)
 }
 
@@ -223,31 +337,59 @@ function submittedQuery(search: AppliedSearch, preserveSelection = true) {
     language: search.language === 'ALL' ? undefined : search.language,
     format: search.format === 'ALL' ? undefined : search.format,
     include_ads: search.includeAds ? undefined : '0',
-    buffer_ads: search.bufferAds === ADS_BUFFER_MINUTES ? undefined : String(search.bufferAds)
+    buffer_ads:
+      search.bufferAds === ADS_BUFFER_MINUTES
+        ? undefined
+        : String(search.bufferAds),
   })
-  if (!preserveSelection) query = mergeOwnedQuery(query, SELECTION_QUERY_KEYS, {})
+  if (!preserveSelection)
+    query = mergeOwnedQuery(query, SELECTION_QUERY_KEYS, {})
   return withCanonicalDisplayQuery(query)
 }
 
 function searchKey(search: AppliedSearch) {
-  return [search.theaterIds.join(','), search.date, search.startAfter, search.finishBefore, search.language, search.format, search.includeAds ? '1' : '0', search.bufferAds].join('|')
+  return [
+    search.theaterIds.join(','),
+    search.date,
+    search.startAfter,
+    search.finishBefore,
+    search.language,
+    search.format,
+    search.includeAds ? '1' : '0',
+    search.bufferAds,
+  ].join('|')
 }
 
 async function canonicalizeShowtimeSelection() {
   if (results.value === null) return
-  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, showtimeSelectionQueryValues(selectedShowtimeKeys.value, routeSelectedOnly.value))
+  const query = mergeOwnedQuery(
+    route.query,
+    SELECTION_QUERY_KEYS,
+    showtimeSelectionQueryValues(
+      selectedShowtimeKeys.value,
+      routeSelectedOnly.value,
+    ),
+  )
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
 async function setShowtimeSelection(keys: readonly string[]) {
-  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, showtimeSelectionQueryValues(keys, routeSelectedOnly.value))
+  const query = mergeOwnedQuery(
+    route.query,
+    SELECTION_QUERY_KEYS,
+    showtimeSelectionQueryValues(keys, routeSelectedOnly.value),
+  )
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
 async function setSelectedOnly(event: Event) {
   // SAFETY: This handler is bound directly to the selected-only checkbox's change event.
   const checked = (event.target as HTMLInputElement).checked
-  const query = mergeOwnedQuery(route.query, SELECTION_QUERY_KEYS, showtimeSelectionQueryValues(selectedShowtimeKeys.value, checked))
+  const query = mergeOwnedQuery(
+    route.query,
+    SELECTION_QUERY_KEYS,
+    showtimeSelectionQueryValues(selectedShowtimeKeys.value, checked),
+  )
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
@@ -268,8 +410,8 @@ async function setResultGrouping(grouping: string) {
   await router.push({
     query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
       grouping: grouping === 'chronological' ? grouping : undefined,
-      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined
-    })
+      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined,
+    }),
   })
 }
 
@@ -278,9 +420,10 @@ async function setResultLayout(layout: string) {
   if (layout === resultLayout.value) return
   await router.push({
     query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
-      grouping: resultGrouping.value === 'chronological' ? 'chronological' : undefined,
-      layout: layout === 'boxes' ? layout : undefined
-    })
+      grouping:
+        resultGrouping.value === 'chronological' ? 'chronological' : undefined,
+      layout: layout === 'boxes' ? layout : undefined,
+    }),
   })
 }
 
@@ -297,7 +440,10 @@ function unlockBodyScroll() {
 }
 
 async function openFilterSheet(event: MouseEvent) {
-  sheetTrigger = event.currentTarget instanceof HTMLElement ? event.currentTarget : modifierButton.value
+  sheetTrigger =
+    event.currentTarget instanceof HTMLElement
+      ? event.currentTarget
+      : modifierButton.value
   isFilterSheetOpen.value = true
   lockBodyScroll()
   await nextTick()
@@ -308,14 +454,21 @@ function closeFilterSheet({ restoreFocus = true } = {}) {
   if (!isFilterSheetOpen.value) return
   isFilterSheetOpen.value = false
   unlockBodyScroll()
-  if (restoreFocus && sheetTrigger?.isConnected) nextTick(() => sheetTrigger?.focus())
+  if (restoreFocus && sheetTrigger?.isConnected)
+    nextTick(() => sheetTrigger?.focus())
 }
 
-const FOCUSABLE_SELECTOR = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+const FOCUSABLE_SELECTOR =
+  'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
 
 function focusableElementsWithin(container: HTMLElement) {
-  return [...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)]
-    .filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true')
+  return [
+    ...container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+  ].filter(
+    (element) =>
+      !element.hasAttribute('disabled') &&
+      element.getAttribute('aria-hidden') !== 'true',
+  )
 }
 
 function sheetFocusableElements() {
@@ -325,13 +478,25 @@ function sheetFocusableElements() {
 
   const menuElements = focusableElementsWithin(calendarMenu.value)
   const calendarTrigger = dateBar.value?.getTriggerElement() ?? null
-  const triggerIndex = calendarTrigger ? formElements.indexOf(calendarTrigger) : -1
+  const triggerIndex = calendarTrigger
+    ? formElements.indexOf(calendarTrigger)
+    : -1
   if (triggerIndex < 0) return [...formElements, ...menuElements]
-  return [...formElements.slice(0, triggerIndex + 1), ...menuElements, ...formElements.slice(triggerIndex + 1)]
+  return [
+    ...formElements.slice(0, triggerIndex + 1),
+    ...menuElements,
+    ...formElements.slice(triggerIndex + 1),
+  ]
 }
 
 function originatedInCalendarMenu(event: KeyboardEvent) {
-  return event.composedPath().some((target) => target instanceof Element && target.classList.contains('editorial-calendar-menu'))
+  return event
+    .composedPath()
+    .some(
+      (target) =>
+        target instanceof Element &&
+        target.classList.contains('editorial-calendar-menu'),
+    )
 }
 
 function handleSheetKeydown(event: KeyboardEvent) {
@@ -353,17 +518,32 @@ function handleSheetKeydown(event: KeyboardEvent) {
   const last = focusable.at(-1)!
   if (isCalendarOpen.value) {
     event.preventDefault()
-    const activeIndex = document.activeElement instanceof HTMLElement ? focusable.indexOf(document.activeElement) : -1
+    const activeIndex =
+      document.activeElement instanceof HTMLElement
+        ? focusable.indexOf(document.activeElement)
+        : -1
     const nextIndex = event.shiftKey
-      ? (activeIndex <= 0 ? focusable.length - 1 : activeIndex - 1)
-      : (activeIndex < 0 || activeIndex === focusable.length - 1 ? 0 : activeIndex + 1)
+      ? activeIndex <= 0
+        ? focusable.length - 1
+        : activeIndex - 1
+      : activeIndex < 0 || activeIndex === focusable.length - 1
+        ? 0
+        : activeIndex + 1
     focusable[nextIndex]?.focus()
     return
   }
-  if (event.shiftKey && (document.activeElement === first || !filterForm.value?.contains(document.activeElement))) {
+  if (
+    event.shiftKey &&
+    (document.activeElement === first ||
+      !filterForm.value?.contains(document.activeElement))
+  ) {
     event.preventDefault()
     last.focus()
-  } else if (!event.shiftKey && (document.activeElement === last || !filterForm.value?.contains(document.activeElement))) {
+  } else if (
+    !event.shiftKey &&
+    (document.activeElement === last ||
+      !filterForm.value?.contains(document.activeElement))
+  ) {
     event.preventDefault()
     first.focus()
   }
@@ -378,10 +558,16 @@ async function consumeResultScrollIntent() {
   resultScrollIntent = false
   await nextTick()
   await nextTick()
-  if (!appliedSearch.value || !isMobileViewport() || !resultsRegion.value) return
+  if (!appliedSearch.value || !isMobileViewport() || !resultsRegion.value)
+    return
   resultsRegion.value.focus({ preventScroll: true })
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  resultsRegion.value.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' })
+  const reducedMotion = window.matchMedia(
+    '(prefers-reduced-motion: reduce)',
+  ).matches
+  resultsRegion.value.scrollIntoView({
+    behavior: reducedMotion ? 'auto' : 'smooth',
+    block: 'start',
+  })
 }
 
 function handleViewportChange(event: MediaQueryListEvent) {
@@ -407,7 +593,9 @@ function resetBareState() {
   resultScrollIntent = false
   requestId++
   todayDate.value = todayInParis()
-  form.date = availableDateOptions.value.includes(todayDate.value) ? todayDate.value : availableDateOptions.value[0] ?? ''
+  form.date = availableDateOptions.value.includes(todayDate.value)
+    ? todayDate.value
+    : (availableDateOptions.value[0] ?? '')
   const defaultRange = currentDefaultTimeRange(new Date())
   form.startAfter = defaultRange.start
   form.finishBefore = defaultRange.end
@@ -431,7 +619,17 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   const date = calendarDate(singularQueryValue(route.query.date))
   const startAfter = singularQueryValue(route.query.start_after)
   const finishBefore = singularQueryValue(route.query.finish_before)
-  if (!theaterValue || !date || (!availableDateOptions.value.includes(date) && !quickDateOptions.value.includes(date)) || !startAfter || !finishBefore || !validTimes.has(startAfter) || !validTimes.has(finishBefore)) return null
+  if (
+    !theaterValue ||
+    !date ||
+    (!availableDateOptions.value.includes(date) &&
+      !quickDateOptions.value.includes(date)) ||
+    !startAfter ||
+    !finishBefore ||
+    !validTimes.has(startAfter) ||
+    !validTimes.has(finishBefore)
+  )
+    return null
 
   if (activeTheaterIds.value.length === 0) return null
   const theaterIds = [...activeTheaterIds.value]
@@ -439,7 +637,9 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   const languageValue = singularQueryValue(route.query.language)
   const formatValue = singularQueryValue(route.query.format)
   const includeAdsValue = singularQueryValue(route.query.include_ads)
-  const bufferAds = adsBufferFromQuery(singularQueryValue(route.query.buffer_ads))
+  const bufferAds = adsBufferFromQuery(
+    singularQueryValue(route.query.buffer_ads),
+  )
   return {
     theaterIds,
     date,
@@ -448,7 +648,7 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
     language: enumQueryValue(languageValue, queryLanguageValues) ?? 'ALL',
     format: enumQueryValue(formatValue, queryFormatValues) ?? 'ALL',
     includeAds: includeAdsValue !== '0',
-    bufferAds
+    bufferAds,
   }
 }
 
@@ -476,14 +676,15 @@ async function runSearch(search: AppliedSearch) {
       buffer_ads: search.bufferAds,
       include_ads: search.includeAds,
       language: search.language,
-      format: search.format
+      format: search.format,
     })
     if (currentRequest === requestId) {
       results.value = response
       await canonicalizeShowtimeSelection()
     }
   } catch (error) {
-    if (currentRequest === requestId) errorMessage.value = getFrenchApiError(error)
+    if (currentRequest === requestId)
+      errorMessage.value = getFrenchApiError(error)
   } finally {
     if (currentRequest === requestId) pending.value = false
   }
@@ -520,9 +721,10 @@ watch(
   activeTheaterIds,
   (favoriteIds) => {
     if (favoriteIds.length > 0) theaterValidationMessage.value = ''
-    if (isReady && OWNED_QUERY_KEYS.some((key) => key in route.query)) applyRoute()
+    if (isReady && OWNED_QUERY_KEYS.some((key) => key in route.query))
+      applyRoute()
   },
-  { immediate: true }
+  { immediate: true },
 )
 
 watch(isCenteredCalendar, () => {
@@ -530,40 +732,61 @@ watch(isCenteredCalendar, () => {
   isCalendarOpen.value = false
 })
 
-watch(() => route.query, (query, previousQuery) => {
-  if (!isReady) return
-  // Selection-only navigation must not reset draft filters or close the mobile sheet.
-  if (appliedSearch.value && queriesEqual(mergeOwnedQuery(query, SELECTION_QUERY_KEYS, {}), mergeOwnedQuery(previousQuery, SELECTION_QUERY_KEYS, {}))) {
-    canonicalizeShowtimeSelection()
-    return
-  }
-  if (isFilterSheetOpen.value) {
-    const parsed = parseAppliedSearch()
-    closeFilterSheet({ restoreFocus: parsed !== 'bare' && parsed !== null })
-  }
-  applyRoute()
-})
+watch(
+  () => route.query,
+  (query, previousQuery) => {
+    if (!isReady) return
+    // Selection-only navigation must not reset draft filters or close the mobile sheet.
+    if (
+      appliedSearch.value &&
+      queriesEqual(
+        mergeOwnedQuery(query, SELECTION_QUERY_KEYS, {}),
+        mergeOwnedQuery(previousQuery, SELECTION_QUERY_KEYS, {}),
+      )
+    ) {
+      canonicalizeShowtimeSelection()
+      return
+    }
+    if (isFilterSheetOpen.value) {
+      const parsed = parseAppliedSearch()
+      closeFilterSheet({ restoreFocus: parsed !== 'bare' && parsed !== null })
+    }
+    applyRoute()
+  },
+)
 
 async function initializePreferences() {
   await initialize()
-  if (!isInitialized.value) return
+  if (!isInitialized.value) {
+    isResolvingInitialSearch.value = false
+    return
+  }
   isReady = true
   await applyRoute()
+  isResolvingInitialSearch.value = false
 }
 
 onMounted(() => {
   mobileMediaQuery = window.matchMedia('(max-width: 1023px)')
-  compactCalendarMediaQuery = window.matchMedia('(max-width: 1023px) and (max-height: 600px)')
+  compactCalendarMediaQuery = window.matchMedia(
+    '(max-width: 1023px) and (max-height: 600px)',
+  )
   isCompactCalendarViewport.value = compactCalendarMediaQuery.matches
   mobileMediaQuery.addEventListener('change', handleViewportChange)
-  compactCalendarMediaQuery.addEventListener('change', handleCompactCalendarViewportChange)
+  compactCalendarMediaQuery.addEventListener(
+    'change',
+    handleCompactCalendarViewportChange,
+  )
   document.addEventListener('keydown', handleSheetKeydown)
   initializePreferences()
 })
 
 onBeforeUnmount(() => {
   mobileMediaQuery?.removeEventListener('change', handleViewportChange)
-  compactCalendarMediaQuery?.removeEventListener('change', handleCompactCalendarViewportChange)
+  compactCalendarMediaQuery?.removeEventListener(
+    'change',
+    handleCompactCalendarViewportChange,
+  )
   document.removeEventListener('keydown', handleSheetKeydown)
   unlockBodyScroll()
 })
@@ -571,11 +794,17 @@ onBeforeUnmount(() => {
 async function submitSearch() {
   const theaterIds = [...activeTheaterIds.value]
   if (theaterIds.length === 0) {
-    theaterValidationMessage.value = 'Sélectionnez au moins un cinéma pour lancer la recherche.'
+    theaterValidationMessage.value =
+      'Sélectionnez au moins un cinéma pour lancer la recherche.'
     return
   }
 
-  if (!calendarDate(form.date) || !validTimes.has(form.startAfter) || !validTimes.has(form.finishBefore)) return
+  if (
+    !calendarDate(form.date) ||
+    !validTimes.has(form.startAfter) ||
+    !validTimes.has(form.finishBefore)
+  )
+    return
 
   const search: AppliedSearch = {
     theaterIds,
@@ -585,13 +814,15 @@ async function submitSearch() {
     language: form.language,
     format: form.format,
     includeAds: form.includeAds,
-    bufferAds: ADS_BUFFER_MINUTES
+    bufferAds: ADS_BUFFER_MINUTES,
   }
   if (isMobileViewport()) {
     resultScrollIntent = true
     closeFilterSheet({ restoreFocus: false })
   }
-  const preserveSelection = appliedSearch.value !== null && searchKey(search) === searchKey(appliedSearch.value)
+  const preserveSelection =
+    appliedSearch.value !== null &&
+    searchKey(search) === searchKey(appliedSearch.value)
   const query = submittedQuery(search, preserveSelection)
   if (queriesEqual(route.query, query)) {
     const searchRequest = errorMessage.value ? runSearch(search) : null
@@ -606,31 +837,48 @@ async function submitSearch() {
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/recherche')
 const pageTitle = 'Trouver une séance - MesSeances'
-const pageDescription = 'Trouvez les séances qui tiennent entièrement dans votre créneau horaire.'
+const pageDescription = computed(() => buildSearchMetaDescription(route.query))
 
 useSeoMeta({
   title: pageTitle,
-  description: pageDescription,
-  robots: 'noindex,follow'
+  description: () => pageDescription.value,
+  ogTitle: pageTitle,
+  ogDescription: () => pageDescription.value,
+  twitterCard: 'summary',
+  twitterTitle: pageTitle,
+  twitterDescription: () => pageDescription.value,
+  robots: 'noindex,follow',
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <main class="mx-auto max-w-[1440px] bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8">
+  <main
+    class="mx-auto max-w-[1440px] bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8"
+  >
     <h1 class="sr-only">Trouver une séance</h1>
 
-    <SharedTheaterNotice v-if="isInitialized && isSharedSelectionDifferent" class="mb-8" />
+    <SharedTheaterNotice
+      v-if="isInitialized && isSharedSelectionDifferent"
+      class="mb-8"
+    />
 
-    <div class="grid gap-8 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-12">
-      <div v-if="isFilterSheetOpen" class="fixed inset-0 z-40 bg-black/60 lg:hidden" aria-hidden="true" @click.self="closeFilterSheet()" />
+    <div
+      class="grid gap-8 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start lg:gap-12"
+    >
+      <div
+        v-if="isFilterSheetOpen"
+        class="fixed inset-0 z-40 bg-black/60 lg:hidden"
+        aria-hidden="true"
+        @click.self="closeFilterSheet()"
+      />
 
       <form
         id="search-filters"
         ref="filterForm"
         class="filter-form min-w-0 scroll-mt-28 lg:sticky lg:top-24 lg:block lg:max-h-none lg:overflow-visible lg:overscroll-auto lg:border-2 lg:border-ink lg:bg-[#f1efe8] lg:p-6 lg:shadow-[7px_7px_0_#27272a]"
         :class="[
-          appliedSearch && !isFilterSheetOpen ? 'hidden' : '',
+          (appliedSearch || isResolvingInitialSearch) && !isFilterSheetOpen ? 'hidden' : '',
           isFilterSheetOpen ? 'fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_0_#27272a] sm:px-6' : ''
         ]"
         :role="isFilterSheetOpen ? 'dialog' : undefined"
@@ -640,7 +888,14 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       >
         <div class="mb-6 flex items-center gap-2.5 border-b-2 border-ink pb-4">
           <SlidersHorizontal :size="18" aria-hidden="true" />
-          <h2 id="search-filter-sheet-title" class="text-xl font-black tracking-[-0.035em] text-ink">{{ isFilterSheetOpen ? 'Modifier la recherche' : 'Votre disponibilité' }}</h2>
+          <h2
+            id="search-filter-sheet-title"
+            class="text-xl font-black tracking-[-0.035em] text-ink"
+          >
+            {{
+              isFilterSheetOpen ? 'Modifier la recherche' : 'Votre disponibilité'
+            }}
+          </h2>
           <button
             v-if="isFilterSheetOpen"
             ref="sheetCloseButton"
@@ -654,23 +909,74 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </div>
 
         <div class="space-y-5">
-          <fieldset :aria-invalid="theaterValidationMessage || preferencesError ? 'true' : undefined" :aria-describedby="theaterValidationMessage || preferencesError ? 'theater-selection-message' : undefined">
-            <legend class="float-left mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Cinémas</legend>
-             <NuxtLink to="/cinemas" class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">Gérer mes cinémas</NuxtLink>
-            <div v-if="preferencesError && !isInitialized" id="theater-selection-message" class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700" role="alert">
+          <fieldset
+            :aria-invalid="theaterValidationMessage || preferencesError ? 'true' : undefined"
+            :aria-describedby="theaterValidationMessage || preferencesError ? 'theater-selection-message' : undefined"
+          >
+            <legend
+              class="float-left mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+            >
+              Cinémas
+            </legend>
+            <NuxtLink
+              to="/cinemas"
+              class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+              >Gérer mes cinémas</NuxtLink
+            >
+            <div
+              v-if="preferencesError && !isInitialized"
+              id="theater-selection-message"
+              class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              role="alert"
+            >
               <p>{{ preferencesError }}</p>
-              <button type="button" class="mt-3 font-semibold underline underline-offset-4" @click="initializePreferences">Réessayer</button>
+              <button
+                type="button"
+                class="mt-3 font-semibold underline underline-offset-4"
+                @click="initializePreferences"
+              >
+                Réessayer
+              </button>
             </div>
-            <div v-else-if="isLoading || !isInitialized" class="clear-both flex min-h-11 items-center gap-2 border-2 border-ink bg-surface px-3 text-sm text-muted">
-              <LoaderCircle :size="16" class="animate-spin" aria-hidden="true" /> Chargement des cinémas…
+            <div
+              v-else-if="isLoading || !isInitialized"
+              class="clear-both flex min-h-11 items-center gap-2 border-2 border-ink bg-surface px-3 text-sm text-muted"
+            >
+              <LoaderCircle
+                :size="16"
+                class="animate-spin"
+                aria-hidden="true"
+              />
+              Chargement des cinémas…
             </div>
-            <p v-else-if="activeTheaterIds.length" class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm font-bold text-ink">{{ favoriteSummary }}</p>
-            <p v-else class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary">Aucun cinéma sélectionné. Ajoutez-en pour lancer une recherche.</p>
-            <p v-if="theaterValidationMessage" id="theater-selection-message" class="mt-1.5 text-sm text-red-700" role="alert">{{ theaterValidationMessage }}</p>
+            <p
+              v-else-if="activeTheaterIds.length"
+              class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm font-bold text-ink"
+            >
+              {{ favoriteSummary }}
+            </p>
+            <p
+              v-else
+              class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary"
+            >
+              Aucun cinéma sélectionné. Ajoutez-en pour lancer une recherche.
+            </p>
+            <p
+              v-if="theaterValidationMessage"
+              id="theater-selection-message"
+              class="mt-1.5 text-sm text-red-700"
+              role="alert"
+            >
+              {{ theaterValidationMessage }}
+            </p>
           </fieldset>
 
           <fieldset class="min-w-0">
-            <legend class="mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Date de la séance</legend>
+            <legend
+              class="mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+            >
+              Date de la séance
+            </legend>
             <ShowtimeDateBar
               :key="isCenteredCalendar ? 'centered' : 'anchored'"
               ref="dateBar"
@@ -688,57 +994,149 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               @menu-mounted="handleCalendarMounted"
               @menu-unmounted="handleCalendarUnmounted"
             />
-            <p v-if="isInitialized && !hasAvailableDates" class="mt-2 text-sm font-semibold text-ink" role="status">Aucune date de séance disponible pour ces cinémas.</p>
+            <p
+              v-if="isInitialized && !hasAvailableDates"
+              class="mt-2 text-sm font-semibold text-ink"
+              role="status"
+            >
+              Aucune date de séance disponible pour ces cinémas.
+            </p>
           </fieldset>
 
           <label class="block">
-            <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Format</span>
-            <select v-model="form.format" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">
-              <option v-for="option in queryFormatOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <span
+              class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+              >Format</span
+            >
+            <select
+              v-model="form.format"
+              class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+            >
+              <option
+                v-for="option in queryFormatOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
             </select>
           </label>
 
-          <TimeRangeSlider v-model:start="form.startAfter" v-model:end="form.finishBefore" :options="timeOptions" />
+          <TimeRangeSlider
+            v-model:start="form.startAfter"
+            v-model:end="form.finishBefore"
+            :options="timeOptions"
+          />
 
           <label class="block">
-            <span class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Langue</span>
-            <select v-model="form.language" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink">
-              <option v-for="option in queryLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            <span
+              class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+              >Langue</span
+            >
+            <select
+              v-model="form.language"
+              class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+            >
+              <option
+                v-for="option in queryLanguageOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
             </select>
           </label>
 
-          <label class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]">
-            <input v-model="form.includeAds" type="checkbox" class="mt-0.5 size-4 accent-primary" />
+          <label
+            class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
+          >
+            <input
+              v-model="form.includeAds"
+              type="checkbox"
+              class="mt-0.5 size-4 accent-primary"
+            >
             <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
           </label>
 
-          <label v-if="selectedCount" class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]">
-            <input :checked="selectedOnly" type="checkbox" class="mt-0.5 size-4 accent-primary" @change="setSelectedOnly" />
+          <label
+            v-if="selectedCount"
+            class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
+          >
+            <input
+              :checked="selectedOnly"
+              type="checkbox"
+              class="mt-0.5 size-4 accent-primary"
+              @change="setSelectedOnly"
+            >
             <span>Afficher uniquement les séances sélectionnées</span>
           </label>
 
-          <button type="submit" class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55" :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasValidSelectedDate">
-            <LoaderCircle v-if="pending" :size="18" class="animate-spin" aria-hidden="true" />
+          <button
+            type="submit"
+            class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55"
+            :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasValidSelectedDate"
+          >
+            <LoaderCircle
+              v-if="pending"
+              :size="18"
+              class="animate-spin"
+              aria-hidden="true"
+            />
             <Search v-else :size="18" aria-hidden="true" />
             {{ pending ? 'Recherche…' : 'Trouver une séance' }}
           </button>
         </div>
       </form>
 
-      <section ref="resultsRegion" class="min-w-0 scroll-mt-28 outline-none" aria-live="polite" aria-label="Résultats de recherche" tabindex="-1">
-        <div class="mb-5 flex items-end justify-between gap-4 border-b-2 border-ink pb-5">
+      <section
+        ref="resultsRegion"
+        class="min-w-0 scroll-mt-28 outline-none"
+        aria-live="polite"
+        aria-label="Résultats de recherche"
+        tabindex="-1"
+      >
+        <div
+          class="mb-5 flex items-end justify-between gap-4 border-b-2 border-ink pb-5"
+        >
           <div>
-            <p class="font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]">Résultats</p>
-            <h2 class="mt-2 text-3xl font-black capitalize tracking-[-0.045em] text-ink sm:text-4xl">{{ searchedDate ? formatLongDate(searchedDate) : 'Lancez votre recherche' }}</h2>
+            <p
+              class="font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+            >
+              Résultats
+            </p>
+            <h2
+              class="mt-2 text-3xl font-black capitalize tracking-[-0.045em] text-ink sm:text-4xl"
+            >
+              {{
+                searchedDate ? formatLongDate(searchedDate) : 'Lancez votre recherche'
+              }}
+            </h2>
           </div>
-          <ShareButton v-if="appliedSearch && shareTarget" class="shrink-0" :target="shareTarget" :theater-ids="appliedSearch.theaterIds" />
+          <ShareButton
+            v-if="appliedSearch && shareTarget"
+            class="shrink-0"
+            :target="shareTarget"
+            :theater-ids="appliedSearch.theaterIds"
+          />
         </div>
 
-        <div v-if="appliedSearch" class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3" :class="results ? '' : 'lg:hidden'">
-          <div class="grid grid-cols-[auto_minmax(0,1fr)_minmax(3.5rem,auto)_minmax(3.5rem,auto)] divide-x-2 divide-ink lg:hidden">
-            <p class="flex min-h-12 min-w-14 flex-col items-center justify-center px-2 font-mono font-black leading-none text-ink">
-              <span class="text-base">{{ results ? visibleResults.length : '-' }}</span>
-              <span class="mt-1 text-[9px] uppercase">séance{{ visibleResults.length === 1 ? '' : 's' }}</span>
+        <div
+          v-if="appliedSearch"
+          class="sticky top-0 z-20 mb-6 border-2 border-ink bg-[#f1efe8]/95 shadow-[5px_5px_0_#27272a] backdrop-blur lg:top-[4.5rem] lg:p-3"
+          :class="results ? '' : 'lg:hidden'"
+        >
+          <div
+            class="grid grid-cols-[auto_minmax(0,1fr)_minmax(3.5rem,auto)_minmax(3.5rem,auto)] divide-x-2 divide-ink lg:hidden"
+          >
+            <p
+              class="flex min-h-12 min-w-14 flex-col items-center justify-center px-2 font-mono font-black leading-none text-ink"
+            >
+              <span class="text-base">{{
+                results ? visibleResults.length : '-'
+              }}</span>
+              <span class="mt-1 text-[9px] uppercase"
+                >séance{{ visibleResults.length === 1 ? '' : 's' }}</span
+              >
             </p>
             <button
               ref="modifierButton"
@@ -749,61 +1147,190 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               :aria-label="`Modifier les filtres. Filtres appliqués : ${compactFilterSummary}`"
               @click="openFilterSheet"
             >
-              <SlidersHorizontal :size="17" class="shrink-0" aria-hidden="true" />
-              <span class="flex min-w-0 flex-col font-mono font-black uppercase leading-none">
+              <SlidersHorizontal
+                :size="17"
+                class="shrink-0"
+                aria-hidden="true"
+              />
+              <span
+                class="flex min-w-0 flex-col font-mono font-black uppercase leading-none"
+              >
                 <span class="text-[10px]">Filtres</span>
-                <span class="mt-1 truncate text-[9px] text-muted">{{ compactFilterSummary }}</span>
+                <span class="mt-1 truncate text-[9px] text-muted">{{
+                  compactFilterSummary
+                }}</span>
               </span>
             </button>
-            <ResultSettingMenu id="mobile-result-grouping" label="Groupe" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
-            <ResultSettingMenu id="mobile-result-layout" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+            <ResultSettingMenu
+              id="mobile-result-grouping"
+              label="Groupe"
+              :current-value="resultGrouping"
+              :options="groupingOptions"
+              @select="setResultGrouping"
+            />
+            <ResultSettingMenu
+              id="mobile-result-layout"
+              label="Vue"
+              :current-value="resultLayout"
+              :options="layoutOptions"
+              @select="setResultLayout"
+            />
           </div>
 
-          <div v-if="results && selectedCount" class="flex min-h-11 items-center justify-between gap-3 border-t-2 border-ink px-3 font-mono text-[10px] font-black uppercase tracking-[0.08em] lg:hidden" role="status">
-            <span>{{ selectedCount }} séance{{ selectedCount > 1 ? 's' : '' }} sélectionnée{{ selectedCount > 1 ? 's' : '' }}</span>
-            <button type="button" class="min-h-10 shrink-0 underline decoration-2 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" @click="clearShowtimeSelection">Effacer</button>
+          <div
+            v-if="results && selectedCount"
+            class="flex min-h-11 items-center justify-between gap-3 border-t-2 border-ink px-3 font-mono text-[10px] font-black uppercase tracking-[0.08em] lg:hidden"
+            role="status"
+          >
+            <span
+              >{{ selectedCount }}
+              séance{{ selectedCount > 1 ? 's' : '' }}
+              sélectionnée{{ selectedCount > 1 ? 's' : '' }}</span
+            >
+            <button
+              type="button"
+              class="min-h-10 shrink-0 underline decoration-2 underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+              @click="clearShowtimeSelection"
+            >
+              Effacer
+            </button>
           </div>
 
-          <div v-if="results" class="hidden lg:flex lg:items-center lg:justify-between lg:gap-3">
+          <div
+            v-if="results"
+            class="hidden lg:flex lg:items-center lg:justify-between lg:gap-3"
+          >
             <div class="min-w-0">
-              <p class="shrink-0 font-semibold text-ink">{{ visibleResults.length }} séance{{ visibleResults.length > 1 ? 's' : '' }}</p>
-              <ul class="mt-1 hidden flex-wrap gap-x-2 gap-y-1 text-sm text-ink lg:flex" aria-label="Filtres appliqués">
-                <li v-for="(item, index) in activeFilterSummary" :key="item" class="flex items-center gap-2 capitalize">
+              <p class="shrink-0 font-semibold text-ink">
+                {{ visibleResults.length }} séance{{
+                  visibleResults.length > 1 ? 's' : ''
+                }}
+              </p>
+              <ul
+                class="mt-1 hidden flex-wrap gap-x-2 gap-y-1 text-sm text-ink lg:flex"
+                aria-label="Filtres appliqués"
+              >
+                <li
+                  v-for="(item, index) in activeFilterSummary"
+                  :key="item"
+                  class="flex items-center gap-2 capitalize"
+                >
                   <span v-if="index > 0" aria-hidden="true">·</span>
                   <span>{{ item }}</span>
                 </li>
               </ul>
-              <div v-if="selectedCount" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] font-black uppercase tracking-[0.08em]" role="status">
-                <span>{{ selectedCount }} séance{{ selectedCount > 1 ? 's' : '' }} sélectionnée{{ selectedCount > 1 ? 's' : '' }}</span>
-                <button type="button" class="underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2" @click="clearShowtimeSelection">Effacer la sélection</button>
+              <div
+                v-if="selectedCount"
+                class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] font-black uppercase tracking-[0.08em]"
+                role="status"
+              >
+                <span
+                  >{{ selectedCount }}
+                  séance{{ selectedCount > 1 ? 's' : '' }}
+                  sélectionnée{{ selectedCount > 1 ? 's' : '' }}</span
+                >
+                <button
+                  type="button"
+                  class="underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                  @click="clearShowtimeSelection"
+                >
+                  Effacer la sélection
+                </button>
               </div>
             </div>
-            <div class="flex shrink-0 items-stretch border-2 border-ink bg-surface divide-x-2 divide-ink" role="group" aria-label="Réglages des résultats">
-              <ResultSettingMenu id="desktop-result-grouping" class="w-40" label="Groupement" :current-value="resultGrouping" :options="groupingOptions" @select="setResultGrouping" />
-              <ResultSettingMenu id="desktop-result-layout" class="w-32" label="Vue" :current-value="resultLayout" :options="layoutOptions" @select="setResultLayout" />
+            <div
+              class="flex shrink-0 items-stretch border-2 border-ink bg-surface divide-x-2 divide-ink"
+              role="group"
+              aria-label="Réglages des résultats"
+            >
+              <ResultSettingMenu
+                id="desktop-result-grouping"
+                class="w-40"
+                label="Groupement"
+                :current-value="resultGrouping"
+                :options="groupingOptions"
+                @select="setResultGrouping"
+              />
+              <ResultSettingMenu
+                id="desktop-result-layout"
+                class="w-32"
+                label="Vue"
+                :current-value="resultLayout"
+                :options="layoutOptions"
+                @select="setResultLayout"
+              />
             </div>
           </div>
         </div>
 
-        <EditorialStatePanel v-if="pending" semantic="status" size="tall" shadow="medium" class="search-state font-extrabold">
-          <template #icon><LoaderCircle :size="32" class="animate-spin" aria-hidden="true" /></template>
+        <EditorialStatePanel
+          v-if="pending || isResolvingInitialSearch"
+          semantic="status"
+          size="tall"
+          shadow="medium"
+          class="search-state font-extrabold"
+        >
+          <template #icon
+            ><LoaderCircle
+              :size="32"
+              class="animate-spin"
+              aria-hidden="true"
+            /></template
+          >
           <p>Recherche des séances compatibles…</p>
         </EditorialStatePanel>
-        <EditorialStatePanel v-else-if="errorMessage" semantic="alert" size="tall" shadow="medium" class="search-state font-extrabold">
-          <template #icon><AlertTriangle :size="32" class="text-primary" aria-hidden="true" /></template>
+        <EditorialStatePanel
+          v-else-if="errorMessage"
+          semantic="alert"
+          size="tall"
+          shadow="medium"
+          class="search-state font-extrabold"
+        >
+          <template #icon
+            ><AlertTriangle
+              :size="32"
+              class="text-primary"
+              aria-hidden="true"
+            /></template
+          >
           <p class="max-w-lg">{{ errorMessage }}</p>
         </EditorialStatePanel>
-        <EditorialStatePanel v-else-if="results?.length === 0" size="tall" shadow="medium" class="search-state font-extrabold">
-          <template #icon><CalendarSearch :size="30" class="text-muted" aria-hidden="true" /></template>
+        <EditorialStatePanel
+          v-else-if="results?.length === 0"
+          size="tall"
+          shadow="medium"
+          class="search-state font-extrabold"
+        >
+          <template #icon
+            ><CalendarSearch
+              :size="30"
+              class="text-muted"
+              aria-hidden="true"
+            /></template
+          >
           <p>Aucune séance ne tient entièrement dans ce créneau.</p>
         </EditorialStatePanel>
-        <ShowtimeResults v-else-if="results" :results="visibleResults" :grouping="resultGrouping" :layout="resultLayout" scope="multi-theater" :selected-keys="selectedShowtimeKeys" @toggle-selection="toggleShowtimeSelection" />
-        <EditorialStatePanel v-else size="tall" shadow="medium" class="search-state font-extrabold">
-          <template #icon><CalendarSearch :size="32" aria-hidden="true" /></template>
+        <ShowtimeResults
+          v-else-if="results"
+          :results="visibleResults"
+          :grouping="resultGrouping"
+          :layout="resultLayout"
+          scope="multi-theater"
+          :selected-keys="selectedShowtimeKeys"
+          @toggle-selection="toggleShowtimeSelection"
+        />
+        <EditorialStatePanel
+          v-else
+          size="tall"
+          shadow="medium"
+          class="search-state font-extrabold"
+        >
+          <template #icon
+            ><CalendarSearch :size="32" aria-hidden="true" /></template
+          >
           <p>Définissez votre créneau pour voir les séances compatibles.</p>
         </EditorialStatePanel>
       </section>
     </div>
-
   </main>
 </template>

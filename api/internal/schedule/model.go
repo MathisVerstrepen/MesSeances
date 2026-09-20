@@ -56,10 +56,11 @@ func (e *NotFoundError) Error() string {
 }
 
 type Movie struct {
-	Slug           string    `json:"slug"`
-	Title          string    `json:"title"`
-	RuntimeMinutes int       `json:"runtime_minutes"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	OriginalLanguage *string   `json:"original_language"`
+	Slug             string    `json:"slug"`
+	Title            string    `json:"title"`
+	RuntimeMinutes   int       `json:"runtime_minutes"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
 type Showtime struct {
@@ -176,6 +177,7 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
+	OriginalLanguage    *string   `json:"original_language"`
 	FrenchReleaseDate   *string   `json:"french_release_date"`
 	Slug                string    `json:"slug"`
 	Title               string    `json:"title"`

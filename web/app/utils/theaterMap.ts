@@ -12,7 +12,7 @@ export const THEATER_PROVIDER_COLORS = {
   mk2: '#334155',
   cinewest: '#15803d',
   grandecran: '#ec4899',
-  noecinemas: '#795548'
+  noecinemas: '#795548',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -25,7 +25,7 @@ export const THEATER_PROVIDER_LABELS = {
   mk2: 'MK2',
   cinewest: 'Cinewest',
   grandecran: 'Grand Ecran',
-  noecinemas: 'Noé Cinémas'
+  noecinemas: 'Noé Cinémas',
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {
@@ -35,7 +35,10 @@ export interface TheaterMapProperties {
 }
 
 export type TheaterMapFeature = Feature<Point, TheaterMapProperties>
-export type TheaterMapFeatureCollection = FeatureCollection<Point, TheaterMapProperties>
+export type TheaterMapFeatureCollection = FeatureCollection<
+  Point,
+  TheaterMapProperties
+>
 
 export interface TheaterMapBounds {
   west: number
@@ -48,41 +51,57 @@ export interface TheaterMapBounds {
 const EARTH_RADIUS_METERS = 6_371_000
 const COINCIDENT_SPREAD_METERS = 35
 
-function spreadCoordinate(longitude: number, latitude: number, bearing: number): [number, number] {
+function spreadCoordinate(
+  longitude: number,
+  latitude: number,
+  bearing: number,
+): [number, number] {
   const angularDistance = COINCIDENT_SPREAD_METERS / EARTH_RADIUS_METERS
-  const latitudeRadians = latitude * Math.PI / 180
-  const longitudeRadians = longitude * Math.PI / 180
-  const bearingRadians = bearing * Math.PI / 180
+  const latitudeRadians = (latitude * Math.PI) / 180
+  const longitudeRadians = (longitude * Math.PI) / 180
+  const bearingRadians = (bearing * Math.PI) / 180
   const destinationLatitude = Math.asin(
-    Math.sin(latitudeRadians) * Math.cos(angularDistance)
-      + Math.cos(latitudeRadians) * Math.sin(angularDistance) * Math.cos(bearingRadians)
+    Math.sin(latitudeRadians) * Math.cos(angularDistance) +
+      Math.cos(latitudeRadians) *
+        Math.sin(angularDistance) *
+        Math.cos(bearingRadians),
   )
-  const destinationLongitude = longitudeRadians + Math.atan2(
-    Math.sin(bearingRadians) * Math.sin(angularDistance) * Math.cos(latitudeRadians),
-    Math.cos(angularDistance) - Math.sin(latitudeRadians) * Math.sin(destinationLatitude)
-  )
+  const destinationLongitude =
+    longitudeRadians +
+    Math.atan2(
+      Math.sin(bearingRadians) *
+        Math.sin(angularDistance) *
+        Math.cos(latitudeRadians),
+      Math.cos(angularDistance) -
+        Math.sin(latitudeRadians) * Math.sin(destinationLatitude),
+    )
 
   return [
-    ((destinationLongitude * 180 / Math.PI + 540) % 360) - 180,
-    destinationLatitude * 180 / Math.PI
+    (((destinationLongitude * 180) / Math.PI + 540) % 360) - 180,
+    (destinationLatitude * 180) / Math.PI,
   ]
 }
 
 export function buildTheaterFeatureCollection(
   theaters: readonly Theater[],
-  favoriteTheaterIds: ReadonlySet<string>
+  favoriteTheaterIds: ReadonlySet<string>,
 ): TheaterMapFeatureCollection {
   const locatedTheaters = theaters
-    .filter((theater) => isValidGeographicPoint({
-      latitude: theater.latitude ?? Number.NaN,
-      longitude: theater.longitude ?? Number.NaN
-    }))
+    .filter((theater) =>
+      isValidGeographicPoint({
+        latitude: theater.latitude ?? Number.NaN,
+        longitude: theater.longitude ?? Number.NaN,
+      }),
+    )
     .toSorted((left, right) => {
       const longitudeDifference = left.longitude! - right.longitude!
       if (longitudeDifference !== 0) return longitudeDifference
       const latitudeDifference = left.latitude! - right.latitude!
       if (latitudeDifference !== 0) return latitudeDifference
-      return left.id.localeCompare(right.id, 'fr-FR') || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+      return (
+        left.id.localeCompare(right.id, 'fr-FR') ||
+        (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+      )
     })
 
   const groups = new Map<string, Theater[]>()
@@ -98,17 +117,18 @@ export function buildTheaterFeatureCollection(
     for (const [index, theater] of group.entries()) {
       const longitude = theater.longitude!
       const latitude = theater.latitude!
-      const coordinates: [number, number] = group.length === 1
-        ? [longitude, latitude]
-        : spreadCoordinate(longitude, latitude, index * 360 / group.length)
+      const coordinates: [number, number] =
+        group.length === 1
+          ? [longitude, latitude]
+          : spreadCoordinate(longitude, latitude, (index * 360) / group.length)
       features.push({
         type: 'Feature',
         geometry: { type: 'Point', coordinates },
         properties: {
           id: theater.id,
           provider: theater.provider,
-          favorite: favoriteTheaterIds.has(theater.id)
-        }
+          favorite: favoriteTheaterIds.has(theater.id),
+        },
       })
     }
   }
@@ -116,7 +136,9 @@ export function buildTheaterFeatureCollection(
   return { type: 'FeatureCollection', features }
 }
 
-export function theaterFeatureBounds(collection: TheaterMapFeatureCollection): TheaterMapBounds | null {
+export function theaterFeatureBounds(
+  collection: TheaterMapFeatureCollection,
+): TheaterMapBounds | null {
   const first = collection.features[0]?.geometry.coordinates
   if (!first) return null
 

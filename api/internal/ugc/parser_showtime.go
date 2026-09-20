@@ -37,7 +37,7 @@ func normalizeLanguage(value string) (schedule.Language, error) {
 		return schedule.LanguageVF, nil
 	case "VFSTF":
 		return schedule.LanguageVFSME, nil
-	case "VO", "SUBENG", "VOSST":
+	case "VO", "VOF", "SUBENG", "VOSST":
 		return schedule.LanguageVO, nil
 	default:
 		return "", fmt.Errorf("unknown showing version")

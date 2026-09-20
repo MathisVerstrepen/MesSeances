@@ -12,6 +12,7 @@ export interface ShowtimeResultViewModel {
   movieKey: string
   movieSlug: string
   movieTitle: string
+  movieOriginalLanguage: string | null
   movieRuntimeMinutes: number
   theaterName: string
   theaterId: string

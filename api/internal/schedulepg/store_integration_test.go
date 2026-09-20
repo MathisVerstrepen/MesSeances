@@ -739,6 +739,83 @@ func TestPostgresStoreIntegration(t *testing.T) {
 	})
 }
 
+func TestOriginalLanguagePublicationIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	ctx := t.Context()
+	store := NewStore(pool)
+	data := testDataset()
+	data.Showtimes[0].Language = schedule.LanguageVF
+	data.Showtimes[0].ProviderVersion = "VF"
+	historyPublish(t, store, data)
+	now := data.GeneratedAt
+	match := enrichment.Match{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(30 * 24 * time.Hour)}
+	metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", RuntimeMinutes: 100, Genres: []string{}, FetchedAt: now, RefreshAfter: now.Add(30 * 24 * time.Hour)}
+	for _, original := range []string{"", "fr", "en", ""} {
+		metadata.OriginalLanguage = original
+		if err := enrichment.NewPostgresStore(pool).Publish(ctx, match, metadata); err != nil {
+			t.Fatal(err)
+		}
+		loaded, _, err := store.Load(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		matched := 0
+		for _, movie := range loaded.PublicMovies {
+			want := ""
+			if movie.TMDBID == 42 {
+				want = original
+				matched++
+			}
+			if movie.OriginalLanguage != want {
+				t.Fatalf("loaded movie=%+v want language=%q", movie, want)
+			}
+		}
+		if matched != 1 {
+			t.Fatalf("matched public movies=%d", matched)
+		}
+		source, err := NewPostgresSource(ctx, store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := NewService(source, ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		catalog, err := service.Movies(MovieCatalogQuery{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, movie := range catalog.Items {
+			want := ""
+			if movie.TMDBID != nil && *movie.TMDBID == 42 {
+				want = original
+			}
+			if want == "" && movie.OriginalLanguage != nil || want != "" && (movie.OriginalLanguage == nil || *movie.OriginalLanguage != want) {
+				t.Fatalf("catalog language=%q movie=%+v", want, movie)
+			}
+		}
+		timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", TheaterIDs: []string{"ugc-25"}, Language: LanguageAll})
+		if err != nil || len(timeline.Theaters) != 1 || len(timeline.Theaters[0].Showtimes) != 2 {
+			t.Fatalf("timeline=%+v err=%v", timeline, err)
+		}
+		showing := timeline.Theaters[0].Showtimes[0]
+		if showing.Language != schedule.LanguageVF || original == "" && showing.Movie.OriginalLanguage != nil || original != "" && (showing.Movie.OriginalLanguage == nil || *showing.Movie.OriginalLanguage != original) {
+			t.Fatalf("nested language=%q showing=%+v", original, showing)
+		}
+		filtered, err := service.Timeline(TimelineQuery{Date: "2026-08-15", TheaterIDs: []string{"ugc-25"}, Language: schedule.LanguageOriginal})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantCount := 0
+		if original == "fr" {
+			wantCount = 1
+		}
+		if len(filtered.Theaters[0].Showtimes) != wantCount {
+			t.Fatalf("original=%q filtered=%+v", original, filtered)
+		}
+	}
+}
+
 func TestMultiProviderPostgresStoreIntegration(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if strings.TrimSpace(databaseURL) == "" {

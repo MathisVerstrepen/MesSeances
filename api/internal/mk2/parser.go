@@ -174,11 +174,18 @@ func parseAttributes(attributes []attribute) (schedule.Language, string, schedul
 	}
 	var language schedule.Language
 	var version string
-	switch {
-	case tokens["Muet"] && !tokens["VF"] && !tokens["VO"] && !tokens["STFR"]:
-		version = "Muet"
-	case tokens["Muet"] || tokens["VF"] == tokens["VO"]:
+	versions := 0
+	for _, token := range []string{"VF", "VO", "VOF", "Muet"} {
+		if tokens[token] {
+			versions++
+		}
+	}
+	if versions != 1 || tokens["Muet"] && tokens["STFR"] {
 		return "", "", "", payloadError(OperationComplex)
+	}
+	switch {
+	case tokens["Muet"]:
+		version = "Muet"
 	case tokens["VF"]:
 		language, version = schedule.LanguageVF, "VF"
 		if tokens["STFR"] {
@@ -188,6 +195,11 @@ func parseAttributes(attributes []attribute) (schedule.Language, string, schedul
 		language, version = schedule.LanguageVO, "VO"
 		if tokens["STFR"] {
 			language, version = schedule.LanguageVOSTFR, "VO+STFR"
+		}
+	case tokens["VOF"]:
+		language, version = schedule.LanguageVO, "VOF"
+		if tokens["STFR"] {
+			language, version = schedule.LanguageVOSTFR, "VOF+STFR"
 		}
 	}
 	var format schedule.Format

@@ -6,26 +6,29 @@ defineOptions({ inheritAttrs: false })
 
 type ResetKey = string | number | boolean | null | undefined
 
-const props = withDefaults(defineProps<{
-  src: string | null | undefined
-  alt: string
-  sizes: string
-  resetKey?: ResetKey
-  fallbackText?: string | null
-  fallbackIconSize?: number
-  fallbackVariant?: 'labelled' | 'compact' | 'icon-only'
-  imageClass?: string
-  fallbackClass?: string
-  fallbackMarker?: string
-}>(), {
-  resetKey: undefined,
-  fallbackText: 'Affiche indisponible',
-  fallbackIconSize: 30,
-  fallbackVariant: 'labelled',
-  imageClass: '',
-  fallbackClass: '',
-  fallbackMarker: undefined
-})
+const props = withDefaults(
+  defineProps<{
+    src: string | null | undefined
+    alt: string
+    sizes: string
+    resetKey?: ResetKey
+    fallbackText?: string | null
+    fallbackIconSize?: number
+    fallbackVariant?: 'labelled' | 'compact' | 'icon-only'
+    imageClass?: string
+    fallbackClass?: string
+    fallbackMarker?: string
+  }>(),
+  {
+    resetKey: undefined,
+    fallbackText: 'Affiche indisponible',
+    fallbackIconSize: 30,
+    fallbackVariant: 'labelled',
+    imageClass: '',
+    fallbackClass: '',
+    fallbackMarker: undefined,
+  },
+)
 
 const attrs = useAttrs()
 const image = ref<HTMLImageElement | null>(null)
@@ -37,13 +40,19 @@ const normalizedSizes = computed(() => {
   if (!sizes) throw new TypeError('PosterImage sizes must be non-empty')
   return sizes
 })
-const imageVisible = computed(() => Boolean(normalizedSource.value) && failedSource.value !== normalizedSource.value)
-const imageKey = computed(() => `${normalizedSource.value ?? ''}:${String(props.resetKey ?? '')}`)
+const imageVisible = computed(
+  () =>
+    Boolean(normalizedSource.value) &&
+    failedSource.value !== normalizedSource.value,
+)
+const imageKey = computed(
+  () => `${normalizedSource.value ?? ''}:${String(props.resetKey ?? '')}`,
+)
 
 const fallbackVariantClasses = {
   labelled: 'flex-col',
   compact: 'flex-col',
-  'icon-only': ''
+  'icon-only': '',
 } satisfies Record<NonNullable<typeof props.fallbackVariant>, string>
 
 const protectedImageAttrs = new Set([
@@ -55,23 +64,36 @@ const protectedImageAttrs = new Set([
   'loading',
   'decoding',
   'fetchpriority',
-  'fetch-priority'
+  'fetch-priority',
 ])
 
 function forwardedImageAttrs() {
-  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key !== 'class' && key !== 'style' && !protectedImageAttrs.has(key.toLowerCase())))
+  return Object.fromEntries(
+    Object.entries(attrs).filter(
+      ([key]) =>
+        key !== 'class' &&
+        key !== 'style' &&
+        !protectedImageAttrs.has(key.toLowerCase()),
+    ),
+  )
 }
 
 function detectCachedFailure() {
   const currentImage = image.value
   const source = normalizedSource.value
-  if (source && currentImage?.complete && currentImage.naturalWidth === 0) failedSource.value = source
+  if (source && currentImage?.complete && currentImage.naturalWidth === 0)
+    failedSource.value = source
 }
 
 function handleError(event: Event) {
   const currentImage = event.currentTarget
   const source = normalizedSource.value
-  if (!(currentImage instanceof HTMLImageElement) || currentImage !== image.value || !source) return
+  if (
+    !(currentImage instanceof HTMLImageElement) ||
+    currentImage !== image.value ||
+    !source
+  )
+    return
   if (currentImage.src === source) failedSource.value = source
 }
 
@@ -101,7 +123,7 @@ onMounted(() => nextTick(detectCachedFailure))
       decoding="async"
       :class="imageClass"
       @error="handleError"
-    />
+    >
     <span
       v-else
       :data-poster-fallback="fallbackMarker"
@@ -109,7 +131,9 @@ onMounted(() => nextTick(detectCachedFailure))
       :class="[fallbackVariantClasses[fallbackVariant], fallbackClass]"
     >
       <Film :size="fallbackIconSize" aria-hidden="true" />
-      <span v-if="fallbackVariant !== 'icon-only' && fallbackText !== null">{{ fallbackText }}</span>
+      <span v-if="fallbackVariant !== 'icon-only' && fallbackText !== null">{{
+        fallbackText
+      }}</span>
     </span>
   </span>
 </template>

@@ -4,11 +4,14 @@ import { loadVueDatePicker } from '~/utils/vueDatePickerLoader'
 
 defineOptions({ inheritAttrs: false })
 
-const props = withDefaults(defineProps<{
-  active?: boolean
-}>(), {
-  active: false
-})
+const props = withDefaults(
+  defineProps<{
+    active?: boolean
+  }>(),
+  {
+    active: false,
+  },
+)
 
 interface DatePickerExposed {
   openMenu: () => void
@@ -40,7 +43,10 @@ async function loadAndOpen() {
     if (!openAfterLoad) return
     openAfterLoad = false
     const inputRoot = datePicker.value?.inputRef()?.$el
-    if (inputRoot instanceof HTMLElement) inputRoot.querySelector<HTMLElement>('button')?.focus({ preventScroll: true })
+    if (inputRoot instanceof HTMLElement)
+      inputRoot
+        .querySelector<HTMLElement>('button')
+        ?.focus({ preventScroll: true })
     datePicker.value?.openMenu()
   } catch {
     openAfterLoad = false
@@ -60,9 +66,12 @@ onMounted(() => {
   if (props.active) loadWhenActive()
 })
 
-watch(() => props.active, (active) => {
-  if (active) loadWhenActive()
-})
+watch(
+  () => props.active,
+  (active) => {
+    if (active) loadWhenActive()
+  },
+)
 </script>
 
 <template>

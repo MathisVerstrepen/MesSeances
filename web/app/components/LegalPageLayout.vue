@@ -7,7 +7,9 @@ defineProps<{
 
 <template>
   <StaticPageLayout :eyebrow="eyebrow" :title="title">
-    <article class="legal-document mx-auto grid max-w-5xl gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16">
+    <article
+      class="legal-document mx-auto grid max-w-5xl gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:px-10 lg:py-16"
+    >
       <slot />
     </article>
   </StaticPageLayout>
@@ -136,5 +138,4 @@ defineProps<{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.85em;
 }
-
 </style>
