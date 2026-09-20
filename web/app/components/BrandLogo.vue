@@ -27,16 +27,36 @@ import screenXLogoSmall from '~/assets/imgs/logo_screenx_small.webp?no-inline'
 import ugcLogoLarge from '~/assets/imgs/ugc_logo_large.webp?no-inline'
 import ugcLogoSmall from '~/assets/imgs/ugc_logo_small.webp?no-inline'
 
-type Brand = 'UGC' | 'CGR' | 'MEGARAMA' | 'CINEVILLE' | 'MK2' | 'CINEWEST' | 'Grand Ecran' | 'Noé Cinémas' | 'IMAX' | 'KINEPOLIS' | 'PATHE' | '3D' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'INFINITY_VISION'
+type Brand =
+  | 'UGC'
+  | 'CGR'
+  | 'MEGARAMA'
+  | 'CINEVILLE'
+  | 'MK2'
+  | 'CINEWEST'
+  | 'Grand Ecran'
+  | 'Noé Cinémas'
+  | 'IMAX'
+  | 'KINEPOLIS'
+  | 'PATHE'
+  | '3D'
+  | 'DOLBY'
+  | 'SCREENX'
+  | 'LASER_ULTRA'
+  | '4DX'
+  | 'INFINITY_VISION'
 
-const props = withDefaults(defineProps<{
-  brand: Brand
-  variant?: 'inline' | 'display'
-  decorative?: boolean
-}>(), {
-  variant: 'inline',
-  decorative: false
-})
+const props = withDefaults(
+  defineProps<{
+    brand: Brand
+    variant?: 'inline' | 'display'
+    decorative?: boolean
+  }>(),
+  {
+    variant: 'inline',
+    decorative: false,
+  },
+)
 
 const sources = {
   UGC: { inline: ugcLogoSmall, display: ugcLogoLarge },
@@ -54,10 +74,15 @@ const sources = {
   SCREENX: { inline: screenXLogoSmall, display: screenXLogoLarge },
   LASER_ULTRA: { inline: laserUltraLogoSmall, display: laserUltraLogoLarge },
   '4DX': { inline: logo4DXSmall, display: logo4DXLarge },
-  INFINITY_VISION: { inline: infinityVisionLogoSmall, display: infinityVisionLogoLarge }
+  INFINITY_VISION: {
+    inline: infinityVisionLogoSmall,
+    display: infinityVisionLogoLarge,
+  },
 } satisfies Record<Exclude<Brand, '3D'>, Record<'inline' | 'display', string>>
 
-const source = computed(() => props.brand === '3D' ? '' : sources[props.brand][props.variant])
+const source = computed(() =>
+  props.brand === '3D' ? '' : sources[props.brand][props.variant],
+)
 const accessibleNames = {
   UGC: 'UGC',
   CGR: 'CGR Cinémas',
@@ -75,15 +100,14 @@ const accessibleNames = {
   SCREENX: 'ScreenX',
   LASER_ULTRA: 'Laser ULTRA by Kinepolis',
   '4DX': '4DX',
-  INFINITY_VISION: 'Infinity Vision'
+  INFINITY_VISION: 'Infinity Vision',
 } satisfies Record<Brand, string>
 </script>
 
 <template>
-  <span
-    v-if="brand === '3D'"
-    :aria-hidden="decorative ? 'true' : undefined"
-  >3D</span>
+  <span v-if="brand === '3D'" :aria-hidden="decorative ? 'true' : undefined"
+    >3D</span
+  >
   <img
     v-else
     :src="source"
@@ -93,5 +117,5 @@ const accessibleNames = {
     :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', variant === 'display'
       ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
       : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')]"
-  />
+  >
 </template>

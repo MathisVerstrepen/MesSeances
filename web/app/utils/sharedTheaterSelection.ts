@@ -8,8 +8,16 @@ export interface TheaterIdentity {
 
 type SharedTheaterQueryValue = string | null | (string | null)[] | undefined
 
-export function parseSharedTheaterSelection(value: SharedTheaterQueryValue): string[] | null {
-  if (value === undefined || value === null || Array.isArray(value) || value.length === 0) return null
+export function parseSharedTheaterSelection(
+  value: SharedTheaterQueryValue,
+): string[] | null {
+  if (
+    value === undefined ||
+    value === null ||
+    Array.isArray(value) ||
+    value.length === 0
+  )
+    return null
 
   const ids = value.split(',')
   if (ids.some((id) => !THEATER_ID_PATTERN.test(id))) return null
@@ -17,19 +25,31 @@ export function parseSharedTheaterSelection(value: SharedTheaterQueryValue): str
   return ids
 }
 
-export function canonicalizeTheaterSelection(ids: readonly string[], catalog: readonly TheaterIdentity[]): string[] {
+export function canonicalizeTheaterSelection(
+  ids: readonly string[],
+  catalog: readonly TheaterIdentity[],
+): string[] {
   const selected = new Set(ids)
-  return catalog.filter((theater) => selected.has(theater.id)).map((theater) => theater.id)
+  return catalog
+    .filter((theater) => selected.has(theater.id))
+    .map((theater) => theater.id)
 }
 
-export function theaterSelectionsEqual(left: readonly string[], right: readonly string[]): boolean {
+export function theaterSelectionsEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
   if (left.length !== right.length) return false
   const rightIds = new Set(right)
   return left.every((id) => rightIds.has(id))
 }
 
-export function withSharedTheaterSelection(target: string, ids: readonly string[]): string | null {
-  if (ids.length === 0 || parseSharedTheaterSelection(ids.join(',')) === null) return null
+export function withSharedTheaterSelection(
+  target: string,
+  ids: readonly string[],
+): string | null {
+  if (ids.length === 0 || parseSharedTheaterSelection(ids.join(',')) === null)
+    return null
 
   const queryIndex = target.indexOf('?')
   const path = queryIndex === -1 ? target : target.slice(0, queryIndex)
@@ -48,6 +68,8 @@ export function withSharedTheaterSelection(target: string, ids: readonly string[
     if (key !== SHARED_THEATERS_QUERY_KEY) fields.push(field)
   }
 
-  fields.push(`${SHARED_THEATERS_QUERY_KEY}=${encodeURIComponent(ids.join(','))}`)
+  fields.push(
+    `${SHARED_THEATERS_QUERY_KEY}=${encodeURIComponent(ids.join(','))}`,
+  )
   return `${path}?${fields.join('&')}`
 }

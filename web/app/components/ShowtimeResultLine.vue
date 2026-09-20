@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import { MapPin } from '@lucide/vue'
-import type { ShowtimeResultScope, ShowtimeResultViewModel } from '~/types/showtimeResults'
+import type {
+  ShowtimeResultScope,
+  ShowtimeResultViewModel,
+} from '~/types/showtimeResults'
 import { formatParisTime } from '~/utils/date'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 
-const props = withDefaults(defineProps<{
-  result: ShowtimeResultViewModel
-  scope: ShowtimeResultScope
-  showMovie: boolean
-  selected?: boolean
-}>(), {
-  selected: false
-})
+const props = withDefaults(
+  defineProps<{
+    result: ShowtimeResultViewModel
+    scope: ShowtimeResultScope
+    showMovie: boolean
+    selected?: boolean
+  }>(),
+  {
+    selected: false,
+  },
+)
 
 const emit = defineEmits<{
   toggleSelection: [key: string]
@@ -22,21 +28,36 @@ const backdropFailed = ref(false)
 const backdropImage = ref<HTMLImageElement | null>(null)
 const posterUrl = computed(() => safePosterUrl(props.result.posterUrl))
 const backdropUrl = computed(() => safeBackdropUrl(props.result.backdropUrl))
-const hasDelayedStart = computed(() => Date.parse(props.result.effectiveStartTime) !== Date.parse(props.result.advertisedStartTime))
-const displayedStartTime = computed(() => hasDelayedStart.value ? props.result.effectiveStartTime : props.result.advertisedStartTime)
+const hasDelayedStart = computed(
+  () =>
+    Date.parse(props.result.effectiveStartTime) !==
+    Date.parse(props.result.advertisedStartTime),
+)
+const displayedStartTime = computed(() =>
+  hasDelayedStart.value
+    ? props.result.effectiveStartTime
+    : props.result.advertisedStartTime,
+)
 const isChronological = computed(() => props.showMovie)
-const selectionLabel = computed(() => `${props.selected ? 'Retirer' : 'Ajouter'} la séance de ${props.result.movieTitle} à ${formatParisTime(displayedStartTime.value)} au cinéma ${props.result.theaterName}`)
+const selectionLabel = computed(
+  () =>
+    `${props.selected ? 'Retirer' : 'Ajouter'} la séance de ${props.result.movieTitle} à ${formatParisTime(displayedStartTime.value)} au cinéma ${props.result.theaterName}`,
+)
 
 watch([() => props.result.posterUrl, () => props.result.backdropUrl], () => {
   backdropFailed.value = false
 })
 
-onMounted(() => nextTick(() => {
-  if (backdropImage.value?.complete && backdropImage.value.naturalWidth === 0) backdropFailed.value = true
-}))
+onMounted(() =>
+  nextTick(() => {
+    if (backdropImage.value?.complete && backdropImage.value.naturalWidth === 0)
+      backdropFailed.value = true
+  }),
+)
 
 function bookingLabel() {
-  if (props.scope === 'single-theater') return `Séance de ${props.result.movieTitle} à ${formatParisTime(props.result.advertisedStartTime)} au ${props.result.theaterName}, réserver`
+  if (props.scope === 'single-theater')
+    return `Séance de ${props.result.movieTitle} à ${formatParisTime(props.result.advertisedStartTime)} au ${props.result.theaterName}, réserver`
   return `Réserver ${props.result.movieTitle}, séance annoncée à ${formatParisTime(props.result.advertisedStartTime)} au cinéma ${props.result.theaterName}`
 }
 
@@ -47,7 +68,11 @@ function formatRoom(room: string) {
 </script>
 
 <template>
-  <article v-if="isChronological" class="relative p-4 hover:bg-[#f1efe8] sm:p-5" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined">
+  <article
+    v-if="isChronological"
+    class="relative p-4 hover:bg-[#f1efe8] sm:p-5"
+    :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined"
+  >
     <button
       v-if="scope === 'multi-theater'"
       type="button"
@@ -72,10 +97,19 @@ function formatRoom(room: string) {
       :data-media-kind="scope === 'single-theater' ? 'backdrop' : undefined"
       @error="backdropFailed = true"
     >
-    <div class="pointer-events-none absolute inset-0" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3]/90' : 'bg-surface/80'" aria-hidden="true" />
+    <div
+      class="pointer-events-none absolute inset-0"
+      :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3]/90' : 'bg-surface/80'"
+      aria-hidden="true"
+    />
 
-    <div class="relative grid gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4" :class="scope === 'single-theater' ? 'grid-cols-[3rem_minmax(0,1fr)_auto]' : 'grid-cols-[3rem_minmax(0,1fr)]'">
-      <div class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]">
+    <div
+      class="relative grid gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
+      :class="scope === 'single-theater' ? 'grid-cols-[3rem_minmax(0,1fr)_auto]' : 'grid-cols-[3rem_minmax(0,1fr)]'"
+    >
+      <div
+        class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]"
+      >
         <PosterImage
           :src="posterUrl"
           :alt="`Affiche de ${result.movieTitle}`"
@@ -94,26 +128,75 @@ function formatRoom(room: string) {
       <div class="col-start-2 border-l-2 border-ink pl-3 sm:col-start-auto">
         <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
           {{ formatParisTime(displayedStartTime) }}
-          <span v-if="hasDelayedStart" class="group relative inline-block text-sm font-normal tracking-normal">
-            <span :aria-describedby="advertisedStartTooltipId" class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
-            <span :id="advertisedStartTooltipId" class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100" role="tooltip">Heure de début annoncée, publicités incluses</span>
+          <span
+            v-if="hasDelayedStart"
+            class="group relative inline-block text-sm font-normal tracking-normal"
+          >
+            <span
+              :aria-describedby="advertisedStartTooltipId"
+              class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1"
+              tabindex="0"
+              >({{ formatParisTime(result.advertisedStartTime) }})</span
+            >
+            <span
+              :id="advertisedStartTooltipId"
+              class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+              role="tooltip"
+              >Heure de début annoncée, publicités incluses</span
+            >
           </span>
-          <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template>
+          <template v-if="result.end"
+            >→
+            <ShowtimeEndTime
+              :end="result.end"
+              :advertised-start="result.advertisedStartTime"
+              :runtime-minutes="result.movieRuntimeMinutes"
+            /></template
+          >
         </p>
       </div>
       <div class="col-start-2 min-w-0 sm:col-start-auto">
         <h3 class="truncate text-base font-black tracking-[-0.02em] text-ink">
-          <NuxtLink :to="`/film/${encodeURIComponent(result.movieSlug)}`" class="relative z-20 underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2">{{ result.movieTitle }}</NuxtLink>
+          <NuxtLink
+            :to="`/film/${encodeURIComponent(result.movieSlug)}`"
+            class="relative z-20 underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+            >{{
+              result.movieTitle
+            }}</NuxtLink
+          >
         </h3>
-        <div v-if="scope === 'multi-theater'" class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-          <span class="flex items-center gap-1.5"><MapPin :size="14" aria-hidden="true" /> <TheaterName :name="result.theaterName" :provider="result.provider" /></span>
+        <div
+          v-if="scope === 'multi-theater'"
+          class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted"
+        >
+          <span class="flex items-center gap-1.5"
+            ><MapPin :size="14" aria-hidden="true" />
+            <TheaterName
+              :name="result.theaterName"
+              :provider="result.provider"
+            /></span
+          >
           <span v-if="result.room">{{ result.room }}</span>
-          <span v-if="result.language" class="font-medium text-muted">{{ result.language }}</span>
-          <ShowtimeFormat :format="result.format" class="font-medium text-muted" />
+          <span v-if="result.language" class="font-medium text-muted">{{
+            result.language
+          }}</span>
+          <ShowtimeFormat
+            :format="result.format"
+            class="font-medium text-muted"
+          />
         </div>
-        <div v-else class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-          <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
-          <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
+        <div
+          v-else
+          class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
+        >
+          <template v-if="result.language"
+            ><span>{{ result.language }}</span
+            ><span aria-hidden="true">·</span></template
+          ><ShowtimeFormat :format="result.format" />
+          <template v-if="result.room"
+            ><span aria-hidden="true">·</span
+            ><span>{{ formatRoom(result.room) }}</span></template
+          >
         </div>
       </div>
       <BookingLink
@@ -129,12 +212,18 @@ function formatRoom(room: string) {
         :available-class="scope === 'multi-theater' ? 'relative z-20 text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2' : 'text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2'"
         :unavailable-class="scope === 'multi-theater' ? 'pointer-events-none text-muted' : 'text-muted'"
       >
-        <template #default="{ available, kind, label }">{{ kind === 'website' ? label : available ? 'Réserver' : scope === 'single-theater' ? 'Réservation indisponible' : 'Indisponible' }}</template>
+        <template #default="{ available, kind, label }">{{
+          kind === 'website' ? label : available ? 'Réserver' : scope === 'single-theater' ? 'Réservation indisponible' : 'Indisponible'
+        }}</template>
       </BookingLink>
     </div>
   </article>
 
-  <li v-else class="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:px-5" :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined">
+  <li
+    v-else
+    class="relative grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2 p-4 hover:bg-[#f1efe8] sm:px-5"
+    :class="scope === 'multi-theater' && selected ? 'bg-[#fff0b3] shadow-[inset_5px_0_0_#991b1b]' : undefined"
+  >
     <button
       v-if="scope === 'multi-theater'"
       type="button"
@@ -146,21 +235,64 @@ function formatRoom(room: string) {
     <div class="min-w-0">
       <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
         {{ formatParisTime(displayedStartTime) }}
-        <span v-if="hasDelayedStart" class="group relative inline-block text-sm font-normal tracking-normal">
-          <span :aria-describedby="advertisedStartTooltipId" class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1" tabindex="0">({{ formatParisTime(result.advertisedStartTime) }})</span>
-          <span :id="advertisedStartTooltipId" class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100" role="tooltip">Heure de début annoncée, publicités incluses</span>
+        <span
+          v-if="hasDelayedStart"
+          class="group relative inline-block text-sm font-normal tracking-normal"
+        >
+          <span
+            :aria-describedby="advertisedStartTooltipId"
+            class="relative z-20 inline-block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-1"
+            tabindex="0"
+            >({{ formatParisTime(result.advertisedStartTime) }})</span
+          >
+          <span
+            :id="advertisedStartTooltipId"
+            class="invisible absolute left-1/2 top-full z-20 mt-2 w-max max-w-48 -translate-x-1/2 border border-ink bg-ink px-2 py-1 text-center font-sans text-xs font-normal tracking-normal text-white opacity-0 shadow-sm transition-opacity group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+            role="tooltip"
+            >Heure de début annoncée, publicités incluses</span
+          >
         </span>
-        <template v-if="result.end">→ <ShowtimeEndTime :end="result.end" :advertised-start="result.advertisedStartTime" :runtime-minutes="result.movieRuntimeMinutes" /></template>
+        <template v-if="result.end"
+          >→
+          <ShowtimeEndTime
+            :end="result.end"
+            :advertised-start="result.advertisedStartTime"
+            :runtime-minutes="result.movieRuntimeMinutes"
+          /></template
+        >
       </p>
-      <div v-if="scope === 'multi-theater'" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-        <span class="flex min-w-0 items-center gap-1.5"><MapPin :size="14" class="shrink-0" aria-hidden="true" /> <TheaterName :name="result.theaterName" :provider="result.provider" /></span>
+      <div
+        v-if="scope === 'multi-theater'"
+        class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted"
+      >
+        <span class="flex min-w-0 items-center gap-1.5"
+          ><MapPin :size="14" class="shrink-0" aria-hidden="true" />
+          <TheaterName
+            :name="result.theaterName"
+            :provider="result.provider"
+          /></span
+        >
         <span v-if="result.room">{{ result.room }}</span>
-        <span v-if="result.language" class="font-medium text-muted">{{ result.language }}</span>
-        <ShowtimeFormat :format="result.format" class="font-medium text-muted" />
+        <span v-if="result.language" class="font-medium text-muted">{{
+          result.language
+        }}</span>
+        <ShowtimeFormat
+          :format="result.format"
+          class="font-medium text-muted"
+        />
       </div>
-      <div v-else class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted">
-        <template v-if="result.language"><span>{{ result.language }}</span><span aria-hidden="true">·</span></template><ShowtimeFormat :format="result.format" />
-        <template v-if="result.room"><span aria-hidden="true">·</span><span>{{ formatRoom(result.room) }}</span></template>
+      <div
+        v-else
+        class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[9px] font-bold uppercase tracking-[0.08em] text-muted"
+      >
+        <template v-if="result.language"
+          ><span>{{ result.language }}</span
+          ><span aria-hidden="true">·</span></template
+        ><ShowtimeFormat :format="result.format" />
+        <template v-if="result.room"
+          ><span aria-hidden="true">·</span
+          ><span>{{ formatRoom(result.room) }}</span></template
+        >
       </div>
     </div>
     <BookingLink
@@ -176,7 +308,9 @@ function formatRoom(room: string) {
       :available-class="scope === 'multi-theater' ? 'relative z-20 text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2' : 'text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2'"
       :unavailable-class="scope === 'multi-theater' ? 'pointer-events-none text-muted' : 'text-muted'"
     >
-      <template #default="{ available, kind, label }">{{ kind === 'website' ? label : available ? 'Réserver' : scope === 'single-theater' ? 'Réservation indisponible' : 'Indisponible' }}</template>
+      <template #default="{ available, kind, label }">{{
+        kind === 'website' ? label : available ? 'Réserver' : scope === 'single-theater' ? 'Réservation indisponible' : 'Indisponible'
+      }}</template>
     </BookingLink>
   </li>
 </template>

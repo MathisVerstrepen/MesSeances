@@ -22,7 +22,11 @@ const trigger = ref<HTMLButtonElement | null>(null)
 const optionButtons = ref<HTMLButtonElement[]>([])
 const isOpen = ref(false)
 const menuId = computed(() => `${props.id}-menu`)
-const currentLabel = computed(() => props.options.find((option) => option.value === props.currentValue)?.label ?? '')
+const currentLabel = computed(
+  () =>
+    props.options.find((option) => option.value === props.currentValue)
+      ?.label ?? '',
+)
 
 function setOptionButton(element: Element | null, index: number) {
   if (element instanceof HTMLButtonElement) optionButtons.value[index] = element
@@ -31,7 +35,10 @@ function setOptionButton(element: Element | null, index: number) {
 async function openMenu() {
   isOpen.value = true
   await nextTick()
-  const checkedIndex = Math.max(0, props.options.findIndex((option) => option.value === props.currentValue))
+  const checkedIndex = Math.max(
+    0,
+    props.options.findIndex((option) => option.value === props.currentValue),
+  )
   optionButtons.value[checkedIndex]?.focus()
 }
 
@@ -53,7 +60,9 @@ function handleTriggerKeydown(event: KeyboardEvent) {
 }
 
 function focusedOptionIndex(): number {
-  return optionButtons.value.findIndex((button) => button === document.activeElement)
+  return optionButtons.value.findIndex(
+    (button) => button === document.activeElement,
+  )
 }
 
 function handleMenuKeydown(event: KeyboardEvent) {
@@ -69,8 +78,10 @@ function handleMenuKeydown(event: KeyboardEvent) {
 
   const currentIndex = focusedOptionIndex()
   let nextIndex: number | null = null
-  if (event.key === 'ArrowDown') nextIndex = currentIndex >= props.options.length - 1 ? 0 : currentIndex + 1
-  else if (event.key === 'ArrowUp') nextIndex = currentIndex <= 0 ? props.options.length - 1 : currentIndex - 1
+  if (event.key === 'ArrowDown')
+    nextIndex = currentIndex >= props.options.length - 1 ? 0 : currentIndex + 1
+  else if (event.key === 'ArrowUp')
+    nextIndex = currentIndex <= 0 ? props.options.length - 1 : currentIndex - 1
   else if (event.key === 'Home') nextIndex = 0
   else if (event.key === 'End') nextIndex = props.options.length - 1
   if (nextIndex === null) return
@@ -84,16 +95,29 @@ function selectOption(value: string) {
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
-  if (isOpen.value && event.target instanceof Node && !root.value?.contains(event.target)) closeMenu()
+  if (
+    isOpen.value &&
+    event.target instanceof Node &&
+    !root.value?.contains(event.target)
+  )
+    closeMenu()
 }
 
 function handleFocusOut(event: FocusEvent) {
-  if (event.relatedTarget instanceof Node && root.value?.contains(event.relatedTarget)) return
+  if (
+    event.relatedTarget instanceof Node &&
+    root.value?.contains(event.relatedTarget)
+  )
+    return
   closeMenu()
 }
 
-onMounted(() => document.addEventListener('pointerdown', handleDocumentPointerDown))
-onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocumentPointerDown))
+onMounted(() =>
+  document.addEventListener('pointerdown', handleDocumentPointerDown),
+)
+onBeforeUnmount(() =>
+  document.removeEventListener('pointerdown', handleDocumentPointerDown),
+)
 </script>
 
 <template>
@@ -109,11 +133,18 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocument
       @click="toggleMenu"
       @keydown="handleTriggerKeydown"
     >
-      <span class="flex min-w-0 flex-col font-mono font-black uppercase leading-none">
+      <span
+        class="flex min-w-0 flex-col font-mono font-black uppercase leading-none"
+      >
         <span class="text-[9px] tracking-[0.08em] text-muted">{{ label }}</span>
         <span class="mt-1 truncate text-[10px]">{{ currentLabel }}</span>
       </span>
-      <ChevronDown :size="14" class="shrink-0 transition-transform" :class="isOpen ? 'rotate-180' : undefined" aria-hidden="true" />
+      <ChevronDown
+        :size="14"
+        class="shrink-0 transition-transform"
+        :class="isOpen ? 'rotate-180' : undefined"
+        aria-hidden="true"
+      />
     </button>
 
     <div
@@ -135,7 +166,12 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', handleDocument
         @click="selectOption(option.value)"
       >
         <span>{{ option.label }}</span>
-        <Check v-if="currentValue === option.value" :size="16" class="shrink-0" aria-hidden="true" />
+        <Check
+          v-if="currentValue === option.value"
+          :size="16"
+          class="shrink-0"
+          aria-hidden="true"
+        />
       </button>
     </div>
   </div>

@@ -2,7 +2,10 @@ import { isSafeCinewestPoster } from './cinewest.ts'
 
 function hasSafePath(url: string, origin: string) {
   const pathEnd = url.search(/[?#]/)
-  let decodedPath = url.slice(origin.length, pathEnd === -1 ? undefined : pathEnd)
+  let decodedPath = url.slice(
+    origin.length,
+    pathEnd === -1 ? undefined : pathEnd,
+  )
 
   try {
     for (let depth = 0; depth < 3; depth += 1) {
@@ -14,10 +17,17 @@ function hasSafePath(url: string, origin: string) {
     return false
   }
 
-  return !decodedPath.includes('%')
-    && !decodedPath.includes('\\')
-    && !decodedPath.slice(1).split('/').some((segment) => segment === '')
-    && !decodedPath.split('/').some((segment) => segment === '.' || segment === '..')
+  return (
+    !decodedPath.includes('%') &&
+    !decodedPath.includes('\\') &&
+    !decodedPath
+      .slice(1)
+      .split('/')
+      .some((segment) => segment === '') &&
+    !decodedPath
+      .split('/')
+      .some((segment) => segment === '.' || segment === '..')
+  )
 }
 
 export function safePosterUrl(url: string | null | undefined) {
@@ -27,40 +37,63 @@ export function safePosterUrl(url: string | null | undefined) {
   try {
     const parsed = new URL(url)
     const hostname = parsed.hostname.toLowerCase()
-    const isTmdbPoster = hostname === 'image.tmdb.org'
-      && parsed.pathname.startsWith('/t/p/w500/')
-      && parsed.pathname !== '/t/p/w500/'
-    const isUgcPoster = (hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) && parsed.pathname !== '/'
-    const isKinepolisPoster = hostname === 'cdn.kinepolis.fr'
-      && parsed.pathname.startsWith('/images/')
-      && parsed.pathname !== '/images/'
-    const isPathePoster = (hostname === 'pathe.fr' || hostname.endsWith('.pathe.fr'))
-      && parsed.pathname !== '/'
-      && !parsed.pathname.includes('%')
-    const isCgrPoster = (hostname === 'acsta.net' || hostname.endsWith('.acsta.net'))
-      && parsed.pathname !== '/'
-      && !parsed.pathname.includes('%')
-    const isMegaramaPoster = url === parsed.href
-      && url.length <= 2048
-      && /^https:\/\/images\.monnaie-services\.com\/(?:movie_poster\/(?:120|600)\/FR[A-Z0-9]{5}\/[A-Z0-9]{8}\.webp|ems_spectacle\/120\/[0-9]{4}\/HC[0-9]+\.jpg(?:\?ts=[0-9]+)?)$/.test(url)
-    const isCinevillePoster = url === parsed.href
-      && url.length <= 2048
-      && !parsed.pathname.includes('..')
-      && /^https:\/\/storage\.googleapis\.com\/cineville-files-prod\/images\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(url)
-    const isMk2Poster = url === parsed.href
-      && url.length <= 2048
-      && /^https:\/\/srv-web-vista\.mk2\.com\/CDN\/media\/entity\/get\/FilmPosterGraphic\/HO[0-9]{1,117}$/.test(url)
+    const isTmdbPoster =
+      hostname === 'image.tmdb.org' &&
+      parsed.pathname.startsWith('/t/p/w500/') &&
+      parsed.pathname !== '/t/p/w500/'
+    const isUgcPoster =
+      (hostname === 'ugc.fr' || hostname.endsWith('.ugc.fr')) &&
+      parsed.pathname !== '/'
+    const isKinepolisPoster =
+      hostname === 'cdn.kinepolis.fr' &&
+      parsed.pathname.startsWith('/images/') &&
+      parsed.pathname !== '/images/'
+    const isPathePoster =
+      (hostname === 'pathe.fr' || hostname.endsWith('.pathe.fr')) &&
+      parsed.pathname !== '/' &&
+      !parsed.pathname.includes('%')
+    const isCgrPoster =
+      (hostname === 'acsta.net' || hostname.endsWith('.acsta.net')) &&
+      parsed.pathname !== '/' &&
+      !parsed.pathname.includes('%')
+    const isMegaramaPoster =
+      url === parsed.href &&
+      url.length <= 2048 &&
+      /^https:\/\/images\.monnaie-services\.com\/(?:movie_poster\/(?:120|600)\/FR[A-Z0-9]{5}\/[A-Z0-9]{8}\.webp|ems_spectacle\/120\/[0-9]{4}\/HC[0-9]+\.jpg(?:\?ts=[0-9]+)?)$/.test(
+        url,
+      )
+    const isCinevillePoster =
+      url === parsed.href &&
+      url.length <= 2048 &&
+      !parsed.pathname.includes('..') &&
+      /^https:\/\/storage\.googleapis\.com\/cineville-files-prod\/images\/[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(
+        url,
+      )
+    const isMk2Poster =
+      url === parsed.href &&
+      url.length <= 2048 &&
+      /^https:\/\/srv-web-vista\.mk2\.com\/CDN\/media\/entity\/get\/FilmPosterGraphic\/HO[0-9]{1,117}$/.test(
+        url,
+      )
 
     if (
-      parsed.protocol !== 'https:'
-      || parsed.port
-      || parsed.username
-      || parsed.password
-      || (parsed.search && !isMegaramaPoster)
-      || parsed.hash
-      || (!isTmdbPoster && !isUgcPoster && !isKinepolisPoster && !isPathePoster && !isCgrPoster && !isMegaramaPoster && !isCinevillePoster && !isMk2Poster)
-      || !hasSafePath(url, parsed.origin)
-    ) return null
+      parsed.protocol !== 'https:' ||
+      parsed.port ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.search && !isMegaramaPoster) ||
+      parsed.hash ||
+      (!isTmdbPoster &&
+        !isUgcPoster &&
+        !isKinepolisPoster &&
+        !isPathePoster &&
+        !isCgrPoster &&
+        !isMegaramaPoster &&
+        !isCinevillePoster &&
+        !isMk2Poster) ||
+      !hasSafePath(url, parsed.origin)
+    )
+      return null
 
     return parsed.href
   } catch {
@@ -76,16 +109,18 @@ export interface PosterImageSources {
   srcset: string | null
 }
 
-export function posterImageSources(url: string | null | undefined): PosterImageSources {
+export function posterImageSources(
+  url: string | null | undefined,
+): PosterImageSources {
   const src = safePosterUrl(url)
   if (!src?.startsWith(TMDB_POSTER_PREFIX)) return { src, srcset: null }
 
   const suffix = src.slice(TMDB_POSTER_PREFIX.length)
   return {
     src,
-    srcset: TMDB_POSTER_WIDTHS
-      .map((width) => `https://image.tmdb.org/t/p/w${width}/${suffix} ${width}w`)
-      .join(', ')
+    srcset: TMDB_POSTER_WIDTHS.map(
+      (width) => `https://image.tmdb.org/t/p/w${width}/${suffix} ${width}w`,
+    ).join(', '),
   }
 }
 
@@ -96,17 +131,18 @@ export function safeBackdropUrl(url: string | null | undefined) {
   try {
     const parsed = new URL(url)
     if (
-      parsed.protocol !== 'https:'
-      || parsed.hostname !== 'image.tmdb.org'
-      || parsed.port
-      || parsed.username
-      || parsed.password
-      || parsed.search
-      || parsed.hash
-      || !parsed.pathname.startsWith('/t/p/w780/')
-      || parsed.pathname === '/t/p/w780/'
-      || !hasSafePath(url, parsed.origin)
-    ) return null
+      parsed.protocol !== 'https:' ||
+      parsed.hostname !== 'image.tmdb.org' ||
+      parsed.port ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash ||
+      !parsed.pathname.startsWith('/t/p/w780/') ||
+      parsed.pathname === '/t/p/w780/' ||
+      !hasSafePath(url, parsed.origin)
+    )
+      return null
 
     return parsed.href
   } catch {

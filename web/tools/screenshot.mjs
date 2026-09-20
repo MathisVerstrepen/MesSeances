@@ -1,8 +1,23 @@
 import { spawn } from 'node:child_process'
 import { constants as fsConstants } from 'node:fs'
-import { access, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  access,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path'
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  resolve,
+} from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseEnv } from 'node:util'
 
@@ -27,13 +42,15 @@ function fail(message) {
 
 function cleanText(name, fallback) {
   const value = process.env[name] ?? fallback
-  if (!value || /[\u0000-\u001f\u007f]/u.test(value)) fail(`${name} is invalid.`)
+  if (!value || /[\u0000-\u001f\u007f]/u.test(value))
+    fail(`${name} is invalid.`)
   return value
 }
 
 function parseInteger(name, fallback, minimum, maximum) {
   const value = cleanText(name, fallback)
-  if (!/^(0|[1-9]\d*)$/u.test(value)) fail(`${name} must be an integer from ${minimum} to ${maximum}.`)
+  if (!/^(0|[1-9]\d*)$/u.test(value))
+    fail(`${name} must be an integer from ${minimum} to ${maximum}.`)
   const parsed = Number(value)
   if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
     fail(`${name} must be an integer from ${minimum} to ${maximum}.`)
@@ -49,7 +66,11 @@ function parseURL(name, fallback) {
   } catch {
     fail(`${name} must be a valid HTTP or HTTPS URL.`)
   }
-  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+  if (
+    !['http:', 'https:'].includes(parsed.protocol) ||
+    parsed.username ||
+    parsed.password
+  ) {
     fail(`${name} must be a credential-free HTTP or HTTPS URL.`)
   }
   return parsed
@@ -58,18 +79,26 @@ function parseURL(name, fallback) {
 function parseConfig() {
   const targetURL = parseURL('URL', 'http://localhost:3000/')
   const apiURL = parseURL('API_URL', 'http://localhost:8080')
-  const outputValue = cleanText('OUTPUT', '/tmp/opencode/messeances-screenshot.png')
-  if (extname(outputValue).toLowerCase() !== '.png') fail('OUTPUT must end with .png.')
+  const outputValue = cleanText(
+    'OUTPUT',
+    '/tmp/opencode/messeances-screenshot.png',
+  )
+  if (extname(outputValue).toLowerCase() !== '.png')
+    fail('OUTPUT must end with .png.')
 
   return {
     targetURL,
     apiURL,
-    output: isAbsolute(outputValue) ? outputValue : resolve(rootDirectory, outputValue),
+    output: isAbsolute(outputValue)
+      ? outputValue
+      : resolve(rootDirectory, outputValue),
     width: parseInteger('WIDTH', '1440', 320, 7680),
     height: parseInteger('HEIGHT', '900', 240, 4320),
     waitMilliseconds: parseInteger('WAIT_MS', '1000', 0, 60000),
     chromeBinary: cleanText('CHROME_BIN', 'google-chrome'),
-    admin: targetURL.pathname === '/admin' || targetURL.pathname.startsWith('/admin/'),
+    admin:
+      targetURL.pathname === '/admin' ||
+      targetURL.pathname.startsWith('/admin/'),
   }
 }
 
@@ -78,7 +107,8 @@ function isLoopback(hostname) {
 }
 
 async function loadAdminPassword(apiURL) {
-  if (!isLoopback(apiURL.hostname)) fail('API_URL must use a loopback host for admin capture.')
+  if (!isLoopback(apiURL.hostname))
+    fail('API_URL must use a loopback host for admin capture.')
 
   if (Object.hasOwn(process.env, 'ADMIN_PASSWORD')) {
     if (!process.env.ADMIN_PASSWORD) fail('ADMIN_PASSWORD is unavailable.')
@@ -101,7 +131,10 @@ async function authenticate(config) {
   try {
     response = await fetch(new URL('/api/v1/admin/login', config.apiURL), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: config.targetURL.origin },
+      headers: {
+        'content-type': 'application/json',
+        origin: config.targetURL.origin,
+      },
       body: JSON.stringify({ password }),
       signal: AbortSignal.timeout(10000),
     })
@@ -110,39 +143,52 @@ async function authenticate(config) {
   }
   if (!response.ok) fail('Admin authentication failed.')
 
-  return parseSessionCookie(response.headers.getSetCookie(), config.apiURL.protocol === 'https:')
+  return parseSessionCookie(
+    response.headers.getSetCookie(),
+    config.apiURL.protocol === 'https:',
+  )
 }
 
 function parseSessionCookie(setCookies, secure) {
-  const encoded = setCookies.find((value) => value.startsWith(`${adminCookieName}=`))
+  const encoded = setCookies.find((value) =>
+    value.startsWith(`${adminCookieName}=`),
+  )
   if (!encoded) fail('Admin authentication did not return a session.')
 
   const segments = encoded.split(';').map((segment) => segment.trim())
   const equals = segments[0].indexOf('=')
-  if (equals < 1 || !segments[0].slice(equals + 1)) fail('Admin authentication returned an invalid session.')
+  if (equals < 1 || !segments[0].slice(equals + 1))
+    fail('Admin authentication returned an invalid session.')
 
   const attributes = new Map()
   for (const segment of segments.slice(1)) {
     const separator = segment.indexOf('=')
-    const name = (separator < 0 ? segment : segment.slice(0, separator)).trim().toLowerCase()
-    if (!name || attributes.has(name)) fail('Admin authentication returned an invalid session.')
-    attributes.set(name, separator < 0 ? true : segment.slice(separator + 1).trim())
+    const name = (separator < 0 ? segment : segment.slice(0, separator))
+      .trim()
+      .toLowerCase()
+    if (!name || attributes.has(name))
+      fail('Admin authentication returned an invalid session.')
+    attributes.set(
+      name,
+      separator < 0 ? true : segment.slice(separator + 1).trim(),
+    )
   }
 
   const expires = Date.parse(attributes.get('expires'))
   const maxAge = Number(attributes.get('max-age'))
   const expiresIn = expires - Date.now()
-  const valid = segments[0].slice(0, equals) === adminCookieName
-    && attributes.get('path') === adminCookiePath
-    && !attributes.has('domain')
-    && attributes.get('httponly') === true
-    && String(attributes.get('samesite')).toLowerCase() === 'strict'
-    && attributes.has('secure') === secure
-    && Number.isInteger(maxAge)
-    && maxAge === adminSessionSeconds
-    && Number.isFinite(expires)
-    && expiresIn > (adminSessionSeconds - 120) * 1000
-    && expiresIn <= (adminSessionSeconds + 60) * 1000
+  const valid =
+    segments[0].slice(0, equals) === adminCookieName &&
+    attributes.get('path') === adminCookiePath &&
+    !attributes.has('domain') &&
+    attributes.get('httponly') === true &&
+    String(attributes.get('samesite')).toLowerCase() === 'strict' &&
+    attributes.has('secure') === secure &&
+    Number.isInteger(maxAge) &&
+    maxAge === adminSessionSeconds &&
+    Number.isFinite(expires) &&
+    expiresIn > (adminSessionSeconds - 120) * 1000 &&
+    expiresIn <= (adminSessionSeconds + 60) * 1000
   if (!valid) fail('Admin authentication returned an invalid session.')
 
   return {
@@ -176,40 +222,65 @@ async function validateOutput(output) {
 }
 
 function printConfig(config) {
-  console.log('[screenshot] capture-only; existing development servers are not managed')
+  console.log(
+    '[screenshot] capture-only; existing development servers are not managed',
+  )
   console.log(`[screenshot] URL=${JSON.stringify(config.targetURL.href)}`)
   console.log(`[screenshot] OUTPUT=${JSON.stringify(config.output)}`)
-  console.log(`[screenshot] WIDTH=${config.width} HEIGHT=${config.height} WAIT_MS=${config.waitMilliseconds}`)
-  console.log(`[screenshot] API_URL=${JSON.stringify(config.apiURL.href)} CHROME_BIN=${JSON.stringify(config.chromeBinary)}`)
+  console.log(
+    `[screenshot] WIDTH=${config.width} HEIGHT=${config.height} WAIT_MS=${config.waitMilliseconds}`,
+  )
+  console.log(
+    `[screenshot] API_URL=${JSON.stringify(config.apiURL.href)} CHROME_BIN=${JSON.stringify(config.chromeBinary)}`,
+  )
 }
 
 async function launchChrome(binary) {
   profileDirectory = await mkdtemp(temporaryPrefix)
   const childEnvironment = {}
-  for (const name of ['DBUS_SESSION_BUS_ADDRESS', 'DISPLAY', 'HOME', 'LANG', 'LC_ALL', 'PATH', 'XDG_RUNTIME_DIR']) {
+  for (const name of [
+    'DBUS_SESSION_BUS_ADDRESS',
+    'DISPLAY',
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'PATH',
+    'XDG_RUNTIME_DIR',
+  ]) {
     if (process.env[name]) childEnvironment[name] = process.env[name]
   }
 
   try {
-    chrome = spawn(binary, [
-      '--headless=new',
-      '--no-sandbox',
-      '--disable-gpu',
-      '--disable-background-networking',
-      '--no-default-browser-check',
-      '--no-first-run',
-      '--remote-debugging-address=127.0.0.1',
-      '--remote-debugging-port=0',
-      `--user-data-dir=${profileDirectory}`,
-      'about:blank',
-    ], { detached: true, env: childEnvironment, stdio: ['ignore', 'ignore', 'pipe'] })
+    chrome = spawn(
+      binary,
+      [
+        '--headless=new',
+        '--no-sandbox',
+        '--disable-gpu',
+        '--disable-background-networking',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--remote-debugging-address=127.0.0.1',
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profileDirectory}`,
+        'about:blank',
+      ],
+      {
+        detached: true,
+        env: childEnvironment,
+        stdio: ['ignore', 'ignore', 'pipe'],
+      },
+    )
   } catch {
     fail('Chrome could not be launched.')
   }
 
   return await new Promise((resolvePromise, rejectPromise) => {
     let stderr = ''
-    const timeout = setTimeout(() => rejectPromise(new CaptureError('Chrome did not become ready.')), 10000)
+    const timeout = setTimeout(
+      () => rejectPromise(new CaptureError('Chrome did not become ready.')),
+      10000,
+    )
     const done = (callback, value) => {
       clearTimeout(timeout)
       chrome.stderr.off('data', onData)
@@ -222,8 +293,10 @@ async function launchChrome(binary) {
       const match = stderr.match(/DevTools listening on (ws:\/\/[^\s]+)/u)
       if (match) done(resolvePromise, match[1])
     }
-    const onError = () => done(rejectPromise, new CaptureError('Chrome could not be launched.'))
-    const onExit = () => done(rejectPromise, new CaptureError('Chrome exited before capture.'))
+    const onError = () =>
+      done(rejectPromise, new CaptureError('Chrome could not be launched.'))
+    const onExit = () =>
+      done(rejectPromise, new CaptureError('Chrome exited before capture.'))
     chrome.stderr.on('data', onData)
     chrome.once('error', onError)
     chrome.once('exit', onExit)
@@ -242,14 +315,24 @@ class CDP {
       this.resolveOpen = resolvePromise
       this.rejectOpen = rejectPromise
     })
-    this.socket.addEventListener('open', () => {
-      if (this.state !== 'connecting') return
-      this.state = 'open'
-      this.resolveOpen()
-    }, { once: true })
-    this.socket.addEventListener('message', (event) => this.onMessage(event.data))
-    this.socket.addEventListener('error', () => this.failConnection(), { once: true })
-    this.socket.addEventListener('close', () => this.failConnection(), { once: true })
+    this.socket.addEventListener(
+      'open',
+      () => {
+        if (this.state !== 'connecting') return
+        this.state = 'open'
+        this.resolveOpen()
+      },
+      { once: true },
+    )
+    this.socket.addEventListener('message', (event) =>
+      this.onMessage(event.data),
+    )
+    this.socket.addEventListener('error', () => this.failConnection(), {
+      once: true,
+    })
+    this.socket.addEventListener('close', () => this.failConnection(), {
+      once: true,
+    })
   }
 
   async open() {
@@ -288,7 +371,9 @@ class CDP {
       message = JSON.parse(data)
     } catch {
       this.failConnection()
-      try { this.socket.close() } catch {}
+      try {
+        this.socket.close()
+      } catch {}
       return
     }
     if (message.id) {
@@ -296,7 +381,8 @@ class CDP {
       if (!pending) return
       this.pending.delete(message.id)
       clearTimeout(pending.timer)
-      if (message.error) pending.reject(new CaptureError('Chrome DevTools command failed.'))
+      if (message.error)
+        pending.reject(new CaptureError('Chrome DevTools command failed.'))
       else pending.resolve(message.result)
       return
     }
@@ -309,15 +395,27 @@ class CDP {
     }
   }
 
-  send(method, params = {}, sessionId, timeoutMilliseconds = cdpCommandTimeoutMilliseconds) {
-    if (this.state !== 'open') return Promise.reject(new CaptureError('Chrome DevTools connection is unavailable.'))
+  send(
+    method,
+    params = {},
+    sessionId,
+    timeoutMilliseconds = cdpCommandTimeoutMilliseconds,
+  ) {
+    if (this.state !== 'open')
+      return Promise.reject(
+        new CaptureError('Chrome DevTools connection is unavailable.'),
+      )
     const id = this.nextId++
     return new Promise((resolvePromise, rejectPromise) => {
       const timer = setTimeout(() => {
         this.pending.delete(id)
         rejectPromise(new CaptureError('Chrome DevTools command timed out.'))
       }, timeoutMilliseconds)
-      this.pending.set(id, { resolve: resolvePromise, reject: rejectPromise, timer })
+      this.pending.set(id, {
+        resolve: resolvePromise,
+        reject: rejectPromise,
+        timer,
+      })
       try {
         const message = { id, method, params }
         if (sessionId) message.sessionId = sessionId
@@ -325,13 +423,18 @@ class CDP {
       } catch {
         clearTimeout(timer)
         this.pending.delete(id)
-        rejectPromise(new CaptureError('Chrome DevTools connection is unavailable.'))
+        rejectPromise(
+          new CaptureError('Chrome DevTools connection is unavailable.'),
+        )
       }
     })
   }
 
   once(method, sessionId, timeoutMilliseconds = cdpCommandTimeoutMilliseconds) {
-    if (this.state !== 'open') return Promise.reject(new CaptureError('Chrome DevTools connection is unavailable.'))
+    if (this.state !== 'open')
+      return Promise.reject(
+        new CaptureError('Chrome DevTools connection is unavailable.'),
+      )
     const key = `${sessionId ?? ''}:${method}`
     return new Promise((resolvePromise, rejectPromise) => {
       const callbacks = this.listeners.get(key) ?? []
@@ -349,7 +452,10 @@ class CDP {
   }
 
   wait(milliseconds) {
-    if (this.state !== 'open') return Promise.reject(new CaptureError('Chrome DevTools connection is unavailable.'))
+    if (this.state !== 'open')
+      return Promise.reject(
+        new CaptureError('Chrome DevTools connection is unavailable.'),
+      )
     return new Promise((resolvePromise, rejectPromise) => {
       const waiter = { reject: rejectPromise }
       waiter.timer = setTimeout(() => {
@@ -362,7 +468,9 @@ class CDP {
 
   close() {
     this.failConnection()
-    try { this.socket.close() } catch {}
+    try {
+      this.socket.close()
+    } catch {}
   }
 }
 
@@ -371,7 +479,12 @@ async function withTimeout(promise, milliseconds, message) {
   try {
     return await Promise.race([
       promise,
-      new Promise((_, rejectPromise) => { timer = setTimeout(() => rejectPromise(new CaptureError(message)), milliseconds) }),
+      new Promise((_, rejectPromise) => {
+        timer = setTimeout(
+          () => rejectPromise(new CaptureError(message)),
+          milliseconds,
+        )
+      }),
     ])
   } finally {
     clearTimeout(timer)
@@ -382,39 +495,68 @@ async function capture(config, endpoint, sessionCookie) {
   const cdp = new CDP(endpoint)
   try {
     await withTimeout(cdp.open(), 5000, 'Chrome DevTools connection timed out.')
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' })
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true })
+    const { targetId } = await cdp.send('Target.createTarget', {
+      url: 'about:blank',
+    })
+    const { sessionId } = await cdp.send('Target.attachToTarget', {
+      targetId,
+      flatten: true,
+    })
     await cdp.send('Page.enable', {}, sessionId)
     await cdp.send('Network.enable', {}, sessionId)
-    await cdp.send('Emulation.setDeviceMetricsOverride', {
-      width: config.width,
-      height: config.height,
-      deviceScaleFactor: 1,
-      mobile: false,
-    }, sessionId)
+    await cdp.send(
+      'Emulation.setDeviceMetricsOverride',
+      {
+        width: config.width,
+        height: config.height,
+        deviceScaleFactor: 1,
+        mobile: false,
+      },
+      sessionId,
+    )
 
     if (sessionCookie) {
-      const result = await cdp.send('Network.setCookie', sessionCookieParameters(sessionCookie, config.apiURL), sessionId)
-      if (!result.success) fail('Admin session could not be loaded into Chrome.')
+      const result = await cdp.send(
+        'Network.setCookie',
+        sessionCookieParameters(sessionCookie, config.apiURL),
+        sessionId,
+      )
+      if (!result.success)
+        fail('Admin session could not be loaded into Chrome.')
     }
 
     const loaded = cdp.once('Page.loadEventFired', sessionId, 20000)
     loaded.catch(() => {})
-    const navigation = await cdp.send('Page.navigate', { url: config.targetURL.href }, sessionId)
+    const navigation = await cdp.send(
+      'Page.navigate',
+      { url: config.targetURL.href },
+      sessionId,
+    )
     if (navigation.errorText) fail('Target server is unavailable.')
     await loaded
     await cdp.wait(config.waitMilliseconds)
 
-    const { contentSize } = await cdp.send('Page.getLayoutMetrics', {}, sessionId)
+    const { contentSize } = await cdp.send(
+      'Page.getLayoutMetrics',
+      {},
+      sessionId,
+    )
     const width = Math.max(1, Math.ceil(contentSize.width))
     const height = Math.max(1, Math.ceil(contentSize.height))
-    const { data } = await cdp.send('Page.captureScreenshot', {
-      format: 'png',
-      fromSurface: true,
-      captureBeyondViewport: true,
-      clip: { x: 0, y: 0, width, height, scale: 1 },
-    }, sessionId)
-    partialOutput = join(dirname(config.output), `.${basename(config.output)}.${process.pid}.tmp`)
+    const { data } = await cdp.send(
+      'Page.captureScreenshot',
+      {
+        format: 'png',
+        fromSurface: true,
+        captureBeyondViewport: true,
+        clip: { x: 0, y: 0, width, height, scale: 1 },
+      },
+      sessionId,
+    )
+    partialOutput = join(
+      dirname(config.output),
+      `.${basename(config.output)}.${process.pid}.tmp`,
+    )
     await writeFile(partialOutput, Buffer.from(data, 'base64'), { mode: 0o600 })
     await rename(partialOutput, config.output)
     partialOutput = undefined
@@ -439,24 +581,43 @@ function processGroupAlive(pid) {
 async function waitForProcessGroupExit(child, timeoutMilliseconds) {
   const deadline = Date.now() + timeoutMilliseconds
   while (Date.now() < deadline) {
-    if ((child.exitCode !== null || child.signalCode !== null) && !processGroupAlive(child.pid)) return true
+    if (
+      (child.exitCode !== null || child.signalCode !== null) &&
+      !processGroupAlive(child.pid)
+    )
+      return true
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 25))
   }
-  return (child.exitCode !== null || child.signalCode !== null) && !processGroupAlive(child.pid)
+  return (
+    (child.exitCode !== null || child.signalCode !== null) &&
+    !processGroupAlive(child.pid)
+  )
 }
 
-async function terminateProcessGroup(child, gracefulMilliseconds = 2000, forcedMilliseconds = 5000) {
+async function terminateProcessGroup(
+  child,
+  gracefulMilliseconds = 2000,
+  forcedMilliseconds = 5000,
+) {
   if (!child?.pid) return
-  if ((child.exitCode !== null || child.signalCode !== null) && !processGroupAlive(child.pid)) return
-  try { process.kill(-child.pid, 'SIGTERM') } catch (error) {
+  if (
+    (child.exitCode !== null || child.signalCode !== null) &&
+    !processGroupAlive(child.pid)
+  )
+    return
+  try {
+    process.kill(-child.pid, 'SIGTERM')
+  } catch (error) {
     if (error?.code !== 'ESRCH') throw error
   }
   if (await waitForProcessGroupExit(child, gracefulMilliseconds)) return
 
-  try { process.kill(-child.pid, 'SIGKILL') } catch (error) {
+  try {
+    process.kill(-child.pid, 'SIGKILL')
+  } catch (error) {
     if (error?.code !== 'ESRCH') throw error
   }
-  if (!await waitForProcessGroupExit(child, forcedMilliseconds)) {
+  if (!(await waitForProcessGroupExit(child, forcedMilliseconds))) {
     fail('Capture Chrome could not be terminated.')
   }
 }
@@ -470,12 +631,19 @@ async function cleanup() {
   cleaningUp = (async () => {
     await terminateChrome()
     if (partialOutput) await rm(partialOutput, { force: true }).catch(() => {})
-    if (profileDirectory) await rm(profileDirectory, { recursive: true, force: true }).catch(() => {})
+    if (profileDirectory)
+      await rm(profileDirectory, { recursive: true, force: true }).catch(
+        () => {},
+      )
   })()
   return cleaningUp
 }
 
-for (const [signal, exitCode] of [['SIGHUP', 129], ['SIGINT', 130], ['SIGTERM', 143]]) {
+for (const [signal, exitCode] of [
+  ['SIGHUP', 129],
+  ['SIGINT', 130],
+  ['SIGTERM', 143],
+]) {
   process.once(signal, () => {
     cleanup()
       .then(() => process.exit(exitCode))
@@ -496,13 +664,25 @@ async function main() {
   console.log(`[screenshot] saved ${JSON.stringify(config.output)}`)
 }
 
-export { CDP, CaptureError, parseSessionCookie, sessionCookieParameters, terminateProcessGroup }
+export {
+  CDP,
+  CaptureError,
+  parseSessionCookie,
+  sessionCookieParameters,
+  terminateProcessGroup,
+}
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+if (
+  process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url
+) {
   try {
     await main()
   } catch (error) {
-    const message = error instanceof CaptureError ? error.message : 'Screenshot capture failed.'
+    const message =
+      error instanceof CaptureError
+        ? error.message
+        : 'Screenshot capture failed.'
     console.error(`[screenshot] ${message}`)
     process.exitCode = 1
   } finally {

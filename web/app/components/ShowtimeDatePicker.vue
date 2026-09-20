@@ -1,18 +1,25 @@
 <script setup lang="ts">
 import { fr } from 'date-fns/locale/fr'
-import { calendarDateFromDate, dateFromCalendarDate, formatLongDate } from '~/utils/date'
+import {
+  calendarDateFromDate,
+  dateFromCalendarDate,
+  formatLongDate,
+} from '~/utils/date'
 
-const props = withDefaults(defineProps<{
-  selectedDate: string
-  allowedDates: string[]
-  disabled?: boolean
-  centered?: boolean
-  menuClass?: string
-}>(), {
-  disabled: false,
-  centered: false,
-  menuClass: 'editorial-calendar-menu'
-})
+const props = withDefaults(
+  defineProps<{
+    selectedDate: string
+    allowedDates: string[]
+    disabled?: boolean
+    centered?: boolean
+    menuClass?: string
+  }>(),
+  {
+    disabled: false,
+    centered: false,
+    menuClass: 'editorial-calendar-menu',
+  },
+)
 
 const emit = defineEmits<{
   select: [date: string]
@@ -24,18 +31,24 @@ const emit = defineEmits<{
 
 const isOpen = ref(false)
 
-const allowedDateValues = computed(() => props.allowedDates.map(dateFromCalendarDate).filter((value): value is Date => value !== null))
+const allowedDateValues = computed(() =>
+  props.allowedDates
+    .map(dateFromCalendarDate)
+    .filter((value): value is Date => value !== null),
+)
 const pickerDate = computed<Date | null>({
-  get: () => props.disabled ? null : dateFromCalendarDate(props.selectedDate),
+  get: () => (props.disabled ? null : dateFromCalendarDate(props.selectedDate)),
   set: (value) => {
     if (!value) return
     const selectedDate = calendarDateFromDate(value)
     if (props.allowedDates.includes(selectedDate)) emit('select', selectedDate)
-  }
+  },
 })
-const triggerLabel = computed(() => props.disabled
-  ? 'Choisir une autre date. Aucune date disponible.'
-  : `Choisir une autre date. Date actuelle : ${formatLongDate(props.selectedDate)}`)
+const triggerLabel = computed(() =>
+  props.disabled
+    ? 'Choisir une autre date. Aucune date disponible.'
+    : `Choisir une autre date. Date actuelle : ${formatLongDate(props.selectedDate)}`,
+)
 const calendarAriaLabels = {
   menu: 'Calendrier des dates disponibles',
   input: 'Choisir une autre date',
@@ -46,9 +59,12 @@ const calendarAriaLabels = {
   nextYear: 'Année suivante',
   openMonthsOverlay: 'Choisir un mois',
   openYearsOverlay: 'Choisir une année',
-  monthPicker: (overlay: boolean) => overlay ? 'Fermer le choix du mois' : 'Ouvrir le choix du mois',
-  yearPicker: (overlay: boolean) => overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
-  day: ({ value }: { value: Date }) => `Choisir ${formatLongDate(calendarDateFromDate(value))}`
+  monthPicker: (overlay: boolean) =>
+    overlay ? 'Fermer le choix du mois' : 'Ouvrir le choix du mois',
+  yearPicker: (overlay: boolean) =>
+    overlay ? 'Fermer le choix de l’année' : 'Ouvrir le choix de l’année',
+  day: ({ value }: { value: Date }) =>
+    `Choisir ${formatLongDate(calendarDateFromDate(value))}`,
 }
 
 function handleOpen() {
@@ -85,14 +101,20 @@ function handleClosed() {
     @menu-unmounted="emit('menuUnmounted', $event)"
   >
     <template #trigger>
-      <slot name="trigger" :is-open="isOpen" :trigger-label="triggerLabel" :disabled="disabled" />
+      <slot
+        name="trigger"
+        :is-open="isOpen"
+        :trigger-label="triggerLabel"
+        :disabled="disabled"
+      />
     </template>
   </DeferredVueDatePicker>
 </template>
 
 <style scoped>
 :global(.dp--menu.editorial-calendar-menu) {
-  --dp-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --dp-font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --dp-border-radius: 0;
   --dp-cell-border-radius: 0;
   --dp-background-color: #f8f7f2;

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+  "files": {
+    "includes": [
+      "**/*.{vue,js,jsx,mjs,cjs,ts,tsx,mts,cts,json,jsonc,css}",
+      "!!**/node_modules",
+      "!!**/.nuxt",
+      "!!**/.output",
+      "!!**/.cache",
+      "!!**/dist",
+      "!!**/coverage",
+      "!!public",
+      "!!package-lock.json",
+      "!!oxlint.config.ts",
+      "!!tools/oxlint"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": false
+  },
+  "assist": {
+    "enabled": false
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "html": {
+    "experimentalFullSupportEnabled": true,
+    "formatter": {
+      "enabled": true
+    }
+  }
+}

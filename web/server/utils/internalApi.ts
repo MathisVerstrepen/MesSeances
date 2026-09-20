@@ -23,7 +23,10 @@ export function initializeRequestId(event: H3Event): string {
 
 export function requestIdForEvent(event: H3Event): string {
   const candidate = event.context[REQUEST_ID_CONTEXT_KEY]
-  const current = Object.prototype.toString.call(candidate) === '[object String]' ? String(candidate) : ''
+  const current =
+    Object.prototype.toString.call(candidate) === '[object String]'
+      ? String(candidate)
+      : ''
   if (REQUEST_ID_PATTERN.test(current)) return current
 
   const requestId = generateRequestId()
@@ -31,14 +34,21 @@ export function requestIdForEvent(event: H3Event): string {
   return requestId
 }
 
-export function buildInternalApiHeaders(secret: string, requestId: string): InternalApiHeaders {
-  if (!REQUEST_ID_PATTERN.test(requestId)) throw new Error('Invalid internal request ID')
+export function buildInternalApiHeaders(
+  secret: string,
+  requestId: string,
+): InternalApiHeaders {
+  if (!REQUEST_ID_PATTERN.test(requestId))
+    throw new Error('Invalid internal request ID')
 
   const headers: InternalApiHeaders = { [REQUEST_ID_HEADER]: requestId }
   if (secret !== '') headers[INTERNAL_API_TOKEN_HEADER] = secret
   return headers
 }
 
-export function internalApiHeaders(event: H3Event, secret: string): InternalApiHeaders {
+export function internalApiHeaders(
+  event: H3Event,
+  secret: string,
+): InternalApiHeaders {
   return buildInternalApiHeaders(secret, requestIdForEvent(event))
 }

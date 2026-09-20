@@ -10,7 +10,7 @@ const CANONICAL_IMDB_ID = /^tt[0-9]{7,30}$/u
 
 export function buildMovieExternalLinks(
   tmdbId: number | null | undefined,
-  imdbId: string | null | undefined
+  imdbId: string | null | undefined,
 ): readonly MovieExternalLink[] {
   const links: MovieExternalLink[] = []
 
@@ -19,13 +19,13 @@ export function buildMovieExternalLinks(
       {
         destination: 'tmdb',
         label: 'TMDB',
-        url: `https://www.themoviedb.org/movie/${tmdbId}`
+        url: `https://www.themoviedb.org/movie/${tmdbId}`,
       },
       {
         destination: 'letterboxd',
         label: 'Letterboxd',
-        url: `https://letterboxd.com/tmdb/${tmdbId}`
-      }
+        url: `https://letterboxd.com/tmdb/${tmdbId}`,
+      },
     )
   }
 
@@ -33,7 +33,7 @@ export function buildMovieExternalLinks(
     links.push({
       destination: 'imdb',
       label: 'IMDb',
-      url: `https://www.imdb.com/title/${imdbId}/`
+      url: `https://www.imdb.com/title/${imdbId}/`,
     })
   }
 

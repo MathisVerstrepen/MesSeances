@@ -5,10 +5,11 @@ export function todayInParis(): string {
     timeZone: PARIS_TIMEZONE,
     year: 'numeric',
     month: '2-digit',
-    day: '2-digit'
+    day: '2-digit',
   }).formatToParts(new Date())
 
-  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? ''
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? ''
   return `${value('year')}-${value('month')}-${value('day')}`
 }
 
@@ -17,8 +18,10 @@ export function formatParisTime(isoDate: string): string {
     timeZone: PARIS_TIMEZONE,
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false
-  }).format(new Date(isoDate)).replace(':', 'h')
+    hour12: false,
+  })
+    .format(new Date(isoDate))
+    .replace(':', 'h')
 }
 
 export function formatLongDate(date: string): string {
@@ -29,7 +32,7 @@ export function formatLongDate(date: string): string {
     timeZone: PARIS_TIMEZONE,
     weekday: 'long',
     day: 'numeric',
-    month: 'long'
+    month: 'long',
   }).format(new Date(Date.UTC(year, month - 1, day, 12)))
 }
 
@@ -38,14 +41,24 @@ export function addCalendarDays(date: string, days: number): string {
   if (!year || !month || !day) return ''
 
   const nextDate = new Date(Date.UTC(year, month - 1, day + days, 12))
-  return [nextDate.getUTCFullYear(), String(nextDate.getUTCMonth() + 1).padStart(2, '0'), String(nextDate.getUTCDate()).padStart(2, '0')].join('-')
+  return [
+    nextDate.getUTCFullYear(),
+    String(nextDate.getUTCMonth() + 1).padStart(2, '0'),
+    String(nextDate.getUTCDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 export function isCalendarDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
-  const [year = Number.NaN, month = Number.NaN, day = Number.NaN] = value.split('-').map(Number)
+  const [year = Number.NaN, month = Number.NaN, day = Number.NaN] = value
+    .split('-')
+    .map(Number)
   const parsed = new Date(Date.UTC(year, month - 1, day, 12))
-  return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  )
 }
 
 export function dateFromCalendarDate(value: string): Date | null {
@@ -56,7 +69,11 @@ export function dateFromCalendarDate(value: string): Date | null {
 
 export function calendarDateFromDate(value: Date): string {
   if (Number.isNaN(value.getTime())) return ''
-  return [value.getFullYear(), String(value.getMonth() + 1).padStart(2, '0'), String(value.getDate()).padStart(2, '0')].join('-')
+  return [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, '0'),
+    String(value.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 export function formatShortCalendarDate(value: string): string {
@@ -65,7 +82,10 @@ export function formatShortCalendarDate(value: string): string {
   return `${day}-${month}-${year.slice(-2)}`
 }
 
-export function formatDateLabel(date: string, referenceDate = todayInParis()): string {
+export function formatDateLabel(
+  date: string,
+  referenceDate = todayInParis(),
+): string {
   if (date === referenceDate) return 'Aujourd’hui'
   if (date === addCalendarDays(referenceDate, 1)) return 'Demain'
 
@@ -75,11 +95,14 @@ export function formatDateLabel(date: string, referenceDate = todayInParis()): s
   return new Intl.DateTimeFormat('fr-FR', {
     timeZone: PARIS_TIMEZONE,
     weekday: 'short',
-    day: 'numeric'
+    day: 'numeric',
   }).format(new Date(Date.UTC(year, month - 1, day, 12)))
 }
 
-export function createServiceTimeOptions(): Array<{ value: string; label: string }> {
+export function createServiceTimeOptions(): Array<{
+  value: string
+  label: string
+}> {
   const options: Array<{ value: string; label: string }> = []
   for (let minutes = 8 * 60; minutes < 24 * 60; minutes += 15) {
     const hour = Math.floor(minutes / 60)

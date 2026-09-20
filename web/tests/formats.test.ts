@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { formatBrand, formatLabel, formatOptions, formatRuntime, formatShowtimeCount, isShowtimeFormat } from '../app/utils/formats.ts'
+import {
+  formatBrand,
+  formatLabel,
+  formatOptions,
+  formatRuntime,
+  formatShowtimeCount,
+  isShowtimeFormat,
+} from '../app/utils/formats.ts'
 
 test('exposes ICE as a text-only showtime and query format', () => {
-  assert.deepEqual(formatOptions.find(option => option.value === 'ICE'), { value: 'ICE', label: 'ICE' })
+  assert.deepEqual(
+    formatOptions.find((option) => option.value === 'ICE'),
+    { value: 'ICE', label: 'ICE' },
+  )
   assert.equal(formatLabel('ice'), 'ICE')
   assert.equal(formatBrand('ICE'), undefined)
   assert.equal(isShowtimeFormat('ICE'), true)
@@ -14,13 +24,24 @@ test('labels the unfiltered format option explicitly', () => {
 })
 
 test('exposes Infinity Vision as a branded canonical format after ICE', () => {
-  assert.deepEqual(formatOptions.at(-1), { value: 'INFINITY_VISION', label: 'Infinity Vision', brand: 'INFINITY_VISION' })
+  assert.deepEqual(formatOptions.at(-1), {
+    value: 'INFINITY_VISION',
+    label: 'Infinity Vision',
+    brand: 'INFINITY_VISION',
+  })
   assert.equal(formatOptions.at(-2)?.value, 'ICE')
   assert.equal(formatLabel('INFINITY_VISION'), 'Infinity Vision')
   assert.equal(formatLabel('infinity_vision'), 'Infinity Vision')
   assert.equal(formatBrand('INFINITY_VISION'), 'INFINITY_VISION')
   assert.equal(isShowtimeFormat('INFINITY_VISION'), true)
-  for (const value of ['infinity_vision', 'Infinity Vision', ' INFINITY_VISION ', 'INFINITY_VISION+ICE', '', 'ALL']) {
+  for (const value of [
+    'infinity_vision',
+    'Infinity Vision',
+    ' INFINITY_VISION ',
+    'INFINITY_VISION+ICE',
+    '',
+    'ALL',
+  ]) {
     assert.equal(isShowtimeFormat(value), false, value)
   }
 })

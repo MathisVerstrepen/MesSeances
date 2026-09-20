@@ -24,29 +24,44 @@ const activeHandle = ref<Handle>('start')
 const activePointerId = ref<number | null>(null)
 
 const lastIndex = computed(() => Math.max(props.options.length - 1, 0))
-const startIndex = computed(() => Math.max(props.options.findIndex((option) => option.value === props.start), 0))
+const startIndex = computed(() =>
+  Math.max(
+    props.options.findIndex((option) => option.value === props.start),
+    0,
+  ),
+)
 const endIndex = computed(() => {
   const index = props.options.findIndex((option) => option.value === props.end)
   return index === -1 ? lastIndex.value : index
 })
-const startPercent = computed(() => lastIndex.value ? startIndex.value / lastIndex.value * 100 : 0)
-const endPercent = computed(() => lastIndex.value ? endIndex.value / lastIndex.value * 100 : 100)
-const selectedWidth = computed(() => Math.max(endPercent.value - startPercent.value, 0))
-const startValueText = computed(() => props.options[startIndex.value]?.label ?? props.start)
-const endValueText = computed(() => props.options[endIndex.value]?.label ?? props.end)
+const startPercent = computed(() =>
+  lastIndex.value ? (startIndex.value / lastIndex.value) * 100 : 0,
+)
+const endPercent = computed(() =>
+  lastIndex.value ? (endIndex.value / lastIndex.value) * 100 : 100,
+)
+const selectedWidth = computed(() =>
+  Math.max(endPercent.value - startPercent.value, 0),
+)
+const startValueText = computed(
+  () => props.options[startIndex.value]?.label ?? props.start,
+)
+const endValueText = computed(
+  () => props.options[endIndex.value]?.label ?? props.end,
+)
 const startModel = computed({
   get: () => props.start,
   set: (value: string) => {
     const index = props.options.findIndex((option) => option.value === value)
     if (index !== -1) setStart(index)
-  }
+  },
 })
 const endModel = computed({
   get: () => props.end,
   set: (value: string) => {
     const index = props.options.findIndex((option) => option.value === value)
     if (index !== -1) setEnd(index)
-  }
+  },
 })
 
 function emitOption(handle: Handle, index: number) {
@@ -61,7 +76,10 @@ function setStart(index: number) {
 }
 
 function setEnd(index: number) {
-  emitOption('end', Math.max(Math.min(index, lastIndex.value), startIndex.value + 1))
+  emitOption(
+    'end',
+    Math.max(Math.min(index, lastIndex.value), startIndex.value + 1),
+  )
 }
 
 function setHandle(handle: Handle, index: number) {
@@ -72,7 +90,10 @@ function setHandle(handle: Handle, index: number) {
 function indexFromPointer(event: PointerEvent) {
   const bounds = track.value?.getBoundingClientRect()
   if (!bounds || bounds.width === 0) return 0
-  const ratio = Math.min(Math.max((event.clientX - bounds.left) / bounds.width, 0), 1)
+  const ratio = Math.min(
+    Math.max((event.clientX - bounds.left) / bounds.width, 0),
+    1,
+  )
   return Math.round(ratio * lastIndex.value)
 }
 
@@ -81,12 +102,20 @@ function onPointerDown(event: PointerEvent) {
   const index = indexFromPointer(event)
   const startDistance = Math.abs(index - startIndex.value)
   const endDistance = Math.abs(index - endIndex.value)
-  activeHandle.value = startDistance === endDistance ? activeHandle.value : startDistance < endDistance ? 'start' : 'end'
+  activeHandle.value =
+    startDistance === endDistance
+      ? activeHandle.value
+      : startDistance < endDistance
+        ? 'start'
+        : 'end'
   activePointerId.value = event.pointerId
   // SAFETY: currentTarget is the slider element that registered this pointer handler.
   const slider = event.currentTarget as HTMLElement
   slider.setPointerCapture(event.pointerId)
-  ;(activeHandle.value === 'start' ? startHandle.value : endHandle.value)?.focus({ preventScroll: true })
+  ;(activeHandle.value === 'start'
+    ? startHandle.value
+    : endHandle.value
+  )?.focus({ preventScroll: true })
   setHandle(activeHandle.value, index)
 }
 
@@ -100,15 +129,18 @@ function onPointerEnd(event: PointerEvent) {
   activePointerId.value = null
   // SAFETY: currentTarget is the slider element that registered this pointer handler.
   const target = event.currentTarget as HTMLElement
-  if (target.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+  if (target.hasPointerCapture(event.pointerId))
+    target.releasePointerCapture(event.pointerId)
 }
 
 function onKeydown(handle: Handle, event: KeyboardEvent) {
   const currentIndex = handle === 'start' ? startIndex.value : endIndex.value
   let nextIndex: number | undefined
 
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') nextIndex = currentIndex - 1
-  else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') nextIndex = currentIndex + 1
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown')
+    nextIndex = currentIndex - 1
+  else if (event.key === 'ArrowRight' || event.key === 'ArrowUp')
+    nextIndex = currentIndex + 1
   else if (event.key === 'PageDown') nextIndex = currentIndex - 4
   else if (event.key === 'PageUp') nextIndex = currentIndex + 4
   else if (event.key === 'Home') nextIndex = 0
@@ -119,12 +151,15 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
   activeHandle.value = handle
   setHandle(handle, nextIndex)
 }
-
 </script>
 
 <template>
   <fieldset class="time-range">
-    <legend class="mb-2 font-mono text-[10px] font-black uppercase tracking-[0.14em] text-ink">Créneau horaire</legend>
+    <legend
+      class="mb-2 font-mono text-[10px] font-black uppercase tracking-[0.14em] text-ink"
+    >
+      Créneau horaire
+    </legend>
 
     <div
       class="relative h-11 touch-none select-none"
@@ -134,7 +169,10 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
       @pointercancel="onPointerEnd"
     >
       <div ref="track" class="absolute inset-x-[11px] inset-y-0">
-        <div class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-[#d4d1c9]" aria-hidden="true" />
+        <div
+          class="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 bg-[#d4d1c9]"
+          aria-hidden="true"
+        />
         <div
           class="absolute top-1/2 h-1 -translate-y-1/2 bg-highlight"
           :style="{ left: `${startPercent}%`, width: `${selectedWidth}%` }"
@@ -155,7 +193,10 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
           @focus="activeHandle = 'start'"
           @keydown="onKeydown('start', $event)"
         >
-          <span class="size-[22px] border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]" aria-hidden="true" />
+          <span
+            class="size-[22px] border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]"
+            aria-hidden="true"
+          />
         </button>
 
         <button
@@ -172,22 +213,49 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
           @focus="activeHandle = 'end'"
           @keydown="onKeydown('end', $event)"
         >
-          <span class="size-[22px] border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]" aria-hidden="true" />
+          <span
+            class="size-[22px] border-2 border-ink bg-surface shadow-[3px_3px_0_#27272a]"
+            aria-hidden="true"
+          />
         </button>
       </div>
     </div>
 
     <div class="mt-1 grid grid-cols-2 gap-3">
       <label class="block">
-        <span class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink">À partir de</span>
-        <select v-model="startModel" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink">
-          <option v-for="option in options" :key="`start-${option.value}`" :value="option.value">{{ option.label }}</option>
+        <span
+          class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink"
+          >À partir de</span
+        >
+        <select
+          v-model="startModel"
+          class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink"
+        >
+          <option
+            v-for="option in options"
+            :key="`start-${option.value}`"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
         </select>
       </label>
       <label class="block">
-        <span class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink">Terminé avant</span>
-        <select v-model="endModel" class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink">
-          <option v-for="option in options" :key="`end-${option.value}`" :value="option.value">{{ option.label }}</option>
+        <span
+          class="mb-2 block font-mono text-[9px] font-black uppercase tracking-[0.12em] text-ink"
+          >Terminé avant</span
+        >
+        <select
+          v-model="endModel"
+          class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink"
+        >
+          <option
+            v-for="option in options"
+            :key="`end-${option.value}`"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
         </select>
       </label>
     </div>

@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { addCalendarDays, calendarDateFromDate, dateFromCalendarDate, formatShortCalendarDate, isCalendarDate } from '../app/utils/date.ts'
+import {
+  addCalendarDays,
+  calendarDateFromDate,
+  dateFromCalendarDate,
+  formatShortCalendarDate,
+  isCalendarDate,
+} from '../app/utils/date.ts'
 
 test('validates real calendar dates', () => {
   assert.equal(isCalendarDate('2026-08-26'), true)

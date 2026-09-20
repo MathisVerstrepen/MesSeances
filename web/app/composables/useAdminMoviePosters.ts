@@ -1,8 +1,16 @@
 import { readonly, ref } from 'vue'
-import type { AdminMoviePoster, AdminMoviePostersResponse } from '../types/api.ts'
+import type {
+  AdminMoviePoster,
+  AdminMoviePostersResponse,
+} from '../types/api.ts'
 import { safePosterUrl } from '../utils/safeImageUrl.ts'
 
-export function useAdminMoviePosters(fetchPosters: (id: string, signal: AbortSignal) => Promise<AdminMoviePostersResponse>) {
+export function useAdminMoviePosters(
+  fetchPosters: (
+    id: string,
+    signal: AbortSignal,
+  ) => Promise<AdminMoviePostersResponse>,
+) {
   const posters = ref<AdminMoviePoster[]>([])
   const status = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   let activeRequest: AbortController | null = null
@@ -25,7 +33,11 @@ export function useAdminMoviePosters(fetchPosters: (id: string, signal: AbortSig
       const seen = new Set<string>()
       posters.value = response.posters.filter((poster) => {
         const url = safePosterUrl(poster.url)
-        if (!url?.startsWith('https://image.tmdb.org/t/p/w500/') || seen.has(url)) return false
+        if (
+          !url?.startsWith('https://image.tmdb.org/t/p/w500/') ||
+          seen.has(url)
+        )
+          return false
         seen.add(url)
         return true
       })

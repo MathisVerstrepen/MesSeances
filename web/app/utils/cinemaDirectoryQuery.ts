@@ -7,19 +7,25 @@ export interface CinemaDirectoryState {
   location: 'city' | 'nearby'
 }
 
-export function parseCinemaDirectoryQuery(query: LocationQuery): CinemaDirectoryState {
+export function parseCinemaDirectoryQuery(
+  query: LocationQuery,
+): CinemaDirectoryState {
   return {
     search: singularQueryValue(query.q)?.trim() ?? '',
     view: singularQueryValue(query.view) === 'map' ? 'map' : 'list',
-    location: singularQueryValue(query.location) === 'nearby' ? 'nearby' : 'city'
+    location:
+      singularQueryValue(query.location) === 'nearby' ? 'nearby' : 'city',
   }
 }
 
-export function cinemaDirectoryQuery(query: LocationQuery, changes: Partial<CinemaDirectoryState> = {}): LocationQuery {
+export function cinemaDirectoryQuery(
+  query: LocationQuery,
+  changes: Partial<CinemaDirectoryState> = {},
+): LocationQuery {
   const state = { ...parseCinemaDirectoryQuery(query), ...changes }
   return mergeOwnedQuery(query, ['q', 'view', 'location'], {
     q: state.search.trim() || undefined,
     view: state.view === 'map' ? 'map' : undefined,
-    location: state.location === 'nearby' ? 'nearby' : undefined
+    location: state.location === 'nearby' ? 'nearby' : undefined,
   })
 }

@@ -18,22 +18,34 @@ test('builds a deterministic complete target with explicit default values', () =
     grouping: 'movie',
     layout: 'lines',
     selectedShowtimeKeys: [],
-    selectedOnly: false
+    selectedOnly: false,
   })
 
   assert.equal(
     target,
-    '/recherche?theaters=ugc-25%2Ckinepolis_42&date=2026-08-22&start_after=18%3A00&finish_before=23%3A30&language=ALL&format=ALL&include_ads=1&buffer_ads=15&grouping=movie&layout=lines'
+    '/recherche?theaters=ugc-25%2Ckinepolis_42&date=2026-08-22&start_after=18%3A00&finish_before=23%3A30&language=ALL&format=ALL&include_ads=1&buffer_ads=15&grouping=movie&layout=lines',
   )
 })
 
 test('shares Megarama theater identities and selected sessions through the existing short-link contract', () => {
   const theaterIds = ['megarama-EMS0565', 'ugc-25']
-  const selectedShowtimeKeys = ['megarama:megarama-showing-emsx056500123456', 'ugc:ugc-showing-12']
+  const selectedShowtimeKeys = [
+    'megarama:megarama-showing-emsx056500123456',
+    'ugc:ugc-showing-12',
+  ]
   const target = buildCompleteSearchShareTarget({
-    theaterIds, date: '2026-09-12', startAfter: '18:00', finishBefore: '23:30',
-    language: 'VF', format: '4DX', includeAds: false, bufferAds: 15,
-    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys, selectedOnly: true
+    theaterIds,
+    date: '2026-09-12',
+    startAfter: '18:00',
+    finishBefore: '23:30',
+    language: 'VF',
+    format: '4DX',
+    includeAds: false,
+    bufferAds: 15,
+    grouping: 'chronological',
+    layout: 'boxes',
+    selectedShowtimeKeys,
+    selectedOnly: true,
   })
   const shared = withSharedTheaterSelection(target, theaterIds)!
   assert.equal(isValidShortLinkTarget(shared), true)
@@ -41,16 +53,31 @@ test('shares Megarama theater identities and selected sessions through the exist
   assert.equal(query.get('shared_theaters'), 'megarama-EMS0565,ugc-25')
   assert.equal(query.get('selected'), 'memsx056500123456,u12')
   assert.equal(query.get('selected_only'), '1')
-  assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
+  assert.deepEqual(
+    parseShowtimeSelection(query.get('selected')!),
+    selectedShowtimeKeys,
+  )
 })
 
 test('shares Cinéville theater IDs and colliding source session IDs without losing cinema scope', () => {
   const theaterIds = ['cineville-707', 'cineville-709']
-  const selectedShowtimeKeys = ['cineville:cineville-showing-707-149056', 'cineville:cineville-showing-709-149056']
+  const selectedShowtimeKeys = [
+    'cineville:cineville-showing-707-149056',
+    'cineville:cineville-showing-709-149056',
+  ]
   const target = buildCompleteSearchShareTarget({
-    theaterIds, date: '2027-07-01', startAfter: '00:00', finishBefore: '23:30',
-    language: 'VOSTFR', format: 'IMAX', includeAds: false, bufferAds: 15,
-    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys, selectedOnly: true
+    theaterIds,
+    date: '2027-07-01',
+    startAfter: '00:00',
+    finishBefore: '23:30',
+    language: 'VOSTFR',
+    format: 'IMAX',
+    includeAds: false,
+    bufferAds: 15,
+    grouping: 'chronological',
+    layout: 'boxes',
+    selectedShowtimeKeys,
+    selectedOnly: true,
   })
   const shared = withSharedTheaterSelection(target, theaterIds)!
   assert.equal(isValidShortLinkTarget(shared), true)
@@ -58,16 +85,31 @@ test('shares Cinéville theater IDs and colliding source session IDs without los
   assert.equal(query.get('shared_theaters'), 'cineville-707,cineville-709')
   assert.equal(query.get('selected'), 'v707-149056,v709-149056')
   assert.equal(query.get('selected_only'), '1')
-  assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
+  assert.deepEqual(
+    parseShowtimeSelection(query.get('selected')!),
+    selectedShowtimeKeys,
+  )
 })
 
 test('shares MK2 leading-zero cinema identities and selection token x', () => {
   const theaterIds = ['mk2-0004', 'mk2-0005']
-  const selectedShowtimeKeys = ['mk2:mk2-showing-0004-140350', 'mk2:mk2-showing-0005-140350']
+  const selectedShowtimeKeys = [
+    'mk2:mk2-showing-0004-140350',
+    'mk2:mk2-showing-0005-140350',
+  ]
   const target = buildCompleteSearchShareTarget({
-    theaterIds, date: '2027-06-28', startAfter: '00:00', finishBefore: '23:30',
-    language: 'ALL', format: 'ALL', includeAds: false, bufferAds: 15,
-    grouping: 'chronological', layout: 'boxes', selectedShowtimeKeys, selectedOnly: true
+    theaterIds,
+    date: '2027-06-28',
+    startAfter: '00:00',
+    finishBefore: '23:30',
+    language: 'ALL',
+    format: 'ALL',
+    includeAds: false,
+    bufferAds: 15,
+    grouping: 'chronological',
+    layout: 'boxes',
+    selectedShowtimeKeys,
+    selectedOnly: true,
   })
   const shared = withSharedTheaterSelection(target, theaterIds)!
   assert.equal(isValidShortLinkTarget(shared), true)
@@ -75,7 +117,10 @@ test('shares MK2 leading-zero cinema identities and selection token x', () => {
   assert.equal(query.get('shared_theaters'), 'mk2-0004,mk2-0005')
   assert.equal(query.get('selected'), 'x0004-140350,x0005-140350')
   assert.equal(query.get('selected_only'), '1')
-  assert.deepEqual(parseShowtimeSelection(query.get('selected')!), selectedShowtimeKeys)
+  assert.deepEqual(
+    parseShowtimeSelection(query.get('selected')!),
+    selectedShowtimeKeys,
+  )
 })
 
 test('omits an empty normalized screening selection', () => {
@@ -91,11 +136,17 @@ test('omits an empty normalized screening selection', () => {
     grouping: 'movie',
     layout: 'lines',
     selectedShowtimeKeys: ['', ''],
-    selectedOnly: true
+    selectedOnly: true,
   })
 
-  assert.equal(new URL(target, 'https://messeances.fr').searchParams.has('selected'), false)
-  assert.equal(new URL(target, 'https://messeances.fr').searchParams.has('selected_only'), false)
+  assert.equal(
+    new URL(target, 'https://messeances.fr').searchParams.has('selected'),
+    false,
+  )
+  assert.equal(
+    new URL(target, 'https://messeances.fr').searchParams.has('selected_only'),
+    false,
+  )
 })
 
 test('preserves non-default filters and presentation with compact selections', () => {
@@ -110,21 +161,30 @@ test('preserves non-default filters and presentation with compact selections', (
     bufferAds: 20,
     grouping: 'chronological',
     layout: 'boxes',
-    selectedShowtimeKeys: ['ugc:ugc-showing-900', 'ugc:ugc-showing-12', 'ugc:ugc-showing-900'],
-    selectedOnly: false
+    selectedShowtimeKeys: [
+      'ugc:ugc-showing-900',
+      'ugc:ugc-showing-12',
+      'ugc:ugc-showing-900',
+    ],
+    selectedOnly: false,
   })
   const sharedTarget = withSharedTheaterSelection(target, ['ugc-25', 'ugc-26'])
 
   assert.equal(
     sharedTarget,
-    '/recherche?theaters=ugc-25%2Cugc-26&date=2026-08-23&start_after=20%3A15&finish_before=01%3A00&language=VOSTFR&format=IMAX&include_ads=0&buffer_ads=20&grouping=chronological&layout=boxes&selected=u12%2Cu900&shared_theaters=ugc-25%2Cugc-26'
+    '/recherche?theaters=ugc-25%2Cugc-26&date=2026-08-23&start_after=20%3A15&finish_before=01%3A00&language=VOSTFR&format=IMAX&include_ads=0&buffer_ads=20&grouping=chronological&layout=boxes&selected=u12%2Cu900&shared_theaters=ugc-25%2Cugc-26',
   )
   assert.equal(isValidShortLinkTarget(sharedTarget!), true)
 })
 
 test('builds the reported realistic compact selection as a valid short-link target', () => {
   const target = buildCompleteSearchShareTarget({
-    theaterIds: ['cgr-W8010', 'pathe-cinema-pathe-lievin', 'cgr-P0798', 'cgr-P1016'],
+    theaterIds: [
+      'cgr-W8010',
+      'pathe-cinema-pathe-lievin',
+      'cgr-P0798',
+      'cgr-P1016',
+    ],
     date: '2026-08-30',
     startAfter: '13:15',
     finishBefore: '22:45',
@@ -139,15 +199,23 @@ test('builds the reported realistic compact selection as a valid short-link targ
       'pathe:pathe-showing-V3001S170227',
       'cgr:cgr-showing-P1016-57435c8260ab73a85f6cd30038f21572df9b71a18c68467bef03566bdc5d36f2',
       'cgr:cgr-showing-P0798-eb8c701bf9eb902f738cb7a32ed14cb55b9e2b42e0fc346ac79d9cf11d171bbc',
-      'cgr:cgr-showing-P1016-252b96e16cf563c832f2ffc5c35d55f318d15e4398708bc748fbb88482c0f052'
-    ]
+      'cgr:cgr-showing-P1016-252b96e16cf563c832f2ffc5c35d55f318d15e4398708bc748fbb88482c0f052',
+    ],
   })
-  const sharedTarget = withSharedTheaterSelection(target, ['cgr-W8010', 'pathe-cinema-pathe-lievin', 'cgr-P0798', 'cgr-P1016'])
+  const sharedTarget = withSharedTheaterSelection(target, [
+    'cgr-W8010',
+    'pathe-cinema-pathe-lievin',
+    'cgr-P0798',
+    'cgr-P1016',
+  ])
 
   assert.equal(
     sharedTarget,
-    '/recherche?theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016&date=2026-08-30&start_after=13%3A15&finish_before=22%3A45&language=ALL&format=ALL&include_ads=1&buffer_ads=15&grouping=chronological&layout=boxes&selected=cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w%2CcP1016-JSuW4Wz1Y8gy8v_Fw11V8xjRXkOYcIvHSPu4hILA8FI%2CcP1016-V0NcgmCrc6hfbNMAOPIVct-bcaGMaEZ77wNWa9xdNvI%2CpV3001S170227&shared_theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016'
+    '/recherche?theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016&date=2026-08-30&start_after=13%3A15&finish_before=22%3A45&language=ALL&format=ALL&include_ads=1&buffer_ads=15&grouping=chronological&layout=boxes&selected=cP0798-64xwG_nrkC9zjLejLtFMtVueK0Lg_DRqx52c8R0XG7w%2CcP1016-JSuW4Wz1Y8gy8v_Fw11V8xjRXkOYcIvHSPu4hILA8FI%2CcP1016-V0NcgmCrc6hfbNMAOPIVct-bcaGMaEZ77wNWa9xdNvI%2CpV3001S170227&shared_theaters=cgr-W8010%2Cpathe-cinema-pathe-lievin%2Ccgr-P0798%2Ccgr-P1016',
   )
   assert.equal(isValidShortLinkTarget(sharedTarget!), true)
-  assert.equal(new URLSearchParams(sharedTarget!.split('?')[1]).get('theaters'), new URLSearchParams(sharedTarget!.split('?')[1]).get('shared_theaters'))
+  assert.equal(
+    new URLSearchParams(sharedTarget!.split('?')[1]).get('theaters'),
+    new URLSearchParams(sharedTarget!.split('?')[1]).get('shared_theaters'),
+  )
 })

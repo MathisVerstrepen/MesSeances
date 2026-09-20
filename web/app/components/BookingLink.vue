@@ -17,11 +17,20 @@ const props = defineProps<{
 }>()
 
 defineSlots<{
-  default?: (props: { available: boolean; kind: 'booking' | 'website' | null; label: string }) => VNode[]
+  default?: (props: {
+    available: boolean
+    kind: 'booking' | 'website' | null
+    label: string
+  }) => VNode[]
 }>()
 
 const reservation = computed(() => {
-  const booking = safeBookingUrl(props.url, props.provider, props.showtimeId, props.theaterId)
+  const booking = safeBookingUrl(
+    props.url,
+    props.provider,
+    props.showtimeId,
+    props.theaterId,
+  )
   if (!booking) return null
 
   const labels = {
@@ -34,14 +43,17 @@ const reservation = computed(() => {
     mk2: 'Réserver sur MK2',
     cinewest: 'Réserver sur Cinewest',
     grandecran: 'Réserver sur Grand Ecran',
-    noecinemas: 'Réserver sur Noé Cinémas'
+    noecinemas: 'Réserver sur Noé Cinémas',
   } satisfies Record<Provider, string>
   return {
     url: booking.url,
     kind: booking.kind,
-    label: booking.kind === 'website'
-      ? booking.provider === 'cinewest' ? 'Site du cinéma Cinewest' : 'Site du cinéma Megarama'
-      : labels[booking.provider]
+    label:
+      booking.kind === 'website'
+        ? booking.provider === 'cinewest'
+          ? 'Site du cinéma Cinewest'
+          : 'Site du cinéma Megarama'
+        : labels[booking.provider],
   }
 })
 </script>
@@ -56,9 +68,18 @@ const reservation = computed(() => {
     :class="[unstyled ? '' : 'button-primary', availableClass]"
     :aria-label="`${reservation.kind === 'website' ? reservation.label : ariaLabel || reservation.label}, ouverture dans un nouvel onglet`"
   >
-    <slot :available="true" :kind="reservation.kind" :label="reservation.label"><BrandedText :text="reservation.label" decorative /></slot>
+    <slot :available="true" :kind="reservation.kind" :label="reservation.label"
+      ><BrandedText :text="reservation.label" decorative /></slot
+    >
   </a>
-  <span v-else v-bind="$attrs" :class="[unstyled ? '' : 'inline-flex h-10 items-center text-sm font-medium text-muted', unavailableClass]" aria-disabled="true">
-    <slot :available="false" :kind="null" label="Réservation indisponible">Réservation indisponible</slot>
+  <span
+    v-else
+    v-bind="$attrs"
+    :class="[unstyled ? '' : 'inline-flex h-10 items-center text-sm font-medium text-muted', unavailableClass]"
+    aria-disabled="true"
+  >
+    <slot :available="false" :kind="null" label="Réservation indisponible"
+      >Réservation indisponible</slot
+    >
   </span>
 </template>
