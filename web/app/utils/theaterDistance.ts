@@ -19,67 +19,88 @@ export interface TheaterDistanceRow<T extends TheaterCoordinates> {
 
 const EARTH_RADIUS_KM = 6371
 const frenchNumberFormatter = new Intl.NumberFormat('fr-FR', {
-  maximumFractionDigits: 1
+  maximumFractionDigits: 1,
 })
 const frenchCoordinateFormatter = new Intl.NumberFormat('fr-FR', {
   minimumFractionDigits: 4,
   maximumFractionDigits: 4,
-  useGrouping: false
+  useGrouping: false,
 })
 const frenchAccuracyFormatter = new Intl.NumberFormat('fr-FR', {
-  maximumFractionDigits: 0
+  maximumFractionDigits: 0,
 })
 
 export function isValidGeographicPoint(point: GeographicPoint): boolean {
-  return Number.isFinite(point.latitude)
-    && Number.isFinite(point.longitude)
-    && point.latitude >= -90
-    && point.latitude <= 90
-    && point.longitude >= -180
-    && point.longitude <= 180
+  return (
+    Number.isFinite(point.latitude) &&
+    Number.isFinite(point.longitude) &&
+    point.latitude >= -90 &&
+    point.latitude <= 90 &&
+    point.longitude >= -180 &&
+    point.longitude <= 180
+  )
 }
 
-export function haversineDistanceKm(origin: GeographicPoint, destination: GeographicPoint): number | null {
-  if (!isValidGeographicPoint(origin) || !isValidGeographicPoint(destination)) return null
+export function haversineDistanceKm(
+  origin: GeographicPoint,
+  destination: GeographicPoint,
+): number | null {
+  if (!isValidGeographicPoint(origin) || !isValidGeographicPoint(destination))
+    return null
 
   const toRadians = Math.PI / 180
   const latitudeDelta = (destination.latitude - origin.latitude) * toRadians
   const longitudeDelta = (destination.longitude - origin.longitude) * toRadians
   const originLatitude = origin.latitude * toRadians
   const destinationLatitude = destination.latitude * toRadians
-  const haversine = Math.sin(latitudeDelta / 2) ** 2
-    + Math.cos(originLatitude) * Math.cos(destinationLatitude) * Math.sin(longitudeDelta / 2) ** 2
+  const haversine =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(originLatitude) *
+      Math.cos(destinationLatitude) *
+      Math.sin(longitudeDelta / 2) ** 2
 
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(haversine)))
 }
 
 function compareFrench(left: string, right: string): number {
-  return left.localeCompare(right, 'fr-FR') || (left < right ? -1 : left > right ? 1 : 0)
+  return (
+    left.localeCompare(right, 'fr-FR') ||
+    (left < right ? -1 : left > right ? 1 : 0)
+  )
 }
 
-function compareTheaters(left: TheaterCoordinates, right: TheaterCoordinates): number {
-  return compareFrench(left.city, right.city)
-    || compareFrench(left.name, right.name)
-    || compareFrench(left.id, right.id)
+function compareTheaters(
+  left: TheaterCoordinates,
+  right: TheaterCoordinates,
+): number {
+  return (
+    compareFrench(left.city, right.city) ||
+    compareFrench(left.name, right.name) ||
+    compareFrench(left.id, right.id)
+  )
 }
 
 export function sortTheatersByDistance<T extends TheaterCoordinates>(
   theaters: readonly T[],
-  origin: GeographicPoint
+  origin: GeographicPoint,
 ): TheaterDistanceRow<T>[] {
   const rows = theaters.map((theater) => ({
     theater,
     distanceKm: haversineDistanceKm(origin, {
       latitude: theater.latitude ?? Number.NaN,
-      longitude: theater.longitude ?? Number.NaN
+      longitude: theater.longitude ?? Number.NaN,
     }),
-    isNearest: false
+    isNearest: false,
   }))
 
   rows.sort((left, right) => {
     if (left.distanceKm === null && right.distanceKm !== null) return 1
     if (left.distanceKm !== null && right.distanceKm === null) return -1
-    if (left.distanceKm !== null && right.distanceKm !== null && left.distanceKm !== right.distanceKm) {
+    if (
+      left.distanceKm !== null &&
+      right.distanceKm !== null &&
+      left.distanceKm !== right.distanceKm
+    ) {
       return left.distanceKm - right.distanceKm
     }
     return compareTheaters(left.theater, right.theater)
@@ -90,8 +111,11 @@ export function sortTheatersByDistance<T extends TheaterCoordinates>(
   return rows
 }
 
-export function formatTheaterDistance(distanceKm: number | null): string | null {
-  if (distanceKm === null || !Number.isFinite(distanceKm) || distanceKm < 0) return null
+export function formatTheaterDistance(
+  distanceKm: number | null,
+): string | null {
+  if (distanceKm === null || !Number.isFinite(distanceKm) || distanceKm < 0)
+    return null
   if (distanceKm === 0) return '0 km'
   if (distanceKm < 0.1) return '< 0,1 km'
   return `${frenchNumberFormatter.format(distanceKm)} km`
@@ -103,7 +127,9 @@ export function formatPositionCoordinate(coordinate: number): string {
   return frenchCoordinateFormatter.format(normalizedCoordinate)
 }
 
-export function buildOpenStreetMapPositionUrl(point: GeographicPoint): string | null {
+export function buildOpenStreetMapPositionUrl(
+  point: GeographicPoint,
+): string | null {
   if (!isValidGeographicPoint(point)) return null
   const latitude = formatPositionCoordinate(point.latitude).replace(',', '.')
   const longitude = formatPositionCoordinate(point.longitude).replace(',', '.')
@@ -111,7 +137,11 @@ export function buildOpenStreetMapPositionUrl(point: GeographicPoint): string | 
 }
 
 export function formatPositionAccuracy(accuracyMeters: number | null): string {
-  if (accuracyMeters === null || !Number.isFinite(accuracyMeters) || accuracyMeters < 0) {
+  if (
+    accuracyMeters === null ||
+    !Number.isFinite(accuracyMeters) ||
+    accuracyMeters < 0
+  ) {
     return 'précision indisponible'
   }
   return `précision environ ${frenchAccuracyFormatter.format(accuracyMeters)} m`

@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check install lint prod screenshot test web-vitals
+.PHONY: build check dev fmt-check format install lint prod screenshot test web-vitals
 
 SHELL := /bin/bash
 
@@ -23,12 +23,17 @@ install:
 	cd api && go mod download
 	npm --prefix web install
 
+format:
+	cd api && gofmt -w .
+	npm --prefix web run format
+
 fmt-check:
 	@cd api && unformatted="$$(gofmt -l .)"; \
 	if [ -n "$$unformatted" ]; then \
 		printf '%s\n' "$$unformatted"; \
 		exit 1; \
 	fi
+	npm --prefix web run format:check
 
 test:
 	cd api && go test ./...

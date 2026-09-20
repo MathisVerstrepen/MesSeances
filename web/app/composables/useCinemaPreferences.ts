@@ -11,7 +11,13 @@ interface StoredFavoriteIds {
 }
 
 function uniqueIds(ids: unknown[]): string[] {
-  return [...new Set(ids.filter((id): id is string => id === String(id) && id.trim().length > 0).map((id) => id.trim()))]
+  return [
+    ...new Set(
+      ids
+        .filter((id): id is string => id === String(id) && id.trim().length > 0)
+        .map((id) => id.trim()),
+    ),
+  ]
 }
 
 function storedFavoriteIds(): StoredFavoriteIds {
@@ -19,30 +25,49 @@ function storedFavoriteIds(): StoredFavoriteIds {
   try {
     raw = localStorage.getItem(STORAGE_KEY)
   } catch {
-    return { exists: memoryFavoriteIds !== null, ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [] }
+    return {
+      exists: memoryFavoriteIds !== null,
+      ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [],
+    }
   }
 
   if (raw === null) {
-    return { exists: memoryFavoriteIds !== null, ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [] }
+    return {
+      exists: memoryFavoriteIds !== null,
+      ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [],
+    }
   }
 
   try {
     const value: unknown = JSON.parse(raw)
-    if (!Array.isArray(value)) return { exists: true, ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [] }
+    if (!Array.isArray(value))
+      return {
+        exists: true,
+        ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [],
+      }
 
     const ids = uniqueIds(value)
     memoryFavoriteIds = [...ids]
     return { exists: true, ids }
   } catch {
-    return { exists: true, ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [] }
+    return {
+      exists: true,
+      ids: memoryFavoriteIds ? [...memoryFavoriteIds] : [],
+    }
   }
 }
 
 export function useCinemaPreferences() {
   const api = useMesSeancesApi()
   const theaters = useState<Theater[]>('cinema-preferences:theaters', () => [])
-  const favoriteTheaterIds = useState<string[]>('cinema-preferences:favorite-ids', () => [])
-  const isInitialized = useState<boolean>('cinema-preferences:initialized', () => false)
+  const favoriteTheaterIds = useState<string[]>(
+    'cinema-preferences:favorite-ids',
+    () => [],
+  )
+  const isInitialized = useState<boolean>(
+    'cinema-preferences:initialized',
+    () => false,
+  )
   const isLoading = useState<boolean>('cinema-preferences:loading', () => false)
   const error = useState<string | null>('cinema-preferences:error', () => null)
 
@@ -53,7 +78,9 @@ export function useCinemaPreferences() {
 
   function orderCurrentIds(ids: string[]): string[] {
     const selected = new Set(uniqueIds(ids))
-    return theaters.value.filter((theater) => selected.has(theater.id)).map((theater) => theater.id)
+    return theaters.value
+      .filter((theater) => selected.has(theater.id))
+      .map((theater) => theater.id)
   }
 
   function persist(ids: string[]) {
@@ -83,7 +110,9 @@ export function useCinemaPreferences() {
     return setFavoriteTheaterIds([...selected])
   }
 
-  async function initialize(initialTheaters?: readonly Theater[]): Promise<void> {
+  async function initialize(
+    initialTheaters?: readonly Theater[],
+  ): Promise<void> {
     if (!import.meta.client || isInitialized.value) return
     if (initializationPromise) return initializationPromise
 
@@ -94,7 +123,9 @@ export function useCinemaPreferences() {
       favoriteTheaterIds.value = stored.ids
 
       try {
-        const currentTheaters = initialTheaters ? [...initialTheaters] : await api.theaters()
+        const currentTheaters = initialTheaters
+          ? [...initialTheaters]
+          : await api.theaters()
         theaters.value = currentTheaters
 
         const currentIds = orderCurrentIds(stored.ids)
@@ -103,7 +134,9 @@ export function useCinemaPreferences() {
         } else {
           let defaultIds: string[] = []
           try {
-            defaultIds = (await api.theaters({ city: 'Paris' })).map((theater) => theater.id)
+            defaultIds = (await api.theaters({ city: 'Paris' })).map(
+              (theater) => theater.id,
+            )
           } catch {
             // National catalog still provides a deterministic fallback.
           }
@@ -136,6 +169,6 @@ export function useCinemaPreferences() {
     error: readonly(error),
     initialize,
     setFavoriteTheaterIds,
-    toggleFavoriteTheater
+    toggleFavoriteTheater,
   }
 }

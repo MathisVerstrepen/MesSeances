@@ -1,11 +1,19 @@
 import { ref } from 'vue'
-import { isValidGeographicPoint, type GeographicPoint } from './theaterDistance.ts'
+import {
+  isValidGeographicPoint,
+  type GeographicPoint,
+} from './theaterDistance.ts'
 
-const UNAVAILABLE = 'Position indisponible. Vérifiez que la localisation est activée, puis réessayez.'
+const UNAVAILABLE =
+  'Position indisponible. Vérifiez que la localisation est activée, puis réessayez.'
 
 // Browser access is injected and deferred until the mounted page activates nearby mode.
-export function createCinemaDirectoryLocation(getGeolocation: () => Pick<Geolocation, 'getCurrentPosition'> | undefined) {
-  const locationStatus = ref<'idle' | 'requesting' | 'active' | 'failed'>('idle')
+export function createCinemaDirectoryLocation(
+  getGeolocation: () => Pick<Geolocation, 'getCurrentPosition'> | undefined,
+) {
+  const locationStatus = ref<'idle' | 'requesting' | 'active' | 'failed'>(
+    'idle',
+  )
   const locationError = ref('')
   const userPosition = ref<GeographicPoint | null>(null)
   const locationAccuracyMeters = ref<number | null>(null)
@@ -25,7 +33,11 @@ export function createCinemaDirectoryLocation(getGeolocation: () => Pick<Geoloca
     if (disposed || !nearby || locationStatus.value === 'requesting') return
     clear()
     const id = requestId
-    const isCurrent = () => !disposed && nearby && id === requestId && locationStatus.value === 'requesting'
+    const isCurrent = () =>
+      !disposed &&
+      nearby &&
+      id === requestId &&
+      locationStatus.value === 'requesting'
     function fail(message: string) {
       if (!isCurrent()) return
       locationStatus.value = 'failed'
@@ -36,30 +48,45 @@ export function createCinemaDirectoryLocation(getGeolocation: () => Pick<Geoloca
     try {
       const geolocation = getGeolocation()
       if (!geolocation) {
-        fail('La localisation n’est pas disponible dans ce navigateur. Continuez avec la liste par ville.')
+        fail(
+          'La localisation n’est pas disponible dans ce navigateur. Continuez avec la liste par ville.',
+        )
         return
       }
-      geolocation.getCurrentPosition((position) => {
-        if (!isCurrent()) return
-        const point = { latitude: position.coords.latitude, longitude: position.coords.longitude }
-        if (!isValidGeographicPoint(point)) {
-          fail(UNAVAILABLE)
-          return
-        }
-        userPosition.value = point
-        locationAccuracyMeters.value = Number.isFinite(position.coords.accuracy) && position.coords.accuracy >= 0
-          ? position.coords.accuracy
-          : null
-        locationStatus.value = 'active'
-      }, (error) => {
-        fail(error.code === 1
-          ? 'Localisation refusée. Autorisez l’accès à votre position dans les réglages du navigateur, puis réessayez.'
-          : error.code === 3 ? 'La localisation a pris trop de temps. Réessayez.' : UNAVAILABLE)
-      }, {
-        enableHighAccuracy: false,
-        timeout: 8000,
-        maximumAge: 600000
-      })
+      geolocation.getCurrentPosition(
+        (position) => {
+          if (!isCurrent()) return
+          const point = {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          }
+          if (!isValidGeographicPoint(point)) {
+            fail(UNAVAILABLE)
+            return
+          }
+          userPosition.value = point
+          locationAccuracyMeters.value =
+            Number.isFinite(position.coords.accuracy) &&
+            position.coords.accuracy >= 0
+              ? position.coords.accuracy
+              : null
+          locationStatus.value = 'active'
+        },
+        (error) => {
+          fail(
+            error.code === 1
+              ? 'Localisation refusée. Autorisez l’accès à votre position dans les réglages du navigateur, puis réessayez.'
+              : error.code === 3
+                ? 'La localisation a pris trop de temps. Réessayez.'
+                : UNAVAILABLE,
+          )
+        },
+        {
+          enableHighAccuracy: false,
+          timeout: 8000,
+          maximumAge: 600000,
+        },
+      )
     } catch {
       fail(UNAVAILABLE)
     }
@@ -77,5 +104,13 @@ export function createCinemaDirectoryLocation(getGeolocation: () => Pick<Geoloca
     clear()
   }
 
-  return { locationStatus, locationError, userPosition, locationAccuracyMeters, setNearbyMode, retry, dispose }
+  return {
+    locationStatus,
+    locationError,
+    userPosition,
+    locationAccuracyMeters,
+    setNearbyMode,
+    retry,
+    dispose,
+  }
 }

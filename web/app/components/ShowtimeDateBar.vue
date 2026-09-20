@@ -5,22 +5,25 @@ import { addCalendarDays, formatDateLabel } from '~/utils/date'
 type DateTabsMode = 'today-tomorrow' | 'all'
 type CalendarPosition = 'start' | 'end'
 
-const props = withDefaults(defineProps<{
-  selectedDate: string
-  availableDates: string[]
-  today: string
-  disabled?: boolean
-  centered?: boolean
-  mobileTabs?: DateTabsMode
-  desktopTabs?: DateTabsMode
-  calendarPosition?: CalendarPosition
-  stretchTabs?: boolean
-}>(), {
-  mobileTabs: 'today-tomorrow',
-  desktopTabs: 'all',
-  calendarPosition: 'start',
-  stretchTabs: false
-})
+const props = withDefaults(
+  defineProps<{
+    selectedDate: string
+    availableDates: string[]
+    today: string
+    disabled?: boolean
+    centered?: boolean
+    mobileTabs?: DateTabsMode
+    desktopTabs?: DateTabsMode
+    calendarPosition?: CalendarPosition
+    stretchTabs?: boolean
+  }>(),
+  {
+    mobileTabs: 'today-tomorrow',
+    desktopTabs: 'all',
+    calendarPosition: 'start',
+    stretchTabs: false,
+  },
+)
 
 const emit = defineEmits<{
   select: [date: string]
@@ -33,34 +36,47 @@ const emit = defineEmits<{
 const tomorrowDate = computed(() => addCalendarDays(props.today, 1))
 const calendarTrigger = ref<HTMLButtonElement | null>(null)
 const todayAndTomorrowDates = computed(() => [props.today, tomorrowDate.value])
-const layoutOrder = computed<Array<'calendar' | 'tabs'>>(() => props.calendarPosition === 'end' ? ['tabs', 'calendar'] : ['calendar', 'tabs'])
+const layoutOrder = computed<Array<'calendar' | 'tabs'>>(() =>
+  props.calendarPosition === 'end'
+    ? ['tabs', 'calendar']
+    : ['calendar', 'tabs'],
+)
 
 function datesForMode(mode: DateTabsMode) {
   return mode === 'all' ? props.availableDates : todayAndTomorrowDates.value
 }
 
-const dateGroups = computed(() => [
-  {
-    key: 'mobile',
-    mode: props.mobileTabs,
-    dates: datesForMode(props.mobileTabs)
-  },
-  {
-    key: 'desktop',
-    mode: props.desktopTabs,
-    dates: datesForMode(props.desktopTabs)
-  }
-].map(group => ({
-  ...group,
-  rovingDate: group.dates.includes(props.selectedDate) ? props.selectedDate : group.dates[0]
-})))
+const dateGroups = computed(() =>
+  [
+    {
+      key: 'mobile',
+      mode: props.mobileTabs,
+      dates: datesForMode(props.mobileTabs),
+    },
+    {
+      key: 'desktop',
+      mode: props.desktopTabs,
+      dates: datesForMode(props.desktopTabs),
+    },
+  ].map((group) => ({
+    ...group,
+    rovingDate: group.dates.includes(props.selectedDate)
+      ? props.selectedDate
+      : group.dates[0],
+  })),
+)
 
-function selectAdjacentDate(event: KeyboardEvent, index: number, dates: string[]) {
+function selectAdjacentDate(
+  event: KeyboardEvent,
+  index: number,
+  dates: string[],
+) {
   if (dates.length === 0) return
 
   let nextIndex: number | undefined
   if (event.key === 'ArrowRight') nextIndex = (index + 1) % dates.length
-  else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + dates.length) % dates.length
+  else if (event.key === 'ArrowLeft')
+    nextIndex = (index - 1 + dates.length) % dates.length
   else if (event.key === 'Home') nextIndex = 0
   else if (event.key === 'End') nextIndex = dates.length - 1
   if (nextIndex === undefined) return
@@ -71,12 +87,15 @@ function selectAdjacentDate(event: KeyboardEvent, index: number, dates: string[]
   emit('select', nextDate)
   const currentTarget = event.currentTarget
   if (!(currentTarget instanceof HTMLElement)) return
-  const tabs = currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+  const tabs =
+    currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+      '[role="tab"]',
+    )
   nextTick(() => tabs?.[nextIndex]?.focus())
 }
 
 defineExpose({
-  getTriggerElement: () => calendarTrigger.value
+  getTriggerElement: () => calendarTrigger.value,
 })
 </script>
 

@@ -16,7 +16,7 @@ const movie = {
   overview: '  Une histoire de cinéma.  ',
   release_date: '2026-08-20',
   french_release_date: null,
-  genres: ['Drame']
+  genres: ['Drame'],
 }
 
 function showtime(id: string, start: string): Showtime {
@@ -31,7 +31,7 @@ function showtime(id: string, start: string): Showtime {
     language: 'VOSTFR',
     format: '2D',
     room: '1',
-    booking_url: null
+    booking_url: null,
   }
 }
 
@@ -53,8 +53,8 @@ function fixture(): MovieShowtimesResponse {
         city_slug: 'paris',
         showtimes: [
           showtime('shared-id', '2026-08-29T18:00:00+02:00'),
-          showtime('ugc-2', '2026-08-29T20:00:00+02:00')
-        ]
+          showtime('ugc-2', '2026-08-29T20:00:00+02:00'),
+        ],
       },
       {
         provider: 'pathe',
@@ -63,7 +63,7 @@ function fixture(): MovieShowtimesResponse {
         name: 'Pathé Wepler',
         city: 'Paris',
         city_slug: 'paris',
-        showtimes: [showtime('shared-id', '2026-08-29T19:00:00+02:00')]
+        showtimes: [showtime('shared-id', '2026-08-29T19:00:00+02:00')],
       },
       {
         provider: 'cgr',
@@ -72,9 +72,9 @@ function fixture(): MovieShowtimesResponse {
         name: 'CGR vide',
         city: 'Paris',
         city_slug: 'paris',
-        showtimes: []
-      }
-    ]
+        showtimes: [],
+      },
+    ],
   }
 }
 
@@ -86,7 +86,7 @@ test('builds compact shared-reference graph and retains every showtime without m
     movieUrl,
     siteUrl: 'https://messeances.fr',
     datePublished: '2026-08-20',
-    tmdbUrl: 'https://www.themoviedb.org/movie/42'
+    tmdbUrl: 'https://www.themoviedb.org/movie/42',
   })
 
   assert.deepEqual(schedule, before)
@@ -104,51 +104,94 @@ test('builds compact shared-reference graph and retains every showtime without m
     genre: ['Drame'],
     image: [
       'https://image.tmdb.org/t/p/w500/poster.jpg',
-      'https://image.tmdb.org/t/p/w780/backdrop.jpg'
+      'https://image.tmdb.org/t/p/w780/backdrop.jpg',
     ],
-    sameAs: 'https://www.themoviedb.org/movie/42'
+    sameAs: 'https://www.themoviedb.org/movie/42',
   })
 
-  const theaters = document['@graph'].filter((node) => node['@type'] === 'MovieTheater')
+  const theaters = document['@graph'].filter(
+    (node) => node['@type'] === 'MovieTheater',
+  )
   assert.deepEqual(theaters, [
-    { '@type': 'MovieTheater', '@id': 'https://messeances.fr/cinema/ugc-les-halles#cinema', name: 'UGC Les Halles', url: 'https://messeances.fr/cinema/ugc-les-halles' },
-    { '@type': 'MovieTheater', '@id': 'https://messeances.fr/cinema/pathe-wepler#cinema', name: 'Pathé Wepler', url: 'https://messeances.fr/cinema/pathe-wepler' }
+    {
+      '@type': 'MovieTheater',
+      '@id': 'https://messeances.fr/cinema/ugc-les-halles#cinema',
+      name: 'UGC Les Halles',
+      url: 'https://messeances.fr/cinema/ugc-les-halles',
+    },
+    {
+      '@type': 'MovieTheater',
+      '@id': 'https://messeances.fr/cinema/pathe-wepler#cinema',
+      name: 'Pathé Wepler',
+      url: 'https://messeances.fr/cinema/pathe-wepler',
+    },
   ])
-  assert.equal(new Set(theaters.map((theater) => theater['@id'])).size, theaters.length)
+  assert.equal(
+    new Set(theaters.map((theater) => theater['@id'])).size,
+    theaters.length,
+  )
 
-  const events = document['@graph'].filter((node) => node['@type'] === 'ScreeningEvent')
+  const events = document['@graph'].filter(
+    (node) => node['@type'] === 'ScreeningEvent',
+  )
   assert.equal(events.length, 3)
   for (const event of events) {
-    assert.deepEqual(Object.keys(event).sort(), ['@type', 'endDate', 'location', 'startDate', 'workPresented'].sort())
+    assert.deepEqual(
+      Object.keys(event).sort(),
+      ['@type', 'endDate', 'location', 'startDate', 'workPresented'].sort(),
+    )
     assert.deepEqual(event.workPresented, { '@id': `${movieUrl}#movie` })
   }
-  assert.deepEqual(events.map((event) => event.location?.['@id']), [
-    'https://messeances.fr/cinema/ugc-les-halles#cinema',
-    'https://messeances.fr/cinema/ugc-les-halles#cinema',
-    'https://messeances.fr/cinema/pathe-wepler#cinema'
-  ])
-  assert.deepEqual(events.map((event) => event.startDate), [
-    '2026-08-29T18:00:00+02:00',
-    '2026-08-29T20:00:00+02:00',
-    '2026-08-29T19:00:00+02:00'
-  ])
+  assert.deepEqual(
+    events.map((event) => event.location?.['@id']),
+    [
+      'https://messeances.fr/cinema/ugc-les-halles#cinema',
+      'https://messeances.fr/cinema/ugc-les-halles#cinema',
+      'https://messeances.fr/cinema/pathe-wepler#cinema',
+    ],
+  )
+  assert.deepEqual(
+    events.map((event) => event.startDate),
+    [
+      '2026-08-29T18:00:00+02:00',
+      '2026-08-29T20:00:00+02:00',
+      '2026-08-29T19:00:00+02:00',
+    ],
+  )
 })
 
 test('keeps breadcrumb identities and serializes script-breaking characters safely', () => {
   const document = buildFilmJsonLd(fixture(), {
     movieUrl: 'https://messeances.fr/film/film-42',
-    siteUrl: 'https://messeances.fr/base-path'
+    siteUrl: 'https://messeances.fr/base-path',
   })
-  const breadcrumb = document['@graph'].find((node) => node['@type'] === 'BreadcrumbList')
+  const breadcrumb = document['@graph'].find(
+    (node) => node['@type'] === 'BreadcrumbList',
+  )
 
   assert.deepEqual(breadcrumb, {
     '@type': 'BreadcrumbList',
     '@id': 'https://messeances.fr/film/film-42#breadcrumb',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Accueil', item: 'https://messeances.fr/' },
-      { '@type': 'ListItem', position: 2, name: 'Films', item: 'https://messeances.fr/films' },
-      { '@type': 'ListItem', position: 3, name: movie.title, item: 'https://messeances.fr/film/film-42' }
-    ]
+      {
+        '@type': 'ListItem',
+        position: 1,
+        name: 'Accueil',
+        item: 'https://messeances.fr/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Films',
+        item: 'https://messeances.fr/films',
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: movie.title,
+        item: 'https://messeances.fr/film/film-42',
+      },
+    ],
   })
 
   const serialized = serializeJsonLd(document)
@@ -163,9 +206,15 @@ test('keeps unknown Megarama events but omits their endDate without recomputing 
   const theater = schedule.theaters[0]!
   const unknown = { ...theater.showtimes[0]!, provider: 'megarama' as const }
   unknown.end_time = unknown.start_time
-  theater.showtimes = [unknown, { ...unknown, id: 'known', end_time: '2026-08-29T20:10:00+02:00' }]
+  theater.showtimes = [
+    unknown,
+    { ...unknown, id: 'known', end_time: '2026-08-29T20:10:00+02:00' },
+  ]
   schedule.theaters = [theater]
-  const events = buildFilmJsonLd(schedule, { movieUrl: 'https://messeances.fr/film/film-42', siteUrl: 'https://messeances.fr' })['@graph'].filter((node) => node['@type'] === 'ScreeningEvent')
+  const events = buildFilmJsonLd(schedule, {
+    movieUrl: 'https://messeances.fr/film/film-42',
+    siteUrl: 'https://messeances.fr',
+  })['@graph'].filter((node) => node['@type'] === 'ScreeningEvent')
   assert.equal(events.length, 2)
   assert.equal(events[0]!.startDate, unknown.start_time)
   assert.equal(Object.hasOwn(events[0]!, 'endDate'), false)
@@ -175,28 +224,43 @@ test('keeps unknown Megarama events but omits their endDate without recomputing 
 test('estimated and unknown events omit endDate with absent, source and enriched runtime', () => {
   for (const runtime of [0, 93, 118]) {
     for (const provider of ['cineville', 'mk2'] as const) {
-    const schedule = fixture()
-    schedule.movie.runtime_minutes = runtime
-    const theater = schedule.theaters[0]!
-    theater.provider = provider
-    theater.id = provider === 'mk2' ? 'mk2-0004' : 'cineville-707'
-    theater.slug = theater.id
-    const showing = { ...theater.showtimes[0]!, provider, language: provider === 'mk2' ? '' as const : 'VF' as const, room: '', movie: { ...movie, runtime_minutes: runtime } }
-    theater.showtimes = [
-      { ...showing, end_time: showing.start_time },
-      { ...showing, id: 'estimated', end_time: showing.start_time, estimated_end_time: '2026-08-29T18:13:00Z', estimated_end_ads_minutes: 15 },
-      { ...showing, id: 'invalid', end_time: 'invalid' }
-    ]
-    schedule.theaters = [theater]
-    const graph = buildFilmJsonLd(schedule, { movieUrl: 'https://messeances.fr/film/film-42', siteUrl: 'https://messeances.fr' })['@graph']
-    const events = graph.filter((node) => node['@type'] === 'ScreeningEvent')
-    assert.equal(events.length, 3)
-    for (const event of events) {
-      assert.equal(event.startDate, showing.start_time)
-      assert.equal(Object.hasOwn(event, 'endDate'), false)
-    }
-    const movieNode = graph.find((node) => node['@type'] === 'Movie')!
-    assert.equal(movieNode.duration, runtime ? `PT${runtime}M` : undefined)
+      const schedule = fixture()
+      schedule.movie.runtime_minutes = runtime
+      const theater = schedule.theaters[0]!
+      theater.provider = provider
+      theater.id = provider === 'mk2' ? 'mk2-0004' : 'cineville-707'
+      theater.slug = theater.id
+      const showing = {
+        ...theater.showtimes[0]!,
+        provider,
+        language: provider === 'mk2' ? ('' as const) : ('VF' as const),
+        room: '',
+        movie: { ...movie, runtime_minutes: runtime },
+      }
+      theater.showtimes = [
+        { ...showing, end_time: showing.start_time },
+        {
+          ...showing,
+          id: 'estimated',
+          end_time: showing.start_time,
+          estimated_end_time: '2026-08-29T18:13:00Z',
+          estimated_end_ads_minutes: 15,
+        },
+        { ...showing, id: 'invalid', end_time: 'invalid' },
+      ]
+      schedule.theaters = [theater]
+      const graph = buildFilmJsonLd(schedule, {
+        movieUrl: 'https://messeances.fr/film/film-42',
+        siteUrl: 'https://messeances.fr',
+      })['@graph']
+      const events = graph.filter((node) => node['@type'] === 'ScreeningEvent')
+      assert.equal(events.length, 3)
+      for (const event of events) {
+        assert.equal(event.startDate, showing.start_time)
+        assert.equal(Object.hasOwn(event, 'endDate'), false)
+      }
+      const movieNode = graph.find((node) => node['@type'] === 'Movie')!
+      assert.equal(movieNode.duration, runtime ? `PT${runtime}M` : undefined)
     }
   }
 })

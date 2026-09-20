@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import { Check, Copy, LoaderCircle, Share2 } from '@lucide/vue'
 import { withSharedTheaterSelection } from '~/utils/sharedTheaterSelection'
-import { isValidShortLinkCode, isValidShortLinkTarget } from '~/utils/shortLinkTarget'
+import {
+  isValidShortLinkCode,
+  isValidShortLinkTarget,
+} from '~/utils/shortLinkTarget'
 
 type PreparationState = 'idle' | 'pending' | 'ready' | 'error'
 
-const props = withDefaults(defineProps<{
-  appearance?: 'compact' | 'hero'
-  target?: string
-  theaterIds?: readonly string[]
-}>(), {
-  appearance: 'compact'
-})
+const props = withDefaults(
+  defineProps<{
+    appearance?: 'compact' | 'hero'
+    target?: string
+    theaterIds?: readonly string[]
+  }>(),
+  {
+    appearance: 'compact',
+  },
+)
 
 const route = useRoute()
 const api = useMesSeancesApi()
@@ -30,7 +36,9 @@ const popupLeft = ref(16)
 const popupTop = ref(0)
 const popupId = useId()
 const target = computed(() => props.target ?? route.fullPath)
-const theaterIds = computed(() => props.theaterIds ?? pageSelection.activeTheaterIds.value)
+const theaterIds = computed(
+  () => props.theaterIds ?? pageSelection.activeTheaterIds.value,
+)
 let requestSequence = 0
 let popupFocusSequence = 0
 let isInitializingForShare = false
@@ -45,12 +53,21 @@ const displayUrl = computed(() => {
   }
 })
 
-const popupStyle = computed(() => ({ left: `${popupLeft.value}px`, top: `${popupTop.value}px` }))
+const popupStyle = computed(() => ({
+  left: `${popupLeft.value}px`,
+  top: `${popupTop.value}px`,
+}))
 
-watch([() => route.fullPath, () => props.target, () => props.theaterIds?.join(',')], () => reset())
-watch(() => pageSelection.activeTheaterIds.value.join(','), () => {
-  if (!isInitializingForShare && props.theaterIds === undefined) reset()
-})
+watch(
+  [() => route.fullPath, () => props.target, () => props.theaterIds?.join(',')],
+  () => reset(),
+)
+watch(
+  () => pageSelection.activeTheaterIds.value.join(','),
+  () => {
+    if (!isInitializingForShare && props.theaterIds === undefined) reset()
+  },
+)
 
 function clearCopyFeedback() {
   copied.value = false
@@ -82,7 +99,10 @@ async function updatePopupPosition() {
   if (!rootRect || !popupRect) return
 
   const gutter = 16
-  const maximumLeft = Math.max(gutter, window.innerWidth - gutter - popupRect.width)
+  const maximumLeft = Math.max(
+    gutter,
+    window.innerWidth - gutter - popupRect.width,
+  )
   const rightAlignedLeft = rootRect.right - popupRect.width
   popupLeft.value = Math.min(Math.max(rightAlignedLeft, gutter), maximumLeft)
   popupTop.value = rootRect.bottom + 8
@@ -124,22 +144,31 @@ async function prepareLink() {
   }
   if (currentRequest !== requestSequence) return
 
-  const preparedTarget = withSharedTheaterSelection(target.value, theaterIds.value)
+  const preparedTarget = withSharedTheaterSelection(
+    target.value,
+    theaterIds.value,
+  )
   if (!pageSelection.isInitialized.value || preparedTarget === null) {
     preparationState.value = 'error'
-    preparationError.value = 'Aucun cinéma ne peut être partagé. Vérifiez votre sélection puis réessayez.'
+    preparationError.value =
+      'Aucun cinéma ne peut être partagé. Vérifiez votre sélection puis réessayez.'
     return
   }
   if (!isValidShortLinkTarget(preparedTarget)) {
     preparationState.value = 'error'
-    preparationError.value = 'Cette page ne peut pas être partagée. Vérifiez l’adresse puis réessayez.'
+    preparationError.value =
+      'Cette page ne peut pas être partagée. Vérifiez l’adresse puis réessayez.'
     return
   }
 
   try {
     const response = await api.createShortLink(preparedTarget)
     if (currentRequest !== requestSequence) return
-    if (response.target !== preparedTarget || !isValidShortLinkCode(response.code)) throw new Error('Invalid shortlink response')
+    if (
+      response.target !== preparedTarget ||
+      !isValidShortLinkCode(response.code)
+    )
+      throw new Error('Invalid shortlink response')
     shortUrl.value = `${window.location.origin}/s/${response.code}`
     preparationState.value = 'ready'
     liveMessage.value = 'Lien prêt à être copié.'
@@ -161,13 +190,18 @@ async function copyLink() {
     liveMessage.value = 'Lien copié.'
   } catch {
     copied.value = false
-    copyError.value = 'Le lien n’a pas pu être copié. Autorisez le presse-papiers puis réessayez.'
+    copyError.value =
+      'Le lien n’a pas pu être copié. Autorisez le presse-papiers puis réessayez.'
   }
 }
 
 function handleDocumentPointerDown(event: PointerEvent) {
   if (!isOpen.value || !(event.target instanceof Node)) return
-  if (!root.value?.contains(event.target) && !popup.value?.contains(event.target)) closePopup()
+  if (
+    !root.value?.contains(event.target) &&
+    !popup.value?.contains(event.target)
+  )
+    closePopup()
 }
 
 function handleDocumentKeydown(event: KeyboardEvent) {
@@ -198,7 +232,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="share-control relative z-20 inline-block size-11 shrink-0 basis-11" :class="props.appearance === 'hero' ? 'size-12 basis-12' : ''">
+  <div
+    ref="root"
+    class="share-control relative z-20 inline-block size-11 shrink-0 basis-11"
+    :class="props.appearance === 'hero' ? 'size-12 basis-12' : ''"
+  >
     <button
       ref="trigger"
       type="button"
@@ -224,19 +262,43 @@ onBeforeUnmount(() => {
         aria-label="Partager cette page"
         tabindex="-1"
       >
-        <div v-if="preparationState === 'pending'" class="flex min-h-11 items-center gap-[0.65rem] text-[0.8rem] font-extrabold" role="status" aria-live="polite">
-          <LoaderCircle :size="18" class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <div
+          v-if="preparationState === 'pending'"
+          class="flex min-h-11 items-center gap-[0.65rem] text-[0.8rem] font-extrabold"
+          role="status"
+          aria-live="polite"
+        >
+          <LoaderCircle
+            :size="18"
+            class="animate-spin motion-reduce:animate-none"
+            aria-hidden="true"
+          />
           <span>Préparation du lien…</span>
         </div>
 
-        <div v-else-if="preparationState === 'error'" class="grid gap-3 text-[0.78rem] leading-[1.35] font-extrabold text-primary">
+        <div
+          v-else-if="preparationState === 'error'"
+          class="grid gap-3 text-[0.78rem] leading-[1.35] font-extrabold text-primary"
+        >
           <p role="alert">{{ preparationError }}</p>
-          <button type="button" class="min-h-11 w-fit border-2 border-ink bg-surface px-[0.8rem] py-[0.55rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-ink uppercase hover:bg-[#ffcf3f] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent" @click="prepareLink">Réessayer</button>
+          <button
+            type="button"
+            class="min-h-11 w-fit border-2 border-ink bg-surface px-[0.8rem] py-[0.55rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-ink uppercase hover:bg-[#ffcf3f] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
+            @click="prepareLink"
+          >
+            Réessayer
+          </button>
         </div>
 
         <template v-else-if="preparationState === 'ready'">
           <div class="flex min-w-0 items-stretch">
-            <span class="block min-w-0 flex-auto overflow-hidden border-2 border-r-0 border-ink bg-[#f1efe8] px-[0.7rem] font-mono text-[0.72rem] leading-10 font-extrabold text-ellipsis whitespace-nowrap" :title="displayUrl">{{ displayUrl }}</span>
+            <span
+              class="block min-w-0 flex-auto overflow-hidden border-2 border-r-0 border-ink bg-[#f1efe8] px-[0.7rem] font-mono text-[0.72rem] leading-10 font-extrabold text-ellipsis whitespace-nowrap"
+              :title="displayUrl"
+              >{{
+                displayUrl
+              }}</span
+            >
             <button
               type="button"
               class="inline-flex size-11 shrink-0 basis-11 items-center justify-center border-2 border-ink bg-surface p-0 text-ink hover:bg-[#ffcf3f] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
@@ -247,7 +309,13 @@ onBeforeUnmount(() => {
               <Copy v-else :size="18" aria-hidden="true" />
             </button>
           </div>
-          <p v-if="copyError" class="mt-[0.65rem] text-xs leading-[1.35] font-extrabold text-primary" role="alert">{{ copyError }}</p>
+          <p
+            v-if="copyError"
+            class="mt-[0.65rem] text-xs leading-[1.35] font-extrabold text-primary"
+            role="alert"
+          >
+            {{ copyError }}
+          </p>
         </template>
 
         <p class="sr-only" aria-live="polite">{{ liveMessage }}</p>

@@ -1,9 +1,34 @@
 export type QueryLanguage = 'ALL' | 'ORIGINAL' | 'VOF' | 'VOSTFR' | 'VF'
 export type ShowtimeLanguage = '' | 'VOSTFR' | 'VF' | 'VO' | 'VF_SME' | 'VFSTF'
-export type ShowtimeFormat = '2D' | '3D' | 'IMAX' | 'DOLBY' | 'SCREENX' | 'LASER_ULTRA' | '4DX' | 'ICE' | 'INFINITY_VISION'
+export type ShowtimeFormat =
+  | '2D'
+  | '3D'
+  | 'IMAX'
+  | 'DOLBY'
+  | 'SCREENX'
+  | 'LASER_ULTRA'
+  | '4DX'
+  | 'ICE'
+  | 'INFINITY_VISION'
 export type QueryFormat = 'ALL' | ShowtimeFormat
-export type Provider = 'ugc' | 'kinepolis' | 'pathe' | 'cgr' | 'megarama' | 'cineville' | 'mk2' | 'cinewest' | 'grandecran' | 'noecinemas'
-export type MovieSort = 'title_asc' | 'title_desc' | 'release_date_desc' | 'runtime_asc' | 'runtime_desc' | 'showtimes_desc'
+export type Provider =
+  | 'ugc'
+  | 'kinepolis'
+  | 'pathe'
+  | 'cgr'
+  | 'megarama'
+  | 'cineville'
+  | 'mk2'
+  | 'cinewest'
+  | 'grandecran'
+  | 'noecinemas'
+export type MovieSort =
+  | 'title_asc'
+  | 'title_desc'
+  | 'release_date_desc'
+  | 'runtime_asc'
+  | 'runtime_desc'
+  | 'showtimes_desc'
 export type MovieDurationFilter = 'short' | 'medium' | 'long'
 
 export type Language = QueryLanguage
@@ -21,15 +46,54 @@ export interface StatisticsQuery {
   pass?: string
 }
 
-export interface StatisticsDateRange { from: string; through: string }
-export interface StatisticsBucket { value: string; label: string; count: number }
-export interface StatisticsMovieRank { slug: string; title: string; showtime_count: number; theater_count: number }
-export interface StatisticsCityRank { slug: string; name: string; showtime_count: number; movie_count: number; theater_count: number }
-export interface StatisticsTheaterRank { id: string; slug: string; name: string; city: string; city_slug: string; chain: Provider; showtime_count: number; movie_count: number }
-export interface StatisticsHeatmapCell { weekday: number; hour: number; showtime_count: number }
+export interface StatisticsDateRange {
+  from: string
+  through: string
+}
+export interface StatisticsBucket {
+  value: string
+  label: string
+  count: number
+}
+export interface StatisticsMovieRank {
+  slug: string
+  title: string
+  showtime_count: number
+  theater_count: number
+}
+export interface StatisticsCityRank {
+  slug: string
+  name: string
+  showtime_count: number
+  movie_count: number
+  theater_count: number
+}
+export interface StatisticsTheaterRank {
+  id: string
+  slug: string
+  name: string
+  city: string
+  city_slug: string
+  chain: Provider
+  showtime_count: number
+  movie_count: number
+}
+export interface StatisticsHeatmapCell {
+  weekday: number
+  hour: number
+  showtime_count: number
+}
 export interface StatisticsOptions {
   cities: { slug: string; name: string }[]
-  theaters: { id: string; slug: string; name: string; city: string; city_slug: string; chain: Provider; passes: string[] }[]
+  theaters: {
+    id: string
+    slug: string
+    name: string
+    city: string
+    city_slug: string
+    chain: Provider
+    passes: string[]
+  }[]
   chains: Provider[]
   languages: string[]
   formats: string[]
@@ -40,21 +104,42 @@ export interface StatisticsResponse {
   generated_at: string
   timezone: 'Europe/Paris'
   range: StatisticsDateRange
-  coverage: { snapshot_window: StatisticsDateRange; intersection: StatisticsDateRange | null; completeness: 'unknown'; stale: boolean }
+  coverage: {
+    snapshot_window: StatisticsDateRange
+    intersection: StatisticsDateRange | null
+    completeness: 'unknown'
+    stale: boolean
+  }
   options: StatisticsOptions
-  totals: { showtimes: number; movies: number; theaters: number; cities: number }
-  top_movies: { by_showtimes: StatisticsMovieRank[]; by_theaters: StatisticsMovieRank[] }
+  totals: {
+    showtimes: number
+    movies: number
+    theaters: number
+    cities: number
+  }
+  top_movies: {
+    by_showtimes: StatisticsMovieRank[]
+    by_theaters: StatisticsMovieRank[]
+  }
   heatmap: StatisticsHeatmapCell[]
   versions: StatisticsBucket[]
   formats: StatisticsBucket[]
   genres: StatisticsBucket[]
   runtimes: StatisticsBucket[]
   local: { cities: StatisticsCityRank[]; theaters: StatisticsTheaterRank[] }
-  concentration: { top_movie_count: number; top_showtime_count: number; other_showtime_count: number }
+  concentration: {
+    top_movie_count: number
+    top_showtime_count: number
+    other_showtime_count: number
+  }
 }
 
 export type HistoryOptionKind = 'city' | 'theater' | 'genre' | 'pass'
-export interface HistoryOptionsQuery { kind: HistoryOptionKind; q?: string; selected?: string[] }
+export interface HistoryOptionsQuery {
+  kind: HistoryOptionKind
+  q?: string
+  selected?: string[]
+}
 export interface HistoryOptionsResponse {
   items: { value: string; label: string }[]
   selected: { value: string; label: string }[]
@@ -66,7 +151,8 @@ export interface HistoryProviderCoverage {
   last_publication_at: string
   source_generated_at: string
 }
-export interface HistoryStatisticsResponse extends Omit<StatisticsResponse, 'range' | 'coverage'> {
+export interface HistoryStatisticsResponse
+  extends Omit<StatisticsResponse, 'range' | 'coverage'> {
   mode: 'history'
   range: StatisticsDateRange | null
   coverage: {
@@ -78,7 +164,12 @@ export interface HistoryStatisticsResponse extends Omit<StatisticsResponse, 'ran
     providers: HistoryProviderCoverage[]
   }
   limits: {
-    options: { cities: boolean; theaters: boolean; genres: boolean; passes: boolean }
+    options: {
+      cities: boolean
+      theaters: boolean
+      genres: boolean
+      passes: boolean
+    }
     genres: boolean
     local: { cities: boolean; theaters: boolean }
   }
@@ -188,12 +279,18 @@ export const adminMovieFields = [
   'poster_url',
   'backdrop_url',
   'trailer_vf_youtube_key',
-  'trailer_vo_youtube_key'
+  'trailer_vo_youtube_key',
 ] as const
 
-export type AdminMovieField = typeof adminMovieFields[number]
+export type AdminMovieField = (typeof adminMovieFields)[number]
 export type AdminMovieOverrideStatus = 'all' | 'overridden' | 'automatic'
-export type AdminMovieSort = 'title' | 'runtime_minutes' | 'release_date' | 'showtime_count' | 'updated_at' | 'id'
+export type AdminMovieSort =
+  | 'title'
+  | 'runtime_minutes'
+  | 'release_date'
+  | 'showtime_count'
+  | 'updated_at'
+  | 'id'
 export type AdminMovieSortDirection = 'asc' | 'desc'
 
 export interface AdminMovieMetadata {
@@ -305,7 +402,10 @@ export interface AdminTheaterLocationResolutionResponse {
 }
 
 export type AdminTheaterGeocodingState = 'running' | 'succeeded' | 'failed'
-export type AdminTheaterGeocodingFailureCode = 'run_failed' | 'canceled' | 'internal_failure'
+export type AdminTheaterGeocodingFailureCode =
+  | 'run_failed'
+  | 'canceled'
+  | 'internal_failure'
 
 export interface AdminTheaterGeocodingSummary {
   selected: number
@@ -340,7 +440,11 @@ export interface AdminTMDBCandidate {
   detail_url: string
 }
 
-export type AdminPendingMatchStatus = 'review_required' | 'unmatched' | 'rejected' | 'matched'
+export type AdminPendingMatchStatus =
+  | 'review_required'
+  | 'unmatched'
+  | 'rejected'
+  | 'matched'
 export type AdminPendingMatchesFilter = 'unresolved' | 'rejected' | 'matched'
 
 export interface AdminPendingMatch {
@@ -426,9 +530,18 @@ export interface AdminTMDBMetadataRefreshResponse {
   job: AdminTMDBMetadataRefreshJob | null
 }
 
-export type UpcomingReviewReason = 'limited_only' | 'non_theatrical_before_or_same_day' | 'broadcaster_theatrical_note' | 'single_screening_note'
+export type UpcomingReviewReason =
+  | 'limited_only'
+  | 'non_theatrical_before_or_same_day'
+  | 'broadcaster_theatrical_note'
+  | 'single_screening_note'
 export type UpcomingReviewDecision = 'unreviewed' | 'approved' | 'excluded'
-export type UpcomingReviewFilter = 'needs_review' | 'pending_assessment' | 'approved' | 'excluded' | 'all'
+export type UpcomingReviewFilter =
+  | 'needs_review'
+  | 'pending_assessment'
+  | 'approved'
+  | 'excluded'
+  | 'all'
 
 export interface FrenchReleaseRow {
   type: 1 | 2 | 3 | 4 | 5 | 6
@@ -529,12 +642,35 @@ export interface AdminUnmergeLocalMovieResponse {
 export type AdminSyncTarget = 'all' | Provider
 export type AdminSyncState = 'running' | 'succeeded' | 'failed'
 export type AdminSyncTrigger = 'manual' | 'scheduled'
-export type AdminSyncProviderState = 'not_requested' | 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
-export type AdminSyncFailureCode = 'none' | 'client_creation_failed' | 'provider_sync_failed' | 'dataset_rejected' | 'replacement_failed' | 'canceled' | 'internal_failure'
+export type AdminSyncProviderState =
+  | 'not_requested'
+  | 'pending'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'skipped'
+export type AdminSyncFailureCode =
+  | 'none'
+  | 'client_creation_failed'
+  | 'provider_sync_failed'
+  | 'dataset_rejected'
+  | 'replacement_failed'
+  | 'canceled'
+  | 'internal_failure'
 export type AdminSyncEnrichmentState = 'skipped' | 'complete' | 'degraded'
 export type AdminSyncScheduleKind = 'daily' | 'weekly' | 'cron'
-export type AdminSyncWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
-export type AdminSyncScheduleTarget = Provider | 'tmdb_metadata_refresh' | 'tmdb_upcoming_movies'
+export type AdminSyncWeekday =
+  | 'mon'
+  | 'tue'
+  | 'wed'
+  | 'thu'
+  | 'fri'
+  | 'sat'
+  | 'sun'
+export type AdminSyncScheduleTarget =
+  | Provider
+  | 'tmdb_metadata_refresh'
+  | 'tmdb_upcoming_movies'
 
 export interface AdminSyncOccurrence {
   schedule_id: string
@@ -559,7 +695,10 @@ export interface AdminCronSyncSchedule {
   expression: string
 }
 
-export type AdminSyncSchedule = AdminDailySyncSchedule | AdminWeeklySyncSchedule | AdminCronSyncSchedule
+export type AdminSyncSchedule =
+  | AdminDailySyncSchedule
+  | AdminWeeklySyncSchedule
+  | AdminCronSyncSchedule
 
 export interface AdminSyncScheduleItem {
   id: string
@@ -756,7 +895,9 @@ export interface UpcomingMoviesQuery {
   page?: number
 }
 
-export type UpcomingCatalogMovie = CatalogMovie & { french_release_date: string }
+export type UpcomingCatalogMovie = CatalogMovie & {
+  french_release_date: string
+}
 
 export interface UpcomingMoviesResponse {
   generated_at: string

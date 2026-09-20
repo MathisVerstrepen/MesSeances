@@ -9,9 +9,21 @@ const websiteId = `${rootUrl}#website`
 const globalGraph: JsonLdDocument = {
   '@context': 'https://schema.org',
   '@graph': [
-    { '@type': 'Organization', '@id': organizationId, name: 'MesSeances', url: rootUrl },
-    { '@type': 'WebSite', '@id': websiteId, name: 'MesSeances', url: rootUrl, inLanguage: 'fr-FR', publisher: { '@id': organizationId } }
-  ]
+    {
+      '@type': 'Organization',
+      '@id': organizationId,
+      name: 'MesSeances',
+      url: rootUrl,
+    },
+    {
+      '@type': 'WebSite',
+      '@id': websiteId,
+      name: 'MesSeances',
+      url: rootUrl,
+      inLanguage: 'fr-FR',
+      publisher: { '@id': organizationId },
+    },
+  ],
 }
 const globalJsonLd = serializeJsonLd(globalGraph)
 const umamiScriptUrl = config.public.umamiScriptUrl.trim()
@@ -21,9 +33,16 @@ useHead({
   script: [
     { type: 'application/ld+json', innerHTML: globalJsonLd },
     ...(umamiScriptUrl && umamiWebsiteId
-      ? [{ key: 'umami-analytics', defer: true, src: umamiScriptUrl, 'data-website-id': umamiWebsiteId }]
-      : [])
-  ]
+      ? [
+          {
+            key: 'umami-analytics',
+            defer: true,
+            src: umamiScriptUrl,
+            'data-website-id': umamiWebsiteId,
+          },
+        ]
+      : []),
+  ],
 })
 </script>
 
