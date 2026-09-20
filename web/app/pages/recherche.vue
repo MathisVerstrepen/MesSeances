@@ -6,6 +6,7 @@ import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { addCalendarDays, createServiceTimeOptions, formatLongDate, todayInParis } from '~/utils/date'
 import { formatLabel } from '~/utils/formats'
 import { calendarDate, enumQueryValue, mergeOwnedQuery, queriesEqual, singularQueryValue } from '~/utils/routeQuery'
+import { buildSearchMetaDescription } from '~/utils/searchMetadata'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { languageLabel, queryFormatOptions, queryFormatValues, queryLanguageOptions, queryLanguageValues } from '~/utils/showtimeFilters'
@@ -611,11 +612,16 @@ async function submitSearch() {
 const config = useRuntimeConfig()
 const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/recherche')
 const pageTitle = 'Trouver une séance - MesSeances'
-const pageDescription = 'Trouvez les séances qui tiennent entièrement dans votre créneau horaire.'
+const pageDescription = computed(() => buildSearchMetaDescription(route.query))
 
 useSeoMeta({
   title: pageTitle,
-  description: pageDescription,
+  description: () => pageDescription.value,
+  ogTitle: pageTitle,
+  ogDescription: () => pageDescription.value,
+  twitterCard: 'summary',
+  twitterTitle: pageTitle,
+  twitterDescription: () => pageDescription.value,
   robots: 'noindex,follow'
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
