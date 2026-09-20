@@ -2,12 +2,221 @@ package cineville
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"messeances/api/internal/schedule"
 )
+
+type alternateVADBoundaryCase struct {
+	name        string
+	raw         json.RawMessage
+	decodeError bool
+}
+
+// Shared wire cases pin both film classification and Sync's fail-closed behavior.
+func alternateVADBoundaryCases(t *testing.T) []alternateVADBoundaryCase {
+	t.Helper()
+	var tests []alternateVADBoundaryCase
+	add := func(name string, decodeError bool, change func(map[string]any, map[string]any, map[string]any)) {
+		f := alternateVADFilm()
+		delete(f, "visa")
+		d := f["dates"].([]any)[0].(map[string]any)
+		s := d["showtimes"].([]any)[0].(map[string]any)
+		change(f, d, s)
+		tests = append(tests, alternateVADBoundaryCase{name, jsonBytes(t, f), decodeError})
+	}
+	for _, visa := range []string{`""`, `0`, `"1.0"`, `1.0`, `1e3`, `9223372036854775808`, `-9223372036854775809`, `true`, `{}`, `[]`} {
+		add("supplied visa "+visa, false, func(f, _, _ map[string]any) { f["visa"] = json.RawMessage(visa) })
+	}
+	for _, nullVisa := range []bool{false, true} {
+		prefix := "omitted visa/"
+		if nullVisa {
+			prefix = "null visa/"
+		}
+		for _, key := range []string{"num_visa", "idfilm_cotecine", "places_en_vente_vad", "places_vad_restantes"} {
+			add(prefix+"missing "+key, nullVisa, func(f, _, s map[string]any) {
+				if nullVisa {
+					f["visa"] = nil
+				}
+				delete(f, key)
+				delete(s, key)
+			})
+		}
+	}
+	for _, key := range []string{"num_visa", "idfilm_cotecine"} {
+		values := []string{`null`, `1`, `{}`, `true`, `[]`}
+		if key == "num_visa" {
+			values = append(values, `""`, `" \t "`)
+		}
+		for _, value := range values {
+			add(key+"="+value, false, func(f, _, _ map[string]any) { f[key] = json.RawMessage(value) })
+		}
+	}
+	for _, key := range []string{"id_seance", "salle", "ID_SEANCE", "SaLlE"} {
+		for _, value := range []string{`null`, `""`, `0`, `{}`} {
+			add("supplied "+key+"="+value, value == "null", func(_, _, s map[string]any) { s[key] = json.RawMessage(value) })
+		}
+	}
+	for _, key := range []string{"dates", "showtimes"} {
+		for _, value := range []string{"omitted", `null`, `{}`, `"invalid"`, `[null]`, `[1]`} {
+			decodeError := value == `{}` || value == `"invalid"` || value == `[1]` || (key == "showtimes" && value == `null`)
+			add(key+"="+value, decodeError, func(f, d, _ map[string]any) {
+				target := f
+				if key == "showtimes" {
+					target = d
+				}
+				if value == "omitted" {
+					delete(target, key)
+				} else {
+					target[key] = json.RawMessage(value)
+				}
+			})
+		}
+	}
+	add("mixed standard and alternate sessions", false, func(_, d, _ map[string]any) {
+		d["showtimes"] = append(d["showtimes"].([]any), fixtureFilm("1").Dates[0].Showtimes[0])
+	})
+	for _, visa := range []string{"73", "-73"} {
+		for _, key := range []string{"id_seance", "salle"} {
+			for _, value := range []string{"omitted", `null`, `""`, `0`} {
+				add("standard visa "+visa+"/"+key+"="+value, value == "null", func(f, d, _ map[string]any) {
+					f["visa"], f["titre_cotecine"], f["movie_data"] = json.RawMessage(visa), "Standard", []any{}
+					var s map[string]any
+					if err := json.Unmarshal(jsonBytes(t, fixtureFilm("1").Dates[0].Showtimes[0]), &s); err != nil {
+						t.Fatal(err)
+					}
+					s["places_en_vente_vad"], s["places_vad_restantes"] = nil, 0
+					if value == "omitted" {
+						delete(s, key)
+					} else {
+						s[key] = json.RawMessage(value)
+					}
+					d["showtimes"] = []any{s}
+				})
+			}
+		}
+	}
+	// Duplicate and case-insensitive keys must not hide a supplied standard visa.
+	raw := string(jsonBytes(t, alternateVADFilm()))
+	for _, replacement := range []string{`"VISA":0`, `"VISA":0,"visa":null`, `"visa":0,"VISA":null`, `"visa":0,"visa":null`} {
+		tests = append(tests, alternateVADBoundaryCase{replacement, json.RawMessage(strings.Replace(raw, `"visa":null`, replacement, 1)), strings.Contains(replacement, "null")})
+	}
+	return tests
+}
+
+func TestFilmAlternateVADBoundaries(t *testing.T) {
+	for _, test := range alternateVADBoundaryCases(t) {
+		t.Run(test.name, func(t *testing.T) {
+			var f film
+			err := json.Unmarshal(test.raw, &f)
+			if (err != nil) != test.decodeError || f.alternateVAD {
+				t.Fatalf("standard film bypassed decoding: skip=%t err=%v", f.alternateVAD, err)
+			}
+		})
+	}
+}
+
+func TestFilmAlternateVADClassificationAndReuse(t *testing.T) {
+	for _, name := range []string{"null visa", "omitted visa", "nonempty alternate ID", "whitespace alternate ID", "empty date alongside sessions", "arbitrary stock values", "case-insensitive fields"} {
+		t.Run(name, func(t *testing.T) {
+			candidate := alternateVADFilm()
+			switch name {
+			case "omitted visa":
+				delete(candidate, "visa")
+			case "nonempty alternate ID":
+				candidate["idfilm_cotecine"] = "alternate-film"
+			case "whitespace alternate ID":
+				candidate["idfilm_cotecine"] = " \t "
+			case "empty date alongside sessions":
+				candidate["dates"] = append(candidate["dates"].([]any), map[string]any{"showtimes": []any{}})
+			case "arbitrary stock values":
+				s := candidate["dates"].([]any)[0].(map[string]any)["showtimes"].([]any)[0].(map[string]any)
+				s["places_en_vente_vad"], s["places_vad_restantes"] = map[string]any{}, "unknown"
+			}
+			raw := jsonBytes(t, candidate)
+			if name == "case-insensitive fields" {
+				raw = []byte(strings.NewReplacer(`"visa"`, `"ViSa"`, `"dates"`, `"DATES"`, `"showtimes"`, `"SHOWTIMES"`).Replace(string(raw)))
+			}
+			f := fixtureFilm("73")
+			if err := json.Unmarshal(raw, &f); err != nil || !f.alternateVAD || f.Visa != "" || f.Dates != nil || f.Metadata != nil || f.Title != "" {
+				t.Fatalf("alternate decode retained standard data: err=%v", err)
+			}
+			standard := fixtureFilm("-73")
+			if err := json.Unmarshal(jsonBytes(t, standard), &f); err != nil || !reflect.DeepEqual(f, standard) {
+				t.Fatalf("alternate state leaked into standard film: err=%v", err)
+			}
+			if err := json.Unmarshal(raw, &f); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(`{"visa":null}`), &f); err == nil || !reflect.DeepEqual(f, film{}) {
+				t.Fatal("failed decode retained alternate state")
+			}
+		})
+	}
+	for _, dates := range []any{[]any{}, []any{map[string]any{"showtimes": []any{}}}} {
+		candidate := alternateVADFilm()
+		delete(candidate, "visa")
+		candidate["dates"] = dates
+		var f film
+		if err := json.Unmarshal(jsonBytes(t, candidate), &f); err != nil || f.alternateVAD {
+			t.Fatalf("sessionless film classified as VAD: err=%v", err)
+		}
+	}
+}
+
+func invalidShowtimesValues() []string {
+	return []string{
+		`{"result":true,"message":"synthetic-private-body"}`,
+		`{"message":"synthetic-private-body"}`,
+		`{"result":false}`,
+		`{"result":false,"message":"synthetic-private-body","extra":null}`,
+		`{"Result":false,"message":"synthetic-private-body"}`,
+		`{"result":false,"Message":"synthetic-private-body"}`,
+		`{"result":null,"message":"synthetic-private-body"}`,
+		`{"result":"false","message":"synthetic-private-body"}`,
+		`{"result":0,"message":"synthetic-private-body"}`,
+		`{"result":false,"message":null}`,
+		`{"result":false,"message":0}`,
+		`{"result":false,"message":false}`,
+		`{"result":false,"message":[]}`,
+		`{"result":false,"message":{}}`,
+		`{}`, `null`, `false`, `42`, `"synthetic-private-body"`, `[1]`,
+	}
+}
+
+func TestProgramDateShowtimesSentinel(t *testing.T) {
+	for _, raw := range []string{
+		`{"result":false,"message":"synthetic-private-body"}`,
+		`{ "message": "", "result": false }`,
+		`[]`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			date := fixtureFilm("73").Dates[0]
+			body := []byte(`{"date":20270914,"showtimes":` + raw + `}`)
+			if err := json.Unmarshal(body, &date); err != nil || date.Date != "20270914" || date.Showtimes == nil || len(date.Showtimes) != 0 {
+				t.Fatalf("empty date decode: sessions=%d nil=%t err=%v", len(date.Showtimes), date.Showtimes == nil, err)
+			}
+			standard := fixtureFilm("73").Dates[0]
+			if err := json.Unmarshal(jsonBytes(t, standard), &date); err != nil || !reflect.DeepEqual(date, standard) {
+				t.Fatalf("standard array changed after reuse: err=%v", err)
+			}
+		})
+	}
+}
+
+func TestProgramDateRejectsInvalidShowtimes(t *testing.T) {
+	for _, raw := range invalidShowtimesValues() {
+		t.Run(raw, func(t *testing.T) {
+			date := fixtureFilm("73").Dates[0]
+			if err := json.Unmarshal([]byte(`{"date":20260914,"showtimes":`+raw+`}`), &date); err == nil || date.Showtimes != nil {
+				t.Fatalf("invalid showtimes accepted or stale sessions retained: err=%v", err)
+			}
+		})
+	}
+}
 
 func TestBootstrapValidation(t *testing.T) {
 	c := fixtureCinema()

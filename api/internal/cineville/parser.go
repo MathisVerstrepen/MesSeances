@@ -45,15 +45,108 @@ type cinema struct {
 	Postal  string `json:"code_postal_1"`
 }
 type film struct {
-	Visa     scalar          `json:"visa"`
-	Title    string          `json:"titre_cotecine"`
-	Metadata json.RawMessage `json:"movie_data"`
-	Dates    []programDate   `json:"dates"`
+	Visa         scalar          `json:"visa"`
+	Title        string          `json:"titre_cotecine"`
+	Metadata     json.RawMessage `json:"movie_data"`
+	Dates        []programDate   `json:"dates"`
+	alternateVAD bool
 }
+
+func (f *film) UnmarshalJSON(b []byte) error {
+	*f = film{}
+	if isAlternateVADFilm(b) {
+		f.alternateVAD = true
+		return nil
+	}
+	type standardFilm film
+	var standard standardFilm
+	if err := json.Unmarshal(b, &standard); err != nil {
+		return err
+	}
+	*f = film(standard)
+	return nil
+}
+
+// suppliedFilmVisa remembers any non-null visa, including duplicate or differently
+// cased keys matched by encoding/json. A later null must not hide a supplied ID.
+type suppliedFilmVisa bool
+
+func (v *suppliedFilmVisa) UnmarshalJSON(b []byte) error {
+	if !bytes.Equal(bytes.TrimSpace(b), []byte("null")) {
+		*v = true
+	}
+	return nil
+}
+
+func isAlternateVADFilm(b []byte) bool {
+	var candidate struct {
+		Visa   suppliedFilmVisa `json:"visa"`
+		Number string           `json:"num_visa"`
+		ID     *string          `json:"idfilm_cotecine"`
+		Dates  []struct {
+			Showtimes []struct {
+				ID        json.RawMessage `json:"id_seance"`
+				Room      json.RawMessage `json:"salle"`
+				ForSale   json.RawMessage `json:"places_en_vente_vad"`
+				Remaining json.RawMessage `json:"places_vad_restantes"`
+			} `json:"showtimes"`
+		} `json:"dates"`
+	}
+	if json.Unmarshal(b, &candidate) != nil || candidate.Visa || strings.TrimSpace(candidate.Number) == "" || candidate.ID == nil || candidate.Dates == nil {
+		return false
+	}
+	hasSessions := false
+	for _, date := range candidate.Dates {
+		if date.Showtimes == nil {
+			return false
+		}
+		for _, s := range date.Showtimes {
+			if len(s.ID) != 0 || len(s.Room) != 0 || len(s.ForSale) == 0 || len(s.Remaining) == 0 {
+				return false
+			}
+			hasSessions = true
+		}
+	}
+	return hasSessions
+}
+
 type programDate struct {
-	Date      scalar    `json:"date"`
-	Showtimes []session `json:"showtimes"`
+	Date      scalar      `json:"date"`
+	Showtimes sessionList `json:"showtimes"`
 }
+
+type sessionList []session
+
+func (s *sessionList) UnmarshalJSON(b []byte) error {
+	*s = nil
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		return errPayload
+	}
+	if b[0] == '[' {
+		var sessions []session
+		if err := json.Unmarshal(b, &sessions); err != nil {
+			return err
+		}
+		*s = sessions
+		return nil
+	}
+	if b[0] != '{' {
+		return errPayload
+	}
+	var sentinel map[string]json.RawMessage
+	if json.Unmarshal(b, &sentinel) != nil || len(sentinel) != 2 || !bytes.Equal(bytes.TrimSpace(sentinel["result"]), []byte("false")) {
+		return errPayload
+	}
+	var message *string
+	if json.Unmarshal(sentinel["message"], &message) != nil || message == nil {
+		return errPayload
+	}
+	// An unavailable date is empty, not missing; never retain the provider message.
+	*s = sessionList{}
+	return nil
+}
+
 type session struct {
 	Cinema     scalar `json:"id_cinema"`
 	ID         scalar `json:"id_seance"`
