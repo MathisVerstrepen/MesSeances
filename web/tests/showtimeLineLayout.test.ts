@@ -14,14 +14,22 @@ test('movie-grouped mobile lines keep booking beside session details in both sco
   )
 })
 
-test('cinema chronological mobile lines place booking beside both detail rows', () => {
+test('chronological mobile lines keep booking at the end of the time row', () => {
   assert.match(
     source,
-    /scope === 'single-theater' \? 'grid-cols-\[3rem_minmax\(0,1fr\)_auto\]' : 'grid-cols-\[3rem_minmax\(0,1fr\)\]'/,
+    /grid-cols-\[3rem_minmax\(0,1fr\)_auto\] gap-x-3 gap-y-2/,
   )
+  assert.match(source, /col-start-2 self-center border-l-2 border-ink pl-3/)
   assert.match(
     source,
     /col-start-3 row-start-1 row-span-2 min-h-11 max-w-28 self-center text-right sm:col-start-auto sm:row-start-auto sm:row-span-1 sm:max-w-none/,
   )
-  assert.match(source, /: 'col-span-2 mt-1 min-h-10 sm:col-span-1 sm:mt-0'/)
+  assert.match(
+    source,
+    /: 'col-start-3 row-start-1 min-h-10 self-center sm:col-start-auto sm:row-start-auto'/,
+  )
+  assert.match(
+    source,
+    /scope === 'multi-theater' \? 'col-span-2' : 'col-span-1'/,
+  )
 })
