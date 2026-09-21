@@ -246,7 +246,7 @@ function formatRoom(room: string) {
 
   <article
     v-else
-    class="relative flex h-full min-h-32 min-w-0 flex-col border-2 p-3 text-left"
+    class="@container relative flex h-full min-h-32 min-w-0 flex-col border-2 p-3 text-left"
     :class="selected ? 'border-primary bg-[#fff0b3] shadow-[5px_5px_0_#991b1b]' : 'border-ink bg-surface shadow-[4px_4px_0_#27272a]'"
   >
     <button
@@ -322,7 +322,9 @@ function formatRoom(room: string) {
       >
     </h3>
 
-    <p class="text-2xl font-black tabular-nums tracking-[-0.045em] text-ink">
+    <p
+      class="whitespace-nowrap text-[min(1.5rem,12cqi)] leading-tight font-black tabular-nums tracking-[-0.045em] text-ink"
+    >
       {{ formatParisTime(displayedStartTime) }}
       <span
         v-if="hasDelayedStart"
