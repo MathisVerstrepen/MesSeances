@@ -1029,9 +1029,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                       stroke-width="3"
                     />
                   </span>
-                  <span class="min-w-0 font-bold leading-tight">{{
-                    theaterDisplayName(theater)
-                  }}</span>
+                  <TheaterName
+                    :name="theaterDisplayName(theater)"
+                    :provider="theater.provider"
+                    class="min-w-0 font-bold leading-tight"
+                  />
                 </label>
               </div>
             </div>

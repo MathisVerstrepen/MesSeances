@@ -201,6 +201,7 @@ test('Grand Ecran multi-word names preserve accents, locations and one accessibl
 test('all public theater-name surfaces supply provider metadata, while timeline movies keep generic text', async () => {
   for (const path of [
     'pages/cinemas.vue',
+    'pages/recherche.vue',
     'pages/cinema/[slug].vue',
     'pages/ville/[slug]/cinemas.vue',
     'pages/film/[slug].vue',
