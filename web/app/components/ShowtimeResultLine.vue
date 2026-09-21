@@ -105,8 +105,7 @@ function formatRoom(room: string) {
     />
 
     <div
-      class="relative grid gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
-      :class="scope === 'single-theater' ? 'grid-cols-[3rem_minmax(0,1fr)_auto]' : 'grid-cols-[3rem_minmax(0,1fr)]'"
+      class="relative grid grid-cols-[3rem_minmax(0,1fr)_auto] gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
     >
       <div
         class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]"
@@ -126,7 +125,9 @@ function formatRoom(room: string) {
           :data-media-kind="scope === 'single-theater' ? 'poster' : undefined"
         />
       </div>
-      <div class="col-start-2 border-l-2 border-ink pl-3 sm:col-start-auto">
+      <div
+        class="col-start-2 self-center border-l-2 border-ink pl-3 sm:col-start-auto"
+      >
         <p class="text-xl font-black tabular-nums tracking-[-0.035em] text-ink">
           {{ formatParisTime(displayedStartTime) }}
           <span
@@ -156,7 +157,10 @@ function formatRoom(room: string) {
           >
         </p>
       </div>
-      <div class="col-start-2 min-w-0 sm:col-start-auto">
+      <div
+        class="col-start-2 min-w-0 sm:col-span-1 sm:col-start-auto"
+        :class="scope === 'multi-theater' ? 'col-span-2' : 'col-span-1'"
+      >
         <h3 class="truncate text-base font-black tracking-[-0.02em] text-ink">
           <NuxtLink
             :to="`/film/${encodeURIComponent(result.movieSlug)}`"
@@ -210,7 +214,7 @@ function formatRoom(room: string) {
         :data-showtime-id="result.showtimeId"
         unstyled
         class="inline-flex items-center justify-end border-b-2 border-transparent font-mono text-[10px] font-black uppercase tracking-[0.1em]"
-        :class="scope === 'single-theater' ? 'col-start-3 row-start-1 row-span-2 min-h-11 max-w-28 self-center text-right sm:col-start-auto sm:row-start-auto sm:row-span-1 sm:max-w-none' : 'col-span-2 mt-1 min-h-10 sm:col-span-1 sm:mt-0'"
+        :class="scope === 'single-theater' ? 'col-start-3 row-start-1 row-span-2 min-h-11 max-w-28 self-center text-right sm:col-start-auto sm:row-start-auto sm:row-span-1 sm:max-w-none' : 'col-start-3 row-start-1 min-h-10 self-center sm:col-start-auto sm:row-start-auto'"
         :available-class="scope === 'multi-theater' ? 'relative z-20 text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2' : 'text-ink hover:border-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2'"
         :unavailable-class="scope === 'multi-theater' ? 'pointer-events-none text-muted' : 'text-muted'"
       >
