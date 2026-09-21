@@ -14,22 +14,28 @@ var (
 )
 
 type HistoryStatistics struct {
-	Mode          string                  `json:"mode"`
-	GeneratedAt   time.Time               `json:"generated_at"`
-	Timezone      string                  `json:"timezone"`
-	Range         *Window                 `json:"range"`
-	Coverage      HistoryCoverage         `json:"coverage"`
-	Options       StatisticsOptions       `json:"options"`
-	Totals        StatisticsTotals        `json:"totals"`
-	TopMovies     StatisticsTopMovies     `json:"top_movies"`
-	Heatmap       []StatisticsHeatmapCell `json:"heatmap"`
-	Versions      []StatisticsCountBucket `json:"versions"`
-	Formats       []StatisticsCountBucket `json:"formats"`
-	Genres        []StatisticsCountBucket `json:"genres"`
-	Runtimes      []StatisticsCountBucket `json:"runtimes"`
-	Local         StatisticsLocal         `json:"local"`
-	Concentration StatisticsConcentration `json:"concentration"`
-	Limits        HistoryLimits           `json:"limits"`
+	Mode           string                  `json:"mode"`
+	GeneratedAt    time.Time               `json:"generated_at"`
+	Timezone       string                  `json:"timezone"`
+	Range          *Window                 `json:"range"`
+	Coverage       HistoryCoverage         `json:"coverage"`
+	Options        StatisticsOptions       `json:"options"`
+	Totals         StatisticsTotals        `json:"totals"`
+	DailyShowtimes []HistoryDailyShowtimes `json:"daily_showtimes"`
+	TopMovies      StatisticsTopMovies     `json:"top_movies"`
+	Heatmap        []StatisticsHeatmapCell `json:"heatmap"`
+	Versions       []StatisticsCountBucket `json:"versions"`
+	Formats        []StatisticsCountBucket `json:"formats"`
+	Genres         []StatisticsCountBucket `json:"genres"`
+	Runtimes       []StatisticsCountBucket `json:"runtimes"`
+	Local          StatisticsLocal         `json:"local"`
+	Concentration  StatisticsConcentration `json:"concentration"`
+	Limits         HistoryLimits           `json:"limits"`
+}
+
+type HistoryDailyShowtimes struct {
+	Date          string `json:"date"`
+	ShowtimeCount int    `json:"showtime_count"`
 }
 
 type HistoryCoverage struct {

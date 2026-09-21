@@ -59,13 +59,18 @@ func TestHistoryPerformanceIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Logf("synthetic rows=105000 case=%s elapsed=%s queries=%d response_bytes=%d totals=%+v", tc.name, elapsed, queries, len(raw), r.Totals)
-		if queries > 10 || elapsed >= 3*time.Second || len(raw) > 250000 {
+		// Full-range responses retain one point for every service date. The
+		// synthetic 8,000-day series accounts for about 400 KB of this payload.
+		if queries > 10 || elapsed >= 3*time.Second || len(raw) > 450000 {
 			t.Fatal("history cost boundary", queries, elapsed, len(raw))
 		}
 		assertHistorySums(t, r)
 		if tc.name == "all-recorded" {
 			if r.Totals.Showtimes != 105000 || r.Totals.Movies != 256 || r.Totals.Cities != 128 || r.Totals.Theaters != 128 {
 				t.Fatal("full totals truncated", r.Totals)
+			}
+			if len(r.DailyShowtimes) != 8000 {
+				t.Fatal("daily showtimes truncated", len(r.DailyShowtimes))
 			}
 			if len(r.Genres) != 100 || len(r.Local.Cities) != 100 || len(r.Local.Theaters) != 100 || len(r.Options.Genres) != 100 || len(r.Options.Cities) != 100 || !r.Limits.Genres || !r.Limits.Local.Cities || !r.Limits.Local.Theaters || !r.Limits.Options.Genres || !r.Limits.Options.Cities || !r.Limits.Options.Theaters {
 				t.Fatal("limit contract", r.Limits)

@@ -834,6 +834,15 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             >
           </EditorialStatePanel>
           <template v-else>
+            <section :class="sectionClass" aria-labelledby="statistics-daily">
+              <h2 id="statistics-daily" :class="headingClass">
+                Évolution des séances par jour
+              </h2>
+              <StatisticsLineChart
+                :key="signature"
+                :rows="data.daily_showtimes"
+              />
+            </section>
             <section :class="sectionClass" aria-labelledby="statistics-top">
               <h2 id="statistics-top" :class="headingClass">
                 Films les plus programmés
