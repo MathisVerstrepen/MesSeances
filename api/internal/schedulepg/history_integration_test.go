@@ -290,6 +290,20 @@ func TestHistoryRollbackIntegration(t *testing.T) {
 func assertHistorySums(t *testing.T, r schedule.HistoryStatistics) {
 	t.Helper()
 	sum := 0
+	for i, day := range r.DailyShowtimes {
+		date, err := time.Parse("2006-01-02", day.Date)
+		if err != nil || day.ShowtimeCount < 0 {
+			t.Fatal("invalid daily showtimes", day)
+		}
+		if i > 0 && date.AddDate(0, 0, -1).Format("2006-01-02") != r.DailyShowtimes[i-1].Date {
+			t.Fatal("daily showtimes not contiguous and ordered", r.DailyShowtimes)
+		}
+		sum += day.ShowtimeCount
+	}
+	if r.DailyShowtimes == nil || sum != r.Totals.Showtimes || r.Totals.Showtimes == 0 && len(r.DailyShowtimes) != 0 {
+		t.Fatal("daily showtime totals", r.DailyShowtimes, r.Totals)
+	}
+	sum = 0
 	for _, v := range r.Heatmap {
 		sum += v.ShowtimeCount
 	}
@@ -415,6 +429,67 @@ func TestHistoryStatisticsIntegration(t *testing.T) {
 		if q.Q == "LILLE" && len(options.Items) != 2 {
 			t.Fatal("theater city search", options)
 		}
+	}
+}
+
+func TestHistoryDailyShowtimesIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	s := NewStore(pool)
+	data := testDataset()
+	data.Window.Through = "2026-08-19"
+	for i := range data.Theaters {
+		data.Theaters[i].AvailableDates = []string{"2026-08-15", "2026-08-17", "2026-08-19"}
+	}
+	// Unsorted service dates, two gap days and an after-midnight screening.
+	for i, offset := range []int{2, 0, 2, 0, 4} {
+		showing := &data.Showtimes[i]
+		showing.ServiceDate = fmt.Sprintf("2026-08-%02d", 15+offset)
+		showing.StartTime = showing.StartTime.AddDate(0, 0, offset)
+		showing.EndTime = showing.EndTime.AddDate(0, 0, offset)
+	}
+	// 02:15 Paris / 00:15 UTC remains within UGC's cinema day, while both
+	// calendar dates differ from this screening's service date.
+	data.Showtimes[3].StartTime = data.Showtimes[3].StartTime.Add(2 * time.Hour)
+	data.Showtimes[3].EndTime = data.Showtimes[3].EndTime.Add(2 * time.Hour)
+	historyPublish(t, s, data)
+	historyPublish(t, s, data) // Re-observation must not double daily counts.
+	var filmID int64
+	if err := pool.QueryRow(t.Context(), `SELECT public_movie_id FROM public_movie_sources WHERE source_provider='ugc' AND source_movie_id='200'`).Scan(&filmID); err != nil {
+		t.Fatal(err)
+	}
+	all := []schedule.HistoryDailyShowtimes{
+		{Date: "2026-08-15", ShowtimeCount: 2},
+		{Date: "2026-08-16", ShowtimeCount: 0},
+		{Date: "2026-08-17", ShowtimeCount: 2},
+		{Date: "2026-08-18", ShowtimeCount: 0},
+		{Date: "2026-08-19", ShowtimeCount: 1},
+	}
+	for _, tc := range []struct {
+		name  string
+		query schedule.StatisticsQuery
+		want  []schedule.HistoryDailyShowtimes
+	}{
+		{"all", schedule.StatisticsQuery{}, all},
+		{"wide range uses matched bounds", schedule.StatisticsQuery{Date: "0001-01-01", DateTo: "9999-12-31"}, all},
+		{"trimmed range", schedule.StatisticsQuery{Date: "2026-08-16", DateTo: "2026-08-18"}, all[2:3]},
+		{"single date", schedule.StatisticsQuery{Date: "2026-08-15"}, all[:1]},
+		{"gap only", schedule.StatisticsQuery{Date: "2026-08-16"}, []schedule.HistoryDailyShowtimes{}},
+		{"no matches", schedule.StatisticsQuery{Theater: []string{"missing"}}, []schedule.HistoryDailyShowtimes{}},
+		{"city", schedule.StatisticsQuery{City: []string{"lille"}}, all[2:3]},
+		{"theater", schedule.StatisticsQuery{Theater: []string{"ugc-26"}}, all[:1]},
+		{"film", schedule.StatisticsQuery{Film: fmt.Sprintf("film-%d", filmID)}, []schedule.HistoryDailyShowtimes{
+			{Date: "2026-08-15", ShowtimeCount: 1},
+			{Date: "2026-08-16", ShowtimeCount: 0},
+			{Date: "2026-08-17", ShowtimeCount: 1},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := historyGet(t, s, tc.query)
+			assertHistorySums(t, got)
+			if !reflect.DeepEqual(got.DailyShowtimes, tc.want) {
+				t.Fatalf("daily showtimes=%+v want=%+v", got.DailyShowtimes, tc.want)
+			}
+		})
 	}
 }
 
