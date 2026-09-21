@@ -68,6 +68,10 @@ test('selection state reaches every grouped and chronological result renderer', 
   )
 })
 
+test('every result layout stays below the sticky search summary', () => {
+  assert.equal((resultsSource.match(/'relative isolate/g) ?? []).length, 3)
+})
+
 test('line and box selection controls expose keyboard and screen-reader button state', () => {
   for (const source of [lineSource, boxSource]) {
     assert.match(source, /type="button"/)
