@@ -2,6 +2,8 @@
 import {
   AlertTriangle,
   CalendarSearch,
+  Check,
+  ChevronDown,
   LoaderCircle,
   Search,
   SlidersHorizontal,
@@ -27,6 +29,7 @@ import {
 import { buildSearchMetaDescription } from '~/utils/searchMetadata'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import {
   languageLabel,
   queryFormatOptions,
@@ -107,6 +110,8 @@ const searchedDate = ref('')
 const theaterValidationMessage = ref('')
 const appliedSearch = ref<AppliedSearch | null>(null)
 const isFilterSheetOpen = ref(false)
+const isTheaterListOpen = ref(false)
+const draftTheaterIds = ref<string[]>([])
 const filterForm = ref<HTMLFormElement | null>(null)
 const sheetCloseButton = ref<HTMLButtonElement | null>(null)
 const modifierButton = ref<HTMLButtonElement | null>(null)
@@ -199,9 +204,15 @@ const compactFilterSummary = computed(() => {
   if (!search) return ''
   return `${formatCompactDate(search.date)} · ${formatCompactTime(search.startAfter)}–${formatCompactTime(search.finishBefore)} · ${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
 })
+const draftTheaterIdSet = computed(() => new Set(draftTheaterIds.value))
+const draftTheaters = computed(() =>
+  activeTheaters.value.filter((theater) =>
+    draftTheaterIdSet.value.has(theater.id),
+  ),
+)
 const availableDateOptions = computed(() => {
   const available = new Set(
-    activeTheaters.value.flatMap((theater) => theater.available_dates ?? []),
+    draftTheaters.value.flatMap((theater) => theater.available_dates ?? []),
   )
   return [...available].sort()
 })
@@ -212,8 +223,8 @@ const quickDateOptions = computed(() => [
 ])
 const hasValidSelectedDate = computed(() => Boolean(calendarDate(form.date)))
 const favoriteSummary = computed(() => {
-  const count = activeTheaterIds.value.length
-  return `${count} cinéma${count > 1 ? 's' : ''} inclus`
+  const count = draftTheaterIds.value.length
+  return `${count} cinéma${count === 1 ? '' : 's'} inclus`
 })
 let isReady = false
 let lastSearchKey = ''
@@ -291,6 +302,16 @@ function formatCompactDate(date: string) {
 function formatCompactTime(time: string) {
   const [hour, minute] = time.split(':')
   return minute === '00' ? `${Number(hour)}h` : `${Number(hour)}h${minute}`
+}
+
+function toggleSearchTheater(theaterId: string) {
+  const selected = new Set(draftTheaterIds.value)
+  if (selected.has(theaterId)) selected.delete(theaterId)
+  else selected.add(theaterId)
+  draftTheaterIds.value = activeTheaterIds.value.filter((id) =>
+    selected.has(id),
+  )
+  if (draftTheaterIds.value.length > 0) theaterValidationMessage.value = ''
 }
 
 function adsBufferFromQuery(value: string | null | undefined): number {
@@ -593,6 +614,7 @@ function resetBareState() {
   resultScrollIntent = false
   requestId++
   todayDate.value = todayInParis()
+  draftTheaterIds.value = [...activeTheaterIds.value]
   form.date = availableDateOptions.value.includes(todayDate.value)
     ? todayDate.value
     : (availableDateOptions.value[0] ?? '')
@@ -622,8 +644,6 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   if (
     !theaterValue ||
     !date ||
-    (!availableDateOptions.value.includes(date) &&
-      !quickDateOptions.value.includes(date)) ||
     !startAfter ||
     !finishBefore ||
     !validTimes.has(startAfter) ||
@@ -631,8 +651,22 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   )
     return null
 
-  if (activeTheaterIds.value.length === 0) return null
-  const theaterIds = [...activeTheaterIds.value]
+  const theaterIds = theaterValue?.split(',') ?? []
+  const availableTheaterIds = new Set(activeTheaterIds.value)
+  if (
+    theaterIds.length === 0 ||
+    new Set(theaterIds).size !== theaterIds.length ||
+    theaterIds.some((id) => !availableTheaterIds.has(id))
+  )
+    return null
+
+  const routeAvailableDates = new Set(
+    activeTheaters.value
+      .filter((theater) => theaterIds.includes(theater.id))
+      .flatMap((theater) => theater.available_dates ?? []),
+  )
+  if (!routeAvailableDates.has(date) && !quickDateOptions.value.includes(date))
+    return null
 
   const languageValue = singularQueryValue(route.query.language)
   const formatValue = singularQueryValue(route.query.format)
@@ -653,6 +687,7 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
 }
 
 function hydrateAppliedSearch(search: AppliedSearch) {
+  draftTheaterIds.value = [...search.theaterIds]
   form.date = search.date
   form.startAfter = search.startAfter
   form.finishBefore = search.finishBefore
@@ -720,6 +755,8 @@ async function applyRoute() {
 watch(
   activeTheaterIds,
   (favoriteIds) => {
+    if (!isReady || !OWNED_QUERY_KEYS.some((key) => key in route.query))
+      draftTheaterIds.value = [...favoriteIds]
     if (favoriteIds.length > 0) theaterValidationMessage.value = ''
     if (isReady && OWNED_QUERY_KEYS.some((key) => key in route.query))
       applyRoute()
@@ -792,7 +829,7 @@ onBeforeUnmount(() => {
 })
 
 async function submitSearch() {
-  const theaterIds = [...activeTheaterIds.value]
+  const theaterIds = [...draftTheaterIds.value]
   if (theaterIds.length === 0) {
     theaterValidationMessage.value =
       'Sélectionnez au moins un cinéma pour lancer la recherche.'
@@ -949,12 +986,55 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               />
               Chargement des cinémas…
             </div>
-            <p
-              v-else-if="activeTheaterIds.length"
-              class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm font-bold text-ink"
-            >
-              {{ favoriteSummary }}
-            </p>
+            <div v-else-if="activeTheaterIds.length" class="clear-both">
+              <button
+                type="button"
+                class="flex min-h-12 w-full items-center justify-between gap-3 border-2 border-ink bg-surface px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                :aria-expanded="isTheaterListOpen"
+                aria-controls="search-theater-list"
+                @click="isTheaterListOpen = !isTheaterListOpen"
+              >
+                <span>{{ favoriteSummary }}</span>
+                <ChevronDown
+                  :size="18"
+                  class="shrink-0 transition-transform motion-reduce:transition-none"
+                  :class="isTheaterListOpen ? 'rotate-180' : ''"
+                  aria-hidden="true"
+                />
+              </button>
+              <div
+                v-show="isTheaterListOpen"
+                id="search-theater-list"
+                class="border-2 border-t-0 border-ink bg-surface"
+              >
+                <label
+                  v-for="theater in activeTheaters"
+                  :key="theater.id"
+                  class="flex min-h-12 cursor-pointer items-center gap-3 border-b border-ink/25 px-3 py-2.5 text-sm last:border-b-0 hover:bg-[#e8e6de]"
+                >
+                  <input
+                    type="checkbox"
+                    class="peer sr-only"
+                    :checked="draftTheaterIdSet.has(theater.id)"
+                    :aria-label="`Inclure ${theaterDisplayName(theater)}`"
+                    @change="toggleSearchTheater(theater.id)"
+                  >
+                  <span
+                    class="grid size-5 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-checked:bg-ink peer-checked:text-white"
+                    aria-hidden="true"
+                  >
+                    <Check
+                      v-if="draftTheaterIdSet.has(theater.id)"
+                      :size="14"
+                      stroke-width="3"
+                    />
+                  </span>
+                  <span class="min-w-0 font-bold leading-tight">{{
+                    theaterDisplayName(theater)
+                  }}</span>
+                </label>
+              </div>
+            </div>
             <p
               v-else
               class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary"
@@ -1074,7 +1154,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <button
             type="submit"
             class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55"
-            :disabled="pending || isLoading || !isInitialized || activeTheaterIds.length === 0 || !hasValidSelectedDate"
+            :disabled="pending || isLoading || !isInitialized || draftTheaterIds.length === 0 || !hasValidSelectedDate"
           >
             <LoaderCircle
               v-if="pending"
