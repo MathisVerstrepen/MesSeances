@@ -37,6 +37,8 @@ const compiled = ts.transpileModule(withoutImports, {
 
 interface PageState {
   form: { language: string }
+  draftTheaterIds: Ref<string[]>
+  isTheaterListOpen: Ref<boolean>
   pending: Ref<boolean>
   selectedOnly: Ref<boolean>
   selectedCount: Ref<number>
@@ -52,6 +54,7 @@ interface PageState {
   setResultGrouping: (grouping: string) => Promise<void>
   setResultLayout: (layout: string) => Promise<void>
   submitSearch: () => Promise<void>
+  toggleSearchTheater: (theaterId: string) => void
 }
 
 const searchQuery = {
@@ -121,8 +124,12 @@ function harness(
       },
     }),
     usePageCinemaSelection: () => ({
-      activeTheaterIds: ref(['ugc-25']),
-      activeTheaters: ref([{ available_dates: ['2026-09-13'] }]),
+      activeTheaterIds: ref(['ugc-25', 'ugc-46', 'ugc-45']),
+      activeTheaters: ref([
+        { id: 'ugc-25', available_dates: ['2026-09-13'] },
+        { id: 'ugc-46', available_dates: ['2026-09-13'] },
+        { id: 'ugc-45', available_dates: ['2026-09-13'] },
+      ]),
       isInitialized: ref(true),
       isLoading: ref(false),
       error: ref(''),
@@ -141,7 +148,7 @@ function harness(
   const page = scope.run(() =>
     new Function(
       ...Object.keys(bindings),
-      `${compiled}\nreturn { form, pending, selectedOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch }`,
+      `${compiled}\nreturn { form, draftTheaterIds, isTheaterListOpen, pending, selectedOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
     )(...Object.values(bindings)),
   ) as PageState
   return {
@@ -151,6 +158,25 @@ function harness(
     searchCalls: () => searchCalls,
   }
 }
+
+test('theater filter starts collapsed and supports a draft subset of saved theaters', async (context) => {
+  const { page, route, stop } = harness({})
+  context.after(stop)
+
+  await page.initializePreferences()
+  assert.equal(page.isTheaterListOpen.value, false)
+  assert.deepEqual(page.draftTheaterIds.value, ['ugc-25', 'ugc-46', 'ugc-45'])
+
+  page.toggleSearchTheater('ugc-46')
+  page.toggleSearchTheater('ugc-45')
+  assert.deepEqual(page.draftTheaterIds.value, ['ugc-25'])
+
+  page.toggleSearchTheater('ugc-46')
+  assert.deepEqual(page.draftTheaterIds.value, ['ugc-25', 'ugc-46'])
+
+  await page.submitSearch()
+  assert.equal(route.query.theaters, 'ugc-25,ugc-46')
+})
 
 async function settle() {
   await nextTick()
