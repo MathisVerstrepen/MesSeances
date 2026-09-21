@@ -68,6 +68,18 @@ test('selection state reaches every grouped and chronological result renderer', 
   )
 })
 
+test('every result layout stays below the sticky search summary', () => {
+  assert.equal((resultsSource.match(/'relative isolate/g) ?? []).length, 3)
+})
+
+test('box time ranges stay on one line and scale with card width', () => {
+  assert.match(boxSource, /class="@container relative flex h-full/)
+  assert.match(
+    boxSource,
+    /whitespace-nowrap text-\[min\(1\.5rem,12cqi\)\] leading-tight/,
+  )
+})
+
 test('line and box selection controls expose keyboard and screen-reader button state', () => {
   for (const source of [lineSource, boxSource]) {
     assert.match(source, /type="button"/)
@@ -77,5 +89,5 @@ test('line and box selection controls expose keyboard and screen-reader button s
     assert.match(source, /relative z-20/)
   }
   assert.match(lineSource, /v-if="scope === 'multi-theater'"/)
-  assert.match(boxSource, /v-else\s+class="relative flex h-full/)
+  assert.match(boxSource, /v-else\s+class="@container relative flex h-full/)
 })

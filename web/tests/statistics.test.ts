@@ -1202,7 +1202,7 @@ test('two draft multi-controls use native disclosure, labeled search and checkbo
   )
 })
 
-test('page integrates eight sections, accessible components, recovery and footer-only discovery', async () => {
+test('page integrates nine sections, accessible components, recovery and footer-only discovery', async () => {
   const read = (path: string) =>
     readFile(new URL(path, import.meta.url), 'utf8')
   const [page, footer, header, heatmap, local, bars] = await Promise.all([
@@ -1215,6 +1215,7 @@ test('page integrates eight sections, accessible components, recovery and footer
   ])
   const headings = [
     'En chiffres',
+    'Évolution des séances par jour',
     'Films les plus programmés',
     'Quand voir un film',
     'Versions',

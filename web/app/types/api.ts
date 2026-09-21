@@ -151,9 +151,14 @@ export interface HistoryProviderCoverage {
   last_publication_at: string
   source_generated_at: string
 }
+export interface StatisticsDailyShowtimes {
+  date: string
+  showtime_count: number
+}
 export interface HistoryStatisticsResponse
   extends Omit<StatisticsResponse, 'range' | 'coverage'> {
   mode: 'history'
+  daily_showtimes: StatisticsDailyShowtimes[]
   range: StatisticsDateRange | null
   coverage: {
     collection_started_at: string | null
