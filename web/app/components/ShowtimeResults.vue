@@ -35,7 +35,10 @@ const selectedKeySet = computed(() => new Set(props.selectedKeys))
 <template>
   <div
     v-if="grouping === 'movie'"
-    :class="scope === 'single-theater' ? 'mt-8 space-y-8' : 'space-y-4'"
+    :class="[
+      'relative isolate',
+      scope === 'single-theater' ? 'mt-8 space-y-8' : 'space-y-4',
+    ]"
   >
     <ShowtimeMovieGroup
       v-for="group in movieGroups"
@@ -49,7 +52,10 @@ const selectedKeySet = computed(() => new Set(props.selectedKeys))
   </div>
   <div
     v-else-if="layout === 'lines'"
-    :class="['divide-y-2 divide-ink border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]', scope === 'single-theater' ? 'mt-8' : '']"
+    :class="[
+      'relative isolate divide-y-2 divide-ink border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]',
+      scope === 'single-theater' ? 'mt-8' : '',
+    ]"
     aria-label="Séances par ordre chronologique"
   >
     <ShowtimeResultLine
@@ -64,7 +70,10 @@ const selectedKeySet = computed(() => new Set(props.selectedKeys))
   </div>
   <ul
     v-else
-    :class="['grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 lg:grid-cols-[repeat(auto-fill,minmax(210px,1fr))]', scope === 'single-theater' ? 'mt-8' : '']"
+    :class="[
+      'relative isolate grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(180px,1fr))] sm:gap-4 lg:grid-cols-[repeat(auto-fill,minmax(210px,1fr))]',
+      scope === 'single-theater' ? 'mt-8' : '',
+    ]"
     :aria-label="scope === 'single-theater' ? 'Séances par ordre chronologique' : 'Séances compatibles par ordre chronologique'"
   >
     <li v-for="result in sortedResults" :key="result.key" class="min-w-0">
