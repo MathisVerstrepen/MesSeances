@@ -281,6 +281,9 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
  LEFT JOIN daily_counts c ON c.service_date=b.first_date+d.day_offset
 ), movie_theaters AS MATERIALIZED (
  SELECT movie_id,theater_id,count(*) showtime_count FROM matched GROUP BY movie_id,theater_id
+), chain_counts AS (
+ SELECT t.provider chain,sum(h.showtime_count) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT h.theater_id) theater_count
+ FROM movie_theaters h JOIN theaters t ON t.id=h.theater_id GROUP BY t.provider
 ), movie_counts AS MATERIALIZED (
  SELECT 'film-'||m.id slug,m.id,m.title,m.runtime,c.showtime_count,c.theater_count
  FROM (SELECT movie_id,sum(showtime_count) showtime_count,count(*) theater_count FROM movie_theaters GROUP BY movie_id) c
@@ -317,6 +320,7 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
 SELECT jsonb_build_object(
  'totals',jsonb_build_object('showtimes',(SELECT count(*) FROM matched),'movies',(SELECT count(*) FROM movie_counts),'cities',(SELECT count(*) FROM city_counts),'theaters',(SELECT count(*) FROM theater_counts)),
  'daily_showtimes',coalesce((SELECT jsonb_agg(d ORDER BY d.date) FROM daily_showtimes d),'[]'),
+ 'chains',coalesce((SELECT jsonb_agg(c ORDER BY c.showtime_count DESC,c.movie_count DESC,c.chain COLLATE "C" ASC) FROM chain_counts c),'[]'),
  'top_movies',jsonb_build_object('by_showtimes',coalesce((SELECT jsonb_agg(t) FROM top_showtimes t),'[]'),'by_theaters',coalesce((SELECT jsonb_agg(t) FROM top_theaters t),'[]')),
  'heatmap',(SELECT jsonb_agg(jsonb_build_object('weekday',d,'hour',h,'showtime_count',coalesce(x.showtime_count,0)) ORDER BY d,h) FROM generate_series(1,7) d CROSS JOIN generate_series(0,23) h LEFT JOIN heat x ON x.weekday=d AND x.hour=h),
  'versions',coalesce((SELECT jsonb_agg(v) FROM versions v),'[]'),'formats',coalesce((SELECT jsonb_agg(f) FROM formats f),'[]'),

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -20,13 +21,18 @@ type fakeHistoryReader struct {
 	options schedule.HistoryOptionsQuery
 	err     error
 	ctx     context.Context
+	chains  []schedule.HistoryChainRank
 }
 
 func (f *fakeHistoryReader) HistoryStatistics(ctx context.Context, q schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
 	f.calls++
 	f.stats = q
 	f.ctx = ctx
-	return schedule.HistoryStatistics{Mode: "history"}, f.err
+	chains := f.chains
+	if chains == nil {
+		chains = []schedule.HistoryChainRank{}
+	}
+	return schedule.HistoryStatistics{Mode: "history", Chains: chains}, f.err
 }
 func (f *fakeHistoryReader) HistoryOptions(ctx context.Context, q schedule.HistoryOptionsQuery) (schedule.HistoryOptions, error) {
 	f.calls++
@@ -59,6 +65,36 @@ func TestHistoryHTTPContract(t *testing.T) {
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 	if !errors.Is(f.ctx.Err(), context.Canceled) {
 		t.Fatal("context not propagated")
+	}
+}
+
+func TestHistoryHTTPChainsContract(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		chains []schedule.HistoryChainRank
+		json   string
+	}{
+		{"empty", []schedule.HistoryChainRank{}, `[]`},
+		{"populated", []schedule.HistoryChainRank{
+			{Chain: schedule.ProviderUGC, ShowtimeCount: 12345, MovieCount: 10, TheaterCount: 3},
+			{Chain: schedule.ProviderKinepolis, ShowtimeCount: 2, MovieCount: 1, TheaterCount: 1},
+		}, `[{"chain":"ugc","showtime_count":12345,"movie_count":10,"theater_count":3},{"chain":"kinepolis","showtime_count":2,"movie_count":1,"theater_count":1}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeHistoryReader{chains: tc.chains}
+			h := NewHandlerWithOptions(nil, "", HandlerOptions{History: f})
+			r := performRequest(t, h, "/api/v1/statistics/history")
+			if r.Code != http.StatusOK || r.Header().Get("Cache-Control") != "no-store" || f.calls != 1 {
+				t.Fatal(r.Code, r.Header(), r.Body.String(), f.calls)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(r.Body.Bytes(), &fields); err != nil {
+				t.Fatal(err)
+			}
+			if string(fields["chains"]) != tc.json {
+				t.Fatalf("chains=%s want=%s", fields["chains"], tc.json)
+			}
+		})
 	}
 }
 
