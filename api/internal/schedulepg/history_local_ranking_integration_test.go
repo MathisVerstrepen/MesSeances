@@ -38,6 +38,7 @@ func TestHistoryLocalShowtimeRankingBeforeLimitIntegration(t *testing.T) {
 	}
 	historyPublish(t, store, data)
 	result := historyGet(t, store, schedule.StatisticsQuery{})
+	assertHistoryChains(t, result, []schedule.HistoryChainRank{{Chain: schedule.ProviderUGC, ShowtimeCount: 204, MovieCount: 2, TheaterCount: 101}})
 	if result.Totals != (schedule.StatisticsTotals{Showtimes: 204, Movies: 2, Cities: 101, Theaters: 101}) {
 		t.Fatalf("full totals=%+v", result.Totals)
 	}

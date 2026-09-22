@@ -155,10 +155,17 @@ export interface StatisticsDailyShowtimes {
   date: string
   showtime_count: number
 }
+export interface HistoryChainRank {
+  chain: Provider
+  showtime_count: number
+  movie_count: number
+  theater_count: number
+}
 export interface HistoryStatisticsResponse
   extends Omit<StatisticsResponse, 'range' | 'coverage'> {
   mode: 'history'
   daily_showtimes: StatisticsDailyShowtimes[]
+  chains: HistoryChainRank[]
   range: StatisticsDateRange | null
   coverage: {
     collection_started_at: string | null
