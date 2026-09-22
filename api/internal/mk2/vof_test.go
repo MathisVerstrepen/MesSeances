@@ -1,6 +1,7 @@
 package mk2
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -17,7 +18,8 @@ func TestSyncVOF(t *testing.T) {
 		{[]string{"2D", "VOF", "STFR"}, schedule.LanguageVOSTFR, "VOF+STFR"},
 		{[]string{"2D", "VOF", "VF"}, "", ""},
 		{[]string{"2D", "VOF", "VO"}, "", ""},
-		{[]string{"2D", "VOF", "Muet"}, "", ""},
+		{[]string{"2D", "VOF", "Muet"}, schedule.LanguageVO, "VOF"},
+		{[]string{"2D", "VOF", "Muet", "STFR"}, schedule.LanguageVOSTFR, "VOF+STFR"},
 		{[]string{"2D"}, "", ""},
 		{[]string{"2D", "vof"}, "", ""},
 	} {
@@ -31,8 +33,8 @@ func TestSyncVOF(t *testing.T) {
 			f.pages[p.Slug] = encode(t, p)
 			d, _, err := Sync(t.Context(), f, options)
 			if tc.version == "" {
-				if err == nil {
-					t.Fatal("conflicting or missing version accepted")
+				if !errors.Is(err, schedule.ErrDatasetValidation) {
+					t.Fatalf("expected dataset validation error, got %v", err)
 				}
 				return
 			}
