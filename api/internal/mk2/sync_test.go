@@ -491,6 +491,42 @@ func TestSyncCancellationIsTypedAndEmpty(t *testing.T) {
 	}
 }
 
+func TestSyncMuetPrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		tokens   []string
+		language schedule.Language
+		version  string
+	}{
+		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR"},
+		{[]string{"2D", "Muet"}, "", "Muet"},
+		{[]string{"2D", "Muet", "VF", "VO"}, "", ""},
+	} {
+		t.Run(strings.Join(tc.tokens, "+"), func(t *testing.T) {
+			f, p, options := fixture(t)
+			s := &p.Types[0].Groups[0].Sessions[0]
+			s.Attributes = nil
+			for _, token := range tc.tokens {
+				s.Attributes = append(s.Attributes, attribute{ShortName: token})
+			}
+			f.pages[p.Slug] = encode(t, p)
+			d, summary, err := Sync(t.Context(), f, options)
+			if tc.version == "" {
+				if !errors.Is(err, schedule.ErrDatasetValidation) || !reflect.DeepEqual(d, schedule.Dataset{}) || summary != (SyncSummary{}) {
+					t.Fatalf("data=%+v summary=%+v err=%v", d, summary, err)
+				}
+				return
+			}
+			if err != nil || len(d.Showtimes) != 1 || summary.Showtimes != 1 {
+				t.Fatalf("data=%+v summary=%+v err=%v", d, summary, err)
+			}
+			r := d.Showtimes[0]
+			if r.Language != tc.language || r.ProviderVersion != tc.version || r.Format != schedule.Format2D || !r.EndTime.Equal(r.StartTime) {
+				t.Fatalf("record=%+v", r)
+			}
+		})
+	}
+}
+
 func TestAttributesAndOptionalMovieFields(t *testing.T) {
 	for _, tc := range []struct {
 		names    []string
@@ -503,6 +539,14 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 		{[]string{"STFR", "VF", "2D"}, "VFSTF", "VF+STFR", "2D"},
 		{[]string{"VO", "IMAX", "3D"}, "VO", "VO", "IMAX"},
 		{[]string{"Muet", "4DX", "2D"}, "", "Muet", "4DX"},
+		{[]string{"2D", "Muet"}, "", "Muet", "2D"},
+		{[]string{"2D", "Muet", "VF"}, "VF", "VF", "2D"},
+		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR", "2D"},
+		{[]string{"2D", "Muet", "VO"}, "VO", "VO", "2D"},
+		{[]string{"2D", "Muet", "VO", "STFR"}, "VOSTFR", "VO+STFR", "2D"},
+		{[]string{"2D", "Muet", "VOF"}, "VO", "VOF", "2D"},
+		{[]string{"2D", "Muet", "VOF", "STFR"}, "VOSTFR", "VOF+STFR", "2D"},
+		{[]string{"VF", "STFR", "Muet", "2D", "VF", "Muet", "STFR"}, "VFSTF", "VF+STFR", "2D"},
 	} {
 		attrs := []attribute{}
 		for _, n := range tc.names {
@@ -513,13 +557,19 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 			t.Fatalf("attributes=%v got=%s,%s,%s,%v", tc.names, l, v, f, err)
 		}
 	}
-	for _, names := range [][]string{{}, {"VF"}, {"2D"}, {"VF", "VO", "2D"}, {"Muet", "VF", "2D"}, {"Muet", "STFR", "2D"}, {"VF", "IMAX", "4DX"}, {"VF", "2D", "3D"}, {"VF", "UNKNOWN"}} {
+	for _, names := range [][]string{
+		{}, {"VF"}, {"2D"}, {"vf", "2D"}, {"vo", "2D"}, {"vof", "2D"}, {"muet", "2D"},
+		{"VF", "VO", "2D"}, {"VF", "VOF", "2D"}, {"VO", "VOF", "2D"},
+		{"Muet", "VF", "VO", "2D"}, {"Muet", "VF", "VOF", "2D"}, {"Muet", "VO", "VOF", "2D"},
+		{"Muet", "STFR", "2D"}, {"VF", "IMAX", "4DX"}, {"VF", "2D", "3D"}, {"VF", "UNKNOWN"},
+		{"Muet", "VF"}, {"Muet", "VF", "IMAX", "4DX"}, {"Muet", "VF", "2D", "3D"},
+	} {
 		attrs := []attribute{}
 		for _, n := range names {
 			attrs = append(attrs, attribute{n})
 		}
-		if _, _, _, err := parseAttributes(attrs); err == nil {
-			t.Fatalf("accepted %v", names)
+		if _, _, _, err := parseAttributes(attrs); !errors.Is(err, schedule.ErrDatasetValidation) {
+			t.Fatalf("attributes=%v expected dataset validation error, got %v", names, err)
 		}
 	}
 	for _, runtime := range []string{`-1`, `1.5`, `"93"`, `9223372036854775808`, `1000000000000`} {

@@ -174,17 +174,19 @@ func parseAttributes(attributes []attribute) (schedule.Language, string, schedul
 	}
 	var language schedule.Language
 	var version string
-	versions := 0
-	for _, token := range []string{"VF", "VO", "VOF", "Muet"} {
+	spokenVersions := 0
+	for _, token := range []string{"VF", "VO", "VOF"} {
 		if tokens[token] {
-			versions++
+			spokenVersions++
 		}
 	}
-	if versions != 1 || tokens["Muet"] && tokens["STFR"] {
+	// A spoken version takes precedence over the provider's Muet token.
+	silent := spokenVersions == 0 && tokens["Muet"]
+	if spokenVersions > 1 || spokenVersions == 0 && !silent || silent && tokens["STFR"] {
 		return "", "", "", payloadError(OperationComplex)
 	}
 	switch {
-	case tokens["Muet"]:
+	case silent:
 		version = "Muet"
 	case tokens["VF"]:
 		language, version = schedule.LanguageVF, "VF"
