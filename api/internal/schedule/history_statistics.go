@@ -22,6 +22,7 @@ type HistoryStatistics struct {
 	Options        StatisticsOptions       `json:"options"`
 	Totals         StatisticsTotals        `json:"totals"`
 	DailyShowtimes []HistoryDailyShowtimes `json:"daily_showtimes"`
+	Chains         []HistoryChainRank      `json:"chains"`
 	TopMovies      StatisticsTopMovies     `json:"top_movies"`
 	Heatmap        []StatisticsHeatmapCell `json:"heatmap"`
 	Versions       []StatisticsCountBucket `json:"versions"`
@@ -36,6 +37,13 @@ type HistoryStatistics struct {
 type HistoryDailyShowtimes struct {
 	Date          string `json:"date"`
 	ShowtimeCount int    `json:"showtime_count"`
+}
+
+type HistoryChainRank struct {
+	Chain         Provider `json:"chain"`
+	ShowtimeCount int      `json:"showtime_count"`
+	MovieCount    int      `json:"movie_count"`
+	TheaterCount  int      `json:"theater_count"`
 }
 
 type HistoryCoverage struct {

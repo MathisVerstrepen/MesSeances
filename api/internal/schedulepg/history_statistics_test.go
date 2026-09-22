@@ -69,3 +69,52 @@ func TestHistoryDailyShowtimesJSON(t *testing.T) {
 		})
 	}
 }
+
+func TestHistoryChainsSafeCounts(t *testing.T) {
+	for _, field := range []string{"showtime_count", "movie_count", "theater_count"} {
+		for _, count := range []string{"9007199254740992", "-1", "9223372036854775808", "1.5"} {
+			t.Run(field+"/"+count, func(t *testing.T) {
+				raw := fmt.Sprintf(`{"chains":[{"chain":"ugc",%q:%s}]}`, field, count)
+				var r schedule.HistoryStatistics
+				if err := decodeHistoryJSON([]byte(raw), &r); err == nil {
+					t.Fatal("unsafe chain count accepted", raw)
+				}
+			})
+		}
+	}
+}
+
+func TestHistoryChainsJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		want []schedule.HistoryChainRank
+	}{
+		{"empty", `[]`, []schedule.HistoryChainRank{}},
+		{"counts", `[{"chain":"ugc","showtime_count":9007199254740991,"movie_count":9007199254740991,"theater_count":9007199254740991},{"chain":"kinepolis","showtime_count":2,"movie_count":1,"theater_count":1}]`, []schedule.HistoryChainRank{
+			{Chain: schedule.ProviderUGC, ShowtimeCount: 9007199254740991, MovieCount: 9007199254740991, TheaterCount: 9007199254740991},
+			{Chain: schedule.ProviderKinepolis, ShowtimeCount: 2, MovieCount: 1, TheaterCount: 1},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var r schedule.HistoryStatistics
+			if err := decodeHistoryJSON([]byte(`{"chains":`+tc.raw+`}`), &r); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(r.Chains, tc.want) {
+				t.Fatalf("chains=%+v want=%+v", r.Chains, tc.want)
+			}
+			raw, err := json.Marshal(r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if string(fields["chains"]) != tc.raw {
+				t.Fatalf("serialized chains=%s want=%s", fields["chains"], tc.raw)
+			}
+		})
+	}
+}

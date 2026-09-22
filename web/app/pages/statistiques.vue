@@ -928,6 +928,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 </div>
               </div>
             </section>
+            <section :class="sectionClass" aria-labelledby="statistics-chains">
+              <h2 id="statistics-chains" :class="headingClass">Par circuit</h2>
+              <StatisticsChainTable :rows="data.chains" />
+            </section>
             <section :class="sectionClass" aria-labelledby="statistics-local">
               <h2 id="statistics-local" :class="headingClass">
                 L’offre locale

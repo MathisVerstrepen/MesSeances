@@ -961,7 +961,7 @@ if (
           >
             <li v-for="genre in schedule.movie.genres" :key="genre">
               <NuxtLink
-                :to="{ path: isUpcomingFilm ? '/films/prochainement' : '/films', query: { genres: genre }, hash: isUpcomingFilm ? undefined : '#tous-les-films' }"
+                :to="{ path: '/films', query: { genres: genre }, hash: isUpcomingFilm ? undefined : '#tous-les-films' }"
                 class="block border-2 border-ink bg-surface px-[0.55rem] py-[0.35rem] text-[0.7rem] leading-none font-extrabold text-ink hover:bg-highlight focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
               >
                 {{ genre }}
