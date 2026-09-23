@@ -49,7 +49,7 @@ useHead({ title: 'Choisir mon nom - MesSeances' })
       @submit.prevent="submit"
     >
       <div>
-        <label for="account-username" class="mb-2 block text-sm font-bold"
+        <label for="account-username" class="account-label"
           >Nom d’utilisateur</label
         >
         <input
@@ -64,7 +64,7 @@ useHead({ title: 'Choisir mon nom - MesSeances' })
           :disabled="busy"
           :aria-invalid="touched && !valid || undefined"
           aria-describedby="username-rules username-fixed"
-          class="min-h-12 w-full rounded border border-ink/60 bg-surface px-3"
+          class="account-input w-full"
           @blur="touched = true; username = normalizeAccountUsername(username)"
         >
         <p
@@ -79,26 +79,13 @@ useHead({ title: 'Choisir mon nom - MesSeances' })
       <p id="username-fixed" class="text-sm font-semibold">
         Ce nom est définitif. Il restera réservé si vous supprimez votre compte.
       </p>
-      <p
-        v-if="errorMessage"
-        role="alert"
-        class="border-l-4 border-primary pl-3 text-sm text-primary"
-      >
+      <p v-if="errorMessage" role="alert" class="account-alert">
         {{ errorMessage }}
       </p>
-      <button
-        type="submit"
-        class="button-primary min-h-12 w-full"
-        :disabled="busy"
-      >
+      <button type="submit" class="account-primary w-full" :disabled="busy">
         {{ busy ? 'Enregistrement…' : 'Confirmer mon nom' }}
       </button>
     </form>
-    <a
-      v-else
-      href="/connexion"
-      class="inline-flex min-h-11 items-center text-sm font-semibold underline"
-      >Reprendre la connexion</a
-    >
+    <a v-else href="/connexion" class="account-link">Reprendre la connexion</a>
   </AccountShell>
 </template>

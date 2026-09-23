@@ -256,12 +256,8 @@ useHead({ title: 'Mon compte - MesSeances' })
 </script>
 
 <template>
-  <AccountShell title="Mon compte" hide-explore>
-    <p
-      v-if="notice"
-      role="status"
-      class="mb-6 border-l-4 border-ink pl-3 text-sm leading-relaxed"
-    >
+  <AccountShell title="Mon compte" hide-explore class="account-shell-wide">
+    <p v-if="notice" role="status" class="mb-6 text-sm leading-relaxed">
       {{ notice }}
     </p>
     <div v-if="!complete" class="space-y-4">
@@ -270,7 +266,7 @@ useHead({ title: 'Mon compte - MesSeances' })
       </p>
       <a
         :href="account.session.value ? accountDestination(account.session.value) : '/connexion'"
-        class="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
+        class="account-link"
         >Reprendre la connexion</a
       >
     </div>
@@ -280,34 +276,35 @@ useHead({ title: 'Mon compte - MesSeances' })
       class="space-y-5 motion-safe:animate-pulse"
     >
       <span class="sr-only">Chargement du compte…</span>
-      <div class="h-12 rounded bg-ink/10" />
-      <div class="h-12 rounded bg-ink/10" />
+      <div class="h-12 border-2 border-ink/20 bg-ink/10" />
+      <div class="h-12 border-2 border-ink/20 bg-ink/10" />
     </div>
     <div v-else-if="detailsError" class="space-y-4">
-      <p
-        role="alert"
-        class="border-l-4 border-primary pl-3 text-sm text-primary"
-      >
+      <p role="alert" class="account-alert">
         {{ detailsError }}
       </p>
-      <button type="button" class="button-primary min-h-11" @click="refresh">
+      <button type="button" class="account-primary" @click="refresh">
         Réessayer
       </button>
     </div>
-    <div v-else-if="details" class="space-y-8" :aria-busy="!!busy">
+    <div
+      v-else-if="details"
+      class="account-settings space-y-8"
+      :aria-busy="!!busy"
+    >
       <section aria-labelledby="account-identity" class="space-y-4">
-        <h2 id="account-identity" class="text-xl font-bold">Identité</h2>
+        <h2 id="account-identity" class="account-heading">Identité</h2>
         <dl class="space-y-3 text-sm">
           <div>
-            <dt class="font-bold">Nom d’utilisateur</dt>
+            <dt class="account-label">Nom d’utilisateur</dt>
             <dd class="mt-1 break-words">{{ details.username }}</dd>
           </div>
           <div>
-            <dt class="font-bold">Email du compte</dt>
+            <dt class="account-label">Email du compte</dt>
             <dd class="mt-1 break-words">{{ details.email }}</dd>
           </div>
           <div v-if="details.google_linked">
-            <dt class="font-bold">Email communiqué par Google</dt>
+            <dt class="account-label">Email communiqué par Google</dt>
             <dd class="mt-1 break-words">
               {{ details.google_email || 'Non communiqué' }}
             </dd>
@@ -316,11 +313,8 @@ useHead({ title: 'Mon compte - MesSeances' })
         <p class="text-sm">Le nom d’utilisateur est définitif.</p>
       </section>
 
-      <section
-        aria-labelledby="account-password"
-        class="space-y-5 border-t border-ink/20 pt-6"
-      >
-        <h2 id="account-password" class="text-xl font-bold">Mot de passe</h2>
+      <section aria-labelledby="account-password" class="space-y-5">
+        <h2 id="account-password" class="account-heading">Mot de passe</h2>
         <form
           v-if="passwordAvailable"
           class="space-y-5"
@@ -340,16 +334,12 @@ useHead({ title: 'Mon compte - MesSeances' })
             :disabled="!!busy"
           />
           <p class="text-sm">Vos autres appareils seront déconnectés.</p>
-          <p
-            v-if="passwordError"
-            role="alert"
-            class="border-l-4 border-primary pl-3 text-sm text-primary"
-          >
+          <p v-if="passwordError" role="alert" class="account-alert">
             {{ passwordError }}
           </p>
           <button
             type="submit"
-            class="button-primary min-h-12 w-full"
+            class="account-primary w-full"
             :disabled="!!busy"
           >
             {{
@@ -364,7 +354,7 @@ useHead({ title: 'Mon compte - MesSeances' })
           </p>
           <button
             type="button"
-            class="button-primary min-h-12 w-full"
+            class="account-primary w-full"
             :disabled="!!busy"
             @click="googleProof('password_add')"
           >
@@ -373,11 +363,8 @@ useHead({ title: 'Mon compte - MesSeances' })
         </div>
       </section>
 
-      <section
-        aria-labelledby="account-email"
-        class="space-y-5 border-t border-ink/20 pt-6"
-      >
-        <h2 id="account-email" class="text-xl font-bold">Changer d’email</h2>
+      <section aria-labelledby="account-email" class="space-y-5">
+        <h2 id="account-email" class="account-heading">Changer d’email</h2>
         <div v-if="details.pending_email" class="space-y-3 text-sm">
           <p class="break-words">
             Confirmation en attente :
@@ -389,7 +376,7 @@ useHead({ title: 'Mon compte - MesSeances' })
           </p>
           <button
             type="button"
-            class="min-h-11 rounded border border-ink/60 px-4 font-semibold disabled:opacity-50"
+            class="account-secondary"
             :disabled="!!busy"
             @click="cancelEmail"
           >
@@ -400,9 +387,7 @@ useHead({ title: 'Mon compte - MesSeances' })
         </div>
         <form class="space-y-5" @submit.prevent="requestEmail">
           <div>
-            <label for="new-email" class="mb-2 block text-sm font-bold"
-              >Nouvel email</label
-            >
+            <label for="new-email" class="account-label">Nouvel email</label>
             <input
               id="new-email"
               v-model="email"
@@ -414,7 +399,7 @@ useHead({ title: 'Mon compte - MesSeances' })
               maxlength="254"
               required
               :disabled="!!busy"
-              class="min-h-12 w-full rounded border border-ink/60 bg-surface px-3"
+              class="account-input w-full"
             >
           </div>
           <AccountPasswordField
@@ -434,7 +419,7 @@ useHead({ title: 'Mon compte - MesSeances' })
           </p>
           <button
             type="submit"
-            class="button-primary min-h-12 w-full"
+            class="account-primary w-full"
             :disabled="!!busy"
           >
             {{
@@ -442,20 +427,13 @@ useHead({ title: 'Mon compte - MesSeances' })
             }}
           </button>
         </form>
-        <p
-          v-if="emailError"
-          role="alert"
-          class="border-l-4 border-primary pl-3 text-sm text-primary"
-        >
+        <p v-if="emailError" role="alert" class="account-alert">
           {{ emailError }}
         </p>
       </section>
 
-      <section
-        aria-labelledby="account-google"
-        class="space-y-3 border-t border-ink/20 pt-6"
-      >
-        <h2 id="account-google" class="text-xl font-bold">Google</h2>
+      <section aria-labelledby="account-google" class="space-y-5">
+        <h2 id="account-google" class="account-heading">Google</h2>
         <p class="text-sm">
           {{
             details.google_linked ? 'Votre compte Google est associé.' : 'Aucun compte Google associé.'
@@ -478,7 +456,7 @@ useHead({ title: 'Mon compte - MesSeances' })
           </p>
           <button
             type="submit"
-            class="min-h-12 w-full rounded border border-ink/60 px-4 text-sm font-semibold disabled:opacity-50"
+            class="account-secondary w-full"
             :disabled="!!busy"
           >
             {{
@@ -490,19 +468,12 @@ useHead({ title: 'Mon compte - MesSeances' })
           Google est votre seul moyen de connexion. Ajoutez un mot de passe
           avant de le dissocier.
         </p>
-        <p
-          v-if="googleError"
-          role="alert"
-          class="border-l-4 border-primary pl-3 text-sm text-primary"
-        >
+        <p v-if="googleError" role="alert" class="account-alert">
           {{ googleError }}
         </p>
       </section>
-      <section
-        aria-labelledby="account-delete"
-        class="space-y-5 border-t border-primary/40 pt-6"
-      >
-        <h2 id="account-delete" class="text-xl font-bold text-primary">
+      <section aria-labelledby="account-delete" class="space-y-5">
+        <h2 id="account-delete" class="account-heading text-primary">
           Supprimer mon compte
         </h2>
         <AccountDeletionWarning />
@@ -518,9 +489,7 @@ useHead({ title: 'Mon compte - MesSeances' })
             :disabled="!!busy"
           />
           <div>
-            <label
-              for="deletion-confirmation"
-              class="mb-2 block text-sm font-bold"
+            <label for="deletion-confirmation" class="account-label"
               >Saisissez SUPPRIMER</label
             >
             <input
@@ -530,12 +499,12 @@ useHead({ title: 'Mon compte - MesSeances' })
               :spellcheck="false"
               required
               :disabled="!!busy"
-              class="min-h-12 w-full rounded border border-primary bg-surface px-3"
+              class="account-input account-input-danger w-full"
             >
           </div>
           <button
             type="submit"
-            class="button-primary min-h-12 w-full"
+            class="account-danger w-full"
             :disabled="!!busy"
           >
             {{
@@ -551,34 +520,27 @@ useHead({ title: 'Mon compte - MesSeances' })
           </p>
           <button
             type="button"
-            class="min-h-12 w-full rounded border border-primary px-4 text-sm font-semibold text-primary disabled:opacity-50"
+            class="account-danger w-full"
             :disabled="!!busy"
             @click="googleProof('delete_account')"
           >
             Vérifier mon identité avant suppression
           </button>
         </div>
-        <p
-          v-if="deletionError"
-          role="alert"
-          class="border-l-4 border-primary pl-3 text-sm text-primary"
-        >
+        <p v-if="deletionError" role="alert" class="account-alert">
           {{ deletionError }}
         </p>
       </section>
 
-      <section
-        aria-labelledby="account-sessions"
-        class="space-y-4 border-t border-ink/20 pt-6"
-      >
-        <h2 id="account-sessions" class="text-xl font-bold">Sessions</h2>
+      <section aria-labelledby="account-sessions" class="space-y-5">
+        <h2 id="account-sessions" class="account-heading">Sessions</h2>
         <p class="text-sm">
           Fermez toutes vos sessions, y compris celle-ci. Vos cinémas
           sélectionnés restent enregistrés sur cet appareil.
         </p>
         <button
           type="button"
-          class="min-h-12 w-full rounded border border-ink/60 px-4 text-sm font-semibold disabled:opacity-50"
+          class="account-secondary w-full"
           :disabled="!!busy"
           @click="logoutAll"
         >
@@ -588,11 +550,7 @@ useHead({ title: 'Mon compte - MesSeances' })
         </button>
       </section>
     </div>
-    <p
-      v-if="sessionError"
-      role="alert"
-      class="mt-4 border-l-4 border-primary pl-3 text-sm text-primary"
-    >
+    <p v-if="sessionError" role="alert" class="account-alert mt-4">
       {{ sessionError }}
     </p>
   </AccountShell>

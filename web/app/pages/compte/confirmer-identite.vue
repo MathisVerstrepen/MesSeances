@@ -316,11 +316,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
 
 <template>
   <AccountShell title="Confirmer mon identité">
-    <p
-      v-if="notice"
-      role="status"
-      class="mb-5 border-l-4 border-ink pl-3 text-sm leading-relaxed"
-    >
+    <p v-if="notice" role="status" class="mb-5 text-sm leading-relaxed">
       {{ notice }}
     </p>
     <p v-if="done || uncertain" class="text-sm">
@@ -341,19 +337,15 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
       class="space-y-5 motion-safe:animate-pulse"
     >
       <span class="sr-only">Chargement de la vérification…</span>
-      <div class="h-12 rounded bg-ink/10" />
-      <div class="h-12 rounded bg-ink/10" />
+      <div class="h-12 border-2 border-ink/20 bg-ink/10" />
+      <div class="h-12 border-2 border-ink/20 bg-ink/10" />
     </div>
     <div v-else-if="!continuation" class="space-y-4">
       <p class="text-sm">
         Aucune vérification active n’est chargée. Recommencez depuis votre
         compte ou réessayez si la connexion a été interrompue.
       </p>
-      <button
-        type="button"
-        class="min-h-11 rounded border border-ink/60 px-4 text-sm font-semibold"
-        @click="load"
-      >
+      <button type="button" class="account-secondary" @click="load">
         Réessayer le chargement
       </button>
     </div>
@@ -365,7 +357,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
       de connexion. Revenez à votre compte pour gérer vos moyens de connexion.
     </p>
     <div v-else class="space-y-5" :aria-busy="!!busy">
-      <h2 class="text-xl font-bold">{{ actionLabel }}</h2>
+      <h2 class="account-heading">{{ actionLabel }}</h2>
       <p v-if="continuation.target" class="break-words text-sm">
         Nouvel email : <strong>{{ continuation.target }}</strong>
       </p>
@@ -378,7 +370,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
         <form v-if="token" @submit.prevent="confirmChallenge">
           <button
             type="submit"
-            class="button-primary min-h-12 w-full"
+            class="account-primary w-full"
             :disabled="!!busy"
           >
             {{
@@ -388,7 +380,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
         </form>
         <button
           type="button"
-          class="min-h-12 w-full rounded border border-ink/60 px-4 text-sm font-semibold disabled:opacity-50"
+          class="account-secondary w-full"
           :disabled="!!busy || cooldown > 0"
           @click="requestChallenge"
         >
@@ -412,10 +404,8 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
         </template>
         <template v-else-if="continuation.action === 'email_change'">
           <fieldset :disabled="!!busy" class="space-y-3">
-            <legend class="mb-2 text-sm font-bold">
-              Action sur le nouvel email
-            </legend>
-            <label class="flex min-h-11 items-center gap-3 text-sm"
+            <legend class="account-label">Action sur le nouvel email</legend>
+            <label class="account-choice"
               ><input
                 v-model="emailOperation"
                 type="radio"
@@ -424,7 +414,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
                 required
               >Demander le lien au nouvel email</label
             >
-            <label class="flex min-h-11 items-center gap-3 text-sm"
+            <label class="account-choice"
               ><input
                 v-model="emailOperation"
                 type="radio"
@@ -435,7 +425,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
             >
           </fieldset>
           <div v-if="emailOperation === 'confirm'" class="space-y-3">
-            <label for="original-email-link" class="block text-sm font-bold"
+            <label for="original-email-link" class="account-label"
               >Lien original de confirmation du nouvel email, ou jeton</label
             >
             <input
@@ -447,7 +437,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
               :spellcheck="false"
               required
               :disabled="!!busy"
-              class="min-h-12 w-full rounded border border-ink/60 bg-surface px-3"
+              class="account-input w-full"
             >
             <p class="text-sm leading-relaxed">
               Copiez le lien de l’email reçu à la nouvelle adresse, pas celui de
@@ -467,9 +457,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
         <template v-else-if="continuation.action === 'delete_account'">
           <AccountDeletionWarning />
           <div>
-            <label
-              for="delete-confirmation"
-              class="mb-2 block text-sm font-bold"
+            <label for="delete-confirmation" class="account-label"
               >Saisissez SUPPRIMER</label
             >
             <input
@@ -479,13 +467,14 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
               :spellcheck="false"
               required
               :disabled="!!busy"
-              class="min-h-12 w-full rounded border border-primary bg-surface px-3"
+              class="account-input account-input-danger w-full"
             >
           </div>
         </template>
         <button
           type="submit"
-          class="button-primary min-h-12 w-full"
+          class="w-full"
+          :class="continuation.action === 'delete_account' ? 'account-danger' : 'account-primary'"
           :disabled="!!busy"
         >
           {{
@@ -494,19 +483,11 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
         </button>
       </form>
     </div>
-    <p
-      v-if="errorMessage"
-      role="alert"
-      class="mt-5 border-l-4 border-primary pl-3 text-sm leading-relaxed text-primary"
-    >
+    <p v-if="errorMessage" role="alert" class="account-alert mt-5">
       {{ errorMessage }}
     </p>
-    <a
-      :href="complete ? '/compte' : '/connexion'"
-      class="mt-6 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
-      >{{
-        complete ? 'Revenir à mon compte' : 'Se connecter'
-      }}</a
-    >
+    <a :href="complete ? '/compte' : '/connexion'" class="account-link mt-6">{{
+      complete ? 'Revenir à mon compte' : 'Se connecter'
+    }}</a>
   </AccountShell>
 </template>

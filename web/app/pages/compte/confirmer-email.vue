@@ -113,7 +113,7 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
       </p>
       <a
         :href="account.session.value ? accountDestination(account.session.value) : '/connexion'"
-        class="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
+        class="account-link"
         >Reprendre la connexion</a
       >
     </div>
@@ -127,17 +127,14 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
       class="space-y-5 motion-safe:animate-pulse"
     >
       <span class="sr-only">Chargement du compte…</span>
-      <div class="h-12 rounded bg-ink/10" />
-      <div class="h-12 rounded bg-ink/10" />
+      <div class="h-12 border-2 border-ink/20 bg-ink/10" />
+      <div class="h-12 border-2 border-ink/20 bg-ink/10" />
     </div>
     <div v-else-if="detailsError" class="space-y-4">
-      <p
-        role="alert"
-        class="border-l-4 border-primary pl-3 text-sm text-primary"
-      >
+      <p role="alert" class="account-alert">
         {{ detailsError }}
       </p>
-      <button type="button" class="button-primary min-h-11" @click="refresh">
+      <button type="button" class="account-primary" @click="refresh">
         Réessayer
       </button>
     </div>
@@ -163,7 +160,7 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
       </p>
       <button
         type="button"
-        class="button-primary min-h-12 w-full"
+        class="account-primary w-full"
         :disabled="busy"
         @click="googleProof"
       >
@@ -173,11 +170,11 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
     <form v-else class="space-y-5" :aria-busy="busy" @submit.prevent="confirm">
       <dl class="space-y-3 text-sm">
         <div>
-          <dt class="font-bold">Email actuel du compte</dt>
+          <dt class="account-label">Email actuel du compte</dt>
           <dd class="mt-1 break-words">{{ details.email }}</dd>
         </div>
         <div>
-          <dt class="font-bold">Nouvel email à confirmer</dt>
+          <dt class="account-label">Nouvel email à confirmer</dt>
           <dd class="mt-1 break-words">{{ details.pending_email }}</dd>
         </div>
       </dl>
@@ -192,24 +189,16 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
         ne permettra plus de vous connecter avec un mot de passe. Votre compte
         Google associé ne change pas.
       </p>
-      <button
-        type="submit"
-        class="button-primary min-h-12 w-full"
-        :disabled="busy"
-      >
+      <button type="submit" class="account-primary w-full" :disabled="busy">
         {{ busy ? 'Confirmation…' : 'Confirmer mon nouvel email' }}
       </button>
     </form>
-    <p
-      v-if="errorMessage"
-      role="alert"
-      class="mt-5 border-l-4 border-primary pl-3 text-sm text-primary"
-    >
+    <p v-if="errorMessage" role="alert" class="account-alert mt-5">
       {{ errorMessage }}
     </p>
     <a
       :href="done || uncertain ? '/connexion' : '/compte'"
-      class="mt-6 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
+      class="account-link mt-6"
       >{{
         done || uncertain ? 'Se connecter' : 'Revenir à mon compte'
       }}</a

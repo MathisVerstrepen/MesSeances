@@ -118,11 +118,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
         :aria-busy="busy"
         @submit.prevent="confirm"
       >
-        <button
-          type="submit"
-          class="button-primary min-h-12 w-full"
-          :disabled="busy"
-        >
+        <button type="submit" class="account-primary w-full" :disabled="busy">
           {{ busy ? 'Vérification…' : 'Confirmer mon email' }}
         </button>
       </form>
@@ -130,33 +126,27 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
         Ouvrez le lien reçu par email. Si vous avez actualisé cette page,
         rouvrez le lien ou demandez-en un nouveau.
       </p>
-      <p
-        v-if="errorMessage"
-        role="alert"
-        class="border-l-4 border-primary pl-3 text-sm leading-relaxed text-primary"
-      >
+      <p v-if="errorMessage" role="alert" class="account-alert">
         {{ errorMessage }}
       </p>
       <button
         v-if="recovery === 'google'"
         type="button"
         :disabled="busy"
-        class="button-primary min-h-12 w-full"
+        class="account-primary w-full"
         @click="reconnectGoogle"
       >
         {{ busy ? 'Connexion…' : 'Se connecter avec Google' }}
       </button>
       <form
         v-if="!recovery"
-        class="space-y-5 border-t border-ink/20 pt-5"
+        class="space-y-5 border-t-2 border-ink pt-6"
         :aria-busy="busy"
         @submit.prevent="resend"
       >
-        <h2 class="text-lg font-bold">Recevoir un nouveau lien</h2>
+        <h2 class="account-heading">Recevoir un nouveau lien</h2>
         <div>
-          <label for="verification-email" class="mb-2 block text-sm font-bold"
-            >Email</label
-          >
+          <label for="verification-email" class="account-label">Email</label>
           <input
             id="verification-email"
             v-model="email"
@@ -168,7 +158,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
             maxlength="254"
             required
             :disabled="busy"
-            class="min-h-12 w-full rounded border border-ink/60 bg-surface px-3"
+            class="account-input w-full"
           >
         </div>
         <p v-if="sent" role="status" class="text-sm leading-relaxed">
@@ -177,7 +167,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
         </p>
         <button
           type="submit"
-          class="min-h-12 w-full rounded border border-ink/60 bg-surface px-4 text-sm font-semibold disabled:opacity-50"
+          class="account-secondary w-full"
           :disabled="busy || cooldown > 0"
         >
           {{
@@ -185,10 +175,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
           }}
         </button>
       </form>
-      <a
-        v-if="recovery !== 'google'"
-        href="/inscription"
-        class="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
+      <a v-if="recovery !== 'google'" href="/inscription" class="account-link"
         >Recommencer l’inscription</a
       >
     </div>

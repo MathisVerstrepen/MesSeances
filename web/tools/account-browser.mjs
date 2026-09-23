@@ -1,7 +1,8 @@
 // Requires fresh accounts_browser_harness_test.go + test:accounts:server.
-// Installed Chrome and Node WebSocket only. No screenshots, traces, mail or secrets saved.
+// Installed Chrome and Node WebSocket only. Optional --visual saves synthetic,
+// token-free screenshots under /tmp/opencode. No traces, mail or secrets saved.
 import { spawn } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { CDP, CaptureError, terminateProcessGroup } from './screenshot.mjs'
 
@@ -24,6 +25,8 @@ let passed = 0
 let interceptionFailure = false
 const responses = []
 const allPages = []
+const visual = process.argv.includes('--visual')
+const captured = new Set()
 class HarnessError extends Error {}
 
 function check(value, label) {
@@ -262,10 +265,74 @@ async function click(page, text) {
   await evaluate(page, `(${expression}).click()`)
 }
 async function text(page, fragment) {
+  // innerText reflects the public controls' CSS uppercase transformation.
   await until(
     page,
-    `document.body.innerText.includes(${JSON.stringify(fragment)})`,
+    `document.body.innerText.toLowerCase().includes(${JSON.stringify(fragment.toLowerCase())})`,
     'Expected UI state',
+  )
+}
+
+async function inspectStyle(page, name) {
+  if (!visual || captured.has(name)) return
+  captured.add(name)
+  await cdp.send('Page.bringToFront', {}, page.sessionId)
+  await evaluate(page, 'document.fonts.ready.then(() => true)')
+  check(
+    await evaluate(
+      page,
+      `location.hash === '' && location.search === '' && !document.getElementById('original-email-link')?.value && [...document.querySelectorAll('input[autocomplete$="password"]')].every(el => el.type === 'password')`,
+    ),
+    `${name}: screenshot has no URL token or exposed secret field`,
+  )
+  for (const width of [1440, 390, 320]) {
+    await cdp.send(
+      'Emulation.setDeviceMetricsOverride',
+      { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 },
+      page.sessionId,
+    )
+    await evaluate(page, 'window.scrollTo(0, 0)')
+    await delay(100)
+    check(
+      await evaluate(page, `document.documentElement.scrollWidth <= ${width}`),
+      `${name}: ${width}px has no horizontal overflow`,
+    )
+    check(
+      await evaluate(
+        page,
+        `Array.from(document.querySelectorAll('main button,main input:not([type="radio"]),main a')).filter(el => el.getClientRects().length).every(el => { const r = el.getBoundingClientRect(); return r.height >= 44 && r.width >= 44; })`,
+      ),
+      `${name}: ${width}px controls keep 44px targets`,
+    )
+    check(
+      await evaluate(
+        page,
+        `Array.from(document.querySelectorAll('main .account-input')).every(el => { const css = getComputedStyle(el); return css.borderRadius === '0px' && css.borderTopWidth === '2px'; }) && Array.from(document.querySelectorAll('main .account-primary')).every(el => getComputedStyle(el).backgroundColor === 'rgb(39, 39, 42)')`,
+      ),
+      `${name}: ${width}px public square controls and dark CTAs`,
+    )
+    const { cssContentSize } = await cdp.send(
+      'Page.getLayoutMetrics',
+      {},
+      page.sessionId,
+    )
+    const { data } = await cdp.send(
+      'Page.captureScreenshot',
+      {
+        format: 'png',
+        captureBeyondViewport: true,
+        clip: { x: 0, y: 0, width, height: cssContentSize.height, scale: 1 },
+      },
+      page.sessionId,
+    )
+    const path = `/tmp/opencode/account-style-${name}-${width}.png`
+    await writeFile(path, Buffer.from(data, 'base64'))
+    console.log(`SCREENSHOT ${path}`)
+  }
+  await cdp.send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    page.sessionId,
   )
 }
 async function request(page, path, body, method = 'POST', csrf = true) {
@@ -361,11 +428,13 @@ async function login(page, email, secret) {
 async function register(page, email, username, reserved = false) {
   await go(page, '/inscription')
   await noExplore(page)
+  await inspectStyle(page, 'inscription')
   await fill(page, 'account-email', email)
   await rejectShortPassword(page, 'account-password', 'Créer mon compte')
   await fill(page, 'account-password', password)
   await click(page, 'Créer mon compte')
   await text(page, 'Si cette adresse peut être utilisée')
+  await inspectStyle(page, 'inscription-sent')
   const registeredAt = Date.now()
   check(!(await cookie(page)), 'registration does not establish a session')
   const proof = await cookie(page, 'messeances_registration_dev')
@@ -389,6 +458,7 @@ async function register(page, email, username, reserved = false) {
       other,
       'Rouvrez ce lien dans le navigateur où vous avez commencé votre inscription',
     )
+    await inspectStyle(other, 'verification-browser-error')
     check(
       await evaluate(
         other,
@@ -454,6 +524,7 @@ async function register(page, email, username, reserved = false) {
   const before = page.requests.length
   await fragmentVisit(page, message.link)
   await verificationForm(page)
+  await inspectStyle(page, 'verification')
   check(
     await evaluate(page, `location.hash === ''`),
     'verification fragment removed',
@@ -480,6 +551,7 @@ async function register(page, email, username, reserved = false) {
     'Verified onboarding',
   )
   const pendingCookie = await cookie(page)
+  await inspectStyle(page, 'finaliser')
   await noExplore(page)
   check(
     !(await cookie(page, 'messeances_registration_dev')),
@@ -514,6 +586,7 @@ async function register(page, email, username, reserved = false) {
     'Account completed',
   )
   const completeCookie = await cookie(page)
+  await inspectStyle(page, 'compte')
   check(
     completeCookie?.value !== pendingCookie?.value,
     'onboarding rotates session cookie',
@@ -609,6 +682,7 @@ async function simulatedGoogle() {
     'Simulated Google account',
   )
   await text(google, 'Google est votre seul moyen de connexion')
+  await inspectStyle(google, 'compte-google')
   check(
     !(await evaluate(
       google,
@@ -624,6 +698,7 @@ async function simulatedGoogle() {
   )
   const before = google.requests.length
   await text(google, 'Recevoir le lien de vérification')
+  await inspectStyle(google, 'confirmer-identite')
   check(
     !google.requests.slice(before).some((item) => item.method !== 'GET'),
     'Google continuation GET does not automatically request proof',
@@ -634,12 +709,15 @@ async function simulatedGoogle() {
   // Mail clients commonly open a new tab. Preserve browser/session binding.
   google = await tab(google.browserContextId)
   await fragmentVisit(google, proof.link)
+  await text(google, 'Confirmer mon identité avec ce lien')
+  await inspectStyle(google, 'confirmer-identite-link')
   check(
     !(await session(google)).account.has_password,
     'email proof link GET does not add password',
   )
   await click(google, 'Confirmer mon identité avec ce lien')
   await rejectShortPassword(google, 'add-password', 'Ajouter mon mot de passe')
+  await inspectStyle(google, 'confirmer-identite-password-error')
   await fill(google, 'add-password', replacement)
   check(
     !(await session(google)).account.has_password,
@@ -798,6 +876,7 @@ async function emailScenario() {
   )
   check(!(await cookie(a)), 'ordinary logout clears cookie')
   await noExplore(a)
+  await inspectStyle(a, 'connexion')
   await fill(a, 'account-email', emailA)
   await fill(a, 'account-password', replacement)
   await click(a, 'Se connecter')
@@ -806,6 +885,7 @@ async function emailScenario() {
     `!!document.getElementById('account-credentials-error')`,
     'Unchosen password rejected',
   )
+  await inspectStyle(a, 'connexion-error')
   check(
     (await session(a)).state === 'anonymous',
     'unchosen replacement password cannot authenticate',
@@ -858,6 +938,7 @@ async function emailScenario() {
     `!!document.getElementById('confirm-email-password')`,
     'Email confirmation form',
   )
+  await inspectStyle(a, 'confirmer-email')
   check(
     (await session(a)).account.email === emailA,
     'email confirmation GET leaves old email active',
@@ -870,12 +951,15 @@ async function emailScenario() {
 
   phase = 'recovery'
   await go(a, '/mot-de-passe-oublie')
+  await inspectStyle(a, 'mot-de-passe-oublie')
   await fill(a, 'reset-email', newEmail)
   await click(a, 'Recevoir un lien')
   await text(a, 'Si cette adresse correspond à un compte avec mot de passe')
+  await inspectStyle(a, 'mot-de-passe-oublie-sent')
   const reset = await mail(newEmail, 'password_reset')
   await go(a, reset.link)
   await until(a, `!!document.getElementById('reset-password')`, 'Reset form')
+  await inspectStyle(a, 'reinitialiser-mot-de-passe')
   await noExplore(a)
   check(
     (await session(a)).state === 'complete',
@@ -885,6 +969,7 @@ async function emailScenario() {
   await fill(a, 'reset-password', replacement)
   await click(a, 'Modifier mon mot de passe')
   await text(a, 'Toutes vos sessions ont été fermées.')
+  await inspectStyle(a, 'reinitialiser-mot-de-passe-done')
   check(!(await cookie(a)), 'reset clears browser session and requires login')
   await login(a, newEmail, replacement)
 
@@ -1070,7 +1155,11 @@ async function main() {
   // Run each scenario against a freshly started backend fixture. Real rate limits
   // deliberately remain enabled; neither driver nor fixture bypasses them.
   const google = process.argv.slice(2).includes('--google')
-  if (process.argv.slice(2).some((arg) => arg !== '--google'))
+  if (
+    process.argv
+      .slice(2)
+      .some((arg) => arg !== '--google' && arg !== '--visual')
+  )
     throw new HarnessError('Unknown scenario argument')
   check(
     (await fetch(`${api}/healthz`, { signal: AbortSignal.timeout(10000) })).ok,

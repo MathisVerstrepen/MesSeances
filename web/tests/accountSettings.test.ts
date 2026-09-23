@@ -17,6 +17,14 @@ import { isAccountPage } from '../shared/accountPrivacy.ts'
 
 const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
 
+test('registration sent actions keep a wrapping gap and their public link styles', async () => {
+  const source = await read('../app/components/AccountCredentialsForm.vue')
+  assert.match(
+    source,
+    /<div v-if="sent" class="space-y-5">\s*<p\b[^>]*>[\s\S]*?<\/p>\s*<div class="flex flex-wrap items-center gap-4">\s*<a href="\/verification" class="account-primary">Vérifier mon adresse<\/a>\s*<a href="\/connexion" class="account-link">Se connecter<\/a>\s*<\/div>\s*<\/div>/,
+  )
+})
+
 interface CompiledComposables {
   default?: (to: {
     path: string
@@ -461,7 +469,7 @@ test('recovery and email confirmation remain explicit, memory-only and scanner-s
     assert.match(source, /accountWriteUncertain/)
   }
   const settings = await read('../app/pages/compte/index.vue')
-  assert.match(settings, /<AccountShell title="Mon compte" hide-explore>/)
+  assert.match(settings, /<AccountShell title="Mon compte" hide-explore\b/)
   const shell = await read('../app/components/AccountShell.vue')
   assert.match(shell, /hideExplore\?: boolean/)
   assert.match(

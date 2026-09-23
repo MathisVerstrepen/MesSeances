@@ -51,9 +51,7 @@ useHead({ title: 'Mot de passe oublié - MesSeances' })
   <AccountShell title="Mot de passe oublié">
     <form class="space-y-5" :aria-busy="busy" @submit.prevent="submit">
       <div>
-        <label for="reset-email" class="mb-2 block text-sm font-bold"
-          >Email du compte</label
-        >
+        <label for="reset-email" class="account-label">Email du compte</label>
         <input
           id="reset-email"
           v-model="email"
@@ -65,23 +63,19 @@ useHead({ title: 'Mot de passe oublié - MesSeances' })
           maxlength="254"
           required
           :disabled="busy"
-          class="min-h-12 w-full rounded border border-ink/60 bg-surface px-3"
+          class="account-input w-full"
         >
       </div>
       <p v-if="sent" role="status" class="text-sm leading-relaxed">
         Si cette adresse correspond à un compte avec mot de passe, un lien de
         réinitialisation sera envoyé. Seul le dernier lien reste valable.
       </p>
-      <p
-        v-if="errorMessage"
-        role="alert"
-        class="border-l-4 border-primary pl-3 text-sm text-primary"
-      >
+      <p v-if="errorMessage" role="alert" class="account-alert">
         {{ errorMessage }}
       </p>
       <button
         type="submit"
-        class="button-primary min-h-12 w-full"
+        class="account-primary w-full"
         :disabled="busy || cooldown > 0"
       >
         {{
@@ -93,10 +87,6 @@ useHead({ title: 'Mot de passe oublié - MesSeances' })
       Si vous utilisez uniquement Google, reconnectez-vous avec Google : ce lien
       n’ajoute pas de mot de passe.
     </p>
-    <a
-      href="/connexion"
-      class="mt-4 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
-      >Revenir à la connexion</a
-    >
+    <a href="/connexion" class="account-link mt-4">Revenir à la connexion</a>
   </AccountShell>
 </template>

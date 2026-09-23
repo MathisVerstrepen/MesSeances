@@ -24,7 +24,7 @@ const invalid = computed(
 
 <template>
   <div>
-    <label :for="id" class="mb-2 block text-sm font-bold">{{ label }}</label>
+    <label :for="id" class="account-label">{{ label }}</label>
     <div class="flex gap-2">
       <input
         :id="id"
@@ -35,12 +35,12 @@ const invalid = computed(
         :disabled="disabled"
         :aria-invalid="invalid || undefined"
         :aria-describedby="newPassword ? `${id}-criteria` : undefined"
-        class="min-h-12 min-w-0 flex-1 rounded border border-ink/60 bg-surface px-3 disabled:opacity-60"
+        class="account-input w-full flex-1"
         @blur="touched = true"
       >
       <button
         type="button"
-        class="min-h-12 min-w-20 rounded border border-ink/60 px-3 text-sm font-semibold"
+        class="account-secondary shrink-0"
         :aria-controls="id"
         :aria-pressed="visible"
         :aria-label="`${visible ? 'Masquer' : 'Afficher'} le mot de passe`"

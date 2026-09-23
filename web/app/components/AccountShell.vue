@@ -31,63 +31,160 @@ useHead({
 </script>
 
 <template>
-  <main class="mx-auto w-full max-w-lg px-5 py-10 text-ink sm:py-16">
-    <h1
-      class="mb-8 border-b-2 border-ink pb-5 text-3xl font-black tracking-tight sm:text-4xl"
-    >
-      {{ title }}
-    </h1>
+  <main
+    class="account-shell w-full border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-8 text-ink sm:px-6 sm:py-14 lg:py-20"
+  >
     <div
-      v-if="status === 'idle' || status === 'loading'"
-      role="status"
-      class="space-y-5 motion-safe:animate-pulse"
+      class="account-shell-content mx-auto w-full max-w-xl border-2 border-ink bg-canvas p-5 shadow-[6px_6px_0_#27272a] sm:p-9 sm:shadow-[8px_8px_0_#27272a]"
     >
-      <span class="sr-only">Vérification de la session…</span>
-      <div class="h-12 rounded bg-ink/10" />
-      <div class="h-12 rounded bg-ink/10" />
-      <div class="h-12 w-2/3 rounded bg-ink/10" />
-    </div>
-    <div v-else-if="status === 'error'" class="space-y-5">
-      <p role="alert" class="border-l-4 border-primary pl-4 text-sm">
-        {{ errorMessage }}
-      </p>
-      <button
-        type="button"
-        class="button-primary min-h-11"
-        @click="account.refresh"
+      <h1
+        class="mb-8 border-b-2 border-ink pb-6 [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(2rem,6vw,3.5rem)] font-black leading-[1.05] tracking-[-0.065em] sm:mb-9 sm:pb-8"
       >
-        Réessayer
-      </button>
-    </div>
-    <p
-      v-else-if="session && !session.enabled"
-      role="status"
-      class="text-sm leading-relaxed"
-    >
-      Les comptes ne sont pas encore disponibles. Vous pouvez continuer à
-      explorer les séances.
-    </p>
-    <div v-show="status === 'ready' && session?.enabled">
-      <slot />
-    </div>
-    <div v-if="session?.account" class="mt-8 border-t border-ink/20 pt-4">
-      <button
-        type="button"
-        class="min-h-11 text-sm font-semibold underline underline-offset-4 disabled:opacity-50"
-        :disabled="signingOut"
-        @click="logout"
+        {{ title }}
+      </h1>
+      <div
+        v-if="status === 'idle' || status === 'loading'"
+        role="status"
+        class="space-y-5 motion-safe:animate-pulse"
       >
-        {{ signingOut ? 'Déconnexion…' : 'Se déconnecter' }}
-      </button>
-      <p v-if="signOutError" role="alert" class="mt-3 text-sm text-primary">
-        {{ signOutError }}
+        <span class="sr-only">Vérification de la session…</span>
+        <div class="h-12 border-2 border-ink/20 bg-ink/10" />
+        <div class="h-12 border-2 border-ink/20 bg-ink/10" />
+        <div class="h-12 w-2/3 border-2 border-ink/20 bg-ink/10" />
+      </div>
+      <div v-else-if="status === 'error'" class="space-y-5">
+        <p role="alert" class="account-alert">
+          {{ errorMessage }}
+        </p>
+        <button type="button" class="account-primary" @click="account.refresh">
+          Réessayer
+        </button>
+      </div>
+      <p
+        v-else-if="session && !session.enabled"
+        role="status"
+        class="text-sm leading-relaxed"
+      >
+        Les comptes ne sont pas encore disponibles. Vous pouvez continuer à
+        explorer les séances.
       </p>
+      <div v-show="status === 'ready' && session?.enabled">
+        <slot />
+      </div>
+      <div v-if="session?.account" class="mt-8 border-t-2 border-ink pt-4">
+        <button
+          type="button"
+          class="account-link"
+          :disabled="signingOut"
+          @click="logout"
+        >
+          {{ signingOut ? 'Déconnexion…' : 'Se déconnecter' }}
+        </button>
+        <p v-if="signOutError" role="alert" class="account-alert mt-3">
+          {{ signOutError }}
+        </p>
+      </div>
+      <a
+        v-if="!hideExplore && route.path.toLowerCase().startsWith('/compte')"
+        href="/"
+        class="account-link mt-6"
+        >Explorer les séances</a
+      >
     </div>
-    <a
-      v-if="!hideExplore && route.path.toLowerCase().startsWith('/compte')"
-      href="/"
-      class="mt-6 inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
-      >Explorer les séances</a
-    >
   </main>
 </template>
+
+<style scoped>
+@reference "../assets/css/main.css";
+
+.account-shell-wide .account-shell-content {
+  @apply max-w-4xl;
+}
+
+.account-shell :deep(.account-label) {
+  @apply mb-2 block font-mono text-[0.68rem] font-extrabold uppercase leading-relaxed tracking-[0.1em];
+}
+
+.account-shell :deep(.account-heading) {
+  @apply [font-family:'Noto_Sans_Variable',sans-serif] text-2xl font-black leading-tight tracking-[-0.045em];
+}
+
+.account-shell :deep(.account-input) {
+  @apply min-h-12 min-w-0 rounded-none border-2 border-ink bg-surface px-3 text-base text-ink focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.account-shell :deep(.account-input[aria-invalid="true"]),
+.account-shell :deep(.account-input-danger) {
+  @apply border-primary;
+}
+
+.account-shell :deep(.account-primary),
+.account-shell :deep(.account-secondary),
+.account-shell :deep(.account-danger) {
+  @apply inline-flex min-h-12 items-center justify-center gap-2 rounded-none border-2 border-ink px-4 py-3 text-center font-mono text-[0.72rem] font-extrabold uppercase leading-relaxed tracking-[0.06em] transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.account-shell :deep(.account-primary) {
+  @apply bg-ink text-white enabled:hover:bg-primary;
+}
+
+.account-shell :deep(a.account-primary:hover) {
+  @apply bg-primary;
+}
+
+.account-shell :deep(.account-secondary) {
+  @apply bg-surface text-ink enabled:hover:bg-highlight;
+}
+
+.account-shell :deep(.account-danger) {
+  @apply border-primary bg-primary-soft text-primary enabled:hover:bg-primary enabled:hover:text-white;
+}
+
+.account-shell :deep(.account-link) {
+  @apply inline-flex min-h-11 items-center font-mono text-xs font-bold leading-relaxed underline decoration-2 underline-offset-4 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.account-shell :deep(.account-alert) {
+  @apply border-2 border-primary bg-primary-soft p-4 text-sm leading-relaxed text-primary;
+}
+
+.account-shell :deep(p[role="status"]:not(.sr-only)) {
+  @apply border-l-4 border-ink bg-[#f1efe8] p-4 text-sm leading-relaxed;
+}
+
+.account-shell :deep(input:focus-visible),
+.account-shell :deep(button:focus-visible),
+.account-shell :deep(a:focus-visible) {
+  @apply outline-3 outline-offset-3 outline-ink ring-0;
+}
+
+.account-shell :deep(.account-choice) {
+  @apply flex min-h-12 items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-semibold has-checked:bg-highlight;
+}
+
+.account-shell :deep(.account-choice input) {
+  @apply size-4 shrink-0 accent-ink;
+}
+
+.account-shell :deep(.account-settings > section) {
+  @apply min-w-0 border-t-2 border-ink pt-7;
+}
+
+.account-shell :deep(.account-settings > section:first-child) {
+  @apply border-t-0 pt-0;
+}
+
+@media (min-width: 768px) {
+  .account-shell :deep(.account-settings > section) {
+    @apply grid grid-cols-[minmax(0,1fr)_minmax(0,1.7fr)] gap-x-10 gap-y-5 space-y-0;
+  }
+
+  .account-shell :deep(.account-settings > section > :not(h2)) {
+    @apply col-start-2 min-w-0;
+  }
+
+  .account-shell :deep(.account-settings > section > h2 + *) {
+    @apply row-start-1;
+  }
+}
+</style>

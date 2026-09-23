@@ -74,11 +74,7 @@ useHead({ title: 'Réinitialiser mon mot de passe - MesSeances' })
       <p class="text-sm leading-relaxed">
         Cette action déconnecte tous vos appareils.
       </p>
-      <button
-        type="submit"
-        class="button-primary min-h-12 w-full"
-        :disabled="busy"
-      >
+      <button type="submit" class="account-primary w-full" :disabled="busy">
         {{ busy ? 'Modification…' : 'Modifier mon mot de passe' }}
       </button>
     </form>
@@ -86,23 +82,12 @@ useHead({ title: 'Réinitialiser mon mot de passe - MesSeances' })
       Ouvrez le lien reçu par email. Si vous avez actualisé cette page, rouvrez
       le lien ou demandez-en un nouveau.
     </p>
-    <p
-      v-if="errorMessage"
-      role="alert"
-      class="mt-5 border-l-4 border-primary pl-3 text-sm text-primary"
-    >
+    <p v-if="errorMessage" role="alert" class="account-alert mt-5">
       {{ errorMessage }}
     </p>
     <div class="mt-6 flex flex-col items-start gap-2">
-      <a
-        href="/connexion"
-        class="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
-        >Se connecter</a
-      >
-      <a
-        v-if="!done"
-        href="/mot-de-passe-oublie"
-        class="inline-flex min-h-11 items-center text-sm font-semibold underline underline-offset-4"
+      <a href="/connexion" class="account-link">Se connecter</a>
+      <a v-if="!done" href="/mot-de-passe-oublie" class="account-link"
         >Recevoir un nouveau lien</a
       >
     </div>

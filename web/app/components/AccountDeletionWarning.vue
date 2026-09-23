@@ -1,5 +1,5 @@
 <template>
-  <p class="text-sm leading-relaxed">
+  <p class="border-l-4 border-primary pl-4 text-sm leading-relaxed">
     La suppression est immédiate et définitive, sans possibilité d’annulation.
     Le compte, ses moyens de connexion et ses sessions seront supprimés. Votre
     nom d’utilisateur restera réservé pour toujours, sans email ni identité
