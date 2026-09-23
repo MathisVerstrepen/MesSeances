@@ -14,9 +14,11 @@ const password = ref('')
 const busy = ref(false)
 const errorMessage = ref('')
 const sent = ref(false)
+const blocked = computed(() => busy.value || account.writesBlocked.value)
+useAccountFlowDraft(email, password)
 
 async function submit() {
-  if (busy.value) return
+  if (blocked.value) return
   errorMessage.value = ''
   if (props.register) {
     const criteria = passwordCriteria(password.value)
@@ -46,7 +48,7 @@ async function submit() {
 }
 
 async function google() {
-  if (busy.value) return
+  if (blocked.value) return
   busy.value = true
   errorMessage.value = ''
   try {
@@ -58,15 +60,6 @@ async function google() {
     busy.value = false
   }
 }
-
-function clearPassword() {
-  password.value = ''
-}
-onMounted(() => window.addEventListener('pagehide', clearPassword))
-onBeforeUnmount(() => {
-  clearPassword()
-  if (import.meta.client) window.removeEventListener('pagehide', clearPassword)
-})
 </script>
 
 <template>
@@ -81,7 +74,7 @@ onBeforeUnmount(() => {
     </div>
   </div>
   <div v-else class="space-y-4">
-    <form class="space-y-4" :aria-busy="busy" @submit.prevent="submit">
+    <form class="space-y-4" :aria-busy="blocked" @submit.prevent="submit">
       <div class="space-y-6">
         <div>
           <label for="account-email" class="account-label">Email</label>
@@ -120,7 +113,7 @@ onBeforeUnmount(() => {
       >
         {{ errorMessage }}
       </p>
-      <button type="submit" class="account-primary w-full" :disabled="busy">
+      <button type="submit" class="account-primary w-full" :disabled="blocked">
         {{
           busy ? 'Veuillez patienter…' : register ? 'Créer mon compte' : 'Se connecter'
         }}
@@ -133,7 +126,7 @@ onBeforeUnmount(() => {
     </div>
     <button
       type="button"
-      :disabled="busy"
+      :disabled="blocked"
       class="account-secondary w-full"
       @click="google"
     >

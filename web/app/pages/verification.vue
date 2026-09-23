@@ -16,6 +16,8 @@ const errorMessage = ref('')
 const sent = ref(false)
 const cooldown = ref(0)
 const recovery = ref<'registration' | 'google' | null>(null)
+const blocked = computed(() => busy.value || account.writesBlocked.value)
+useAccountFlowDraft(email, token)
 let timer: ReturnType<typeof setInterval> | undefined
 
 function startCooldown(seconds = 60) {
@@ -29,7 +31,7 @@ function startCooldown(seconds = 60) {
 }
 
 async function resend() {
-  if (busy.value || cooldown.value > 0) return
+  if (blocked.value || cooldown.value > 0) return
   busy.value = true
   errorMessage.value = ''
   sent.value = false
@@ -48,7 +50,7 @@ async function resend() {
 }
 
 async function confirm() {
-  if (busy.value || !token.value || recovery.value) return
+  if (blocked.value || !token.value || recovery.value) return
   errorMessage.value = ''
   busy.value = true
   const initialState = account.session.value?.state
@@ -91,7 +93,7 @@ async function confirm() {
 }
 
 async function reconnectGoogle() {
-  if (busy.value) return
+  if (blocked.value) return
   busy.value = true
   try {
     await startGoogle()
@@ -115,10 +117,14 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
       <form
         v-if="token && !recovery"
         class="space-y-5"
-        :aria-busy="busy"
+        :aria-busy="blocked"
         @submit.prevent="confirm"
       >
-        <button type="submit" class="account-primary w-full" :disabled="busy">
+        <button
+          type="submit"
+          class="account-primary w-full"
+          :disabled="blocked"
+        >
           {{ busy ? 'Vérification…' : 'Confirmer mon email' }}
         </button>
       </form>
@@ -132,7 +138,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
       <button
         v-if="recovery === 'google'"
         type="button"
-        :disabled="busy"
+        :disabled="blocked"
         class="account-primary w-full"
         @click="reconnectGoogle"
       >
@@ -141,7 +147,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
       <form
         v-if="!recovery"
         class="space-y-5 border-t-2 border-ink pt-6"
-        :aria-busy="busy"
+        :aria-busy="blocked"
         @submit.prevent="resend"
       >
         <h2 class="account-heading">Recevoir un nouveau lien</h2>
@@ -168,7 +174,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
         <button
           type="submit"
           class="account-secondary w-full"
-          :disabled="busy || cooldown > 0"
+          :disabled="blocked || cooldown > 0"
         >
           {{
             cooldown > 0 ? `Renvoyer dans ${cooldown} s` : 'Renvoyer le lien'

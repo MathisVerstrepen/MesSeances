@@ -1,5 +1,6 @@
 // Requires fresh accounts_browser_harness_test.go + test:accounts:server.
 // --overview --visual needs only test:accounts:server; owns a read-only mock API.
+// --auth-focus also owns a read-only mock API; no DB, screenshots or token logs.
 // Installed Chrome and Node WebSocket only. Optional --visual saves synthetic,
 // token-free screenshots under /tmp/opencode. No traces, mail or secrets saved.
 import { spawn } from 'node:child_process'
@@ -2303,6 +2304,383 @@ async function overviewScenario() {
   console.log(`ACCOUNT_BROWSER_PASS scenario=overview assertions=${passed}`)
 }
 
+async function authFocusScenario() {
+  // Actual hydrated Vue, synthetic focus/lifecycle events, read-only transport.
+  // Link tokens exist only in memory and are stripped by the real bootstrap.
+  let session
+  let held = false
+  let reads = 0
+  let writes = 0
+  const responses = new Set()
+  overviewServer = createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json')
+    response.setHeader('Cache-Control', 'no-store')
+    if (request.method !== 'GET') writes++
+    if (request.method === 'GET' && request.url === '/api/v1/auth/session') {
+      reads++
+      if (held) {
+        responses.add(response)
+        response.once('close', () => responses.delete(response))
+      } else response.end(JSON.stringify(session))
+      return
+    }
+    if (request.method === 'GET' && request.url === '/api/v1/account') {
+      response.end(
+        JSON.stringify({
+          ...session.account,
+          google_email: null,
+          pending_email: 'next@example.test',
+          allowed_methods: ['password'],
+        }),
+      )
+      return
+    }
+    if (
+      request.method === 'GET' &&
+      request.url === '/api/v1/account/reauth/continuation'
+    ) {
+      response.end(
+        JSON.stringify({
+          action: 'password_add',
+          target: null,
+          expires_at: new Date(Date.now() + 600000).toISOString(),
+        }),
+      )
+      return
+    }
+    response.statusCode = 404
+    response.end('{}')
+  })
+  await new Promise((resolve, reject) => {
+    overviewServer.once('error', reject)
+    overviewServer.listen(18089, '127.0.0.1', resolve)
+  })
+  await launch()
+  const page = await tab()
+  const release = (error = false) => {
+    held = false
+    for (const response of responses) {
+      response.statusCode = error ? 503 : 200
+      response.end(JSON.stringify(error ? {} : session))
+    }
+    responses.clear()
+  }
+  const waitHeld = async (count = 1) => {
+    for (let i = 0; i < 100 && responses.size < count; i++) await delay(50)
+    check(responses.size === count, 'auth flow: expected held session requests')
+  }
+  const cases = [
+    ['connexion', 'anonymous', 'account-password'],
+    ['inscription', 'anonymous', 'account-password'],
+    ['inscription', 'pending_email', 'account-password'],
+    ['finaliser', 'pending_username', 'account-username'],
+    ['compte/confirmer-email', 'complete', 'confirm-email-password'],
+    ...['anonymous', 'pending_email', 'pending_username'].flatMap((state) => [
+      ['verification', state, 'verification-email'],
+      ['mot-de-passe-oublie', state, 'reset-email'],
+      ['reinitialiser-mot-de-passe', state, 'reset-password'],
+    ]),
+  ]
+  for (const [route, state, id] of cases) {
+    const label = `${route}/${state}`
+    const tokenPage = [
+      'verification',
+      'reinitialiser-mot-de-passe',
+      'compte/confirmer-email',
+    ].includes(route)
+    const initial = {
+      enabled: true,
+      state,
+      account:
+        state === 'anonymous'
+          ? null
+          : {
+              email: 'owner@example.test',
+              username: state === 'complete' ? 'owner_name' : null,
+              has_password: true,
+              google_linked: false,
+            },
+    }
+    const open = async () => {
+      session = structuredClone(initial)
+      await go(page, `/${route}${tokenPage ? `#token=${'t'.repeat(43)}` : ''}`)
+      await until(
+        page,
+        `!!document.getElementById('${id}')`,
+        'Auth focus form ready',
+      )
+      await evaluate(
+        page,
+        `(() => {
+        const input = document.getElementById('${id}');
+        let component = input.__vueParentComponent;
+        while (component && !component.setupState.api) component = component.parent;
+        if (!component) throw new Error('Missing auth setup');
+        const state = component.setupState;
+        for (const field of document.querySelectorAll('main input')) {
+          field.value = field.type === 'email' ? 'draft@example.test' : field.type === 'password' ? 'Synthetic-draft-42!' : 'draft_name';
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        input.focus();
+        if (input.type !== 'email') input.setSelectionRange(2, 7);
+        const fixture = window.__authFocus = { input, state, flashes: 0, fields: [...document.querySelectorAll('main input')].map(node => ({ node, value: node.value })) };
+        fixture.observer = new MutationObserver(() => {
+          if (document.querySelector('main [class*="animate-pulse"]') || !input.isConnected || !input.getClientRects().length) fixture.flashes++;
+        });
+        fixture.observer.observe(document.querySelector('main'), { subtree: true, childList: true, attributes: true });
+      })()`,
+      )
+      check(
+        await evaluate(
+          page,
+          `!location.hash && ${tokenPage ? '!window.__takeAccountToken && window.__authFocus.state.token.length === 43' : 'true'} && [localStorage, sessionStorage].every(storage => Object.values(storage).every(value => !['Synthetic-draft-42!', 'draft@example.test', 't'.repeat(43)].some(secret => value.includes(secret))))`,
+        ),
+        `${label}: URL stripped, drafts/token memory-only`,
+      )
+    }
+    const stable = async (stage) =>
+      check(
+        await evaluate(
+          page,
+          `(() => {
+      const f = window.__authFocus;
+      return !f.flashes && f.input === document.activeElement && f.input === document.getElementById('${id}') &&
+        f.fields.every(({node, value}) => node.isConnected && node.getClientRects().length && node.value === value && !node.disabled) &&
+        (f.input.type === 'email' || (f.input.selectionStart === 2 && f.input.selectionEnd === 7)) &&
+        ${tokenPage ? 'f.state.token.length === 43' : 'true'};
+    })()`,
+        ),
+        `${label}: ${stage} stable DOM/draft/focus/caret/token`,
+      )
+    const stopObserver = () =>
+      evaluate(page, 'window.__authFocus.observer.disconnect()')
+    await open()
+    const before = reads
+    held = true
+    await evaluate(
+      page,
+      `for (let i=0; i<8; i++) window.dispatchEvent(new Event('focus'))`,
+    )
+    await waitHeld()
+    await stable('held')
+    check(
+      await evaluate(
+        page,
+        `(async () => {
+      const {state, input} = window.__authFocus;
+      if (!state.blocked || !input.closest('form').getAttribute('aria-busy')) return false;
+      const buttons = [...document.querySelectorAll('main button')].filter(button => button.type === 'submit' || button.classList.contains('account-secondary') || button.classList.contains('account-link'));
+      if (!buttons.every(button => button.disabled)) return false;
+      for (const button of buttons) button.click();
+      for (const form of document.querySelectorAll('main form')) form.dispatchEvent(new Event('submit', {bubbles:true, cancelable:true}));
+      for (const key of ['submit','confirm','resend','google','reconnectGoogle','googleProof']) if (state[key]) await state[key]();
+      for (const [method, args] of [
+        ['login',['draft@example.test','synthetic']], ['register',['draft@example.test','synthetic']],
+        ['requestVerification',['draft@example.test']], ['confirmVerification',['synthetic']],
+        ['username',['draft_name']], ['requestPasswordReset',['draft@example.test']],
+        ['confirmPasswordReset',['synthetic','synthetic']], ['googleStart',[]], ['logout',[]]
+      ]) {
+        let denied = false;
+        try { await state.api[method](...args); } catch { denied = true; }
+        if (!denied) return false;
+      }
+      return !state.busy && !state.errorMessage;
+    })()`,
+      ),
+      `${label}: buttons, programmatic handlers and shared API block writes`,
+    )
+    await stable('blocked writes')
+    check(writes === 0, `${label}: no POST on focus or blocked invocation`)
+    release()
+    await until(
+      page,
+      '!window.__authFocus.state.blocked',
+      'Auth focus completed',
+    )
+    await stable('resolved')
+    check(reads === before + 1, `${label}: rapid focus deduplicates`)
+    await stopObserver()
+
+    for (const outcome of ['network', 'state', 'identity']) {
+      await open()
+      held = true
+      await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+      await waitHeld()
+      if (outcome === 'state')
+        session.state =
+          state === 'pending_email' ? 'pending_username' : 'pending_email'
+      if (outcome === 'identity')
+        session.account = {
+          ...initial.account,
+          email: 'other@example.test',
+          username: null,
+        }
+      release(outcome === 'network')
+      await until(
+        page,
+        `window.__authFocus.state.account.status.value === 'error'`,
+        'Auth flow fail-closed recovery',
+      )
+      check(
+        await evaluate(
+          page,
+          `(() => {
+        const f = window.__authFocus;
+        return f.state.account.session.value === null &&
+          ['email','password','username','token'].every(key => !f.state[key]) &&
+          f.fields.every(({node}) => !node.isConnected || !node.value) &&
+          [...document.querySelectorAll('main button')].some(button => button.textContent.trim() === 'Réessayer');
+      })()`,
+        ),
+        `${label}/${outcome}: private fields/token cleared, existing recovery, no identity adoption`,
+      )
+      await stopObserver()
+    }
+    // Security events remain destructive, including a held older focus response.
+    // Exercise each event on every route/state rather than inferring from helpers.
+    for (const event of ['broadcast', 'offline', 'pagehide']) {
+      await open()
+      held = true
+      await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+      await waitHeld()
+      await evaluate(
+        page,
+        event === 'broadcast'
+          ? `(() => { const channel = new BroadcastChannel('messeances-account'); channel.postMessage('changed'); channel.close(); })()`
+          : `window.dispatchEvent(new Event('${event}'))`,
+      )
+      await until(
+        page,
+        `!window.__authFocus.state.account.session.value`,
+        'Conservative event invalidation',
+      )
+      if (event !== 'pagehide') await waitHeld(2)
+      check(
+        await evaluate(
+          page,
+          `['email','password','username','token'].every(key => !window.__authFocus.state[key])`,
+        ),
+        `${label}/${event}: drafts and tokens cleared synchronously`,
+      )
+      release()
+      if (event === 'pagehide') {
+        await delay(100)
+        check(
+          await evaluate(
+            page,
+            `window.__authFocus.state.account.session.value === null`,
+          ),
+          `${label}: late focus cannot undo pagehide`,
+        )
+        await evaluate(
+          page,
+          `window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}))`,
+        )
+      }
+      await until(
+        page,
+        `window.__authFocus.state.account.status.value === 'ready'`,
+        'Conservative event fresh recovery',
+      )
+      check(
+        await evaluate(
+          page,
+          `['email','password','username','token'].every(key => !window.__authFocus.state[key])`,
+        ),
+        `${label}/${event}: fresh recovery never restores old draft/token`,
+      )
+      await stopObserver()
+    }
+    await evaluate(page, 'delete window.__authFocus')
+  }
+  // Completed-account Google continuation stays explicit: focus only rechecks
+  // the session, never consumes its link or silently requests a new proof.
+  session = {
+    enabled: true,
+    state: 'complete',
+    account: {
+      email: 'owner@example.test',
+      username: 'owner_name',
+      has_password: false,
+      google_linked: true,
+    },
+  }
+  await go(page, `/compte/confirmer-identite#token=${'t'.repeat(43)}`)
+  await until(
+    page,
+    `!!document.querySelector('main button[type="submit"]')`,
+    'Completed identity continuation ready',
+  )
+  await evaluate(
+    page,
+    `(() => {
+    const node = document.querySelector('main button[type="submit"]');
+    let component = node.__vueParentComponent;
+    while (component && !component.setupState.api) component = component.parent;
+    const state = component.setupState;
+    const link = document.querySelector('main a');
+    link.focus();
+    window.__authFocus = { node, link, state };
+  })()`,
+  )
+  const beforeContinuation = reads
+  held = true
+  await evaluate(
+    page,
+    `for (let i=0; i<8; i++) window.dispatchEvent(new Event('focus'))`,
+  )
+  await waitHeld()
+  check(
+    await evaluate(
+      page,
+      `(async () => {
+    const f = window.__authFocus;
+    await f.state.confirmChallenge(); await f.state.requestChallenge(); await f.state.applyAction();
+    return f.state.account.revalidating.value && !f.state.busy && !f.state.errorMessage &&
+      f.node === document.querySelector('main button[type="submit"]') && f.node.disabled && f.node.getClientRects().length &&
+      document.activeElement === f.link && f.state.token.length === 43 && !location.hash && !window.__takeAccountToken &&
+      !document.querySelector('main [class*="animate-pulse"]');
+  })()`,
+    ),
+    'complete identity continuation: stable DOM/focus/token, blocked programmatic proof writes',
+  )
+  release()
+  await until(
+    page,
+    '!window.__authFocus.state.account.revalidating.value',
+    'Completed continuation revalidated',
+  )
+  check(
+    await evaluate(
+      page,
+      `window.__authFocus.node === document.querySelector('main button[type="submit"]') && !window.__authFocus.node.disabled && window.__authFocus.state.token.length === 43 && document.activeElement === window.__authFocus.link`,
+    ),
+    'complete identity continuation: explicit proof form preserved after focus',
+  )
+  check(
+    reads === beforeContinuation + 1,
+    'complete identity continuation: deduplicated focus',
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('pagehide'))`)
+  check(
+    await evaluate(
+      page,
+      `!window.__authFocus.state.token && !window.__authFocus.state.grant && !window.__authFocus.state.continuation`,
+    ),
+    'complete identity continuation: pagehide destroys token/proof/scope',
+  )
+  await evaluate(page, 'delete window.__authFocus')
+  check(writes === 0, 'read-only auth fixture received zero mutations')
+  check(
+    !interceptionFailure &&
+      allPages.every((page) => !page.external && !page.trackerCount),
+    'auth focus: no external providers or analytics',
+  )
+  console.log(
+    `ACCOUNT_BROWSER_PASS scenario=auth-focus cases=${cases.length + 1} assertions=${passed}`,
+  )
+}
+
 async function main() {
   // Run each scenario against a freshly started backend fixture. Real rate limits
   // deliberately remain enabled; neither driver nor fixture bypasses them.
@@ -2310,9 +2688,19 @@ async function main() {
   if (
     process.argv
       .slice(2)
-      .some((arg) => !['--google', '--visual', '--overview'].includes(arg))
+      .some(
+        (arg) =>
+          !['--google', '--visual', '--overview', '--auth-focus'].includes(arg),
+      )
   )
     throw new HarnessError('Unknown scenario argument')
+  if (process.argv.includes('--auth-focus')) {
+    phase = 'read-only auth-flow synthetic focus'
+    if (google || visual || process.argv.includes('--overview'))
+      throw new HarnessError('Auth focus excludes other scenarios')
+    await authFocusScenario()
+    return
+  }
   if (process.argv.includes('--overview')) {
     phase = 'read-only overview presentation'
     if (google || !visual)

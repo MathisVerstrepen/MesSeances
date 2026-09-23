@@ -10,14 +10,15 @@ const api = useAccountApi()
 const account = useAccountSession()
 const { token, ready, clear } = useAccountToken()
 const password = ref('')
-const clearPassword = useAccountSecrets(password)
+const clearPassword = useAccountFlowDraft(password, token)
 const busy = ref(false)
 const done = ref(false)
 const uncertain = ref(false)
 const errorMessage = ref('')
+const blocked = computed(() => busy.value || account.writesBlocked.value)
 
 async function confirm() {
-  if (busy.value || !token.value || uncertain.value) return
+  if (blocked.value || !token.value || uncertain.value) return
   const criteria = passwordCriteria(password.value)
   if (!criteria.minimum || !criteria.maximum) {
     errorMessage.value = 'Choisissez un mot de passe de 10 à 128 caractères.'
@@ -61,7 +62,7 @@ useHead({ title: 'Réinitialiser mon mot de passe - MesSeances' })
     <form
       v-else-if="token && !uncertain"
       class="space-y-5"
-      :aria-busy="busy"
+      :aria-busy="blocked"
       @submit.prevent="confirm"
     >
       <AccountPasswordField
@@ -74,7 +75,7 @@ useHead({ title: 'Réinitialiser mon mot de passe - MesSeances' })
       <p class="text-sm leading-relaxed">
         Cette action déconnecte tous vos appareils.
       </p>
-      <button type="submit" class="account-primary w-full" :disabled="busy">
+      <button type="submit" class="account-primary w-full" :disabled="blocked">
         {{ busy ? 'Modification…' : 'Modifier mon mot de passe' }}
       </button>
     </form>

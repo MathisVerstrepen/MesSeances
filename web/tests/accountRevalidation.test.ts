@@ -8,6 +8,7 @@ import type { useAccountSession } from '../app/composables/useAccountSession.ts'
 import type { useAccountDetails } from '../app/composables/useAccountDetails.ts'
 import type { useAccountPasswordAction } from '../app/composables/useAccountPasswordAction.ts'
 import type { useAccountGoogle } from '../app/composables/useAccountGoogle.ts'
+import type { useAccountFlowDraft } from '../app/composables/useAccountFlowDraft.ts'
 import type { AccountDetails, AccountSession } from '../app/types/account.ts'
 import * as errors from '../app/utils/accountState.ts'
 
@@ -352,6 +353,145 @@ test('logout completion cannot resurrect state after pagehide/clear or a newer a
     }
   }
 })
+
+const flowSessions: AccountSession[] = [
+  { enabled: true, state: 'anonymous', account: null },
+  ...(['pending_email', 'pending_username'] as const).map((state) => ({
+    enabled: true,
+    state,
+    account: { ...owner.account!, username: null },
+  })),
+]
+
+for (const session of flowSessions) {
+  test(`${session.state} drafts survive only identical enabled identity, not invalidation`, async () => {
+    const f = await fixture()
+    try {
+      f.account.accept(session)
+      const module = await f.compile<{
+        useAccountFlowDraft: typeof useAccountFlowDraft
+      }>('useAccountFlowDraft', {
+        useAccountSession: () => f.account,
+        useAccountSecrets:
+          (...values: ReturnType<typeof ref<string>>[]) =>
+          () => {
+            for (const value of values) value.value = ''
+          },
+      })
+      const draft = ref('draft')
+      const token = ref('synthetic-token')
+      f.scope.run(() => module.useAccountFlowDraft(draft, token))
+      const pending = f.account.revalidate()
+      assert.equal(draft.value, 'draft')
+      assert.equal(token.value, 'synthetic-token')
+      f.sessionResponse.resolve(structuredClone(session))
+      await pending
+      assert.equal(draft.value, 'draft')
+      assert.equal(token.value, 'synthetic-token')
+      f.account.clear()
+      assert.equal(draft.value, '')
+      assert.equal(token.value, '')
+      f.account.accept(session)
+      assert.equal(token.value, '', 'recovery must not restore a cleared token')
+      draft.value = 'new draft'
+      f.account.accept({
+        ...session,
+        state:
+          session.state === 'pending_email'
+            ? 'pending_username'
+            : 'pending_email',
+      })
+      assert.equal(
+        draft.value,
+        '',
+        'state change with identical account clears synchronously',
+      )
+    } finally {
+      f.stop()
+    }
+  })
+  test(`${session.state} focus preserves display and deduplicates until same identity resolves`, async () => {
+    const f = await fixture()
+    try {
+      f.account.accept(session)
+      const snapshot = f.account.session.value
+      const pending = f.account.revalidate()
+      assert.equal(f.account.status.value, 'ready')
+      assert.equal(f.account.session.value, snapshot)
+      assert.equal(f.account.revalidating.value, true)
+      assert.equal(f.account.writesBlocked.value, true)
+      assert.equal(f.another().revalidate(), pending)
+      assert.equal(f.sessions, 1)
+      f.sessionResponse.resolve(structuredClone(session))
+      await pending
+      assert.equal(f.account.status.value, 'ready')
+      assert.equal(f.account.writesBlocked.value, false)
+      assert.equal(
+        f.detailsCalls,
+        1,
+        'no complete-account details for auth flow',
+      )
+    } finally {
+      f.stop()
+    }
+  })
+  for (const outcome of [
+    'state',
+    'identity',
+    'disabled',
+    'network',
+    'clear',
+    'newer',
+  ] as const) {
+    test(`${session.state} focus rejects ${outcome} without adopting another identity`, async () => {
+      const f = await fixture()
+      try {
+        f.account.accept(session)
+        const pending = f.account.revalidate()
+        if (outcome === 'network')
+          f.sessionResponse.reject(new Error('offline'))
+        else {
+          if (outcome === 'clear' || outcome === 'newer') f.account.clear()
+          if (outcome === 'newer') f.account.accept(owner)
+          f.sessionResponse.resolve(
+            outcome === 'state'
+              ? {
+                  ...session,
+                  state:
+                    session.state === 'pending_email'
+                      ? 'pending_username'
+                      : 'pending_email',
+                }
+              : outcome === 'identity'
+                ? {
+                    ...session,
+                    account: { ...owner.account!, email: 'other@example.test' },
+                  }
+                : outcome === 'disabled'
+                  ? { ...session, enabled: false }
+                  : session,
+          )
+        }
+        await pending
+        assert.equal(
+          f.account.session.value?.state ?? null,
+          outcome === 'newer' ? 'complete' : null,
+        )
+        assert.equal(
+          f.account.status.value,
+          outcome === 'newer'
+            ? 'ready'
+            : outcome === 'clear'
+              ? 'idle'
+              : 'error',
+        )
+        assert.equal(f.account.revalidating.value, false)
+      } finally {
+        f.stop()
+      }
+    })
+  }
+}
 
 test('initial/recovery focus uses a deduplicated skeleton path and permits retry after failure', async () => {
   const f = await fixture()

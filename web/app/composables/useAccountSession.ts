@@ -71,12 +71,7 @@ export function useAccountSession() {
   function revalidate(): Promise<void> {
     if (runtime.pending) return runtime.pending
     const previous = session.value
-    if (
-      status.value !== 'ready' ||
-      !previous?.enabled ||
-      previous.state !== 'complete' ||
-      !previous.account
-    )
+    if (status.value !== 'ready' || !previous?.enabled)
       return (runtime.pending = refresh())
     const current = ++revision.value
     revalidating.value = true
@@ -87,7 +82,8 @@ export function useAccountSession() {
         // These fields identify the visible account only, NOT session/grant continuity.
         if (
           !value.enabled ||
-          value.state !== 'complete' ||
+          value.state !== previous.state ||
+          !!value.account !== !!previous.account ||
           value.account?.email !== previous.account?.email ||
           value.account?.username !== previous.account?.username
         ) {
@@ -97,7 +93,9 @@ export function useAccountSession() {
           return
         }
         const commits = await Promise.all(
-          [...runtime.details].map((refreshDetails) => refreshDetails()),
+          value.state === 'complete'
+            ? [...runtime.details].map((refreshDetails) => refreshDetails())
+            : [],
         )
         if (current !== revision.value) return
         for (const commit of commits) commit()

@@ -7,11 +7,14 @@ import {
 
 definePageMeta({ middleware: 'account-auth' })
 const api = useAccountApi()
+const account = useAccountSession()
 const email = ref('')
 const busy = ref(false)
 const sent = ref(false)
 const errorMessage = ref('')
 const cooldown = ref(0)
+const blocked = computed(() => busy.value || account.writesBlocked.value)
+useAccountFlowDraft(email)
 let timer: ReturnType<typeof setInterval> | undefined
 
 function startCooldown(seconds = 60) {
@@ -25,7 +28,7 @@ function startCooldown(seconds = 60) {
 }
 
 async function submit() {
-  if (busy.value || cooldown.value) return
+  if (blocked.value || cooldown.value) return
   busy.value = true
   sent.value = false
   errorMessage.value = ''
@@ -49,7 +52,7 @@ useHead({ title: 'Mot de passe oublié - MesSeances' })
 
 <template>
   <AccountShell title="Mot de passe oublié">
-    <form class="space-y-5" :aria-busy="busy" @submit.prevent="submit">
+    <form class="space-y-5" :aria-busy="blocked" @submit.prevent="submit">
       <div>
         <label for="reset-email" class="account-label">Email du compte</label>
         <input
@@ -76,7 +79,7 @@ useHead({ title: 'Mot de passe oublié - MesSeances' })
       <button
         type="submit"
         class="account-primary w-full"
-        :disabled="busy || cooldown > 0"
+        :disabled="blocked || cooldown > 0"
       >
         {{
           cooldown ? `Renvoyer dans ${cooldown} s` : busy ? 'Demande en cours…' : 'Recevoir un lien'

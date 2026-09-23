@@ -4,7 +4,7 @@ import { type Context, runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
 import { createFetch, FetchError } from 'ofetch'
-import { type Ref, ref } from 'vue'
+import { type Ref, computed, ref } from 'vue'
 import {
   AccountApiError,
   accountDestination,
@@ -70,7 +70,7 @@ test('shared Google login button keeps its label and a local decorative brand ic
   )?.[0]
   assert.ok(button)
   assert.match(button, /type="button"/)
-  assert.match(button, /:disabled="busy"/)
+  assert.match(button, /:disabled="blocked"/)
   assert.match(button, /class="account-secondary w-full"/)
   assert.match(button, /<GoogleIcon \/>\s*Continuer avec Google\s*<\/button>/)
   const icon = (await read('../app/components/GoogleIcon.vue')).match(
@@ -313,6 +313,7 @@ test('registration and reset show the shared common-password error without compl
       {
         exports,
         ref,
+        computed,
         require: () => accountState,
         defineProps: () => ({ register: true }),
         definePageMeta: () => {},
@@ -323,9 +324,9 @@ test('registration and reset show the shared common-password error without compl
           register: reject,
           confirmPasswordReset: reject,
         }),
-        useAccountSession: () => ({}),
+        useAccountSession: () => ({ writesBlocked: ref(false) }),
         useAccountGoogle: () => {},
-        useAccountSecrets: () => () =>
+        useAccountFlowDraft: () => () =>
           assert.fail('validation must not complete reset'),
         useAccountToken: () => ({
           token: ref('synthetic-token'),
@@ -708,7 +709,10 @@ test('recovery and email confirmation remain explicit, memory-only and scanner-s
     const source = await read(path)
     assert.match(source, /useAccountToken\(\)/)
     assert.match(source, /@submit\.prevent="confirm"/)
-    assert.match(source, /useAccountSecrets\(password\)/)
+    assert.match(
+      source,
+      /useAccount(?:Secrets\(password|FlowDraft\(password, token)\)/,
+    )
     assert.doesNotMatch(
       source,
       /onMounted\(confirm\)|localStorage|sessionStorage|route\.(query|hash)/,

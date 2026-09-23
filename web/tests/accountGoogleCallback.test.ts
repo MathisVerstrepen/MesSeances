@@ -166,9 +166,10 @@ test('connexion renders safe callback alerts with login recovery or return-accou
       definePageMeta: () => {},
       useHead: () => {},
       useRoute: () => route,
-      useAccountSession: () => ({ session }),
+      useAccountSession: () => ({ session, writesBlocked: vue.ref(false) }),
       useAccountApi: () => ({}),
       useAccountGoogle: () => () => {},
+      useAccountFlowDraft: () => () => {},
     }
     const page = await component('../app/pages/connexion.vue', globals)
     const credentials = await component(

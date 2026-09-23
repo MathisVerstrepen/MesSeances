@@ -14,10 +14,13 @@ const touched = ref(false)
 const busy = ref(false)
 const errorMessage = ref('')
 const valid = computed(() => validAccountUsername(username.value))
+const blocked = computed(() => busy.value || account.writesBlocked.value)
+useAccountFlowDraft(username)
 
 async function submit() {
+  if (blocked.value) return
   touched.value = true
-  if (!valid.value || busy.value) return
+  if (!valid.value) return
   busy.value = true
   errorMessage.value = ''
   username.value = normalizeAccountUsername(username.value)
@@ -45,7 +48,7 @@ useHead({ title: 'Choisir mon nom - MesSeances' })
     <form
       v-if="account.session.value?.state === 'pending_username'"
       class="space-y-5"
-      :aria-busy="busy"
+      :aria-busy="blocked"
       @submit.prevent="submit"
     >
       <div>
@@ -82,7 +85,7 @@ useHead({ title: 'Choisir mon nom - MesSeances' })
       <p v-if="errorMessage" role="alert" class="account-alert">
         {{ errorMessage }}
       </p>
-      <button type="submit" class="account-primary w-full" :disabled="busy">
+      <button type="submit" class="account-primary w-full" :disabled="blocked">
         {{ busy ? 'Enregistrement…' : 'Confirmer mon nom' }}
       </button>
     </form>
