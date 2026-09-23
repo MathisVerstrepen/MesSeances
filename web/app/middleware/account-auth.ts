@@ -1,11 +1,15 @@
-import { accountDestination } from '~/utils/accountState'
+import {
+  accountDestination,
+  accountGoogleCallbackMessage,
+} from '~/utils/accountState'
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const { session, refresh } = useAccountSession()
   await refresh()
   // An unavailable service is not an anonymous session.
   if (!session.value?.enabled) return
-  if (to.path === '/connexion' && to.query.error === 'google_failed') return
+  if (to.path === '/connexion' && accountGoogleCallbackMessage(to.query.error))
+    return
   // A pending password session cannot recover registration-browser proof.
   // Let its owner submit a fresh registration instead of looping to verification.
   if (

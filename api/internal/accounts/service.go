@@ -23,7 +23,10 @@ var (
 	ErrRecentAuth          = errors.New("recent account authentication required")
 	ErrEmailUnavailable    = errors.New("email unavailable")
 	ErrIdentityUnavailable = errors.New("google identity unavailable")
-	ErrLastMethod          = errors.New("last login method")
+	// ErrGoogleEmailInUse is restricted to login with a verified Google email
+	// matching a live account, never an unverified claim or a linking conflict.
+	ErrGoogleEmailInUse = errors.New("google login email already in use")
+	ErrLastMethod       = errors.New("last login method")
 )
 
 type RateLimitError struct{ RetryAfter int }

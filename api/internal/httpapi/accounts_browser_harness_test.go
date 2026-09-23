@@ -371,7 +371,7 @@ func (g *browserGoogle) authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	if identity == "denied" {
 		delete(g.flows, state)
-		http.Redirect(w, r, g.origin+"/api/v1/auth/google/callback?error=access_denied&state="+url.QueryEscape(state), http.StatusSeeOther)
+		http.Redirect(w, r, g.origin+"/api/v1/auth/google/callback?iss=https%3A%2F%2Faccounts.google.com&error=access_denied&state="+url.QueryEscape(state), http.StatusSeeOther)
 		return
 	}
 	if identity != "verified" && identity != "unverified" && identity != "link" {
@@ -386,7 +386,7 @@ func (g *browserGoogle) authorize(w http.ResponseWriter, r *http.Request) {
 	flow.code = code
 	flow.identity = accounts.GoogleIdentity{Subject: "browser-only-" + identity, Email: "google-" + identity + "@example.test", EmailVerified: identity != "unverified"}
 	g.flows[state] = flow
-	http.Redirect(w, r, g.origin+"/api/v1/auth/google/callback?state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), http.StatusSeeOther)
+	http.Redirect(w, r, g.origin+"/api/v1/auth/google/callback?iss=https%3A%2F%2Faccounts.google.com&state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), http.StatusSeeOther)
 }
 
 func (g *browserGoogle) Exchange(_ context.Context, code, verifier, nonce string) (accounts.GoogleIdentity, error) {

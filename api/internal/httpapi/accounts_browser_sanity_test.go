@@ -158,7 +158,7 @@ func (p *browserProbe) grant(password, action, target string) string {
 	return result.Grant
 }
 
-func (p *browserProbe) google(input map[string]string, identity, destination string) {
+func (p *browserProbe) google(input map[string]string, identity, destination string) browserProbeResponse {
 	p.t.Helper()
 	var start struct {
 		URL string `json:"authorization_url"`
@@ -180,6 +180,7 @@ func (p *browserProbe) google(input map[string]string, identity, destination str
 	if response.header.Get("Location") != destination {
 		p.t.Fatal("unexpected synthetic Google callback destination")
 	}
+	return response
 }
 
 func TestAccountBrowserHarnessSanityIntegration(t *testing.T) {

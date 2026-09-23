@@ -359,6 +359,9 @@ func (s *Service) googleLoginAccount(ctx context.Context, tx pgx.Tx, identity Go
 			}
 			existing = false
 		} else if !existing {
+			if identity.EmailVerified {
+				return account{}, ErrGoogleEmailInUse
+			}
 			return account{}, ErrIdentityUnavailable
 		}
 	}

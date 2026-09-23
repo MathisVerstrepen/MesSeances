@@ -1,10 +1,21 @@
 import type { AccountSession } from '../types/account'
+import type { LocationQueryValue } from 'vue-router'
 
 export function accountDestination(session: AccountSession): string {
   if (!session.enabled || session.state === 'anonymous') return '/connexion'
   if (session.state === 'pending_email') return '/verification'
   if (session.state === 'pending_username') return '/finaliser'
   return '/compte'
+}
+
+export function accountGoogleCallbackMessage(
+  error: LocationQueryValue | LocationQueryValue[] | undefined,
+): string {
+  if (error === 'google_email_in_use')
+    return 'Un compte utilise déjà cette adresse email. Connectez-vous avec votre moyen habituel, puis associez Google depuis votre compte.'
+  if (error === 'google_failed')
+    return 'La confirmation Google n’a pas abouti ou a expiré. Recommencez depuis votre compte ou utilisez votre moyen de connexion habituel.'
+  return ''
 }
 
 export function normalizeAccountEmail(value: string): string {

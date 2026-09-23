@@ -1,16 +1,19 @@
 <script setup lang="ts">
+import { accountGoogleCallbackMessage } from '~/utils/accountState'
+
 definePageMeta({ middleware: 'account-auth' })
 const route = useRoute()
 const account = useAccountSession()
-const providerError = computed(() => route.query.error === 'google_failed')
+const providerError = computed(() =>
+  accountGoogleCallbackMessage(route.query.error),
+)
 useHead({ title: 'Connexion - MesSeances' })
 </script>
 
 <template>
   <AccountShell title="Connexion" compact>
     <p v-if="providerError" role="alert" class="account-alert mb-5">
-      La confirmation Google n’a pas abouti ou a expiré. Recommencez depuis
-      votre compte ou utilisez votre moyen de connexion habituel.
+      {{ providerError }}
     </p>
     <a
       v-if="account.session.value?.account"

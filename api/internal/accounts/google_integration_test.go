@@ -142,7 +142,7 @@ func TestGoogleSignupLoginAndPendingIntegration(t *testing.T) {
 		}
 		g.identity = GoogleIdentity{Subject: "different-subject", Email: "google@example.com", EmailVerified: true}
 		start, state := startGoogle(t, f, "", GoogleStart{Mode: FlowLogin})
-		if _, err = f.service.GoogleCallback(ctx, state, start.Browser.Token, "valid", ""); !errors.Is(err, ErrIdentityUnavailable) {
+		if _, err = f.service.GoogleCallback(ctx, state, start.Browser.Token, "valid", ""); !errors.Is(err, ErrGoogleEmailInUse) {
 			t.Fatalf("automatic email merge: %v", err)
 		}
 		if err = f.service.RequestReset(ctx, "google@example.com"); err != nil {
@@ -210,6 +210,79 @@ func TestGoogleSignupLoginAndPendingIntegration(t *testing.T) {
 			t.Fatal("expired registration retained")
 		}
 	})
+}
+
+func TestGoogleExistingEmailIntegration(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		verified bool
+		complete bool
+		want     error
+	}{
+		{"verified complete", true, true, ErrGoogleEmailInUse},
+		{"unverified complete", false, true, ErrIdentityUnavailable},
+		{"verified pending", true, false, ErrGoogleEmailInUse},
+		{"unverified pending", false, false, ErrIdentityUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newLifecycleFixture(t)
+			ctx := t.Context()
+			const email = "collision@example.com"
+			if test.complete {
+				owner := f.complete(t, email, "collision_owner")
+				if err := f.service.Logout(ctx, owner.Cookie.Token, false); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := f.service.Register(ctx, email, testPassword); err != nil {
+				t.Fatal(err)
+			}
+			g := f.useGoogle(GoogleIdentity{Subject: "unlinked-subject", Email: email, EmailVerified: test.verified})
+			start, state := startGoogle(t, f, "", GoogleStart{Mode: FlowLogin})
+			result, err := f.service.GoogleCallback(ctx, state, start.Browser.Token, "valid", "")
+			if !errors.Is(err, test.want) || result.Session.Cookie.Token != "" || result.Destination != "" {
+				t.Fatal("collision must fail without issuing session or success destination")
+			}
+			var identities, sessions, accounts, passwords int
+			if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM account_google_identities), (SELECT count(*) FROM account_sessions), (SELECT count(*) FROM accounts), (SELECT count(*) FROM account_passwords)`).Scan(&identities, &sessions, &accounts, &passwords); err != nil {
+				t.Fatal(err)
+			}
+			if identities != 0 || sessions != 0 || accounts != 1 || passwords != 1 {
+				t.Fatal("collision changed account authority")
+			}
+			if _, err := f.service.GoogleCallback(ctx, state, start.Browser.Token, "valid", ""); !errors.Is(err, ErrInvalidLink) || g.exchanges.Load() != 1 {
+				t.Fatal("collision flow was replayable")
+			}
+			if !test.complete || !test.verified {
+				return
+			}
+			// The existing password, recent proof and explicit link are required;
+			// only then may this subject log in to the same completed account.
+			owner, err := f.service.Login(ctx, email, testPassword, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.service.StartGoogle(ctx, owner.Cookie.Token, GoogleStart{Mode: FlowLink}); !errors.Is(err, ErrInvalidInput) {
+				t.Fatal("link without grant accepted")
+			}
+			proof, err := f.service.ReauthPassword(ctx, owner.Cookie.Token, testPassword, ActionGoogleLink, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			start, state = startGoogle(t, f, proof.Cookie.Token, GoogleStart{Mode: FlowLink, Grant: proof.Grant})
+			linked, err := f.service.GoogleCallback(ctx, state, start.Browser.Token, "valid", proof.Cookie.Token)
+			if err != nil || linked.Session.View.State != StateComplete || !linked.Session.View.Account.GoogleLinked || !linked.Session.View.Account.HasPassword {
+				t.Fatal("explicit link failed to retain password account")
+			}
+			assertAnonymous(t, f.service, proof.Cookie.Token)
+			if err := f.service.Logout(ctx, linked.Session.Cookie.Token, false); err != nil {
+				t.Fatal(err)
+			}
+			login := loginGoogle(t, f)
+			if login.Destination != "/compte" || login.Session.View.Account.Email != email || login.Session.View.Account.Username == nil || *login.Session.View.Account.Username != "collision_owner" {
+				t.Fatal("linked subject did not log in to the original account")
+			}
+		})
+	}
 }
 
 func TestGoogleFlowSecurityIntegration(t *testing.T) {

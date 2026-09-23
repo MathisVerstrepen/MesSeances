@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"time"
@@ -57,10 +58,15 @@ func googleCallbackQuery(r *http.Request) (state, code string, ok bool) {
 			return "", "", false
 		}
 		switch key {
-		case "state", "code", "error", "error_description", "error_uri", "scope", "authuser", "prompt", "hd":
+		case "state", "code", "error", "error_description", "error_uri", "scope", "authuser", "prompt", "hd", "iss":
 		default:
 			return "", "", false
 		}
+	}
+	// Google always returns this issuer, including on errors (RFC 9207).
+	// Compare the decoded value exactly; ID-token legacy aliases do not apply.
+	if query.Get("iss") != "https://accounts.google.com" {
+		return "", "", false
 	}
 	state = query.Get("state")
 	if _, err := accounts.TokenDigest(state); err != nil {
@@ -107,6 +113,10 @@ func (h *accountHTTP) googleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.service.GoogleCallback(r.Context(), state, browser, code, raw)
 	if err != nil {
+		if errors.Is(err, accounts.ErrGoogleEmailInUse) {
+			http.Redirect(w, r, "/connexion?error=google_email_in_use", http.StatusSeeOther)
+			return
+		}
 		fail()
 		return
 	}
