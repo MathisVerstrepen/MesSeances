@@ -574,7 +574,7 @@ test('recovery and email confirmation remain explicit, memory-only and scanner-s
     assert.match(source, /accountWriteUncertain/)
   }
   const settings = await read('../app/pages/compte/index.vue')
-  assert.match(settings, /<AccountShell title="Mon compte" hide-explore\b/)
+  assert.match(settings, /<AccountShell\s+title="Mon compte"\s+hide-explore\b/)
   const shell = await read('../app/components/AccountShell.vue')
   assert.match(shell, /hideExplore\?: boolean/)
   assert.match(

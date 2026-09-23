@@ -28,6 +28,7 @@ const allPages = []
 const visual = process.argv.includes('--visual')
 const captured = new Set()
 class HarnessError extends Error {}
+class ExpiredInterception extends Error {}
 
 function check(value, label) {
   if (!value) throw new HarnessError(label)
@@ -38,8 +39,23 @@ function check(value, label) {
 class BrowserCDP extends CDP {
   observers = new Map()
   onMessage(data) {
-    super.onMessage(data)
     const event = JSON.parse(data)
+    // Navigation can cancel a paused request before Chrome processes continue.
+    // Keep this distinct from other protocol errors; the handler below still
+    // requires a failed request or replaced document before accepting it.
+    if (
+      event.error?.code === -32602 &&
+      /^Invalid InterceptionId\.?$/u.test(event.error.message)
+    ) {
+      const pending = this.pending.get(event.id)
+      if (pending) {
+        this.pending.delete(event.id)
+        clearTimeout(pending.timer)
+        pending.reject(new ExpiredInterception())
+      }
+      return
+    }
+    super.onMessage(data)
     if (!event.method) return
     const handler = this.observers.get(
       `${event.sessionId ?? ''}:${event.method}`,
@@ -124,6 +140,15 @@ async function tab(context) {
   await cdp.send('Page.enable', {}, sessionId)
   await cdp.send('Runtime.enable', {}, sessionId)
   await cdp.send('Network.enable', {}, sessionId)
+  const failedRequests = new Set()
+  const requestDocuments = new Map()
+  const frameDocuments = new Map()
+  cdp.on('Page.frameNavigated', sessionId, ({ frame }) => {
+    frameDocuments.set(frame.id, frame.loaderId)
+  })
+  cdp.on('Network.loadingFailed', sessionId, ({ requestId }) => {
+    failedRequests.add(requestId)
+  })
   cdp.on('Network.responseReceived', sessionId, ({ response }) => {
     const url = new URL(response.url)
     if (
@@ -140,62 +165,107 @@ async function tab(context) {
         ),
       })
   })
-  cdp.on('Network.requestWillBeSent', sessionId, ({ redirectResponse }) => {
-    if (!redirectResponse) return
-    const url = new URL(redirectResponse.url)
-    if (
-      url.origin === origin &&
-      /^\/api\/v1\/(auth|account)(\/|$)/u.test(url.pathname)
-    )
-      responses.push({ path: url.pathname, status: redirectResponse.status })
-  })
+  cdp.on(
+    'Network.requestWillBeSent',
+    sessionId,
+    ({ requestId, frameId, loaderId, redirectResponse }) => {
+      if (loaderId) requestDocuments.set(requestId, { frameId, loaderId })
+      if (!redirectResponse) return
+      const url = new URL(redirectResponse.url)
+      if (
+        url.origin === origin &&
+        /^\/api\/v1\/(auth|account)(\/|$)/u.test(url.pathname)
+      )
+        responses.push({ path: url.pathname, status: redirectResponse.status })
+    },
+  )
   await cdp.send('Fetch.enable', { patterns: [{ urlPattern: '*' }] }, sessionId)
-  cdp.on('Fetch.requestPaused', sessionId, async ({ requestId, request }) => {
-    const url = new URL(request.url)
-    if (request.url === tracker) {
-      page.trackerCount++
-      await cdp.send(
-        'Fetch.fulfillRequest',
-        {
-          requestId,
-          responseCode: 200,
-          responseHeaders: [
-            { name: 'Content-Type', value: 'application/javascript' },
-          ],
-          body: Buffer.from('window.__syntheticTracker = true;').toString(
-            'base64',
-          ),
-        },
-        sessionId,
-      )
-    } else if (url.origin === origin) {
-      if (url.pathname.startsWith('/api/v1/')) {
-        const headers = Object.fromEntries(
-          Object.entries(request.headers).map(([key, value]) => [
-            key.toLowerCase(),
-            value,
-          ]),
-        )
-        page.requests.push({
-          path: url.pathname,
-          method: request.method,
-          origin: headers.origin,
-          csrf: headers['x-messeances-csrf'],
-          bodyKeys: request.postData
-            ? Object.keys(JSON.parse(request.postData)).sort()
-            : [],
-        })
+  cdp.on(
+    'Fetch.requestPaused',
+    sessionId,
+    async ({ requestId, networkId, request }) => {
+      try {
+        const url = new URL(request.url)
+        if (request.url === tracker) {
+          page.trackerCount++
+          await cdp.send(
+            'Fetch.fulfillRequest',
+            {
+              requestId,
+              responseCode: 200,
+              responseHeaders: [
+                { name: 'Content-Type', value: 'application/javascript' },
+              ],
+              body: Buffer.from('window.__syntheticTracker = true;').toString(
+                'base64',
+              ),
+            },
+            sessionId,
+          )
+        } else if (url.origin === origin) {
+          if (url.pathname.startsWith('/api/v1/')) {
+            const headers = Object.fromEntries(
+              Object.entries(request.headers).map(([key, value]) => [
+                key.toLowerCase(),
+                value,
+              ]),
+            )
+            page.requests.push({
+              path: url.pathname,
+              method: request.method,
+              origin: headers.origin,
+              csrf: headers['x-messeances-csrf'],
+              bodyKeys: request.postData
+                ? Object.keys(JSON.parse(request.postData)).sort()
+                : [],
+            })
+          }
+          if (page.fault?.path === url.pathname) {
+            const fault = page.fault
+            page.fault = null
+            if (fault.delay) await delay(fault.delay)
+            await cdp.send(
+              'Fetch.fulfillRequest',
+              {
+                requestId,
+                responseCode: fault.status,
+                responseHeaders: [
+                  { name: 'Content-Type', value: 'application/json' },
+                  { name: 'Cache-Control', value: 'no-store' },
+                ],
+                body: Buffer.from(
+                  JSON.stringify({ error: { code: 'unavailable' } }),
+                ).toString('base64'),
+              },
+              sessionId,
+            )
+          } else
+            await cdp.send('Fetch.continueRequest', { requestId }, sessionId)
+        } else {
+          page.external++
+          await cdp.send(
+            'Fetch.failRequest',
+            { requestId, errorReason: 'BlockedByClient' },
+            sessionId,
+          )
+        }
+      } catch (error) {
+        if (!(error instanceof ExpiredInterception) || !networkId) throw error
+        // Events and command replies may arrive in either order. Never retry a
+        // request, and never ignore an unverified interception/protocol failure.
+        const cancelled = () => {
+          const document = requestDocuments.get(networkId)
+          const current = document && frameDocuments.get(document.frameId)
+          return (
+            failedRequests.has(networkId) ||
+            (current && current !== document.loaderId)
+          )
+        }
+        if (!cancelled()) await delay(100)
+        if (!cancelled()) throw error
       }
-      await cdp.send('Fetch.continueRequest', { requestId }, sessionId)
-    } else {
-      page.external++
-      await cdp.send(
-        'Fetch.failRequest',
-        { requestId, errorReason: 'BlockedByClient' },
-        sessionId,
-      )
-    }
-  })
+    },
+  )
   return page
 }
 
@@ -253,6 +323,156 @@ async function fill(page, id, value) {
     page,
     `(() => { const input = document.getElementById(${JSON.stringify(id)}); input.focus(); input.value = ${JSON.stringify(value)}; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); })()`,
   )
+}
+async function openEditor(page, name) {
+  await until(
+    page,
+    `!!document.getElementById('trigger-${name}') && !document.getElementById('trigger-${name}').disabled`,
+    'Disclosure ready',
+  )
+  await evaluate(page, `document.getElementById('trigger-${name}').click()`)
+  await until(
+    page,
+    `document.getElementById('trigger-${name}').getAttribute('aria-expanded') === 'true' && !!document.getElementById('editor-${name}')`,
+    'Disclosure opened',
+  )
+}
+
+async function inspectOverview(page) {
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('main input') && [...document.querySelectorAll('main h2')].map(el => el.textContent.trim()).join('|') === 'Identité|Connexion|Sessions|Suppression du compte' && [...document.querySelectorAll('main button')].filter(el => el.textContent.trim() === 'Se déconnecter').length === 1`,
+    ),
+    'overview groups four sections, no hidden required fields or duplicate logout',
+  )
+  await openEditor(page, 'password')
+  check(
+    await evaluate(page, `document.activeElement.id === 'current-password'`),
+    'opening focuses first password field',
+  )
+  await fill(page, 'current-password', password)
+  await fill(page, 'new-password', replacement)
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `document.getElementById('current-password')?.value === ${JSON.stringify(password)}`,
+    'Same-session focus preserves password draft',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.getElementById('new-password').value === ${JSON.stringify(replacement)}`,
+    ),
+    'same-session transient revalidation preserves typed values',
+  )
+  await openEditor(page, 'email')
+  check(
+    await evaluate(
+      page,
+      `!document.getElementById('editor-password') && document.activeElement.id === 'new-email'`,
+    ),
+    'switch closes previous form and focuses new field',
+  )
+  await fill(page, 'new-email', 'draft@example.test')
+  await click(page, 'Annuler')
+  check(
+    await evaluate(
+      page,
+      `!document.getElementById('editor-email') && document.activeElement.id === 'trigger-email'`,
+    ),
+    'cancel closes editor and restores trigger focus',
+  )
+  await openEditor(page, 'password')
+  check(
+    await evaluate(
+      page,
+      `!document.getElementById('current-password').value && !document.getElementById('new-password').value`,
+    ),
+    'switch clears previous password values',
+  )
+  await fill(page, 'current-password', password)
+  await rejectShortPassword(page, 'new-password', 'Enregistrer le mot de passe')
+  await click(page, 'Annuler')
+  await openEditor(page, 'password')
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#editor-password [role="alert"]') && !document.getElementById('new-password').value`,
+    ),
+    'cancel clears stale errors and secrets',
+  )
+  await inspectStyle(page, 'compte-password-open')
+  await fill(page, 'current-password', password)
+  await fill(page, 'new-password', replacement)
+  page.fault = {
+    path: '/api/v1/account/reauth/password',
+    status: 401,
+    delay: 1000,
+  }
+  await click(page, 'Enregistrer le mot de passe')
+  check(
+    await evaluate(
+      page,
+      `[...document.querySelectorAll('main button.account-link,main button.account-primary,main button.account-secondary,main button.account-danger,main input')].every(el => el.disabled)`,
+    ),
+    'in-flight proof disables cancel, switches and competing actions',
+  )
+  await until(
+    page,
+    `!!document.querySelector('#editor-password [role="alert"]')`,
+    'Scoped proof error',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.getElementById('new-password').value === ${JSON.stringify(replacement)} && !document.getElementById('trigger-password').disabled`,
+    ),
+    'failed proof preserves draft and restores controls',
+  )
+  await inspectStyle(page, 'compte-password-error')
+  await click(page, 'Annuler')
+  await openEditor(page, 'delete')
+  check(
+    await evaluate(
+      page,
+      `document.getElementById('editor-delete').textContent.includes('immédiate et définitive') && !!document.getElementById('deletion-confirmation')`,
+    ),
+    'deletion disclosure includes full warning and typed confirmation',
+  )
+  await fill(page, 'deletion-password', password)
+  await fill(page, 'deletion-confirmation', 'SUPPRIMER')
+  await click(page, 'Annuler')
+  await openEditor(page, 'delete')
+  check(
+    await evaluate(
+      page,
+      `!document.getElementById('deletion-password').value && !document.getElementById('deletion-confirmation').value`,
+    ),
+    'cancelling deletion clears both confirmation and password',
+  )
+  await inspectStyle(page, 'compte-delete-open')
+  await fill(page, 'deletion-password', password)
+  await fill(page, 'deletion-confirmation', 'SUPPRIMER')
+  await evaluate(
+    page,
+    `window.dispatchEvent(new Event('pagehide')); window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `!!document.getElementById('trigger-delete')`,
+    'Pagehide revalidation',
+  )
+  if (await evaluate(page, `!document.getElementById('editor-delete')`))
+    await openEditor(page, 'delete')
+  check(
+    await evaluate(
+      page,
+      `!document.getElementById('deletion-password').value && !document.getElementById('deletion-confirmation').value`,
+    ),
+    'pagehide clears sensitive drafts before history revalidation',
+  )
+  await click(page, 'Annuler')
 }
 async function click(page, text) {
   await until(
@@ -529,7 +749,7 @@ async function login(page, email, secret) {
   }
   await until(
     page,
-    `location.pathname === '/compte' && !!document.getElementById('new-password')`,
+    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
     'Login complete',
   )
 }
@@ -690,7 +910,7 @@ async function register(page, email, username, reserved = false) {
   await click(page, 'Confirmer mon nom')
   await until(
     page,
-    `location.pathname === '/compte' && !!document.getElementById('new-password')`,
+    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
     'Account completed',
   )
   const completeCookie = await cookie(page)
@@ -791,10 +1011,31 @@ async function simulatedGoogle() {
   )
   await text(google, 'Google est votre seul moyen de connexion')
   await inspectStyle(google, 'compte-google')
+  for (const [editor, action] of [
+    ['password', 'Continuer avec Google'],
+    ['delete', 'Vérifier mon identité avant suppression'],
+    ['email', 'Continuer avec Google'],
+  ]) {
+    await openEditor(google, editor)
+    if (editor === 'email')
+      await fill(google, 'new-email', 'google-next@example.test')
+    google.fault = { path: '/api/v1/auth/google/start', status: 503 }
+    await click(google, action)
+    await text(google, 'Le service de comptes est indisponible')
+    check(
+      await evaluate(
+        google,
+        `!!document.querySelector('${editor === 'email' ? 'section[aria-labelledby="account-identity"]' : `#editor-${editor}`} [role="alert"]') && document.getElementById('trigger-${editor}').getAttribute('aria-expanded') === 'true'`,
+      ),
+      `Google ${editor} proof failure is visible beside owning action`,
+    )
+    await inspectStyle(google, `compte-google-${editor}-error`)
+    await click(google, 'Annuler')
+  }
   check(
     !(await evaluate(
       google,
-      `document.body.innerText.includes('Dissocier Google')`,
+      `!!document.getElementById('trigger-google') || [...document.querySelectorAll('button')].some(el => el.textContent.trim() === 'Dissocier')`,
     )),
     'Google-only UI has no unlink-last-method action',
   )
@@ -834,6 +1075,13 @@ async function simulatedGoogle() {
   await click(google, 'Ajouter mon mot de passe')
   await text(google, 'Votre mot de passe a été ajouté.')
   await go(google, '/compte')
+  await until(
+    google,
+    `!!document.getElementById('trigger-google')`,
+    'Both methods ready',
+  )
+  await inspectStyle(google, 'compte-both')
+  await openEditor(google, 'google')
   await fill(google, 'google-password', replacement)
   await click(google, 'Dissocier Google')
   await text(google, 'Google a été dissocié.')
@@ -894,6 +1142,81 @@ async function simulatedGoogle() {
   check(
     (await session(pending)).state === 'pending_username',
     'simulated unverified Google advances only after explicit confirmation',
+  )
+  await fill(pending, 'account-username', `browser_g_pending_${run}`)
+  await click(pending, 'Confirmer mon nom')
+  await text(pending, 'Google est votre seul moyen de connexion')
+  await googleRedirect(
+    pending,
+    {
+      mode: 'reauth',
+      action: 'email_change',
+      target: 'google-next@example.test',
+    },
+    'unverified',
+    '/compte/confirmer-identite',
+  )
+  await click(pending, 'Recevoir le lien de vérification')
+  await text(pending, 'La demande a été acceptée.')
+  const emailProof = await mail(
+    'google-unverified@example.test',
+    'email_step_up',
+  )
+  await fragmentVisit(pending, emailProof.link)
+  await click(pending, 'Confirmer mon identité avec ce lien')
+  await until(
+    pending,
+    `!!document.querySelector('input[value="request"]')`,
+    'Google email action ready',
+  )
+  await evaluate(
+    pending,
+    `document.querySelector('input[value="request"]').click()`,
+  )
+  await click(pending, 'Demander le lien au nouvel email')
+  await text(pending, 'Votre adresse actuelle reste inchangée')
+  await go(pending, '/compte')
+  await text(pending, 'Confirmation en attente')
+  await inspectStyle(pending, 'compte-google-pending')
+  await click(pending, 'Annuler le changement d’email')
+  await text(pending, 'Le changement d’email a été annulé')
+  check(
+    await evaluate(
+      pending,
+      `!document.body.innerText.toLowerCase().includes('confirmation en attente')`,
+    ),
+    'Google email continuation creates pending request and explicit cancel removes it',
+  )
+  // Preserve the real mailbox cooldown and step limiter's 90-second refill.
+  await delay(91000)
+  await openEditor(pending, 'delete')
+  check(
+    await evaluate(
+      pending,
+      `document.getElementById('editor-delete').textContent.includes('immédiate et définitive')`,
+    ),
+    'Google deletion warning precedes provider proof',
+  )
+  await googleRedirect(
+    pending,
+    { mode: 'reauth', action: 'delete_account' },
+    'unverified',
+    '/compte/confirmer-identite',
+  )
+  await click(pending, 'Recevoir le lien de vérification')
+  await text(pending, 'La demande a été acceptée.')
+  const deletionProof = await mail(
+    'google-unverified@example.test',
+    'email_step_up',
+  )
+  await fragmentVisit(pending, deletionProof.link)
+  await click(pending, 'Confirmer mon identité avec ce lien')
+  await fill(pending, 'delete-confirmation', 'SUPPRIMER')
+  await click(pending, 'Supprimer définitivement mon compte')
+  await text(pending, 'Votre compte a été supprimé définitivement')
+  check(
+    !(await cookie(pending)),
+    'Google-only deletion needs both proofs and typed confirmation then clears session',
   )
   check(
     google.trackerCount === 0 && pending.trackerCount === 0,
@@ -1013,10 +1336,12 @@ async function emailScenario() {
   )
 
   phase = 'password settings'
+  await inspectOverview(a)
+  await openEditor(a, 'password')
   await fill(a, 'current-password', password)
-  await rejectShortPassword(a, 'new-password', 'Modifier mon mot de passe')
+  await rejectShortPassword(a, 'new-password', 'Enregistrer le mot de passe')
   await fill(a, 'new-password', recovered)
-  await click(a, 'Modifier mon mot de passe')
+  await click(a, 'Enregistrer le mot de passe')
   await text(a, 'Votre mot de passe a été modifié.')
   check(
     (await cookie(a)).value !== cookieA.value,
@@ -1029,7 +1354,7 @@ async function emailScenario() {
   await text(a, 'Toutes vos sessions ont été fermées')
   await until(
     sibling,
-    `!document.getElementById('new-password')`,
+    `!document.getElementById('trigger-password')`,
     'BroadcastChannel logout',
   )
   check(!(await cookie(a)), 'logout-all clears actual browser cookie')
@@ -1040,13 +1365,48 @@ async function emailScenario() {
     )),
     'BroadcastChannel removes private identity in sibling tab',
   )
+  // Focus assertions represent the active user tab, not a background CDP target.
+  await cdp.send('Page.bringToFront', {}, a.sessionId)
   await login(a, emailA, recovered)
 
   phase = 'email settings'
+  await openEditor(a, 'email')
   await fill(a, 'new-email', newEmail)
   await fill(a, 'email-password', recovered)
   await click(a, 'Recevoir le lien de confirmation')
   await text(a, 'La demande de changement d’email a été acceptée')
+  await until(
+    a,
+    `!document.getElementById('editor-email') && document.activeElement.id === 'trigger-email' && document.body.innerText.toLowerCase().includes('confirmation en attente')`,
+    'Pending email ready',
+  ).catch(async (error) => {
+    console.error(
+      'Email overview state:',
+      await evaluate(
+        a,
+        `JSON.stringify({ editorOpen: !!document.getElementById('editor-email'), focusedTrigger: document.activeElement.id === 'trigger-email', triggerPresent: !!document.getElementById('trigger-email'), triggerDisabled: document.getElementById('trigger-email')?.disabled, pendingVisible: document.body.innerText.toLowerCase().includes('confirmation en attente') })`,
+      ),
+    )
+    throw error
+  })
+  await delay(150)
+  check(
+    await evaluate(
+      a,
+      `!document.getElementById('editor-email') && document.activeElement.id === 'trigger-email' && document.body.innerText.toLowerCase().includes('confirmation en attente')`,
+    ),
+    'email success closes editor, restores focus and retains pending status',
+  )
+  await inspectStyle(a, 'compte-pending-email')
+  await openEditor(a, 'email')
+  await click(a, 'Annuler')
+  check(
+    await evaluate(
+      a,
+      `document.body.textContent.includes('Annuler le changement d’email')`,
+    ),
+    'closing email editor does not cancel pending change',
+  )
   const change = await mail(newEmail, 'email_change')
   await go(a, change.link)
   await until(
@@ -1111,6 +1471,7 @@ async function emailScenario() {
     'account form mobile targets at least 44px',
   )
   await cdp.send('Page.bringToFront', {}, a.sessionId)
+  await openEditor(a, 'password')
   await until(
     a,
     `!!document.getElementById('current-password')`,
@@ -1144,7 +1505,7 @@ async function emailScenario() {
   await click(a, 'Mon compte')
   await until(
     a,
-    `location.pathname === '/compte' && !!document.getElementById('new-password')`,
+    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
     'Public to sensitive entry',
   )
   check(
@@ -1161,7 +1522,7 @@ async function emailScenario() {
   )
   await until(
     a,
-    `!document.getElementById('new-password')`,
+    `!document.getElementById('trigger-password')`,
     'Offline private UI cleared',
   )
   check(
@@ -1183,7 +1544,7 @@ async function emailScenario() {
   )
   await until(
     a,
-    `!!document.getElementById('new-password')`,
+    `!!document.getElementById('trigger-password')`,
     'Online revalidation',
   )
   check(
@@ -1206,7 +1567,7 @@ async function emailScenario() {
   await evaluate(a, `window.dispatchEvent(new Event('focus'))`)
   await until(
     a,
-    `!document.getElementById('new-password')`,
+    `!document.getElementById('trigger-password')`,
     'Focus revalidation removes stale session',
   )
   check(
@@ -1230,7 +1591,7 @@ async function emailScenario() {
   )
   await until(
     a,
-    `!document.getElementById('new-password')`,
+    `!document.getElementById('trigger-password')`,
     'History restore hides revoked account',
   )
   check(
@@ -1244,13 +1605,14 @@ async function emailScenario() {
 
   phase = 'deletion'
   await go(sibling, '/compte')
+  await openEditor(a, 'delete')
   await fill(a, 'deletion-password', replacement)
   await fill(a, 'deletion-confirmation', 'SUPPRIMER')
   await click(a, 'Supprimer définitivement mon compte')
   await text(a, 'Votre compte a été supprimé définitivement')
   await until(
     sibling,
-    `!document.getElementById('new-password')`,
+    `!document.getElementById('trigger-password')`,
     'BroadcastChannel deletion',
   )
   check(!(await cookie(a)), 'deletion clears browser cookie')
@@ -1308,6 +1670,11 @@ async function main() {
       'simulated Google continuation (not real provider/button acceptance)'
     await simulatedGoogle()
   } else await emailScenario()
+  if (interceptionFailure || allPages.some((page) => page.external))
+    console.error('Interception state:', {
+      interceptionFailure,
+      externalCounts: allPages.map((page) => page.external),
+    })
   check(
     !interceptionFailure && allPages.every((page) => !page.external),
     'no unexpected external page requests; tracker synthetic only',
@@ -1316,7 +1683,7 @@ async function main() {
     `ACCOUNT_BROWSER_PASS scenario=${google ? 'simulated-google' : 'email'} assertions=${passed}`,
   )
   console.log(
-    'OUTSTANDING real Google button/provider, Google linking/email/deletion continuations, SES delivery, production HTTPS cookie, expiry clocks, real OS focus/BFCache/PWA install, password-manager and manual screen-reader acceptance',
+    'OUTSTANDING real Google button/provider, Google linking/email-confirm continuation, SES delivery, production HTTPS cookie, expiry clocks, real OS focus/BFCache/PWA install, password-manager and manual screen-reader acceptance',
   )
 }
 

@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { accountErrorMessage } from '~/utils/accountState'
 
-defineProps<{ title: string; hideExplore?: boolean; compact?: boolean }>()
+defineProps<{
+  title: string
+  hideExplore?: boolean
+  hideLogout?: boolean
+  compact?: boolean
+}>()
 const account = useAccountSession()
 const route = useRoute()
 const { session, status, errorMessage } = account
@@ -72,7 +77,10 @@ useHead({
       <div v-show="status === 'ready' && session?.enabled">
         <slot />
       </div>
-      <div v-if="session?.account" class="mt-8 border-t-2 border-ink pt-4">
+      <div
+        v-if="session?.account && !hideLogout"
+        class="mt-8 border-t-2 border-ink pt-4"
+      >
         <button
           type="button"
           class="account-link"
