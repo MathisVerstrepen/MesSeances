@@ -334,7 +334,7 @@ test('overview summary typography, copy and logout consequences stay local', asy
   assert.match(source, /passwordAvailable \? 'Défini' : 'Non défini'/)
   assert.match(
     source,
-    /id="account-delete" class="account-heading">Compte<\/h2>/,
+    /id="account-delete" class="account-heading">Suppression<\/h2>/,
   )
   assert.match(source, /<GoogleIcon\b[^>]*\/>/)
   assert.doesNotMatch(source, /Vos cinémas|Le nom d’utilisateur est définitif/)
@@ -364,10 +364,64 @@ test('overview summary typography, copy and logout consequences stay local', asy
   )
   assert.match(
     shell,
-    /\.account-overview \.account-shell-content \{\s*@apply max-w-3xl;/,
+    /'account-area-inner mx-auto max-w-\[60rem\]': accountArea/,
   )
   assert.match(
     shell,
     /\.account-overview :deep\(\.overview-link\) \{\s*@apply min-w-11 font-sans text-sm font-semibold;/,
   )
+})
+
+test('account area is opt-in, with one current route and disabled future categories', async () => {
+  const shell = await readFile(
+    new URL('../app/components/AccountShell.vue', import.meta.url),
+    'utf8',
+  )
+  const navigation = await readFile(
+    new URL('../app/components/AccountAreaNavigation.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(source, /\saccount-area\s/)
+  assert.match(source, /title="Paramètres"/)
+  assert.match(source, /<dl class="space-y-2 text-sm">/)
+  assert.match(source, /\[id\^="editor-"\] \{\s*@apply max-w-lg;/)
+  assert.match(shell, /lg:px-12 lg:py-10/)
+  assert.match(navigation, /lg:py-10/)
+  assert.match(navigation, />Paramètres<\/a/)
+  assert.match(navigation, /text-white no-underline/)
+  const header = await readFile(
+    new URL('../app/components/AppHeader.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(header, /\? 'Mon compte' : 'Connexion'/)
+  assert.match(shell, /accountArea\?: boolean/)
+  assert.match(shell, /<AccountAreaNavigation v-if="accountArea"/)
+  assert.match(shell, /min-h-svh/)
+  assert.match(shell, /lg:grid-cols-\[15rem_minmax\(0,1fr\)\]/)
+  assert.match(shell, /noindex,nofollow/)
+  assert.match(shell, /no-referrer/)
+  assert.match(shell, /status === 'ready' && session\?\.enabled/)
+  assert.match(navigation, /aria-label="Espace personnel"/)
+  assert.match(navigation, /href="\/compte"\s+aria-current="page"/)
+  assert.match(navigation, /\['Films aimés', 'Watchlist', 'Amis'\]/)
+  assert.match(navigation, /<button\s+type="button"\s+disabled/)
+  assert.match(navigation, /À venir/)
+  assert.equal([...navigation.matchAll(/href=/g)].length, 1)
+  assert.doesNotMatch(navigation, /@click|tabindex|to=/)
+  for (const page of [
+    'connexion',
+    'inscription',
+    'verification',
+    'finaliser',
+    'mot-de-passe-oublie',
+    'reinitialiser-mot-de-passe',
+    'compte/confirmer-email',
+    'compte/confirmer-identite',
+  ]) {
+    const route = await readFile(
+      new URL(`../app/pages/${page}.vue`, import.meta.url),
+      'utf8',
+    )
+    assert.doesNotMatch(route, /\saccount-area\s|account-shell-area/)
+  }
 })

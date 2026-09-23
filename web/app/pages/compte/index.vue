@@ -361,10 +361,11 @@ useHead({ title: 'Mon compte - MesSeances' })
 
 <template>
   <AccountShell
-    title="Mon compte"
+    title="Paramètres"
     hide-explore
     hide-logout
-    class="account-shell-wide account-overview"
+    account-area
+    class="account-overview"
   >
     <p v-if="notice" role="status" class="mb-6 text-sm leading-relaxed">
       {{ notice }}
@@ -404,7 +405,7 @@ useHead({ title: 'Mon compte - MesSeances' })
       <section aria-labelledby="account-identity" class="space-y-4">
         <h2 id="account-identity" class="account-heading">Identité</h2>
         <div class="min-w-0 space-y-5">
-          <dl class="space-y-4 text-sm">
+          <dl class="space-y-2 text-sm">
             <div>
               <dt class="overview-label">Nom d’utilisateur</dt>
               <dd class="mt-1 break-words">{{ details.username }}</dd>
@@ -692,7 +693,7 @@ useHead({ title: 'Mon compte - MesSeances' })
         </div>
       </section>
       <section aria-labelledby="account-delete" class="space-y-5">
-        <h2 id="account-delete" class="account-heading">Compte</h2>
+        <h2 id="account-delete" class="account-heading">Suppression</h2>
         <div class="min-w-0 space-y-4">
           <button
             id="trigger-delete"
@@ -778,9 +779,6 @@ useHead({ title: 'Mon compte - MesSeances' })
 <style scoped>
 @reference "../../assets/css/main.css";
 
-.account-overview {
-  @apply py-6 sm:py-10 lg:py-12;
-}
 .account-overview :deep(h1) {
   @apply mb-6 pb-5 text-[2rem] sm:text-[2.75rem];
 }
@@ -792,6 +790,9 @@ useHead({ title: 'Mon compte - MesSeances' })
 }
 .overview-row {
   @apply grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4;
+}
+.account-overview-sections [id^="editor-"] {
+  @apply max-w-lg;
 }
 .overview-label {
   @apply min-w-0 text-sm font-semibold leading-relaxed;

@@ -37,7 +37,7 @@ test('compact shell is opt-in for credentials pages, not account settings', asyn
     )
   }
   const settings = await read('../app/pages/compte/index.vue')
-  assert.match(settings, /account-shell-wide/)
+  assert.match(settings, /account-area/)
   assert.doesNotMatch(settings, /<AccountShell[^>]+\bcompact\b/)
 })
 
@@ -576,7 +576,7 @@ test('recovery and email confirmation remain explicit, memory-only and scanner-s
     assert.match(source, /accountWriteUncertain/)
   }
   const settings = await read('../app/pages/compte/index.vue')
-  assert.match(settings, /<AccountShell\s+title="Mon compte"\s+hide-explore\b/)
+  assert.match(settings, /<AccountShell\s+title="Paramètres"\s+hide-explore\b/)
   const shell = await read('../app/components/AccountShell.vue')
   assert.match(shell, /hideExplore\?: boolean/)
   assert.match(

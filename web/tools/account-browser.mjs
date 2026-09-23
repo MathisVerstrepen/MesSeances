@@ -345,7 +345,7 @@ async function inspectOverview(page) {
   check(
     await evaluate(
       page,
-      `!document.querySelector('main input') && [...document.querySelectorAll('main h2')].map(el => el.textContent.trim()).join('|') === 'Identité|Connexion|Sessions|Compte' && [...document.querySelectorAll('main button')].filter(el => el.textContent.trim() === 'Se déconnecter').length === 1`,
+      `!document.querySelector('main input') && [...document.querySelectorAll('main h2')].map(el => el.textContent.trim()).join('|') === 'Identité|Connexion|Sessions|Suppression' && [...document.querySelectorAll('main button')].filter(el => el.textContent.trim() === 'Se déconnecter').length === 1`,
     ),
     'overview groups four sections, no hidden required fields or duplicate logout',
   )
@@ -508,7 +508,7 @@ async function inspectStyle(page, name) {
     ),
     `${name}: screenshot has no URL token or exposed secret field`,
   )
-  for (const width of [1440, 390, 320]) {
+  for (const width of [1440, 2560, 390, 320]) {
     await cdp.send(
       'Emulation.setDeviceMetricsOverride',
       { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 },
@@ -527,7 +527,47 @@ async function inspectStyle(page, name) {
       ),
       `${name}: ${width}px controls keep 44px targets`,
     )
-    if (await evaluate(page, `!!document.querySelector('.account-overview')`)) {
+    if (
+      await evaluate(page, `!!document.querySelector('.account-shell-area')`)
+    ) {
+      check(
+        await evaluate(
+          page,
+          `(() => {
+            const main = document.querySelector('main'), nav = main.querySelector('.account-area-navigation'), content = main.querySelector('.account-shell-content'), inner = main.querySelector('.account-area-inner');
+            const m = main.getBoundingClientRect(), n = nav.getBoundingClientRect(), c = content.getBoundingClientRect(), i = inner.getBoundingClientRect();
+            const header = document.querySelector('header').getBoundingClientRect(), footer = document.querySelector('footer').getBoundingClientRect();
+            return m.left === 0 && m.width === document.documentElement.clientWidth && m.height >= innerHeight && m.top >= header.bottom - 1 && footer.top >= m.bottom - 1 && i.width <= 960 && Math.abs((i.left - c.left) - (c.right - i.right)) <= 1 && getComputedStyle(content).boxShadow === 'none' && getComputedStyle(content).borderTopWidth === '0px' && [main, nav, content, inner].every(el => !['auto', 'scroll', 'hidden'].includes(getComputedStyle(el).overflowY)) && (${width} >= 1024 ? n.width === 240 && c.left === n.right && c.right === m.right && n.top === c.top && i.left >= c.left + 48 && Math.abs(nav.querySelector('a').getBoundingClientRect().top - inner.querySelector('h1').getBoundingClientRect().top) <= 1 : n.width === m.width && c.top >= n.bottom && c.width === m.width);
+          })()`,
+        ),
+        `${name}: ${width}px full-width area, responsive 240px sidebar, readable measure, header/footer and document scrolling`,
+      )
+      check(
+        await evaluate(
+          page,
+          `(() => {
+            const nav = document.querySelector('.account-area-navigation'), current = nav.querySelector('a'), future = [...nav.querySelectorAll('button')];
+            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 1 && current.getAttribute('href') === '/compte' && current.getAttribute('aria-current') === 'page' && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 3 && future.every((el, index) => el.disabled && !el.hasAttribute('href') && el.innerText.includes(['Films aimés', 'Watchlist', 'Amis'][index]) && el.innerText.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && document.querySelector('main h1').textContent.trim() === 'Paramètres';
+          })()`,
+        ),
+        `${name}: ${width}px current-page semantics and disabled future entries without routes`,
+      )
+      await inspectWorkspaceScroll(page, `${name}: ${width}px`)
+    } else {
+      check(
+        await evaluate(
+          page,
+          `(() => { const content = document.querySelector('.account-shell-content'), css = getComputedStyle(content), r = content.getBoundingClientRect(); return !document.querySelector('.account-area-navigation') && css.borderTopWidth === '2px' && css.boxShadow !== 'none' && r.width <= 896 && Math.abs(r.left - (document.documentElement.clientWidth - r.right)) <= 1 && !!document.querySelector('header') && !!document.querySelector('footer'); })()`,
+        ),
+        `${name}: ${width}px auth page retains centered boxed layout and public chrome`,
+      )
+    }
+    if (
+      await evaluate(
+        page,
+        `!!document.querySelector('.account-overview-sections')?.getClientRects().length`,
+      )
+    ) {
       check(
         await evaluate(
           page,
@@ -551,9 +591,9 @@ async function inspectStyle(page, name) {
         await evaluate(
           page,
           `(() => {
-          const panel = document.querySelector('.account-shell-content').getBoundingClientRect();
+          const panel = document.querySelector('.account-area-inner').getBoundingClientRect();
           const icon = document.querySelector('#account-google svg');
-          return (${width} !== 1440 || panel.width === 768) && icon.getBoundingClientRect().width === 20 && icon.getAttribute('aria-hidden') === 'true' && [...document.querySelectorAll('.overview-label,.overview-link,.overview-secondary')].every(el => {
+          return (${width} < 1440 || panel.width === 960) && icon.getBoundingClientRect().width === 20 && icon.getAttribute('aria-hidden') === 'true' && [...document.querySelectorAll('.overview-label,.overview-link,.overview-secondary')].every(el => {
             const css = getComputedStyle(el); return !css.fontFamily.includes('monospace') && css.fontWeight === '600' && css.textTransform === 'none';
           });
         })()`,
@@ -566,10 +606,17 @@ async function inspectStyle(page, name) {
           `(() => {
           const [local, global] = document.querySelectorAll('.overview-secondary');
           const l = local.getBoundingClientRect(), g = global.getBoundingClientRect();
-          return (${width} !== 1440 || Math.abs(l.top - g.top) <= 1) && !local.hasAttribute('aria-describedby') && global.getAttribute('aria-describedby') === 'logout-all-consequence' && [...document.querySelectorAll('.account-input')].every(el => ${width} !== 1440 || el.getBoundingClientRect().width >= 440);
+          return (${width} < 1440 || Math.abs(l.top - g.top) <= 1) && !local.hasAttribute('aria-describedby') && global.getAttribute('aria-describedby') === 'logout-all-consequence' && [...document.querySelectorAll('[id^="editor-"]')].every(el => el.getBoundingClientRect().width <= 512) && [...document.querySelectorAll('.account-input')].every(el => ${width} < 1440 || el.getBoundingClientRect().width === 512);
         })()`,
         ),
         `${name}: ${width}px matching logout rows, scoped consequence and comfortable desktop inputs`,
+      )
+      check(
+        await evaluate(
+          page,
+          `(() => { const identity = document.querySelector('[aria-labelledby="account-identity"] dl'), [username, email] = identity.children, deletion = document.getElementById('account-delete'); return email.getBoundingClientRect().top - username.getBoundingClientRect().bottom === 8 && deletion.textContent === 'Suppression' && getComputedStyle(deletion).color === 'rgb(39, 39, 42)' && document.querySelector('header a[href="/compte"]').textContent.trim() === 'Mon compte'; })()`,
+        ),
+        `${name}: ${width}px compact identity, neutral Suppression and unchanged public Mon compte`,
       )
     }
     check(
@@ -635,9 +682,9 @@ async function inspectStyle(page, name) {
       check(
         await evaluate(
           page,
-          `document.querySelector('.account-shell-content').getBoundingClientRect().width >= 890`,
+          `document.querySelector('.account-shell-content').getBoundingClientRect().width === document.documentElement.clientWidth - 240`,
         ),
-        'settings retain wide desktop shell',
+        'settings use remaining full desktop width',
       )
     }
     await inspectPasswordKeyboard(page, `${name}: ${width}px`)
@@ -664,6 +711,57 @@ async function inspectStyle(page, name) {
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     page.sessionId,
   )
+}
+
+async function inspectWorkspaceScroll(page, label) {
+  const originalTop = await evaluate(
+    page,
+    `document.querySelector('.account-area-navigation a').getBoundingClientRect().top`,
+  )
+  await evaluate(page, 'window.scrollTo(0, 300)')
+  await delay(50)
+  check(
+    await evaluate(
+      page,
+      `(() => { const header = document.querySelector('header'), nav = document.querySelector('.account-area-navigation a'); return scrollY > 0 && getComputedStyle(header).position === 'sticky' && header.getBoundingClientRect().top === 0 && Math.abs(nav.getBoundingClientRect().top + scrollY - ${originalTop}) <= 1; })()`,
+    ),
+    `${label} real scroll keeps public header sticky and category navigation in normal flow`,
+  )
+  await evaluate(
+    page,
+    'window.scrollTo(0, document.documentElement.scrollHeight)',
+  )
+  await delay(50)
+  check(
+    await evaluate(
+      page,
+      `(() => { const footer = document.querySelector('footer').getBoundingClientRect(), header = document.querySelector('header').getBoundingClientRect(), main = document.querySelector('main').getBoundingClientRect(); return footer.bottom <= innerHeight + 1 && footer.top >= header.bottom && footer.top >= main.bottom - 1; })()`,
+    ),
+    `${label} footer reachable without sidebar or content overlap`,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('.account-area-navigation a').focus(); window.scrollTo(0, 0)`,
+  )
+  // Move away and back using real keyboard events, including empty/error states.
+  for (const modifiers of [0, 8]) {
+    for (const type of ['keyDown', 'keyUp']) {
+      await cdp.send(
+        'Input.dispatchKeyEvent',
+        { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, modifiers },
+        page.sessionId,
+      )
+    }
+  }
+  await evaluate(page, 'window.scrollTo(0, 0)')
+  check(
+    await evaluate(
+      page,
+      `(() => { const current = document.querySelector('.account-area-navigation a'), css = getComputedStyle(current), r = current.getBoundingClientRect(), nav = current.closest('nav').getBoundingClientRect(); return document.activeElement === current && current.matches(':focus-visible') && (css.outlineStyle !== 'none' || css.boxShadow !== 'none') && r.top >= document.querySelector('header').getBoundingClientRect().bottom + 6 && r.left >= nav.left + 6 && r.right <= nav.right - 6; })()`,
+    ),
+    `${label} current category has visible unclipped keyboard focus without underline`,
+  )
+  await evaluate(page, 'document.activeElement.blur(); window.scrollTo(0, 0)')
 }
 
 async function inspectPasswordKeyboard(page, label) {
@@ -1679,6 +1777,9 @@ async function emailScenario() {
 
 async function overviewScenario() {
   // Read-only presentation fixture: real Vue SSR/hydration, no DB or auth writes.
+  let sessionMode = 'ready'
+  let detailMode = 'ready'
+  const heldDetails = new Set()
   const accountView = () =>
     overviewDetails &&
     Object.fromEntries(
@@ -1690,12 +1791,25 @@ async function overviewScenario() {
   overviewServer = createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json')
     response.setHeader('Cache-Control', 'no-store')
+    if (request.url === '/api/v1/account' && detailMode === 'loading') {
+      heldDetails.add(response)
+      response.once('close', () => heldDetails.delete(response))
+      return
+    }
+    if (
+      (request.url === '/api/v1/account' && detailMode === 'error') ||
+      (request.url === '/api/v1/auth/session' && sessionMode === 'error')
+    ) {
+      response.statusCode = 503
+      response.end(JSON.stringify({ error: { code: 'unavailable' } }))
+      return
+    }
     const data =
       request.method !== 'GET'
         ? undefined
         : request.url === '/api/v1/auth/session'
           ? {
-              enabled: true,
+              enabled: sessionMode !== 'disabled',
               state: overviewDetails ? 'complete' : 'anonymous',
               account: accountView(),
             }
@@ -1745,6 +1859,27 @@ async function overviewScenario() {
       `${method}: collapsed overview and last-method guard`,
     )
     await inspectStyle(page, `overview-${method}`)
+    await evaluate(
+      page,
+      `document.querySelector('.account-area-navigation a').focus()`,
+    )
+    await cdp.send(
+      'Input.dispatchKeyEvent',
+      { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+      page.sessionId,
+    )
+    await cdp.send(
+      'Input.dispatchKeyEvent',
+      { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+      page.sessionId,
+    )
+    check(
+      await evaluate(
+        page,
+        `document.activeElement.id === 'trigger-email' && document.activeElement.matches(':focus-visible') && (getComputedStyle(document.activeElement).outlineStyle !== 'none' || getComputedStyle(document.activeElement).boxShadow !== 'none')`,
+      ),
+      `${method}: keyboard skips unavailable categories and retains visible focus`,
+    )
     for (const editor of ['email', 'password', 'google', 'delete']) {
       if (editor === 'google' && method === 'google') continue
       await openEditor(page, editor)
@@ -1765,8 +1900,65 @@ async function overviewScenario() {
         `!document.getElementById('editor-${editor}') && document.activeElement.id === 'trigger-${editor}'`,
         'Editor closed with restored focus',
       )
+      await openEditor(page, editor)
+      await evaluate(
+        page,
+        `document.querySelectorAll('#editor-${editor} input').forEach(input => { input.value = 'fixture-draft'; input.dispatchEvent(new Event('input', { bubbles: true })); })`,
+      )
+      await click(page, 'Annuler')
+      await until(
+        page,
+        `!document.getElementById('editor-${editor}') && document.activeElement.id === 'trigger-${editor}'`,
+        'Cancel restores trigger focus',
+      )
+      await openEditor(page, editor)
+      check(
+        await evaluate(
+          page,
+          `[...document.querySelectorAll('#editor-${editor} input')].every(input => input.value === '')`,
+        ),
+        `${method}/${editor}: cancel clears drafts before reopening`,
+      )
+      await click(page, 'Annuler')
     }
   }
+  for (const state of ['loading', 'error']) {
+    detailMode = state
+    await go(page, '/compte')
+    await until(
+      page,
+      state === 'loading'
+        ? `document.querySelector('main [role="status"]')?.textContent.includes('Chargement du compte')`
+        : `!!document.querySelector('main [role="alert"]')`,
+      `Account details ${state}`,
+    )
+    await inspectStyle(page, `overview-details-${state}`)
+    detailMode = 'ready'
+    if (state === 'loading') {
+      for (const response of heldDetails)
+        response.end(JSON.stringify(overviewDetails))
+    } else {
+      await click(page, 'Réessayer')
+    }
+    await until(
+      page,
+      `!!document.getElementById('trigger-password')`,
+      'Details recover',
+    )
+  }
+  for (const state of ['error', 'disabled']) {
+    sessionMode = state
+    await go(page, '/compte')
+    await until(
+      page,
+      state === 'error'
+        ? `!!document.querySelector('main [role="alert"]')`
+        : `document.querySelector('main [role="status"]')?.textContent.includes('pas encore disponibles')`,
+      `Account session ${state}`,
+    )
+    await inspectStyle(page, `overview-session-${state}`)
+  }
+  sessionMode = 'ready'
   overviewDetails = null
   await go(page, '/connexion')
   await until(page, `!!document.getElementById('account-email')`, 'Login ready')
@@ -1778,6 +1970,22 @@ async function overviewScenario() {
     ),
     'login keeps same decorative Google artwork',
   )
+  for (const route of [
+    'inscription',
+    'mot-de-passe-oublie',
+    'reinitialiser-mot-de-passe',
+    'verification',
+    'compte/confirmer-email',
+    'compte/confirmer-identite',
+  ]) {
+    await go(page, `/${route}`)
+    await until(
+      page,
+      `!!document.querySelector('.account-shell-content h1')`,
+      'Auth route ready',
+    )
+    await inspectStyle(page, route.replaceAll('/', '-'))
+  }
   check(
     !interceptionFailure && allPages.every((page) => !page.external),
     'no unexpected external page requests',
