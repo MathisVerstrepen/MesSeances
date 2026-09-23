@@ -25,6 +25,111 @@ test('registration sent actions keep a wrapping gap and their public link styles
   )
 })
 
+test('compact shell is opt-in for credentials pages, not account settings', async () => {
+  const shell = await read('../app/components/AccountShell.vue')
+  assert.match(shell, /compact\?: boolean/)
+  assert.match(shell, /'account-shell-compact': compact/)
+  assert.match(shell, /max-w-\[33rem\] sm:p-8/)
+  for (const page of ['connexion', 'inscription']) {
+    assert.match(
+      await read(`../app/pages/${page}.vue`),
+      /<AccountShell[^>]+ compact>/,
+    )
+  }
+  const settings = await read('../app/pages/compte/index.vue')
+  assert.match(settings, /account-shell-wide/)
+  assert.doesNotMatch(settings, /<AccountShell[^>]+\bcompact\b/)
+})
+
+test('credentials keep recovery beside login password and Google as a separate alternative', async () => {
+  const source = await read('../app/components/AccountCredentialsForm.vue')
+  assert.match(
+    source,
+    /<template v-if="!register" #label-action>[\s\S]*?href="\/mot-de-passe-oublie"/,
+  )
+  assert.doesNotMatch(
+    await read('../app/pages/connexion.vue'),
+    /mot-de-passe-oublie/,
+  )
+  assert.match(
+    source,
+    /<\/form>\s*<div[^>]+>[\s\S]*?<span>ou<\/span>[\s\S]*?<\/div>\s*<button[\s\S]*?Continuer avec Google/,
+  )
+  assert.match(
+    source,
+    /:href="register \? '\/connexion' : '\/inscription'"\s+class="account-navigation-link"/,
+  )
+})
+
+test('shared Google login button keeps its label and a local decorative brand icon', async () => {
+  const source = await read('../app/components/AccountCredentialsForm.vue')
+  const button = source.match(
+    /<button\b[^>]*@click="google"[^>]*>([\s\S]*?)<\/button>/,
+  )?.[0]
+  assert.ok(button)
+  assert.match(button, /type="button"/)
+  assert.match(button, /:disabled="busy"/)
+  assert.match(button, /class="account-secondary w-full"/)
+  assert.match(button, /<\/svg>\s*Continuer avec Google\s*<\/button>/)
+  const icon = button.match(/<svg\b[\s\S]*?<\/svg>/)?.[0]
+  assert.ok(icon)
+  assert.match(icon, /viewBox="10 10 20 20"/)
+  assert.match(icon, /class="size-5 shrink-0"/)
+  assert.match(icon, /aria-hidden="true"/)
+  assert.match(icon, /focusable="false"/)
+  assert.deepEqual(
+    [...icon.matchAll(/fill="(#[A-F0-9]+)"/g)].map((match) => match[1]),
+    ['#4285F4', '#34A853', '#FBBC04', '#E94235'],
+  )
+  assert.doesNotMatch(icon, /<title|<image|<use|(?:href|src)=/)
+})
+
+test('password recovery row aligns text baselines while retaining wrapping and its touch target', async () => {
+  const field = await read('../app/components/AccountPasswordField.vue')
+  const shell = await read('../app/components/AccountShell.vue')
+  assert.match(
+    field,
+    /class="account-password-label-row[^"\n]*flex-wrap items-baseline/,
+  )
+  assert.match(
+    shell,
+    /\.account-password-label-row \.account-label\) \{\s*@apply mb-0;/,
+  )
+  assert.match(
+    shell,
+    /\.account-navigation-link\) \{\s*@apply inline-flex min-h-11 items-center/,
+  )
+})
+
+test('shared inset password toggle preserves masking, labels, criteria and autocomplete', async () => {
+  const source = await read('../app/components/AccountPasswordField.vue')
+  assert.match(source, /import \{ Eye, EyeOff \} from '@lucide\/vue'/)
+  assert.match(source, /const visible = ref\(false\)/)
+  assert.match(source, /:type="visible \? 'text' : 'password'"/)
+  assert.match(
+    source,
+    /:autocomplete="newPassword \? 'new-password' : 'current-password'"/,
+  )
+  assert.match(source, /:aria-controls="id"/)
+  assert.match(source, /:aria-pressed="visible"/)
+  assert.match(
+    source,
+    /:aria-label="`\$\{visible \? 'Masquer' : 'Afficher'\} le mot de passe`"/,
+  )
+  assert.match(source, /type="button"\s+class="absolute[^"\n]*size-11/)
+  assert.match(source, /<EyeOff[^>]+aria-hidden="true"/)
+  assert.match(source, /<Eye v-else[^>]+aria-hidden="true"/)
+  assert.match(source, /account-password-label-row[^"\n]*flex-wrap/)
+  assert.match(
+    source,
+    /:aria-describedby="newPassword \? `\$\{id\}-criteria` : undefined"/,
+  )
+  assert.match(
+    await read('../app/components/AccountShell.vue'),
+    /\.account-password-input\) \{\s*@apply pr-14;/,
+  )
+})
+
 interface CompiledComposables {
   default?: (to: {
     path: string

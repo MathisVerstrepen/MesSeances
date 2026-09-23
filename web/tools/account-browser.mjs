@@ -311,6 +311,68 @@ async function inspectStyle(page, name) {
       ),
       `${name}: ${width}px public square controls and dark CTAs`,
     )
+    check(
+      await evaluate(
+        page,
+        `Array.from(document.querySelectorAll('.account-password-input')).filter(el => el.getClientRects().length).every(input => { const toggle = input.parentElement.querySelector('button'); const i = input.getBoundingClientRect(), t = toggle.getBoundingClientRect(); return t.left >= i.left && t.right <= i.right && t.top >= i.top && t.bottom <= i.bottom && parseFloat(getComputedStyle(input).paddingRight) >= i.right - t.left && toggle.getAttribute('aria-controls') === input.id && toggle.getAttribute('aria-label') === 'Afficher le mot de passe' && toggle.getAttribute('aria-pressed') === 'false' && !!toggle.querySelector('svg[aria-hidden="true"]'); })`,
+      ),
+      `${name}: ${width}px masked icon toggles inset without covering input text`,
+    )
+    if (name === 'connexion' || name === 'inscription') {
+      check(
+        await evaluate(
+          page,
+          `(() => { const field = document.getElementById('account-email'); const r = field.getBoundingClientRect(); const link = document.querySelector('main a[href="${name === 'connexion' ? '/inscription' : '/connexion'}"]'); const css = getComputedStyle(link); return (${width} !== 1440 || (r.width >= 440 && r.width <= 480)) && css.fontWeight === '400' && !css.fontFamily.includes('monospace') && document.querySelectorAll('main a[href="${name === 'connexion' ? '/inscription' : '/connexion'}"]').length === 1; })()`,
+        ),
+        `${name}: ${width}px compact form and single regular navigation link`,
+      )
+      check(
+        await evaluate(
+          page,
+          name === 'inscription'
+            ? `!document.querySelector('main a[href="/mot-de-passe-oublie"]')`
+            : `(() => {
+                const row = document.querySelector('.account-password-label-row');
+                const label = row.querySelector('label'), link = row.querySelector('a');
+                const baseline = element => {
+                  const text = document.createElement('span');
+                  const marker = document.createElement('span');
+                  marker.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+                  text.append(...element.childNodes);
+                  text.append(marker);
+                  element.append(text);
+                  const y = marker.getBoundingClientRect().top;
+                  marker.remove();
+                  text.replaceWith(...text.childNodes);
+                  return y;
+                };
+                const delta = Math.abs(baseline(label) - baseline(link));
+                const l = label.getBoundingClientRect(), a = link.getBoundingClientRect();
+                return getComputedStyle(row).flexWrap === 'wrap' && a.height >= 44 && a.bottom <= document.getElementById('account-password').getBoundingClientRect().top && (${width} !== 320 || a.top >= l.bottom) && (${width} === 320 || delta < 1);
+              })()`,
+        ),
+        `${name}: ${width}px login-only recovery baseline alignment and narrow fallback`,
+      )
+    }
+    if (name === 'inscription-sent') {
+      check(
+        await evaluate(
+          page,
+          `(() => { const a = document.querySelector('main a[href="/verification"]'); const css = getComputedStyle(a.parentElement); return css.display === 'flex' && css.flexWrap === 'wrap' && css.gap === '16px'; })()`,
+        ),
+        `registration sent: ${width}px retains wrapping 16px action gap`,
+      )
+    }
+    if (name === 'compte' && width === 1440) {
+      check(
+        await evaluate(
+          page,
+          `document.querySelector('.account-shell-content').getBoundingClientRect().width >= 890`,
+        ),
+        'settings retain wide desktop shell',
+      )
+    }
+    await inspectPasswordKeyboard(page, `${name}: ${width}px`)
     const { cssContentSize } = await cdp.send(
       'Page.getLayoutMetrics',
       {},
@@ -334,6 +396,52 @@ async function inspectStyle(page, name) {
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     page.sessionId,
   )
+}
+
+async function inspectPasswordKeyboard(page, label) {
+  const id = await evaluate(
+    page,
+    `Array.from(document.querySelectorAll('.account-password-input')).find(el => el.getClientRects().length && !el.disabled)?.id`,
+  )
+  if (!id) return
+  const before = page.requests.filter((item) => item.method !== 'GET').length
+  await evaluate(page, `document.getElementById(${JSON.stringify(id)}).focus()`)
+  async function key(key, code, windowsVirtualKeyCode) {
+    for (const type of ['keyDown', 'keyUp']) {
+      const event = { type, key, code, windowsVirtualKeyCode }
+      if (key === 'Enter' && type === 'keyDown') event.text = '\r'
+      await cdp.send('Input.dispatchKeyEvent', event, page.sessionId)
+    }
+  }
+  await key('Tab', 'Tab', 9)
+  check(
+    await evaluate(
+      page,
+      `document.activeElement?.getAttribute('aria-controls') === ${JSON.stringify(id)} && getComputedStyle(document.activeElement).outlineStyle !== 'none'`,
+    ),
+    `${label} keyboard reaches inset toggle with visible focus`,
+  )
+  await key('Enter', 'Enter', 13)
+  check(
+    await evaluate(
+      page,
+      `document.getElementById(${JSON.stringify(id)}).type === 'text' && document.activeElement.getAttribute('aria-pressed') === 'true' && document.activeElement.getAttribute('aria-label') === 'Masquer le mot de passe'`,
+    ),
+    `${label} Enter reveals password with updated accessible state`,
+  )
+  await key(' ', 'Space', 32)
+  check(
+    await evaluate(
+      page,
+      `document.getElementById(${JSON.stringify(id)}).type === 'password' && document.activeElement.getAttribute('aria-pressed') === 'false' && document.activeElement.getAttribute('aria-label') === 'Afficher le mot de passe'`,
+    ),
+    `${label} Space remasks password with updated accessible state`,
+  )
+  check(
+    page.requests.filter((item) => item.method !== 'GET').length === before,
+    `${label} visibility toggle never submits form`,
+  )
+  await evaluate(page, `document.activeElement.blur(); window.scrollTo(0, 0)`)
 }
 async function request(page, path, body, method = 'POST', csrf = true) {
   return evaluate(
@@ -877,6 +985,14 @@ async function emailScenario() {
   check(!(await cookie(a)), 'ordinary logout clears cookie')
   await noExplore(a)
   await inspectStyle(a, 'connexion')
+  await click(a, 'Mot de passe oublié ?')
+  await until(
+    a,
+    `location.pathname === '/mot-de-passe-oublie' && !!document.getElementById('reset-email')`,
+    'Recovery navigation',
+  )
+  check(true, 'login field recovery link reaches password recovery')
+  await go(a, '/connexion')
   await fill(a, 'account-email', emailA)
   await fill(a, 'account-password', replacement)
   await click(a, 'Se connecter')

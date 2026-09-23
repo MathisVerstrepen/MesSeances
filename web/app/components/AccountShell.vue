@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { accountErrorMessage } from '~/utils/accountState'
 
-defineProps<{ title: string; hideExplore?: boolean }>()
+defineProps<{ title: string; hideExplore?: boolean; compact?: boolean }>()
 const account = useAccountSession()
 const route = useRoute()
 const { session, status, errorMessage } = account
@@ -32,6 +32,7 @@ useHead({
 
 <template>
   <main
+    :class="{ 'account-shell-compact': compact }"
     class="account-shell w-full border-b-2 border-ink bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-8 text-ink sm:px-6 sm:py-14 lg:py-20"
   >
     <div
@@ -101,6 +102,18 @@ useHead({
   @apply max-w-4xl;
 }
 
+.account-shell-compact {
+  @apply py-6 sm:py-10 lg:py-10;
+}
+
+.account-shell-compact .account-shell-content {
+  @apply max-w-[33rem] sm:p-8;
+}
+
+.account-shell-compact h1 {
+  @apply mb-6 pb-4 text-[2rem] sm:mb-6 sm:pb-4 sm:text-[2.5rem];
+}
+
 .account-shell :deep(.account-label) {
   @apply mb-2 block font-mono text-[0.68rem] font-extrabold uppercase leading-relaxed tracking-[0.1em];
 }
@@ -111,6 +124,18 @@ useHead({
 
 .account-shell :deep(.account-input) {
   @apply min-h-12 min-w-0 rounded-none border-2 border-ink bg-surface px-3 text-base text-ink focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+.account-shell :deep(.account-password-input) {
+  @apply pr-14;
+}
+
+.account-shell :deep(.account-password-label-row .account-label) {
+  @apply mb-0;
+}
+
+.account-shell :deep(.account-navigation-link) {
+  @apply inline-flex min-h-11 items-center text-sm font-normal leading-relaxed underline underline-offset-4 hover:text-primary;
 }
 
 .account-shell :deep(.account-input[aria-invalid="true"]),

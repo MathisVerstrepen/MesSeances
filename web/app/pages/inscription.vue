@@ -5,7 +5,7 @@ useHead({ title: 'Créer un compte - MesSeances' })
 </script>
 
 <template>
-  <AccountShell title="Créer un compte">
+  <AccountShell title="Créer un compte" compact>
     <div v-if="session?.state === 'complete'" class="space-y-4">
       <p>Vous êtes déjà connecté.</p>
       <a href="/connexion" class="account-primary">Mon compte</a>
