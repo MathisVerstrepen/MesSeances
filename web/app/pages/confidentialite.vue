@@ -5,7 +5,7 @@ const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/confidentialite')
 useSeoMeta({
   title: 'Confidentialité - MesSeances',
   description:
-    'Découvrez comment MesSeances utilise le stockage local, les journaux techniques, les images distantes et la mesure d’audience.',
+    'Découvrez les traitements de MesSeances : préférences locales, comptes prévus, journaux techniques et mesure d’audience.',
   robots: 'index,follow',
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
@@ -77,6 +77,45 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         d’ouvrir ce lien.
       </p>
 
+      <h3>Comptes personnels : fonctionnalité désactivée par défaut</h3>
+      <p>
+        Le code prévoit des comptes privés par email et mot de passe ou Google.
+        Cette description présente une capacité technique, pas une annonce
+        d’activation en production ni un texte juridique approuvé. La
+        configuration des prestataires, les bases légales, les transferts et les
+        durées opérationnelles doivent être validés avant ouverture des
+        inscriptions.
+      </p>
+      <p>
+        Les données prévues sont l’email du compte, sa vérification, un nom
+        d’utilisateur unique et définitif, une empreinte sécurisée du mot de
+        passe lorsqu’il existe, ainsi que les informations nécessaires aux
+        sessions et à la prévention des abus. Pour Google, un identifiant de
+        liaison et l’email communiqué par Google sont conservés séparément de
+        l’email du compte. Aucun nom, photo, profil public ou annuaire n’est
+        prévu. Les cinémas sélectionnés restent locaux, sans synchronisation
+        avec le compte.
+      </p>
+      <p>
+        Une connexion Google ouvre le service Google uniquement à votre demande.
+        Amazon SES est prévu pour les emails de vérification, de récupération et
+        de sécurité, avec SNS et SQS pour traiter les échecs de livraison et
+        plaintes. Ces prestataires ne sont pas déclarés configurés par cette
+        notice. L’accès à Google et à l’email actuel du compte est nécessaire
+        pour les changements sensibles sans mot de passe ; aucun contournement
+        manuel de ces preuves n’est prévu.
+      </p>
+      <p>
+        Le cookie de session utilisateur prévu est distinct du cookie
+        d’administration : <code>__Host-messeances_session</code> en HTTPS,
+        inaccessible au JavaScript, sécurisé et limité au site. Sa durée
+        maximale est de 30 jours, avec expiration après 7 jours d’inactivité.
+        Les liens de vérification et les secrets saisis restent en mémoire dans
+        les pages concernées, sans stockage local ou de session. Ces pages
+        excluent Umami et les ressources tierces ; elles ne sont pas destinées à
+        être consultées hors ligne.
+      </p>
+
       <h3>Session d’administration</h3>
       <p>
         L’espace réservé à l’administration utilise le cookie
@@ -91,12 +130,13 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <h3>Mesure d’audience Umami</h3>
       <p>
-        MesSeances utilise en permanence une instance Umami auto-hébergée pour
-        produire des statistiques de fréquentation. Le traceur fonctionne sans
-        cookie et sans suivi entre sites. Il est intégré dans sa configuration
-        par défaut, avec l’identifiant du site pour seul paramètre : aucun
-        événement personnalisé, tag, identifiant distinct ou mécanisme
-        d’identification des utilisateurs n’est configuré.
+        MesSeances prévoit l’intégration d’une instance Umami auto-hébergée,
+        lorsqu’elle est configurée, hors pages de connexion, de compte et de
+        confirmation, pour produire des statistiques de fréquentation. Le
+        traceur fonctionne sans cookie et sans suivi entre sites. Il est intégré
+        dans sa configuration par défaut, avec l’identifiant du site pour seul
+        paramètre : aucun événement personnalisé, tag, identifiant distinct ou
+        mécanisme d’identification des utilisateurs n’est configuré.
       </p>
       <p>
         Umami enregistre par défaut l’identifiant du site, le nom d’hôte, le
@@ -265,6 +305,30 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
     <section class="legal-section" aria-labelledby="retention-heading">
       <h2 id="retention-heading">Durées de conservation</h2>
+      <h3>Comptes personnels prévus</h3>
+      <p>
+        Le code refuse les inscriptions incomplètes après 7 jours et prévoit
+        leur suppression par nettoyage périodique. Pour un compte terminé, la
+        suppression demandée après preuve d’identité est immédiate et
+        irréversible dans la base active : compte, moyens de connexion,
+        sessions, liens et messages en attente associés sont supprimés. Le nom
+        d’utilisateur seul reste réservé indéfiniment, sans identifiant de
+        compte, email, identité Google ou date de suppression associés, pour
+        empêcher sa réutilisation et l’usurpation. Cette réserve ne peut pas
+        être annulée depuis l’interface.
+      </p>
+      <p>
+        Des données de prévention des abus et de non-envoi après plainte ou
+        échec peuvent subsister indépendamment du compte. Une empreinte
+        d’adresse utilisée pour ces protections reste une donnée personnelle,
+        pas une anonymisation. Les limites techniques de nettoyage ne
+        garantissent pas, à elles seules, les durées effectivement appliquées
+        aux prestataires, sauvegardes, files et journaux. Ces durées, les
+        modalités de suppression et de restauration des sauvegardes, ainsi que
+        la politique de non-envoi restent à confirmer par l’exploitant avant
+        activation. Aucune suppression immédiate de ces copies externes n’est
+        promise ici.
+      </p>
       <dl class="legal-list">
         <div>
           <dt>Préférences locales</dt>
@@ -376,7 +440,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div>
           <dt>Umami</dt>
           <dd>
-            Actif en permanence, sans cookie ni suivi entre sites. Les données
+            Chargé lorsqu’il est configuré, hors pages de connexion, compte et
+            confirmation, sans cookie ni suivi entre sites. Les données
             collectées sont détaillées ci-dessus.
           </dd>
         </div>

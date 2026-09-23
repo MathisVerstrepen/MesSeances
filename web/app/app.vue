@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { serializeJsonLd, type JsonLdDocument } from '~/utils/jsonLd'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { isAccountPage } from '~~/shared/accountPrivacy'
 
 const config = useRuntimeConfig()
+const privateDocument = isAccountPage(useRoute().path)
 const rootUrl = absoluteSiteUrl(config.public.siteUrl, '/')
 const organizationId = `${rootUrl}#organization`
 const websiteId = `${rootUrl}#website`
@@ -32,7 +34,7 @@ const umamiWebsiteId = config.public.umamiWebsiteId.trim()
 useHead({
   script: [
     { type: 'application/ld+json', innerHTML: globalJsonLd },
-    ...(umamiScriptUrl && umamiWebsiteId
+    ...(!privateDocument && umamiScriptUrl && umamiWebsiteId
       ? [
           {
             key: 'umami-analytics',

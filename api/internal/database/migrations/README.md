@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [042_query_only_vof_language.sql](042_query_only_vof_language.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [045_account_registration_binding.sql](045_account_registration_binding.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -76,6 +76,29 @@ These rules apply to provider theater IDs, provider movie IDs (including source 
 `noecinemas_identity_valid(text, text)` enforces Noé Cinémas identity bounds across schedule rows, matches, groups, durable catalog anchors/sources/aliases, and theater locations. Source aliases require source kind and `slug = 'noecinemas-film-' || source_movie_id`; public source slugs use the same identity. Stored ends equal starts, first-part duration is zero, and rooms and metadata may be unknown. Noé scheduled runs require all occurrence fields nonnull, positive schedule ID/revision, and attempt 0-2. No schedule is seeded or enabled; legacy-provider predicates and foreign keys remain intact.
 
 Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and slugs must also fit their own 128-character columns. Pathé showing identities include both venue and session tokens, not just an `S...` token.
+
+## Account tables
+
+Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql) and [045_account_registration_binding.sql](045_account_registration_binding.sql). Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
+
+| Table | Columns and constraints |
+| --- | --- |
+| `accounts` | `id bigint identity` PK; normalized ASCII `email text` UNIQUE, 3-254 bytes; nullable `email_verified_at` and `verification_source` (`email`, `google`) present together; `created_at`; nullable `pending_kind` (`email`, `google`); positive `auth_revision bigint` default 1; `authority_event bigint` from sequence. Verification cannot predate creation; absent pending kind requires verified email. |
+| `account_passwords` | `account_id bigint` PK/FK; bounded `encoded_hash text` with Argon2id v19 prefix; `tentative boolean`; nullable `registration_digest bytea`, exactly 32 bytes when present and permitted only for tentative credentials. Digest binds the original registration browser independently of login sessions; pre-binding pending accounts require a fresh registration attempt. |
+| `account_google_identities` | `account_id bigint` PK/FK; fixed Google `issuer text`; case-sensitive `subject text`, 1-255 bytes; nullable `observed_email text`; `observed_email_verified boolean`; UNIQUE issuer/subject. Account contact email remains separate. |
+| `account_username_claims` | Exactly `username text COLLATE "C"` PK and nullable UNIQUE `account_id bigint` FK. Username matches `^[a-z][a-z0-9_]{2,29}$`. Account deletion uses SET NULL, leaving username alone permanently reserved. No identity digest or deletion timestamp. |
+| `account_sessions` | 32-byte `token_digest bytea` PK; account FK; positive auth revision; `created_at`, `expires_at`, `last_seen_at`; `scope` (`pending_email`, `pending_username`, `complete`). UNIQUE digest/account ownership key. Absolute lifetime at most 720 hours; last-seen within lifetime. Service also enforces 168-hour idle deadline and pending lifetime. |
+| `account_tokens` | 32-byte digest PK; account FK/revision; checked purpose (`verification`, `password_reset`, `email_change`, `email_step_up`, `reauth_grant`, `google_reauth`); nullable normalized `target_email`, checked `action`, 32-byte `action_digest`, `session_digest`; created/expiry/nullable consumed times. Expiry at most 24 hours; shorter service-specific limits apply. Action and action digest present together; proof/grant purposes require action/session binding. Email change requires target and email-change action. |
+| `account_oauth_flows` | State digest PK; browser digest; nonce; encrypted verifier key ID/12-byte nonce/ciphertext; mode (`login`, `link`, `reauth`); nullable account/session/revision/grant/action bindings; created/expiry times with maximum 10 minutes; nullable `claimed_at` inside lifetime; nullable normalized `target_email` iff email-change action; monotonic `authority_event`. Anonymous login has no account bindings; link/reauth require them; linking also requires Google-link grant. |
+| `account_mail_outbox` | Identity ID PK; UNIQUE 32-byte `event_digest`; nullable account/token/revision; checked purpose; encrypted payload key/nonce/ciphertext; state (`pending`, `sent`, `failed`); attempts 0-6; created/expiry/next-attempt; nullable lease expiry/digest and terminal time. Lifetime at most 24 hours. Pending state requires encrypted payload; terminal state requires payload/lease erasure and finish time. |
+| `account_mail_suppressions` | 32-byte address-HMAC PK; reason (`permanent_bounce`, `complaint`); created/updated/expiry times. Expiry at most 4320 hours after update. No account FK; remains personal/security data. |
+| `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username and email change. |
+
+All account ownership foreign keys cascade except username claims. Composite session/account and token/account foreign keys prevent cross-account binding; their deletion cascades dependent grants, flows and queued mail. Account-associated outbox rows cascade on deletion. Terminal delivery metadata is detached from account/token authority. Suppressions and quota HMACs have independent bounded retention.
+
+`account_authority_events` supplies monotonic sequence values for account revocations and OAuth starts. Runtime uses these values plus account revision and row locks to fence stale callbacks. Sequence values contain no identity. Deletion also invalidates outstanding anonymous login flows, including claimed exchanges whose subjects are not yet known; unrelated in-flight Google logins may require restart, rather than retaining deleted-subject identifiers.
+
+Indexes support pending-account cleanup; sessions by account, absolute expiry and idle time; tokens by account/purpose, session and expiry; OAuth flows by account/session/grant and expiry; outbox readiness, account/token, expiry and terminal retention; suppression/quota expiry. Nullable lookup indexes are partial where appropriate. Username uniqueness remains database-authoritative, independent of embedded application reservations.
 
 ## Schedule tables
 

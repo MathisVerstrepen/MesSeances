@@ -25,6 +25,7 @@ const (
 )
 
 type Config struct {
+	Accounts AccountsConfig
 	Database struct{ URL string }
 	Server   struct {
 		Port              int
@@ -88,6 +89,10 @@ func Load(profile Profile, getenv func(string) string) (Config, error) {
 		result.Internal.SharedSecret = internalSharedSecret
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		result.Proxy.Path = strings.TrimSpace(getenv("PROXY_FILE"))
+		result.Accounts, err = loadAccounts(origin, getenv)
+		if err != nil {
+			return Config{}, err
+		}
 	case APISync:
 		if err := loadRequestTimeout(&result, getenv); err != nil {
 			return Config{}, err

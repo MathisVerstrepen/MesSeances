@@ -17,6 +17,8 @@ The application interface is in French.
 
 ## Typical flow
 
+Account registration and private settings are implemented behind `ACCOUNTS_ENABLED=false` by default. Email/password verification uses SES; Google login uses verified OpenID Connect identity. Accounts do not synchronize favorite cinemas. Read [account setup, security and rollout prerequisites](docs/accounts.md) before enabling the feature; Google, AWS, proxy and privacy configuration remain operator responsibilities.
+
 1. Select favorite cinemas.
 2. Scan today's timeline or enter a precise free-time window.
 3. Filter by language or screening format.
@@ -144,7 +146,7 @@ Opt-in Noé contract verification runs without database publication: from `api/`
 
 `TRUSTED_PROXY_CIDRS` is an optional comma-separated list of exact CIDR ranges for reverse proxies that connect directly to the API. When the socket peer is trusted, public rate limits resolve `X-Forwarded-For` from right to left across trusted hops; malformed chains fall back to the socket peer. Forwarding headers from every other peer are ignored. Leave this setting empty for direct client connections. Operators must enumerate deployed ingress peer ranges and must not use broad public network ranges.
 
-Nuxt uses three distinct origins. `NUXT_API_BASE` is private to server-side rendering and defaults to `http://localhost:8080`; production Compose fixes it to the internal `http://api:8080` service address. `NUXT_PUBLIC_API_BASE` is the API origin reachable by visitors' browsers and defaults to `http://localhost:8080`. `NUXT_PUBLIC_SITE_URL` is the canonical public site origin used for absolute canonical and social metadata URLs and defaults to `http://localhost:3000`; production Compose derives it from `WEB_ORIGIN`. Configure public values as exact `http` or `https` origins without a trailing slash or path. Never expose the internal `api:8080` address as a public browser URL.
+Nuxt separates private API access from browser access. `NUXT_API_BASE` is private to server-side rendering and defaults to `http://localhost:8080`; production Compose fixes it to the internal `http://api:8080` service address. `NUXT_PUBLIC_API_BASE` defaults to empty for same-origin browser `/api/v1/...` requests; Nuxt development proxy forwards `/api` to the local API. Production Compose requires this public API origin to equal `WEB_ORIGIN` when accounts are enabled. Do not append `/api`: client paths already include `/api/v1`. `NUXT_PUBLIC_SITE_URL` is the canonical public site origin and defaults to `http://localhost:3000`; production Compose derives it from `WEB_ORIGIN`. Configure nonempty public values as exact `http` or `https` origins without trailing slash or path. Never expose internal `api:8080` as a browser URL. Account requests always use same-origin paths; private account SSR forwards only its own session cookie and a generated request ID, never admin cookies or internal-service credentials.
 
 ## Production internal API identity
 

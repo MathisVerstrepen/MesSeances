@@ -15,6 +15,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"messeances/api/internal/accountmail"
+	"messeances/api/internal/accounts"
 	"messeances/api/internal/cgr"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
@@ -227,13 +229,23 @@ func run(ctx context.Context) error {
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
+	accountService, err := newAccountService(pool, cfg)
+	if err != nil {
+		return err
+	}
+	if accountService != nil {
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountCleanup(workerCtx, accountService, logger) }()
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountMail(workerCtx, pool, cfg.Accounts, logger) }()
+	}
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, httpapi.ReadinessOptions{
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
-		}),
+		}, accountService),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -498,8 +510,9 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, readiness httpapi.ReadinessOptions) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
+		Accounts:             httpapi.AccountOptions{Enabled: cfg.Accounts.Enabled, Service: accountService, Origin: cfg.Server.Origin},
 		Admin:                adminOptions,
 		Readiness:            readiness,
 		Shortlinks:           shortlinks,
@@ -507,6 +520,32 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})
+}
+
+func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config) (*accounts.Service, error) {
+	if !cfg.Accounts.Enabled {
+		return nil, nil
+	}
+	hasher, err := accounts.NewArgonHasher(nil)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	google, err := accounts.NewGoogleProvider(cfg.Accounts.GoogleClientID, cfg.Accounts.GoogleClientSecret, cfg.Accounts.GoogleCallbackURL)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	cipher, err := accountmail.NewCipher(cfg.Accounts.OutboxKeyID, cfg.Accounts.OutboxKey[:], nil)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
+		Hasher: hasher, Origin: cfg.Server.Origin, AddressHMACKey: cfg.Accounts.AddressHMACKey[:],
+		Google: google, FlowCipher: cipher, Mail: &accountmail.Outbox{Cipher: cipher},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	return service, nil
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {

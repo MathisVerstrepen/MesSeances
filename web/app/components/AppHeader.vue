@@ -1,7 +1,21 @@
 <script setup lang="ts">
-import { CalendarRange, Clapperboard, Film, MapPin, Search } from '@lucide/vue'
+import {
+  CalendarRange,
+  Clapperboard,
+  Film,
+  MapPin,
+  Search,
+  UserRound,
+} from '@lucide/vue'
+import { accountDestination } from '~/utils/accountState'
 
 const route = useRoute()
+const { session: accountSession } = useAccountSession()
+const accountHref = computed(() =>
+  accountSession.value
+    ? accountDestination(accountSession.value)
+    : '/connexion',
+)
 const {
   favoriteTheaters,
   favoriteTheaterIds,
@@ -93,7 +107,7 @@ onMounted(() => {
 
       <nav
         aria-label="Navigation principale"
-        class="order-3 -mx-4 grid w-[calc(100%+2rem)] grid-cols-3 border-t-2 border-ink sm:-mx-6 sm:w-[calc(100%+3rem)] lg:order-none lg:ml-auto lg:flex lg:w-auto lg:border-t-0"
+        class="order-3 -mx-4 grid w-[calc(100%+2rem)] grid-cols-4 border-t-2 border-ink sm:-mx-6 sm:w-[calc(100%+3rem)] lg:order-none lg:ml-auto lg:flex lg:w-auto lg:border-t-0"
       >
         <NuxtLink
           v-for="link in links"
@@ -111,6 +125,15 @@ onMounted(() => {
           />
           <span>{{ link.label }}</span>
         </NuxtLink>
+        <a
+          :href="accountHref"
+          class="nav-link flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-center text-[9px] font-extrabold uppercase text-ink hover:bg-highlight sm:px-3 sm:text-[10px] lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:px-4 lg:text-xs"
+        >
+          <UserRound :size="15" stroke-width="2.5" aria-hidden="true" />
+          <span>{{
+            accountSession?.account ? 'Mon compte' : 'Connexion'
+          }}</span>
+        </a>
       </nav>
     </div>
   </header>
