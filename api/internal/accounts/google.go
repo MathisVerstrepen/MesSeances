@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -96,6 +97,7 @@ func (p *googleProvider) Exchange(ctx context.Context, code, verifier, nonce str
 	var claims struct {
 		Email           string `json:"email"`
 		Verified        bool   `json:"email_verified"`
+		HostedDomain    string `json:"hd"`
 		AuthorizedParty string `json:"azp"`
 	}
 	if err = id.Claims(&claims); err != nil {
@@ -106,5 +108,9 @@ func (p *googleProvider) Exchange(ctx context.Context, code, verifier, nonce str
 		return GoogleIdentity{}, ErrInvalidLink
 	}
 	email, _ := NormalizeEmail(claims.Email) // Missing/unusable email cannot create a new account.
-	return GoogleIdentity{Subject: id.Subject, Email: email, EmailVerified: claims.Verified && email != ""}, nil
+	verified := claims.Verified && email != ""
+	// Only signed token claims establish Workspace membership. The hd domain
+	// need not match an email alias; callback/query parameters are never authority.
+	authoritative := verified && (strings.HasSuffix(email, "@gmail.com") || strings.TrimSpace(claims.HostedDomain) != "")
+	return GoogleIdentity{Subject: id.Subject, Email: email, EmailVerified: verified, EmailAuthoritative: authoritative}, nil
 }

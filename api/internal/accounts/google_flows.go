@@ -146,6 +146,15 @@ func (s *Service) StartGoogle(ctx context.Context, raw string, input GoogleStart
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(719423044)`); err != nil {
 			return ErrUnavailable
 		}
+		// Reclaim a bounded batch through the expiry index before counting stored
+		// rows. Anonymous flows have no parent locks; account-bound expiry remains
+		// with account-first cleanup. Skip callbacks/cleanup already holding a row.
+		if _, err := tx.Exec(ctx, `DELETE FROM account_oauth_flows WHERE state_digest IN (
+		 SELECT state_digest FROM account_oauth_flows WHERE account_id IS NULL AND expires_at<=$1
+		 ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED
+		)`, s.now().UTC()); err != nil {
+			return ErrUnavailable
+		}
 		var count int
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM account_oauth_flows`).Scan(&count); err != nil || count >= 10000 {
 			return ErrUnavailable
@@ -372,7 +381,7 @@ func (s *Service) googleLoginAccount(ctx context.Context, tx pgx.Tx, identity Go
 		var verified *time.Time
 		var source *string
 		now := s.now().UTC()
-		if identity.EmailVerified {
+		if identity.EmailVerified && identity.EmailAuthoritative {
 			verified = &now
 			value := "google"
 			source = &value

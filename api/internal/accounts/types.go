@@ -91,6 +91,9 @@ type GoogleIdentity struct {
 	Subject       string
 	Email         string
 	EmailVerified bool
+	// EmailAuthoritative requires a verified Gmail address or a signed, nonempty
+	// Workspace hd claim. EmailVerified alone may be historical third-party proof.
+	EmailAuthoritative bool
 }
 
 // GoogleProvider performs no database work. Exchange runs only after single-use

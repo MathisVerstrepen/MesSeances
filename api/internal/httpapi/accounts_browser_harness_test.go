@@ -384,7 +384,7 @@ func (g *browserGoogle) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flow.code = code
-	flow.identity = accounts.GoogleIdentity{Subject: "browser-only-" + identity, Email: "google-" + identity + "@example.test", EmailVerified: identity != "unverified"}
+	flow.identity = accounts.GoogleIdentity{Subject: "browser-only-" + identity, Email: "google-" + identity + "@example.test", EmailVerified: identity != "unverified", EmailAuthoritative: identity != "unverified"}
 	g.flows[state] = flow
 	http.Redirect(w, r, g.origin+"/api/v1/auth/google/callback?iss=https%3A%2F%2Faccounts.google.com&state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), http.StatusSeeOther)
 }

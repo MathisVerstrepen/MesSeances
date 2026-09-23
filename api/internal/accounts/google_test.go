@@ -85,14 +85,51 @@ func TestGoogleOIDCAdapter(t *testing.T) {
 		t.Fatal("authorization proof/scope mismatch")
 	}
 	identity, err := p.Exchange(context.Background(), "synthetic-code", verifier, nonce)
-	if err != nil || identity.Subject != "SubjectCaseSensitive" || identity.Email != "owner@example.com" || !identity.EmailVerified {
+	if err != nil || identity.Subject != "SubjectCaseSensitive" || identity.Email != "owner@example.com" || !identity.EmailVerified || identity.EmailAuthoritative {
 		t.Fatalf("valid identity rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name, email   string
+		verified      bool
+		hd            any
+		authoritative bool
+	}{
+		{"verified_external", "owner@example.com", true, nil, false},
+		{"external_empty_hd", "owner@example.com", true, "", false},
+		{"external_blank_hd", "owner@example.com", true, " ", false},
+		{"unverified_external", "owner@example.com", false, nil, false},
+		{"verified_gmail", "Owner@GMAIL.COM", true, nil, true},
+		{"unverified_gmail", "owner@gmail.com", false, nil, false},
+		{"gmail_with_hd", "owner@gmail.com", true, "example.com", true},
+		{"gmail_subdomain", "owner@sub.gmail.com", true, nil, false},
+		{"gmail_suffix", "owner@gmail.com.example.com", true, nil, false},
+		{"gmail_lookalike", "owner@notgmail.com", true, nil, false},
+		{"verified_workspace", "owner@example.com", true, "example.com", true},
+		{"workspace_alias", "owner@alias.example.com", true, "example.com", true},
+		{"unverified_workspace", "owner@example.com", false, "example.com", false},
+		{"invalid_email_workspace", "bad address", true, "example.com", false},
+		{"missing_email_workspace", "", true, "example.com", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reset()
+			claims["email"], claims["email_verified"] = test.email, test.verified
+			if test.hd != nil {
+				claims["hd"] = test.hd
+			}
+			identity, err := p.Exchange(context.Background(), "synthetic-code", verifier, nonce)
+			email, _ := NormalizeEmail(test.email)
+			if err != nil || identity.Subject != "SubjectCaseSensitive" || identity.Email != email || identity.EmailVerified != (test.verified && email != "") || identity.EmailAuthoritative != test.authoritative {
+				t.Fatalf("email authority: identity=%+v error=%v", identity, err)
+			}
+		})
 	}
 	for _, test := range []struct {
 		name   string
 		change func()
 	}{
 		{"signature", func() { badSignature = true }},
+		{"workspace_signature", func() { claims["hd"] = "example.com"; badSignature = true }},
+		{"invalid_hd_type", func() { claims["hd"] = true }},
 		{"issuer", func() { claims["iss"] = "https://evil.example" }},
 		{"audience", func() { claims["aud"] = "another-client" }},
 		{"azp", func() { claims["azp"] = "another-client" }},
@@ -129,7 +166,7 @@ func TestGoogleOIDCAdapter(t *testing.T) {
 		reset()
 		claims["email"] = email
 		identity, err = p.Exchange(context.Background(), "synthetic-code", verifier, nonce)
-		if err != nil || identity.Email != "" || identity.EmailVerified {
+		if err != nil || identity.Email != "" || identity.EmailVerified || identity.EmailAuthoritative {
 			t.Fatal("unusable email handling")
 		}
 	}
