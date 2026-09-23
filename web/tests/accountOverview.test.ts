@@ -328,3 +328,46 @@ test('overview preserves conditional forms, last-method guard, deletion warning 
   )
   assert.match(shell, /session\?\.account && !hideLogout/)
 })
+
+test('overview summary typography, copy and logout consequences stay local', async () => {
+  assert.match(source, /Nom d’utilisateur définitif\./)
+  assert.match(source, /passwordAvailable \? 'Défini' : 'Non défini'/)
+  assert.match(
+    source,
+    /id="account-delete" class="account-heading">Compte<\/h2>/,
+  )
+  assert.match(source, /<GoogleIcon\b[^>]*\/>/)
+  assert.doesNotMatch(source, /Vos cinémas|Le nom d’utilisateur est définitif/)
+  assert.match(source, /grid-cols-\[minmax\(0,1fr\)_auto\] items-baseline/)
+  assert.match(source, /<dt class="overview-label">Email du compte<\/dt>/)
+  assert.match(source, /<label for="new-email" class="account-label">/)
+  const buttons = [...source.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)]
+  const local = buttons.find(([button]) =>
+    button.includes('@click="logout"'),
+  )?.[0]
+  const global = buttons.find(([button]) =>
+    button.includes('@click="logoutAll"'),
+  )?.[0]
+  assert.ok(local && global)
+  for (const button of [local, global])
+    assert.match(button, /class="account-secondary overview-secondary"/)
+  assert.doesNotMatch(local, /aria-describedby/)
+  assert.match(global, /aria-describedby="logout-all-consequence"/)
+  assert.match(global, /Déconnecter tous les appareils/)
+  assert.match(
+    source,
+    /id="logout-all-consequence"[\s\S]*?Vous serez aussi déconnecté de cet appareil\./,
+  )
+  const shell = await readFile(
+    new URL('../app/components/AccountShell.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(
+    shell,
+    /\.account-overview \.account-shell-content \{\s*@apply max-w-3xl;/,
+  )
+  assert.match(
+    shell,
+    /\.account-overview :deep\(\.overview-link\) \{\s*@apply min-w-11 font-sans text-sm font-semibold;/,
+  )
+})

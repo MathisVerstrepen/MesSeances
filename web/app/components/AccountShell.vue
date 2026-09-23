@@ -110,6 +110,10 @@ useHead({
   @apply max-w-4xl;
 }
 
+.account-overview .account-shell-content {
+  @apply max-w-3xl;
+}
+
 .account-shell-compact {
   @apply py-6 sm:py-10 lg:py-10;
 }
@@ -175,6 +179,14 @@ useHead({
 
 .account-shell :deep(.account-link) {
   @apply inline-flex min-h-11 items-center font-mono text-xs font-bold leading-relaxed underline decoration-2 underline-offset-4 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+.account-overview :deep(.overview-link) {
+  @apply min-w-11 font-sans text-sm font-semibold;
+}
+
+.account-overview :deep(.overview-secondary) {
+  @apply max-w-full font-sans text-sm font-semibold normal-case tracking-normal;
 }
 
 .account-shell :deep(.account-alert) {

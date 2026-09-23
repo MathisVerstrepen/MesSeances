@@ -406,22 +406,17 @@ useHead({ title: 'Mon compte - MesSeances' })
         <div class="min-w-0 space-y-5">
           <dl class="space-y-4 text-sm">
             <div>
-              <dt class="account-label">Nom d’utilisateur</dt>
+              <dt class="overview-label">Nom d’utilisateur</dt>
               <dd class="mt-1 break-words">{{ details.username }}</dd>
-              <dd class="mt-1 text-ink/70">
-                Le nom d’utilisateur est définitif.
-              </dd>
+              <dd class="mt-1 text-ink/70">Nom d’utilisateur définitif.</dd>
             </div>
             <div class="overview-row">
-              <div class="min-w-0 basis-full sm:basis-auto">
-                <dt class="account-label">Email du compte</dt>
-                <dd class="break-words">{{ details.email }}</dd>
-              </div>
-              <dd>
+              <dt class="overview-label">Email du compte</dt>
+              <dd class="overview-row-action">
                 <button
                   id="trigger-email"
                   type="button"
-                  class="account-link"
+                  class="account-link overview-link"
                   :disabled="!!busy"
                   :aria-expanded="editor === 'email'"
                   aria-controls="editor-email"
@@ -430,6 +425,9 @@ useHead({ title: 'Mon compte - MesSeances' })
                 >
                   Modifier
                 </button>
+              </dd>
+              <dd class="overview-row-value break-words">
+                {{ details.email }}
               </dd>
             </div>
           </dl>
@@ -447,7 +445,7 @@ useHead({ title: 'Mon compte - MesSeances' })
             </p>
             <button
               type="button"
-              class="account-link"
+              class="account-link overview-link"
               :disabled="!!busy"
               @click="cancelEmail"
             >
@@ -519,16 +517,11 @@ useHead({ title: 'Mon compte - MesSeances' })
         <h2 id="account-connection" class="account-heading">Connexion</h2>
         <div class="min-w-0 space-y-5">
           <div class="overview-row">
-            <div>
-              <h3 id="account-password" class="font-semibold">Mot de passe</h3>
-              <p class="mt-1 text-sm text-ink/70">
-                {{ passwordAvailable ? 'Activé' : 'Non défini' }}
-              </p>
-            </div>
+            <h3 id="account-password" class="overview-label">Mot de passe</h3>
             <button
               id="trigger-password"
               type="button"
-              class="account-link"
+              class="account-link overview-link overview-row-action"
               :disabled="!!busy"
               :aria-expanded="editor === 'password'"
               aria-controls="editor-password"
@@ -537,6 +530,9 @@ useHead({ title: 'Mon compte - MesSeances' })
             >
               {{ passwordAvailable ? 'Modifier' : 'Ajouter' }}
             </button>
+            <p class="overview-row-value text-sm text-ink/70">
+              {{ passwordAvailable ? 'Défini' : 'Non défini' }}
+            </p>
           </div>
           <p v-if="!passwordAvailable" class="text-sm leading-relaxed">
             Google est votre seul moyen de connexion. Ajoutez un mot de passe
@@ -600,21 +596,15 @@ useHead({ title: 'Mon compte - MesSeances' })
             </button>
           </div>
           <div class="overview-row border-t border-ink/20 pt-5">
-            <div class="min-w-0">
-              <h3 id="account-google" class="font-semibold">Google</h3>
-              <p class="mt-1 text-sm text-ink/70">
-                {{ details.google_linked ? 'Associé' : 'Non associé' }}
-              </p>
-              <p v-if="details.google_linked" class="mt-1 break-words text-sm">
-                <span class="sr-only">Email communiqué par Google : </span>
-                {{ details.google_email || 'Email non communiqué' }}
-              </p>
-            </div>
+            <h3 id="account-google" class="overview-label">
+              <GoogleIcon class="mr-2 inline-block align-text-bottom" />
+              Google
+            </h3>
             <button
               v-if="passwordAvailable"
               id="trigger-google"
               type="button"
-              class="account-link"
+              class="account-link overview-link overview-row-action"
               :disabled="!!busy"
               :aria-expanded="editor === 'google'"
               aria-controls="editor-google"
@@ -623,6 +613,15 @@ useHead({ title: 'Mon compte - MesSeances' })
             >
               {{ details.google_linked ? 'Dissocier' : 'Associer' }}
             </button>
+            <div class="overview-row-value">
+              <p class="text-sm text-ink/70">
+                {{ details.google_linked ? 'Associé' : 'Non associé' }}
+              </p>
+              <p v-if="details.google_linked" class="mt-1 break-words text-sm">
+                <span class="sr-only">Email communiqué par Google : </span>
+                {{ details.google_email || 'Email non communiqué' }}
+              </p>
+            </div>
           </div>
           <form
             v-if="editor === 'google' && passwordAvailable"
@@ -661,44 +660,44 @@ useHead({ title: 'Mon compte - MesSeances' })
       <section aria-labelledby="account-sessions" class="space-y-4">
         <h2 id="account-sessions" class="account-heading">Sessions</h2>
         <div class="min-w-0 space-y-3">
-          <div class="overview-actions">
+          <div class="overview-actions overview-session-actions">
             <button
               type="button"
-              class="account-secondary"
+              class="account-secondary overview-secondary"
               :disabled="!!busy"
               @click="logout"
             >
               {{ busy === 'logout' ? 'Déconnexion…' : 'Se déconnecter' }}
             </button>
-            <button
-              type="button"
-              class="account-link"
-              :disabled="!!busy"
-              @click="logoutAll"
-            >
-              {{
-                busy === 'sessions' ? 'Déconnexion…' : 'Se déconnecter de tous les appareils'
-              }}
-            </button>
+            <div class="min-w-0 space-y-2">
+              <button
+                type="button"
+                class="account-secondary overview-secondary"
+                :disabled="!!busy"
+                aria-describedby="logout-all-consequence"
+                @click="logoutAll"
+              >
+                {{
+                  busy === 'sessions' ? 'Déconnexion…' : 'Déconnecter tous les appareils'
+                }}
+              </button>
+              <p id="logout-all-consequence" class="text-sm leading-relaxed">
+                Vous serez aussi déconnecté de cet appareil.
+              </p>
+            </div>
           </div>
-          <p class="text-sm leading-relaxed">
-            La déconnexion de tous les appareils inclut celui-ci. Vos cinémas
-            sélectionnés restent sur cet appareil.
-          </p>
           <p v-if="sessionError" role="alert" class="account-alert">
             {{ sessionError }}
           </p>
         </div>
       </section>
       <section aria-labelledby="account-delete" class="space-y-5">
-        <h2 id="account-delete" class="account-heading text-primary">
-          Suppression du compte
-        </h2>
+        <h2 id="account-delete" class="account-heading">Compte</h2>
         <div class="min-w-0 space-y-4">
           <button
             id="trigger-delete"
             type="button"
-            class="account-link text-primary"
+            class="account-link overview-link text-primary"
             :disabled="!!busy"
             :aria-expanded="editor === 'delete'"
             aria-controls="editor-delete"
@@ -786,18 +785,27 @@ useHead({ title: 'Mon compte - MesSeances' })
   @apply mb-6 pb-5 text-[2rem] sm:text-[2.75rem];
 }
 .account-overview-sections > section {
-  @apply min-w-0 border-t-2 border-ink pt-6 md:grid md:grid-cols-[10rem_minmax(0,1fr)] md:gap-x-8 md:space-y-0;
+  @apply min-w-0 border-t-2 border-ink pt-6 md:grid md:grid-cols-[10rem_minmax(0,1fr)] md:items-baseline md:gap-x-8 md:space-y-0;
 }
 .account-overview-sections > section:first-child {
   @apply border-t-0 pt-0;
 }
 .overview-row {
-  @apply flex flex-wrap items-center justify-between gap-x-5 gap-y-2;
+  @apply grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4;
 }
-.overview-row > :first-child {
-  @apply min-w-0 flex-1;
+.overview-label {
+  @apply min-w-0 text-sm font-semibold leading-relaxed;
+}
+.overview-row-action {
+  @apply col-start-2 row-start-1;
+}
+.overview-row-value {
+  @apply col-span-2 min-w-0;
 }
 .overview-actions {
   @apply flex flex-wrap items-center gap-x-5 gap-y-2;
+}
+.overview-session-actions {
+  @apply items-start;
 }
 </style>

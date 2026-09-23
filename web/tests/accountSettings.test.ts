@@ -70,8 +70,10 @@ test('shared Google login button keeps its label and a local decorative brand ic
   assert.match(button, /type="button"/)
   assert.match(button, /:disabled="busy"/)
   assert.match(button, /class="account-secondary w-full"/)
-  assert.match(button, /<\/svg>\s*Continuer avec Google\s*<\/button>/)
-  const icon = button.match(/<svg\b[\s\S]*?<\/svg>/)?.[0]
+  assert.match(button, /<GoogleIcon \/>\s*Continuer avec Google\s*<\/button>/)
+  const icon = (await read('../app/components/GoogleIcon.vue')).match(
+    /<svg\b[\s\S]*?<\/svg>/,
+  )?.[0]
   assert.ok(icon)
   assert.match(icon, /viewBox="10 10 20 20"/)
   assert.match(icon, /class="size-5 shrink-0"/)

@@ -1,7 +1,9 @@
 // Requires fresh accounts_browser_harness_test.go + test:accounts:server.
+// --overview --visual needs only test:accounts:server; owns a read-only mock API.
 // Installed Chrome and Node WebSocket only. Optional --visual saves synthetic,
 // token-free screenshots under /tmp/opencode. No traces, mail or secrets saved.
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { CDP, CaptureError, terminateProcessGroup } from './screenshot.mjs'
@@ -21,6 +23,7 @@ const usernameA = `browser_a_${run}`
 const usernameB = `browser_b_${run}`
 let phase = 'prerequisites'
 let chrome, cdp, profile
+let overviewServer, overviewDetails
 let passed = 0
 let interceptionFailure = false
 const responses = []
@@ -342,7 +345,7 @@ async function inspectOverview(page) {
   check(
     await evaluate(
       page,
-      `!document.querySelector('main input') && [...document.querySelectorAll('main h2')].map(el => el.textContent.trim()).join('|') === 'Identité|Connexion|Sessions|Suppression du compte' && [...document.querySelectorAll('main button')].filter(el => el.textContent.trim() === 'Se déconnecter').length === 1`,
+      `!document.querySelector('main input') && [...document.querySelectorAll('main h2')].map(el => el.textContent.trim()).join('|') === 'Identité|Connexion|Sessions|Compte' && [...document.querySelectorAll('main button')].filter(el => el.textContent.trim() === 'Se déconnecter').length === 1`,
     ),
     'overview groups four sections, no hidden required fields or duplicate logout',
   )
@@ -524,6 +527,51 @@ async function inspectStyle(page, name) {
       ),
       `${name}: ${width}px controls keep 44px targets`,
     )
+    if (await evaluate(page, `!!document.querySelector('.account-overview')`)) {
+      check(
+        await evaluate(
+          page,
+          `(() => {
+          const textBottom = element => {
+            const text = [...element.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+            const range = document.createRange(); range.selectNodeContents(text);
+            return range.getBoundingClientRect().bottom;
+          };
+          return [...document.querySelectorAll('.overview-row')].every(row => {
+            const label = row.querySelector('.overview-label'), action = row.querySelector('button');
+            if (!action) return true;
+            const a = action.getBoundingClientRect(), value = row.querySelector('.overview-row-value').getBoundingClientRect();
+            return Math.abs(textBottom(label) - textBottom(action)) <= 1 && value.top >= a.bottom - 1;
+          });
+        })()`,
+        ),
+        `${name}: ${width}px summary text baselines align and values sit below actions`,
+      )
+      check(
+        await evaluate(
+          page,
+          `(() => {
+          const panel = document.querySelector('.account-shell-content').getBoundingClientRect();
+          const icon = document.querySelector('#account-google svg');
+          return (${width} !== 1440 || panel.width === 768) && icon.getBoundingClientRect().width === 20 && icon.getAttribute('aria-hidden') === 'true' && [...document.querySelectorAll('.overview-label,.overview-link,.overview-secondary')].every(el => {
+            const css = getComputedStyle(el); return !css.fontFamily.includes('monospace') && css.fontWeight === '600' && css.textTransform === 'none';
+          });
+        })()`,
+        ),
+        `${name}: ${width}px panel proportions, sentence-case sans summaries and decorative Google mark`,
+      )
+      check(
+        await evaluate(
+          page,
+          `(() => {
+          const [local, global] = document.querySelectorAll('.overview-secondary');
+          const l = local.getBoundingClientRect(), g = global.getBoundingClientRect();
+          return (${width} !== 1440 || Math.abs(l.top - g.top) <= 1) && !local.hasAttribute('aria-describedby') && global.getAttribute('aria-describedby') === 'logout-all-consequence' && [...document.querySelectorAll('.account-input')].every(el => ${width} !== 1440 || el.getBoundingClientRect().width >= 440);
+        })()`,
+        ),
+        `${name}: ${width}px matching logout rows, scoped consequence and comfortable desktop inputs`,
+      )
+    }
     check(
       await evaluate(
         page,
@@ -1350,7 +1398,7 @@ async function emailScenario() {
   const sibling = await tab(a.browserContextId)
   await go(sibling, '/compte')
   await text(sibling, usernameA)
-  await click(a, 'Se déconnecter de tous les appareils')
+  await click(a, 'Déconnecter tous les appareils')
   await text(a, 'Toutes vos sessions ont été fermées')
   await until(
     sibling,
@@ -1629,6 +1677,114 @@ async function emailScenario() {
   )
 }
 
+async function overviewScenario() {
+  // Read-only presentation fixture: real Vue SSR/hydration, no DB or auth writes.
+  const accountView = () =>
+    overviewDetails &&
+    Object.fromEntries(
+      ['email', 'username', 'has_password', 'google_linked'].map((key) => [
+        key,
+        overviewDetails[key],
+      ]),
+    )
+  overviewServer = createServer((request, response) => {
+    response.setHeader('Content-Type', 'application/json')
+    response.setHeader('Cache-Control', 'no-store')
+    const data =
+      request.method !== 'GET'
+        ? undefined
+        : request.url === '/api/v1/auth/session'
+          ? {
+              enabled: true,
+              state: overviewDetails ? 'complete' : 'anonymous',
+              account: accountView(),
+            }
+          : request.url === '/api/v1/account'
+            ? overviewDetails
+            : request.url === '/api/v1/theaters'
+              ? { theaters: [] }
+              : undefined
+    response.statusCode = data === undefined ? 404 : 200
+    response.end(JSON.stringify(data ?? { error: { code: 'unavailable' } }))
+  })
+  await new Promise((resolve, reject) => {
+    overviewServer.once('error', reject)
+    overviewServer.listen(18089, '127.0.0.1', resolve)
+  })
+  await launch()
+  const page = await tab()
+  for (const method of ['password', 'google', 'both', 'long']) {
+    const long = method === 'long'
+    overviewDetails = {
+      email: long
+        ? `${'a'.repeat(64)}@${'b'.repeat(63)}.example.test`
+        : 'owner@example.test',
+      username: long ? 'a'.repeat(30) : 'cinema_lover',
+      has_password: method !== 'google',
+      google_linked: method !== 'password',
+      google_email: long
+        ? `${'g'.repeat(64)}@${'d'.repeat(63)}.example.test`
+        : 'google@example.test',
+      pending_email: long
+        ? `${'p'.repeat(64)}@${'d'.repeat(63)}.example.test`
+        : null,
+      allowed_methods:
+        method === 'google' ? ['google'] : ['password', 'google'],
+    }
+    await go(page, '/compte')
+    await until(
+      page,
+      `!!document.getElementById('trigger-password')`,
+      'Overview ready',
+    )
+    check(
+      await evaluate(
+        page,
+        `document.querySelectorAll('main input').length === 0 && ${method === 'google' ? '!' : '!!'}document.getElementById('trigger-google')`,
+      ),
+      `${method}: collapsed overview and last-method guard`,
+    )
+    await inspectStyle(page, `overview-${method}`)
+    for (const editor of ['email', 'password', 'google', 'delete']) {
+      if (editor === 'google' && method === 'google') continue
+      await openEditor(page, editor)
+      check(
+        await evaluate(
+          page,
+          `document.querySelectorAll('[id^="editor-"]').length === 1 && !!document.querySelector('#editor-${editor} :focus')`,
+        ),
+        `${method}/${editor}: one editor and focused field/action`,
+      )
+      await inspectStyle(page, `overview-${method}-${editor}`)
+      await evaluate(
+        page,
+        `document.getElementById('trigger-${editor}').click()`,
+      )
+      await until(
+        page,
+        `!document.getElementById('editor-${editor}') && document.activeElement.id === 'trigger-${editor}'`,
+        'Editor closed with restored focus',
+      )
+    }
+  }
+  overviewDetails = null
+  await go(page, '/connexion')
+  await until(page, `!!document.getElementById('account-email')`, 'Login ready')
+  await inspectStyle(page, 'connexion')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('button.account-secondary svg')?.getAttribute('viewBox') === '10 10 20 20'`,
+    ),
+    'login keeps same decorative Google artwork',
+  )
+  check(
+    !interceptionFailure && allPages.every((page) => !page.external),
+    'no unexpected external page requests',
+  )
+  console.log(`ACCOUNT_BROWSER_PASS scenario=overview assertions=${passed}`)
+}
+
 async function main() {
   // Run each scenario against a freshly started backend fixture. Real rate limits
   // deliberately remain enabled; neither driver nor fixture bypasses them.
@@ -1636,9 +1792,16 @@ async function main() {
   if (
     process.argv
       .slice(2)
-      .some((arg) => arg !== '--google' && arg !== '--visual')
+      .some((arg) => !['--google', '--visual', '--overview'].includes(arg))
   )
     throw new HarnessError('Unknown scenario argument')
+  if (process.argv.includes('--overview')) {
+    phase = 'read-only overview presentation'
+    if (google || !visual)
+      throw new HarnessError('Overview requires --visual and excludes --google')
+    await overviewScenario()
+    return
+  }
   check(
     (await fetch(`${api}/healthz`, { signal: AbortSignal.timeout(10000) })).ok,
     'local backend fixture ready',
@@ -1691,6 +1854,10 @@ async function cleanup() {
   cdp?.close()
   await terminateProcessGroup(chrome)
   if (profile) await rm(profile, { recursive: true, force: true })
+  if (overviewServer?.listening) {
+    overviewServer.closeAllConnections()
+    await new Promise((resolve) => overviewServer.close(resolve))
+  }
 }
 for (const signal of ['SIGHUP', 'SIGINT', 'SIGTERM'])
   process.once(signal, () => {
