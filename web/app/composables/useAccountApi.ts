@@ -58,6 +58,7 @@ export function useAccountApi() {
       const code = [
         'accounts_disabled',
         'email_unavailable',
+        'common_password',
         'invalid_link',
         'verification_browser_required',
         'authentication_required',

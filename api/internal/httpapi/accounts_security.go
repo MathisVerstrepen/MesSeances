@@ -58,6 +58,8 @@ func accountError(w http.ResponseWriter, err error) {
 		w.Header().Set("Retry-After", strconv.Itoa(rate.RetryAfter))
 	case errors.Is(err, accounts.ErrInvalidInput):
 		status, code, message = 400, "invalid_input", "Requête invalide."
+	case errors.Is(err, accounts.ErrCommonPassword):
+		status, code, message = 400, "common_password", "Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner."
 	case errors.Is(err, accounts.ErrInvalidLink):
 		status, code, message = 400, "invalid_link", "Ce lien est invalide ou expiré."
 	case errors.Is(err, accounts.ErrVerificationBrowser):

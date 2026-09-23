@@ -127,3 +127,30 @@ test('errors never display server bodies, raw errors, or secrets', () => {
   assert.match(accountErrorMessage(new AccountApiError(409)), /autre/)
   assert.match(accountErrorMessage(new AccountApiError(400)), /nouveau lien/)
 })
+
+test('common passwords get actionable feedback without changing credential or link errors', () => {
+  assert.equal(
+    accountErrorMessage(new AccountApiError(400, 'common_password')),
+    'Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.',
+  )
+  assert.equal(
+    accountWriteUncertain(new AccountApiError(400, 'common_password')),
+    false,
+  )
+  for (const code of ['', 'invalid_input', 'unrecognized']) {
+    assert.equal(
+      accountErrorMessage(new AccountApiError(400, code)),
+      'Les informations ou le lien ne sont pas valides. Vérifiez les champs ou demandez un nouveau lien.',
+    )
+  }
+  for (const code of ['', 'invalid_credentials', 'common_password']) {
+    assert.equal(
+      accountErrorMessage(new AccountApiError(401, code)),
+      'Connexion refusée ou session expirée. Vérifiez votre email et votre mot de passe, puis reconnectez-vous.',
+    )
+  }
+  assert.equal(
+    accountErrorMessage(new AccountApiError(400, 'invalid_link')),
+    'Ce lien est invalide ou expiré. Demandez un nouveau lien puis ouvrez le dernier email reçu.',
+  )
+})

@@ -8,7 +8,9 @@ import { type Ref, ref } from 'vue'
 import {
   AccountApiError,
   accountDestination,
+  accountErrorMessage,
 } from '../app/utils/accountState.ts'
+import * as accountState from '../app/utils/accountState.ts'
 import type { useAccountApi } from '../app/composables/useAccountApi.ts'
 import type { useAccountPasswordAction } from '../app/composables/useAccountPasswordAction.ts'
 import type { useAccountDetails } from '../app/composables/useAccountDetails.ts'
@@ -142,6 +144,16 @@ interface CompiledComposables {
   useAccountDetails?: typeof useAccountDetails
 }
 
+interface CompiledPasswordForm {
+  model?: {
+    password: Ref<string>
+    errorMessage: Ref<string>
+    busy: Ref<boolean>
+    completed: Ref<boolean>
+    run: () => Promise<void>
+  }
+}
+
 test('pending email password session can restart registration without substituting for browser proof', async () => {
   for (const [state, hasPassword, destination] of [
     ['anonymous', false, undefined],
@@ -211,6 +223,128 @@ test('verification errors preserve only allowlisted browser/session recovery cod
         return true
       },
     )
+  }
+})
+
+test('password errors propagate only safe codes across creation, login and reauthentication APIs', async () => {
+  for (const [status, code, expectedCode] of [
+    [400, 'common_password', 'common_password'],
+    [400, 'invalid_input', ''],
+    [400, 'invalid_link', 'invalid_link'],
+    [400, 'synthetic-secret-code', ''],
+    [401, 'invalid_credentials', ''],
+  ] as const) {
+    let attempts = 0
+    const transport = createFetch({
+      fetch: async () => {
+        attempts++
+        return Response.json(
+          { error: { code, message: 'synthetic-secret-response' } },
+          { status },
+        )
+      },
+      Headers,
+      AbortController,
+    })
+    const exports = await compile('../app/composables/useAccountApi.ts', {
+      useRuntimeConfig: () => ({ public: {} }),
+      require: (name: string) =>
+        name === 'ofetch'
+          ? { ofetch: transport, FetchError }
+          : { AccountApiError },
+    })
+    assert.ok(exports.useAccountApi)
+    const api = exports.useAccountApi()
+    const actions = [
+      () => api.register('synthetic@example.test', 'synthetic-password'),
+      () => api.confirmPasswordReset('synthetic-token', 'synthetic-password'),
+      () => api.changePassword('synthetic-password', 'synthetic-grant'),
+      () => api.login('synthetic@example.test', 'synthetic-password'),
+      () => api.reauthPassword('synthetic-password', 'password_change'),
+    ]
+    for (const action of actions) {
+      await assert.rejects(action, (cause: unknown) => {
+        assert.ok(cause instanceof AccountApiError)
+        assert.equal(cause.status, status)
+        assert.equal(cause.code, expectedCode)
+        assert.equal(cause.message, 'Account request failed')
+        assert.deepEqual(Object.keys(cause).sort(), [
+          'code',
+          'retryAfter',
+          'status',
+        ])
+        for (const field of ['cause', 'request', 'response', 'options', 'data'])
+          assert.equal(field in cause, false)
+        assert.doesNotMatch(JSON.stringify(cause), /synthetic/)
+        assert.doesNotMatch(accountErrorMessage(cause), /synthetic/)
+        return true
+      })
+    }
+    assert.equal(attempts, actions.length, 'failed writes are not retried')
+  }
+})
+
+test('registration and reset show the shared common-password error without completing or invalidating the form', async () => {
+  for (const [path, action] of [
+    ['../app/components/AccountCredentialsForm.vue', 'submit'],
+    ['../app/pages/reinitialiser-mot-de-passe.vue', 'confirm'],
+  ] as const) {
+    const source = await read(path)
+    const script = source.match(
+      /<script setup lang="ts">([\s\S]*?)<\/script>/,
+    )?.[1]
+    assert.ok(script)
+    let attempts = 0
+    const reject = async () => {
+      attempts++
+      throw new AccountApiError(400, 'common_password')
+    }
+    const exports: CompiledPasswordForm = {}
+    runInNewContext(
+      ts.transpileModule(
+        `${script.replaceAll('import.meta.client', 'true')}\nexports.model = { password, errorMessage, busy, completed: ${action === 'submit' ? 'sent' : 'done'}, run: ${action} };`,
+        {
+          compilerOptions: {
+            module: ts.ModuleKind.CommonJS,
+            target: ts.ScriptTarget.ES2022,
+          },
+        },
+      ).outputText,
+      {
+        exports,
+        ref,
+        require: () => accountState,
+        defineProps: () => ({ register: true }),
+        definePageMeta: () => {},
+        useHead: () => {},
+        onMounted: () => {},
+        onBeforeUnmount: () => {},
+        useAccountApi: () => ({
+          register: reject,
+          confirmPasswordReset: reject,
+        }),
+        useAccountSession: () => ({}),
+        useAccountGoogle: () => {},
+        useAccountSecrets: () => () =>
+          assert.fail('validation must not complete reset'),
+        useAccountToken: () => ({
+          token: ref('synthetic-token'),
+          ready: ref(true),
+          clear: () => assert.fail('validation must not discard reset token'),
+        }),
+      },
+    )
+    const model = exports.model!
+    model.password.value = 'synthetic-password'
+    await model.run()
+    assert.equal(attempts, 1)
+    assert.equal(
+      model.errorMessage.value,
+      'Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.',
+    )
+    assert.equal(model.busy.value, false)
+    assert.equal(model.completed.value, false)
+    assert.match(source, /role="alert"[\s\S]*?\{\{ errorMessage \}\}/)
   }
 })
 

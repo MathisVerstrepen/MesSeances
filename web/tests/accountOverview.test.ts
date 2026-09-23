@@ -180,6 +180,32 @@ test('overview opens one editor, clears secrets/errors on switch/cancel and rest
   }
 })
 
+test('password editor shows the shared common-password error and remains open for correction', async () => {
+  const f = fixture()
+  try {
+    let attempts = 0
+    f.setWrite(async () => {
+      attempts++
+      throw new accountState.AccountApiError(400, 'common_password')
+    })
+    await f.state.toggleEditor('password')
+    f.state.currentPassword.value = 'synthetic-current-password'
+    f.state.newPassword.value = 'synthetic-new-password'
+    await f.state.changePassword()
+    assert.equal(attempts, 1)
+    assert.equal(
+      f.state.passwordError.value,
+      'Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.',
+    )
+    assert.equal(f.state.editor.value, 'password')
+    assert.equal(f.state.busy.value, '')
+    assert.equal(f.state.notice.value, '')
+    assert.deepEqual(f.calls, [])
+  } finally {
+    f.stop()
+  }
+})
+
 test('transient same-account refresh preserves input, changed/revoked/error sessions clear it', async () => {
   for (const outcome of ['same', 'changed', 'revoked', 'error']) {
     const f = fixture()

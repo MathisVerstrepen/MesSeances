@@ -83,6 +83,8 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Google est votre seul moyen de connexion. Ajoutez un mot de passe avant de le dissocier.'
   if (cause.status === 409)
     return 'Ce nom d’utilisateur est indisponible. Choisissez-en un autre.'
+  if (cause.status === 400 && cause.code === 'common_password')
+    return 'Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.'
   if (cause.status === 400)
     return 'Les informations ou le lien ne sont pas valides. Vérifiez les champs ou demandez un nouveau lien.'
   if (cause.status === 403)

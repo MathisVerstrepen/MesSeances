@@ -23,6 +23,7 @@ const (
 )
 
 var ErrInvalidHash = errors.New("invalid password hash")
+var ErrCommonPassword = errors.New("common password")
 
 //go:embed common_passwords_v1.txt
 var commonPasswords string
@@ -37,7 +38,7 @@ func ValidatePassword(password string) error {
 	}
 	for _, common := range strings.Split(strings.TrimSuffix(commonPasswords, "\n"), "\n") {
 		if password == common {
-			return ErrInvalidInput
+			return ErrCommonPassword
 		}
 	}
 	return nil

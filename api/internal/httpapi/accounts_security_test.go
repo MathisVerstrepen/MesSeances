@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +30,68 @@ func lifecycleHTTPOptions(t *testing.T) AccountOptions {
 		t.Fatal(err)
 	}
 	return AccountOptions{Enabled: true, Service: service, Origin: "https://messeances.fr"}
+}
+
+func TestAccountPasswordErrorMapping(t *testing.T) {
+	for _, tc := range []struct {
+		name, code, message string
+		err                 error
+		status              int
+	}{
+		{"common", "common_password", "Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.", accounts.ErrCommonPassword, 400},
+		{"wrapped_common", "common_password", "Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.", fmt.Errorf("password validation: %w", accounts.ErrCommonPassword), 400},
+		{"invalid_input", "invalid_input", "Requête invalide.", accounts.ErrInvalidInput, 400},
+		{"invalid_link", "invalid_link", "Ce lien est invalide ou expiré.", accounts.ErrInvalidLink, 400},
+		{"login", "invalid_credentials", "Email ou mot de passe incorrect.", accounts.ErrCredentials, 401},
+		{"reauth", "recent_auth_required", "Confirmez votre identité.", accounts.ErrRecentAuth, 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			accountError(w, tc.err)
+			var body struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != tc.status || body.Error.Code != tc.code || body.Error.Message != tc.message {
+				t.Fatal("unexpected account error response")
+			}
+		})
+	}
+}
+
+func TestAccountNewPasswordPolicyFeedback(t *testing.T) {
+	for _, route := range []struct{ name, path, fields string }{
+		{"register", "/api/v1/auth/register", `"email":"a@example.com",`},
+		{"reset", "/api/v1/auth/password/reset/confirm", `"token":"synthetic-token",`},
+		{"add_or_change", "/api/v1/account/password", `"grant":"synthetic-grant",`},
+	} {
+		for _, tc := range []struct{ name, password, code string }{
+			{"common", "password123", "common_password"},
+			{"short", "short", "invalid_input"},
+		} {
+			t.Run(route.name+"/"+tc.name, func(t *testing.T) {
+				h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+				r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, route.path, strings.NewReader(`{`+route.fields+`"password":"`+tc.password+`"}`))
+				r.Header.Set("Origin", "https://messeances.fr")
+				r.Header.Set("X-Messeances-CSRF", "1")
+				r.Header.Set("Content-Type", "application/json")
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, r)
+				if w.Code != 400 || !strings.Contains(w.Body.String(), `"code":"`+tc.code+`"`) {
+					t.Fatal("unexpected new-password policy response")
+				}
+				if strings.Contains(w.Body.String(), tc.password) || strings.Contains(w.Body.String(), "synthetic") || len(w.Result().Cookies()) != 0 {
+					t.Fatal("policy rejection echoed credentials or changed cookies")
+				}
+				assertAccountHeaders(t, w)
+			})
+		}
+	}
 }
 
 func TestAccountMutationBoundary(t *testing.T) {

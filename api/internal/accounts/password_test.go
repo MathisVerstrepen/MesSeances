@@ -18,10 +18,22 @@ func TestPasswordPolicy(t *testing.T) {
 			t.Errorf("valid password rejected: %v", err)
 		}
 	}
-	for _, password := range []string{"short", "ninechars", strings.Repeat("😀", 9), strings.Repeat("a", 129), strings.Repeat("😀", 129), "invalid utf8 string\xff", "passwordpassword", "123456789012345"} {
+	for _, password := range []string{"short", "ninechars", "password", strings.Repeat("😀", 9), strings.Repeat("a", 129), strings.Repeat("😀", 129), "invalid utf8 string\xff"} {
 		if err := ValidatePassword(password); !errors.Is(err, ErrInvalidInput) {
-			t.Error("invalid password accepted")
+			t.Errorf("expected invalid input: %v", err)
 		}
+	}
+	for _, password := range []string{"1234567890", "password123", "passwordpassword", "123456789012345"} {
+		if err := ValidatePassword(password); !errors.Is(err, ErrCommonPassword) || errors.Is(err, ErrInvalidInput) {
+			t.Errorf("expected distinct common password error: %v", err)
+		}
+	}
+}
+
+func TestArgonHashRejectsCommonPasswordBeforeHashing(t *testing.T) {
+	h := &ArgonHasher{}
+	if encoded, err := h.Hash(t.Context(), "password123"); encoded != "" || !errors.Is(err, ErrCommonPassword) {
+		t.Fatal("common password was not rejected before hash admission")
 	}
 }
 
@@ -41,7 +53,7 @@ func TestArgonHasher(t *testing.T) {
 	for _, tc := range []struct {
 		password string
 		want     bool
-	}{{password, true}, {strings.TrimSpace(password), false}, {"wrong", false}} {
+	}{{password, true}, {strings.TrimSpace(password), false}, {"wrong", false}, {"password123", false}} {
 		match, rehash, err := h.Verify(context.Background(), tc.password, encoded)
 		if err != nil || match != tc.want || rehash {
 			t.Fatalf("match=%t rehash=%t err=%v", match, rehash, err)
@@ -53,6 +65,9 @@ func TestArgonHasher(t *testing.T) {
 	}
 	if err := h.Dummy(context.Background(), "wrong"); err != nil {
 		t.Fatal(err)
+	}
+	if err := h.Dummy(context.Background(), "password123"); err != nil {
+		t.Fatalf("credential verification applied new-password policy: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

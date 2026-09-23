@@ -292,6 +292,28 @@ test('identity page requires separate explicit proof and action, then adds passw
   assert.equal(model.grant.value, '')
 })
 
+test('adding a password displays the shared common-password error and clears submitted secrets', async () => {
+  let attempts = 0
+  const { model } = await identityFixture('password_add', {
+    changePassword: async () => {
+      attempts++
+      throw new accountState.AccountApiError(400, 'common_password')
+    },
+  })
+  await model.load()
+  await model.confirmChallenge()
+  model.password.value = 'synthetic-password'
+  await model.applyAction()
+  assert.equal(attempts, 1)
+  assert.equal(
+    model.errorMessage.value,
+    'Ce mot de passe est trop courant. Choisissez un mot de passe plus difficile à deviner.',
+  )
+  assert.equal(model.done.value, false)
+  assert.equal(model.password.value, '')
+  assert.equal(model.grant.value, '')
+})
+
 test('Google email confirmation allows same-identity focus revalidation before pasting original link', async () => {
   const { model, calls, session, owner, writesBlocked, revision } =
     await identityFixture('email_change')
