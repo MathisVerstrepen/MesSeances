@@ -1,5 +1,5 @@
 import type { AccountDetails } from '~/types/account'
-import { accountErrorMessage } from '~/utils/accountState'
+import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 
 // Settings are client-fetched after the request-scoped SSR session check. Keep
 // details local, never in a shared cache or persisted form draft.
@@ -11,6 +11,37 @@ export function useAccountDetails() {
   const errorMessage = ref('')
   let revision = 0
   let mounted = false
+  let unregister: (() => void) | undefined
+
+  const identity = () => {
+    const value = account.session.value
+    return value?.state === 'complete' && value.account
+      ? `${value.account.username}:${value.account.email}`
+      : ''
+  }
+
+  async function revalidate() {
+    const current = ++revision
+    const sessionRevision = account.revision.value
+    const expected = account.session.value?.account
+    const value = await api.details()
+    if (
+      value.email !== expected?.email ||
+      value.username !== expected?.username
+    )
+      throw new AccountApiError(403, 'authentication_required')
+    return () => {
+      if (
+        mounted &&
+        current === revision &&
+        sessionRevision === account.revision.value
+      ) {
+        details.value = value
+        loading.value = false
+        errorMessage.value = ''
+      }
+    }
+  }
 
   async function refresh() {
     const current = ++revision
@@ -30,7 +61,7 @@ export function useAccountDetails() {
   }
 
   watch(
-    account.session,
+    identity,
     () => {
       if (mounted) void refresh()
     },
@@ -38,10 +69,12 @@ export function useAccountDetails() {
   )
   onMounted(() => {
     mounted = true
+    unregister = account.onRevalidate(revalidate)
     void refresh()
   })
   onBeforeUnmount(() => {
     mounted = false
+    unregister?.()
     revision++
     details.value = null
   })

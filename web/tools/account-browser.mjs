@@ -1166,7 +1166,41 @@ async function simulatedGoogle() {
     if (editor === 'email')
       await fill(google, 'new-email', 'google-next@example.test')
     google.fault = { path: '/api/v1/auth/google/start', status: 503 }
+    const writesBefore = google.requests.filter(
+      (item) => item.method !== 'GET',
+    ).length
     await click(google, action)
+    if (editor === 'email') {
+      // Uncertain email actions deliberately use destructive recovery, not soft focus.
+      await text(google, 'La réponse a été interrompue.')
+      await until(
+        google,
+        `!!document.getElementById('trigger-email') && !document.querySelector('.animate-pulse')`,
+        'Uncertain email recovery',
+      )
+      check(
+        await evaluate(
+          google,
+          `document.getElementById('trigger-email').getAttribute('aria-expanded') === 'false' && !document.getElementById('new-email')`,
+        ),
+        'uncertain Google email action clears its editor during conservative recovery',
+      )
+      await openEditor(google, 'email')
+      check(
+        await evaluate(
+          google,
+          `document.getElementById('new-email').value === ''`,
+        ),
+        'uncertain Google email recovery never restores its old draft',
+      )
+      check(
+        google.requests.filter((item) => item.method !== 'GET').length ===
+          writesBefore + 1,
+        'uncertain Google email action is never automatically replayed',
+      )
+      await click(google, 'Annuler')
+      continue
+    }
     await text(google, 'Le service de comptes est indisponible')
     check(
       await evaluate(
@@ -1780,6 +1814,10 @@ async function overviewScenario() {
   let sessionMode = 'ready'
   let detailMode = 'ready'
   const heldDetails = new Set()
+  const heldSessions = new Set()
+  let sessionReads = 0
+  let detailReads = 0
+  let writes = 0
   const accountView = () =>
     overviewDetails &&
     Object.fromEntries(
@@ -1791,6 +1829,14 @@ async function overviewScenario() {
   overviewServer = createServer((request, response) => {
     response.setHeader('Content-Type', 'application/json')
     response.setHeader('Cache-Control', 'no-store')
+    if (request.method !== 'GET') writes++
+    if (request.url === '/api/v1/auth/session') sessionReads++
+    if (request.url === '/api/v1/account') detailReads++
+    if (request.url === '/api/v1/auth/session' && sessionMode === 'loading') {
+      heldSessions.add(response)
+      response.once('close', () => heldSessions.delete(response))
+      return
+    }
     if (request.url === '/api/v1/account' && detailMode === 'loading') {
       heldDetails.add(response)
       response.once('close', () => heldDetails.delete(response))
@@ -1922,6 +1968,270 @@ async function overviewScenario() {
       await click(page, 'Annuler')
     }
   }
+  // Synthetic focus events, not native OS focus. Hold both network phases against
+  // actual hydrated Vue; observe DOM identity, caret, handlers and transport.
+  overviewDetails = {
+    email: 'owner@example.test',
+    username: 'cinema_lover',
+    has_password: true,
+    google_linked: false,
+    google_email: null,
+    pending_email: null,
+    allowed_methods: ['password'],
+  }
+  const ownerDetails = { ...overviewDetails }
+  const releaseSession = () => {
+    sessionMode = 'ready'
+    for (const response of heldSessions)
+      response.end(
+        JSON.stringify({
+          enabled: true,
+          state: overviewDetails ? 'complete' : 'anonymous',
+          account: accountView(),
+        }),
+      )
+  }
+  const releaseDetails = () => {
+    detailMode = 'ready'
+    for (const response of heldDetails)
+      response.end(JSON.stringify(overviewDetails))
+  }
+  const waitHeld = async (responses, label) => {
+    for (let i = 0; i < 100 && responses.size === 0; i++) await delay(50)
+    check(responses.size === 1, label)
+  }
+  const openDraft = async () => {
+    await go(page, '/compte')
+    await until(
+      page,
+      `!!document.getElementById('trigger-password')`,
+      'Focus fixture ready',
+    )
+    await openEditor(page, 'password')
+    await evaluate(
+      page,
+      `(() => {
+      const input = document.getElementById('current-password');
+      let component = input.__vueParentComponent;
+      while (component && !component.setupState.changePassword) component = component.parent;
+      if (!component) throw new Error('Missing overview setup');
+      const state = component.setupState;
+      input.value = 'synthetic-focus-draft'; input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus(); input.setSelectionRange(2, 7);
+      const fixture = window.__focusFixture = { input, state, flashes: 0 };
+      fixture.observer = new MutationObserver(() => {
+        if (document.querySelector('main .animate-pulse') || !input.isConnected || !input.getClientRects().length) fixture.flashes++;
+      });
+      fixture.observer.observe(document.querySelector('main'), { subtree: true, childList: true, attributes: true });
+    })()`,
+    )
+  }
+  const stableDraft = async (label) =>
+    check(
+      await evaluate(
+        page,
+        `(() => {
+    const { input, flashes } = window.__focusFixture;
+    return flashes === 0 && input === document.getElementById('current-password') && input === document.activeElement &&
+      input.value === 'synthetic-focus-draft' && input.selectionStart === 2 && input.selectionEnd === 7 &&
+      !input.disabled && !!input.getClientRects().length && !document.querySelector('main .animate-pulse');
+  })()`,
+      ),
+      label,
+    )
+  const blockedWrites = async (label) => {
+    check(
+      await evaluate(
+        page,
+        `(async () => {
+      const { state, input } = window.__focusFixture;
+      const button = input.closest('form').querySelector('button[type="submit"]');
+      if (!button.disabled) return false;
+      button.click(); input.closest('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      for (const key of ['changePassword','requestEmail','changeGoogle','deleteAccount','cancelEmail','logoutAll','logout']) await state[key]();
+      await state.googleProof('password_add');
+      let denied = false;
+      try { await state.api.cancelEmailChange(); } catch { denied = true; }
+      return denied && !state.busy && !state.passwordError && !state.emailError;
+    })()`,
+      ),
+      label,
+    )
+    check(writes === 0, `${label}: zero mutation transport`)
+  }
+  await openDraft()
+  sessionMode = 'loading'
+  detailMode = 'loading'
+  const initialSessionReads = sessionReads
+  const initialDetailReads = detailReads
+  await evaluate(
+    page,
+    `for (let i=0; i<8; i++) window.dispatchEvent(new Event('focus'))`,
+  )
+  await waitHeld(
+    heldSessions,
+    'rapid synthetic focus starts one session request',
+  )
+  await stableDraft(
+    'held session: no skeleton, same input/draft/focus/selection',
+  )
+  await blockedWrites('held session: UI, handlers and shared API reject writes')
+  releaseSession()
+  await waitHeld(
+    heldDetails,
+    'focus always refreshes related details despite same session DTO',
+  )
+  await evaluate(
+    page,
+    `for (let i=0; i<8; i++) window.dispatchEvent(new Event('focus'))`,
+  )
+  await stableDraft(
+    'held details: no skeleton, same input/draft/focus/selection',
+  )
+  await blockedWrites('held details: UI, handlers and shared API reject writes')
+  const { data: focusImage } = await cdp.send(
+    'Page.captureScreenshot',
+    { format: 'png', captureBeyondViewport: true },
+    page.sessionId,
+  )
+  await writeFile(
+    '/tmp/opencode/account-focus-details-held.png',
+    Buffer.from(focusImage, 'base64'),
+  )
+  console.log('SCREENSHOT /tmp/opencode/account-focus-details-held.png')
+  overviewDetails = {
+    ...overviewDetails,
+    pending_email: 'updated@example.test',
+    google_linked: true,
+    google_email: 'linked@example.test',
+    allowed_methods: ['password', 'google'],
+  }
+  releaseDetails()
+  await until(
+    page,
+    `!window.__focusFixture.state.blocked`,
+    'Focus barrier released',
+  )
+  await stableDraft(
+    'completed focus: stable DOM and caret without any observed skeleton',
+  )
+  check(
+    sessionReads === initialSessionReads + 1 &&
+      detailReads === initialDetailReads + 1,
+    'rapid focus deduplicates both phases',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('main').innerText.includes('updated@example.test') && window.__focusFixture.state.details.allowed_methods.includes('google') && !document.querySelector('#editor-password button[type="submit"]').disabled`,
+    ),
+    'fresh pending email and login methods applied before writes re-enable',
+  )
+  await evaluate(page, 'window.__focusFixture.observer.disconnect()')
+  // A second successful refresh can remove a login method; no permanent stale DTO cache.
+  overviewDetails = {
+    ...overviewDetails,
+    has_password: false,
+    allowed_methods: ['google'],
+  }
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `document.getElementById('trigger-password')?.innerText === 'Ajouter'`,
+    'Changed login methods rendered',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.getElementById('current-password') && !document.getElementById('trigger-google')`,
+    ),
+    'removed password method updates editor and last-method guard',
+  )
+
+  for (const outcome of [
+    'session-error',
+    'details-error',
+    'revoked',
+    'different',
+    'broadcast',
+    'offline',
+    'pagehide',
+  ]) {
+    overviewDetails = { ...ownerDetails }
+    await openDraft()
+    sessionMode = 'loading'
+    detailMode = 'loading'
+    await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+    await waitHeld(heldSessions, `${outcome}: session held`)
+    if (outcome === 'session-error') {
+      sessionMode = 'ready'
+      for (const response of heldSessions) {
+        response.statusCode = 503
+        response.end('{}')
+      }
+    } else if (outcome === 'revoked' || outcome === 'different') {
+      overviewDetails =
+        outcome === 'revoked'
+          ? null
+          : { ...ownerDetails, username: 'another_owner' }
+      releaseSession()
+    } else {
+      releaseSession()
+      await waitHeld(heldDetails, `${outcome}: details held`)
+      if (outcome === 'details-error') {
+        detailMode = 'ready'
+        for (const response of heldDetails) {
+          response.statusCode = 503
+          response.end('{}')
+        }
+      } else {
+        sessionMode = 'loading'
+        await evaluate(
+          page,
+          outcome === 'broadcast'
+            ? `(() => { const channel = new BroadcastChannel('messeances-account'); channel.postMessage('changed'); channel.close(); })()`
+            : `window.dispatchEvent(new Event('${outcome}'))`,
+        )
+      }
+    }
+    await until(
+      page,
+      `!window.__focusFixture.state.account.session.value && !window.__focusFixture.state.email && !window.__focusFixture.state.currentPassword`,
+      `${outcome}: private state and drafts cleared`,
+    )
+    releaseDetails()
+    await delay(100)
+    check(
+      await evaluate(
+        page,
+        `window.__focusFixture.state.details === null && !window.__focusFixture.state.currentPassword`,
+      ),
+      `${outcome}: late details never restore old private data`,
+    )
+    await evaluate(page, 'window.__focusFixture.observer.disconnect()')
+    overviewDetails = null
+    releaseSession()
+    if (outcome === 'pagehide') {
+      await evaluate(
+        page,
+        `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+      )
+      await until(
+        page,
+        `window.__focusFixture.state.account.status.value === 'ready'`,
+        'Persisted restore rechecks session',
+      )
+      check(
+        await evaluate(
+          page,
+          `!window.__focusFixture.state.details && !window.__focusFixture.state.currentPassword`,
+        ),
+        'persisted restore never recovers old drafts',
+      )
+    }
+    detailMode = 'ready'
+  }
+  overviewDetails = { ...ownerDetails }
   for (const state of ['loading', 'error']) {
     detailMode = state
     await go(page, '/compte')

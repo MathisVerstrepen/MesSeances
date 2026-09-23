@@ -10,6 +10,7 @@ import { AccountApiError } from '~/utils/accountState'
 
 export function useAccountApi() {
   const config = useRuntimeConfig()
+  const revalidating = useState('account-revalidating', () => false)
   const incomingCookie = import.meta.server
     ? (useRequestHeaders(['cookie']).cookie ?? '')
     : ''
@@ -20,6 +21,9 @@ export function useAccountApi() {
     method: 'GET' | 'POST' | 'DELETE' = body ? 'POST' : 'GET',
   ): Promise<T> {
     if (import.meta.server && body) throw new AccountApiError(403)
+    // Guard programmatic callers too, not only disabled buttons. Never retry writes.
+    if (body && revalidating.value)
+      throw new AccountApiError(403, 'recent_auth_required')
     const headers: Record<string, string> = body
       ? { 'Content-Type': 'application/json', 'X-Messeances-CSRF': '1' }
       : {}

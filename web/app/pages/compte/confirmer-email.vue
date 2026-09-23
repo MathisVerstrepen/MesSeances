@@ -20,16 +20,32 @@ const startGoogle = useAccountGoogle()
 const password = ref('')
 const clearPassword = useAccountSecrets(password)
 const busy = ref(false)
+const blocked = computed(
+  () => account.writesBlocked.value || loading.value || !details.value,
+)
 const done = ref(false)
 const uncertain = ref(false)
 const errorMessage = ref('')
 const complete = computed(() => account.session.value?.state === 'complete')
-watch(complete, (value) => {
-  if (!value) clearPassword()
-})
+watch(
+  account.session,
+  (value) => {
+    if (value?.state !== 'complete') {
+      clearPassword()
+      clear()
+    }
+  },
+  { flush: 'sync' },
+)
 
 async function googleProof() {
-  if (busy.value || !details.value?.pending_email || !complete.value) return
+  if (
+    blocked.value ||
+    busy.value ||
+    !details.value?.pending_email ||
+    !complete.value
+  )
+    return
   busy.value = true
   errorMessage.value = ''
   const target = details.value.pending_email
@@ -47,6 +63,7 @@ async function googleProof() {
 
 async function confirm() {
   if (
+    blocked.value ||
     busy.value ||
     !token.value ||
     !details.value?.pending_email ||
@@ -161,13 +178,18 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
       <button
         type="button"
         class="account-primary w-full"
-        :disabled="busy"
+        :disabled="busy || blocked"
         @click="googleProof"
       >
         Confirmer mon identité avec Google
       </button>
     </div>
-    <form v-else class="space-y-5" :aria-busy="busy" @submit.prevent="confirm">
+    <form
+      v-else
+      class="space-y-5"
+      :aria-busy="busy || blocked"
+      @submit.prevent="confirm"
+    >
       <dl class="space-y-3 text-sm">
         <div>
           <dt class="account-label">Email actuel du compte</dt>
@@ -189,7 +211,11 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
         ne permettra plus de vous connecter avec un mot de passe. Votre compte
         Google associé ne change pas.
       </p>
-      <button type="submit" class="account-primary w-full" :disabled="busy">
+      <button
+        type="submit"
+        class="account-primary w-full"
+        :disabled="busy || blocked"
+      >
         {{ busy ? 'Confirmation…' : 'Confirmer mon nouvel email' }}
       </button>
     </form>

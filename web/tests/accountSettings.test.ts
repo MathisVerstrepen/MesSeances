@@ -271,7 +271,11 @@ async function compile(path: string, globals: Context) {
     },
   }).outputText
   const exports: CompiledComposables = {}
-  runInNewContext(compiled, { exports, ...globals })
+  runInNewContext(compiled, {
+    exports,
+    useState: <T>(_: string, init: () => T) => ref(init()),
+    ...globals,
+  })
   return exports
 }
 
@@ -532,6 +536,8 @@ test('password proof clears grant and cannot write after session invalidation or
         }),
         useAccountSession: () => ({
           session: ref<AccountSession | null>(null),
+          writesBlocked: ref(false),
+          revision: ref(0),
         }),
         watch: (_: Ref<AccountSession | null>, callback: () => void) => {
           onInvalidate = callback
@@ -606,7 +612,11 @@ test('settings never retain late private details after session invalidation', as
   const exports = await compile('../app/composables/useAccountDetails.ts', {
     require: () => ({ accountErrorMessage: () => 'Safe error' }),
     useAccountApi: () => ({ details: () => response }),
-    useAccountSession: () => ({ session }),
+    useAccountSession: () => ({
+      session,
+      revision: ref(0),
+      onRevalidate: () => () => {},
+    }),
     ref,
     watch: (_: Ref<AccountSession | null>, callback: () => void) => {
       changed = callback

@@ -172,6 +172,8 @@ async function identityFixture(
   }
   const session = ref<AccountSession | null>(owner)
   const status = ref('ready')
+  const writesBlocked = ref(false)
+  const revision = ref(0)
   const continuation: AccountContinuation = {
     action,
     target: action === 'email_change' ? 'next@example.test' : null,
@@ -231,6 +233,8 @@ async function identityFixture(
     useAccountSession: () => ({
       session,
       status,
+      writesBlocked,
+      revision,
       notify: () => {},
       refresh: async () => {},
     }),
@@ -251,7 +255,16 @@ async function identityFixture(
       },
   })
   assert.ok(exports.model)
-  return { model: exports.model, calls, session, status, owner, proof }
+  return {
+    model: exports.model,
+    calls,
+    session,
+    status,
+    owner,
+    proof,
+    writesBlocked,
+    revision,
+  }
 }
 
 test('identity page requires separate explicit proof and action, then adds password', async () => {
@@ -280,14 +293,17 @@ test('identity page requires separate explicit proof and action, then adds passw
 })
 
 test('Google email confirmation allows same-identity focus revalidation before pasting original link', async () => {
-  const { model, calls, session, owner } = await identityFixture('email_change')
+  const { model, calls, session, owner, writesBlocked, revision } =
+    await identityFixture('email_change')
   await model.load()
   await model.confirmChallenge()
-  session.value = null
-  assert.equal(model.complete.value, false)
+  writesBlocked.value = true
+  revision.value++
+  assert.equal(model.complete.value, true)
   await model.applyAction()
   assert.equal(calls.length, 1, 'no writes during revalidation')
   session.value = { ...owner }
+  writesBlocked.value = false
   assert.equal(model.grant.value, 'synthetic-proof')
   model.emailOperation.value = 'confirm'
   await nextTick()
@@ -358,6 +374,34 @@ test('session change discards late proofs, explicit invalidation clears entered 
   model.invalidate()
   assert.equal(model.password.value, '')
   assert.equal(model.originalLink.value, '')
+})
+
+test('ordinary focus rejects a pending identity proof without clearing visible drafts', async () => {
+  let resolve!: (value: { grant: string }) => void
+  const pending = new Promise<{ grant: string }>((done) => {
+    resolve = done
+  })
+  const { model, revision, writesBlocked } = await identityFixture(
+    'password_add',
+    {
+      confirmIdentityEmail: () => pending,
+    },
+  )
+  await model.load()
+  model.password.value = 'draft-kept-in-memory'
+  const confirming = model.confirmChallenge()
+  writesBlocked.value = true
+  revision.value++
+  const proof = { grant: 'stale-proof' }
+  resolve(proof)
+  await confirming
+  assert.equal(proof.grant, '')
+  assert.equal(model.grant.value, '')
+  assert.equal(model.password.value, 'draft-kept-in-memory')
+  assert.equal(model.complete.value, true)
+  writesBlocked.value = false
+  await model.applyAction()
+  assert.equal(model.done.value, false)
 })
 
 test('lost sensitive write response cannot auto-replay or reuse proof', async () => {

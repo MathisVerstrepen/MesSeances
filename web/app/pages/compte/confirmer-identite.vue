@@ -74,18 +74,24 @@ function invalidate() {
   continuation.value = null
   emailOperation.value = ''
 }
-// Focus revalidation hides private UI and blocks writes, but must allow copying
-// the original email link from another tab after proof. Keep the in-memory
-// proof only when revalidation returns the same complete identity. The server
-// still validates session/revision/target on every write.
+// Every recheck rejects pending proof. An already issued single-use proof keeps
+// its original deadline, never gains authority from a matching session DTO.
+// Server session/revision/target validation remains mandatory on every write.
+watch(
+  account.revision,
+  () => {
+    revision++
+  },
+  { flush: 'sync' },
+)
 watch(
   account.session,
   (value) => {
     revision++
     if (
-      value &&
-      (value.state !== 'complete' ||
-        JSON.stringify(value.account) !== initialIdentity)
+      !value ||
+      value.state !== 'complete' ||
+      JSON.stringify(value.account) !== initialIdentity
     )
       invalidate()
   },
@@ -99,7 +105,13 @@ watch(emailOperation, () => {
 })
 
 async function load() {
-  if (!complete.value || loading.value || busy.value) return
+  if (
+    account.writesBlocked.value ||
+    !complete.value ||
+    loading.value ||
+    busy.value
+  )
+    return
   const current = revision
   loading.value = true
   errorMessage.value = ''
@@ -118,6 +130,7 @@ async function load() {
 
 async function requestChallenge() {
   if (
+    account.writesBlocked.value ||
     busy.value ||
     restartRequired.value ||
     !complete.value ||
@@ -149,6 +162,7 @@ async function requestChallenge() {
 
 async function confirmChallenge() {
   if (
+    account.writesBlocked.value ||
     busy.value ||
     restartRequired.value ||
     !complete.value ||
@@ -196,6 +210,7 @@ async function confirmChallenge() {
 
 async function applyAction() {
   if (
+    account.writesBlocked.value ||
     busy.value ||
     restartRequired.value ||
     !complete.value ||
@@ -356,7 +371,11 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
       Cette action nécessite un mot de passe ou retirerait votre dernier moyen
       de connexion. Revenez à votre compte pour gérer vos moyens de connexion.
     </p>
-    <div v-else class="space-y-5" :aria-busy="!!busy">
+    <div
+      v-else
+      class="space-y-5"
+      :aria-busy="!!busy || account.writesBlocked.value"
+    >
       <h2 class="account-heading">{{ actionLabel }}</h2>
       <p v-if="continuation.target" class="break-words text-sm">
         Nouvel email : <strong>{{ continuation.target }}</strong>
@@ -371,7 +390,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
           <button
             type="submit"
             class="account-primary w-full"
-            :disabled="!!busy"
+            :disabled="!!busy || account.writesBlocked.value"
           >
             {{
               busy === 'proof' ? 'Vérification…' : 'Confirmer mon identité avec ce lien'
@@ -381,7 +400,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
         <button
           type="button"
           class="account-secondary w-full"
-          :disabled="!!busy || cooldown > 0"
+          :disabled="!!busy || account.writesBlocked.value || cooldown > 0"
           @click="requestChallenge"
         >
           {{
@@ -475,7 +494,7 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
           type="submit"
           class="w-full"
           :class="continuation.action === 'delete_account' ? 'account-danger' : 'account-primary'"
-          :disabled="!!busy"
+          :disabled="!!busy || account.writesBlocked.value"
         >
           {{
             busy === 'action' ? 'Action en cours…' : continuation.action === 'delete_account' ? 'Supprimer définitivement mon compte' : continuation.action === 'password_add' ? 'Ajouter mon mot de passe' : emailOperation === 'confirm' ? 'Confirmer mon nouvel email' : 'Demander le lien au nouvel email'

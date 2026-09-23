@@ -34,6 +34,9 @@ const clearSecrets = useAccountSecrets(
   confirmation,
 )
 const busy = ref('')
+const blocked = computed(
+  () => account.writesBlocked.value || loading.value || !details.value,
+)
 const passwordError = ref('')
 const emailError = ref('')
 const sessionError = ref('')
@@ -81,25 +84,36 @@ const passwordAvailable = computed(
     details.value.allowed_methods.includes('password'),
 )
 
-// refresh() temporarily clears the session. Do not treat that loading gap as
-// revocation or discard a draft whenever the window receives focus.
+// Ordinary focus keeps this identity present; destructive refresh clears drafts.
 let identity = ''
 watch(
-  [account.session, account.status],
-  ([session, status]) => {
-    if (status === 'loading') return
+  account.session,
+  (session) => {
     const next =
       session?.state === 'complete' && session.account
-        ? JSON.stringify(session.account)
+        ? `${session.account.username}:${session.account.email}`
         : ''
     if (!next || (identity && next !== identity)) {
       clearEditor()
       editor.value = null
+      // A refresh may supersede the successful action's own refresh. Only its
+      // non-secret focus target survives loading, never its editor or drafts.
+      if (session) restoreFocus = null
+    }
+    if (session) identity = next
+  },
+  { immediate: true, flush: 'sync' },
+)
+
+watch(
+  account.status,
+  (status) => {
+    if (status === 'idle' || status === 'error') {
+      identity = ''
       restoreFocus = null
     }
-    identity = next
   },
-  { immediate: true },
+  { flush: 'sync' },
 )
 
 watch(
@@ -121,9 +135,10 @@ watch(
 )
 
 watch(
-  [details, busy],
-  ([value, pending]) => {
-    if (!import.meta.client || !value || pending || !restoreFocus) return
+  [details, busy, blocked],
+  ([value, pending, blocked]) => {
+    if (!import.meta.client || !value || pending || blocked || !restoreFocus)
+      return
     const button = document.getElementById(`trigger-${restoreFocus}`)
     if (!(button instanceof HTMLButtonElement) || button.disabled) return
     button.focus()
@@ -153,7 +168,7 @@ async function recover() {
 }
 
 async function changePassword() {
-  if (busy.value || !passwordAvailable.value) return
+  if (blocked.value || busy.value || !passwordAvailable.value) return
   const criteria = passwordCriteria(newPassword.value)
   passwordError.value = ''
   notice.value = ''
@@ -187,7 +202,7 @@ async function changePassword() {
 }
 
 async function requestEmail() {
-  if (busy.value) return
+  if (blocked.value || busy.value) return
   emailError.value = ''
   notice.value = ''
   const target = normalizeAccountEmail(email.value)
@@ -225,7 +240,7 @@ async function requestEmail() {
 }
 
 async function googleProof(action: 'password_add' | 'delete_account') {
-  if (busy.value) return
+  if (blocked.value || busy.value) return
   busy.value = action
   const errorMessage = action === 'password_add' ? passwordError : deletionError
   errorMessage.value = ''
@@ -241,7 +256,8 @@ async function googleProof(action: 'password_add' | 'delete_account') {
 }
 
 async function changeGoogle() {
-  if (busy.value || !passwordAvailable.value || !details.value) return
+  if (blocked.value || busy.value || !passwordAvailable.value || !details.value)
+    return
   busy.value = 'google'
   googleError.value = ''
   notice.value = ''
@@ -275,7 +291,7 @@ async function changeGoogle() {
 }
 
 async function deleteAccount() {
-  if (busy.value || !passwordAvailable.value) return
+  if (blocked.value || busy.value || !passwordAvailable.value) return
   deletionError.value = ''
   notice.value = ''
   if (confirmation.value !== 'SUPPRIMER') {
@@ -308,7 +324,7 @@ async function deleteAccount() {
 }
 
 async function cancelEmail() {
-  if (busy.value) return
+  if (blocked.value || busy.value) return
   busy.value = 'cancel'
   emailError.value = ''
   notice.value = ''
@@ -326,7 +342,7 @@ async function cancelEmail() {
 }
 
 async function logoutAll() {
-  if (busy.value) return
+  if (blocked.value || busy.value) return
   busy.value = 'sessions'
   sessionError.value = ''
   notice.value = ''
@@ -342,7 +358,7 @@ async function logoutAll() {
 }
 
 async function logout() {
-  if (busy.value) return
+  if (blocked.value || busy.value) return
   busy.value = 'logout'
   sessionError.value = ''
   clearEditor()
@@ -400,7 +416,7 @@ useHead({ title: 'Mon compte - MesSeances' })
     <div
       v-else-if="details"
       class="account-overview-sections space-y-6"
-      :aria-busy="!!busy"
+      :aria-busy="!!busy || blocked"
     >
       <section aria-labelledby="account-identity" class="space-y-4">
         <h2 id="account-identity" class="account-heading">Identité</h2>
@@ -447,7 +463,7 @@ useHead({ title: 'Mon compte - MesSeances' })
             <button
               type="button"
               class="account-link overview-link"
-              :disabled="!!busy"
+              :disabled="!!busy || blocked"
               @click="cancelEmail"
             >
               {{
@@ -493,7 +509,11 @@ useHead({ title: 'Mon compte - MesSeances' })
               email actuel.
             </p>
             <div class="overview-actions">
-              <button type="submit" class="account-primary" :disabled="!!busy">
+              <button
+                type="submit"
+                class="account-primary"
+                :disabled="!!busy || blocked"
+              >
                 {{
                   busy === 'email' ? 'Demande en cours…' : passwordAvailable ? 'Recevoir le lien de confirmation' : 'Continuer avec Google'
                 }}
@@ -563,7 +583,11 @@ useHead({ title: 'Mon compte - MesSeances' })
                 :disabled="!!busy"
               />
               <p class="text-sm">Vos autres appareils seront déconnectés.</p>
-              <button type="submit" class="account-primary" :disabled="!!busy">
+              <button
+                type="submit"
+                class="account-primary"
+                :disabled="!!busy || blocked"
+              >
                 {{
                   busy === 'password' ? 'Modification…' : 'Enregistrer le mot de passe'
                 }}
@@ -578,7 +602,7 @@ useHead({ title: 'Mon compte - MesSeances' })
               <button
                 type="button"
                 class="account-primary"
-                :disabled="!!busy"
+                :disabled="!!busy || blocked"
                 @click="googleProof('password_add')"
               >
                 Continuer avec Google
@@ -639,7 +663,11 @@ useHead({ title: 'Mon compte - MesSeances' })
             <p class="text-sm leading-relaxed">
               Vos autres sessions seront fermées après modification.
             </p>
-            <button type="submit" class="account-primary" :disabled="!!busy">
+            <button
+              type="submit"
+              class="account-primary"
+              :disabled="!!busy || blocked"
+            >
               {{
                 details.google_linked ? 'Dissocier Google' : 'Associer un compte Google'
               }}
@@ -665,7 +693,7 @@ useHead({ title: 'Mon compte - MesSeances' })
             <button
               type="button"
               class="account-secondary overview-secondary"
-              :disabled="!!busy"
+              :disabled="!!busy || blocked"
               @click="logout"
             >
               {{ busy === 'logout' ? 'Déconnexion…' : 'Se déconnecter' }}
@@ -674,7 +702,7 @@ useHead({ title: 'Mon compte - MesSeances' })
               <button
                 type="button"
                 class="account-secondary overview-secondary"
-                :disabled="!!busy"
+                :disabled="!!busy || blocked"
                 aria-describedby="logout-all-consequence"
                 @click="logoutAll"
               >
@@ -736,7 +764,7 @@ useHead({ title: 'Mon compte - MesSeances' })
               <button
                 type="submit"
                 class="account-danger w-full"
-                :disabled="!!busy"
+                :disabled="!!busy || blocked"
               >
                 {{
                   busy === 'delete' ? 'Suppression…' : 'Supprimer définitivement mon compte'
@@ -752,7 +780,7 @@ useHead({ title: 'Mon compte - MesSeances' })
               <button
                 type="button"
                 class="account-danger w-full"
-                :disabled="!!busy"
+                :disabled="!!busy || blocked"
                 @click="googleProof('delete_account')"
               >
                 Vérifier mon identité avant suppression

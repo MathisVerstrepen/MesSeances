@@ -4,6 +4,9 @@ export default defineNuxtPlugin((nuxtApp) => {
   const refresh = () => {
     if (active) void account.refresh()
   }
+  const focus = () => {
+    if (active) void account.revalidate()
+  }
   const offline = () => {
     account.clear()
     void account.refresh()
@@ -26,7 +29,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
   nuxtApp.hook('app:mounted', () => {
     if (account.status.value === 'idle') refresh()
-    window.addEventListener('focus', refresh)
+    window.addEventListener('focus', focus)
     window.addEventListener('online', refresh)
     window.addEventListener('offline', offline)
     window.addEventListener('pagehide', pagehide)

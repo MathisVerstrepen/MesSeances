@@ -15,7 +15,7 @@ const signingOut = ref(false)
 const signOutError = ref('')
 
 async function logout() {
-  if (signingOut.value) return
+  if (signingOut.value || account.writesBlocked.value) return
   signingOut.value = true
   signOutError.value = ''
   try {
@@ -89,7 +89,10 @@ useHead({
           Les comptes ne sont pas encore disponibles. Vous pouvez continuer à
           explorer les séances.
         </p>
-        <div v-show="status === 'ready' && session?.enabled">
+        <div
+          v-show="status === 'ready' && session?.enabled"
+          :aria-busy="account.revalidating.value"
+        >
           <slot />
         </div>
         <div
@@ -99,7 +102,7 @@ useHead({
           <button
             type="button"
             class="account-link"
-            :disabled="signingOut"
+            :disabled="signingOut || account.writesBlocked.value"
             @click="logout"
           >
             {{ signingOut ? 'Déconnexion…' : 'Se déconnecter' }}

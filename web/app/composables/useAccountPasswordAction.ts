@@ -7,7 +7,7 @@ export function useAccountPasswordAction() {
   const invalidate = () => {
     revision++
   }
-  watch(account.session, invalidate, { flush: 'sync' })
+  watch(account.revision, invalidate, { flush: 'sync' })
   onMounted(() => window.addEventListener('pagehide', invalidate))
   onBeforeUnmount(() => {
     invalidate()
@@ -20,11 +20,12 @@ export function useAccountPasswordAction() {
     target: string | undefined,
     write: (grant: string) => Promise<void>,
   ): Promise<boolean> => {
+    if (account.writesBlocked.value) return false
     const current = revision
     // Never put the single-use grant in Nuxt state, the URL, or storage.
     const proof = await api.reauthPassword(password, action, target)
     try {
-      if (current !== revision) return false
+      if (current !== revision || account.writesBlocked.value) return false
       await write(proof.grant)
       return true
     } finally {

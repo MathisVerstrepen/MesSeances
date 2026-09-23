@@ -33,6 +33,11 @@ type State = Record<(typeof names)[number], Ref<string | null>> & {
   changePassword: () => Promise<void>
   clearSecrets: () => void
   logout: () => Promise<void>
+  requestEmail: () => Promise<void>
+  changeGoogle: () => Promise<void>
+  deleteAccount: () => Promise<void>
+  cancelEmail: () => Promise<void>
+  logoutAll: () => Promise<void>
 }
 interface ScriptExports {
   state?: State
@@ -52,6 +57,7 @@ function fixture() {
   }
   const session = ref<AccountSession | null>(owner)
   const status = ref('ready')
+  const writesBlocked = ref(false)
   const focused: string[] = []
   const calls: string[] = []
   const initialDetails = { ...owner.account, allowed_methods: ['password'] }
@@ -77,12 +83,15 @@ function fixture() {
     },
   }
   let write: () => Promise<boolean> = async () => true
+  let refresh: () => Promise<void> = async () => {
+    calls.push('refresh')
+  }
   const result: ScriptExports = {}
   const script = source
     .split('<script setup lang="ts">')[1]!
     .split('</script>')[0]!
   const compiled = ts.transpileModule(
-    `${script.replaceAll('import.meta.client', 'true')}\nexports.state = { ${names.join(',')}, toggleEditor, googleProof, changePassword, clearSecrets, logout }`,
+    `${script.replaceAll('import.meta.client', 'true')}\nexports.state = { ${names.join(',')}, toggleEditor, googleProof, changePassword, clearSecrets, logout, requestEmail, changeGoogle, deleteAccount, cancelEmail, logoutAll }`,
     {
       compilerOptions: {
         module: ts.ModuleKind.CommonJS,
@@ -104,8 +113,9 @@ function fixture() {
       useAccountSession: () => ({
         session,
         status,
+        writesBlocked,
         notify: () => calls.push('notify'),
-        refresh: async () => calls.push('refresh'),
+        refresh: () => refresh(),
         logout: async () => calls.push('logout'),
       }),
       useAccountDetails: () => ({
@@ -132,11 +142,15 @@ function fixture() {
     state: result.state!,
     session,
     status,
+    writesBlocked,
     owner,
     calls,
     focused,
     details,
     document,
+    setRefresh: (callback: typeof refresh) => {
+      refresh = callback
+    },
     stop: () => scope.stop(),
     setWrite: (callback: typeof write) => {
       write = callback
@@ -173,10 +187,10 @@ test('transient same-account refresh preserves input, changed/revoked/error sess
       await f.state.toggleEditor('delete')
       f.state.deletionPassword.value = 'secret'
       f.state.confirmation.value = 'SUPPRIMER'
-      f.status.value = 'loading'
-      f.session.value = null
+      f.writesBlocked.value = true
       await nextTick()
       assert.equal(f.state.deletionPassword.value, 'secret')
+      f.writesBlocked.value = false
       f.status.value = outcome === 'error' ? 'error' : 'ready'
       f.session.value =
         outcome === 'same'
@@ -260,6 +274,60 @@ test('success focus survives overlapping same-account rechecks without stealing 
   }
 })
 
+test('completed mutation restores its trigger after destructive recovery clears drafts', async () => {
+  const f = fixture()
+  const detailsValue = f.details.value
+  try {
+    f.setRefresh(async () => {
+      f.status.value = 'loading'
+      f.session.value = null
+      f.details.value = null
+      await nextTick()
+      f.session.value = { ...f.owner }
+      f.status.value = 'ready'
+      f.details.value = detailsValue
+    })
+    await f.state.toggleEditor('password')
+    f.state.currentPassword.value = 'CurrentPassword123!'
+    f.state.newPassword.value = 'LongPassword123!'
+    await f.state.changePassword()
+    await nextTick()
+    assert.equal(f.state.editor.value, null)
+    assert.equal(f.state.newPassword.value, '')
+    assert.equal(f.focused.at(-1), 'trigger-password')
+  } finally {
+    f.stop()
+  }
+})
+
+test('a superseding destructive broadcast refresh keeps only the successful action focus target', async () => {
+  const f = fixture()
+  const details = f.details.value
+  try {
+    f.setRefresh(async () => {
+      f.status.value = 'loading'
+      f.session.value = null
+      f.details.value = null
+      // The initiating refresh resolves stale while the broadcast refresh is held.
+      await nextTick()
+    })
+    await f.state.toggleEditor('password')
+    f.state.currentPassword.value = 'CurrentPassword123!'
+    f.state.newPassword.value = 'LongPassword123!'
+    await f.state.changePassword()
+    await nextTick()
+    assert.equal(f.state.editor.value, null)
+    assert.equal(f.state.currentPassword.value, '')
+    f.session.value = { ...f.owner }
+    f.status.value = 'ready'
+    f.details.value = details
+    await nextTick()
+    assert.equal(f.focused.at(-1), 'trigger-password')
+  } finally {
+    f.stop()
+  }
+})
+
 test('Google proof failures belong to expanded password/deletion action, never hidden Google editor', async () => {
   const f = fixture()
   try {
@@ -278,10 +346,18 @@ test('Google proof failures belong to expanded password/deletion action, never h
   }
 })
 
-test('uncertain write revalidates once without replay and keeps owning error visible', async () => {
+test('uncertain write destructively recovers once without replay and keeps recovery notice visible', async () => {
   const f = fixture()
   try {
     let writes = 0
+    f.setRefresh(async () => {
+      f.calls.push('refresh')
+      f.session.value = null
+      f.status.value = 'loading'
+      await nextTick()
+      f.session.value = { ...f.owner }
+      f.status.value = 'ready'
+    })
     f.setWrite(async () => {
       writes++
       throw new accountState.AccountApiError(0, 'network_error')
@@ -290,8 +366,8 @@ test('uncertain write revalidates once without replay and keeps owning error vis
     f.state.newPassword.value = 'LongPassword123!'
     await f.state.changePassword()
     assert.equal(writes, 1)
-    assert.equal(f.state.editor.value, 'password')
-    assert.ok(f.state.passwordError.value)
+    assert.equal(f.state.editor.value, null)
+    assert.match(f.state.notice.value!, /sans répéter l’action/)
     assert.equal(f.state.newPassword.value, '')
     assert.deepEqual(f.calls, ['notify', 'refresh'])
   } finally {
@@ -304,6 +380,48 @@ test('local logout reuses account.logout and full document navigation', async ()
   try {
     await f.state.logout()
     assert.deepEqual(f.calls, ['logout', '/connexion'])
+  } finally {
+    f.stop()
+  }
+})
+
+test('all overview mutation handlers block programmatic calls throughout revalidation', async () => {
+  const f = fixture()
+  try {
+    await f.state.toggleEditor('email')
+    f.state.email.value = 'draft@example.test'
+    f.writesBlocked.value = true
+    for (const handler of [
+      'requestEmail',
+      'changeGoogle',
+      'changePassword',
+      'deleteAccount',
+      'cancelEmail',
+      'logoutAll',
+      'logout',
+    ] as const)
+      await f.state[handler]()
+    await f.state.googleProof('password_add')
+    assert.deepEqual(f.calls, [])
+    assert.equal(f.state.email.value, 'draft@example.test')
+    assert.equal(f.state.busy.value, '')
+    assert.equal(f.state.emailError.value, '')
+  } finally {
+    f.stop()
+  }
+})
+
+test('destructive loading clears drafts immediately, unlike ordinary focus', async () => {
+  const f = fixture()
+  try {
+    await f.state.toggleEditor('email')
+    f.state.email.value = 'draft@example.test'
+    f.state.emailPassword.value = 'secret'
+    f.status.value = 'loading'
+    f.session.value = null
+    assert.equal(f.state.email.value, '')
+    assert.equal(f.state.emailPassword.value, '')
+    assert.equal(f.state.editor.value, null)
   } finally {
     f.stop()
   }

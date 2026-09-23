@@ -1,5 +1,15 @@
 import type { AccountSession } from '~/types/account'
-import { accountErrorMessage } from '~/utils/accountState'
+import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
+
+type DetailRevalidation = () => Promise<() => void>
+declare module '#app' {
+  interface NuxtApp {
+    _accountRevalidation?: {
+      pending?: Promise<void>
+      details: Set<DetailRevalidation>
+    }
+  }
+}
 
 export function useAccountSession() {
   const api = useAccountApi()
@@ -10,24 +20,38 @@ export function useAccountSession() {
   )
   const errorMessage = useState('account-session-error', () => '')
   const revision = useState('account-session-request', () => 0)
+  const revalidating = useState('account-revalidating', () => false)
+  // Promises/callbacks belong to this Nuxt app, never serialized or shared by SSR requests.
+  const app = useNuxtApp()
+  const runtime = (app._accountRevalidation ??= { details: new Set() })
+  const writesBlocked = computed(
+    () => revalidating.value || status.value !== 'ready',
+  )
+
+  function invalidate() {
+    revision.value++
+    revalidating.value = false
+    runtime.pending = undefined
+  }
 
   function clear() {
-    revision.value++
+    invalidate()
     session.value = null
     status.value = 'idle'
     errorMessage.value = ''
   }
 
   function accept(value: AccountSession) {
-    revision.value++
+    invalidate()
     session.value = value
     status.value = 'ready'
     errorMessage.value = ''
   }
 
   async function refresh() {
-    const current = ++revision.value
-    // Never retain authenticated success while offline or revalidating.
+    invalidate()
+    const current = revision.value
+    // Initial/recovery and explicit invalidation remain destructive.
     session.value = null
     status.value = 'loading'
     errorMessage.value = ''
@@ -39,7 +63,64 @@ export function useAccountSession() {
       session.value = null
       errorMessage.value = accountErrorMessage(error)
       status.value = 'error'
+    } finally {
+      if (current === revision.value) runtime.pending = undefined
     }
+  }
+
+  function revalidate(): Promise<void> {
+    if (runtime.pending) return runtime.pending
+    const previous = session.value
+    if (
+      status.value !== 'ready' ||
+      !previous?.enabled ||
+      previous.state !== 'complete' ||
+      !previous.account
+    )
+      return (runtime.pending = refresh())
+    const current = ++revision.value
+    revalidating.value = true
+    const pending = (async () => {
+      try {
+        const value = await api.session()
+        if (current !== revision.value) return
+        // These fields identify the visible account only, NOT session/grant continuity.
+        if (
+          !value.enabled ||
+          value.state !== 'complete' ||
+          value.account?.email !== previous.account?.email ||
+          value.account?.username !== previous.account?.username
+        ) {
+          clear()
+          errorMessage.value = accountErrorMessage(new AccountApiError(401))
+          status.value = 'error'
+          return
+        }
+        const commits = await Promise.all(
+          [...runtime.details].map((refreshDetails) => refreshDetails()),
+        )
+        if (current !== revision.value) return
+        for (const commit of commits) commit()
+        session.value = value
+      } catch (error) {
+        if (current !== revision.value) return
+        clear()
+        errorMessage.value = accountErrorMessage(error)
+        status.value = 'error'
+      } finally {
+        if (current === revision.value) {
+          revalidating.value = false
+          runtime.pending = undefined
+        }
+      }
+    })()
+    runtime.pending = pending
+    return pending
+  }
+
+  function onRevalidate(refreshDetails: DetailRevalidation) {
+    runtime.details.add(refreshDetails)
+    return () => runtime.details.delete(refreshDetails)
   }
 
   function notify() {
@@ -51,17 +132,23 @@ export function useAccountSession() {
   }
 
   async function logout() {
+    if (writesBlocked.value)
+      throw new AccountApiError(403, 'recent_auth_required')
+    clear()
+    const current = revision.value
     try {
       await api.logout()
     } catch (error) {
+      if (current !== revision.value) throw error
       clear()
       notify()
       await refresh()
       if (session.value?.state === 'anonymous') return
       throw error
     }
-    clear()
     notify()
+    if (current !== revision.value) return
+    clear()
     await refresh()
   }
 
@@ -69,6 +156,11 @@ export function useAccountSession() {
     session,
     status,
     errorMessage,
+    revision,
+    revalidating,
+    writesBlocked,
+    revalidate,
+    onRevalidate,
     refresh,
     clear,
     accept,
