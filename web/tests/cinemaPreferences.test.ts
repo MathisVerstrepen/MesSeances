@@ -74,10 +74,13 @@ async function fixture(
   const messages: string[] = []
   const storageWrites: string[] = []
   const posts: SaveAccountTheaterPreferences[] = []
+  const theaterQueries: ({ city: string } | undefined)[] = []
   let gets = 0
   let response = value()
   let admitted = options.admission ?? session()
   let read = async () => response
+  let readTheaters = async (query?: { city: string }) =>
+    query ? [catalog[0]!] : catalog
   let write = async (input: SaveAccountTheaterPreferences) => {
     response = value(
       String(BigInt(input.expected_revision) + 1n),
@@ -104,8 +107,10 @@ async function fixture(
     },
     useNuxtApp: () => app,
     useMesSeancesApi: () => ({
-      theaters: async (query?: { city: string }) =>
-        query ? [catalog[0]] : catalog,
+      theaters: async (query?: { city: string }) => {
+        theaterQueries.push(query)
+        return readTheaters(query)
+      },
     }),
     useAccountApi: () => ({
       session: async () => admitted,
@@ -176,11 +181,20 @@ async function fixture(
     get gets() {
       return gets
     },
+    get parisRequests() {
+      return theaterQueries.filter((query) => query?.city === 'Paris').length
+    },
+    get catalogRequests() {
+      return theaterQueries.filter((query) => !query).length
+    },
     get subscriptions() {
       return app._accountRevalidation?.details.size
     },
     setRead: (fn: typeof read) => {
       read = fn
+    },
+    setTheaters: (fn: typeof readTheaters) => {
+      readTheaters = fn
     },
     setWrite: (fn: typeof write) => {
       write = fn
@@ -208,6 +222,7 @@ test('account wins; client-only snapshot never enters payload or device storage;
     await f.another().initialize()
     assert.equal(f.subscriptions, 1)
     assert.equal(f.gets, 1)
+    assert.equal(f.parisRequests, 0)
     assert.equal(f.posts.length, 0)
     assert.deepEqual(f.storageWrites, [])
     assert.equal(
@@ -221,9 +236,199 @@ test('account wins; client-only snapshot never enters payload or device storage;
   }
 })
 
+test('fresh device waits for late or already admitted account preferences without requesting Paris', async () => {
+  for (const lateAdmission of [false, true]) {
+    const f = await fixture()
+    try {
+      const pending = deferred<AccountTheaterPreferences>()
+      f.setRead(() => pending.promise)
+      if (!lateAdmission) f.admit()
+      const initialized = f.preferences.initialize()
+      await settle()
+      assert.equal(f.preferences.catalogReady.value, true)
+      assert.equal(f.preferences.isInitialized.value, false)
+      assert.equal(f.preferences.isLoading.value, true)
+      assert.equal(f.preferences.writesBlocked.value, true)
+      assert.equal(f.parisRequests, 0)
+      if (lateAdmission) f.admit()
+      await settle()
+      await f.another().initialize()
+      assert.equal(f.gets, 1)
+      assert.equal(f.parisRequests, 0)
+      assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-1']), false)
+      pending.resolve(value())
+      await initialized
+      await settle()
+      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-2'])
+      assert.equal(f.preferences.isInitialized.value, true)
+      assert.equal(f.preferences.writesBlocked.value, false)
+      assert.equal(f.parisRequests, 0)
+      assert.equal(f.catalogRequests, 1)
+      assert.equal(f.posts.length, 0)
+      assert.deepEqual(f.storageWrites, [])
+    } finally {
+      f.stop()
+    }
+  }
+})
+
+test('needed anonymous or unset defaults load once and keep selection blocked until resolved', async () => {
+  for (const admission of [anonymous, session()]) {
+    const f = await fixture()
+    try {
+      const paris = deferred<typeof catalog>()
+      f.setTheaters((query) =>
+        query ? paris.promise : Promise.resolve(catalog),
+      )
+      f.setResponse(value('0', []))
+      await f.preferences.initialize()
+      assert.equal(f.parisRequests, 0)
+      f.admit(admission)
+      await settle()
+      const initialized = f.preferences.initialize()
+      const another = f.another().initialize()
+      assert.equal(f.parisRequests, 1)
+      assert.equal(f.preferences.isInitialized.value, false)
+      assert.equal(f.preferences.isLoading.value, true)
+      assert.equal(f.preferences.writesBlocked.value, true)
+      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
+      assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-3']), false)
+      paris.resolve([catalog[1]!])
+      await Promise.all([initialized, another])
+      await settle()
+      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-2'])
+      assert.equal(f.preferences.isInitialized.value, true)
+      assert.equal(f.preferences.writesBlocked.value, false)
+      await f.preferences.initialize()
+      await f.account.revalidate()
+      await settle()
+      assert.equal(f.parisRequests, 1)
+      assert.equal(f.catalogRequests, 1)
+      assert.equal(f.posts.length, 0)
+      assert.deepEqual(f.storageWrites, [])
+    } finally {
+      f.stop()
+    }
+  }
+})
+
+test('logout lazily prepares separate device defaults and does not import them on next login', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await f.preferences.initialize()
+    assert.equal(f.parisRequests, 0)
+    const scope = f.preferences.selectionScopeKey.value
+    f.admit(anonymous)
+    assert.ok(f.preferences.selectionScopeKey.value > scope)
+    assert.equal(f.preferences.isInitialized.value, false)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
+    await settle()
+    assert.equal(f.parisRequests, 1)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    f.setResponse(value('0', [], 'bob'))
+    f.admit(session('bob'))
+    await settle()
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    assert.equal(f.preferences.writesBlocked.value, false)
+    assert.equal(f.posts.length, 0)
+    f.admit(anonymous)
+    await settle()
+    assert.equal(f.parisRequests, 1)
+    assert.deepEqual(f.storageWrites, [])
+  } finally {
+    f.stop()
+  }
+})
+
+test('late public fallback cannot replace saved account selection after an owner switch', async () => {
+  const f = await fixture()
+  try {
+    const paris = deferred<typeof catalog>()
+    f.setTheaters((query) => (query ? paris.promise : Promise.resolve(catalog)))
+    f.setResponse(value('0', []))
+    f.admit()
+    const initialized = f.preferences.initialize()
+    await settle()
+    assert.equal(f.parisRequests, 1)
+    const scope = f.preferences.selectionScopeKey.value
+    f.setResponse(value('3', ['ugc-3'], 'bob'))
+    f.admit(session('bob'))
+    await settle()
+    assert.ok(f.preferences.selectionScopeKey.value > scope)
+    assert.equal(f.preferences.writesBlocked.value, false)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-3'])
+    paris.resolve([catalog[0]!])
+    await initialized
+    await settle()
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-3'])
+    assert.equal(f.posts.length, 0)
+    assert.deepEqual(f.storageWrites, [])
+    f.admit(anonymous)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    assert.equal(f.parisRequests, 1)
+  } finally {
+    f.stop()
+  }
+})
+
+test('failed or empty Paris result uses first national theater once without importing defaults', async () => {
+  for (const failParis of [false, true]) {
+    const f = await fixture()
+    try {
+      f.setTheaters(async (query) => {
+        if (!query) return catalog
+        if (failParis) throw new Error('unavailable')
+        return []
+      })
+      f.setResponse(value('0', []))
+      f.admit()
+      await f.preferences.initialize()
+      await settle()
+      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+      assert.equal(f.preferences.isInitialized.value, true)
+      assert.equal(f.preferences.error.value, null)
+      assert.equal(f.preferences.writesBlocked.value, false)
+      await f.preferences.initialize()
+      assert.equal(f.parisRequests, 1)
+      assert.equal(f.posts.length, 0)
+      assert.deepEqual(f.storageWrites, [])
+    } finally {
+      f.stop()
+    }
+  }
+})
+
+test('preference read failure stays blocked without requesting or importing Paris defaults', async () => {
+  const f = await fixture()
+  try {
+    f.setRead(async () => {
+      throw new errors.AccountApiError(503)
+    })
+    f.admit()
+    await f.preferences.initialize()
+    await settle()
+    assert.equal(f.preferences.isInitialized.value, false)
+    assert.equal(f.preferences.isLoading.value, false)
+    assert.ok(f.preferences.error.value)
+    assert.equal(f.preferences.writesBlocked.value, true)
+    assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-1']), false)
+    assert.equal(f.parisRequests, 0)
+    assert.equal(f.posts.length, 0)
+    f.setRead(async () => value())
+    await f.preferences.retrySynchronization()
+    await settle()
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-2'])
+    assert.equal(f.parisRequests, 0)
+    assert.deepEqual(f.storageWrites, [])
+  } finally {
+    f.stop()
+  }
+})
+
 test('unset imports valid stored IDs once, not provisional defaults', async () => {
   for (const stored of [
-    '["ugc-3","missing"]',
+    '["ugc-3","missing","invalid id",3,null,"ugc-3"]',
     undefined,
     '[]',
     '["missing"]',
@@ -237,6 +442,11 @@ test('unset imports valid stored IDs once, not provisional defaults', async () =
       await settle()
       const imported = stored?.includes('ugc-3') ?? false
       assert.equal(f.posts.length, imported ? 1 : 0)
+      assert.equal(f.parisRequests, imported ? 0 : 1)
+      if (imported) {
+        assert.equal(f.posts[0]?.theater_ids, 'ugc-3')
+        assert.equal(f.posts[0]?.expected_revision, '0')
+      }
       assert.deepEqual(
         [...f.preferences.favoriteTheaterIds.value],
         [imported ? 'ugc-3' : 'ugc-1'],
@@ -253,7 +463,7 @@ test('unset imports valid stored IDs once, not provisional defaults', async () =
 })
 
 test('initialized empty and unavailable IDs stay authoritative; edits retain absent IDs', async () => {
-  const f = await fixture({ stored: '["ugc-1"]' })
+  const f = await fixture()
   try {
     f.setResponse(value('2', ['temporarily-absent']))
     f.admit()
@@ -267,6 +477,7 @@ test('initialized empty and unavailable IDs stay authoritative; edits retain abs
     await f.account.revalidate()
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
     assert.equal(f.posts.length, 1)
+    assert.equal(f.parisRequests, 0)
   } finally {
     f.stop()
   }
@@ -429,6 +640,7 @@ test('pending, disabled and anonymous sessions use device mode; storage failures
     try {
       f.admit(admission)
       await f.preferences.initialize()
+      assert.equal(f.parisRequests, 1)
       assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-3']), true)
       assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-3'])
       assert.equal(f.gets, 0)

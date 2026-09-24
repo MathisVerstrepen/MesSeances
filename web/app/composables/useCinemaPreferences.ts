@@ -24,6 +24,7 @@ function createCinemaPreferences() {
   const account = useAccountSession()
   const theaters = useState<Theater[]>('cinema-preferences:theaters', () => [])
   const deviceIds = ref<string[]>([])
+  const deviceReady = ref(false)
   const snapshot = ref<AccountTheaterPreferences | null>(null)
   const catalogReady = ref(false)
   const catalogError = ref<string | null>(null)
@@ -33,6 +34,7 @@ function createCinemaPreferences() {
   const selectionScopeKey = ref(0)
   const needsReconciliation = ref(false)
   let initializationPromise: Promise<void> | undefined
+  let deviceInitializationPromise: Promise<void> | undefined
   let savingPromise: Promise<boolean> | undefined
   let memoryFavoriteIds: string[] | null = null
   let importIds: string[] = []
@@ -56,8 +58,14 @@ function createCinemaPreferences() {
       !!account.session.value &&
       !owner.value,
   )
+  const needsDeviceSelection = computed(
+    () =>
+      deviceMode.value || (!!owner.value && snapshot.value?.revision === '0'),
+  )
   const isInitialized = computed(
-    () => catalogReady.value && (deviceMode.value || !!snapshot.value),
+    () =>
+      catalogReady.value &&
+      (needsDeviceSelection.value ? deviceReady.value : !!snapshot.value),
   )
   const favoriteTheaterIds = computed(() => {
     if (!isInitialized.value) return []
@@ -121,6 +129,33 @@ function createCinemaPreferences() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(ids))
     } catch {
       // Device selection remains usable in this app when browser storage fails.
+    }
+  }
+
+  async function initializeDeviceSelection() {
+    if (!needsDeviceSelection.value || deviceReady.value) return
+    if (deviceInitializationPromise) return deviceInitializationPromise
+    deviceInitializationPromise = (async () => {
+      let defaultIds: string[] = []
+      try {
+        defaultIds = (await api.theaters({ city: 'Paris' })).map(
+          (theater) => theater.id,
+        )
+      } catch {
+        /* National fallback remains available. */
+      }
+      // This public fallback only prepares device state, even if admission
+      // changes while it loads. It never replaces an account snapshot.
+      deviceIds.value = orderCurrentIds(defaultIds)
+      if (!deviceIds.value.length && theaters.value[0])
+        deviceIds.value = [theaters.value[0].id]
+      deviceReady.value = true
+      // Defaults are provisional, not a stored user choice to import next visit.
+    })()
+    try {
+      await deviceInitializationPromise
+    } finally {
+      deviceInitializationPromise = undefined
     }
   }
 
@@ -236,17 +271,20 @@ function createCinemaPreferences() {
   }
 
   async function bootstrap() {
+    if (!catalogReady.value) return
+    if (deviceMode.value) return initializeDeviceSelection()
     if (
       !owner.value ||
       account.writesBlocked.value ||
-      !catalogReady.value ||
       synchronizing.value ||
       isSaving.value ||
       needsReconciliation.value
     )
       return
     if (!snapshot.value) await readSnapshot()
+    await initializeDeviceSelection()
     if (
+      owner.value &&
       snapshot.value?.revision === '0' &&
       !importAttempted &&
       !writesBlocked.value
@@ -325,7 +363,7 @@ function createCinemaPreferences() {
         void bootstrap()
       })
       watch(
-        [owner, catalogReady, account.writesBlocked],
+        [owner, deviceMode, catalogReady, account.writesBlocked],
         () => {
           void bootstrap()
         },
@@ -352,20 +390,7 @@ function createCinemaPreferences() {
           : await api.theaters()
         importIds = orderCurrentIds(storedFavoriteIds())
         deviceIds.value = [...importIds]
-        if (!deviceIds.value.length) {
-          let defaultIds: string[] = []
-          try {
-            defaultIds = (await api.theaters({ city: 'Paris' })).map(
-              (theater) => theater.id,
-            )
-          } catch {
-            /* National fallback remains available. */
-          }
-          deviceIds.value = orderCurrentIds(defaultIds)
-          if (!deviceIds.value.length && theaters.value[0])
-            deviceIds.value = [theaters.value[0].id]
-        }
-        // Defaults are provisional, not a stored user choice to import next visit.
+        deviceReady.value = importIds.length > 0
         catalogReady.value = true
         await bootstrap()
       } catch (cause) {
