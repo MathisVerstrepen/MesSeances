@@ -632,7 +632,7 @@ async function inspectStyle(page, name) {
           page,
           `(() => {
             const nav = document.querySelector('.account-area-navigation'), current = nav.querySelector('a'), future = [...nav.querySelectorAll('button')];
-            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 1 && current.getAttribute('href') === '/compte' && current.getAttribute('aria-current') === 'page' && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 3 && future.every((el, index) => el.disabled && !el.hasAttribute('href') && el.innerText.includes(['Films aimés', 'Watchlist', 'Amis'][index]) && el.innerText.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && document.querySelector('main h1').textContent.trim() === 'Paramètres';
+            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 1 && current.getAttribute('href') === '/compte' && current.getAttribute('aria-current') === 'page' && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 2 && future.every((el, index) => el.disabled && !el.hasAttribute('href') && el.innerText.includes(['Watchlist', 'Amis'][index]) && el.innerText.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && document.querySelector('main h1').textContent.trim() === 'Paramètres';
           })()`,
         ),
         `${name}: ${width}px current-page semantics and disabled future entries without routes`,

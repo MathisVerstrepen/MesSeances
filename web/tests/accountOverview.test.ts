@@ -560,7 +560,8 @@ test('account area is opt-in, with one current route and disabled future categor
     navigation,
     /to="\/compte"\s+:prefetch="false"\s+aria-current="page"/,
   )
-  assert.match(navigation, /\['Films aimés', 'Watchlist', 'Amis'\]/)
+  assert.match(navigation, /\['Watchlist', 'Amis'\]/)
+  assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
   assert.equal([...navigation.matchAll(/to=/g)].length, 1)

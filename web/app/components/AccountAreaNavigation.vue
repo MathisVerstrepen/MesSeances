@@ -13,7 +13,7 @@
           >Paramètres</NuxtLink
         >
       </li>
-      <li v-for="label in ['Films aimés', 'Watchlist', 'Amis']" :key="label">
+      <li v-for="label in ['Watchlist', 'Amis']" :key="label">
         <button
           type="button"
           disabled
