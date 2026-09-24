@@ -82,6 +82,8 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	}
 	router.Get("/api/v1/auth/google/callback", unavailable)
 	router.Get("/api/v1/account", unavailable)
+	router.Get("/api/v1/account/theaters", unavailable)
+	router.Post("/api/v1/account/theaters", unavailable)
 	router.Get("/api/v1/account/reauth/continuation", unavailable)
 	router.Delete("/api/v1/account", unavailable)
 	router.Post("/api/v1/account/avatar", unavailable)

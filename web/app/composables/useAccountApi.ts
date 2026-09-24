@@ -6,6 +6,8 @@ import type {
   GoogleStart,
   AccountSession,
   AccountAvatarResult,
+  AccountTheaterPreferences,
+  SaveAccountTheaterPreferences,
 } from '~/types/account'
 import { AccountApiError } from '~/utils/accountState'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
@@ -70,6 +72,7 @@ export function useAccountApi() {
         'identity_unavailable',
         'last_login_method',
         'avatar_changed',
+        'theater_selection_changed',
         'avatar_too_large',
         'avatar_unsupported',
         'avatar_invalid',
@@ -103,6 +106,23 @@ export function useAccountApi() {
     logout: () => request<void>('/auth/logout', {}),
     logoutAll: () => request<void>('/auth/logout-all', {}),
     details: () => request<AccountDetails>('/account'),
+    theaterPreferences: (signal?: AbortSignal) =>
+      request<AccountTheaterPreferences>(
+        '/account/theaters',
+        undefined,
+        'GET',
+        signal,
+      ),
+    saveTheaterPreferences: (
+      input: SaveAccountTheaterPreferences,
+      signal?: AbortSignal,
+    ) =>
+      request<AccountTheaterPreferences>(
+        '/account/theaters',
+        { ...input },
+        'POST',
+        signal,
+      ),
     uploadAvatar: (
       file: File,
       signal: AbortSignal,

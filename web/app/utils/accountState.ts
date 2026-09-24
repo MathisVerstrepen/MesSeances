@@ -63,6 +63,8 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Action interrompue. Réessayez après avoir vérifié votre connexion.'
   if (cause.status === 429)
     return 'Trop de tentatives. Patientez un instant avant de réessayer.'
+  if (cause.code === 'theater_selection_changed')
+    return 'Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer.'
   if (cause.code === 'avatar_changed')
     return 'La photo a changé pendant cette action. Vérifiez son état avant de recommencer.'
   if (cause.code === 'avatar_too_large')

@@ -131,6 +131,7 @@ function harness(
     usePageCinemaSelection: () => ({
       activeTheaterIds,
       isInitialized: ref(true),
+      error: ref(null),
     }),
   }
   // SAFETY: The wrapper returns only these bindings from the actual page setup.
@@ -147,6 +148,13 @@ function harness(
     },
   }
 }
+
+test('film keeps nationwide movie evidence but no nationwide showtimes for an empty selection', async () => {
+  const { page, activeTheaterIds } = harness({}, response(['VF']))
+  activeTheaterIds.value = []
+  await page.applyRoute()
+  assert.equal(page.visibleShowtimeCount.value, 0)
+})
 
 for (const language of ['ORIGINAL', 'VOF'] as const) {
   test(`film accepts and shares ${language}, retaining it through empty matches, date and cinema changes`, async () => {

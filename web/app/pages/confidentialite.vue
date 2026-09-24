@@ -32,18 +32,44 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <h3>Préférences de cinémas</h3>
       <p>
-        Le navigateur conserve les identifiants des cinémas sélectionnés dans le
-        stockage local, sous la clé
-        <code>messeances.favoriteTheaterIds.v1</code>. Cette préférence
-        personnalise les séances affichées. Les identifiants peuvent être
-        transmis à l’API MesSeances comme filtres lors de la consultation des
-        pages. Ils ne servent pas à créer un compte utilisateur.
+        Sans connexion à un compte terminé, le navigateur conserve les
+        identifiants des cinémas choisis dans le stockage local, sous la clé
+        <code>messeances.favoriteTheaterIds.v1</code>. Cette sélection locale
+        reste distincte de celle du compte. Les identifiants peuvent être
+        transmis à l’API MesSeances comme filtres pour personnaliser les séances
+        affichées ; ils ne servent pas à créer un compte.
+      </p>
+      <p>
+        Lorsque les comptes sont disponibles et que vous êtes connecté à un
+        compte terminé, les identifiants des cinémas sélectionnés sont
+        enregistrés sur le serveur et associés à ce compte. Ce sont des données
+        personnelles. La sélection du compte prévaut sur celle de chaque
+        appareil, sans remplacer la sélection locale du navigateur.
+      </p>
+      <p>
+        Si le compte n’a encore aucune sélection enregistrée, les cinémas encore
+        disponibles dans le catalogue parmi votre sélection locale enregistrée
+        sont importés une seule fois dans le compte. Sans sélection locale
+        enregistrée valide, les cinémas proposés par défaut restent provisoires
+        : aucun import n’a lieu et le compte attend un enregistrement explicite
+        depuis la page <NuxtLink to="/cinemas">Cinémas</NuxtLink>.
+      </p>
+      <p>
+        Sur les autres appareils connectés au même compte, la sélection est
+        récupérée au retour sur le site, à l’actualisation, lorsque la page
+        redevient active ou lorsque la connexion réseau revient. Les onglets du
+        même navigateur sont également avertis des changements. Il ne s’agit pas
+        d’une synchronisation instantanée entre appareils. En cas de
+        modifications concurrentes, la sélection déjà enregistrée est affichée
+        et les changements non enregistrés doivent être réappliqués.
       </p>
       <p>
         La sélection peut être modifiée depuis la page
-        <NuxtLink to="/cinemas">Cinémas</NuxtLink>. L’effacement des données du
-        site depuis le navigateur supprime la préférence enregistrée et rétablit
-        ensuite la sélection par défaut.
+        <NuxtLink to="/cinemas">Cinémas</NuxtLink>. La déconnexion ou la
+        suppression du compte ne supprime pas la sélection locale du navigateur.
+        L’effacement des données du site dans le navigateur supprime cette
+        sélection locale, sans supprimer celle du compte. Sans sélection
+        enregistrée applicable, les cinémas par défaut sont proposés à nouveau.
       </p>
 
       <h3>Géolocalisation et carte interactive</h3>
@@ -89,8 +115,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         liaison et l’email communiqué par Google sont conservés séparément de
         l’email du compte. Une photo privée peut être ajoutée dans les
         paramètres. Aucun nom n’est importé depuis Google. Il n’y a ni profil
-        public ni annuaire. Les cinémas sélectionnés restent locaux, sans
-        synchronisation avec le compte.
+        public ni annuaire. Les identifiants des cinémas sélectionnés sont
+        également associés au compte terminé pour retrouver cette sélection sur
+        les appareils connectés, selon les modalités décrites ci-dessus.
       </p>
       <p>
         Google est sollicité avec les permissions d’identité, d’email et de
@@ -241,18 +268,22 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </li>
         <li>
           <strong>Personnaliser les séances :</strong>
-          mémoriser et appliquer les cinémas choisis. L’écriture et la lecture
-          de cette préférence dans le stockage local sont exemptées de
-          consentement au titre de l’<a
+          mémoriser et appliquer les cinémas choisis, puis retrouver la
+          sélection du compte sur les appareils connectés. Le stockage des
+          préférences associées au compte et leur synchronisation reposent sur
+          l’exécution du contrat de service pour la personnalisation demandée,
+          conformément à l’article 6, paragraphe 1, point b), du RGPD.
+          L’écriture et la lecture de la préférence locale, y compris sa lecture
+          pour l’import initial, sont exemptées de consentement au titre de l’<a
             href="https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000037813978"
             >article 82 de la loi « Informatique et Libertés »</a
           >, car elles sont strictement nécessaires à une fonctionnalité
-          expressément demandée. Les identifiants de cinémas ne permettent pas,
-          à eux seuls, d’identifier un utilisateur : leur stockage ne constitue
-          donc pas en lui-même un traitement de données personnelles auquel
-          attribuer une base légale au titre du RGPD. Si leur transmission à
-          l’API constitue un traitement de données personnelles, celui-ci repose
-          sur l’intérêt légitime de l’éditeur, conformément à l’<a
+          expressément demandée. Cette exemption de consentement au stockage
+          local ne dispense pas de respecter le RGPD pour les données associées
+          au compte. Hors compte, si la transmission des identifiants à l’API
+          pour filtrer les résultats constitue un traitement de données
+          personnelles, celui-ci repose sur l’intérêt légitime de l’éditeur,
+          conformément à l’<a
             href="https://www.cnil.fr/fr/reglement-europeen-protection-donnees/chapitre2#Article6"
             >article 6, paragraphe 1, point f), du RGPD</a
           >, à seule fin de renvoyer les résultats personnalisés expressément
@@ -392,12 +423,12 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         automatique pour inactivité n’est appliquée. Pour un compte terminé, la
         suppression demandée après preuve d’identité est immédiate et
         irréversible dans la base active : compte, moyens de connexion,
-        sessions, liens et messages en attente associés sont supprimés. Le nom
-        d’utilisateur seul reste réservé indéfiniment, sans identifiant de
-        compte, email, identité Google ou date de suppression associés, pour
-        empêcher sa réutilisation et l’usurpation. Cette réserve ne peut pas
-        être annulée depuis l’interface et ne garantit pas l’anonymat du nom
-        d’utilisateur.
+        sessions, préférences de cinémas, liens et messages en attente associés
+        sont supprimés. Le nom d’utilisateur seul reste réservé indéfiniment,
+        sans identifiant de compte, email, identité Google ou date de
+        suppression associés, pour empêcher sa réutilisation et l’usurpation.
+        Cette réserve ne peut pas être annulée depuis l’interface et ne garantit
+        pas l’anonymat du nom d’utilisateur.
       </p>
       <dl class="legal-list">
         <div>
@@ -449,7 +480,17 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <dt>Préférences locales</dt>
           <dd>
             Jusqu’à leur remplacement par une nouvelle sélection ou l’effacement
-            des données du site dans le navigateur.
+            des données du site dans le navigateur. La déconnexion et la
+            suppression du compte ne les effacent pas.
+          </dd>
+        </div>
+        <div>
+          <dt>Préférences de cinémas du compte</dt>
+          <dd>
+            Jusqu’à leur remplacement ou la suppression du compte dans la base
+            active. La durée de conservation des sauvegardes et leur effacement
+            restent à valider par l’exploitant ; aucune suppression immédiate de
+            ces copies n’est promise.
           </dd>
         </div>
         <div>
@@ -551,10 +592,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div>
           <dt>Stockage local « Mes cinémas »</dt>
           <dd>
-            Mémorise la sélection demandée par l’utilisateur, sans
-            synchronisation avec le compte. Ce stockage est exempté de
-            consentement dans les conditions exposées dans les finalités
-            ci-dessus, jusqu’à remplacement ou effacement dans le navigateur.
+            Mémorise la sélection locale utilisée hors compte terminé, distincte
+            de celle du compte. Une sélection locale enregistrée valide peut
+            initialiser un compte sans sélection. Les modifications du compte ne
+            remplacent pas ce stockage, conservé jusqu’à remplacement local ou
+            effacement dans le navigateur, même après déconnexion ou suppression
+            du compte. Il est exempté de consentement dans les conditions
+            exposées dans les finalités ci-dessus.
+          </dd>
+        </div>
+        <div>
+          <dt>Sélection de cinémas du compte</dt>
+          <dd>
+            Conservée sur le serveur, associée au compte terminé et synchronisée
+            sur les appareils connectés selon les modalités ci-dessus. Elle
+            n’est pas recopiée dans le stockage local et reste conservée jusqu’à
+            remplacement ou suppression du compte, sous réserve des limites
+            relatives aux sauvegardes.
           </dd>
         </div>
         <div>

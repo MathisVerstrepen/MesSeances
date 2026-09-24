@@ -64,6 +64,8 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	}
 	get("/auth/session", h.session)
 	get("/account", h.details)
+	get("/account/theaters", h.theaterPreferences)
+	post("/account/theaters", h.saveTheaterPreferences, h.theaters)
 	post("/auth/register", h.register, h.send)
 	post("/auth/login", h.loginHandler, h.login)
 	post("/auth/verification/request", h.requestVerification, h.send)

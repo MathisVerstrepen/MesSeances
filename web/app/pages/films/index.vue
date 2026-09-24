@@ -220,14 +220,17 @@ async function loadMovies() {
   pending.value = true
   errorMessage.value = ''
 
-  if (preferences.error.value) {
+  if (!appliedFilters.value.allTheaters && preferences.error.value) {
     catalog.value = null
     errorMessage.value = preferences.error.value
     pending.value = false
     await finishAdvancedApplyNavigation()
     return
   }
-  if (!preferences.isInitialized.value) return
+  if (!appliedFilters.value.allTheaters && !preferences.isInitialized.value) {
+    catalog.value = null
+    return
+  }
   if (
     !appliedFilters.value.allTheaters &&
     preferences.favoriteTheaterIds.value.length === 0
@@ -291,7 +294,7 @@ async function loadMovies() {
 async function retryMovies() {
   pending.value = true
   errorMessage.value = ''
-  await preferences.initialize()
+  await preferences.retrySynchronization()
   if (!preferences.isInitialized.value) {
     await loadMovies()
     return
@@ -529,9 +532,22 @@ watch(
     if (isMounted && !isInitializing) applyRoute()
   },
 )
-watch(preferences.favoriteTheaterIds, () => {
-  if (preferences.isInitialized.value && !isInitializing) applyRoute()
-})
+watch(
+  [
+    preferences.favoriteTheaterIds,
+    preferences.selectionScopeKey,
+    preferences.isInitialized,
+    preferences.error,
+  ],
+  () => {
+    if (appliedFilters.value.allTheaters) return
+    requestId++
+    catalog.value = null
+    lastLoadKey = ''
+    if (isMounted && !isInitializing) void loadMovies()
+  },
+  { flush: 'sync' },
+)
 onMounted(async () => {
   isMounted = true
   isInitializing = true
@@ -542,6 +558,10 @@ onMounted(async () => {
   isInitializing = false
   if (preferences.isInitialized.value) await applyRoute()
   else await loadMovies()
+})
+onBeforeUnmount(() => {
+  isMounted = false
+  requestId++
 })
 
 const config = useRuntimeConfig()

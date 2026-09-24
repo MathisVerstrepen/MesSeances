@@ -103,6 +103,9 @@ function harness(
     route.query = nextQuery
   }
   let searchCalls = 0
+  const activeTheaterIds = ref(['ugc-25', 'ugc-46', 'ugc-45'])
+  const isInitialized = ref(true)
+  const selectionScopeKey = ref(0)
   const bindings = {
     ...date,
     ...routeQuery,
@@ -124,13 +127,14 @@ function harness(
       },
     }),
     usePageCinemaSelection: () => ({
-      activeTheaterIds: ref(['ugc-25', 'ugc-46', 'ugc-45']),
+      activeTheaterIds,
       activeTheaters: ref([
         { id: 'ugc-25', available_dates: ['2026-09-13'] },
         { id: 'ugc-46', available_dates: ['2026-09-13'] },
         { id: 'ugc-45', available_dates: ['2026-09-13'] },
       ]),
-      isInitialized: ref(true),
+      isInitialized,
+      selectionScopeKey,
       isLoading: ref(false),
       error: ref(''),
       initialize: async () => {},
@@ -154,10 +158,35 @@ function harness(
   return {
     page,
     route,
+    activeTheaterIds,
+    isInitialized,
+    selectionScopeKey,
     stop: () => scope.stop(),
     searchCalls: () => searchCalls,
   }
 }
+
+test('selection invalidation fences a pending search without rewriting its URL until selection resolves', async () => {
+  let resolve!: (value: SlotResult[]) => void
+  const pending = new Promise<SlotResult[]>((yes) => {
+    resolve = yes
+  })
+  const f = harness({ ...searchQuery }, () => pending)
+  try {
+    const initialized = f.page.initializePreferences()
+    await nextTick()
+    f.isInitialized.value = false
+    f.activeTheaterIds.value = []
+    f.selectionScopeKey.value++
+    assert.equal(f.route.query.theaters, 'ugc-25')
+    resolve(response)
+    await initialized
+    assert.equal(f.page.visibleResults.value.length, 0)
+    assert.equal(f.page.pending.value, false)
+  } finally {
+    f.stop()
+  }
+})
 
 test('theater filter starts collapsed and supports a draft subset of saved theaters', async (context) => {
   const { page, route, stop } = harness({})

@@ -23,6 +23,7 @@ const props = defineProps<{
   theaters: readonly Theater[]
   favoriteTheaterIds: readonly string[]
   userPosition: GeographicPoint | null
+  selectionDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -643,7 +644,8 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.65rem] font-black tracking-[0.06em] text-surface uppercase enabled:hover:bg-primary focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50"
-              @click="emit('toggle-favorite', selectedTheater.id)"
+              :disabled="selectionDisabled"
+              @click="!selectionDisabled && emit('toggle-favorite', selectedTheater.id)"
             >
               {{
                 favoriteIds.has(selectedTheater.id) ? 'Retirer de mes cinémas' : 'Ajouter à mes cinémas'

@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [048_validate_account_avatar_webp.sql](048_validate_account_avatar_webp.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [049_account_theater_preferences.sql](049_account_theater_preferences.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -79,7 +79,7 @@ Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and
 
 ## Account tables
 
-Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql), [045_account_registration_binding.sql](045_account_registration_binding.sql), [046_account_avatars.sql](046_account_avatars.sql) and [047_account_avatar_webp.sql](047_account_avatar_webp.sql). Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
+Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql), [045_account_registration_binding.sql](045_account_registration_binding.sql), [046_account_avatars.sql](046_account_avatars.sql), [047_account_avatar_webp.sql](047_account_avatar_webp.sql) and [049_account_theater_preferences.sql](049_account_theater_preferences.sql). Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
 
 | Table | Columns and constraints |
 | --- | --- |
@@ -93,8 +93,11 @@ Accounts are independent of schedule generations, administrator authentication a
 | `account_mail_outbox` | Identity ID PK; UNIQUE 32-byte `event_digest`; nullable account/token/revision; checked purpose; encrypted payload key/nonce/ciphertext; state (`pending`, `sent`, `failed`); attempts 0-6; created/expiry/next-attempt; nullable lease expiry/digest and terminal time. Lifetime at most 24 hours. Pending state requires encrypted payload; terminal state requires payload/lease erasure and finish time. |
 | `account_mail_suppressions` | 32-byte address-HMAC PK; reason (`permanent_bounce`, `complaint`); created/updated/expiry times. Expiry at most 4320 hours after update. No account FK; remains personal/security data. |
 | `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username, email change, `avatar_write` and `avatar_import`. |
+| `account_theater_preferences` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `theater_ids text[]` validated by `account_theater_ids_valid`. Missing row means never initialized, distinct from an existing row with empty array. No FK to generation-scoped theaters. |
 
 All account ownership foreign keys cascade except username claims. Composite session/account and token/account foreign keys prevent cross-account binding; their deletion cascades dependent grants, flows and queued mail. Account-associated outbox rows cascade on deletion. Terminal delivery metadata is detached from account/token authority. Suppressions and quota HMACs have independent bounded retention.
+
+`account_theater_ids_valid(text[])` is an immutable strict SQL function enforcing at most 4,096 distinct nonnull IDs, each matching `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$` under `C` collation. Nonempty arrays must be one-dimensional with lower bound 1; empty arrays are valid. The application stores IDs in canonical ASCII order, uses account-row serialization and revision comparison for concurrent updates, and preserves syntactically valid IDs that are absent from the current schedule. Preference revisions do not change authentication revisions or invalidate sessions. No existing accounts are backfilled by migration 049.
 
 Avatars store only a generated relative filesystem name in PostgreSQL, never image bytes, Base64, original filenames or Google picture URLs. Existing accounts start with source none and no backfill. Removal sets source removed and increments the avatar revision; that intent prevents later Google imports while permitting explicit uploads. Avatar fields disappear with account deletion. Filesystem deletion is post-commit with bounded orphan collection for failures; it is not a database cascade. The partial unique `accounts_avatar_path_idx` also supports collector reference checks. Database and private media directory must be backed up and restored as a paired, quiesced snapshot.
 

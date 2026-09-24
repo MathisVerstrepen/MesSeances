@@ -105,6 +105,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{46, "046_account_avatars.sql"},
 		{47, "047_account_avatar_webp.sql"},
 		{48, "048_validate_account_avatar_webp.sql"},
+		{49, "049_account_theater_preferences.sql"},
 	}
 
 	items, err := embeddedMigrations()

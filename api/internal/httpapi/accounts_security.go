@@ -29,6 +29,7 @@ type accountHTTP struct {
 	origin, cookieName string
 	secure             bool
 	login, send, step  *tokenBucketLimiter
+	theaters           *tokenBucketLimiter
 }
 
 func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
@@ -45,9 +46,10 @@ func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
 		name = accountDevCookieName
 	}
 	return &accountHTTP{service: options.Service, origin: options.Origin, cookieName: name, secure: secure,
-		login: newTokenBucketLimiter(20, 20.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
-		send:  newTokenBucketLimiter(10, 10.0/3600, time.Hour, maxRateLimitClients, time.Now),
-		step:  newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now)}, nil
+		login:    newTokenBucketLimiter(20, 20.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		send:     newTokenBucketLimiter(10, 10.0/3600, time.Hour, maxRateLimitClients, time.Now),
+		step:     newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		theaters: newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now)}, nil
 }
 
 func accountError(w http.ResponseWriter, err error) {
@@ -65,6 +67,8 @@ func accountError(w http.ResponseWriter, err error) {
 		w.Header().Set("Retry-After", "1")
 	case errors.Is(err, accounts.ErrAvatarChanged):
 		status, code, message = 409, "avatar_changed", "La photo a changé. Vérifiez son état."
+	case errors.Is(err, accounts.ErrTheaterSelectionChanged):
+		status, code, message = 409, "theater_selection_changed", "Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer."
 	case errors.Is(err, accounts.ErrAvatarNotFound):
 		status, code, message = 404, "avatar_not_found", "Photo indisponible."
 	case errors.As(err, &rate):
@@ -136,7 +140,11 @@ func (h *accountHTTP) mutationBoundary(next http.HandlerFunc, limiter *tokenBuck
 // keys (including escaped aliases), null, invalid UTF-8 and trailing values before
 // decoding. encoding/json alone accepts duplicates and case-insensitive names.
 func accountJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 8192))
+	return accountJSONLimit(w, r, dst, 8192)
+}
+
+func accountJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil || !utf8.Valid(body) {
 		accountError(w, accounts.ErrInvalidInput)
 		return false

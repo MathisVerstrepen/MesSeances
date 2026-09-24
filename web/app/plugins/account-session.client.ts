@@ -1,5 +1,6 @@
 export default defineNuxtPlugin((nuxtApp) => {
   const account = useAccountSession()
+  useCinemaPreferences().startSynchronization()
   let active = true
   const refresh = () => {
     if (active) void account.refresh()
@@ -27,12 +28,16 @@ export default defineNuxtPlugin((nuxtApp) => {
     nuxtApp._accountChannel = channel
     channel.onmessage = (event) => {
       if (event.data === 'changed') refresh()
+      if (event.data === 'theaters-changed') focus()
     }
   }
   nuxtApp.hook('app:mounted', () => {
     if (account.status.value === 'idle') refresh()
     window.addEventListener('focus', focus)
-    window.addEventListener('online', refresh)
+    window.addEventListener('online', focus)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') focus()
+    })
     window.addEventListener('offline', offline)
     window.addEventListener('pagehide', pagehide)
     window.addEventListener('pageshow', pageshow)

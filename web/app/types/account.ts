@@ -34,6 +34,18 @@ export interface AccountAvatarResult {
   avatar_url: string | null
 }
 
+export interface AccountTheaterPreferences {
+  username: string
+  revision: string
+  theater_ids: string[]
+}
+
+export interface SaveAccountTheaterPreferences {
+  expected_username: string
+  expected_revision: string
+  theater_ids: string
+}
+
 export type AccountAction =
   | 'password_add'
   | 'password_change'
