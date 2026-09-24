@@ -7,7 +7,7 @@ RUN go mod download
 
 COPY api/ ./
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/messeances-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -tags=nodynamic -trimpath -ldflags="-s -w" -o /out/messeances-api ./cmd/api
 
 FROM alpine:3.22
 

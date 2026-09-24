@@ -174,7 +174,7 @@ type avatarImport struct {
 	subject, picture             string
 }
 
-// GooglePictureFetcher returns normalized PNG bytes. Production uses the private
+// GooglePictureFetcher returns normalized WebP bytes. Production uses the private
 // media store; local issuer fixtures inject synthetic media without real network.
 type GooglePictureFetcher interface {
 	Fetch(context.Context, string) ([]byte, error)

@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"hash/crc32"
-	"image"
 	"io"
+
+	webpdecoder "golang.org/x/image/webp"
 )
 
 // Framing only: raster decoding remains with maintained standard/x/image codecs.
@@ -170,7 +171,7 @@ func webpFraming(b []byte, w, h int) ([]byte, error) {
 			copy(header[8:], "WEBP")
 			copy(header[12:], typ)
 			binary.LittleEndian.PutUint32(header[16:], uint32(n))
-			cfg, _, err := image.DecodeConfig(io.MultiReader(bytes.NewReader(header), bytes.NewReader(data), bytes.NewReader([]byte{0})))
+			cfg, err := webpdecoder.DecodeConfig(io.MultiReader(bytes.NewReader(header), bytes.NewReader(data), bytes.NewReader([]byte{0})))
 			if err != nil || cfg.Width != w || cfg.Height != h || !dimensions(cfg.Width, cfg.Height) {
 				return nil, ErrInvalid
 			}

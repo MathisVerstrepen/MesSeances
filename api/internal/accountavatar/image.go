@@ -7,14 +7,14 @@ import (
 	"errors"
 	"image"
 	"image/color"
-	_ "image/jpeg"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"mime"
 
 	"github.com/bep/imagemeta"
 	"golang.org/x/image/draw"
-	_ "golang.org/x/image/webp"
+	webpdecoder "golang.org/x/image/webp"
 )
 
 const (
@@ -41,9 +41,9 @@ func Normalize(ctx context.Context, data []byte, contentType string) ([]byte, er
 	if len(data) > MaxInput {
 		return nil, ErrTooLarge
 	}
-	cfg, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if format != "jpeg" && format != "png" && format != "webp" {
-		return nil, ErrUnsupported
+	cfg, format, err := decodeConfig(data)
+	if errors.Is(err, ErrUnsupported) {
+		return nil, err
 	}
 	if err != nil || !dimensions(cfg.Width, cfg.Height) {
 		return nil, ErrInvalid
@@ -60,30 +60,57 @@ func Normalize(ctx context.Context, data []byte, contentType string) ([]byte, er
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	im, decodedFormat, err := image.Decode(bytes.NewReader(data))
-	if err != nil || decodedFormat != format || im.Bounds().Dx() != cfg.Width || im.Bounds().Dy() != cfg.Height {
+	im, err := decodeRaster(data, format)
+	if err != nil || im.Bounds().Dx() != cfg.Width || im.Bounds().Dy() != cfg.Height {
 		return nil, ErrInvalid
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
+	return encodeAvatar(ctx, normalizedRaster(im, o))
+}
+
+// Decoder selection never uses image's global registry: the encoder registers
+// its own WebP decoder, which must not become an untrusted-input decoder.
+func decodeConfig(data []byte) (image.Config, string, error) {
+	r := bytes.NewReader(data)
+	switch {
+	case bytes.HasPrefix(data, []byte{255, 216}):
+		cfg, err := jpeg.DecodeConfig(r)
+		return cfg, "jpeg", err
+	case bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")):
+		cfg, err := png.DecodeConfig(r)
+		return cfg, "png", err
+	case len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
+		cfg, err := webpdecoder.DecodeConfig(r)
+		return cfg, "webp", err
+	default:
+		return image.Config{}, "", ErrUnsupported
+	}
+}
+
+func decodeRaster(data []byte, format string) (image.Image, error) {
+	r := bytes.NewReader(data)
+	switch format {
+	case "jpeg":
+		return jpeg.Decode(r)
+	case "png":
+		return png.Decode(r)
+	case "webp":
+		return webpdecoder.Decode(r)
+	default:
+		return nil, ErrUnsupported
+	}
+}
+
+func normalizedRaster(im image.Image, o uint16) *image.NRGBA {
 	upright := oriented{im, o}
 	b := upright.Bounds()
 	size := min(b.Dx(), b.Dy())
 	x, y := (b.Dx()-size)/2, (b.Dy()-size)/2
 	out := image.NewNRGBA(image.Rect(0, 0, 256, 256))
 	draw.ApproxBiLinear.Scale(out, out.Bounds(), upright, image.Rect(x, y, x+size, y+size), draw.Src, nil)
-	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	if err = png.Encode(&buf, out); err != nil || buf.Len() > MaxOutput {
-		return nil, ErrInvalid
-	}
-	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return out
 }
 
 // oriented is a nonallocating inverse coordinate transform, including reflections.

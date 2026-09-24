@@ -221,13 +221,15 @@ See [development and release operation](docs/releasing.md) for exact worktree co
 
 ## Contributor checks
 
+API builds and direct avatar/account test commands require `-tags=nodynamic` to use the pinned CGO-free WebP encoder rather than a host library. Makefile, Air, CI and Docker supply the tag. Existing PNG avatars require the separately authorized offline conversion in the [accounts runbook](docs/accounts.md#one-time-png-to-webp-conversion) before enabled account startup after migration 047; normal startup never converts media automatically.
+
 These offline checks do not run UGC, Kinepolis, Pathé, CGR, or Megarama synchronization and do not make real TMDB or IGN calls:
 
 ```sh
 python -m unittest discover -s scripts/tests
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
 docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
-cd api && go test ./...
+cd api && go test -tags=nodynamic ./...
 cd ..
 npm --prefix web run test:unit
 npm --prefix web run typecheck

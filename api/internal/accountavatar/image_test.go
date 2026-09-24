@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"golang.org/x/image/draw"
+	webpdecoder "golang.org/x/image/webp"
 )
 
 // Generated locally with ImageMagick: 7x5 asymmetric corner blocks, no personal media.
@@ -145,7 +146,7 @@ func TestOrientationFormats(t *testing.T) {
 	for _, format := range []string{"jpeg", "png", "webp"} {
 		t.Run(format, func(t *testing.T) {
 			original := fixture(t, format)
-			im, _, err := image.Decode(bytes.NewReader(original))
+			im, err := decodeRaster(original, format)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -164,28 +165,32 @@ func TestOrientationFormats(t *testing.T) {
 					if err != nil {
 						t.Fatalf("orientation %d: %v", o, err)
 					}
-					decoded, err := png.Decode(bytes.NewReader(got))
+					decoded, err := webpdecoder.Decode(bytes.NewReader(got))
 					if err != nil {
 						t.Fatal(err)
 					}
 					want := expected(im, o)
+					raster := normalizedRaster(im, o)
+					var squared float64
 					for y := 0; y < 256; y++ {
 						for x := 0; x < 256; x++ {
 							a := color.NRGBAModel.Convert(decoded.At(x, y)).(color.NRGBA)
 							b := want.NRGBAAt(x, y)
-							if a != b {
-								t.Fatalf("orientation %d pixel %d,%d: %v want %v", o, x, y, a, b)
+							if raster.NRGBAAt(x, y) != b || a.A != b.A {
+								t.Fatalf("orientation %d geometry/alpha %d,%d", o, x, y)
+							}
+							for _, pair := range [][2]uint8{{a.R, b.R}, {a.G, b.G}, {a.B, b.B}} {
+								d := float64(pair[0]) - float64(pair[1])
+								squared += d * d
 							}
 						}
 					}
-					for pos := 8; pos < len(got); {
-						n := int(binary.BigEndian.Uint32(got[pos:]))
-						typ := string(got[pos+4 : pos+8])
-						if typ != "IHDR" && typ != "IDAT" && typ != "IEND" {
-							t.Fatalf("output metadata %s", typ)
-						}
-						pos += n + 12
+					// Saturated corner boundaries lose chroma detail with VP8 4:2:0:
+					// RMSE <= 20; exact geometry checked before encoding.
+					if squared/(256*256*3) > 400 {
+						t.Fatalf("orientation %d fidelity MSE %.2f", o, squared/(256*256*3))
 					}
+					assertLossyWebP(t, got)
 				}
 			}
 		})

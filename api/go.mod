@@ -10,6 +10,7 @@ require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/bep/imagemeta v1.0.0
 	github.com/coreos/go-oidc/v3 v3.21.0
+	github.com/gen2brain/webp v0.6.4
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-chi/cors v1.2.2
 	github.com/jackc/pgx/v5 v5.9.2
@@ -40,6 +41,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

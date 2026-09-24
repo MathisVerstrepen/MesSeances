@@ -111,9 +111,9 @@ func (h *accountHTTP) avatar(w http.ResponseWriter, r *http.Request) {
 		accountError(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Type", "image/webp")
 	w.Header().Set("Content-Length", strconv.Itoa(len(b)))
-	w.Header().Set("Content-Disposition", `inline; filename="avatar.png"`)
+	w.Header().Set("Content-Disposition", `inline; filename="avatar.webp"`)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(b)
 }

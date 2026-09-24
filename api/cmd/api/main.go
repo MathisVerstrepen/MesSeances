@@ -46,13 +46,9 @@ import (
 
 func main() {
 	logger := observability.NewLogger(os.Stderr)
-	if err := runtimeconfig.LoadDotEnv(); err != nil {
-		logDotEnvFailure(logger)
-		os.Exit(1)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx); err != nil {
+	if err := dispatch(ctx, os.Args[1:], logger); err != nil {
 		logProcessFailure(logger, err)
 		os.Exit(1)
 	}
@@ -118,6 +114,8 @@ func safeProcessFailureDetail(err error) processFailureDetail {
 		return processFailureDetail{stage: "database", reason: "database startup failed"}
 	case "database migration failed":
 		return processFailureDetail{stage: "migration", reason: "database migration failed"}
+	case "account avatar conversion required", "account avatar conversion failed":
+		return processFailureDetail{stage: "migration", reason: err.Error()}
 	case "shortlink retention startup failed":
 		return processFailureDetail{stage: "retention", reason: "shortlink retention startup failed"}
 	case "sync run retention startup failed":
@@ -164,6 +162,20 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Own the media root before any schema change. The deferred close runs after
+	// HTTP draining and worker cleanup, including every partial-startup failure.
+	var avatars *accountavatar.Store
+	if cfg.Accounts.Enabled {
+		avatars, err = accountavatar.Open(cfg.Accounts.AvatarDir)
+		if err != nil {
+			return fmt.Errorf("configuration error")
+		}
+		defer func() {
+			if err := avatars.Close(); err != nil {
+				logger.Warn("account_avatar_close_failed")
+			}
+		}()
+	}
 	proxies, err := loadSyncProxies(cfg.Proxy.Path, func(path string) (io.ReadCloser, error) { return os.Open(path) })
 	if err != nil {
 		return err
@@ -180,6 +192,14 @@ func run(ctx context.Context) error {
 			return migrationHistoryIncompatibleProcessFailure
 		}
 		return fmt.Errorf("database migration failed")
+	}
+	if avatars != nil {
+		if err := accounts.NewPostgresStore(pool).AvatarConversionReady(startupCtx); err != nil {
+			if errors.Is(err, accounts.ErrAvatarConversionRequired) {
+				return accounts.ErrAvatarConversionRequired
+			}
+			return fmt.Errorf("database migration failed")
+		}
 	}
 	shortlinkStore := shortlink.NewPostgresStore(pool)
 	if err := purgeShortlinksAtStartup(startupCtx, shortlinkStore, time.Now); err != nil {
@@ -230,17 +250,11 @@ func run(ctx context.Context) error {
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
-	accountService, err := newAccountService(pool, cfg)
+	accountService, err := newAccountService(pool, cfg, avatars)
 	if err != nil {
 		return err
 	}
 	if accountService != nil {
-		defer func() {
-			cleanup()
-			if err := accountService.CloseAvatars(); err != nil {
-				logger.Warn("account_avatar_close_failed")
-			}
-		}()
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountAvatarCleanup(workerCtx, accountService, logger) }()
 		polling.Add(1)
@@ -536,7 +550,7 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 	})
 }
 
-func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config) (*accounts.Service, error) {
+func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *accountavatar.Store) (*accounts.Service, error) {
 	if !cfg.Accounts.Enabled {
 		return nil, nil
 	}
@@ -552,8 +566,7 @@ func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config) (*accounts.
 	if err != nil {
 		return nil, fmt.Errorf("configuration error")
 	}
-	avatars, err := accountavatar.Open(cfg.Accounts.AvatarDir)
-	if err != nil {
+	if avatars == nil {
 		return nil, fmt.Errorf("configuration error")
 	}
 	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
@@ -562,7 +575,6 @@ func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config) (*accounts.
 		Avatars: avatars,
 	})
 	if err != nil {
-		_ = avatars.Close()
 		return nil, fmt.Errorf("configuration error")
 	}
 	return service, nil

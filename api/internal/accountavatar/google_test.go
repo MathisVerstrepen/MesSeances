@@ -105,7 +105,13 @@ func TestLocalGoogleFetchLimitsAndTLSHostname(t *testing.T) {
 	s := &Store{client: p}
 	for _, m := range []string{"ok", "redirect", "encoding", "status", "headers", "oversize", "slow"} {
 		mode = m
-		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		// Successful synchronous WebP encoding needs race-instrumentation headroom.
+		// Keep the slow-server cancellation check short; production budget is unchanged.
+		budget := 5 * time.Second
+		if m == "slow" {
+			budget = 200 * time.Millisecond
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), budget)
 		got, err := s.Fetch(ctx, "https://lh3.googleusercontent.com/photo")
 		cancel()
 		if m == "ok" {

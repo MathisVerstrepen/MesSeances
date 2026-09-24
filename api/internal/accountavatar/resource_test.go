@@ -6,6 +6,8 @@ import (
 	"image"
 	"image/png"
 	"testing"
+
+	webpdecoder "golang.org/x/image/webp"
 )
 
 func FuzzNormalize(f *testing.F) {
@@ -24,11 +26,11 @@ func FuzzNormalize(f *testing.F) {
 		if err != nil {
 			return
 		}
-		cfg, err := png.DecodeConfig(bytes.NewReader(out))
+		cfg, err := webpdecoder.DecodeConfig(bytes.NewReader(out))
 		if err != nil || cfg.Width != 256 || cfg.Height != 256 || len(out) > MaxOutput {
 			t.Fatal("normalized image invariant")
 		}
-		meta, err := pngFraming(out)
+		meta, err := webpFraming(out, 256, 256)
 		if err != nil || len(meta) != 0 {
 			t.Fatal("metadata survived normalization")
 		}

@@ -1,6 +1,7 @@
 version: "2"
 
 run:
+  build-tags: [nodynamic]
   relative-path-mode: gomod
   modules-download-mode: readonly
 

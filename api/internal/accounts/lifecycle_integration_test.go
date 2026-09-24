@@ -60,6 +60,11 @@ type lifecycleFixture struct {
 
 func newLifecycleFixture(t *testing.T) *lifecycleFixture {
 	t.Helper()
+	return newLifecycleFixtureWithSchema(t, database.RunMigrations)
+}
+
+func newLifecycleFixtureWithSchema(t *testing.T, migrate func(context.Context, *pgxpool.Pool) error) *lifecycleFixture {
+	t.Helper()
 	raw := os.Getenv("TEST_DATABASE_URL")
 	if raw == "" {
 		t.Skip("TEST_DATABASE_URL not set; isolated account lifecycle unavailable")
@@ -107,7 +112,7 @@ func newLifecycleFixture(t *testing.T) *lifecycleFixture {
 	if err = pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&actual); err != nil || actual != schema {
 		t.Fatal("schema isolation failed")
 	}
-	if err = database.RunMigrations(ctx, pool); err != nil {
+	if err = migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	cipher, err := accountmail.NewCipher("test-key", []byte(strings.Repeat("k", 32)), nil)

@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,10 +14,12 @@ import (
 	"syscall"
 	"time"
 
+	webpdecoder "golang.org/x/image/webp"
 	"golang.org/x/sys/unix"
 )
 
-var finalName = regexp.MustCompile(`^[a-f0-9]{32}\.png$`)
+var finalName = regexp.MustCompile(`^[a-f0-9]{32}\.webp$`)
+var legacyName = regexp.MustCompile(`^[a-f0-9]{32}\.png$`)
 var tempName = regexp.MustCompile(`^[a-f0-9]{32}\.tmp$`)
 
 // Store has one runtime owner. Close only after requests and Sweep have drained.
@@ -150,7 +151,7 @@ func (s *Store) Stage(ctx context.Context, b []byte) (*Stage, error) {
 		return nil, ErrStorage
 	}
 	base := hex.EncodeToString(random[:])
-	stage := &Stage{s, base + ".tmp", base + ".png"}
+	stage := &Stage{s, base + ".tmp", base + ".webp"}
 	s.mu.Lock()
 	s.active[stage.temp] = true
 	s.active[stage.name] = true
@@ -192,6 +193,29 @@ func (s *Store) Read(ctx context.Context, name string) ([]byte, error) {
 	if !finalName.MatchString(name) {
 		return nil, ErrStorage
 	}
+	b, err := s.readFile(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := webpdecoder.DecodeConfig(bytes.NewReader(b))
+	if err != nil || cfg.Width != 256 || cfg.Height != 256 {
+		return nil, ErrStorage
+	}
+	if _, err = webpFraming(b, 256, 256); err != nil {
+		return nil, ErrStorage
+	}
+	im, err := webpdecoder.Decode(bytes.NewReader(b))
+	if err != nil || im.Bounds().Dx() != 256 || im.Bounds().Dy() != 256 {
+		return nil, ErrStorage
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// readFile is private; callers must first validate the generated filename.
+func (s *Store) readFile(ctx context.Context, name string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -211,23 +235,13 @@ func (s *Store) Read(ctx context.Context, name string) ([]byte, error) {
 	if err != nil || len(b) > MaxOutput {
 		return nil, ErrStorage
 	}
-	cfg, err := png.DecodeConfig(bytes.NewReader(b))
-	if err != nil || cfg.Width != 256 || cfg.Height != 256 {
-		return nil, ErrStorage
-	}
-	if _, err = pngFraming(b); err != nil {
-		return nil, ErrStorage
-	}
-	if _, err = png.Decode(bytes.NewReader(b)); err != nil {
-		return nil, ErrStorage
-	}
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 func (s *Store) remove(name string) error {
-	if !finalName.MatchString(name) && !tempName.MatchString(name) {
+	if !storedName(name) && !tempName.MatchString(name) {
 		return ErrStorage
 	}
 	info, err := s.root.Lstat(name)
@@ -243,7 +257,7 @@ func (s *Store) remove(name string) error {
 	return nil
 }
 func (s *Store) Remove(name string) error {
-	if !finalName.MatchString(name) {
+	if !storedName(name) {
 		return ErrStorage
 	}
 	return s.remove(name)
@@ -289,7 +303,7 @@ func (s *Store) Sweep(ctx context.Context, now time.Time, references func(contex
 			return result, ctx.Err()
 		}
 		name := entry.Name()
-		if !finalName.MatchString(name) && !tempName.MatchString(name) {
+		if !storedName(name) && !tempName.MatchString(name) {
 			continue
 		}
 		s.mu.Lock()
@@ -311,7 +325,7 @@ func (s *Store) Sweep(ctx context.Context, now time.Time, references func(contex
 			continue
 		}
 		candidates = append(candidates, name)
-		if finalName.MatchString(name) {
+		if storedName(name) {
 			finals = append(finals, name)
 		}
 	}

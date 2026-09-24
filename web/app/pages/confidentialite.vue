@@ -108,13 +108,14 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       <p>
         Les photos JPEG, PNG ou WebP non animées de 5 Mio maximum sont
         vérifiées, orientées automatiquement lorsque les métadonnées le
-        permettent, recadrées au centre et redimensionnées en PNG de 256 × 256
-        pixels. Seule cette copie sans métadonnées est conservée dans un espace
-        privé du serveur ; la base contient son chemin, pas l’image. L’original
-        et l’adresse de la photo Google ne sont pas conservés. L’aperçu est
-        livré par MesSeances à la session du propriétaire, uniquement dans les
-        paramètres, sans chargement de photo Google par le navigateur, stockage
-        local ou disponibilité hors ligne.
+        permettent, recadrées au centre et redimensionnées en WebP de 256 × 256
+        pixels, avec une compression avec perte de qualité 80. Seule cette copie
+        sans métadonnées est conservée dans un espace privé du serveur ; la base
+        contient son chemin, pas l’image. L’original et l’adresse de la photo
+        Google ne sont pas conservés. L’aperçu est livré par MesSeances à la
+        session du propriétaire, uniquement dans les paramètres, sans chargement
+        de photo Google par le navigateur, stockage local ou disponibilité hors
+        ligne.
       </p>
       <p>
         Une connexion Google ouvre le service Google uniquement à votre demande.

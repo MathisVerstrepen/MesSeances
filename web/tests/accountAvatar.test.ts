@@ -68,6 +68,12 @@ const utility = await compile<typeof avatar>(
   {},
 )
 const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0])
+const webp = new Uint8Array(
+  Buffer.from(
+    'UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA',
+    'base64',
+  ),
+)
 
 test('avatar route accepts only canonical positive int64 own routes', () => {
   for (const revision of ['1', '9223372036854775807'])
@@ -110,10 +116,10 @@ test('client file checks use only metadata, never decode originals', () => {
   )
 })
 
-test('private blob fetch is no-store, same-origin, no redirect/retry, bounded and PNG only', async () => {
+test('private blob fetch is no-store, same-origin, no redirect/retry, bounded and WebP only', async () => {
   let calls = 0
   let response = () =>
-    new Response(png, { headers: { 'Content-Type': 'image/png' } })
+    new Response(webp, { headers: { 'Content-Type': 'image/webp' } })
   const transport = await compile<typeof avatar>(
     '../app/utils/accountAvatar.ts',
     {
@@ -132,22 +138,29 @@ test('private blob fetch is no-store, same-origin, no redirect/retry, bounded an
   assert.equal(
     (await transport.fetchAccountAvatar('/api/v1/account/avatar/1', signal))
       .type,
-    'image/png',
+    'image/webp',
   )
   await assert.rejects(
     transport.fetchAccountAvatar('https://evil.test/avatar', signal),
   )
   assert.equal(calls, 1)
   for (const make of [
-    () => new Response(png, { headers: { 'Content-Type': 'image/jpeg' } }),
-    () => new Response('invalid', { headers: { 'Content-Type': 'image/png' } }),
+    () => new Response(png, { headers: { 'Content-Type': 'image/png' } }),
+    () => new Response(webp, { headers: { 'Content-Type': 'image/jpeg' } }),
+    () =>
+      new Response(webp, {
+        headers: { 'Content-Type': 'image/webp; charset=utf-8' },
+      }),
+    () => new Response(png, { headers: { 'Content-Type': 'image/webp' } }),
+    () =>
+      new Response('invalid', { headers: { 'Content-Type': 'image/webp' } }),
     () =>
       new Response(new Uint8Array(524289), {
-        headers: { 'Content-Type': 'image/png' },
+        headers: { 'Content-Type': 'image/webp' },
       }),
     () =>
-      new Response(png, {
-        headers: { 'Content-Type': 'image/png', 'Content-Length': '524289' },
+      new Response(webp, {
+        headers: { 'Content-Type': 'image/webp', 'Content-Length': '524289' },
       }),
     () =>
       Response.json(
@@ -168,6 +181,56 @@ test('private blob fetch is no-store, same-origin, no redirect/retry, bounded an
     )
     assert.equal(calls, before + 1)
   }
+})
+
+test('WebP transport rejects short, mislabeled, truncated and trailing RIFF bodies', async () => {
+  const wrongRIFF = webp.slice()
+  wrongRIFF[0] = 0
+  const wrongWEBP = webp.slice()
+  wrongWEBP[8] = 0
+  const wrongSize = webp.slice()
+  new DataView(wrongSize.buffer).setUint32(4, 0xffffffff, true)
+  for (const bytes of [
+    webp.slice(0, 11),
+    webp.slice(0, 19),
+    webp.slice(0, -1),
+    new Uint8Array([...webp, 0]),
+    wrongRIFF,
+    wrongWEBP,
+    wrongSize,
+  ]) {
+    const transport = await compile<typeof avatar>(
+      '../app/utils/accountAvatar.ts',
+      {
+        fetch: async () =>
+          new Response(bytes, { headers: { 'Content-Type': 'image/webp' } }),
+      },
+    )
+    await assert.rejects(
+      transport.fetchAccountAvatar(
+        '/api/v1/account/avatar/1',
+        new AbortController().signal,
+      ),
+      state.AccountApiError,
+    )
+  }
+})
+
+test('late valid WebP response cannot escape cancellation', async () => {
+  const controller = new AbortController()
+  const transport = await compile<typeof avatar>(
+    '../app/utils/accountAvatar.ts',
+    {
+      fetch: async () => {
+        controller.abort()
+        return new Response(webp, { headers: { 'Content-Type': 'image/webp' } })
+      },
+    },
+  )
+  await assert.rejects(
+    transport.fetchAccountAvatar('/api/v1/account/avatar/1', controller.signal),
+    state.AccountApiError,
+  )
 })
 
 test('upload uses one avatar part, browser multipart boundary, CSRF, progress, timeout and abort without retries', async () => {
@@ -310,7 +373,7 @@ test('preview revokes and fences owner/version replacement, removal, logout, dep
   })
   const preview = scope.run(() => exports.useAccountAvatarPreview(path))!
   const finish = async (index: number) => {
-    reads[index]!.resolve(new Blob([png]))
+    reads[index]!.resolve(new Blob([webp], { type: 'image/webp' }))
     await nextTick()
     await nextTick()
   }

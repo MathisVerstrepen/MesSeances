@@ -55,11 +55,59 @@ export async function avatarScenario({
   const image = async () =>
     until(
       page,
-      `${preview}?.complete && ${preview}?.naturalWidth === 256`,
+      `${preview}?.complete && ${preview}?.naturalWidth === 256 && ${preview}?.naturalHeight === 256`,
       'Processed avatar visible',
     )
   const details = async () =>
     (await request(page, '/account', undefined, 'GET')).body
+  const processed = async (label, alpha = false) => {
+    const path = (await details()).avatar_url
+    const result = await evaluate(
+      page,
+      `(async () => {
+      const response = await fetch(${JSON.stringify(path)}, {cache:'no-store'});
+      const blob = await response.blob();
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const view = new DataView(bytes.buffer);
+      const text = offset => String.fromCharCode(...bytes.slice(offset, offset + 4));
+      const chunks = [];
+      let offset = 12;
+      while (offset + 8 <= bytes.length) {
+        chunks.push(text(offset));
+        const size = view.getUint32(offset + 4, true);
+        offset += 8 + size + (size % 2);
+      }
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
+      const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0);
+      const alpha = (x, y) => context.getImageData(x, y, 1, 1).data[3];
+      const result = {
+        headers: response.ok && response.headers.get('content-type') === 'image/webp' && response.headers.get('cache-control')?.includes('no-store') && response.headers.get('content-disposition') === 'inline; filename="avatar.webp"' && response.headers.get('x-content-type-options') === 'nosniff' && response.headers.get('cross-origin-resource-policy') === 'same-origin' && Number(response.headers.get('content-length')) === bytes.length,
+        framing: blob.size >= 20 && blob.size <= 524288 && text(0) === 'RIFF' && text(8) === 'WEBP' && view.getUint32(4, true) + 8 === bytes.length && offset === bytes.length,
+        lossy: chunks.includes('VP8 ') && !chunks.some(chunk => ['VP8L','ANIM','ANMF','EXIF','ICCP','XMP '].includes(chunk)),
+        dimensions: bitmap.width === 256 && bitmap.height === 256,
+        alpha: [alpha(64,64), alpha(192,64), alpha(192,192)]
+      };
+      bitmap.close();
+      return result;
+    })()`,
+    )
+    check(
+      result.headers && result.framing,
+      `${label}: actual private WebP headers, bounded exact RIFF and no-store`,
+    )
+    check(
+      result.lossy && result.dimensions,
+      `${label}: decoded 256x256 lossy static WebP without metadata`,
+    )
+    if (alpha)
+      check(
+        result.alpha[0] === 0 &&
+          Math.abs(result.alpha[1] - 128) <= 1 &&
+          result.alpha[2] === 255,
+        `${label}: transparent, partial and opaque alpha retained`,
+      )
+  }
   const uploadCount = () =>
     page.requests.filter(
       (item) =>
@@ -114,8 +162,8 @@ export async function avatarScenario({
     await evaluate(
       page,
       `(async () => {
-      const canvas = document.createElement('canvas'); canvas.width = 19; canvas.height = 11;
-      const context = canvas.getContext('2d'); context.fillStyle = '#991b1b'; context.fillRect(0,0,19,11); context.fillStyle = '#1f6f78'; context.fillRect(0,0,8,5);
+      const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 32;
+      const context = canvas.getContext('2d'); context.fillStyle = '#991b1b'; context.fillRect(0,16,32,16); context.fillStyle = 'rgba(31,111,120,0.5)'; context.fillRect(16,0,16,16);
       const type = ${JSON.stringify(type)};
       const blob = ${oversized ? 'new Blob([new Uint8Array(5242881)], {type})' : invalid ? "new Blob(['not an image'], {type})" : 'await new Promise(resolve => canvas.toBlob(resolve, type))'};
       const file = new File([blob], 'synthetic.' + ({'image/png':'png', 'image/jpeg':'jpg', 'image/webp':'webp', 'image/svg+xml':'svg'}[type]), {type});
@@ -220,6 +268,7 @@ export async function avatarScenario({
     (await details()).avatar_url === '/api/v1/account/avatar/1',
     'synthetic Google signup imports processed private photo',
   )
+  await processed('synthetic Google import')
   check(
     !(await request(page, '/auth/session', undefined, 'GET')).body.account
       .avatar_url,
@@ -269,8 +318,9 @@ export async function avatarScenario({
     )
     check(
       uploadCount() === before + 1 && (await details()).avatar_url !== previous,
-      `${type}: explicit multipart upload stores processed 256 PNG once`,
+      `${type}: explicit multipart upload stores processed 256 WebP once`,
     )
+    await processed(type, type !== 'image/jpeg')
     check(
       await evaluate(
         page,
@@ -302,13 +352,6 @@ export async function avatarScenario({
     'replacement revokes old preview object URLs',
   )
   const uploaded = (await details()).avatar_url
-  check(
-    await evaluate(
-      page,
-      `(async () => { const r = await fetch(${JSON.stringify(uploaded)}, {cache:'no-store'}); return r.ok && r.headers.get('content-type') === 'image/png' && r.headers.get('cache-control').includes('no-store') && (await r.blob()).size <= 524288; })()`,
-    ),
-    'actual private HTTP PNG is bounded and no-store',
-  )
   const anonymous = await tab()
   await go(anonymous, '/connexion')
   check(

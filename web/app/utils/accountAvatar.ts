@@ -79,7 +79,7 @@ export async function fetchAccountAvatar(
         'avatar_not_found',
       )
     }
-    if (response.ok && response.headers.get('Content-Type') !== 'image/png') {
+    if (response.ok && response.headers.get('Content-Type') !== 'image/webp') {
       await response.body?.cancel()
       throw new AccountApiError(404, 'avatar_not_found')
     }
@@ -100,19 +100,21 @@ export async function fetchAccountAvatar(
       await reader.cancel()
       reader.releaseLock()
     }
-    const blob = new Blob(chunks, { type: 'image/png' })
+    const blob = new Blob(chunks, { type: 'image/webp' })
     if (!response.ok)
       throw responseError(
         response.status,
         await blob.text(),
         response.headers.get('Retry-After'),
       )
-    const signature = new Uint8Array(await blob.slice(0, 8).arrayBuffer())
+    // Transport framing only; the server validates the complete static image.
+    const signature = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
     if (
       signal.aborted ||
-      ![137, 80, 78, 71, 13, 10, 26, 10].every(
-        (byte, index) => signature[index] === byte,
-      )
+      blob.size < 20 ||
+      ![82, 73, 70, 70].every((byte, index) => signature[index] === byte) ||
+      ![87, 69, 66, 80].every((byte, index) => signature[index + 8] === byte) ||
+      new DataView(signature.buffer).getUint32(4, true) + 8 !== blob.size
     )
       throw new AccountApiError(404, 'avatar_not_found')
     return blob

@@ -2,7 +2,7 @@ root = "."
 tmp_dir = "bin/air"
 
 [build]
-cmd = "go build -o ./bin/air/messeances-api ./cmd/api"
+cmd = "go build -tags=nodynamic -o ./bin/air/messeances-api ./cmd/api"
 bin = "./bin/air/messeances-api"
 include_ext = ["go"]
 include_file = ["go.mod", "go.sum"]

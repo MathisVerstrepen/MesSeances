@@ -143,7 +143,7 @@ func TestAvatarRegisteredRoutesIntegration(t *testing.T) {
 		t.Fatal("upload DTO")
 	}
 	data, h := request("GET", *result.AvatarURL, nil, "", func(r *http.Request) { r.Header.Set("Range", "bytes=0-9"); r.Header.Set("If-None-Match", "*") }, 200)
-	if !bytes.HasPrefix(data, []byte("\x89PNG\r\n\x1a\n")) || h.Get("Content-Length") != strconv.Itoa(len(data)) || h.Get("Content-Disposition") != `inline; filename="avatar.png"` || h.Get("Content-Type") != "image/png" || h.Get("ETag") != "" || h.Get("Accept-Ranges") != "" {
+	if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WEBP" || h.Get("Content-Length") != strconv.Itoa(len(data)) || h.Get("Content-Disposition") != `inline; filename="avatar.webp"` || h.Get("Content-Type") != "image/webp" || h.Get("ETag") != "" || h.Get("Accept-Ranges") != "" {
 		t.Fatal("binary contract")
 	}
 	for _, version := range []string{"0", "-1", "01", "+1", "9223372036854775808"} {

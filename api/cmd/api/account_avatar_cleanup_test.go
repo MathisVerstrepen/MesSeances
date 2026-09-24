@@ -58,7 +58,7 @@ func TestAvatarCleanupStartupAndDrain(t *testing.T) {
 func TestAvatarRuntimeDisabledAndSingleOwner(t *testing.T) {
 	cfg := runtimeconfig.Config{}
 	cfg.Accounts.AvatarDir = "/not/a/real/media/root"
-	if s, err := newAccountService(nil, cfg); err != nil || s != nil {
+	if s, err := newAccountService(nil, cfg, nil); err != nil || s != nil {
 		t.Fatal("disabled media touched")
 	}
 	root := t.TempDir()
@@ -76,25 +76,27 @@ func TestAvatarRuntimeDisabledAndSingleOwner(t *testing.T) {
 		cfg.Accounts.OutboxKey[i] = 1
 		cfg.Accounts.AddressHMACKey[i] = 2
 	}
-	one, err := newAccountService(nil, cfg)
+	media, err := accountavatar.Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = newAccountService(nil, cfg); err == nil || err.Error() != "configuration error" {
-		t.Fatal("second writer did not fail generically")
-	}
-	if err = one.CloseAvatars(); err != nil {
+	if _, err = newAccountService(nil, cfg, media); err != nil {
 		t.Fatal(err)
 	}
-	two, err := newAccountService(nil, cfg)
+	if _, err = accountavatar.Open(root); err == nil {
+		t.Fatal("second writer acquired root")
+	}
+	if err = media.Close(); err != nil {
+		t.Fatal(err)
+	}
+	two, err := accountavatar.Open(root)
 	if err != nil {
 		t.Fatal("lock leaked")
 	}
-	if err = two.CloseAvatars(); err != nil {
+	if err = two.Close(); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Accounts.AvatarDir = "relative"
-	if _, err = newAccountService(nil, cfg); err == nil || err.Error() != "configuration error" {
-		t.Fatal("invalid enabled root accepted")
+	if _, err = newAccountService(nil, cfg, nil); err == nil || err.Error() != "configuration error" {
+		t.Fatal("enabled service accepted missing root ownership")
 	}
 }
