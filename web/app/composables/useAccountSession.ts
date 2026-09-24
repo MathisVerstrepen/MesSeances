@@ -4,6 +4,7 @@ import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 type DetailRevalidation = () => Promise<() => void>
 declare module '#app' {
   interface NuxtApp {
+    _accountChannel?: BroadcastChannel
     _accountRevalidation?: {
       pending?: Promise<void>
       details: Set<DetailRevalidation>
@@ -125,11 +126,9 @@ export function useAccountSession() {
   }
 
   function notify() {
-    if (import.meta.client && 'BroadcastChannel' in window) {
-      const channel = new BroadcastChannel('messeances-account')
-      channel.postMessage('changed')
-      channel.close()
-    }
+    // Post from the listener's own object: BroadcastChannel excludes its sender,
+    // not other channel objects in this same tab. Only other tabs must refresh.
+    if (import.meta.client) app._accountChannel?.postMessage('changed')
   }
 
   async function logout() {

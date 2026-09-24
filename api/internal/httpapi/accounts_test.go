@@ -41,6 +41,7 @@ func TestAccountRoutesFailClosed(t *testing.T) {
 			{http.MethodPost, "/api/v1/auth/logout"}, {http.MethodPost, "/api/v1/auth/google/start"},
 			{http.MethodGet, "/api/v1/auth/google/callback?code=synthetic-secret&state=synthetic-state"},
 			{http.MethodGet, "/api/v1/account"}, {http.MethodDelete, "/api/v1/account"},
+			{http.MethodPost, "/api/v1/account/avatar"}, {http.MethodDelete, "/api/v1/account/avatar"}, {http.MethodGet, "/api/v1/account/avatar/1"},
 		} {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, strings.NewReader(`{}`)))

@@ -81,7 +81,7 @@ func TestGoogleOIDCAdapter(t *testing.T) {
 	u, _ := url.Parse(authorization)
 	q := u.Query()
 	challenge := sha256.Sum256([]byte(verifier))
-	if q.Get("scope") != "openid email" || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") != base64.RawURLEncoding.EncodeToString(challenge[:]) || q.Get("state") != state || q.Get("nonce") != nonce || q.Get("prompt") != "select_account" || q.Has("access_type") {
+	if q.Get("scope") != "openid email profile" || q.Get("code_challenge_method") != "S256" || q.Get("code_challenge") != base64.RawURLEncoding.EncodeToString(challenge[:]) || q.Get("state") != state || q.Get("nonce") != nonce || q.Get("prompt") != "select_account" || q.Has("access_type") {
 		t.Fatal("authorization proof/scope mismatch")
 	}
 	identity, err := p.Exchange(context.Background(), "synthetic-code", verifier, nonce)
@@ -122,6 +122,21 @@ func TestGoogleOIDCAdapter(t *testing.T) {
 				t.Fatalf("email authority: identity=%+v error=%v", identity, err)
 			}
 		})
+	}
+	for _, picture := range []any{nil, true, 17, []any{"x"}, map[string]any{"url": "x"}, "", strings.Repeat("x", 2049), "http://lh3.googleusercontent.com/a", "https://evil.example/a", "https://lh3.googleusercontent.com/photo"} {
+		reset()
+		claims["picture"] = picture
+		identity, err := p.Exchange(context.Background(), "synthetic-code", verifier, nonce)
+		if err != nil {
+			t.Fatal("optional picture broke login")
+		}
+		want := ""
+		if value, ok := picture.(string); ok && value == "https://lh3.googleusercontent.com/photo" {
+			want = value
+		}
+		if identity.Picture != want {
+			t.Fatal("optional picture mismatch")
+		}
 	}
 	for _, test := range []struct {
 		name   string

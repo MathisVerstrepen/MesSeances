@@ -230,12 +230,14 @@ func (s *Service) GoogleCallback(ctx context.Context, state, browser, code, raw 
 	}
 	identity.Email, _ = NormalizeEmail(identity.Email)
 	var result GoogleCallbackResult
+	var candidate *avatarImport
+	var purged []*string
 	err = s.store.withTransaction(ctx, func(tx pgx.Tx) error {
 		var a account
 		var ss session
 		var err error
 		if f.mode == FlowLogin {
-			a, err = s.googleLoginAccount(ctx, tx, identity, f, raw)
+			a, err = s.googleLoginAccount(ctx, tx, identity, f, raw, &purged)
 		} else {
 			a, ss, err = s.authorize(ctx, tx, raw, true)
 			if err == nil && (a.id != *f.id || a.revision != *f.revision || !bytes.Equal(ss.digest[:], f.session)) {
@@ -300,8 +302,17 @@ func (s *Service) GoogleCallback(ctx context.Context, state, browser, code, raw 
 		if err != nil {
 			return ErrUnavailable
 		}
+		if f.mode != FlowReauth && a.avatarSource == "none" && a.avatarPath == nil {
+			candidate = &avatarImport{id: a.id, revision: a.revision, avatarRevision: a.avatarRevision, subject: identity.Subject, picture: identity.Picture}
+		}
 		return nil
 	})
+	if err == nil {
+		for _, path := range purged {
+			s.removeAvatar(path)
+		}
+		s.importAvatar(ctx, candidate)
+	}
 	return result, err
 }
 
@@ -331,7 +342,7 @@ func (s *Service) insertGoogleIdentity(ctx context.Context, tx pgx.Tx, id int64,
 	return nil
 }
 
-func (s *Service) googleLoginAccount(ctx context.Context, tx pgx.Tx, identity GoogleIdentity, f googleFlow, previous string) (account, error) {
+func (s *Service) googleLoginAccount(ctx context.Context, tx pgx.Tx, identity GoogleIdentity, f googleFlow, previous string, purged *[]*string) (account, error) {
 	var id int64
 	err := tx.QueryRow(ctx, `SELECT account_id FROM account_google_identities WHERE issuer=$1 AND subject=$2`, googleIssuer, identity.Subject).Scan(&id)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -363,6 +374,7 @@ func (s *Service) googleLoginAccount(ctx context.Context, tx pgx.Tx, identity Go
 			return account{}, err
 		}
 		if old.expired(s.now().UTC()) {
+			*purged = append(*purged, old.avatarPath)
 			if err = purgeAccountExceptFlow(ctx, tx, id, f.digest[:]); err != nil {
 				return account{}, err
 			}

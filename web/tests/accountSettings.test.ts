@@ -800,6 +800,7 @@ test('settings never retain late private details after session invalidation', as
     has_password: true,
     google_linked: false,
     google_email: null,
+    avatar_url: null,
     pending_email: null,
     allowed_methods: ['password'],
   })

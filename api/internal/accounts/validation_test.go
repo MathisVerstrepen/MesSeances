@@ -85,7 +85,7 @@ func TestSessionViewContract(t *testing.T) {
 		AccountView: AccountView{Email: "alice@example.com", Username: &username, HasPassword: true, GoogleLinked: true},
 		GoogleEmail: &googleEmail, AllowedMethods: []LoginMethod{LoginPassword, LoginGoogle},
 	})
-	if err != nil || string(encoded) != `{"email":"alice@example.com","username":"alice_123","has_password":true,"google_linked":true,"google_email":"google@example.com","pending_email":null,"allowed_methods":["password","google"]}` {
+	if err != nil || string(encoded) != `{"email":"alice@example.com","username":"alice_123","has_password":true,"google_linked":true,"avatar_url":null,"google_email":"google@example.com","pending_email":null,"allowed_methods":["password","google"]}` {
 		t.Fatalf("details DTO mismatch: %s/%v", encoded, err)
 	}
 }

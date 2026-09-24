@@ -85,6 +85,9 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	get("/account/reauth/continuation", h.reauthContinuation)
 	router.Get("/api/v1/auth/google/callback", h.googleCallback)
 	router.Delete("/api/v1/account", h.mutation(h.deleteAccount, h.step))
+	router.Post("/api/v1/account/avatar", h.mutationBoundary(h.uploadAvatar, h.step))
+	router.Delete("/api/v1/account/avatar", h.mutation(h.removeAvatar, h.step))
+	get("/account/avatar/{revision}", h.avatar)
 }
 
 func (h *accountHTTP) session(w http.ResponseWriter, r *http.Request) {

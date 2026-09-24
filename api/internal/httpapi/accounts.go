@@ -29,6 +29,8 @@ func accountBoundary(next http.Handler) http.Handler {
 			w.Header().Set("Referrer-Policy", "no-referrer")
 			w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 			w.Header().Add("Vary", "Cookie")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -82,4 +84,7 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	router.Get("/api/v1/account", unavailable)
 	router.Get("/api/v1/account/reauth/continuation", unavailable)
 	router.Delete("/api/v1/account", unavailable)
+	router.Post("/api/v1/account/avatar", unavailable)
+	router.Delete("/api/v1/account/avatar", unavailable)
+	router.Get("/api/v1/account/avatar/{revision}", unavailable)
 }

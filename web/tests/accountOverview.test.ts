@@ -61,7 +61,11 @@ function fixture() {
   const writesBlocked = ref(false)
   const focused: string[] = []
   const calls: string[] = []
-  const initialDetails = { ...owner.account, allowed_methods: ['password'] }
+  const initialDetails = {
+    ...owner.account,
+    avatar_url: null,
+    allowed_methods: ['password'],
+  }
   const details = ref<typeof initialDetails | null>(initialDetails)
   class Button {
     id: string

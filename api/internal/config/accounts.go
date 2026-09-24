@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -12,6 +13,7 @@ import (
 
 type AccountsConfig struct {
 	Enabled             bool
+	AvatarDir           string
 	SecureCookies       bool
 	GoogleClientID      string
 	GoogleClientSecret  string
@@ -42,6 +44,10 @@ func loadAccounts(origin string, getenv func(string) string) (AccountsConfig, er
 		return AccountsConfig{}, configurationError()
 	}
 	cfg.SecureCookies = u.Scheme == "https"
+	cfg.AvatarDir = getenv("ACCOUNT_AVATAR_DIR")
+	if !filepath.IsAbs(cfg.AvatarDir) || filepath.Clean(cfg.AvatarDir) == "/" || strings.ContainsAny(cfg.AvatarDir, "\x00\r\n") {
+		return AccountsConfig{}, configurationError()
+	}
 	cfg.GoogleCallbackURL = origin + "/api/v1/auth/google/callback"
 	cfg.GoogleClientID = getenv("GOOGLE_CLIENT_ID")
 	cfg.GoogleClientSecret = getenv("GOOGLE_CLIENT_SECRET")

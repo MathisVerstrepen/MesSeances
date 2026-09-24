@@ -43,6 +43,7 @@ type AccountView struct {
 // AccountDetails distinguishes the contact/login address from Google's last claim.
 type AccountDetails struct {
 	AccountView
+	AvatarURL      *string       `json:"avatar_url"`
 	GoogleEmail    *string       `json:"google_email"`
 	PendingEmail   *string       `json:"pending_email"`
 	AllowedMethods []LoginMethod `json:"allowed_methods"`
@@ -88,6 +89,7 @@ const (
 // GoogleIdentity contains validated claims only, never provider bearer tokens.
 // The adapter must validate signature, issuer, audience/azp, expiry, iat and nonce.
 type GoogleIdentity struct {
+	Picture       string
 	Subject       string
 	Email         string
 	EmailVerified bool

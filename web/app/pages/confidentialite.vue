@@ -92,9 +92,29 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         passe lorsqu’il existe, ainsi que les informations nécessaires aux
         sessions et à la prévention des abus. Pour Google, un identifiant de
         liaison et l’email communiqué par Google sont conservés séparément de
-        l’email du compte. Aucun nom, photo, profil public ou annuaire n’est
-        prévu. Les cinémas sélectionnés restent locaux, sans synchronisation
-        avec le compte.
+        l’email du compte. Une photo privée peut être ajoutée dans les
+        paramètres. Aucun nom importé, profil public ou annuaire n’est prévu.
+        Les cinémas sélectionnés restent locaux, sans synchronisation avec le
+        compte.
+      </p>
+      <p>
+        Google est sollicité avec les permissions d’identité, d’email et de
+        profil. Après une inscription, une connexion ou une association réussie,
+        le serveur peut récupérer la photo communiquée par Google si aucune
+        photo n’a été ajoutée ou explicitement supprimée. Cet import facultatif
+        ne remplace jamais une photo existante ; son échec n’empêche pas la
+        connexion. Dissocier Google conserve la photo déjà importée.
+      </p>
+      <p>
+        Les photos JPEG, PNG ou WebP non animées de 5 Mio maximum sont
+        vérifiées, orientées automatiquement lorsque les métadonnées le
+        permettent, recadrées au centre et redimensionnées en PNG de 256 × 256
+        pixels. Seule cette copie sans métadonnées est conservée dans un espace
+        privé du serveur ; la base contient son chemin, pas l’image. L’original
+        et l’adresse de la photo Google ne sont pas conservés. L’aperçu est
+        livré par MesSeances à la session du propriétaire, uniquement dans les
+        paramètres, sans chargement de photo Google par le navigateur, stockage
+        local ou disponibilité hors ligne.
       </p>
       <p>
         Une connexion Google ouvre le service Google uniquement à votre demande.
@@ -307,6 +327,19 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     <section class="legal-section" aria-labelledby="retention-heading">
       <h2 id="retention-heading">Durées de conservation</h2>
       <h3>Comptes personnels prévus</h3>
+      <p>
+        La photo traitée est conservée jusqu’à son remplacement, sa suppression
+        depuis les paramètres ou la suppression du compte. Ces actions retirent
+        immédiatement l’accès à l’ancienne photo via le service après
+        validation. Le serveur tente ensuite d’effacer le fichier ; en cas
+        d’échec, un nettoyage périodique reprend les fichiers devenus inutiles
+        après un délai minimal d’une heure. Une panne ou un retard de nettoyage
+        peut prolonger leur présence physique. Les copies déjà reçues ne peuvent
+        pas être rappelées. La suppression reste effective lors des connexions
+        Google suivantes : aucun nouvel import automatique n’est effectué. La
+        rétention des sauvegardes et leur effacement restent à valider par
+        l’exploitant, sans promesse de suppression immédiate de ces copies.
+      </p>
       <p>
         Le code refuse les inscriptions incomplètes après 7 jours et prévoit
         leur suppression par nettoyage périodique. Pour un compte terminé, la

@@ -24,9 +24,14 @@ export interface AccountSession {
 }
 
 export interface AccountDetails extends AccountView {
+  avatar_url: string | null
   google_email: string | null
   pending_email: string | null
   allowed_methods: ('password' | 'google')[]
+}
+
+export interface AccountAvatarResult {
+  avatar_url: string | null
 }
 
 export type AccountAction =

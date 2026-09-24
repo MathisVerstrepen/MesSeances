@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { AccountAvatarResult } from '~/types/account'
 import {
   accountDestination,
   accountErrorMessage,
@@ -45,7 +46,7 @@ const deletionError = ref('')
 const notice = ref('')
 type Editor = 'email' | 'password' | 'google' | 'delete'
 const editor = ref<Editor | null>(null)
-let restoreFocus: Editor | null = null
+let restoreFocus: Editor | 'avatar' | null = null
 const lifetime = useAccountLifetime(() => {
   clearEditor()
   editor.value = null
@@ -135,6 +136,7 @@ watch(
         target === 'email' ||
         target === 'password' ||
         target === 'google' ||
+        target === 'avatar' ||
         target === 'delete'
       )
         restoreFocus = target
@@ -174,6 +176,24 @@ async function recover() {
     'La réponse a été interrompue. L’état du compte est vérifié sans répéter l’action. Pour un mot de passe, vérifiez la connexion avant toute nouvelle modification.',
     false,
   )
+}
+
+async function avatarChanged(
+  result: AccountAvatarResult | null,
+  uncertain: boolean,
+) {
+  const active = lifetime.capture(false)
+  restoreFocus = 'avatar'
+  notice.value = ''
+  if (result && details.value) details.value.avatar_url = result.avatar_url
+  account.notify()
+  await account.revalidate()
+  if (!active() || account.session.value?.state !== 'complete') return
+  notice.value = uncertain
+    ? 'L’état de la photo a été revérifié. Vérifiez le résultat avant de recommencer.'
+    : result?.avatar_url
+      ? 'Votre photo a été enregistrée.'
+      : 'Votre photo a été supprimée. Elle ne sera pas réimportée depuis Google.'
 }
 
 async function changePassword() {
@@ -460,6 +480,12 @@ useHead({ title: 'Mon compte - MesSeances' })
       <section aria-labelledby="account-identity" class="space-y-4">
         <h2 id="account-identity" class="account-heading">Identité</h2>
         <div class="min-w-0 space-y-5">
+          <AccountAvatar
+            :url="details.avatar_url"
+            :blocked="!!busy || blocked"
+            @busy="busy = $event ? 'avatar' : busy === 'avatar' ? '' : busy"
+            @changed="avatarChanged"
+          />
           <dl class="space-y-2 text-sm">
             <div>
               <dt class="overview-label">Nom d’utilisateur</dt>

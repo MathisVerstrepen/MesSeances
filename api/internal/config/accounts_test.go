@@ -9,7 +9,8 @@ import (
 
 func accountConfigFixture() map[string]string {
 	return map[string]string{
-		"DATABASE_URL": "postgres://unused", "ACCOUNTS_ENABLED": "true", "WEB_ORIGIN": "https://messeances.fr",
+		"ACCOUNT_AVATAR_DIR": "/private/synthetic/avatars",
+		"DATABASE_URL":       "postgres://unused", "ACCOUNTS_ENABLED": "true", "WEB_ORIGIN": "https://messeances.fr",
 		"GOOGLE_CLIENT_ID": "synthetic.apps.googleusercontent.com", "GOOGLE_CLIENT_SECRET": "synthetic-client-secret",
 		"AWS_REGION": "eu-west-3", "SES_FROM_EMAIL": "comptes@example.com", "SES_CONFIGURATION_SET": "accounts",
 		"SES_FEEDBACK_TOPIC_ARN": "arn:aws:sns:eu-west-3:123456789012:accounts", "SES_IDENTITY_ARN": "arn:aws:ses:eu-west-3:123456789012:identity/example.com",
@@ -27,7 +28,7 @@ func TestAccountsDisabledRequiresNoProviders(t *testing.T) {
 				return "postgres://unused"
 			case "ACCOUNTS_ENABLED":
 				return enabled
-			case "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AWS_REGION", "ACCOUNT_OUTBOX_KEY", "ACCOUNT_ADDRESS_HMAC_KEY":
+			case "ACCOUNT_AVATAR_DIR", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AWS_REGION", "ACCOUNT_OUTBOX_KEY", "ACCOUNT_ADDRESS_HMAC_KEY":
 				t.Fatalf("disabled accounts read provider secret: %s", key)
 			}
 			return ""
@@ -71,6 +72,7 @@ func TestAccountConfigurationFailsGenerically(t *testing.T) {
 	}
 	for _, tc := range []struct{ key, value string }{
 		{"ACCOUNTS_ENABLED", "TRUE"}, {"WEB_ORIGIN", "http://messeances.fr"}, {"GOOGLE_CLIENT_SECRET", "private\nvalue"},
+		{"ACCOUNT_AVATAR_DIR", "/"}, {"ACCOUNT_AVATAR_DIR", "relative"}, {"ACCOUNT_AVATAR_DIR", "/private\npath"},
 		{"SES_FROM_EMAIL", "Admin <admin@example.com>"}, {"SES_FEEDBACK_QUEUE_URL", "https://attacker.example/queue"},
 		{"SES_FEEDBACK_QUEUE_URL", "https://sqs.eu-west-3.amazonaws.com/123456789012/accounts#"},
 		{"SES_FEEDBACK_QUEUE_URL", "https://sqs.eu-west-3.amazonaws.com/999999999999/accounts"},

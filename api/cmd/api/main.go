@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"messeances/api/internal/accountavatar"
 	"messeances/api/internal/accountmail"
 	"messeances/api/internal/accounts"
 	"messeances/api/internal/cgr"
@@ -234,6 +235,14 @@ func run(ctx context.Context) error {
 		return err
 	}
 	if accountService != nil {
+		defer func() {
+			cleanup()
+			if err := accountService.CloseAvatars(); err != nil {
+				logger.Warn("account_avatar_close_failed")
+			}
+		}()
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountAvatarCleanup(workerCtx, accountService, logger) }()
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountCleanup(workerCtx, accountService, logger) }()
 		polling.Add(1)
@@ -252,6 +261,11 @@ func run(ctx context.Context) error {
 		IdleTimeout:       serverIdleTimeout,
 		MaxHeaderBytes:    serverMaxHeaderBytes,
 	}
+	// Drain admitted HTTP work even when graceful shutdown times out. Closing the
+	// listener/body transport alone does not wait for bounded synchronous decoders.
+	requests := &accountRequestDrain{next: server.Handler}
+	server.Handler = requests
+	defer func() { requests.stop(); _ = server.Close(); requests.wait() }()
 	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
 }
@@ -538,11 +552,17 @@ func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config) (*accounts.
 	if err != nil {
 		return nil, fmt.Errorf("configuration error")
 	}
+	avatars, err := accountavatar.Open(cfg.Accounts.AvatarDir)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
 	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
 		Hasher: hasher, Origin: cfg.Server.Origin, AddressHMACKey: cfg.Accounts.AddressHMACKey[:],
 		Google: google, FlowCipher: cipher, Mail: &accountmail.Outbox{Cipher: cipher},
+		Avatars: avatars,
 	})
 	if err != nil {
+		_ = avatars.Close()
 		return nil, fmt.Errorf("configuration error")
 	}
 	return service, nil

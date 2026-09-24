@@ -63,6 +63,18 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Action interrompue. Réessayez après avoir vérifié votre connexion.'
   if (cause.status === 429)
     return 'Trop de tentatives. Patientez un instant avant de réessayer.'
+  if (cause.code === 'avatar_changed')
+    return 'La photo a changé pendant cette action. Vérifiez son état avant de recommencer.'
+  if (cause.code === 'avatar_too_large')
+    return 'La photo est trop volumineuse. Choisissez un fichier de 5 Mio maximum.'
+  if (cause.code === 'avatar_unsupported')
+    return 'Ce format est refusé. Choisissez une photo JPEG, PNG ou WebP non animée.'
+  if (cause.code === 'avatar_invalid')
+    return 'Cette photo ne peut pas être traitée. Choisissez une autre image, de 8192 pixels par côté et 16 mégapixels maximum.'
+  if (cause.code === 'avatar_busy')
+    return 'Le traitement des photos est occupé. Patientez un instant avant de recommencer.'
+  if (cause.code === 'avatar_not_found')
+    return 'La photo n’est plus disponible. Rechargez son aperçu ou choisissez une autre photo.'
   if (cause.code === 'accounts_disabled')
     return 'Les comptes ne sont pas encore disponibles. Vous pouvez continuer à explorer les séances.'
   if (cause.status === 503)

@@ -5,8 +5,10 @@ import type {
   AccountContinuation,
   GoogleStart,
   AccountSession,
+  AccountAvatarResult,
 } from '~/types/account'
 import { AccountApiError } from '~/utils/accountState'
+import { uploadAccountAvatar } from '~/utils/accountAvatar'
 
 export function useAccountApi() {
   const config = useRuntimeConfig()
@@ -19,6 +21,7 @@ export function useAccountApi() {
     path: string,
     body?: Record<string, string>,
     method: 'GET' | 'POST' | 'DELETE' = body ? 'POST' : 'GET',
+    signal?: AbortSignal,
   ): Promise<T> {
     if (import.meta.server && body) throw new AccountApiError(403)
     // Guard programmatic callers too, not only disabled buttons. Never retry writes.
@@ -48,6 +51,7 @@ export function useAccountApi() {
           redirect: 'error',
           retry: false,
           timeout: 12000,
+          signal,
         },
       )
     } catch (error: unknown) {
@@ -65,6 +69,12 @@ export function useAccountApi() {
         'recent_auth_required',
         'identity_unavailable',
         'last_login_method',
+        'avatar_changed',
+        'avatar_too_large',
+        'avatar_unsupported',
+        'avatar_invalid',
+        'avatar_busy',
+        'avatar_not_found',
       ].includes(error.data?.error?.code)
         ? String(error.data.error.code)
         : ''
@@ -93,6 +103,17 @@ export function useAccountApi() {
     logout: () => request<void>('/auth/logout', {}),
     logoutAll: () => request<void>('/auth/logout-all', {}),
     details: () => request<AccountDetails>('/account'),
+    uploadAvatar: (
+      file: File,
+      signal: AbortSignal,
+      progress: (percent: number | null) => void,
+    ) => {
+      if (import.meta.server || revalidating.value)
+        return Promise.reject(new AccountApiError(403, 'recent_auth_required'))
+      return uploadAccountAvatar(file, signal, progress)
+    },
+    removeAvatar: (signal: AbortSignal) =>
+      request<AccountAvatarResult>('/account/avatar', {}, 'DELETE', signal),
     requestPasswordReset: (email: string) =>
       request<void>('/auth/password/reset/request', { email }),
     confirmPasswordReset: (token: string, password: string) =>

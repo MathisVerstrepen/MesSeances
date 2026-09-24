@@ -32,7 +32,8 @@ func (s *Service) Delete(ctx context.Context, raw, grant, confirmation string) e
 	if confirmation != "SUPPRIMER" {
 		return ErrInvalidInput
 	}
-	return s.store.withTransaction(ctx, func(tx pgx.Tx) error {
+	var path *string
+	err := s.store.withTransaction(ctx, func(tx pgx.Tx) error {
 		a, ss, err := s.authorize(ctx, tx, raw, true)
 		if err != nil {
 			return err
@@ -40,8 +41,13 @@ func (s *Service) Delete(ctx context.Context, raw, grant, confirmation string) e
 		if err = s.consumeGrant(ctx, tx, a, ss, grant, ActionDelete, ""); err != nil {
 			return err
 		}
+		path = a.avatarPath
 		return purgeAccount(ctx, tx, a.id)
 	})
+	if err == nil {
+		s.removeAvatar(path)
+	}
+	return err
 }
 
 type CleanupResult struct {
@@ -56,6 +62,7 @@ func (s *Service) Cleanup(ctx context.Context) (CleanupResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	var result CleanupResult
+	var paths []*string
 	err := s.store.withTransaction(ctx, func(tx pgx.Tx) error {
 		now := s.now().UTC()
 		rows, err := tx.Query(ctx, `SELECT id FROM accounts WHERE pending_kind IS NOT NULL AND created_at<=$1 ORDER BY id LIMIT 100 FOR UPDATE SKIP LOCKED`, now.Add(-PendingLifetime))
@@ -76,12 +83,16 @@ func (s *Service) Cleanup(ctx context.Context) (CleanupResult, error) {
 					return err
 				}
 				result.PendingAccounts++
+				paths = append(paths, a.avatarPath)
 			}
 		}
 		return nil
 	})
 	if err != nil {
 		return result, err
+	}
+	for _, path := range paths {
+		s.removeAvatar(path)
 	}
 	// Separate transaction releases deleted-account locks before selecting another
 	// ordered account batch, avoiding inversions with cross-account login.

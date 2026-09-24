@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"messeances/api/internal/accountavatar"
 	"messeances/api/internal/accounts"
 )
 
@@ -53,6 +54,19 @@ func accountError(w http.ResponseWriter, err error) {
 	status, code, message := http.StatusServiceUnavailable, "accounts_unavailable", "Les comptes sont indisponibles."
 	var rate *accounts.RateLimitError
 	switch {
+	case errors.Is(err, accountavatar.ErrTooLarge):
+		status, code, message = 413, "avatar_too_large", "La photo dépasse la taille autorisée."
+	case errors.Is(err, accountavatar.ErrUnsupported):
+		status, code, message = 415, "avatar_unsupported", "Format de photo non pris en charge."
+	case errors.Is(err, accountavatar.ErrInvalid):
+		status, code, message = 422, "avatar_invalid", "Photo invalide."
+	case errors.Is(err, accountavatar.ErrBusy):
+		status, code, message = 503, "avatar_busy", "Réessayez dans un instant."
+		w.Header().Set("Retry-After", "1")
+	case errors.Is(err, accounts.ErrAvatarChanged):
+		status, code, message = 409, "avatar_changed", "La photo a changé. Vérifiez son état."
+	case errors.Is(err, accounts.ErrAvatarNotFound):
+		status, code, message = 404, "avatar_not_found", "Photo indisponible."
 	case errors.As(err, &rate):
 		status, code, message = 429, "rate_limited", "Trop de requêtes. Réessayez plus tard."
 		w.Header().Set("Retry-After", strconv.Itoa(rate.RetryAfter))
@@ -85,6 +99,17 @@ func accountError(w http.ResponseWriter, err error) {
 }
 
 func (h *accountHTTP) mutation(next http.HandlerFunc, limiter *tokenBucketLimiter) http.HandlerFunc {
+	return h.mutationBoundary(func(w http.ResponseWriter, r *http.Request) {
+		media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if len(r.Header.Values("Content-Type")) != 1 || err != nil || media != "application/json" || len(params) > 1 || (len(params) == 1 && strings.ToLower(params["charset"]) != "utf-8") {
+			accountError(w, accounts.ErrInvalidInput)
+			return
+		}
+		next(w, r)
+	}, limiter)
+}
+
+func (h *accountHTTP) mutationBoundary(next http.HandlerFunc, limiter *tokenBucketLimiter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if len(r.Header.Values("Origin")) != 1 || r.Header.Get("Origin") != h.origin || len(r.Header.Values("X-Messeances-CSRF")) != 1 || r.Header.Get("X-Messeances-CSRF") != "1" {
 			writeError(w, 403, "invalid_origin", "Requête interdite.")
@@ -95,8 +120,7 @@ func (h *accountHTTP) mutation(next http.HandlerFunc, limiter *tokenBucketLimite
 			writeError(w, 403, "invalid_origin", "Requête interdite.")
 			return
 		}
-		media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if len(r.Header.Values("Content-Type")) != 1 || err != nil || media != "application/json" || len(params) > 1 || (len(params) == 1 && strings.ToLower(params["charset"]) != "utf-8") || r.URL.RawQuery != "" || r.URL.ForceQuery {
+		if r.URL.RawQuery != "" || r.URL.ForceQuery {
 			accountError(w, accounts.ErrInvalidInput)
 			return
 		}

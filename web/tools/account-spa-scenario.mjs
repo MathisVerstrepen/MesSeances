@@ -88,6 +88,7 @@ export async function spaScenario({
             ...(currentSession().account ?? owner),
             google_email: null,
             pending_email: 'next@example.test',
+            avatar_url: null,
             allowed_methods: ['password'],
           }
           break

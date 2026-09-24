@@ -117,6 +117,7 @@ services:
       WEB_ORIGIN: ${WEB_ORIGIN:?WEB_ORIGIN is required}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-}
       ACCOUNTS_ENABLED: ${ACCOUNTS_ENABLED:-false}
+      ACCOUNT_AVATAR_DIR: /var/lib/messeances/avatars
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       AWS_REGION: ${AWS_REGION:-}
@@ -132,6 +133,7 @@ services:
       ACCOUNT_OUTBOX_KEY: ${ACCOUNT_OUTBOX_KEY:-}
       ACCOUNT_ADDRESS_HMAC_KEY: ${ACCOUNT_ADDRESS_HMAC_KEY:-}
     volumes:
+      - account_avatars:/var/lib/messeances/avatars
       - type: bind
         source: ${PROXY_FILE_HOST:?PROXY_FILE_HOST is required}
         target: /run/secrets/sync-proxies.txt
@@ -170,5 +172,6 @@ services:
       start_period: 15s
 
 volumes:
+  account_avatars:
   postgres_data:
   umami_postgres_data:

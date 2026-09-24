@@ -34,6 +34,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (Cookie,
 		return Cookie{}, err
 	}
 	cookie := Cookie{Token: raw, ExpiresAt: s.now().UTC().Add(PendingLifetime)}
+	var purged *string
 	err = s.store.withTransaction(ctx, func(tx pgx.Tx) error {
 		now := s.now().UTC()
 		// Unique email arbitrates initial registrations. Restarting a pending
@@ -51,6 +52,7 @@ func (s *Service) Register(ctx context.Context, email, password string) (Cookie,
 			return err
 		}
 		if a.expired(s.now().UTC()) {
+			purged = a.avatarPath
 			if err = purgeAccount(ctx, tx, a.id); err != nil {
 				return ErrUnavailable
 			}
@@ -76,6 +78,9 @@ func (s *Service) Register(ctx context.Context, email, password string) (Cookie,
 		}
 		return s.issueMailToken(ctx, tx, a, TokenVerification, "")
 	})
+	if err == nil {
+		s.removeAvatar(purged)
+	}
 	return cookie, publicMailResult(err)
 }
 

@@ -4,11 +4,15 @@ package httpapi
 // provider client, sends mail, or exposes a production fake-provider switch.
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"log"
 	"net"
@@ -26,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"messeances/api/internal/accountavatar"
 	"messeances/api/internal/accountmail"
 	"messeances/api/internal/accounts"
 	"messeances/api/internal/database"
@@ -169,9 +174,23 @@ func newBrowserHarness(t *testing.T, origin string) *browserHarness {
 	}
 	h := &browserHarness{pool: pool, cipher: cipher, origin: origin, stop: make(chan struct{})}
 	h.google = &browserGoogle{origin: origin, flows: make(map[string]browserGoogleFlow)}
+	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal("browser media root unavailable")
+	}
+	media, err := accountavatar.Open(root)
+	if err != nil {
+		t.Fatal("browser media store unavailable")
+	}
+	t.Cleanup(func() {
+		if err := media.Close(); err != nil {
+			t.Error("browser media close failed")
+		}
+	})
 	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
 		Hasher: hasher, Mail: &accountmail.Outbox{Cipher: cipher}, Origin: origin,
 		AddressHMACKey: hmacKey, Google: h.google, FlowCipher: cipher,
+		Avatars: media, GooglePictures: browserPicture{},
 	})
 	if err != nil {
 		t.Fatal("browser harness account service unavailable")
@@ -384,7 +403,7 @@ func (g *browserGoogle) authorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	flow.code = code
-	flow.identity = accounts.GoogleIdentity{Subject: "browser-only-" + identity, Email: "google-" + identity + "@example.test", EmailVerified: identity != "unverified", EmailAuthoritative: identity != "unverified"}
+	flow.identity = accounts.GoogleIdentity{Subject: "browser-only-" + identity, Email: "google-" + identity + "@example.test", EmailVerified: identity != "unverified", EmailAuthoritative: identity != "unverified", Picture: "https://lh3.googleusercontent.com/browser-synthetic"}
 	g.flows[state] = flow
 	http.Redirect(w, r, g.origin+"/api/v1/auth/google/callback?iss=https%3A%2F%2Faccounts.google.com&state="+url.QueryEscape(state)+"&code="+url.QueryEscape(code), http.StatusSeeOther)
 }
@@ -402,4 +421,25 @@ func (g *browserGoogle) Exchange(_ context.Context, code, verifier, nonce string
 		}
 	}
 	return accounts.GoogleIdentity{}, accounts.ErrInvalidLink
+}
+
+// No remote fetch, listener, credential or production override: synthetic test DI only.
+type browserPicture struct{}
+
+func (browserPicture) Fetch(ctx context.Context, url string) ([]byte, error) {
+	if url != "https://lh3.googleusercontent.com/browser-synthetic" {
+		return nil, accounts.ErrInvalidInput
+	}
+	return accountavatar.Normalize(ctx, browserPicturePNG(), "image/png")
+}
+func browserPicturePNG() []byte {
+	im := image.NewNRGBA(image.Rect(0, 0, 7, 5))
+	for y := 0; y < 5; y++ {
+		for x := 0; x < 7; x++ {
+			im.SetNRGBA(x, y, color.NRGBA{uint8(x * 35), uint8(y * 50), 180, 255})
+		}
+	}
+	var b bytes.Buffer
+	_ = png.Encode(&b, im)
+	return b.Bytes()
 }

@@ -23,10 +23,12 @@ export default defineNuxtPlugin((nuxtApp) => {
     'BroadcastChannel' in window
       ? new BroadcastChannel('messeances-account')
       : null
-  if (channel)
+  if (channel) {
+    nuxtApp._accountChannel = channel
     channel.onmessage = (event) => {
       if (event.data === 'changed') refresh()
     }
+  }
   nuxtApp.hook('app:mounted', () => {
     if (account.status.value === 'idle') refresh()
     window.addEventListener('focus', focus)

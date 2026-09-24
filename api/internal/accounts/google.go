@@ -3,6 +3,7 @@ package accounts
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+	"messeances/api/internal/accountavatar"
 )
 
 const googleIssuer = "https://accounts.google.com"
@@ -38,7 +40,7 @@ func newGoogleProvider(clientID, secret, callback, issuer, auth, token, keys str
 	client := &http.Client{Timeout: 10 * time.Second, Transport: boundedGoogleTransport{base: transport, token: token, keys: keys}, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrUnavailable }}
 	ctx := oidc.ClientContext(context.Background(), client)
 	return &googleProvider{
-		config: oauth2.Config{ClientID: clientID, ClientSecret: secret, RedirectURL: callback, Scopes: []string{oidc.ScopeOpenID, "email"}, Endpoint: oauth2.Endpoint{AuthURL: auth, TokenURL: token, AuthStyle: oauth2.AuthStyleInParams}},
+		config: oauth2.Config{ClientID: clientID, ClientSecret: secret, RedirectURL: callback, Scopes: []string{oidc.ScopeOpenID, "email", "profile"}, Endpoint: oauth2.Endpoint{AuthURL: auth, TokenURL: token, AuthStyle: oauth2.AuthStyleInParams}},
 		client: client, now: now,
 		verifier: oidc.NewVerifier(issuer, oidc.NewRemoteKeySet(ctx, keys), &oidc.Config{ClientID: clientID, SupportedSigningAlgs: []string{oidc.RS256}, Now: now}),
 	}
@@ -95,10 +97,11 @@ func (p *googleProvider) Exchange(ctx context.Context, code, verifier, nonce str
 		return GoogleIdentity{}, ErrInvalidLink
 	}
 	var claims struct {
-		Email           string `json:"email"`
-		Verified        bool   `json:"email_verified"`
-		HostedDomain    string `json:"hd"`
-		AuthorizedParty string `json:"azp"`
+		Email           string          `json:"email"`
+		Verified        bool            `json:"email_verified"`
+		HostedDomain    string          `json:"hd"`
+		AuthorizedParty string          `json:"azp"`
+		Picture         json.RawMessage `json:"picture"`
 	}
 	if err = id.Claims(&claims); err != nil {
 		return GoogleIdentity{}, ErrInvalidLink
@@ -112,5 +115,9 @@ func (p *googleProvider) Exchange(ctx context.Context, code, verifier, nonce str
 	// Only signed token claims establish Workspace membership. The hd domain
 	// need not match an email alias; callback/query parameters are never authority.
 	authoritative := verified && (strings.HasSuffix(email, "@gmail.com") || strings.TrimSpace(claims.HostedDomain) != "")
-	return GoogleIdentity{Subject: id.Subject, Email: email, EmailVerified: verified, EmailAuthoritative: authoritative}, nil
+	var picture string
+	if json.Unmarshal(claims.Picture, &picture) != nil || !accountavatar.ValidGoogleURL(picture) {
+		picture = ""
+	}
+	return GoogleIdentity{Subject: id.Subject, Email: email, EmailVerified: verified, EmailAuthoritative: authoritative, Picture: picture}, nil
 }

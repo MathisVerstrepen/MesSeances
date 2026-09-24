@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"messeances/api/internal/accountavatar"
 	"messeances/api/internal/accountmail"
 )
 
@@ -42,6 +43,8 @@ type ServiceOptions struct {
 	AddressHMACKey []byte
 	Google         GoogleProvider
 	FlowCipher     accountmail.PayloadCipher
+	Avatars        *accountavatar.Store
+	GooglePictures GooglePictureFetcher
 }
 
 type Service struct {
@@ -55,6 +58,8 @@ type Service struct {
 	hmacKey    []byte
 	google     GoogleProvider
 	flowCipher accountmail.PayloadCipher
+	avatars    *accountavatar.Store
+	pictures   GooglePictureFetcher
 }
 
 func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) {
@@ -64,7 +69,10 @@ func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) 
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher}, nil
+	if options.GooglePictures == nil && options.Avatars != nil {
+		options.GooglePictures = options.Avatars
+	}
+	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures}, nil
 }
 
 func (s *Service) newToken() (string, Digest, error) {
@@ -84,17 +92,20 @@ type SessionResult struct {
 }
 
 type account struct {
-	id, revision int64
-	email        string
-	verified     *time.Time
-	created      time.Time
-	pending      *string
-	username     *string
-	hash         *string
-	tentative    bool
-	registration []byte
-	googleEmail  *string
-	google       bool
+	avatarPath     *string
+	avatarSource   string
+	avatarRevision int64
+	id, revision   int64
+	email          string
+	verified       *time.Time
+	created        time.Time
+	pending        *string
+	username       *string
+	hash           *string
+	tentative      bool
+	registration   []byte
+	googleEmail    *string
+	google         bool
 }
 
 func (a account) state() State {
@@ -115,11 +126,11 @@ func (a account) view() SessionView {
 
 func loadAccount(ctx context.Context, tx pgx.Tx, id int64, lock bool) (account, error) {
 	var a account
-	query := `SELECT id,email,email_verified_at,created_at,pending_kind,auth_revision FROM accounts WHERE id=$1`
+	query := `SELECT id,email,email_verified_at,created_at,pending_kind,auth_revision,avatar_path,avatar_source,avatar_revision FROM accounts WHERE id=$1`
 	if lock {
 		query += ` FOR UPDATE`
 	}
-	err := tx.QueryRow(ctx, query, id).Scan(&a.id, &a.email, &a.verified, &a.created, &a.pending, &a.revision)
+	err := tx.QueryRow(ctx, query, id).Scan(&a.id, &a.email, &a.verified, &a.created, &a.pending, &a.revision, &a.avatarPath, &a.avatarSource, &a.avatarRevision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return a, ErrUnauthorized
 	}
@@ -240,6 +251,7 @@ func (s *Service) Details(ctx context.Context, raw string) (AccountDetails, erro
 		}
 		result.AccountView = *a.view().Account
 		result.GoogleEmail = a.googleEmail
+		result.AvatarURL = avatarURL(a)
 		result.AllowedMethods = []LoginMethod{}
 		if a.hash != nil && !a.tentative {
 			result.AllowedMethods = append(result.AllowedMethods, LoginPassword)

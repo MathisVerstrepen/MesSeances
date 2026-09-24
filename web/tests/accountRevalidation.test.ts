@@ -36,6 +36,7 @@ const initial: AccountDetails = {
   ...owner.account!,
   google_email: null,
   pending_email: null,
+  avatar_url: null,
   allowed_methods: ['password'],
 }
 

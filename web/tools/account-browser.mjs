@@ -9,6 +9,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { CDP, CaptureError, terminateProcessGroup } from './screenshot.mjs'
 import { spaScenario, trackerFixture } from './account-spa-scenario.mjs'
+import { avatarScenario } from './account-avatar-scenario.mjs'
 
 const origin = 'http://127.0.0.1:13009'
 const api = 'http://127.0.0.1:18089'
@@ -278,9 +279,11 @@ async function tab(context, fixtureSession) {
               method: request.method,
               origin: headers.origin,
               csrf: headers['x-messeances-csrf'],
-              bodyKeys: request.postData
-                ? Object.keys(JSON.parse(request.postData)).sort()
-                : [],
+              bodyKeys:
+                request.postData &&
+                headers['content-type']?.startsWith('application/json')
+                  ? Object.keys(JSON.parse(request.postData)).sort()
+                  : [],
             })
           }
           if (page.fault?.path === url.pathname) {
@@ -297,7 +300,9 @@ async function tab(context, fixtureSession) {
                   { name: 'Cache-Control', value: 'no-store' },
                 ],
                 body: Buffer.from(
-                  JSON.stringify({ error: { code: 'unavailable' } }),
+                  JSON.stringify({
+                    error: { code: fault.code || 'unavailable' },
+                  }),
                 ).toString('base64'),
               },
               sessionId,
@@ -1965,6 +1970,7 @@ async function overviewScenario() {
       google_email: long
         ? `${'g'.repeat(64)}@${'d'.repeat(63)}.example.test`
         : 'google@example.test',
+      avatar_url: null,
       pending_email: long
         ? `${'p'.repeat(64)}@${'d'.repeat(63)}.example.test`
         : null,
@@ -1980,7 +1986,7 @@ async function overviewScenario() {
     check(
       await evaluate(
         page,
-        `document.querySelectorAll('main input').length === 0 && ${method === 'google' ? '!' : '!!'}document.getElementById('trigger-google')`,
+        `document.querySelectorAll('main input:not([type="file"])').length === 0 && ${method === 'google' ? '!' : '!!'}document.getElementById('trigger-google')`,
       ),
       `${method}: collapsed overview and last-method guard`,
     )
@@ -2002,7 +2008,7 @@ async function overviewScenario() {
     check(
       await evaluate(
         page,
-        `document.activeElement.id === 'trigger-email' && document.activeElement.matches(':focus-visible') && (getComputedStyle(document.activeElement).outlineStyle !== 'none' || getComputedStyle(document.activeElement).boxShadow !== 'none')`,
+        `document.activeElement.id === 'trigger-avatar' && document.activeElement.matches(':focus-visible') && (getComputedStyle(document.activeElement).outlineStyle !== 'none' || getComputedStyle(document.activeElement).boxShadow !== 'none')`,
       ),
       `${method}: keyboard skips unavailable categories and retains visible focus`,
     )
@@ -2056,6 +2062,7 @@ async function overviewScenario() {
     has_password: true,
     google_linked: false,
     google_email: null,
+    avatar_url: null,
     pending_email: null,
     allowed_methods: ['password'],
   }
@@ -2409,6 +2416,7 @@ async function authFocusScenario() {
           ...session.account,
           google_email: null,
           pending_email: 'next@example.test',
+          avatar_url: null,
           allowed_methods: ['password'],
         }),
       )
@@ -2771,6 +2779,7 @@ async function main() {
         (arg) =>
           ![
             '--google',
+            '--avatar',
             '--visual',
             '--overview',
             '--auth-focus',
@@ -2844,7 +2853,24 @@ async function main() {
     'Nitro same-origin proxy ready',
   )
   await launch()
-  if (google) {
+  if (process.argv.includes('--avatar')) {
+    phase = 'private avatars with real HTTP and synthetic Google'
+    await avatarScenario({
+      tab,
+      go,
+      evaluate,
+      until,
+      click,
+      fill,
+      check,
+      request,
+      mail,
+      googleRedirect,
+      cdp,
+      visual,
+      run,
+    })
+  } else if (google) {
     phase =
       'simulated Google continuation (not real provider/button acceptance)'
     await simulatedGoogle()
@@ -2859,7 +2885,7 @@ async function main() {
     'no unexpected external page requests; tracker synthetic only',
   )
   console.log(
-    `ACCOUNT_BROWSER_PASS scenario=${google ? 'simulated-google' : 'email'} assertions=${passed}`,
+    `ACCOUNT_BROWSER_PASS scenario=${process.argv.includes('--avatar') ? 'avatar' : google ? 'simulated-google' : 'email'} assertions=${passed}`,
   )
   console.log(
     'OUTSTANDING real Google button/provider, Google linking/email-confirm continuation, SES delivery, production HTTPS cookie, expiry clocks, real OS focus/BFCache/PWA install, password-manager and manual screen-reader acceptance',
