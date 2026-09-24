@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
 import {
   accountFragmentToken,
   accountTokenPaths,
@@ -62,4 +64,59 @@ test('account boundary uses router replacement, never document reload', async ()
   )
   assert.doesNotMatch(source, /external: true|location\.reload/)
   assert.match(source, /replace: true/)
+})
+
+test('header selects only the account section with the public navigation active treatment', async () => {
+  const source = await readFile(
+    new URL('../app/components/AppHeader.vue', import.meta.url),
+    'utf8',
+  )
+  const activeFunction = source.match(/function isActive\([^]*?\n\}/)?.[0]
+  assert.ok(activeFunction)
+  const compiled = ts.transpileModule(activeFunction, {}).outputText
+  for (const [path, active] of [
+    ['/compte', true],
+    ['/compte/', true],
+    ['/compte/confirmer-identite', true],
+    ['/compte/confirmer-email', true],
+    ['/comptex', false],
+    ['/connexion', false],
+    ['/inscription', false],
+    ['/verification', false],
+    ['/finaliser', false],
+    ['/planning', false],
+    ['/recherche', false],
+    ['/films', false],
+  ] as const) {
+    assert.equal(
+      runInNewContext(`${compiled}; isActive('/compte')`, {
+        route: { path },
+      }),
+      active,
+      path,
+    )
+  }
+
+  const accountLink = source.match(
+    /<NuxtLink\s+:to="accountHref"[^]*?<\/NuxtLink>/,
+  )?.[0]
+  const publicLink = source.match(
+    /<NuxtLink\s+v-for="link in links"[^]*?<\/NuxtLink>/,
+  )?.[0]
+  assert.ok(accountLink && publicLink)
+  assert.match(accountLink, /:prefetch="false"/)
+  assert.match(accountLink, /\? 'Mon compte' : 'Connexion'/)
+  assert.match(
+    accountLink,
+    /:class="isActive\('\/compte'\) \? 'bg-ink text-white' : 'text-ink hover:bg-highlight'"/,
+  )
+  assert.match(
+    accountLink,
+    /:aria-current="isActive\('\/compte'\) \? 'page' : undefined"/,
+  )
+  assert.match(accountLink, /class="nav-link relative /)
+  const underlineClasses = (link: string) =>
+    link.match(/lg:aria-\[current=page\]:after:[^\s"]+/g)
+  assert.ok(underlineClasses(publicLink)?.length)
+  assert.deepEqual(underlineClasses(accountLink), underlineClasses(publicLink))
 })
