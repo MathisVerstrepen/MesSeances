@@ -493,34 +493,39 @@ function followPageLink(event: MouseEvent, nextPage: number) {
 
 hydrateRoute()
 const initialCatalogKey = `films-catalog:${encodeURIComponent(appliedSearch.value)}:${sort.value}:${page.value}:${encodeURIComponent(movieCatalogFiltersKey(appliedFilters.value))}`
-const initialResult = await useAsyncData(initialCatalogKey, async () => {
-  try {
-    const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
-    const response = await api.movies({
-      currently_screened: true,
-      search: appliedSearch.value || undefined,
-      genres: filterQuery.genres,
-      duration: appliedFilters.value.duration,
-      date: filterQuery.date,
-      date_to: filterQuery.date_to,
-      sort: sort.value,
-      page: page.value,
-      page_size: PAGE_SIZE,
-    })
-    return { kind: 'success' as const, catalog: response, errorMessage: '' }
-  } catch (error) {
-    return {
-      kind: 'upstream-error' as const,
-      catalog: null,
-      errorMessage: getFrenchApiError(error),
+const initialResult = await useAsyncData(
+  initialCatalogKey,
+  async () => {
+    try {
+      const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
+      const response = await api.movies({
+        currently_screened: true,
+        search: appliedSearch.value || undefined,
+        genres: filterQuery.genres,
+        duration: appliedFilters.value.duration,
+        date: filterQuery.date,
+        date_to: filterQuery.date_to,
+        sort: sort.value,
+        page: page.value,
+        page_size: PAGE_SIZE,
+      })
+      return { kind: 'success' as const, catalog: response, errorMessage: '' }
+    } catch (error) {
+      return {
+        kind: 'upstream-error' as const,
+        catalog: null,
+        errorMessage: getFrenchApiError(error),
+      }
     }
-  }
-})
+  },
+  // Hydrate SSR data, but leave client navigation to the personalized loader.
+  { immediate: import.meta.server },
+)
 
 const initialState = initialResult.data.value
 catalog.value = initialState?.catalog ?? null
 errorMessage.value = initialState?.errorMessage ?? ''
-pending.value = false
+pending.value = !initialState
 if (import.meta.server && initialState?.kind !== 'success') {
   const event = useRequestEvent()
   if (event) setResponseStatus(event, 502)
