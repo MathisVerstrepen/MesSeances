@@ -541,7 +541,7 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.match(source, /\[id\^="editor-"\] \{\s*@apply max-w-lg;/)
   assert.match(shell, /lg:px-12 lg:py-10/)
   assert.match(navigation, /lg:py-10/)
-  assert.match(navigation, />Paramètres<\/NuxtLink/)
+  assert.match(navigation, /Paramètres\s*<\/span>\s*<\/NuxtLink>/)
   assert.match(navigation, /text-white no-underline/)
   const header = await readFile(
     new URL('../app/components/AppHeader.vue', import.meta.url),
@@ -564,7 +564,9 @@ test('account area is opt-in, with one current route and disabled future categor
     navigation,
     /to="\/compte"\s+:prefetch="false"\s+aria-current="page"/,
   )
-  assert.match(navigation, /\['Watchlist', 'Amis'\]/)
+  assert.match(navigation, /\{ label: 'Watchlist', icon: Bookmark \}/)
+  assert.match(navigation, /\{ label: 'Amis', icon: Users \}/)
+  assert.match(navigation, /v-for="entry in upcomingEntries"/)
   assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
@@ -586,4 +588,26 @@ test('account area is opt-in, with one current route and disabled future categor
     )
     assert.doesNotMatch(route, /\saccount-area\s|account-shell-area/)
   }
+})
+
+test('account navigation pairs each label with a decorative icon without changing responsive layout', async () => {
+  const navigation = await readFile(
+    new URL('../app/components/AccountAreaNavigation.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(
+    navigation,
+    /import \{ Bookmark, Settings, Users \} from '@lucide\/vue'/,
+  )
+  assert.match(
+    navigation,
+    /<span class="inline-flex items-center gap-2">\s*<Settings :size="18" class="shrink-0" aria-hidden="true" \/>\s*Paramètres/,
+  )
+  assert.match(
+    navigation,
+    /<span class="inline-flex items-center gap-2">\s*<component\s+:is="entry.icon"\s+:size="18"\s+class="shrink-0"\s+aria-hidden="true"\s*\/>\s*\{\{ entry.label \}\}\s*<\/span>\s*<span class="text-xs">À venir<\/span>/,
+  )
+  assert.match(navigation, /grid grid-cols-2 gap-2 lg:grid-cols-1/)
+  assert.match(navigation, /flex-col items-start justify-between gap-x-2/)
+  assert.match(navigation, /lg:flex-row lg:items-center/)
 })
