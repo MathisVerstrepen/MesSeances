@@ -111,9 +111,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         inaccessible au JavaScript, sécurisé et limité au site. Sa durée
         maximale est de 30 jours, avec expiration après 7 jours d’inactivité.
         Les liens de vérification et les secrets saisis restent en mémoire dans
-        les pages concernées, sans stockage local ou de session. Ces pages
-        excluent Umami et les ressources tierces ; elles ne sont pas destinées à
-        être consultées hors ligne.
+        les pages concernées, sans stockage local ou de session. Aucune mesure
+        d’audience n’est envoyée depuis ces pages. Le traceur chargé sur une
+        page publique peut rester présent pendant la navigation, sans constituer
+        une isolation du code tiers. Ces pages ne sont pas disponibles hors
+        ligne.
       </p>
 
       <h3>Session d’administration</h3>
@@ -130,24 +132,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <h3>Mesure d’audience Umami</h3>
       <p>
-        MesSeances prévoit l’intégration d’une instance Umami auto-hébergée,
-        lorsqu’elle est configurée, hors pages de connexion, de compte et de
-        confirmation, pour produire des statistiques de fréquentation. Le
-        traceur fonctionne sans cookie et sans suivi entre sites. Il est intégré
-        dans sa configuration par défaut, avec l’identifiant du site pour seul
-        paramètre : aucun événement personnalisé, tag, identifiant distinct ou
-        mécanisme d’identification des utilisateurs n’est configuré.
+        Lorsqu’elle est configurée, une instance Umami auto-hébergée mesure les
+        visites des pages publiques autorisées, sans cookie ni suivi entre
+        sites. Le suivi automatique est désactivé : seules ces visites sont
+        transmises, sans événement personnalisé, performance, tag ni
+        identification des utilisateurs. Les pages de connexion, de compte, de
+        confirmation et d’administration ne transmettent aucune mesure.
       </p>
       <p>
-        Umami enregistre par défaut l’identifiant du site, le nom d’hôte, le
-        chemin visité et sa chaîne de requête, le titre de la page, le site
-        référent, le navigateur, le système d’exploitation, le type d’appareil,
-        les dimensions de l’écran, la langue du navigateur, le pays, la région
-        et la ville déduits de l’adresse IP, les paramètres UTM et les
-        identifiants de clic publicitaire présents dans l’URL, des identifiants
-        techniques d’événement et de session, ainsi que les horodatages
-        associés. L’adresse IP sert à déterminer la localisation, mais n’est pas
-        enregistrée.
+        Les visites transmises contiennent l’identifiant du site, le nom d’hôte,
+        le chemin public sans requête ni fragment, un titre fixe, les dimensions
+        de l’écran et la langue du navigateur. Le référent est limité au chemin
+        public précédent ou au domaine externe d’arrivée ; aucun chemin privé,
+        paramètre UTM ou identifiant de clic n’est transmis. Umami peut en
+        déduire le navigateur, le système d’exploitation, le type d’appareil et
+        la localisation approximative à partir de la requête réseau, avec des
+        identifiants techniques de session et des horodatages. L’adresse IP sert
+        à déterminer la localisation, mais n’est pas enregistrée.
       </p>
 
       <h3>Journaux techniques</h3>
@@ -440,9 +441,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div>
           <dt>Umami</dt>
           <dd>
-            Chargé lorsqu’il est configuré, hors pages de connexion, compte et
-            confirmation, sans cookie ni suivi entre sites. Les données
-            collectées sont détaillées ci-dessus.
+            Chargé sur les pages publiques autorisées lorsqu’il est configuré,
+            sans cookie ni suivi entre sites. Peut rester présent pendant la
+            navigation, mais les pages privées ne transmettent aucune mesure.
           </dd>
         </div>
       </dl>

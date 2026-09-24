@@ -27,6 +27,10 @@ const done = ref(false)
 const uncertain = ref(false)
 const errorMessage = ref('')
 const complete = computed(() => account.session.value?.state === 'complete')
+const lifetime = useAccountLifetime(() => {
+  busy.value = done.value = uncertain.value = false
+  errorMessage.value = ''
+})
 watch(
   account.session,
   (value) => {
@@ -49,15 +53,17 @@ async function googleProof() {
   busy.value = true
   errorMessage.value = ''
   const target = details.value.pending_email
+  const current = lifetime.capture()
   // This bearer must not survive OAuth. Ask for the original email link after proof.
   clear()
   clearPassword()
   try {
     await startGoogle({ mode: 'reauth', action: 'email_change', target })
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
   } finally {
-    busy.value = false
+    if (current()) busy.value = false
   }
 }
 
@@ -76,6 +82,8 @@ async function confirm() {
   errorMessage.value = ''
   const confirmationToken = token.value
   const target = details.value.pending_email
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     const applied = await passwordAction(
       password.value,
@@ -83,6 +91,7 @@ async function confirm() {
       target,
       (grant) => api.confirmEmailChange(confirmationToken, grant),
     )
+    if (!current()) return
     if (!applied) {
       errorMessage.value =
         'La session a été revérifiée. Saisissez à nouveau votre mot de passe et recommencez.'
@@ -95,6 +104,7 @@ async function confirm() {
     account.notify()
     await account.refresh()
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) {
       uncertain.value = true
@@ -102,11 +112,12 @@ async function confirm() {
       clearPassword()
       account.notify()
       await account.refresh()
+      if (!active()) return
       errorMessage.value =
         'La réponse a été interrompue. Le changement a peut-être été confirmé. Essayez de vous connecter avec la nouvelle adresse ou consultez votre compte avant de demander un autre lien.'
     }
   } finally {
-    busy.value = false
+    if (active()) busy.value = false
   }
 }
 useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
@@ -128,10 +139,11 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
         compte Google associé, puis rouvrez le lien reçu par email. Si votre
         inscription est incomplète, terminez-la d’abord.
       </p>
-      <a
-        :href="account.session.value ? accountDestination(account.session.value) : '/connexion'"
+      <NuxtLink
+        :to="account.session.value ? accountDestination(account.session.value) : '/connexion'"
+        :prefetch="false"
         class="account-link"
-        >Reprendre la connexion</a
+        >Reprendre la connexion</NuxtLink
       >
     </div>
     <p v-else-if="!token" class="text-sm leading-relaxed">
@@ -222,12 +234,13 @@ useHead({ title: 'Confirmer mon nouvel email - MesSeances' })
     <p v-if="errorMessage" role="alert" class="account-alert mt-5">
       {{ errorMessage }}
     </p>
-    <a
-      :href="done || uncertain ? '/connexion' : '/compte'"
+    <NuxtLink
+      :to="done || uncertain ? '/connexion' : '/compte'"
+      :prefetch="false"
       class="account-link mt-6"
       >{{
         done || uncertain ? 'Se connecter' : 'Revenir à mon compte'
-      }}</a
+      }}</NuxtLink
     >
   </AccountShell>
 </template>

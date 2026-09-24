@@ -49,5 +49,6 @@ export const accountFragmentBootstrap = `(function(){
   var params=new URLSearchParams(fragment.slice(1));
   var value=params.getAll('token');
   var token=value.length===1&&/^[A-Za-z0-9_-]{43}$/.test(value[0])?value[0]:'';
-  window.__takeAccountToken=function(){var result=token;token='';delete window.__takeAccountToken;return result;};
+  var path=location.pathname;
+  window.__takeAccountToken=function(target){var result=!target||target===path?token:'';token='';delete window.__takeAccountToken;return result;};
 })();`

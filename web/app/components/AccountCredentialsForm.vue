@@ -16,6 +16,11 @@ const errorMessage = ref('')
 const sent = ref(false)
 const blocked = computed(() => busy.value || account.writesBlocked.value)
 useAccountFlowDraft(email, password)
+const lifetime = useAccountLifetime(() => {
+  busy.value = false
+  sent.value = false
+  errorMessage.value = ''
+})
 
 async function submit() {
   if (blocked.value) return
@@ -28,26 +33,31 @@ async function submit() {
     }
   }
   busy.value = true
+  const current = lifetime.capture()
   try {
     if (props.register) {
       await api.register(email.value.trim(), password.value)
+      if (!current()) return
       password.value = ''
       sent.value = true
     } else {
       const session = await api.login(email.value.trim(), password.value)
+      if (!current()) return
       password.value = ''
       account.accept(session)
       account.notify()
-      await navigateTo(accountDestination(session), { external: true })
+      await navigateTo(accountDestination(session))
     }
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
   } finally {
-    busy.value = false
+    if (current()) busy.value = false
   }
 }
 
 async function google() {
+  const current = lifetime.capture()
   if (blocked.value) return
   busy.value = true
   errorMessage.value = ''
@@ -55,6 +65,7 @@ async function google() {
     password.value = ''
     await startGoogle()
   } catch {
+    if (!current()) return
     errorMessage.value =
       'La connexion Google est indisponible ou a été interrompue. Réessayez ou utilisez votre email.'
     busy.value = false
@@ -69,8 +80,12 @@ async function google() {
       Ouvrez son lien dans ce navigateur pour confirmer votre adresse.
     </p>
     <div class="flex flex-wrap items-center gap-4">
-      <a href="/verification" class="account-primary">Vérifier mon adresse</a>
-      <a href="/connexion" class="account-link">Se connecter</a>
+      <NuxtLink to="/verification" :prefetch="false" class="account-primary"
+        >Vérifier mon adresse</NuxtLink
+      >
+      <NuxtLink to="/connexion" :prefetch="false" class="account-link"
+        >Se connecter</NuxtLink
+      >
     </div>
   </div>
   <div v-else class="space-y-4">
@@ -99,8 +114,11 @@ async function google() {
           :disabled="busy"
         >
           <template v-if="!register" #label-action>
-            <a href="/mot-de-passe-oublie" class="account-navigation-link"
-              >Mot de passe oublié ?</a
+            <NuxtLink
+              to="/mot-de-passe-oublie"
+              :prefetch="false"
+              class="account-navigation-link"
+              >Mot de passe oublié ?</NuxtLink
             >
           </template>
         </AccountPasswordField>
@@ -133,12 +151,13 @@ async function google() {
       <GoogleIcon />
       Continuer avec Google
     </button>
-    <a
-      :href="register ? '/connexion' : '/inscription'"
+    <NuxtLink
+      :to="register ? '/connexion' : '/inscription'"
+      :prefetch="false"
       class="account-navigation-link"
       >{{
         register ? 'Déjà un compte ? Se connecter' : 'Créer un compte'
-      }}</a
+      }}</NuxtLink
     >
   </div>
 </template>

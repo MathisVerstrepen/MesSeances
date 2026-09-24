@@ -6,6 +6,9 @@ import { toNodeListener } from 'h3'
 
 const origin = 'http://127.0.0.1:13009'
 const api = 'http://127.0.0.1:18089'
+const script = process.argv.includes('--no-analytics')
+  ? ''
+  : 'https://analytics.example.test/script.js'
 // Runtime env overrides take precedence over Nuxt defaults. Never inherit a
 // deployment API, internal bearer or tracker configuration into this fixture.
 Object.assign(process.env, {
@@ -13,7 +16,7 @@ Object.assign(process.env, {
   NUXT_INTERNAL_API_SHARED_SECRET: '',
   NUXT_PUBLIC_API_BASE: '',
   NUXT_PUBLIC_SITE_URL: origin,
-  NUXT_PUBLIC_UMAMI_SCRIPT_URL: 'https://analytics.example.test/script.js',
+  NUXT_PUBLIC_UMAMI_SCRIPT_URL: script,
   NUXT_PUBLIC_UMAMI_WEBSITE_ID: 'browser-synthetic-only',
 })
 const nuxt = await loadNuxt({
@@ -31,7 +34,7 @@ const nuxt = await loadNuxt({
       public: {
         apiBase: '',
         siteUrl: origin,
-        umamiScriptUrl: 'https://analytics.example.test/script.js',
+        umamiScriptUrl: script,
         umamiWebsiteId: 'browser-synthetic-only',
       },
     },

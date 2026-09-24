@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { lifetimeFixture } from './helpers/accountLifetime.ts'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
@@ -214,6 +215,7 @@ async function identityFixture(
   ).outputText
   const exports: CompiledIdentity = {}
   runInNewContext(output, {
+    ...lifetimeFixture(revision),
     exports,
     ref,
     computed,

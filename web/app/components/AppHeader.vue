@@ -125,15 +125,16 @@ onMounted(() => {
           />
           <span>{{ link.label }}</span>
         </NuxtLink>
-        <a
-          :href="accountHref"
+        <NuxtLink
+          :to="accountHref"
+          :prefetch="false"
           class="nav-link flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-center text-[9px] font-extrabold uppercase text-ink hover:bg-highlight sm:px-3 sm:text-[10px] lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:px-4 lg:text-xs"
         >
           <UserRound :size="15" stroke-width="2.5" aria-hidden="true" />
           <span>{{
             accountSession?.account ? 'Mon compte' : 'Connexion'
           }}</span>
-        </a>
+        </NuxtLink>
       </nav>
     </div>
   </header>

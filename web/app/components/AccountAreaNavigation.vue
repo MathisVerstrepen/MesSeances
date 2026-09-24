@@ -5,11 +5,12 @@
   >
     <ul class="grid grid-cols-2 gap-2 lg:grid-cols-1">
       <li>
-        <a
-          href="/compte"
+        <NuxtLink
+          to="/compte"
+          :prefetch="false"
           aria-current="page"
           class="flex h-full min-h-12 items-center border-l-4 border-ink bg-ink px-3 py-3 text-sm font-semibold text-white no-underline"
-          >Paramètres</a
+          >Paramètres</NuxtLink
         >
       </li>
       <li v-for="label in ['Films aimés', 'Watchlist', 'Amis']" :key="label">

@@ -11,6 +11,7 @@ import type { useAccountGoogle } from '../app/composables/useAccountGoogle.ts'
 import type { useAccountFlowDraft } from '../app/composables/useAccountFlowDraft.ts'
 import type { AccountDetails, AccountSession } from '../app/types/account.ts'
 import * as errors from '../app/utils/accountState.ts'
+import { lifetimeFixture } from './helpers/accountLifetime.ts'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -94,6 +95,7 @@ async function fixture(logoutResponse = Promise.resolve()) {
     'useAccountSession',
   )
   const account = scope.run(() => module.useAccountSession())!
+  Object.assign(context, lifetimeFixture(account.revision))
   account.accept(owner)
   const detailModule = await compile<{
     useAccountDetails: typeof useAccountDetails

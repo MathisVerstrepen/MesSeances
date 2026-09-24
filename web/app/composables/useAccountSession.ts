@@ -48,31 +48,34 @@ export function useAccountSession() {
     errorMessage.value = ''
   }
 
-  async function refresh() {
+  function refresh(): Promise<void> {
     invalidate()
     const current = revision.value
     // Initial/recovery and explicit invalidation remain destructive.
     session.value = null
     status.value = 'loading'
     errorMessage.value = ''
-    try {
-      const value = await api.session()
-      if (current === revision.value) accept(value)
-    } catch (error) {
-      if (current !== revision.value) return
-      session.value = null
-      errorMessage.value = accountErrorMessage(error)
-      status.value = 'error'
-    } finally {
-      if (current === revision.value) runtime.pending = undefined
-    }
+    const pending = (async () => {
+      try {
+        const value = await api.session()
+        if (current === revision.value) accept(value)
+      } catch (error) {
+        if (current !== revision.value) return
+        session.value = null
+        errorMessage.value = accountErrorMessage(error)
+        status.value = 'error'
+      } finally {
+        if (current === revision.value) runtime.pending = undefined
+      }
+    })()
+    runtime.pending = pending
+    return pending
   }
 
   function revalidate(): Promise<void> {
     if (runtime.pending) return runtime.pending
     const previous = session.value
-    if (status.value !== 'ready' || !previous?.enabled)
-      return (runtime.pending = refresh())
+    if (status.value !== 'ready' || !previous?.enabled) return refresh()
     const current = ++revision.value
     revalidating.value = true
     const pending = (async () => {

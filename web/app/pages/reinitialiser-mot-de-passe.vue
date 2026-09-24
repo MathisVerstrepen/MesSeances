@@ -16,6 +16,10 @@ const done = ref(false)
 const uncertain = ref(false)
 const errorMessage = ref('')
 const blocked = computed(() => busy.value || account.writesBlocked.value)
+const lifetime = useAccountLifetime(() => {
+  busy.value = done.value = uncertain.value = false
+  errorMessage.value = ''
+})
 
 async function confirm() {
   if (blocked.value || !token.value || uncertain.value) return
@@ -26,8 +30,11 @@ async function confirm() {
   }
   busy.value = true
   errorMessage.value = ''
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     await api.confirmPasswordReset(token.value, password.value)
+    if (!current()) return
     clear()
     clearPassword()
     done.value = true
@@ -35,6 +42,7 @@ async function confirm() {
     account.notify()
     await account.refresh()
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) {
       uncertain.value = true
@@ -42,11 +50,12 @@ async function confirm() {
       clearPassword()
       account.notify()
       await account.refresh()
+      if (!active()) return
       errorMessage.value =
         'La réponse a été interrompue. Le mot de passe a peut-être été modifié. Essayez de vous connecter avec le nouveau mot de passe ; sinon, demandez un nouveau lien.'
     }
   } finally {
-    busy.value = false
+    if (active()) busy.value = false
   }
 }
 useHead({ title: 'Réinitialiser mon mot de passe - MesSeances' })
@@ -87,9 +96,15 @@ useHead({ title: 'Réinitialiser mon mot de passe - MesSeances' })
       {{ errorMessage }}
     </p>
     <div class="mt-6 flex flex-col items-start gap-2">
-      <a href="/connexion" class="account-link">Se connecter</a>
-      <a v-if="!done" href="/mot-de-passe-oublie" class="account-link"
-        >Recevoir un nouveau lien</a
+      <NuxtLink to="/connexion" :prefetch="false" class="account-link"
+        >Se connecter</NuxtLink
+      >
+      <NuxtLink
+        v-if="!done"
+        to="/mot-de-passe-oublie"
+        :prefetch="false"
+        class="account-link"
+        >Recevoir un nouveau lien</NuxtLink
       >
     </div>
   </AccountShell>

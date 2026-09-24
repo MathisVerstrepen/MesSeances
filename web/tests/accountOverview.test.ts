@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { lifetimeFixture } from './helpers/accountLifetime.ts'
 import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
@@ -101,6 +102,7 @@ function fixture() {
   ).outputText
   scope.run(() =>
     runInNewContext(compiled, {
+      ...lifetimeFixture(),
       exports: result,
       require: () => accountState,
       ref,
@@ -401,7 +403,7 @@ test('uncertain write destructively recovers once without replay and keeps recov
   }
 })
 
-test('local logout reuses account.logout and full document navigation', async () => {
+test('local logout reuses account.logout and router navigation', async () => {
   const f = fixture()
   try {
     await f.state.logout()
@@ -531,7 +533,7 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.match(source, /\[id\^="editor-"\] \{\s*@apply max-w-lg;/)
   assert.match(shell, /lg:px-12 lg:py-10/)
   assert.match(navigation, /lg:py-10/)
-  assert.match(navigation, />Paramètres<\/a/)
+  assert.match(navigation, />Paramètres<\/NuxtLink/)
   assert.match(navigation, /text-white no-underline/)
   const header = await readFile(
     new URL('../app/components/AppHeader.vue', import.meta.url),
@@ -542,16 +544,23 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.match(shell, /<AccountAreaNavigation v-if="accountArea"/)
   assert.match(shell, /min-h-svh/)
   assert.match(shell, /lg:grid-cols-\[15rem_minmax\(0,1fr\)\]/)
-  assert.match(shell, /noindex,nofollow/)
-  assert.match(shell, /no-referrer/)
+  const root = await readFile(
+    new URL('../app/app.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(root, /noindex, nofollow/)
+  assert.match(root, /no-referrer/)
   assert.match(shell, /status === 'ready' && session\?\.enabled/)
   assert.match(navigation, /aria-label="Espace personnel"/)
-  assert.match(navigation, /href="\/compte"\s+aria-current="page"/)
+  assert.match(
+    navigation,
+    /to="\/compte"\s+:prefetch="false"\s+aria-current="page"/,
+  )
   assert.match(navigation, /\['Films aimés', 'Watchlist', 'Amis'\]/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
-  assert.equal([...navigation.matchAll(/href=/g)].length, 1)
-  assert.doesNotMatch(navigation, /@click|tabindex|to=/)
+  assert.equal([...navigation.matchAll(/to=/g)].length, 1)
+  assert.doesNotMatch(navigation, /@click|tabindex|href=/)
   for (const page of [
     'connexion',
     'inscription',

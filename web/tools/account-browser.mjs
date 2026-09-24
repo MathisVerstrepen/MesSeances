@@ -8,6 +8,7 @@ import { createServer } from 'node:http'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import { CDP, CaptureError, terminateProcessGroup } from './screenshot.mjs'
+import { spaScenario, trackerFixture } from './account-spa-scenario.mjs'
 
 const origin = 'http://127.0.0.1:13009'
 const api = 'http://127.0.0.1:18089'
@@ -122,7 +123,7 @@ async function launch() {
   await cdp.open()
 }
 
-async function tab(context) {
+async function tab(context, fixtureSession) {
   const browserContextId =
     context || (await cdp.send('Target.createBrowserContext')).browserContextId
   const { targetId } = await cdp.send('Target.createTarget', {
@@ -139,11 +140,25 @@ async function tab(context) {
     requests: [],
     trackerCount: 0,
     external: 0,
+    collections: [],
+    documents: 0,
+    googleStarts: 0,
   }
   allPages.push(page)
   await cdp.send('Page.enable', {}, sessionId)
   await cdp.send('Runtime.enable', {}, sessionId)
   await cdp.send('Network.enable', {}, sessionId)
+  if (fixtureSession)
+    await cdp.send(
+      'Network.setCookie',
+      {
+        name: 'messeances_session_dev',
+        value: fixtureSession,
+        url: origin,
+        path: '/',
+      },
+      sessionId,
+    )
   const failedRequests = new Set()
   const requestDocuments = new Map()
   const frameDocuments = new Map()
@@ -172,7 +187,8 @@ async function tab(context) {
   cdp.on(
     'Network.requestWillBeSent',
     sessionId,
-    ({ requestId, frameId, loaderId, redirectResponse }) => {
+    ({ requestId, frameId, loaderId, redirectResponse, type }) => {
+      if (type === 'Document') page.documents++
       if (loaderId) requestDocuments.set(requestId, { frameId, loaderId })
       if (!redirectResponse) return
       const url = new URL(redirectResponse.url)
@@ -192,6 +208,15 @@ async function tab(context) {
         const url = new URL(request.url)
         if (request.url === tracker) {
           page.trackerCount++
+          if (page.scriptFailure) {
+            await cdp.send(
+              'Fetch.failRequest',
+              { requestId, errorReason: 'BlockedByClient' },
+              sessionId,
+            )
+            return
+          }
+          if (page.scriptDelay) await delay(page.scriptDelay)
           await cdp.send(
             'Fetch.fulfillRequest',
             {
@@ -200,9 +225,43 @@ async function tab(context) {
               responseHeaders: [
                 { name: 'Content-Type', value: 'application/javascript' },
               ],
-              body: Buffer.from('window.__syntheticTracker = true;').toString(
-                'base64',
-              ),
+              body: Buffer.from(
+                process.argv.includes('--spa')
+                  ? await trackerFixture(
+                      page.sameOriginCollector
+                        ? origin
+                        : 'https://analytics.example.test',
+                    )
+                  : 'window.__syntheticTracker = true;',
+              ).toString('base64'),
+            },
+            sessionId,
+          )
+        } else if (
+          url.pathname === '/api/send' &&
+          [origin, 'https://analytics.example.test'].includes(url.origin)
+        ) {
+          if (request.method === 'POST')
+            page.collections.push({
+              url: request.url,
+              body: JSON.parse(request.postData),
+              headers: request.headers,
+            })
+          await cdp.send(
+            'Fetch.fulfillRequest',
+            {
+              requestId,
+              responseCode: 200,
+              responseHeaders: [
+                { name: 'Content-Type', value: 'application/json' },
+                { name: 'Access-Control-Allow-Origin', value: origin },
+                {
+                  name: 'Access-Control-Allow-Headers',
+                  value:
+                    'content-type,x-umami-website-id,x-umami-hostname,x-umami-cache',
+                },
+              ],
+              body: Buffer.from('{}').toString('base64'),
             },
             sessionId,
           )
@@ -245,6 +304,17 @@ async function tab(context) {
             )
           } else
             await cdp.send('Fetch.continueRequest', { requestId }, sessionId)
+        } else if (
+          process.argv.includes('--spa') &&
+          url.origin === 'https://accounts.google.com' &&
+          url.pathname === '/o/oauth2/v2/auth'
+        ) {
+          page.googleStarts++
+          await cdp.send(
+            'Fetch.failRequest',
+            { requestId, errorReason: 'BlockedByClient' },
+            sessionId,
+          )
         } else {
           page.external++
           await cdp.send(
@@ -297,8 +367,17 @@ async function until(page, expression, label, timeout = 20000) {
 async function go(page, path) {
   const url = new URL(path, origin)
   if (url.origin !== origin) throw new Error('Nonlocal navigation refused')
-  // Also wait for navigation away from the old document, including hash-only
-  // account links that the privacy boundary explicitly reloads.
+  // This helper explicitly tests direct document loads. Same-path fragment
+  // arrivals are exercised separately through router.push in the SPA scenario.
+  if (
+    await evaluate(
+      page,
+      `location.pathname === ${JSON.stringify(url.pathname)}`,
+    )
+  ) {
+    await cdp.send('Page.navigate', { url: 'about:blank' }, page.sessionId)
+    await until(page, `location.href === 'about:blank'`, 'Direct load reset')
+  }
   await evaluate(page, 'window.__navigationProbe = true')
   await cdp.send('Page.navigate', { url: url.href }, page.sessionId)
   await until(
@@ -2690,10 +2769,41 @@ async function main() {
       .slice(2)
       .some(
         (arg) =>
-          !['--google', '--visual', '--overview', '--auth-focus'].includes(arg),
+          ![
+            '--google',
+            '--visual',
+            '--overview',
+            '--auth-focus',
+            '--spa',
+            '--no-analytics',
+          ].includes(arg),
       )
   )
     throw new HarnessError('Unknown scenario argument')
+  if (process.argv.includes('--spa')) {
+    phase = 'DB-free SPA and pinned Umami'
+    await spaScenario({
+      launch,
+      tab,
+      go,
+      evaluate,
+      until,
+      click,
+      fill,
+      check,
+      setServer: (server) => {
+        overviewServer = server
+      },
+    })
+    check(
+      !interceptionFailure && allPages.every((page) => !page.external),
+      'SPA network boundary has no unexpected external requests',
+    )
+    console.log(
+      `ACCOUNT_BROWSER_PASS scenario=spa analytics=${!process.argv.includes('--no-analytics')} assertions=${passed}`,
+    )
+    return
+  }
   if (process.argv.includes('--auth-focus')) {
     phase = 'read-only auth-flow synthetic focus'
     if (google || visual || process.argv.includes('--overview'))

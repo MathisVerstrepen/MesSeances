@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { IncomingMessage, ServerResponse } from 'node:http'
+import { Socket } from 'node:net'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import ts from 'typescript'
 import {
   accountFragmentBootstrap,
   accountPageRoots,
   accountPrivacyHeaders,
   isAccountPrivatePath,
+  isAccountPage,
 } from '../shared/accountPrivacy.ts'
 import {
   accountCookieHeader,
@@ -15,6 +19,81 @@ import {
 
 const token = 'a'.repeat(43)
 const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
+
+test('private error hook preserves no-store across subsequent Nitro header writes', async () => {
+  interface TestEvent {
+    url: string
+    node: { res: ServerResponse }
+  }
+  let onError = (_error: Error, _context: { event?: TestEvent }) => {}
+  const source = ts.transpileModule(
+    await read('../server/plugins/account-privacy.ts'),
+    {
+      compilerOptions: { module: ts.ModuleKind.CommonJS },
+    },
+  ).outputText
+  runInNewContext(source, {
+    exports: {},
+    require: () => ({
+      accountFragmentBootstrap,
+      accountPrivacyHeaders,
+      isAccountPage,
+      isAccountPrivatePath,
+    }),
+    defineNitroPlugin: (
+      plugin: (app: {
+        hooks: { hook: (name: string, callback: typeof onError) => void }
+      }) => void,
+    ) =>
+      plugin({
+        hooks: {
+          hook: (name, callback) => {
+            if (name === 'error') onError = callback
+          },
+        },
+      }),
+    getRequestURL: (event: TestEvent) =>
+      new URL(event.url, 'https://messeances.fr'),
+    setResponseHeaders: (
+      event: TestEvent,
+      headers: typeof accountPrivacyHeaders,
+    ) => {
+      for (const [name, value] of Object.entries(headers))
+        event.node.res.setHeader(name, value)
+    },
+  })
+  for (const path of [
+    '/compte/_payload.json',
+    '/compte/unknown',
+    '/api/v1/auth/session',
+  ]) {
+    const event = {
+      url: path,
+      node: { res: new ServerResponse(new IncomingMessage(new Socket())) },
+    }
+    onError(new Error('missing'), { event })
+    const guardedSetter = event.node.res.setHeader
+    onError(new Error('missing'), { event })
+    assert.equal(event.node.res.setHeader, guardedSetter)
+    // Both Nitro fallback JSON and Nuxt HTML errors write these after the hook.
+    event.node.res.setHeader('cache-control', 'no-cache')
+    event.node.res.setHeader('Content-Type', 'application/json')
+    assert.equal(event.node.res.getHeader('cache-control'), 'private, no-store')
+    assert.equal(event.node.res.getHeader('referrer-policy'), 'no-referrer')
+    assert.equal(event.node.res.getHeader('x-robots-tag'), 'noindex, nofollow')
+    assert.equal(event.node.res.getHeader('content-type'), 'application/json')
+  }
+  const publicEvent = {
+    url: '/credits',
+    node: { res: new ServerResponse(new IncomingMessage(new Socket())) },
+  }
+  const publicSetter = publicEvent.node.res.setHeader
+  onError(new Error('missing'), { event: publicEvent })
+  assert.equal(publicEvent.node.res.setHeader, publicSetter)
+  publicEvent.node.res.setHeader('Cache-Control', 'no-cache')
+  assert.equal(publicEvent.node.res.getHeader('cache-control'), 'no-cache')
+  onError(new Error('no request'), {})
+})
 
 interface TokenBrowser {
   __takeAccountToken?: () => string
@@ -118,21 +197,18 @@ test('fragment bootstrap clears URL synchronously and exposes token once in memo
   }
 })
 
-test('privacy boundary excludes tracker, forces document transitions and prepends bootstrap', async () => {
-  assert.match(
-    await read('../app/app.vue'),
-    /!privateDocument && umamiScriptUrl/,
-  )
+test('privacy boundary suppresses tracking, keeps SPA transitions and prepends bootstrap', async () => {
+  assert.match(await read('../app/app.vue'), /privateDocument = computed/)
   assert.match(
     await read('../app/middleware/account-boundary.global.ts'),
-    /external: true/,
+    /replace: true/,
   )
   assert.match(
     await read('../server/plugins/account-privacy.ts'),
     /html\.head\.unshift/,
   )
   const header = await read('../app/components/AppHeader.vue')
-  assert.match(header, /<a\s+:href="accountHref"/)
+  assert.match(header, /<NuxtLink\s+:to="accountHref"/)
   const config = await read('../nuxt.config.ts')
   assert.match(config, /handler: 'NetworkOnly'/)
   assert.match(config, /navigateFallback: null/)
@@ -162,9 +238,9 @@ test('account client disables retries and caching and never uses internal author
     /AccountPasswordField|verificationMethod|verification-password|type="radio"|Mode d’inscription/,
   )
   assert.match(verification, /api\.confirmVerification\(token\.value\)/)
-  assert.match(verification, /href="\/inscription"/)
+  assert.match(verification, /to="\/inscription"/)
   assert.match(verification, /Recommencer l’inscription/)
-  assert.doesNotMatch(verification, /href="\/connexion"/)
+  assert.doesNotMatch(verification, /to="\/connexion"/)
 })
 
 test('creation forms share ten-character criteria without visible byte-limit copy', async () => {

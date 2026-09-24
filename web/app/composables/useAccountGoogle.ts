@@ -8,6 +8,7 @@ export function useAccountGoogle() {
   const invalidate = () => {
     revision++
   }
+  useAccountLifetime(invalidate)
   watch(account.revision, invalidate, { flush: 'sync' })
   onMounted(() => window.addEventListener('pagehide', invalidate))
   onBeforeUnmount(() => {

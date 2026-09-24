@@ -74,6 +74,16 @@ function invalidate() {
   continuation.value = null
   emailOperation.value = ''
 }
+const lifetime = useAccountLifetime(() => {
+  invalidate()
+  clearToken()
+  if (timer) clearInterval(timer)
+  loading.value = false
+  busy.value = ''
+  done.value = uncertain.value = restartRequired.value = false
+  errorMessage.value = notice.value = ''
+  cooldown.value = 0
+})
 // Every recheck rejects pending proof. An already issued single-use proof keeps
 // its original deadline, never gains authority from a matching session DTO.
 // Server session/revision/target validation remains mandatory on every write.
@@ -105,6 +115,7 @@ watch(emailOperation, () => {
 })
 
 async function load() {
+  const active = lifetime.capture(false)
   if (
     account.writesBlocked.value ||
     !complete.value ||
@@ -124,11 +135,12 @@ async function load() {
   } catch (error) {
     if (current === revision) errorMessage.value = accountErrorMessage(error)
   } finally {
-    loading.value = false
+    if (active()) loading.value = false
   }
 }
 
 async function requestChallenge() {
+  const active = lifetime.capture()
   if (
     account.writesBlocked.value ||
     busy.value ||
@@ -144,23 +156,26 @@ async function requestChallenge() {
   notice.value = ''
   try {
     await api.requestIdentityEmail()
+    if (!active()) return
     clearToken()
     cooldownDeadline = Date.now() + 60000
     cooldown.value = 60
     notice.value =
       'La demande a été acceptée. Ouvrez le dernier lien reçu à l’email actuel du compte, dans ce navigateur. Seul ce lien restera valable.'
   } catch (error) {
+    if (!active()) return
     errorMessage.value = accountErrorMessage(error)
     if (error instanceof AccountApiError && error.status === 429) {
       cooldown.value = error.retryAfter || 60
       cooldownDeadline = Date.now() + cooldown.value * 1000
     }
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
 async function confirmChallenge() {
+  const active = lifetime.capture()
   if (
     account.writesBlocked.value ||
     busy.value ||
@@ -196,6 +211,7 @@ async function confirmChallenge() {
       proof.grant = ''
     }
   } catch (error) {
+    if (!active()) return
     errorMessage.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) {
       restartRequired.value = true
@@ -204,11 +220,13 @@ async function confirmChallenge() {
         'La réponse de vérification a été interrompue. Recommencez depuis votre compte ; aucune modification ne sera répétée automatiquement.'
     }
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
 async function applyAction() {
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   if (
     account.writesBlocked.value ||
     busy.value ||
@@ -264,19 +282,23 @@ async function applyAction() {
   try {
     if (scope.action === 'password_add') {
       await api.changePassword(password.value, grant.value)
+      if (!current()) return
       notice.value =
         'Votre mot de passe a été ajouté. Vos autres sessions ont été fermées.'
     } else if (scope.action === 'delete_account') {
       await api.deleteAccount(grant.value, 'SUPPRIMER')
+      if (!current()) return
       notice.value =
         'Votre compte a été supprimé définitivement. Votre nom d’utilisateur reste réservé.'
     } else if (scope.action === 'email_change' && scope.target) {
       if (emailOperation.value === 'confirm') {
         await api.confirmEmailChange(emailToken, grant.value)
+        if (!current()) return
         notice.value =
           'Votre email a été modifié. Toutes vos sessions ont été fermées. Connectez-vous avec votre nouvelle adresse ou Google.'
       } else {
         await api.requestEmailChange(scope.target, grant.value)
+        if (!current()) return
         notice.value =
           'La demande a été acceptée. Ouvrez le lien envoyé au nouvel email. Votre adresse actuelle reste inchangée ; une nouvelle vérification d’identité sera nécessaire pour confirmer.'
       }
@@ -286,6 +308,7 @@ async function applyAction() {
     account.notify()
     await account.refresh()
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     // A grant may have been consumed even when the response was lost. Never replay.
     clearSecrets()
@@ -295,17 +318,18 @@ async function applyAction() {
         'La réponse a été interrompue. L’action a peut-être abouti. Consultez votre compte ou reconnectez-vous avant toute nouvelle demande ; aucune action ne sera répétée automatiquement.'
       account.notify()
       await account.refresh()
+      if (!active()) return
     }
     restartRequired.value = true
   } finally {
     emailToken = ''
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
-onMounted(() => {
+function start() {
   void load()
-  window.addEventListener('pagehide', invalidate)
+  if (timer) clearInterval(timer)
   timer = setInterval(() => {
     now.value = Date.now()
     cooldown.value = Math.max(
@@ -320,7 +344,20 @@ onMounted(() => {
         'La preuve a expiré. Recommencez depuis votre compte.'
     }
   }, 1000)
+}
+onMounted(() => {
+  start()
+  window.addEventListener('pagehide', invalidate)
 })
+if (import.meta.client) {
+  const runtime = useAccountNavigation()
+  const router = useRouter()
+  const resume = () => {
+    if (router.currentRoute.value.path === '/compte/confirmer-identite') start()
+  }
+  runtime.arrivals.add(resume)
+  onBeforeUnmount(() => runtime.arrivals.delete(resume))
+}
 onBeforeUnmount(() => {
   invalidate()
   if (timer) clearInterval(timer)
@@ -505,8 +542,13 @@ useHead({ title: 'Confirmer mon identité - MesSeances' })
     <p v-if="errorMessage" role="alert" class="account-alert mt-5">
       {{ errorMessage }}
     </p>
-    <a :href="complete ? '/compte' : '/connexion'" class="account-link mt-6">{{
-      complete ? 'Revenir à mon compte' : 'Se connecter'
-    }}</a>
+    <NuxtLink
+      :to="complete ? '/compte' : '/connexion'"
+      :prefetch="false"
+      class="account-link mt-6"
+      >{{
+        complete ? 'Revenir à mon compte' : 'Se connecter'
+      }}</NuxtLink
+    >
   </AccountShell>
 </template>

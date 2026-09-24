@@ -19,6 +19,13 @@ const recovery = ref<'registration' | 'google' | null>(null)
 const blocked = computed(() => busy.value || account.writesBlocked.value)
 useAccountFlowDraft(email, token)
 let timer: ReturnType<typeof setInterval> | undefined
+const lifetime = useAccountLifetime(() => {
+  if (timer) clearInterval(timer)
+  busy.value = sent.value = false
+  errorMessage.value = ''
+  recovery.value = null
+  cooldown.value = 0
+})
 
 function startCooldown(seconds = 60) {
   if (timer) clearInterval(timer)
@@ -35,17 +42,20 @@ async function resend() {
   busy.value = true
   errorMessage.value = ''
   sent.value = false
+  const current = lifetime.capture()
   try {
     await api.requestVerification(email.value.trim())
+    if (!current()) return
     sent.value = true
     clear()
     startCooldown()
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     if (error instanceof AccountApiError && error.status === 429)
       startCooldown(error.retryAfter || 60)
   } finally {
-    busy.value = false
+    if (current()) busy.value = false
   }
 }
 
@@ -54,13 +64,17 @@ async function confirm() {
   errorMessage.value = ''
   busy.value = true
   const initialState = account.session.value?.state
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     const session = await api.confirmVerification(token.value)
+    if (!current()) return
     clear()
     account.accept(session)
     account.notify()
-    await navigateTo(accountDestination(session), { external: true })
+    await navigateTo(accountDestination(session))
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     if (error instanceof AccountApiError) {
       if (error.code === 'verification_browser_required')
@@ -77,27 +91,28 @@ async function confirm() {
       (error.status === 0 || error.status >= 500)
     ) {
       await account.refresh()
+      if (!active()) return
       if (
         (initialState === 'anonymous' || initialState === 'pending_email') &&
         account.session.value?.state === 'pending_username'
       ) {
         clear()
-        await navigateTo(accountDestination(account.session.value), {
-          external: true,
-        })
+        await navigateTo(accountDestination(account.session.value))
       }
     }
   } finally {
-    busy.value = false
+    if (active()) busy.value = false
   }
 }
 
 async function reconnectGoogle() {
   if (blocked.value) return
   busy.value = true
+  const current = lifetime.capture()
   try {
     await startGoogle()
   } catch {
+    if (!current()) return
     errorMessage.value =
       'La connexion Google est indisponible. Réessayez avec le même compte Google, puis rouvrez ce lien.'
     busy.value = false
@@ -181,8 +196,12 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
           }}
         </button>
       </form>
-      <a v-if="recovery !== 'google'" href="/inscription" class="account-link"
-        >Recommencer l’inscription</a
+      <NuxtLink
+        v-if="recovery !== 'google'"
+        to="/inscription"
+        :prefetch="false"
+        class="account-link"
+        >Recommencer l’inscription</NuxtLink
       >
     </div>
   </AccountShell>

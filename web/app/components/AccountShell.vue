@@ -13,27 +13,23 @@ const route = useRoute()
 const { session, status, errorMessage } = account
 const signingOut = ref(false)
 const signOutError = ref('')
+const lifetime = useAccountLifetime()
 
 async function logout() {
   if (signingOut.value || account.writesBlocked.value) return
   signingOut.value = true
   signOutError.value = ''
+  const current = lifetime.capture(false)
   try {
     await account.logout()
-    await navigateTo('/connexion', { external: true })
+    if (!current()) return
+    await navigateTo('/connexion')
   } catch (error) {
-    signOutError.value = accountErrorMessage(error)
+    if (current()) signOutError.value = accountErrorMessage(error)
   } finally {
-    signingOut.value = false
+    if (current()) signingOut.value = false
   }
 }
-
-useHead({
-  meta: [
-    { name: 'robots', content: 'noindex,nofollow' },
-    { name: 'referrer', content: 'no-referrer' },
-  ],
-})
 </script>
 
 <template>
@@ -111,11 +107,11 @@ useHead({
             {{ signOutError }}
           </p>
         </div>
-        <a
+        <NuxtLink
           v-if="!hideExplore && route.path.toLowerCase().startsWith('/compte')"
-          href="/"
+          to="/"
           class="account-link mt-6"
-          >Explorer les séances</a
+          >Explorer les séances</NuxtLink
         >
       </div>
     </div>

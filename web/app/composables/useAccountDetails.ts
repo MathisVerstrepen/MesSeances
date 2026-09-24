@@ -12,6 +12,13 @@ export function useAccountDetails() {
   let revision = 0
   let mounted = false
   let unregister: (() => void) | undefined
+  const lifetime = useAccountLifetime(() => {
+    unregister?.()
+    unregister = undefined
+    revision++
+    details.value = null
+    loading.value = false
+  })
 
   const identity = () => {
     const value = account.session.value
@@ -44,6 +51,8 @@ export function useAccountDetails() {
   }
 
   async function refresh() {
+    if (mounted && !unregister) return
+    const active = lifetime.capture()
     const current = ++revision
     details.value = null
     errorMessage.value = ''
@@ -52,7 +61,7 @@ export function useAccountDetails() {
     loading.value = true
     try {
       const value = await api.details()
-      if (current === revision) details.value = value
+      if (active() && current === revision) details.value = value
     } catch (error) {
       if (current === revision) errorMessage.value = accountErrorMessage(error)
     } finally {
@@ -72,6 +81,20 @@ export function useAccountDetails() {
     unregister = account.onRevalidate(revalidate)
     void refresh()
   })
+  // A reused confirmation page needs its detail subscription back after admission.
+  if (import.meta.client) {
+    const runtime = useAccountNavigation()
+    const path = useRoute().path
+    const router = useRouter()
+    const resume = () => {
+      if (mounted && router.currentRoute.value.path === path && !unregister) {
+        unregister = account.onRevalidate(revalidate)
+        void refresh()
+      }
+    }
+    runtime.arrivals.add(resume)
+    onBeforeUnmount(() => runtime.arrivals.delete(resume))
+  }
   onBeforeUnmount(() => {
     mounted = false
     unregister?.()

@@ -16,6 +16,11 @@ const errorMessage = ref('')
 const valid = computed(() => validAccountUsername(username.value))
 const blocked = computed(() => busy.value || account.writesBlocked.value)
 useAccountFlowDraft(username)
+const lifetime = useAccountLifetime(() => {
+  busy.value = false
+  errorMessage.value = ''
+  touched.value = false
+})
 
 async function submit() {
   if (blocked.value) return
@@ -24,19 +29,24 @@ async function submit() {
   busy.value = true
   errorMessage.value = ''
   username.value = normalizeAccountUsername(username.value)
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     const session = await api.username(username.value)
+    if (!current()) return
     account.accept(session)
     account.notify()
-    await navigateTo(accountDestination(session), { external: true })
+    await navigateTo(accountDestination(session))
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     // Recover an ambiguous successful write without replaying the claim.
     await account.refresh()
+    if (!active()) return
     if (account.session.value?.state === 'complete')
-      await navigateTo('/connexion', { external: true })
+      await navigateTo('/connexion')
   } finally {
-    busy.value = false
+    if (active()) busy.value = false
   }
 }
 
@@ -89,6 +99,8 @@ useHead({ title: 'Choisir mon nom - MesSeances' })
         {{ busy ? 'Enregistrement…' : 'Confirmer mon nom' }}
       </button>
     </form>
-    <a v-else href="/connexion" class="account-link">Reprendre la connexion</a>
+    <NuxtLink v-else to="/connexion" :prefetch="false" class="account-link"
+      >Reprendre la connexion</NuxtLink
+    >
   </AccountShell>
 </template>

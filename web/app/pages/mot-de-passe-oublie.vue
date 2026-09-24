@@ -16,6 +16,12 @@ const cooldown = ref(0)
 const blocked = computed(() => busy.value || account.writesBlocked.value)
 useAccountFlowDraft(email)
 let timer: ReturnType<typeof setInterval> | undefined
+const lifetime = useAccountLifetime(() => {
+  if (timer) clearInterval(timer)
+  busy.value = sent.value = false
+  errorMessage.value = ''
+  cooldown.value = 0
+})
 
 function startCooldown(seconds = 60) {
   if (timer) clearInterval(timer)
@@ -32,16 +38,19 @@ async function submit() {
   busy.value = true
   sent.value = false
   errorMessage.value = ''
+  const current = lifetime.capture()
   try {
     await api.requestPasswordReset(normalizeAccountEmail(email.value))
+    if (!current()) return
     sent.value = true
     startCooldown()
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
     if (error instanceof AccountApiError && error.status === 429)
       startCooldown(error.retryAfter || 60)
   } finally {
-    busy.value = false
+    if (current()) busy.value = false
   }
 }
 onBeforeUnmount(() => {
@@ -90,6 +99,8 @@ useHead({ title: 'Mot de passe oublié - MesSeances' })
       Si vous utilisez uniquement Google, reconnectez-vous avec Google : ce lien
       n’ajoute pas de mot de passe.
     </p>
-    <a href="/connexion" class="account-link mt-4">Revenir à la connexion</a>
+    <NuxtLink to="/connexion" :prefetch="false" class="account-link mt-4"
+      >Revenir à la connexion</NuxtLink
+    >
   </AccountShell>
 </template>

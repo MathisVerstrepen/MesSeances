@@ -46,6 +46,13 @@ const notice = ref('')
 type Editor = 'email' | 'password' | 'google' | 'delete'
 const editor = ref<Editor | null>(null)
 let restoreFocus: Editor | null = null
+const lifetime = useAccountLifetime(() => {
+  clearEditor()
+  editor.value = null
+  restoreFocus = null
+  busy.value = ''
+  notice.value = ''
+})
 const inputs = {
   email: 'new-email',
   password: 'current-password',
@@ -63,6 +70,7 @@ function clearEditor() {
 }
 
 async function toggleEditor(next: Editor) {
+  const current = lifetime.capture()
   if (busy.value) return
   restoreFocus = null
   const opening = editor.value !== next
@@ -70,6 +78,7 @@ async function toggleEditor(next: Editor) {
   notice.value = ''
   editor.value = opening ? next : null
   await nextTick()
+  if (!current()) return
   const target = opening
     ? document.getElementById(inputs[next]) ||
       document.querySelector<HTMLElement>(`#editor-${next} button`)
@@ -179,6 +188,8 @@ async function changePassword() {
   busy.value = 'password'
   // Capture the confirmed value before asynchronous proof; inputs are disabled.
   const password = newPassword.value
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     const applied = await passwordAction(
       currentPassword.value,
@@ -186,6 +197,7 @@ async function changePassword() {
       undefined,
       (grant) => api.changePassword(password, grant),
     )
+    if (!current()) return
     if (applied)
       await changed(
         'Votre mot de passe a été modifié. Vos autres sessions ont été fermées.',
@@ -194,10 +206,11 @@ async function changePassword() {
       passwordError.value =
         'La session a été revérifiée. Saisissez à nouveau votre mot de passe et recommencez.'
   } catch (error) {
+    if (!current()) return
     passwordError.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) await recover()
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
@@ -212,6 +225,8 @@ async function requestEmail() {
     return
   }
   busy.value = 'email'
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     if (!passwordAvailable.value) {
       clearSecrets()
@@ -224,6 +239,7 @@ async function requestEmail() {
       target,
       (grant) => api.requestEmailChange(target, grant),
     )
+    if (!current()) return
     if (applied)
       await changed(
         'La demande de changement d’email a été acceptée. Ouvrez le lien envoyé à la nouvelle adresse pour confirmer ; votre email actuel reste inchangé.',
@@ -232,14 +248,16 @@ async function requestEmail() {
       emailError.value =
         'La session a été revérifiée. Saisissez à nouveau votre mot de passe et recommencez.'
   } catch (error) {
+    if (!current()) return
     emailError.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) await recover()
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
 async function googleProof(action: 'password_add' | 'delete_account') {
+  const current = lifetime.capture()
   if (blocked.value || busy.value) return
   busy.value = action
   const errorMessage = action === 'password_add' ? passwordError : deletionError
@@ -249,9 +267,10 @@ async function googleProof(action: 'password_add' | 'delete_account') {
   try {
     await startGoogle({ mode: 'reauth', action })
   } catch (error) {
+    if (!current()) return
     errorMessage.value = accountErrorMessage(error)
   } finally {
-    busy.value = ''
+    if (current()) busy.value = ''
   }
 }
 
@@ -262,6 +281,8 @@ async function changeGoogle() {
   googleError.value = ''
   notice.value = ''
   const unlink = details.value.google_linked
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     const applied = await passwordAction(
       googlePassword.value,
@@ -275,6 +296,7 @@ async function changeGoogle() {
         }
       },
     )
+    if (!current()) return
     if (applied && unlink)
       await changed(
         'Google a été dissocié. Vos autres sessions ont été fermées.',
@@ -283,10 +305,11 @@ async function changeGoogle() {
       googleError.value =
         'La session a changé. Recommencez la confirmation d’identité.'
   } catch (error) {
+    if (!current()) return
     googleError.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) await recover()
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
@@ -300,6 +323,8 @@ async function deleteAccount() {
     return
   }
   busy.value = 'delete'
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   try {
     const applied = await passwordAction(
       deletionPassword.value,
@@ -307,6 +332,7 @@ async function deleteAccount() {
       undefined,
       (grant) => api.deleteAccount(grant, 'SUPPRIMER'),
     )
+    if (!current()) return
     if (applied) {
       account.clear()
       await changed(
@@ -316,48 +342,58 @@ async function deleteAccount() {
       deletionError.value =
         'La session a changé. Recommencez la confirmation d’identité.'
   } catch (error) {
+    if (!current()) return
     deletionError.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) await recover()
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
 async function cancelEmail() {
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   if (blocked.value || busy.value) return
   busy.value = 'cancel'
   emailError.value = ''
   notice.value = ''
   try {
     await api.cancelEmailChange()
+    if (!current()) return
     await changed(
       'Le changement d’email a été annulé. Le lien de confirmation ne peut plus être utilisé.',
     )
   } catch (error) {
+    if (!current()) return
     emailError.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) await recover()
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
 async function logoutAll() {
+  const current = lifetime.capture()
+  const active = lifetime.capture(false)
   if (blocked.value || busy.value) return
   busy.value = 'sessions'
   sessionError.value = ''
   notice.value = ''
   try {
     await api.logoutAll()
+    if (!current()) return
     await changed('Toutes vos sessions ont été fermées, y compris celle-ci.')
   } catch (error) {
+    if (!current()) return
     sessionError.value = accountErrorMessage(error)
     if (accountWriteUncertain(error)) await recover()
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 
 async function logout() {
+  const active = lifetime.capture(false)
   if (blocked.value || busy.value) return
   busy.value = 'logout'
   sessionError.value = ''
@@ -365,11 +401,13 @@ async function logout() {
   editor.value = null
   try {
     await account.logout()
-    await navigateTo('/connexion', { external: true })
+    if (!active()) return
+    await navigateTo('/connexion')
   } catch (error) {
+    if (!active()) return
     sessionError.value = accountErrorMessage(error)
   } finally {
-    busy.value = ''
+    if (active()) busy.value = ''
   }
 }
 useHead({ title: 'Mon compte - MesSeances' })
@@ -390,10 +428,11 @@ useHead({ title: 'Mon compte - MesSeances' })
       <p class="text-sm">
         Votre session n’est plus active ou votre inscription reste à terminer.
       </p>
-      <a
-        :href="account.session.value ? accountDestination(account.session.value) : '/connexion'"
+      <NuxtLink
+        :to="account.session.value ? accountDestination(account.session.value) : '/connexion'"
+        :prefetch="false"
         class="account-link"
-        >Reprendre la connexion</a
+        >Reprendre la connexion</NuxtLink
       >
     </div>
     <div

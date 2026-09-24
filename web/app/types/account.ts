@@ -6,7 +6,7 @@ export type AccountState =
 
 declare global {
   interface Window {
-    __takeAccountToken?: () => string
+    __takeAccountToken?: (path?: string) => string
   }
 }
 

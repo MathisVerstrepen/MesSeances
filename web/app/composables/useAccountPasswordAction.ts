@@ -7,6 +7,7 @@ export function useAccountPasswordAction() {
   const invalidate = () => {
     revision++
   }
+  useAccountLifetime(invalidate)
   watch(account.revision, invalidate, { flush: 'sync' })
   onMounted(() => window.addEventListener('pagehide', invalidate))
   onBeforeUnmount(() => {
@@ -27,7 +28,7 @@ export function useAccountPasswordAction() {
     try {
       if (current !== revision || account.writesBlocked.value) return false
       await write(proof.grant)
-      return true
+      return current === revision
     } finally {
       proof.grant = ''
     }

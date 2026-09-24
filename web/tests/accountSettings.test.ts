@@ -16,6 +16,8 @@ import type { useAccountPasswordAction } from '../app/composables/useAccountPass
 import type { useAccountDetails } from '../app/composables/useAccountDetails.ts'
 import type { AccountDetails, AccountSession } from '../app/types/account.ts'
 import { isAccountPage } from '../shared/accountPrivacy.ts'
+import { createAccountNavigation } from '../app/utils/accountNavigation.ts'
+import { lifetimeFixture } from './helpers/accountLifetime.ts'
 
 const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
 
@@ -23,7 +25,7 @@ test('registration sent actions keep a wrapping gap and their public link styles
   const source = await read('../app/components/AccountCredentialsForm.vue')
   assert.match(
     source,
-    /<div v-if="sent" class="space-y-5">\s*<p\b[^>]*>[\s\S]*?<\/p>\s*<div class="flex flex-wrap items-center gap-4">\s*<a href="\/verification" class="account-primary">Vérifier mon adresse<\/a>\s*<a href="\/connexion" class="account-link">Se connecter<\/a>\s*<\/div>\s*<\/div>/,
+    /<div v-if="sent" class="space-y-5">\s*<p\b[^>]*>[\s\S]*?<\/p>\s*<div class="flex flex-wrap items-center gap-4">\s*<NuxtLink\s+to="\/verification"\s+:prefetch="false"\s+class="account-primary"\s*>\s*Vérifier mon adresse\s*<\/NuxtLink\s*>\s*<NuxtLink\s+to="\/connexion"\s+:prefetch="false"\s+class="account-link"\s*>\s*Se connecter\s*<\/NuxtLink\s*>\s*<\/div>\s*<\/div>/,
   )
 })
 
@@ -47,7 +49,7 @@ test('credentials keep recovery beside login password and Google as a separate a
   const source = await read('../app/components/AccountCredentialsForm.vue')
   assert.match(
     source,
-    /<template v-if="!register" #label-action>[\s\S]*?href="\/mot-de-passe-oublie"/,
+    /<template v-if="!register" #label-action>[\s\S]*?to="\/mot-de-passe-oublie"/,
   )
   assert.doesNotMatch(
     await read('../app/pages/connexion.vue'),
@@ -59,7 +61,7 @@ test('credentials keep recovery beside login password and Google as a separate a
   )
   assert.match(
     source,
-    /:href="register \? '\/connexion' : '\/inscription'"\s+class="account-navigation-link"/,
+    /:to="register \? '\/connexion' : '\/inscription'"\s+:prefetch="false"\s+class="account-navigation-link"/,
   )
 })
 
@@ -179,7 +181,8 @@ test('pending email password session can restart registration without substituti
       defineNuxtRouteMiddleware: (
         handler: NonNullable<CompiledComposables['default']>,
       ) => handler,
-      useAccountSession: () => ({ session, refresh: async () => {} }),
+      useNuxtApp: () => ({ isHydrating: false }),
+      useAccountSession: () => ({ session, revalidate: async () => {} }),
       navigateTo: (path: string) => path,
       require: () => ({ accountDestination }),
     })
@@ -312,6 +315,7 @@ test('registration and reset show the shared common-password error without compl
       ).outputText,
       {
         exports,
+        ...lifetimeFixture(),
         ref,
         computed,
         require: () => accountState,
@@ -349,10 +353,11 @@ test('registration and reset show the shared common-password error without compl
   }
 })
 
-test('private fragment-only navigation reloads once without stopping Nuxt in a redirect loop', async () => {
-  type Route = { path: string; fullPath: string }
-  let middleware: (to: Route, from: Route) => void = () => {}
+test('private fragment-only navigation replaces once without reloading', async () => {
+  type Route = { path: string; fullPath: string; hash: string; query: object }
+  let middleware: (to: Route, from: Route) => Promise<boolean> | void = () => {}
   const calls: string[] = []
+  const runtime = createAccountNavigation()
   await compile('../app/middleware/account-boundary.global.ts', {
     defineNuxtRouteMiddleware: (handler: typeof middleware) => {
       middleware = handler
@@ -360,10 +365,23 @@ test('private fragment-only navigation reloads once without stopping Nuxt in a r
     },
     useState: () => ref(true),
     useNuxtApp: () => ({ isHydrating: false }),
+    useAccountNavigation: () => runtime,
+    useRouter: () => ({
+      resolve: ({ path }: { path: string }) => ({ fullPath: path }),
+      replace: async (to: {
+        path: string
+        hash: string
+        replace: boolean
+        force: boolean
+      }) => {
+        assert.equal(to.hash, '')
+        assert.equal(to.replace, true)
+        assert.equal(to.force, true)
+        calls.push(to.path)
+      },
+    }),
+    document: { querySelector: () => null },
     require: () => ({ isAccountPage }),
-    navigateTo: () => {
-      calls.push('external')
-    },
     URL,
     window: {
       location: {
@@ -382,17 +400,22 @@ test('private fragment-only navigation reloads once without stopping Nuxt in a r
       },
     },
   })
-  middleware(
-    { path: '/verification', fullPath: '/verification#token=synthetic' },
-    { path: '/verification', fullPath: '/verification' },
+  await middleware(
+    {
+      path: '/verification',
+      fullPath: '/verification#token=synthetic',
+      hash: '#token=synthetic',
+      query: {},
+    },
+    { path: '/verification', fullPath: '/verification', hash: '', query: {} },
   )
-  assert.deepEqual(calls, ['/verification#token=synthetic', 'reload'])
+  assert.deepEqual(calls, ['/verification'])
   calls.length = 0
   middleware(
-    { path: '/connexion', fullPath: '/connexion' },
-    { path: '/verification', fullPath: '/verification' },
+    { path: '/connexion', fullPath: '/connexion', hash: '', query: {} },
+    { path: '/verification', fullPath: '/verification', hash: '', query: {} },
   )
-  assert.deepEqual(calls, ['external'])
+  assert.deepEqual(calls, [])
 })
 
 async function compile(path: string, globals: Context) {
@@ -408,6 +431,7 @@ async function compile(path: string, globals: Context) {
   const exports: CompiledComposables = {}
   runInNewContext(compiled, {
     exports,
+    ...lifetimeFixture(),
     useState: <T>(_: string, init: () => T) => ref(init()),
     ...globals,
   })

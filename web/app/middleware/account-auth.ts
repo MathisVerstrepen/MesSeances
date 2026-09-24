@@ -4,8 +4,12 @@ import {
 } from '~/utils/accountState'
 
 export default defineNuxtRouteMiddleware(async (to) => {
-  const { session, refresh } = useAccountSession()
-  await refresh()
+  const { session, status, revalidate } = useAccountSession()
+  const app = useNuxtApp()
+  // Request-scoped SSR result already admitted the initial page. Every later
+  // client admission performs a fresh check, sharing concurrent focus work.
+  if (!(import.meta.client && app.isHydrating && status.value === 'ready'))
+    await revalidate()
   // An unavailable service is not an anonymous session.
   if (!session.value?.enabled) return
   if (to.path === '/connexion' && accountGoogleCallbackMessage(to.query.error))

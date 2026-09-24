@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { lifetimeFixture } from './helpers/accountLifetime.ts'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { type Context, runInNewContext } from 'node:vm'
@@ -120,9 +121,10 @@ test('callback middleware preserves guidance and existing sessions without redir
     const redirects: string[] = []
     const middleware = compile<Middleware>(source, {
       defineNuxtRouteMiddleware: (handler: Middleware) => handler,
+      useNuxtApp: () => ({ isHydrating: false }),
       useAccountSession: () => ({
         session,
-        refresh: async () => {
+        revalidate: async () => {
           refreshes++
         },
       }),
@@ -163,6 +165,7 @@ test('connexion renders safe callback alerts with login recovery or return-accou
     const session = vue.ref(sessionFor(state))
     const route: CallbackRoute = { query: { error: undefined } }
     const globals = {
+      ...lifetimeFixture(),
       definePageMeta: () => {},
       useHead: () => {},
       useRoute: () => route,
@@ -183,6 +186,13 @@ test('connexion renders safe callback alerts with login recovery or return-accou
     for (const [error, message] of cases) {
       route.query.error = error
       const app = vue.createSSRApp(page)
+      app.component('NuxtLink', {
+        props: ['to', 'prefetch'],
+        setup:
+          (props, { slots }) =>
+          () =>
+            vue.h('a', { href: props.to }, slots.default?.()),
+      })
       app.component('AccountShell', {
         setup:
           (_, { slots }) =>

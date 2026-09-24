@@ -15,11 +15,12 @@ useHead({ title: 'Connexion - MesSeances' })
     <p v-if="providerError" role="alert" class="account-alert mb-5">
       {{ providerError }}
     </p>
-    <a
+    <NuxtLink
       v-if="account.session.value?.account"
-      href="/compte"
+      to="/compte"
+      :prefetch="false"
       class="account-primary"
-      >Revenir à mon compte</a
+      >Revenir à mon compte</NuxtLink
     >
     <AccountCredentialsForm v-else />
   </AccountShell>

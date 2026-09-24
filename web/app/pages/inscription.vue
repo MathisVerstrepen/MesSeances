@@ -8,7 +8,9 @@ useHead({ title: 'Créer un compte - MesSeances' })
   <AccountShell title="Créer un compte" compact>
     <div v-if="session?.state === 'complete'" class="space-y-4">
       <p>Vous êtes déjà connecté.</p>
-      <a href="/connexion" class="account-primary">Mon compte</a>
+      <NuxtLink to="/connexion" :prefetch="false" class="account-primary"
+        >Mon compte</NuxtLink
+      >
     </div>
     <AccountCredentialsForm v-else register />
   </AccountShell>
