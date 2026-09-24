@@ -96,7 +96,7 @@ func TestStoreOwnershipPublicationAndRestart(t *testing.T) {
 	if err := os.WriteFile(outside, []byte("private"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	link := "11111111111111111111111111111111.png"
+	link := "11111111111111111111111111111111.webp"
 	if err := os.Symlink(outside, filepath.Join(path, link)); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +175,40 @@ func TestAdmissionAndGuardCancellation(t *testing.T) {
 	}
 	unlock()
 }
+
+func TestStoreIgnoresUnsupportedPNGFiles(t *testing.T) {
+	s, root := testStore(t)
+	name := "11111111111111111111111111111111.png"
+	path := filepath.Join(root, name)
+	data := fixture(t, "png")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Read(t.Context(), name); !errors.Is(err, ErrStorage) {
+		t.Fatal("unsupported stored PNG read allowed")
+	}
+	if err := s.Remove(name); !errors.Is(err, ErrStorage) {
+		t.Fatal("unsupported stored PNG removal allowed")
+	}
+	r, err := s.Sweep(t.Context(), time.Now(), func(_ context.Context, names []string) (map[string]bool, error) {
+		if len(names) != 0 {
+			t.Fatal("unsupported filename considered for collection")
+		}
+		return nil, nil
+	})
+	if err != nil || r.Deleted != 0 || r.Errors != 0 {
+		t.Fatalf("sweep=%+v err=%v", r, err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != string(data) {
+		t.Fatal("unsupported file changed")
+	}
+}
+
 func TestSweepReferenceFailureActiveAgeCursor(t *testing.T) {
 	s, path := testStore(t)
 	old := time.Now().Add(-2 * time.Hour)

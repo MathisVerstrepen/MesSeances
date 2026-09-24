@@ -46,9 +46,17 @@ import (
 
 func main() {
 	logger := observability.NewLogger(os.Stderr)
+	if len(os.Args) != 1 {
+		logProcessFailure(logger, fmt.Errorf("configuration error"))
+		os.Exit(1)
+	}
+	if err := runtimeconfig.LoadDotEnv(); err != nil {
+		logDotEnvFailure(logger)
+		os.Exit(1)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := dispatch(ctx, os.Args[1:], logger); err != nil {
+	if err := run(ctx); err != nil {
 		logProcessFailure(logger, err)
 		os.Exit(1)
 	}
@@ -114,8 +122,6 @@ func safeProcessFailureDetail(err error) processFailureDetail {
 		return processFailureDetail{stage: "database", reason: "database startup failed"}
 	case "database migration failed":
 		return processFailureDetail{stage: "migration", reason: "database migration failed"}
-	case "account avatar conversion required", "account avatar conversion failed":
-		return processFailureDetail{stage: "migration", reason: err.Error()}
 	case "shortlink retention startup failed":
 		return processFailureDetail{stage: "retention", reason: "shortlink retention startup failed"}
 	case "sync run retention startup failed":
@@ -192,14 +198,6 @@ func run(ctx context.Context) error {
 			return migrationHistoryIncompatibleProcessFailure
 		}
 		return fmt.Errorf("database migration failed")
-	}
-	if avatars != nil {
-		if err := accounts.NewPostgresStore(pool).AvatarConversionReady(startupCtx); err != nil {
-			if errors.Is(err, accounts.ErrAvatarConversionRequired) {
-				return accounts.ErrAvatarConversionRequired
-			}
-			return fmt.Errorf("database migration failed")
-		}
 	}
 	shortlinkStore := shortlink.NewPostgresStore(pool)
 	if err := purgeShortlinksAtStartup(startupCtx, shortlinkStore, time.Now); err != nil {

@@ -19,7 +19,6 @@ import (
 )
 
 var finalName = regexp.MustCompile(`^[a-f0-9]{32}\.webp$`)
-var legacyName = regexp.MustCompile(`^[a-f0-9]{32}\.png$`)
 var tempName = regexp.MustCompile(`^[a-f0-9]{32}\.tmp$`)
 
 // Store has one runtime owner. Close only after requests and Sweep have drained.
@@ -241,7 +240,7 @@ func (s *Store) readFile(ctx context.Context, name string) ([]byte, error) {
 	return b, nil
 }
 func (s *Store) remove(name string) error {
-	if !storedName(name) && !tempName.MatchString(name) {
+	if !finalName.MatchString(name) && !tempName.MatchString(name) {
 		return ErrStorage
 	}
 	info, err := s.root.Lstat(name)
@@ -257,7 +256,7 @@ func (s *Store) remove(name string) error {
 	return nil
 }
 func (s *Store) Remove(name string) error {
-	if !storedName(name) {
+	if !finalName.MatchString(name) {
 		return ErrStorage
 	}
 	return s.remove(name)
@@ -303,7 +302,7 @@ func (s *Store) Sweep(ctx context.Context, now time.Time, references func(contex
 			return result, ctx.Err()
 		}
 		name := entry.Name()
-		if !storedName(name) && !tempName.MatchString(name) {
+		if !finalName.MatchString(name) && !tempName.MatchString(name) {
 			continue
 		}
 		s.mu.Lock()
@@ -325,7 +324,7 @@ func (s *Store) Sweep(ctx context.Context, now time.Time, references func(contex
 			continue
 		}
 		candidates = append(candidates, name)
-		if storedName(name) {
+		if finalName.MatchString(name) {
 			finals = append(finals, name)
 		}
 	}

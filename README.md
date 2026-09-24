@@ -221,7 +221,7 @@ See [development and release operation](docs/releasing.md) for exact worktree co
 
 ## Contributor checks
 
-API builds and direct avatar/account test commands require `-tags=nodynamic` to use the pinned CGO-free WebP encoder rather than a host library. Makefile, Air, CI and Docker supply the tag. Existing PNG avatars require the separately authorized offline conversion in the [accounts runbook](docs/accounts.md#one-time-png-to-webp-conversion) before enabled account startup after migration 047; normal startup never converts media automatically.
+API builds and direct avatar/account test commands require `-tags=nodynamic` to use the pinned CGO-free WebP encoder rather than a host library. Makefile, Air, CI and Docker supply the tag. Stored avatars are WebP-only; old development PNG references are unsupported and rejected by migration 048 without automatic data deletion. See the [accounts runbook](docs/accounts.md#webp-only-storage).
 
 These offline checks do not run UGC, Kinepolis, Pathé, CGR, or Megarama synchronization and do not make real TMDB or IGN calls:
 
