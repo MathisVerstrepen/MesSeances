@@ -691,10 +691,10 @@ async function inspectStyle(page, name) {
           `(() => {
           const [local, global] = document.querySelectorAll('.overview-secondary');
           const l = local.getBoundingClientRect(), g = global.getBoundingClientRect();
-          return (${width} < 1440 || Math.abs(l.top - g.top) <= 1) && !local.hasAttribute('aria-describedby') && global.getAttribute('aria-describedby') === 'logout-all-consequence' && [...document.querySelectorAll('[id^="editor-"]')].every(el => el.getBoundingClientRect().width <= 512) && [...document.querySelectorAll('.account-input')].every(el => ${width} < 1440 || el.getBoundingClientRect().width === 512);
+          return (${width} < 1440 || Math.abs(l.top - g.top) <= 1) && !local.hasAttribute('aria-describedby') && !global.hasAttribute('aria-describedby') && !document.getElementById('logout-all-consequence') && [...document.querySelectorAll('[id^="editor-"]')].every(el => el.getBoundingClientRect().width <= 512) && [...document.querySelectorAll('.account-input')].every(el => ${width} < 1440 || el.getBoundingClientRect().width === 512);
         })()`,
         ),
-        `${name}: ${width}px matching logout rows, scoped consequence and comfortable desktop inputs`,
+        `${name}: ${width}px matching logout rows, no dangling descriptions and comfortable desktop inputs`,
       )
       check(
         await evaluate(
@@ -2471,7 +2471,6 @@ async function authFocusScenario() {
   for (const [route, state, id] of cases) {
     const label = `${route}/${state}`
     const tokenPage = [
-      'verification',
       'reinitialiser-mot-de-passe',
       'compte/confirmer-email',
     ].includes(route)

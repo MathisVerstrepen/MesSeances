@@ -233,8 +233,5 @@ async function save(remove = false) {
         Recharger la photo
       </button>
     </div>
-    <p v-if="url" class="text-sm text-ink/70">
-      Une photo supprimée ne sera pas réimportée depuis Google.
-    </p>
   </div>
 </template>

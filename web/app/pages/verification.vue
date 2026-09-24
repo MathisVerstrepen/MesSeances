@@ -160,7 +160,7 @@ useHead({ title: 'Vérifier mon email - MesSeances' })
         {{ busy ? 'Connexion…' : 'Se connecter avec Google' }}
       </button>
       <form
-        v-if="!recovery"
+        v-if="!token && !recovery"
         class="space-y-5 border-t-2 border-ink pt-6"
         :aria-busy="blocked"
         @submit.prevent="resend"

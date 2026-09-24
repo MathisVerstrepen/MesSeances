@@ -479,8 +479,12 @@ test('overview preserves conditional forms, last-method guard, deletion warning 
   assert.match(shell, /session\?\.account && !hideLogout/)
 })
 
-test('overview summary typography, copy and logout consequences stay local', async () => {
-  assert.match(source, /Nom d’utilisateur définitif\./)
+test('overview summary typography and logout actions omit redundant consequence copy', async () => {
+  assert.doesNotMatch(source, /Nom d’utilisateur définitif\./)
+  assert.match(
+    source,
+    /<dd class="mt-1 break-words">\{\{ details\.username \}\}<\/dd>/,
+  )
   assert.match(source, /passwordAvailable \? 'Défini' : 'Non défini'/)
   assert.match(
     source,
@@ -502,11 +506,11 @@ test('overview summary typography, copy and logout consequences stay local', asy
   for (const button of [local, global])
     assert.match(button, /class="account-secondary overview-secondary"/)
   assert.doesNotMatch(local, /aria-describedby/)
-  assert.match(global, /aria-describedby="logout-all-consequence"/)
+  assert.doesNotMatch(global, /aria-describedby/)
   assert.match(global, /Déconnecter tous les appareils/)
-  assert.match(
+  assert.doesNotMatch(
     source,
-    /id="logout-all-consequence"[\s\S]*?Vous serez aussi déconnecté de cet appareil\./,
+    /logout-all-consequence|Vous serez aussi déconnecté de cet appareil\./,
   )
   const shell = await readFile(
     new URL('../app/components/AccountShell.vue', import.meta.url),

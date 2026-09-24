@@ -512,6 +512,11 @@ test('avatar result belongs to details only and source never becomes a public UR
   )
   assert.match(component, /alt="Photo de profil"/)
   assert.match(component, /min-h-11/)
+  assert.doesNotMatch(
+    component,
+    /Une photo supprimée ne sera pas réimportée depuis Google\./,
+  )
+  assert.match(component, /@click="save\(true\)"/)
   const result: AccountAvatarResult = { avatar_url: null }
   assert.equal(result.avatar_url, null)
 })

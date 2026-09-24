@@ -4,7 +4,15 @@ import { type Context, runInNewContext } from 'node:vm'
 import test from 'node:test'
 import ts from 'typescript'
 import { createFetch, FetchError } from 'ofetch'
-import { type Ref, computed, ref } from 'vue'
+import {
+  type Ref,
+  compile as compileTemplate,
+  computed,
+  createSSRApp,
+  ref,
+} from 'vue'
+import { parse } from '@vue/compiler-sfc'
+import { renderToString } from '@vue/server-renderer'
 import {
   AccountApiError,
   accountDestination,
@@ -21,12 +29,67 @@ import { lifetimeFixture } from './helpers/accountLifetime.ts'
 
 const read = (path: string) => readFile(new URL(path, import.meta.url), 'utf8')
 
-test('registration sent actions keep a wrapping gap and their public link styles', async () => {
+test('registration sent actions span both ends with a wrapping gap and touch targets', async () => {
   const source = await read('../app/components/AccountCredentialsForm.vue')
   assert.match(
     source,
-    /<div v-if="sent" class="space-y-5">\s*<p\b[^>]*>[\s\S]*?<\/p>\s*<div class="flex flex-wrap items-center gap-4">\s*<NuxtLink\s+to="\/verification"\s+:prefetch="false"\s+class="account-primary"\s*>\s*Vérifier mon adresse\s*<\/NuxtLink\s*>\s*<NuxtLink\s+to="\/connexion"\s+:prefetch="false"\s+class="account-link"\s*>\s*Se connecter\s*<\/NuxtLink\s*>\s*<\/div>\s*<\/div>/,
+    /<div v-if="sent" class="space-y-5">\s*<p\b[^>]*>[\s\S]*?<\/p>\s*<div class="flex w-full flex-wrap items-center justify-between gap-4">\s*<NuxtLink\s+to="\/verification"\s+:prefetch="false"\s+class="account-primary"\s*>\s*Vérifier mon adresse\s*<\/NuxtLink\s*>\s*<NuxtLink\s+to="\/connexion"\s+:prefetch="false"\s+class="account-link"\s*>\s*Se connecter\s*<\/NuxtLink\s*>\s*<\/div>\s*<\/div>/,
   )
+  const shell = await read('../app/components/AccountShell.vue')
+  assert.match(shell, /\.account-primary\),[\s\S]*?@apply inline-flex min-h-12/)
+  assert.match(shell, /\.account-link\) \{\s*@apply inline-flex min-h-11/)
+})
+
+test('verification offers resend only without a token or recovery flow', async () => {
+  const source = await read('../app/pages/verification.vue')
+  assert.match(
+    source,
+    /<form\s+v-if="!token && !recovery"[^>]*@submit\.prevent="resend"[^>]*>\s*<h2[^>]*>Recevoir un nouveau lien<\/h2>/,
+  )
+  assert.match(
+    source,
+    /<form\s+v-if="token && !recovery"[^>]*@submit\.prevent="confirm"/,
+  )
+  const { descriptor } = parse(source)
+  const render = compileTemplate(descriptor.template!.content)
+  for (const ready of [false, true]) {
+    for (const token of ['', 'synthetic-token']) {
+      for (const recovery of [null, 'registration', 'google']) {
+        const app = createSSRApp({
+          render,
+          setup: () => ({
+            ready,
+            token,
+            recovery,
+            busy: false,
+            blocked: false,
+            errorMessage: '',
+            email: '',
+            sent: false,
+            cooldown: 0,
+            confirm: () => {},
+            resend: () => {},
+            reconnectGoogle: () => {},
+          }),
+        })
+        app.component('AccountShell', { template: '<main><slot /></main>' })
+        app.component('NuxtLink', { template: '<a><slot /></a>' })
+        const html = await renderToString(app)
+        assert.equal(
+          html.includes('Recevoir un nouveau lien'),
+          ready && !token && !recovery,
+        )
+        assert.equal(
+          html.includes('id="verification-email"'),
+          ready && !token && !recovery,
+        )
+        assert.equal(
+          html.includes('Confirmer mon email'),
+          ready && !!token && !recovery,
+        )
+      }
+    }
+  }
 })
 
 test('compact shell is opt-in for credentials pages, not account settings', async () => {

@@ -79,7 +79,7 @@ async function google() {
       Si cette adresse peut être utilisée, un email de vérification sera envoyé.
       Ouvrez son lien dans ce navigateur pour confirmer votre adresse.
     </p>
-    <div class="flex flex-wrap items-center gap-4">
+    <div class="flex w-full flex-wrap items-center justify-between gap-4">
       <NuxtLink to="/verification" :prefetch="false" class="account-primary"
         >Vérifier mon adresse</NuxtLink
       >

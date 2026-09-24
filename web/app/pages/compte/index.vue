@@ -490,7 +490,6 @@ useHead({ title: 'Mon compte - MesSeances' })
             <div>
               <dt class="overview-label">Nom d’utilisateur</dt>
               <dd class="mt-1 break-words">{{ details.username }}</dd>
-              <dd class="mt-1 text-ink/70">Nom d’utilisateur définitif.</dd>
             </div>
             <div class="overview-row">
               <dt class="overview-label">Email du compte</dt>
@@ -768,16 +767,12 @@ useHead({ title: 'Mon compte - MesSeances' })
                 type="button"
                 class="account-secondary overview-secondary"
                 :disabled="!!busy || blocked"
-                aria-describedby="logout-all-consequence"
                 @click="logoutAll"
               >
                 {{
                   busy === 'sessions' ? 'Déconnexion…' : 'Déconnecter tous les appareils'
                 }}
               </button>
-              <p id="logout-all-consequence" class="text-sm leading-relaxed">
-                Vous serez aussi déconnecté de cet appareil.
-              </p>
             </div>
           </div>
           <p v-if="sessionError" role="alert" class="account-alert">
