@@ -76,6 +76,7 @@ async function fixture(
   const posts: SaveAccountTheaterPreferences[] = []
   const theaterQueries: ({ city: string } | undefined)[] = []
   let gets = 0
+  let sessionGets = 0
   let response = value()
   let admitted = options.admission ?? session()
   let read = async () => response
@@ -113,7 +114,10 @@ async function fixture(
       },
     }),
     useAccountApi: () => ({
-      session: async () => admitted,
+      session: async () => {
+        sessionGets++
+        return { ...admitted }
+      },
       theaterPreferences: async () => {
         gets++
         return read()
@@ -181,6 +185,9 @@ async function fixture(
     get gets() {
       return gets
     },
+    get sessionGets() {
+      return sessionGets
+    },
     get parisRequests() {
       return theaterQueries.filter((query) => query?.city === 'Paris').length
     },
@@ -209,6 +216,295 @@ async function fixture(
     stop: () => scopes.forEach((scope) => scope.stop()),
   }
 }
+
+async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
+  const listeners = new Map<string, () => void>()
+  const target = {
+    addEventListener: (name: string, callback: () => void) =>
+      listeners.set(name, callback),
+  }
+  await f.compile('../plugins/account-session.client', {
+    useAccountSession: () => f.account,
+    useCinemaPreferences: () => f.preferences,
+    defineNuxtPlugin: (
+      plugin: (app: {
+        hook: (name: string, callback: () => void) => void
+      }) => void,
+    ) => plugin({ hook: (_name: string, callback: () => void) => callback() }),
+    window: target,
+    document: { ...target, visibilityState: 'visible' },
+  })
+  return () => {
+    listeners.get('focus')!()
+    // Browser return can emit all three events; the session read stays single-flight.
+    listeners.get('visibilitychange')!()
+    listeners.get('online')!()
+    return f.account.revalidate()
+  }
+}
+
+async function selectionWatcher(
+  path: string,
+  preferences: ReturnType<typeof usePageCinemaSelection>,
+) {
+  const source = await readFile(
+    new URL(`../app/pages/${path}.vue`, import.meta.url),
+    'utf8',
+  )
+  const script = source.match(
+    /<script setup lang="ts">([\s\S]*?)<\/script>/,
+  )![1]!
+  const parsed = ts.createSourceFile(
+    'page.ts',
+    script,
+    ts.ScriptTarget.Latest,
+    true,
+  )
+  const watchers = parsed.statements.filter(
+    (node) =>
+      ts.isExpressionStatement(node) &&
+      ts.isCallExpression(node.expression) &&
+      node.expression.expression.getText(parsed) === 'watch' &&
+      node.expression.arguments[0]
+        ?.getText(parsed)
+        .includes('selectionScopeKey'),
+  )
+  assert.equal(watchers.length, 1, `${path}: find actual selection watcher`)
+  let invalidations = 0
+  let loads = 0
+  const reload = () => {
+    loads++
+  }
+  const content = ref<unknown>({
+    loaded: true,
+    currently_screened: true,
+    theaters: ['ugc-2'],
+  })
+  const draft = ref([...preferences.favoriteTheaterIds.value])
+  const status = ref('Sélection enregistrée.')
+  const bindings = {
+    preferences,
+    ...preferences,
+    preferencesError: preferences.error,
+    watch: (
+      sources: Parameters<typeof watch>[0],
+      callback: () => void,
+      options: Parameters<typeof watch>[2],
+    ) =>
+      watch(
+        sources,
+        () => {
+          invalidations++
+          callback()
+        },
+        options,
+      ),
+    isMounted: true,
+    isInitializing: false,
+    isReady: true,
+    isResolvingInitialSearch: ref(false),
+    requestId: 0,
+    lastLoadKey: 'loaded',
+    lastTimelineKey: 'loaded',
+    lastSearchKey: 'loaded',
+    lastScheduleKey: 'loaded',
+    catalog: content,
+    timeline: content,
+    results: content,
+    schedule: content,
+    appliedFilters: ref({ allTheaters: false }),
+    pending: ref(false),
+    route: { query: {} },
+    OWNED_QUERY_KEYS: ['q'],
+    draftTheaterIds: draft,
+    draftFavoriteTheaterIds: draft,
+    statusMessage: status,
+    theaterValidationMessage: ref(''),
+    loadMovies: reload,
+    loadTimeline: reload,
+    applyRoute: reload,
+  }
+  const code = ts.transpileModule(watchers[0]!.getFullText(parsed), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  const scope = effectScope()
+  scope.run(() =>
+    new Function(...Object.keys(bindings), code)(...Object.values(bindings)),
+  )
+  return {
+    content,
+    draft,
+    status,
+    get invalidations() {
+      return invalidations
+    },
+    get loads() {
+      return loads
+    },
+    stop: () => scope.stop(),
+  }
+}
+
+test('repeated unchanged focus preserves selection identity while still reading session and account theaters', async (t) => {
+  for (const snapshot of [value(), value('2', []), value('0', [])]) {
+    const f = await fixture()
+    t.after(f.stop)
+    f.setResponse(snapshot)
+    f.admit()
+    await f.preferences.initialize()
+    await settle()
+    const focus = await focusPlugin(f)
+    const ids = f.preferences.favoriteTheaterIds.value
+    const theaters = f.preferences.favoriteTheaters.value
+    const scope = f.preferences.selectionScopeKey.value
+    const gets = f.gets
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      // Each HTTP response has fresh object and array identities.
+      f.setResponse({ ...snapshot, theater_ids: [...snapshot.theater_ids] })
+      await focus()
+      assert.equal(f.sessionGets, attempt)
+      assert.equal(f.gets, gets + attempt)
+      assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+      assert.equal(f.preferences.favoriteTheaters.value, theaters)
+      assert.equal(f.preferences.selectionScopeKey.value, scope)
+      assert.equal(f.preferences.isInitialized.value, true)
+      assert.equal(f.preferences.isLoading.value, false)
+      assert.equal(f.preferences.writesBlocked.value, false)
+    }
+    assert.equal(f.posts.length, 0)
+    assert.deepEqual(f.messages, [])
+    assert.deepEqual(f.storageWrites, [])
+  }
+})
+
+test('equal snapshots recover transient read and uncertain save errors without selection churn', async (t) => {
+  const f = await fixture()
+  t.after(f.stop)
+  f.admit()
+  await f.preferences.initialize()
+  const ids = f.preferences.favoriteTheaterIds.value
+  f.setRead(async () => {
+    throw new errors.AccountApiError(503)
+  })
+  await f.account.revalidate()
+  assert.equal(f.preferences.writesBlocked.value, true)
+  assert.ok(f.preferences.syncError.value)
+  assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+  const pending = deferred<AccountTheaterPreferences>()
+  f.setRead(() => pending.promise)
+  const retry = f.preferences.retrySynchronization()
+  await settle()
+  assert.equal(f.preferences.writesBlocked.value, true)
+  assert.equal(f.preferences.isInitialized.value, true)
+  assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+  pending.resolve(value())
+  await retry
+  assert.equal(f.preferences.writesBlocked.value, false)
+  assert.equal(f.preferences.syncError.value, null)
+  assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+
+  f.setRead(async () => value())
+  f.setWrite(async () => {
+    throw new errors.AccountApiError(503)
+  })
+  assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-3']), false)
+  assert.ok(f.preferences.syncError.value)
+  assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+  await f.preferences.retrySynchronization()
+  assert.equal(f.preferences.syncError.value, null)
+  assert.equal(f.preferences.writesBlocked.value, false)
+  assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+  assert.equal(f.posts.length, 1)
+  assert.deepEqual(f.storageWrites, [])
+})
+
+test('same-revision changed IDs and newer revisions still apply; older revisions cannot roll back', async (t) => {
+  const f = await fixture()
+  t.after(f.stop)
+  f.admit()
+  await f.preferences.initialize()
+  for (const next of [
+    value('1', ['ugc-3']),
+    value('1', ['ugc-1', 'ugc-3']),
+    value('2', ['ugc-1', 'ugc-3']),
+    value('3', []),
+  ]) {
+    const previous = f.preferences.favoriteTheaterIds.value
+    f.setResponse(next)
+    await f.account.revalidate()
+    assert.notEqual(f.preferences.favoriteTheaterIds.value, previous)
+    assert.deepEqual(
+      [...f.preferences.favoriteTheaterIds.value],
+      next.theater_ids,
+    )
+  }
+  const ids = f.preferences.favoriteTheaterIds.value
+  f.setResponse(value('2', ['ugc-2']))
+  await f.account.revalidate()
+  assert.equal(f.preferences.favoriteTheaterIds.value, ids)
+  assert.deepEqual([...ids], [])
+})
+
+test('actual page selection watchers keep content on unchanged focus and invalidate real updates and identity transitions', async (t) => {
+  for (const path of [
+    'films/index',
+    'planning',
+    'recherche',
+    'film/[slug]',
+    'cinemas',
+  ]) {
+    const f = await fixture({ stored: '["ugc-1"]' })
+    t.after(f.stop)
+    f.admit()
+    await f.preferences.initialize()
+    const module = await f.compile<{
+      usePageCinemaSelection: typeof usePageCinemaSelection
+    }>('usePageCinemaSelection', {
+      useCinemaPreferences: () => f.preferences,
+      useRoute: () => ({ query: {} }),
+      require: () => sharedSelection,
+    })
+    const watcher = await selectionWatcher(
+      path,
+      module.usePageCinemaSelection(),
+    )
+    t.after(watcher.stop)
+    const initial = watcher.invalidations
+    const loads = watcher.loads
+    const content = watcher.content.value
+    const draft = watcher.draft.value
+    const status = watcher.status.value
+    const focus = await focusPlugin(f)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      f.setResponse(value())
+      await focus()
+      assert.equal(watcher.invalidations, initial, path)
+      assert.equal(watcher.loads, loads, path)
+      assert.equal(watcher.content.value, content, path)
+      assert.equal(watcher.draft.value, draft, path)
+      assert.equal(watcher.status.value, status, path)
+    }
+    f.setResponse(value('2', ['ugc-3']))
+    await focus()
+    assert.ok(watcher.invalidations > initial, path)
+    if (path === 'cinemas')
+      assert.deepEqual([...watcher.draft.value], ['ugc-3'])
+    else assert.ok(watcher.loads > loads, path)
+    let previous = watcher.invalidations
+    // Equal IDs and revision must not conceal a different owner.
+    f.setResponse(value('2', ['ugc-3'], 'bob'))
+    f.admit(session('bob'))
+    await settle()
+    assert.ok(watcher.invalidations > previous, path)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-3'])
+    previous = watcher.invalidations
+    f.admit(anonymous)
+    await settle()
+    assert.ok(watcher.invalidations > previous, path)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    assert.deepEqual(f.storageWrites, [])
+  }
+})
 
 test('account wins; client-only snapshot never enters payload or device storage; one app subscription', async () => {
   const f = await fixture({ stored: '["ugc-1"]' })
@@ -827,6 +1123,27 @@ test('shared links override even unresolved account selection without writing ac
     await settle()
     assert.deepEqual([...page.activeTheaterIds.value], ['ugc-3'])
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-2'])
+    const watchers = await Promise.all(
+      ['planning', 'recherche', 'film/[slug]'].map((path) =>
+        selectionWatcher(path, page),
+      ),
+    )
+    try {
+      const counts = watchers.map((watcher) => watcher.invalidations)
+      const ids = page.activeTheaterIds.value
+      const focus = await focusPlugin(f)
+      for (const next of [value(), value('2', ['ugc-1']), value('3', [])]) {
+        f.setResponse(next)
+        await focus()
+        assert.equal(page.activeTheaterIds.value, ids)
+        assert.deepEqual(
+          watchers.map((watcher) => watcher.invalidations),
+          counts,
+        )
+      }
+    } finally {
+      for (const watcher of watchers) watcher.stop()
+    }
     assert.equal(f.posts.length, 0)
     assert.deepEqual(f.storageWrites, [])
   } finally {

@@ -185,7 +185,16 @@ function createCinemaPreferences() {
   function apply(value: AccountTheaterPreferences) {
     const previous = snapshot.value
     if (previous && BigInt(value.revision) < BigInt(previous.revision)) return
-    snapshot.value = value
+    // Equal authoritative reads must not invalidate selection-dependent pages.
+    // IDs are canonical API order; still compare contents, not revision alone.
+    if (
+      !previous ||
+      previous.username !== value.username ||
+      previous.revision !== value.revision ||
+      previous.theater_ids.length !== value.theater_ids.length ||
+      previous.theater_ids.some((id, index) => id !== value.theater_ids[index])
+    )
+      snapshot.value = value
     needsReconciliation.value = false
     syncError.value = null
   }
