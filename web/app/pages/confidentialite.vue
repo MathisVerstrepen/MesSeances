@@ -5,17 +5,14 @@ const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/confidentialite')
 useSeoMeta({
   title: 'Confidentialité - MesSeances',
   description:
-    'Découvrez les traitements de MesSeances : préférences locales, comptes prévus, journaux techniques et mesure d’audience.',
+    'Découvrez les traitements de MesSeances : préférences locales, comptes personnels lorsqu’ils sont disponibles, journaux techniques et mesure d’audience.',
   robots: 'index,follow',
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <LegalPageLayout
-    eyebrow="Données personnelles · Brouillon"
-    title="Confidentialité"
-  >
+  <LegalPageLayout eyebrow="Données personnelles" title="Confidentialité">
     <section class="legal-section" aria-labelledby="controller-heading">
       <h2 id="controller-heading">Responsable du traitement</h2>
       <dl class="legal-list">
@@ -77,25 +74,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         d’ouvrir ce lien.
       </p>
 
-      <h3>Comptes personnels : fonctionnalité désactivée par défaut</h3>
+      <h3>Comptes personnels</h3>
       <p>
-        Le code prévoit des comptes privés par email et mot de passe ou Google.
-        Cette description présente une capacité technique, pas une annonce
-        d’activation en production ni un texte juridique approuvé. La
-        configuration des prestataires, les bases légales, les transferts et les
-        durées opérationnelles doivent être validés avant ouverture des
-        inscriptions.
+        Lorsque la fonctionnalité est disponible, vous pouvez créer un compte
+        privé par email et mot de passe ou avec Google. Les traitements décrits
+        ci-dessous s’appliquent si vous utilisez ces fonctionnalités ; cette
+        notice n’annonce pas leur activation en production.
       </p>
       <p>
-        Les données prévues sont l’email du compte, sa vérification, un nom
+        Les données utilisées sont l’email du compte, sa vérification, un nom
         d’utilisateur unique et définitif, une empreinte sécurisée du mot de
         passe lorsqu’il existe, ainsi que les informations nécessaires aux
         sessions et à la prévention des abus. Pour Google, un identifiant de
         liaison et l’email communiqué par Google sont conservés séparément de
         l’email du compte. Une photo privée peut être ajoutée dans les
-        paramètres. Aucun nom importé, profil public ou annuaire n’est prévu.
-        Les cinémas sélectionnés restent locaux, sans synchronisation avec le
-        compte.
+        paramètres. Aucun nom n’est importé depuis Google. Il n’y a ni profil
+        public ni annuaire. Les cinémas sélectionnés restent locaux, sans
+        synchronisation avec le compte.
       </p>
       <p>
         Google est sollicité avec les permissions d’identité, d’email et de
@@ -119,18 +114,15 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       </p>
       <p>
         Une connexion Google ouvre le service Google uniquement à votre demande.
-        Amazon SES est prévu pour les emails de vérification, de récupération et
+        Amazon SES assure l’envoi des emails de vérification, de récupération et
         de sécurité, avec SNS et SQS pour traiter les échecs de livraison et
-        plaintes. Ces prestataires ne sont pas déclarés configurés par cette
-        notice. L’accès à Google et à l’email actuel du compte est nécessaire
+        plaintes. L’accès à Google et à l’email actuel du compte est nécessaire
         pour les changements sensibles sans mot de passe ; aucun contournement
-        manuel de ces preuves n’est prévu.
+        manuel de ces preuves n’est proposé.
       </p>
       <p>
-        Le cookie de session utilisateur prévu est distinct du cookie
-        d’administration : <code>__Host-messeances_session</code> en HTTPS,
-        inaccessible au JavaScript, sécurisé et limité au site. Sa durée
-        maximale est de 30 jours, avec expiration après 7 jours d’inactivité.
+        Les cookies nécessaires au compte sont distincts du cookie
+        d’administration et détaillés dans le résumé des traceurs ci-dessous.
         Les liens de vérification et les secrets saisis restent en mémoire dans
         les pages concernées, sans stockage local ou de session. Aucune mesure
         d’audience n’est envoyée depuis ces pages. Le traceur chargé sur une
@@ -210,8 +202,43 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </section>
 
     <section class="legal-section" aria-labelledby="purposes-heading">
-      <h2 id="purposes-heading">Finalités et bases légales envisagées</h2>
+      <h2 id="purposes-heading">Finalités et bases légales</h2>
       <ul>
+        <li>
+          <strong>Fournir le compte et la connexion demandés :</strong>
+          créer et gérer le compte privé, vérifier l’adresse email, maintenir la
+          session et permettre l’authentification par mot de passe ou Google.
+          Ces traitements reposent sur l’exécution du contrat de service,
+          conformément à l’article 6, paragraphe 1, point b), du RGPD.
+        </li>
+        <li>
+          <strong>Envoyer les emails transactionnels du compte :</strong>
+          transmettre les liens de vérification, de récupération et de
+          confirmation des changements demandés, ainsi que les notifications de
+          sécurité nécessaires au service. Ces envois reposent sur l’exécution
+          du contrat de service, conformément à l’article 6, paragraphe 1, point
+          b), du RGPD, et ne sont pas des messages publicitaires.
+        </li>
+        <li>
+          <strong>Afficher une photo privée facultative :</strong>
+          traiter la photo téléversée ou importée lors de l’utilisation de
+          Google pour personnaliser les paramètres du compte. Cette
+          fonctionnalité facultative repose sur l’exécution du contrat de
+          service pour la personnalisation demandée, conformément à l’article 6,
+          paragraphe 1, point b), du RGPD. Le compte reste utilisable sans
+          photo. Les permissions OAuth de Google définissent les informations
+          accessibles ; elles ne constituent pas, à elles seules, un
+          consentement au sens du RGPD ni une base légale du traitement.
+        </li>
+        <li>
+          <strong>Protéger les comptes et prévenir les abus :</strong>
+          limiter les tentatives abusives, bloquer les envois après un échec
+          permanent ou une plainte et réserver définitivement les noms
+          d’utilisateur supprimés pour empêcher leur réutilisation et prévenir
+          l’usurpation. Ces traitements reposent sur l’intérêt légitime de
+          l’éditeur à sécuriser le service et protéger ses utilisateurs,
+          conformément à l’article 6, paragraphe 1, point f), du RGPD.
+        </li>
         <li>
           <strong>Personnaliser les séances :</strong>
           mémoriser et appliquer les cinémas choisis. L’écriture et la lecture
@@ -300,6 +327,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           service SaaS par un destinataire distinct ;
         </li>
         <li>
+          <strong>Google</strong>, pour l’authentification choisie par
+          l’utilisateur et, le cas échéant, l’import de sa photo : Google reçoit
+          les données techniques de connexion et d’autorisation, notamment
+          l’adresse IP et les en-têtes lors de l’ouverture de son service.
+          MesSeances reçoit l’identifiant Google, l’email et les informations de
+          vérification, ainsi que l’adresse de la photo lorsqu’elle est fournie.
+          Les jetons d’accès du fournisseur ne sont pas conservés ;
+        </li>
+        <li>
+          <strong>Amazon Web Services (AWS)</strong>, pour les emails du compte
+          : SES reçoit l’adresse destinataire et le contenu du message, y
+          compris les liens de confirmation nécessaires. SNS et SQS transmettent
+          et mettent en file les retours de livraison ou de plainte, qui peuvent
+          contenir des adresses email, des identifiants de message, des
+          horodatages et le motif du retour ;
+        </li>
+        <li>
           <strong>TMDB, UGC, Kinepolis, Pathé et ACSTA</strong>, uniquement
           lorsque le navigateur charge automatiquement une affiche ou une image
           distante : chacun reçoit alors les données techniques de la requête
@@ -327,7 +371,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
     <section class="legal-section" aria-labelledby="retention-heading">
       <h2 id="retention-heading">Durées de conservation</h2>
-      <h3>Comptes personnels prévus</h3>
+      <h3>Comptes personnels</h3>
       <p>
         La photo traitée est conservée jusqu’à son remplacement, sa suppression
         depuis les paramètres ou la suppression du compte. Ces actions retirent
@@ -342,26 +386,62 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         l’exploitant, sans promesse de suppression immédiate de ces copies.
       </p>
       <p>
-        Le code refuse les inscriptions incomplètes après 7 jours et prévoit
-        leur suppression par nettoyage périodique. Pour un compte terminé, la
+        Les comptes incomplets deviennent inaccessibles 7 jours après leur
+        création et sont supprimés lors du prochain nettoyage périodique. Les
+        comptes terminés sont conservés jusqu’à leur suppression ; aucune purge
+        automatique pour inactivité n’est appliquée. Pour un compte terminé, la
         suppression demandée après preuve d’identité est immédiate et
         irréversible dans la base active : compte, moyens de connexion,
         sessions, liens et messages en attente associés sont supprimés. Le nom
         d’utilisateur seul reste réservé indéfiniment, sans identifiant de
         compte, email, identité Google ou date de suppression associés, pour
         empêcher sa réutilisation et l’usurpation. Cette réserve ne peut pas
-        être annulée depuis l’interface.
+        être annulée depuis l’interface et ne garantit pas l’anonymat du nom
+        d’utilisateur.
       </p>
+      <dl class="legal-list">
+        <div>
+          <dt>Sessions et liens de confirmation</dt>
+          <dd>
+            Une session expire au plus tard après 30 jours, ou après 7 jours
+            d’inactivité. Un lien de vérification d’email est valable au maximum
+            24 heures, dans la limite des 7 jours d’une inscription incomplète ;
+            un lien de réinitialisation de mot de passe, 30 minutes. Un parcours
+            Google OAuth dure au maximum 10 minutes et une autorisation d’action
+            sensible, à usage unique, 5 minutes. Les enregistrements expirés
+            sont supprimés par nettoyage périodique.
+          </dd>
+        </div>
+        <div>
+          <dt>Emails en attente et suivi d’envoi local</dt>
+          <dd>
+            Le contenu chiffré d’un email en attente est conservé jusqu’à la fin
+            de son traitement ou son expiration, au maximum 24 heures, ou moins
+            si le lien expire avant. Il est effacé dès l’état final d’envoi,
+            d’échec ou d’abandon. Les métadonnées de suivi restantes, sans le
+            contenu chiffré, sont supprimées après 7 jours par nettoyage.
+          </dd>
+        </div>
+        <div>
+          <dt>Blocage local des envois et quotas anti-abus</dt>
+          <dd>
+            L’empreinte HMAC de l’adresse et le motif de blocage après échec
+            permanent ou plainte expirent 180 jours après le dernier retour
+            traité. Les empreintes et compteurs de quotas expirent au plus tard
+            48 heures après le début de leur fenêtre. Ces données sont ensuite
+            supprimées par nettoyage périodique.
+          </dd>
+        </div>
+      </dl>
       <p>
         Des données de prévention des abus et de non-envoi après plainte ou
         échec peuvent subsister indépendamment du compte. Une empreinte
         d’adresse utilisée pour ces protections reste une donnée personnelle,
-        pas une anonymisation. Les limites techniques de nettoyage ne
-        garantissent pas, à elles seules, les durées effectivement appliquées
-        aux prestataires, sauvegardes, files et journaux. Ces durées, les
-        modalités de suppression et de restauration des sauvegardes, ainsi que
-        la politique de non-envoi restent à confirmer par l’exploitant avant
-        activation. Aucune suppression immédiate de ces copies externes n’est
+        pas une anonymisation. Une panne ou un retard de nettoyage peut différer
+        l’effacement physique des données expirées, sans prolonger la validité
+        des sessions, liens ou autorisations. Ces limites de l’application ne
+        fixent pas les durées de conservation des prestataires ou des
+        sauvegardes. Aucune suppression immédiate de ces copies externes n’est
         promise ici.
       </p>
       <dl class="legal-list">
@@ -424,6 +504,16 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         pas garantir l’absence de transfert hors de l’Union européenne pour ces
         requêtes externes.
       </p>
+      <p>
+        L’authentification et l’import de photo via Google, ainsi que l’envoi
+        d’emails et le traitement des retours par AWS SES, SNS et SQS, peuvent
+        également impliquer des traitements hors Union européenne. L’hébergement
+        de MesSeances dans l’Union européenne ne prouve pas que tous les
+        traitements de ces prestataires y restent. Les entités contractantes,
+        régions de traitement et garanties de transfert applicables à Google et
+        AWS restent à confirmer ; cette notice n’affirme pas qu’un mécanisme
+        particulier encadre ces transferts.
+      </p>
     </section>
 
     <section class="legal-section" aria-labelledby="rights-heading">
@@ -461,8 +551,36 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div>
           <dt>Stockage local « Mes cinémas »</dt>
           <dd>
-            Présent pour mémoriser la sélection de l’utilisateur. Qualification
-            et régime applicables à confirmer avant publication.
+            Mémorise la sélection demandée par l’utilisateur, sans
+            synchronisation avec le compte. Ce stockage est exempté de
+            consentement dans les conditions exposées dans les finalités
+            ci-dessus, jusqu’à remplacement ou effacement dans le navigateur.
+          </dd>
+        </div>
+        <div>
+          <dt>Cookie de session du compte</dt>
+          <dd>
+            <code>__Host-messeances_session</code>
+            en HTTPS : maintient la connexion, pour 30 jours au maximum. La
+            session expire après 7 jours d’inactivité ou à la déconnexion.
+          </dd>
+        </div>
+        <div>
+          <dt>Cookie de preuve d’inscription</dt>
+          <dd>
+            <code>__Host-messeances_registration</code>
+            en HTTPS : prouve que la confirmation d’email a lieu dans le
+            navigateur d’origine de l’inscription. Sa durée maximale est de 7
+            jours ; il est effacé après vérification réussie.
+          </dd>
+        </div>
+        <div>
+          <dt>Cookie du parcours Google</dt>
+          <dd>
+            <code>__Host-messeances_google</code>
+            en HTTPS : lie le retour de Google au navigateur ayant lancé la
+            demande, pour 10 minutes au maximum. Il est effacé au retour de
+            Google.
           </dd>
         </div>
         <div>
@@ -481,12 +599,20 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </dd>
         </div>
       </dl>
+      <p>
+        Les trois cookies du compte sont strictement nécessaires aux opérations
+        d’inscription, de connexion et de sécurisation demandées, et ne sont pas
+        publicitaires. Ils sont limités au site, marqués <code>Secure</code>,
+        <code>HttpOnly</code>
+        et <code>SameSite=Lax</code> en HTTPS, donc inaccessibles au JavaScript.
+        Leur utilisation ne dépend pas d’un consentement publicitaire.
+      </p>
     </section>
 
     <section class="legal-section" aria-labelledby="updates-heading">
       <h2 id="updates-heading">Mise à jour de la politique</h2>
       <p>
-        Date d’entrée en vigueur : 27 août 2026. Cette politique sera mise à
+        Dernière mise à jour : 24 septembre 2026. Cette politique sera mise à
         jour si les traitements, prestataires ou obligations applicables
         évoluent.
       </p>
