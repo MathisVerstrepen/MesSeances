@@ -3,11 +3,9 @@ package accounts
 import (
 	"bytes"
 	"context"
-	"html"
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"messeances/api/internal/accountmail"
 )
 
 type ReauthContinuation struct {
@@ -76,7 +74,10 @@ func (s *Service) RequestReauthEmail(ctx context.Context, raw string) error {
 			return ErrUnavailable
 		}
 		link := s.origin + "/compte/confirmer-identite#token=" + token
-		message := accountmail.Message{Recipient: a.email, Subject: "Confirmez votre identité MesSeances", Text: "Pour confirmer votre identité, ouvrez ce lien puis validez le formulaire :\n" + link, HTML: `<p><a href="` + html.EscapeString(link) + `">Confirmer mon identité</a></p>`}
+		message, err := actionMailMessage(s.origin, a.email, link, TokenEmailStepUp)
+		if err != nil {
+			return ErrUnavailable
+		}
 		return s.enqueue(ctx, tx, a, string(TokenEmailStepUp), digest[:], digest[:], message, now, proof.expires)
 	})
 }

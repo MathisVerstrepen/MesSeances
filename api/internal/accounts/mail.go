@@ -3,7 +3,6 @@ package accounts
 import (
 	"context"
 	"errors"
-	"html"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -78,7 +77,10 @@ func (s *Service) issueMailToken(ctx context.Context, tx pgx.Tx, a account, purp
 		return ErrUnavailable
 	}
 	link := s.origin + path + "#token=" + raw
-	message := accountmail.Message{Recipient: recipient, Subject: "Confirmez votre demande MesSeances", Text: "Pour confirmer votre demande, ouvrez ce lien puis validez le formulaire :\n" + link, HTML: `<p>Pour confirmer votre demande, ouvrez ce lien puis validez le formulaire :</p><p><a href="` + html.EscapeString(link) + `">Confirmer</a></p>`}
+	message, err := actionMailMessage(s.origin, recipient, link, purpose)
+	if err != nil {
+		return ErrUnavailable
+	}
 	return s.enqueue(ctx, tx, a, string(purpose), digest[:], digest[:], message, now, expires)
 }
 
@@ -117,5 +119,9 @@ func (s *Service) notify(ctx context.Context, tx pgx.Tx, a account, recipient, t
 		return err
 	}
 	now := s.now().UTC()
-	return s.enqueue(ctx, tx, a, "security_notification", digest[:], nil, accountmail.Message{Recipient: recipient, Subject: "Sécurité de votre compte MesSeances", Text: text, HTML: "<p>" + html.EscapeString(text) + "</p>"}, now, now.Add(24*time.Hour))
+	message, err := securityMailMessage(s.origin, recipient, text)
+	if err != nil {
+		return ErrUnavailable
+	}
+	return s.enqueue(ctx, tx, a, "security_notification", digest[:], nil, message, now, now.Add(24*time.Hour))
 }
