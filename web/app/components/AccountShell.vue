@@ -7,6 +7,7 @@ defineProps<{
   hideLogout?: boolean
   compact?: boolean
   accountArea?: boolean
+  backToAccount?: boolean
 }>()
 const account = useAccountSession()
 const route = useRoute()
@@ -37,7 +38,7 @@ async function logout() {
     :class="[
       { 'account-shell-compact': compact, 'account-shell-area': accountArea },
       accountArea
-        ? 'grid min-h-svh grid-rows-[auto_1fr] bg-canvas lg:grid-cols-[15rem_minmax(0,1fr)] lg:grid-rows-1'
+        ? 'grid min-h-svh grid-rows-1 bg-canvas lg:grid-cols-[15rem_minmax(0,1fr)]'
         : 'bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-8 sm:px-6 sm:py-14 lg:py-20',
     ]"
     class="account-shell w-full border-b-2 border-ink text-ink"
@@ -50,6 +51,15 @@ async function logout() {
         : 'mx-auto max-w-xl border-2 border-ink bg-canvas p-5 shadow-[6px_6px_0_#27272a] sm:p-9 sm:shadow-[8px_8px_0_#27272a]'"
     >
       <div :class="{ 'account-area-inner mx-auto max-w-[60rem]': accountArea }">
+        <NuxtLink
+          v-if="backToAccount"
+          to="/compte"
+          :prefetch="false"
+          class="-mt-4 mb-2 flex min-h-12 w-fit items-center gap-2 text-sm font-semibold hover:text-primary lg:hidden"
+        >
+          <span aria-hidden="true">‹</span>
+          Mon compte
+        </NuxtLink>
         <h1
           class="mb-8 border-b-2 border-ink pb-6 [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(2rem,6vw,3.5rem)] font-black leading-[1.05] tracking-[-0.065em] sm:mb-9 sm:pb-8"
         >

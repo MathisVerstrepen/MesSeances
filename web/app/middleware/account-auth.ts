@@ -24,7 +24,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
     return
   // Preserve email fragments in memory on anonymous confirmation pages. The
   // page offers ordinary login, then asks the user to reopen their email.
-  if (to.path === '/compte' && session.value.state !== 'complete') {
+  const path = to.path.toLowerCase().replace(/\/+$/, '')
+  if (
+    ['/compte', '/compte/parametres'].includes(path) &&
+    session.value.state !== 'complete'
+  ) {
     return navigateTo(accountDestination(session.value))
   }
   if (to.path === '/finaliser' && session.value.state !== 'pending_username') {

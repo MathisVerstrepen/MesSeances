@@ -593,7 +593,7 @@ async function inspectStyle(page, name) {
     ),
     `${name}: screenshot has no URL token or exposed secret field`,
   )
-  for (const width of [1440, 2560, 390, 320]) {
+  for (const width of [1440, 2560, 1024, 390, 320]) {
     await cdp.send(
       'Emulation.setDeviceMetricsOverride',
       { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 },
@@ -622,7 +622,7 @@ async function inspectStyle(page, name) {
             const main = document.querySelector('main'), nav = main.querySelector('.account-area-navigation'), content = main.querySelector('.account-shell-content'), inner = main.querySelector('.account-area-inner');
             const m = main.getBoundingClientRect(), n = nav.getBoundingClientRect(), c = content.getBoundingClientRect(), i = inner.getBoundingClientRect();
             const header = document.querySelector('header').getBoundingClientRect(), footer = document.querySelector('footer').getBoundingClientRect();
-            return m.left === 0 && m.width === document.documentElement.clientWidth && m.height >= innerHeight && m.top >= header.bottom - 1 && footer.top >= m.bottom - 1 && i.width <= 960 && Math.abs((i.left - c.left) - (c.right - i.right)) <= 1 && getComputedStyle(content).boxShadow === 'none' && getComputedStyle(content).borderTopWidth === '0px' && [main, nav, content, inner].every(el => !['auto', 'scroll', 'hidden'].includes(getComputedStyle(el).overflowY)) && (${width} >= 1024 ? n.width === 240 && c.left === n.right && c.right === m.right && n.top === c.top && i.left >= c.left + 48 && Math.abs(nav.querySelector('a').getBoundingClientRect().top - inner.querySelector('h1').getBoundingClientRect().top) <= 1 : n.width === m.width && c.top >= n.bottom && c.width === m.width);
+            return m.left === 0 && m.width === document.documentElement.clientWidth && m.height >= innerHeight && m.top >= header.bottom - 1 && footer.top >= m.bottom - 1 && i.width <= 960 && Math.abs((i.left - c.left) - (c.right - i.right)) <= 1 && getComputedStyle(content).boxShadow === 'none' && getComputedStyle(content).borderTopWidth === '0px' && [main, nav, content, inner].every(el => !['auto', 'scroll', 'hidden'].includes(getComputedStyle(el).overflowY)) && (${width} >= 1024 ? n.width === 240 && c.left === n.right && c.right === m.right && n.top === c.top && i.left >= c.left + 48 && Math.abs(nav.querySelector('a').getBoundingClientRect().top - inner.querySelector('h1').getBoundingClientRect().top) <= 1 : getComputedStyle(nav).display === 'none' && n.height === 0 && c.top === m.top && c.width === m.width);
           })()`,
         ),
         `${name}: ${width}px full-width area, responsive 240px sidebar, readable measure, header/footer and document scrolling`,
@@ -631,8 +631,9 @@ async function inspectStyle(page, name) {
         await evaluate(
           page,
           `(() => {
-            const nav = document.querySelector('.account-area-navigation'), current = nav.querySelector('a'), future = [...nav.querySelectorAll('button')];
-            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 1 && current.getAttribute('href') === '/compte' && current.getAttribute('aria-current') === 'page' && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 2 && future.every((el, index) => el.disabled && !el.hasAttribute('href') && el.innerText.includes(['Watchlist', 'Amis'][index]) && el.innerText.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && document.querySelector('main h1').textContent.trim() === 'Paramètres';
+            const nav = document.querySelector('.account-area-navigation'), current = nav.querySelector('a'), future = [...nav.querySelectorAll('button')], settings = location.pathname.toLowerCase().split('/').filter(Boolean).join('/') === 'compte/parametres';
+            const title = document.querySelector('main h1'), back = document.querySelector('.account-area-inner > a[href="/compte"]');
+            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 1 && current.getAttribute('href') === '/compte/parametres' && (current.getAttribute('aria-current') === 'page') === settings && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 2 && future.every((el, index) => el.disabled && !el.hasAttribute('href') && el.textContent.includes(['Watchlist', 'Amis'][index]) && el.textContent.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && title.textContent.trim() === (settings ? 'Paramètres' : 'Mon compte') && (settings ? back && (${width} >= 1024 ? !back.getClientRects().length : back.getBoundingClientRect().bottom <= title.getBoundingClientRect().top && back.textContent.includes('Mon compte')) : !back);
           })()`,
         ),
         `${name}: ${width}px current-page semantics and disabled future entries without routes`,
@@ -801,14 +802,14 @@ async function inspectStyle(page, name) {
 async function inspectWorkspaceScroll(page, label) {
   const originalTop = await evaluate(
     page,
-    `document.querySelector('.account-area-navigation a').getBoundingClientRect().top`,
+    `document.querySelector('.account-shell-content').getBoundingClientRect().top`,
   )
   await evaluate(page, 'window.scrollTo(0, 300)')
   await delay(50)
   check(
     await evaluate(
       page,
-      `(() => { const header = document.querySelector('header'), nav = document.querySelector('.account-area-navigation a'); return scrollY > 0 && getComputedStyle(header).position === 'sticky' && header.getBoundingClientRect().top === 0 && Math.abs(nav.getBoundingClientRect().top + scrollY - ${originalTop}) <= 1; })()`,
+      `(() => { const header = document.querySelector('header'), content = document.querySelector('.account-shell-content'); return scrollY > 0 && getComputedStyle(header).position === 'sticky' && header.getBoundingClientRect().top === 0 && Math.abs(content.getBoundingClientRect().top + scrollY - ${originalTop}) <= 1; })()`,
     ),
     `${label} real scroll keeps public header sticky and category navigation in normal flow`,
   )
@@ -824,10 +825,12 @@ async function inspectWorkspaceScroll(page, label) {
     ),
     `${label} footer reachable without sidebar or content overlap`,
   )
-  await evaluate(
-    page,
-    `document.querySelector('.account-area-navigation a').focus(); window.scrollTo(0, 0)`,
-  )
+  const focusTarget = `[...document.querySelectorAll('main a')].find(el => el.getClientRects().length)`
+  if (!(await evaluate(page, `!!(${focusTarget})`))) {
+    await evaluate(page, 'window.scrollTo(0, 0)')
+    return
+  }
+  await evaluate(page, `(${focusTarget}).focus(); window.scrollTo(0, 0)`)
   // Move away and back using real keyboard events, including empty/error states.
   for (const modifiers of [0, 8]) {
     for (const type of ['keyDown', 'keyUp']) {
@@ -842,7 +845,7 @@ async function inspectWorkspaceScroll(page, label) {
   check(
     await evaluate(
       page,
-      `(() => { const current = document.querySelector('.account-area-navigation a'), css = getComputedStyle(current), r = current.getBoundingClientRect(), nav = current.closest('nav').getBoundingClientRect(); return document.activeElement === current && current.matches(':focus-visible') && (css.outlineStyle !== 'none' || css.boxShadow !== 'none') && r.top >= document.querySelector('header').getBoundingClientRect().bottom + 6 && r.left >= nav.left + 6 && r.right <= nav.right - 6; })()`,
+      `(() => { const current = (${focusTarget}), css = getComputedStyle(current), r = current.getBoundingClientRect(); return document.activeElement === current && current.matches(':focus-visible') && (css.outlineStyle !== 'none' || css.boxShadow !== 'none') && r.top >= document.querySelector('header').getBoundingClientRect().bottom + 6 && r.left >= 6 && r.right <= innerWidth - 6; })()`,
     ),
     `${label} current category has visible unclipped keyboard focus without underline`,
   )
@@ -952,6 +955,23 @@ async function fragmentVisit(page, link) {
     'first parser-blocking application script clears fragment before later scripts',
   )
 }
+async function openSettings(page) {
+  await until(
+    page,
+    `location.pathname === '/compte' && !!document.querySelector('nav[aria-label="Rubriques du compte"] a')`,
+    'Account home ready',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+  )
+  await until(
+    page,
+    `location.pathname === '/compte/parametres' && !!document.getElementById('trigger-password')`,
+    'Settings ready',
+  )
+}
+
 async function login(page, email, secret) {
   await go(page, '/connexion')
   await fill(page, 'account-email', email)
@@ -980,9 +1000,10 @@ async function login(page, email, secret) {
   }
   await until(
     page,
-    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
+    `location.pathname === '/compte' && document.querySelector('main h1')?.textContent.trim() === 'Mon compte'`,
     'Login complete',
   )
+  await openSettings(page)
 }
 async function register(page, email, username, reserved = false) {
   await go(page, '/inscription')
@@ -1141,9 +1162,10 @@ async function register(page, email, username, reserved = false) {
   await click(page, 'Confirmer mon nom')
   await until(
     page,
-    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
+    `location.pathname === '/compte' && document.querySelector('main h1')?.textContent.trim() === 'Mon compte'`,
     'Account completed',
   )
+  await openSettings(page)
   const completeCookie = await cookie(page)
   await inspectStyle(page, 'compte')
   check(
@@ -1240,6 +1262,7 @@ async function simulatedGoogle() {
     `location.pathname === '/compte'`,
     'Simulated Google account',
   )
+  await openSettings(google)
   await text(google, 'Google est votre seul moyen de connexion')
   await inspectStyle(google, 'compte-google')
   for (const [editor, action] of [
@@ -1339,7 +1362,7 @@ async function simulatedGoogle() {
   )
   await click(google, 'Ajouter mon mot de passe')
   await text(google, 'Votre mot de passe a été ajouté.')
-  await go(google, '/compte')
+  await go(google, '/compte/parametres')
   await until(
     google,
     `!!document.getElementById('trigger-google')`,
@@ -1410,6 +1433,7 @@ async function simulatedGoogle() {
   )
   await fill(pending, 'account-username', `browser_g_pending_${run}`)
   await click(pending, 'Confirmer mon nom')
+  await openSettings(pending)
   await text(pending, 'Google est votre seul moyen de connexion')
   await googleRedirect(
     pending,
@@ -1440,7 +1464,7 @@ async function simulatedGoogle() {
   )
   await click(pending, 'Demander le lien au nouvel email')
   await text(pending, 'Votre adresse actuelle reste inchangée')
-  await go(pending, '/compte')
+  await go(pending, '/compte/parametres')
   await text(pending, 'Confirmation en attente')
   await inspectStyle(pending, 'compte-google-pending')
   await click(pending, 'Annuler le changement d’email')
@@ -1502,7 +1526,7 @@ async function emailScenario() {
     cookieB = await cookie(b)
   const pages = await Promise.all(
     [cookieA, cookieB].map(async (item) => {
-      const response = await fetch(`${origin}/compte`, {
+      const response = await fetch(`${origin}/compte/parametres`, {
         headers: { Cookie: `${item.name}=${item.value}` },
         signal: AbortSignal.timeout(10000),
       })
@@ -1613,7 +1637,7 @@ async function emailScenario() {
     'password proof/change rotates cookie',
   )
   const sibling = await tab(a.browserContextId)
-  await go(sibling, '/compte')
+  await go(sibling, '/compte/parametres')
   await text(sibling, usernameA)
   await click(a, 'Déconnecter tous les appareils')
   await text(a, 'Toutes vos sessions ont été fermées')
@@ -1770,9 +1794,10 @@ async function emailScenario() {
   await click(a, 'Mon compte')
   await until(
     a,
-    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
+    `location.pathname === '/compte' && document.querySelector('main h1')?.textContent.trim() === 'Mon compte'`,
     'Public to sensitive entry',
   )
+  await openSettings(a)
   check(
     await evaluate(
       a,
@@ -1851,7 +1876,7 @@ async function emailScenario() {
   await evaluate(a, 'history.back()')
   await until(
     a,
-    `location.pathname === '/compte' || location.pathname === '/connexion'`,
+    `location.pathname === '/compte/parametres' || location.pathname === '/connexion'`,
     'History restoration',
   )
   await until(
@@ -1869,7 +1894,7 @@ async function emailScenario() {
   await login(a, newEmail, replacement)
 
   phase = 'deletion'
-  await go(sibling, '/compte')
+  await go(sibling, '/compte/parametres')
   await openEditor(a, 'delete')
   await fill(a, 'deletion-password', replacement)
   await fill(a, 'deletion-confirmation', 'SUPPRIMER')
@@ -1980,6 +2005,74 @@ async function overviewScenario() {
     await go(page, '/compte')
     await until(
       page,
+      `!!document.querySelector('nav[aria-label="Rubriques du compte"] a')`,
+      'Account home list',
+    )
+    check(
+      await evaluate(
+        page,
+        `document.querySelectorAll('nav[aria-label="Rubriques du compte"] li').length === 1 && !document.querySelector('main input,main form,#trigger-password')`,
+      ),
+      `${method}: home has only available settings link and no settings secrets`,
+    )
+    await inspectStyle(page, `home-${method}`)
+    await openSettings(page)
+    if (method === 'password') {
+      const documents = page.documents
+      await cdp.send(
+        'Emulation.setDeviceMetricsOverride',
+        { width: 390, height: 900, deviceScaleFactor: 1, mobile: true },
+        page.sessionId,
+      )
+      await openEditor(page, 'password')
+      await fill(page, 'current-password', 'Synthetic departing draft 42!')
+      await evaluate(
+        page,
+        `document.querySelector('.account-area-inner > a[href="/compte"]').click()`,
+      )
+      await until(
+        page,
+        `location.pathname === '/compte' && !!document.querySelector('nav[aria-label="Rubriques du compte"] a')`,
+        'Mobile settings return reaches home',
+      )
+      check(
+        await evaluate(
+          page,
+          `!document.querySelector('main input,main form,#trigger-password')`,
+        ),
+        'mobile home never retains departed settings fields',
+      )
+      await evaluate(page, 'history.back()')
+      await until(
+        page,
+        `location.pathname === '/compte/parametres' && !!document.getElementById('trigger-password')`,
+        'Browser back restores settings route',
+      )
+      check(
+        await evaluate(page, `!document.getElementById('current-password')`),
+        'browser back never restores departed settings editor',
+      )
+      await openEditor(page, 'password')
+      check(
+        await evaluate(
+          page,
+          `document.getElementById('current-password').value === ''`,
+        ),
+        'home departure clears private settings draft',
+      )
+      await click(page, 'Annuler')
+      check(
+        page.documents === documents,
+        'home and settings round trip preserves SPA document',
+      )
+      await cdp.send(
+        'Emulation.setDeviceMetricsOverride',
+        { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+        page.sessionId,
+      )
+    }
+    await until(
+      page,
       `!!document.getElementById('trigger-password')`,
       'Overview ready',
     )
@@ -2088,7 +2181,7 @@ async function overviewScenario() {
     check(responses.size === 1, label)
   }
   const openDraft = async () => {
-    await go(page, '/compte')
+    await go(page, '/compte/parametres')
     await until(
       page,
       `!!document.getElementById('trigger-password')`,
@@ -2321,7 +2414,7 @@ async function overviewScenario() {
   overviewDetails = { ...ownerDetails }
   for (const state of ['loading', 'error']) {
     detailMode = state
-    await go(page, '/compte')
+    await go(page, '/compte/parametres')
     await until(
       page,
       state === 'loading'
@@ -2344,16 +2437,21 @@ async function overviewScenario() {
     )
   }
   for (const state of ['error', 'disabled']) {
-    sessionMode = state
-    await go(page, '/compte')
-    await until(
-      page,
-      state === 'error'
-        ? `!!document.querySelector('main [role="alert"]')`
-        : `document.querySelector('main [role="status"]')?.textContent.includes('pas encore disponibles')`,
-      `Account session ${state}`,
-    )
-    await inspectStyle(page, `overview-session-${state}`)
+    for (const path of ['/compte', '/compte/parametres']) {
+      sessionMode = state
+      await go(page, path)
+      await until(
+        page,
+        state === 'error'
+          ? `!!document.querySelector('main [role="alert"]')`
+          : `document.querySelector('main [role="status"]')?.textContent.includes('pas encore disponibles')`,
+        `Account session ${state}`,
+      )
+      await inspectStyle(
+        page,
+        `${path === '/compte' ? 'home' : 'overview'}-session-${state}`,
+      )
+    }
   }
   sessionMode = 'ready'
   overviewDetails = null
@@ -2791,6 +2889,7 @@ async function main() {
   if (process.argv.includes('--spa')) {
     phase = 'DB-free SPA and pinned Umami'
     await spaScenario({
+      getCDP: () => cdp,
       launch,
       tab,
       go,

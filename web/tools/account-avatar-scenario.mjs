@@ -18,6 +18,17 @@ export async function avatarScenario({
   run,
 }) {
   const page = await tab()
+  const openSettings = async (target = page) => {
+    await until(
+      target,
+      `location.pathname === '/compte' && !!document.querySelector('nav[aria-label="Rubriques du compte"] a')`,
+      'Avatar flow lands on account home',
+    )
+    await evaluate(
+      target,
+      `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+    )
+  }
   // Hold delivery of real HTTP responses, not mocked session/account values.
   // Synthetic focus order tests do not establish native OS picker ordering.
   await cdp.send(
@@ -262,6 +273,7 @@ export async function avatarScenario({
   await googleRedirect(page, { mode: 'login' }, 'verified', '/finaliser')
   await fill(page, 'account-username', `avatar_${run}`)
   await click(page, 'Confirmer mon nom')
+  await openSettings()
   await ready()
   await image()
   check(
@@ -454,6 +466,7 @@ export async function avatarScenario({
   }
   await cdp.send('Emulation.clearDeviceMetricsOverride', {}, page.sessionId)
   await googleRedirect(page, { mode: 'login' }, 'verified', '/compte')
+  await openSettings()
   await ready()
   await image()
   check(
@@ -462,7 +475,7 @@ export async function avatarScenario({
   )
   await installProbe()
   const sibling = await tab(page.browserContextId)
-  await go(sibling, '/compte')
+  await go(sibling, '/compte/parametres')
   await until(
     sibling,
     `${preview}?.complete && ${preview}?.naturalWidth === 256`,
@@ -485,6 +498,7 @@ export async function avatarScenario({
   )
   check(true, 'avatar notification refreshes other tabs without self-delivery')
   await googleRedirect(page, { mode: 'login' }, 'verified', '/compte')
+  await openSettings()
   await ready()
   check(
     (await details()).avatar_url === null &&
@@ -535,6 +549,7 @@ export async function avatarScenario({
     'link',
     '/compte',
   )
+  await openSettings(existing)
   await until(
     existing,
     `${preview}?.complete && ${preview}?.naturalWidth === 256`,
@@ -568,7 +583,7 @@ export async function avatarScenario({
   )
   await evaluate(
     page,
-    `document.querySelector('#__nuxt').__vue_app__.config.globalProperties.$router.push('/compte')`,
+    `document.querySelector('#__nuxt').__vue_app__.config.globalProperties.$router.push('/compte/parametres')`,
   )
   await ready()
   await image()
@@ -608,7 +623,7 @@ export async function avatarScenario({
       `${invalidation}: draft cleared and stale picker rejected`,
     )
     check(uploadCount() === before, `${invalidation}: no avatar write`)
-    await go(page, '/compte')
+    await go(page, '/compte/parametres')
     await ready()
     await image()
   }

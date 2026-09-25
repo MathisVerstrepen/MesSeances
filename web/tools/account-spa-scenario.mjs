@@ -40,6 +40,7 @@ export async function spaScenario({
   fill,
   check,
   setServer,
+  getCDP,
 }) {
   const enabled = !process.argv.includes('--no-analytics')
   const owner = {
@@ -94,6 +95,15 @@ export async function spaScenario({
           break
         case '/api/v1/theaters':
           value = { theaters: [] }
+          break
+        case '/api/v1/account/theaters':
+          if (req.method === 'GET') {
+            value = {
+              username: currentSession().account?.username ?? '',
+              revision: '0',
+              theater_ids: [],
+            }
+          }
           break
         case '/api/v1/auth/login':
           setSession({ enabled: true, state: 'complete', account: owner })
@@ -298,8 +308,91 @@ export async function spaScenario({
   await click(page, 'Se connecter')
   await until(
     page,
-    `location.pathname === '/compte' && !!document.getElementById('trigger-password')`,
-    'login SPA account overview',
+    `location.pathname === '/compte' && !!document.querySelector('nav[aria-label="Rubriques du compte"] a')`,
+    'login SPA account home',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('main input,main form,#trigger-password')`,
+    ),
+    'home has no settings editors',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+  )
+  await until(
+    page,
+    `location.pathname === '/compte/parametres' && !!document.getElementById('trigger-password')`,
+    'home opens settings',
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 900, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('.account-area-inner > a[href="/compte"]').click()`,
+  )
+  await until(
+    page,
+    `location.pathname === '/compte' && !!document.querySelector('nav[aria-label="Rubriques du compte"] a')`,
+    'settings return opens home',
+  )
+  await evaluate(page, 'history.back()')
+  await until(
+    page,
+    `location.pathname === '/compte/parametres' && !!document.getElementById('trigger-password')`,
+    'browser back restores settings route',
+  )
+  await evaluate(page, `document.getElementById('trigger-password').click()`)
+  await until(
+    page,
+    `!!document.getElementById('current-password')`,
+    'settings draft opens',
+  )
+  await fill(page, 'current-password', 'Synthetic departing draft 42!')
+  await evaluate(
+    page,
+    `document.querySelector('.account-area-inner > a[href="/compte"]').click()`,
+  )
+  await until(
+    page,
+    `location.pathname === '/compte'`,
+    'settings draft departs to home',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+  )
+  await until(
+    page,
+    `!!document.getElementById('trigger-password')`,
+    'settings reopened',
+  )
+  check(
+    await evaluate(page, `!document.getElementById('current-password')`),
+    'departed settings editor stays closed',
+  )
+  await evaluate(page, `document.getElementById('trigger-password').click()`)
+  await until(
+    page,
+    `!!document.getElementById('current-password')`,
+    'fresh settings editor',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.getElementById('current-password').value === ''`,
+    ),
+    'home departure clears private settings drafts',
+  )
+  await getCDP().send(
+    'Emulation.clearDeviceMetricsOverride',
+    {},
+    page.sessionId,
   )
   await sameDocument(page, documents, theaterBudget)
   await click(page, 'Se déconnecter')
@@ -431,7 +524,16 @@ export async function spaScenario({
   await until(
     page,
     `location.pathname === '/compte'`,
-    'username submit SPA overview',
+    'username submit SPA home',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+  )
+  await until(
+    page,
+    `location.pathname === '/compte/parametres' && !!document.getElementById('trigger-password')`,
+    'onboarding home opens settings',
   )
   await sameDocument(page, documents, theaterRequests(page))
   await click(page, 'Se déconnecter')
@@ -597,11 +699,13 @@ export async function spaScenario({
     isolated.push({ page: contextPage, key, email })
   }
   await Promise.all(
-    isolated.map(({ page: contextPage }) => go(contextPage, '/compte')),
+    isolated.map(({ page: contextPage }) =>
+      go(contextPage, '/compte/parametres'),
+    ),
   )
   const ssr = await Promise.all(
     isolated.map(async ({ key }) => {
-      const response = await fetch('http://127.0.0.1:13009/compte', {
+      const response = await fetch('http://127.0.0.1:13009/compte/parametres', {
         headers: { Cookie: `messeances_session_dev=${key}` },
       })
       return { response, html: await response.text() }
@@ -620,7 +724,10 @@ export async function spaScenario({
     'concurrent private SSR HTML and serialized payloads isolate cookies and preserve privacy headers',
   )
   for (const path of [
+    '/compte',
+    '/compte/parametres',
     '/compte/_payload.json',
+    '/compte/parametres/_payload.json',
     '/compte/unknown',
     '/api/v1/auth/session',
   ]) {
@@ -652,7 +759,7 @@ export async function spaScenario({
     )
   }
   const sameContext = await tab(isolated[0].page.browserContextId)
-  await go(sameContext, '/compte')
+  await go(sameContext, '/compte/parametres')
   await click(isolated[0].page, 'Se déconnecter')
   await until(
     sameContext,
@@ -696,16 +803,28 @@ export async function spaScenario({
   const continuationDocuments = continuationPage.documents
   const continuationTheaters = theaterRequests(continuationPage)
   await route(continuationPage, '/credits')
+  // App-lifetime cinema preferences remain subscribed after settings unmounts.
+  const detailBaseline = await evaluate(
+    continuationPage,
+    `document.querySelector('#__nuxt').__vue_app__.$nuxt._accountRevalidation.details.size`,
+  )
   hold = '/api/v1/account'
-  await route(continuationPage, '/compte')
+  await route(continuationPage, '/compte/parametres')
   await waitHeld()
-  await route(continuationPage, '/credits')
+  check(
+    await evaluate(
+      continuationPage,
+      `document.querySelector('#__nuxt').__vue_app__.$nuxt._accountRevalidation.details.size === ${detailBaseline + 1}`,
+    ),
+    'settings adds one page-local detail callback above app baseline',
+  )
+  await route(continuationPage, '/compte')
   release()
   await delay(200)
   check(
     await evaluate(
       continuationPage,
-      `document.querySelector('#__nuxt').__vue_app__.$nuxt._accountRevalidation.details.size === 0 && !document.querySelector('main').textContent.includes('second@example.test')`,
+      `document.querySelector('#__nuxt').__vue_app__.$nuxt._accountRevalidation.details.size === ${detailBaseline} && !document.querySelector('main').textContent.includes('second@example.test')`,
     ),
     'late details cannot restore departed UI or subscription',
   )
@@ -845,7 +964,7 @@ export async function spaScenario({
   )
   const subscriptions = await evaluate(
     continuationPage,
-    `(() => { const runtime = document.querySelector('#__nuxt').__vue_app__.$nuxt._accountNavigation; return [runtime.starts.size, runtime.arrivals.size] })()`,
+    `(() => { const app = document.querySelector('#__nuxt').__vue_app__.$nuxt; return [app._accountNavigation.starts.size, app._accountNavigation.arrivals.size, app._accountRevalidation.details.size] })()`,
   )
   for (let i = 0; i < 3; i++) {
     await route(continuationPage, '/mot-de-passe-oublie')
@@ -855,7 +974,7 @@ export async function spaScenario({
   check(
     await evaluate(
       continuationPage,
-      `(() => { const app = document.querySelector('#__nuxt').__vue_app__.$nuxt; return JSON.stringify([app._accountNavigation.starts.size, app._accountNavigation.arrivals.size]) === ${JSON.stringify(JSON.stringify(subscriptions))} && app._accountRevalidation.details.size === 0 })()`,
+      `(() => { const app = document.querySelector('#__nuxt').__vue_app__.$nuxt; return JSON.stringify([app._accountNavigation.starts.size, app._accountNavigation.arrivals.size, app._accountRevalidation.details.size]) === ${JSON.stringify(JSON.stringify(subscriptions))} })()`,
     ),
     'repeated navigation does not accumulate local subscriptions or detail callbacks',
   )

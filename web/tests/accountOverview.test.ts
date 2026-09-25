@@ -9,7 +9,7 @@ import type { AccountSession } from '../app/types/account.ts'
 import * as accountState from '../app/utils/accountState.ts'
 
 const source = await readFile(
-  new URL('../app/pages/compte/index.vue', import.meta.url),
+  new URL('../app/pages/compte/parametres.vue', import.meta.url),
   'utf8',
 )
 const names = [
@@ -542,7 +542,7 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.match(shell, /lg:px-12 lg:py-10/)
   assert.match(navigation, /lg:py-10/)
   assert.match(navigation, /Paramètres\s*<\/span>\s*<\/NuxtLink>/)
-  assert.match(navigation, /text-white no-underline/)
+  assert.match(navigation, /border-ink bg-ink text-white/)
   const header = await readFile(
     new URL('../app/components/AppHeader.vue', import.meta.url),
     'utf8',
@@ -562,7 +562,7 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.match(navigation, /aria-label="Espace personnel"/)
   assert.match(
     navigation,
-    /to="\/compte"\s+:prefetch="false"\s+aria-current="page"/,
+    /to="\/compte\/parametres"\s+:prefetch="false"\s+:aria-current="settingsActive \? 'page' : undefined"/,
   )
   assert.match(navigation, /\{ label: 'Watchlist', icon: Bookmark \}/)
   assert.match(navigation, /\{ label: 'Amis', icon: Users \}/)
@@ -607,7 +607,8 @@ test('account navigation pairs each label with a decorative icon without changin
     navigation,
     /<span class="inline-flex items-center gap-2">\s*<component\s+:is="entry.icon"\s+:size="18"\s+class="shrink-0"\s+aria-hidden="true"\s*\/>\s*\{\{ entry.label \}\}\s*<\/span>\s*<span class="text-xs">À venir<\/span>/,
   )
-  assert.match(navigation, /grid grid-cols-2 gap-2 lg:grid-cols-1/)
+  assert.match(navigation, /account-area-navigation hidden[^"\n]*lg:block/)
+  assert.match(navigation, /<ul class="grid gap-2">/)
   assert.match(navigation, /flex-col items-start justify-between gap-x-2/)
   assert.match(navigation, /lg:flex-row lg:items-center/)
 })

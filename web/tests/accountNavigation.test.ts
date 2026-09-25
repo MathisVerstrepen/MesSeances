@@ -87,6 +87,8 @@ test('header selects every account flow with the public navigation active treatm
     ['/mot-de-passe-oublie', true],
     ['/reinitialiser-mot-de-passe', true],
     ['/compte', true],
+    ['/compte/parametres', true],
+    ['/COMPTE/PARAMETRES/', true],
     ['/compte/', true],
     ['/compte/confirmer-identite', true],
     ['/compte/confirmer-email', true],

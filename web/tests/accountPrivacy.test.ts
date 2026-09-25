@@ -64,6 +64,9 @@ test('private error hook preserves no-store across subsequent Nitro header write
   })
   for (const path of [
     '/compte/_payload.json',
+    '/compte/parametres',
+    '/compte/parametres/_payload.json',
+    '/COMPTE/PARAMETRES/',
     '/compte/unknown',
     '/api/v1/auth/session',
   ]) {
@@ -112,6 +115,9 @@ test('private account HTML, payloads and endpoints share no-store policy', () =>
     assert.equal(isAccountPrivatePath(path), true)
   for (const path of [
     '/Connexion',
+    '/compte/parametres',
+    '/COMPTE/PARAMETRES/',
+    '/compte/parametres/_payload.json',
     '/VERIFICATION',
     '/%63ompte/_payload.json',
     '//compte//confirmer-email',
@@ -251,7 +257,7 @@ test('creation forms share ten-character criteria without visible byte-limit cop
   for (const path of [
     '../app/components/AccountCredentialsForm.vue',
     '../app/pages/reinitialiser-mot-de-passe.vue',
-    '../app/pages/compte/index.vue',
+    '../app/pages/compte/parametres.vue',
     '../app/pages/compte/confirmer-identite.vue',
   ]) {
     const source = await read(path)
