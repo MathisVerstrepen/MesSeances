@@ -10,6 +10,7 @@ import {
 } from '../app/utils/accountNavigation.ts'
 import { lifetimeFixture } from './helpers/accountLifetime.ts'
 import { ref } from 'vue'
+import { accountPageRoots, isAccountPage } from '../shared/accountPrivacy.ts'
 
 test('token arrivals are single-use, normalized, route-bound and cancelled generations cannot revive', () => {
   const token = 'A'.repeat(43)
@@ -66,34 +67,74 @@ test('account boundary uses router replacement, never document reload', async ()
   assert.match(source, /replace: true/)
 })
 
-test('header selects only the account section with the public navigation active treatment', async () => {
+test('header selects every account flow with the public navigation active treatment', async () => {
   const source = await readFile(
     new URL('../app/components/AppHeader.vue', import.meta.url),
     'utf8',
   )
   const activeFunction = source.match(/function isActive\([^]*?\n\}/)?.[0]
   assert.ok(activeFunction)
+  assert.match(
+    source,
+    /import \{ isAccountPage \} from '~~\/shared\/accountPrivacy'/,
+  )
   const compiled = ts.transpileModule(activeFunction, {}).outputText
   for (const [path, active] of [
+    ['/connexion', true],
+    ['/inscription', true],
+    ['/verification', true],
+    ['/finaliser', true],
+    ['/mot-de-passe-oublie', true],
+    ['/reinitialiser-mot-de-passe', true],
     ['/compte', true],
     ['/compte/', true],
     ['/compte/confirmer-identite', true],
     ['/compte/confirmer-email', true],
+    ['/Connexion', true],
+    ['/connexion/', true],
+    ['/', false],
     ['/comptex', false],
-    ['/connexion', false],
-    ['/inscription', false],
-    ['/verification', false],
-    ['/finaliser', false],
     ['/planning', false],
     ['/recherche', false],
     ['/films', false],
+    ['/film/connexion', false],
+    ['/cinemas', false],
+    ['/admin', false],
+    ['/admin/connexion', false],
+    ['/api/v1/auth/session', false],
+    ['/api/v1/account/theaters', false],
+    ...accountPageRoots.map((root) => [`${root}-extra`, false] as const),
   ] as const) {
     assert.equal(
       runInNewContext(`${compiled}; isActive('/compte')`, {
         route: { path },
+        isAccountPage,
       }),
       active,
       path,
+    )
+  }
+
+  for (const [path, to, active] of [
+    ['/films', '/films', true],
+    ['/film/connexion', '/films', true],
+    ['/films-extra', '/films', false],
+    ['/planning', '/planning', true],
+    ['/planning/extra', '/planning', false],
+    ['/recherche', '/recherche', true],
+    ['/recherche/extra', '/recherche', false],
+    ['/connexion', '/films', false],
+    ['/inscription', '/planning', false],
+    ['/compte', '/recherche', false],
+  ] as const) {
+    assert.equal(
+      runInNewContext(`${compiled}; isActive(to)`, {
+        route: { path },
+        isAccountPage,
+        to,
+      }),
+      active,
+      `${path}: ${to}`,
     )
   }
 

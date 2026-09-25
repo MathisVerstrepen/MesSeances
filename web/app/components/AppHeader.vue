@@ -8,6 +8,7 @@ import {
   UserRound,
 } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
+import { isAccountPage } from '~~/shared/accountPrivacy'
 
 const route = useRoute()
 const { session: accountSession } = useAccountSession()
@@ -58,8 +59,7 @@ const favoriteSummary = computed(() => {
 function isActive(to: string) {
   if (to === '/films')
     return route.path === '/films' || route.path.startsWith('/film/')
-  if (to === '/compte')
-    return route.path === '/compte' || route.path.startsWith('/compte/')
+  if (to === '/compte') return isAccountPage(route.path)
   return route.path === to
 }
 
