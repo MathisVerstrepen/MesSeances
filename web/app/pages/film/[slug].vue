@@ -103,6 +103,25 @@ let dayCheckTimer: number | undefined
 let synopsisResizeObserver: ResizeObserver | null = null
 let isReady = false
 let lastScheduleKey = ''
+// Public evidence is reusable across preference/session changes, but stays local
+// to this page instance. Rejected requests are removed so retry can recover.
+const nationwideRequests = new Map<string, Promise<MovieShowtimesResponse>>()
+
+function nationwideSchedule(movieSlug: string, date: string) {
+  const key = `${movieSlug}|${date}`
+  const existing = nationwideRequests.get(key)
+  if (existing) return existing
+  const request = api.movieShowtimes(movieSlug, { date }).catch((error) => {
+    nationwideRequests.delete(key)
+    throw error
+  })
+  nationwideRequests.set(key, request)
+  return request
+}
+
+function scheduleKey() {
+  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}`
+}
 
 const slug = computed(() => {
   const value = route.params.slug
@@ -415,43 +434,30 @@ interface NationwideSeoState {
 }
 
 async function loadSchedule() {
+  // Wait for stable selection before reloading an existing movie. A new slug
+  // can still load public evidence even when account synchronization failed.
+  if (!preferences.isInitialized.value && schedule.value?.currently_screened) {
+    pending.value = !preferences.error.value
+    errorMessage.value = preferences.error.value ?? ''
+    return
+  }
+  const key = scheduleKey()
+  if (key === lastScheduleKey) return
+  lastScheduleKey = key
   const currentRequest = ++requestId
   if (!slug.value || !selectedDate.value) return
+  const movieSlug = slug.value
+  const requestedDate = selectedDate.value
+  const selectedTheaters = preferences.activeTheaterIds.value.join(',')
   pending.value = true
   errorMessage.value = ''
   notFound.value = false
 
   try {
     // Resolve nationwide screening evidence before sending saved theater IDs.
-    let response = await api.movieShowtimes(slug.value, {
-      date: selectedDate.value,
-    })
+    let response = await nationwideSchedule(movieSlug, requestedDate)
     if (currentRequest !== requestId) return
-    if (response.currently_screened && !preferences.isInitialized.value)
-      await preferences.initialize()
-    if (currentRequest !== requestId) return
-    if (response.currently_screened && !preferences.isInitialized.value) {
-      schedule.value = { ...response, theaters: [] }
-      errorMessage.value = preferences.error.value ?? ''
-      return
-    }
-    const theaterIds =
-      response.currently_screened &&
-      preferences.isInitialized.value &&
-      preferences.activeTheaterIds.value.length
-        ? preferences.activeTheaterIds.value.join(',')
-        : undefined
-    if (theaterIds)
-      response = await api.movieShowtimes(slug.value, {
-        date: selectedDate.value,
-        theaters: theaterIds,
-      })
-    else if (response.currently_screened) {
-      // Nationwide evidence belongs to movie/SEO data, not an empty selection.
-      response = { ...response, theaters: [] }
-    }
-    if (currentRequest !== requestId) return
-    if (response.movie.slug !== slug.value) {
+    if (response.movie.slug !== movieSlug) {
       await navigateTo(
         {
           path: `/film/${encodeURIComponent(response.movie.slug)}`,
@@ -461,6 +467,26 @@ async function loadSchedule() {
       )
       return
     }
+    if (response.currently_screened && !preferences.isInitialized.value) {
+      schedule.value = { ...response, theaters: [] }
+      errorMessage.value = preferences.error.value ?? ''
+      lastScheduleKey = ''
+      return
+    }
+    const theaterIds =
+      response.currently_screened && selectedTheaters
+        ? selectedTheaters
+        : undefined
+    if (theaterIds)
+      response = await api.movieShowtimes(movieSlug, {
+        date: requestedDate,
+        theaters: theaterIds,
+      })
+    else if (response.currently_screened) {
+      // Nationwide evidence belongs to movie/SEO data, not an empty selection.
+      response = { ...response, theaters: [] }
+    }
+    if (currentRequest !== requestId) return
     if (currentRequest === requestId) {
       schedule.value = response
       const responseDates = nonPastAvailableDates(response)
@@ -471,18 +497,21 @@ async function loadSchedule() {
 
       if (resolvedDate !== selectedDate.value && responseDates.length > 0) {
         selectedDate.value = resolvedDate
-        lastScheduleKey = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
+        lastScheduleKey = scheduleKey()
         const query = filmQuery()
         if (!queriesEqual(route.query, query)) await router.replace({ query })
-        response = await api.movieShowtimes(slug.value, {
-          date: resolvedDate,
-          theaters: theaterIds,
-        })
+        if (currentRequest !== requestId) return
+        response = theaterIds
+          ? await api.movieShowtimes(movieSlug, {
+              date: resolvedDate,
+              theaters: theaterIds,
+            })
+          : await nationwideSchedule(movieSlug, resolvedDate)
         if (!theaterIds && response.currently_screened)
           response = { ...response, theaters: [] }
       } else if (responseDates.length === 0) {
         selectedDate.value = today.value
-        lastScheduleKey = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
+        lastScheduleKey = scheduleKey()
       }
       if (currentRequest !== requestId) return
       schedule.value = response
@@ -495,6 +524,7 @@ async function loadSchedule() {
     }
   } catch (error) {
     if (currentRequest === requestId) {
+      lastScheduleKey = ''
       notFound.value = isNotFoundError(error)
       if (notFound.value) {
         schedule.value = null
@@ -519,9 +549,7 @@ async function applyRoute() {
     return
   }
 
-  const key = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
-  if (key === lastScheduleKey) return
-  lastScheduleKey = key
+  if (schedule.value && !schedule.value.currently_screened) return
   await loadSchedule()
 }
 
@@ -532,11 +560,11 @@ async function initializePreferencesAndLoad() {
     if (!queriesEqual(route.query, query)) await router.replace({ query })
     return
   }
-  pending.value = true
-  errorMessage.value = ''
-  notFound.value = false
-
   isReady = true
+  // Keep initial API failures visible until explicit retry.
+  if (notFound.value || errorMessage.value) return
+  if (!preferences.isInitialized.value) await preferences.initialize()
+  if (!isReady) return
   await applyRoute()
 }
 
@@ -564,8 +592,9 @@ function handleVisibilityChange() {
 }
 
 async function retryLoad() {
-  if (preferences.error.value) await preferences.retrySynchronization()
   lastScheduleKey = ''
+  if (preferences.error.value) await preferences.retrySynchronization()
+  else if (!preferences.isInitialized.value) await preferences.initialize()
   await loadSchedule()
 }
 
@@ -580,8 +609,10 @@ const initialResult = await useAsyncData(
       const result = await loadInitialFilmSchedule({
         requestedDate: initialRequestedDate,
         today: today.value,
-        fetchScoped: (date) =>
-          api.movieShowtimes(slug.value, { date, city: 'Paris' }),
+        fetchScoped:
+          import.meta.server || !preferences.isInitialized.value
+            ? (date) => api.movieShowtimes(slug.value, { date, city: 'Paris' })
+            : undefined,
         fetchNationwide: (date) => api.movieShowtimes(slug.value, { date }),
         fetchBundle:
           import.meta.server && api.hasInternalApiIdentity
@@ -592,13 +623,18 @@ const initialResult = await useAsyncData(
       return {
         kind: 'success' as const,
         schedule: result.scoped,
+        // The client needs screening metadata/dates, not all national showtimes.
+        // Server JSON-LD above retains the full public nationwide response.
+        nationwide: { ...result.nationwide, theaters: [] },
         selectedDate: result.selectedDate,
         errorMessage: '',
       }
     } catch (error) {
       if (error instanceof NationwideInitialScheduleError) {
         return {
-          kind: 'upstream-error' as const,
+          kind: isNotFoundError(error.upstreamCause)
+            ? ('not-found' as const)
+            : ('upstream-error' as const),
           schedule: null,
           selectedDate: error.selectedDate,
           errorMessage: getFrenchApiError(error.upstreamCause),
@@ -623,6 +659,12 @@ const initialResult = await useAsyncData(
 )
 
 const initialState = initialResult.data.value
+if (initialState?.kind === 'success') {
+  nationwideRequests.set(
+    `${slug.value}|${initialState.nationwide.date}`,
+    Promise.resolve(initialState.nationwide),
+  )
+}
 const responseSlug = initialState?.schedule?.movie.slug
 if (
   initialState?.kind === 'success' &&
@@ -647,7 +689,7 @@ if (import.meta.server && initialState?.kind !== 'success') {
 
 watch(
   [
-    preferences.activeTheaterIds,
+    () => preferences.activeTheaterIds.value.join(','),
     preferences.selectionScopeKey,
     preferences.isInitialized,
     preferences.error,
@@ -657,9 +699,21 @@ watch(
     if (schedule.value?.currently_screened)
       schedule.value = { ...schedule.value, theaters: [] }
     lastScheduleKey = ''
-    if (isReady) void applyRoute()
   },
   { flush: 'sync' },
+)
+// Separate synchronous privacy invalidation from batched request admission.
+watch(
+  [
+    () => preferences.activeTheaterIds.value.join(','),
+    preferences.selectionScopeKey,
+    preferences.isInitialized,
+    preferences.error,
+  ],
+  () => {
+    if (isReady && !notFound.value && !(errorMessage.value && !schedule.value))
+      void applyRoute()
+  },
 )
 watch(
   () => route.query,
@@ -677,6 +731,7 @@ watch(
   },
 )
 watch(slug, () => {
+  requestId++
   schedule.value = null
   isPersonalizedSchedule.value = false
   backdropFailed.value = false
