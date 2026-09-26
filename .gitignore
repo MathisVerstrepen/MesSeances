@@ -12,3 +12,5 @@ web/.lighthouseci/
 !/deploy/.env.example
 !/deploy/.env.production.example
 tmp/
+api/data
+avatars/

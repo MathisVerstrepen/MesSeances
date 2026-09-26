@@ -415,9 +415,8 @@ interface NationwideSeoState {
 }
 
 async function loadSchedule() {
-  if (!slug.value || !selectedDate.value) return
-
   const currentRequest = ++requestId
+  if (!slug.value || !selectedDate.value) return
   pending.value = true
   errorMessage.value = ''
   notFound.value = false
@@ -431,6 +430,11 @@ async function loadSchedule() {
     if (response.currently_screened && !preferences.isInitialized.value)
       await preferences.initialize()
     if (currentRequest !== requestId) return
+    if (response.currently_screened && !preferences.isInitialized.value) {
+      schedule.value = { ...response, theaters: [] }
+      errorMessage.value = preferences.error.value ?? ''
+      return
+    }
     const theaterIds =
       response.currently_screened &&
       preferences.isInitialized.value &&
@@ -442,6 +446,11 @@ async function loadSchedule() {
         date: selectedDate.value,
         theaters: theaterIds,
       })
+    else if (response.currently_screened) {
+      // Nationwide evidence belongs to movie/SEO data, not an empty selection.
+      response = { ...response, theaters: [] }
+    }
+    if (currentRequest !== requestId) return
     if (response.movie.slug !== slug.value) {
       await navigateTo(
         {
@@ -469,13 +478,15 @@ async function loadSchedule() {
           date: resolvedDate,
           theaters: theaterIds,
         })
+        if (!theaterIds && response.currently_screened)
+          response = { ...response, theaters: [] }
       } else if (responseDates.length === 0) {
         selectedDate.value = today.value
         lastScheduleKey = `${slug.value}|${selectedDate.value}|${preferences.activeTheaterIds.value.join(',')}`
       }
       if (currentRequest !== requestId) return
       schedule.value = response
-      isPersonalizedSchedule.value = Boolean(theaterIds)
+      isPersonalizedSchedule.value = response.currently_screened
       const canonicalQuery = filmQuery()
       if (!queriesEqual(route.query, canonicalQuery))
         await router.replace({ query: canonicalQuery })
@@ -493,7 +504,11 @@ async function loadSchedule() {
       }
     }
   } finally {
-    if (currentRequest === requestId) pending.value = false
+    if (currentRequest === requestId)
+      pending.value =
+        !preferences.isInitialized.value &&
+        !preferences.error.value &&
+        schedule.value?.currently_screened === true
   }
 }
 
@@ -549,8 +564,9 @@ function handleVisibilityChange() {
 }
 
 async function retryLoad() {
-  if (!preferences.isInitialized.value) await initializePreferencesAndLoad()
-  else await loadSchedule()
+  if (preferences.error.value) await preferences.retrySynchronization()
+  lastScheduleKey = ''
+  await loadSchedule()
 }
 
 hydrateRoute()
@@ -630,10 +646,20 @@ if (import.meta.server && initialState?.kind !== 'success') {
 }
 
 watch(
-  () => preferences.activeTheaterIds.value.join(','),
+  [
+    preferences.activeTheaterIds,
+    preferences.selectionScopeKey,
+    preferences.isInitialized,
+    preferences.error,
+  ],
   () => {
-    if (isReady) applyRoute()
+    requestId++
+    if (schedule.value?.currently_screened)
+      schedule.value = { ...schedule.value, theaters: [] }
+    lastScheduleKey = ''
+    if (isReady) void applyRoute()
   },
+  { flush: 'sync' },
 )
 watch(
   () => route.query,
@@ -670,6 +696,8 @@ onMounted(() => {
   initializePreferencesAndLoad()
 })
 onBeforeUnmount(() => {
+  isReady = false
+  requestId++
   if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
   synopsisResizeObserver?.disconnect()
@@ -1364,7 +1392,7 @@ if (
               ><button
                 type="button"
                 class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary"
-                @click="loadSchedule"
+                @click="retryLoad"
               >
                 <RefreshCw :size="17" aria-hidden="true" />
                 Réessayer

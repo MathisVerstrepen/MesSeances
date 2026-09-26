@@ -36,14 +36,14 @@ fmt-check:
 	npm --prefix web run format:check
 
 test:
-	cd api && go test ./...
+	cd api && go test -tags=nodynamic ./...
 	npm --prefix web run test:unit
 
 lint:
 	cd api && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run
 
 build:
-	cd api && go build ./...
+	cd api && go build -tags=nodynamic ./...
 	npm --prefix web run build
 
 check: fmt-check test lint build

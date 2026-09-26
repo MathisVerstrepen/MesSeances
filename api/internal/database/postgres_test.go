@@ -99,6 +99,13 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{40, "040_infinity_vision_format.sql"},
 		{41, "041_movie_original_language.sql"},
 		{42, "042_query_only_vof_language.sql"},
+		{43, "043_accounts.sql"},
+		{44, "044_account_oauth_continuation.sql"},
+		{45, "045_account_registration_binding.sql"},
+		{46, "046_account_avatars.sql"},
+		{47, "047_account_avatar_webp.sql"},
+		{48, "048_validate_account_avatar_webp.sql"},
+		{49, "049_account_theater_preferences.sql"},
 	}
 
 	items, err := embeddedMigrations()

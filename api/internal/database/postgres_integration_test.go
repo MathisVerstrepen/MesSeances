@@ -662,9 +662,10 @@ func TestSyncSchedulesMigrationIntegration(t *testing.T) {
 	pool, _ := newMigrationTestPool(t, ctx, "movieflow_sync_schedule_migration_test_")
 	migrations := installMigrationPrefix(t, ctx, pool, 14, "014_public_movie_catalog.sql")
 	var oldRunID int64
+	// Keep the terminal run recent so later retention migrations preserve it.
 	if err := pool.QueryRow(ctx, `INSERT INTO sync_runs
         (target,state,started_at,finished_at,window_from,window_through,providers)
-        VALUES ('ugc','failed','2026-08-24T08:00:00Z','2026-08-24T08:01:00Z','2026-08-24','2026-08-24','{}') RETURNING id`).Scan(&oldRunID); err != nil {
+        VALUES ('ugc','failed',CURRENT_TIMESTAMP - INTERVAL '2 minutes',CURRENT_TIMESTAMP - INTERVAL '1 minute','2026-08-24','2026-08-24','{}') RETURNING id`).Scan(&oldRunID); err != nil {
 		t.Fatal("insert pre-015 sync run failed")
 	}
 	migration015 := requireMigrationPrefix(t, migrations, 15, "015_sync_schedules.sql")[14]

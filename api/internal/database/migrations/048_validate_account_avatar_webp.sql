@@ -1,0 +1,1 @@
+ALTER TABLE accounts VALIDATE CONSTRAINT accounts_avatar_webp_check;

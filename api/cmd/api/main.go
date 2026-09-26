@@ -15,6 +15,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"messeances/api/internal/accountavatar"
+	"messeances/api/internal/accountmail"
+	"messeances/api/internal/accounts"
 	"messeances/api/internal/cgr"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
@@ -43,6 +46,10 @@ import (
 
 func main() {
 	logger := observability.NewLogger(os.Stderr)
+	if len(os.Args) != 1 {
+		logProcessFailure(logger, fmt.Errorf("configuration error"))
+		os.Exit(1)
+	}
 	if err := runtimeconfig.LoadDotEnv(); err != nil {
 		logDotEnvFailure(logger)
 		os.Exit(1)
@@ -161,6 +168,20 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Own the media root before any schema change. The deferred close runs after
+	// HTTP draining and worker cleanup, including every partial-startup failure.
+	var avatars *accountavatar.Store
+	if cfg.Accounts.Enabled {
+		avatars, err = accountavatar.Open(cfg.Accounts.AvatarDir)
+		if err != nil {
+			return fmt.Errorf("configuration error")
+		}
+		defer func() {
+			if err := avatars.Close(); err != nil {
+				logger.Warn("account_avatar_close_failed")
+			}
+		}()
+	}
 	proxies, err := loadSyncProxies(cfg.Proxy.Path, func(path string) (io.ReadCloser, error) { return os.Open(path) })
 	if err != nil {
 		return err
@@ -227,19 +248,36 @@ func run(ctx context.Context) error {
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
+	accountService, err := newAccountService(pool, cfg, avatars)
+	if err != nil {
+		return err
+	}
+	if accountService != nil {
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountAvatarCleanup(workerCtx, accountService, logger) }()
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountCleanup(workerCtx, accountService, logger) }()
+		polling.Add(1)
+		go func() { defer polling.Done(); runAccountMail(workerCtx, pool, cfg.Accounts, logger) }()
+	}
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, httpapi.ReadinessOptions{
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
-		}),
+		}, accountService),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
 		IdleTimeout:       serverIdleTimeout,
 		MaxHeaderBytes:    serverMaxHeaderBytes,
 	}
+	// Drain admitted HTTP work even when graceful shutdown times out. Closing the
+	// listener/body transport alone does not wait for bounded synchronous decoders.
+	requests := &accountRequestDrain{next: server.Handler}
+	server.Handler = requests
+	defer func() { requests.stop(); _ = server.Close(); requests.wait() }()
 	logger.Info("api_listening", "component", "api")
 	return serve(ctx, server, cleanup)
 }
@@ -498,8 +536,9 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, readiness httpapi.ReadinessOptions) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
+		Accounts:             httpapi.AccountOptions{Enabled: cfg.Accounts.Enabled, Service: accountService, Origin: cfg.Server.Origin},
 		Admin:                adminOptions,
 		Readiness:            readiness,
 		Shortlinks:           shortlinks,
@@ -507,6 +546,36 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})
+}
+
+func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *accountavatar.Store) (*accounts.Service, error) {
+	if !cfg.Accounts.Enabled {
+		return nil, nil
+	}
+	hasher, err := accounts.NewArgonHasher(nil)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	google, err := accounts.NewGoogleProvider(cfg.Accounts.GoogleClientID, cfg.Accounts.GoogleClientSecret, cfg.Accounts.GoogleCallbackURL)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	cipher, err := accountmail.NewCipher(cfg.Accounts.OutboxKeyID, cfg.Accounts.OutboxKey[:], nil)
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	if avatars == nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
+		Hasher: hasher, Origin: cfg.Server.Origin, AddressHMACKey: cfg.Accounts.AddressHMACKey[:],
+		Google: google, FlowCipher: cipher, Mail: &accountmail.Outbox{Cipher: cipher},
+		Avatars: avatars,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configuration error")
+	}
+	return service, nil
 }
 
 func loadAPIConfiguration(getenv func(string) string) (runtimeconfig.Config, runtimeconfig.Config, error) {

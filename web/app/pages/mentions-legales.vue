@@ -16,20 +16,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     <section class="legal-section" aria-labelledby="publisher-heading">
       <h2 id="publisher-heading">Édition du site</h2>
       <p>
-        MesSeances est édité à titre non professionnel par une personne
-        physique, dans le cadre d’un projet personnel sans activité commerciale.
-      </p>
-      <p>
-        L’éditeur souhaite conserver son anonymat public. Son identité a été
-        communiquée à l’hébergeur, conformément à l’<a
-          href="https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000049568614"
-          target="_blank"
-          rel="noopener noreferrer"
-          >article 1-1, II<span class="sr-only"
-            >, ouverture dans un nouvel onglet</span
-          ></a
-        >
-        de la loi pour la confiance dans l’économie numérique.
+        MesSeances est édité à titre non professionnel par Mathis Verstrepen,
+        dans le cadre d’un projet personnel sans activité commerciale.
       </p>
     </section>
 
@@ -62,6 +50,16 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         cinéma. Les informations affichées sont fournies à titre indicatif.
         Elles peuvent évoluer ou comporter des erreurs. Seules les informations
         publiées par les cinémas et exploitants concernés font foi.
+      </p>
+      <p>
+        Lorsque la fonctionnalité est disponible, vous pouvez créer un compte
+        privé par email et mot de passe ou avec Google, gérer vos moyens de
+        connexion et ajouter une photo facultative dans les paramètres. Il n’y a
+        ni profil public ni annuaire ; les préférences de cinémas restent dans
+        votre navigateur, sans synchronisation avec le compte. La
+        <NuxtLink to="/confidentialite">politique de confidentialité</NuxtLink>
+        détaille les données utilisées, les cookies nécessaires, leur
+        conservation et vos droits.
       </p>
     </section>
 
@@ -113,6 +111,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         Pour toute question relative au site ou à son contenu :
         <a href="mailto:contact@diikstra.fr">contact@diikstra.fr</a>
       </p>
+    </section>
+
+    <section class="legal-section" aria-labelledby="updates-heading">
+      <h2 id="updates-heading">Mise à jour des mentions légales</h2>
+      <p>Dernière mise à jour : 24 septembre 2026.</p>
     </section>
   </LegalPageLayout>
 </template>

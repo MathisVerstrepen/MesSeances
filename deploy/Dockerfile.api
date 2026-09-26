@@ -7,13 +7,16 @@ RUN go mod download
 
 COPY api/ ./
 
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/messeances-api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -tags=nodynamic -trimpath -ldflags="-s -w" -o /out/messeances-api ./cmd/api
 
 FROM alpine:3.22
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S -g 10001 messeances \
-    && adduser -S -D -H -u 10001 -G messeances messeances
+    && adduser -S -D -H -u 10001 -G messeances messeances \
+    && mkdir -p /var/lib/messeances/avatars \
+    && chown 10001:10001 /var/lib/messeances/avatars \
+    && chmod 0700 /var/lib/messeances/avatars
 
 COPY --from=build /out/messeances-api /usr/local/bin/
 

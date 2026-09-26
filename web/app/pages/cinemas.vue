@@ -69,6 +69,11 @@ const {
   favoriteTheaterIds,
   isLoading,
   error,
+  syncError,
+  writesBlocked,
+  isSaving,
+  selectionScopeKey,
+  retrySynchronization,
   initialize,
   setFavoriteTheaterIds,
 } = useCinemaPreferences()
@@ -162,7 +167,10 @@ function reportSaved() {
   statusMessage.value = `${count} cinéma${count > 1 ? 's' : ''} enregistré${count > 1 ? 's' : ''}.`
 }
 
-function applyDraftSelection(nextIds: string[]) {
+async function applyDraftSelection(nextIds: string[]) {
+  if (writesBlocked.value || isUnmounted) return
+  const scope = selectionScopeKey.value
+  statusMessage.value = ''
   draftFavoriteTheaterIds.value = nextIds
   if (nextIds.length === 0) {
     statusMessage.value =
@@ -170,7 +178,9 @@ function applyDraftSelection(nextIds: string[]) {
     return
   }
 
-  if (!setFavoriteTheaterIds(nextIds)) {
+  const saved = await setFavoriteTheaterIds(nextIds)
+  if (isUnmounted || scope !== selectionScopeKey.value) return
+  if (!saved) {
     statusMessage.value = 'La sélection n’a pas pu être enregistrée.'
     return
   }
@@ -237,6 +247,14 @@ async function retryDirectory() {
 }
 
 hydrateRoute()
+watch(
+  [favoriteTheaterIds, selectionScopeKey],
+  () => {
+    draftFavoriteTheaterIds.value = [...favoriteTheaterIds.value]
+    statusMessage.value = ''
+  },
+  { flush: 'sync' },
+)
 watch(
   locationMode,
   (mode) => {
@@ -335,7 +353,7 @@ useHead(() => ({
         <p
           class="font-mono text-[0.65rem] font-black uppercase tracking-[0.15em] text-ink"
         >
-          Préférences · locales
+          Mes préférences
         </p>
         <h1
           id="cinemas-title"
@@ -516,7 +534,7 @@ useHead(() => ({
                 <button
                   type="button"
                   class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                  :disabled="!preferencesReady || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
+                  :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
                   @click="updateDisplayedSelection(true)"
                 >
                   <CheckCheck :size="16" aria-hidden="true" />
@@ -525,7 +543,7 @@ useHead(() => ({
                 <button
                   type="button"
                   class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                  :disabled="!preferencesReady || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
+                  :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
                   @click="updateDisplayedSelection(false)"
                 >
                   <X :size="16" aria-hidden="true" />
@@ -554,7 +572,25 @@ useHead(() => ({
           </div>
         </div>
 
-        <p class="sr-only" aria-live="polite">{{ statusMessage }}</p>
+        <p class="mt-4 text-sm font-bold" role="status">
+          {{ isSaving ? 'Enregistrement…' : statusMessage }}
+        </p>
+        <div
+          v-if="error || syncError"
+          class="mt-4 flex flex-wrap items-center gap-3 text-sm font-bold"
+          role="alert"
+        >
+          <AlertTriangle :size="19" aria-hidden="true" />
+          <span>{{ error || syncError }}</span>
+          <button
+            type="button"
+            class="min-h-11 border-2 border-ink px-3 focus-visible:outline-2 focus-visible:outline-offset-3"
+            :disabled="isSaving"
+            @click="retrySynchronization"
+          >
+            Réessayer
+          </button>
+        </div>
 
         <EditorialStatePanel
           v-if="directoryTheaters.length === 0 && isLoading"
@@ -641,14 +677,6 @@ useHead(() => ({
         </EditorialStatePanel>
 
         <div v-else class="mt-10">
-          <p
-            v-if="error"
-            class="mb-7 flex items-center gap-[0.65rem] border-2 border-primary bg-primary-soft px-4 py-[0.9rem] text-sm font-extrabold text-primary-hover shadow-[4px_4px_0_#991b1b]"
-            role="alert"
-          >
-            <AlertTriangle :size="19" aria-hidden="true" />
-            {{ error }}
-          </p>
           <div
             class="mb-7 flex flex-col gap-2 border-b-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6"
           >
@@ -697,6 +725,7 @@ useHead(() => ({
                       class="peer sr-only"
                       :aria-label="`Sélectionner ${theaterDisplayName(row.theater)}`"
                       :checked="selectedIds.has(row.theater.id)"
+                      :disabled="writesBlocked"
                       @change="toggleTheater(row.theater.id)"
                     >
                     <span
@@ -768,7 +797,7 @@ useHead(() => ({
                       <button
                         type="button"
                         class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
-                        :disabled="!preferencesReady || group.theaters.every((theater) => selectedIds.has(theater.id))"
+                        :disabled="!preferencesReady || writesBlocked || group.theaters.every((theater) => selectedIds.has(theater.id))"
                         @click="updateGroup(group.theaters, true)"
                       >
                         Tout sélectionner
@@ -776,7 +805,7 @@ useHead(() => ({
                       <button
                         type="button"
                         class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
-                        :disabled="!preferencesReady || group.theaters.every((theater) => !selectedIds.has(theater.id))"
+                        :disabled="!preferencesReady || writesBlocked || group.theaters.every((theater) => !selectedIds.has(theater.id))"
                         @click="updateGroup(group.theaters, false)"
                       >
                         Désélectionner
@@ -820,6 +849,7 @@ useHead(() => ({
                           class="peer sr-only"
                           :aria-label="`Sélectionner ${theaterDisplayName(theater)}`"
                           :checked="selectedIds.has(theater.id)"
+                          :disabled="writesBlocked"
                           @change="toggleTheater(theater.id)"
                         >
                         <span
@@ -865,6 +895,7 @@ useHead(() => ({
 
           <NuxtErrorBoundary v-else>
             <LazyCinemaTheaterMap
+              :selection-disabled="writesBlocked"
               :theaters="displayedTheaters"
               :favorite-theater-ids="draftFavoriteTheaterIds"
               :user-position="userPosition"

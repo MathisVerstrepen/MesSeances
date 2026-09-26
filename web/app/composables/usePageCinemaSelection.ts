@@ -41,6 +41,21 @@ export function usePageCinemaSelection() {
 
   return {
     ...preferences,
+    isLoading: computed(() =>
+      hasSharedSelection.value
+        ? !preferences.catalogReady.value && !preferences.error.value
+        : preferences.isLoading.value,
+    ),
+    isInitialized: computed(() =>
+      hasSharedSelection.value
+        ? preferences.catalogReady.value
+        : preferences.isInitialized.value,
+    ),
+    error: computed(() =>
+      hasSharedSelection.value && preferences.catalogReady.value
+        ? null
+        : preferences.error.value,
+    ),
     activeTheaterIds,
     activeTheaters,
     hasSharedSelection,

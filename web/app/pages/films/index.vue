@@ -220,14 +220,17 @@ async function loadMovies() {
   pending.value = true
   errorMessage.value = ''
 
-  if (preferences.error.value) {
+  if (!appliedFilters.value.allTheaters && preferences.error.value) {
     catalog.value = null
     errorMessage.value = preferences.error.value
     pending.value = false
     await finishAdvancedApplyNavigation()
     return
   }
-  if (!preferences.isInitialized.value) return
+  if (!appliedFilters.value.allTheaters && !preferences.isInitialized.value) {
+    catalog.value = null
+    return
+  }
   if (
     !appliedFilters.value.allTheaters &&
     preferences.favoriteTheaterIds.value.length === 0
@@ -291,7 +294,7 @@ async function loadMovies() {
 async function retryMovies() {
   pending.value = true
   errorMessage.value = ''
-  await preferences.initialize()
+  await preferences.retrySynchronization()
   if (!preferences.isInitialized.value) {
     await loadMovies()
     return
@@ -490,34 +493,39 @@ function followPageLink(event: MouseEvent, nextPage: number) {
 
 hydrateRoute()
 const initialCatalogKey = `films-catalog:${encodeURIComponent(appliedSearch.value)}:${sort.value}:${page.value}:${encodeURIComponent(movieCatalogFiltersKey(appliedFilters.value))}`
-const initialResult = await useAsyncData(initialCatalogKey, async () => {
-  try {
-    const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
-    const response = await api.movies({
-      currently_screened: true,
-      search: appliedSearch.value || undefined,
-      genres: filterQuery.genres,
-      duration: appliedFilters.value.duration,
-      date: filterQuery.date,
-      date_to: filterQuery.date_to,
-      sort: sort.value,
-      page: page.value,
-      page_size: PAGE_SIZE,
-    })
-    return { kind: 'success' as const, catalog: response, errorMessage: '' }
-  } catch (error) {
-    return {
-      kind: 'upstream-error' as const,
-      catalog: null,
-      errorMessage: getFrenchApiError(error),
+const initialResult = await useAsyncData(
+  initialCatalogKey,
+  async () => {
+    try {
+      const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
+      const response = await api.movies({
+        currently_screened: true,
+        search: appliedSearch.value || undefined,
+        genres: filterQuery.genres,
+        duration: appliedFilters.value.duration,
+        date: filterQuery.date,
+        date_to: filterQuery.date_to,
+        sort: sort.value,
+        page: page.value,
+        page_size: PAGE_SIZE,
+      })
+      return { kind: 'success' as const, catalog: response, errorMessage: '' }
+    } catch (error) {
+      return {
+        kind: 'upstream-error' as const,
+        catalog: null,
+        errorMessage: getFrenchApiError(error),
+      }
     }
-  }
-})
+  },
+  // Hydrate SSR data, but leave client navigation to the personalized loader.
+  { immediate: import.meta.server },
+)
 
 const initialState = initialResult.data.value
 catalog.value = initialState?.catalog ?? null
 errorMessage.value = initialState?.errorMessage ?? ''
-pending.value = false
+pending.value = !initialState
 if (import.meta.server && initialState?.kind !== 'success') {
   const event = useRequestEvent()
   if (event) setResponseStatus(event, 502)
@@ -529,9 +537,22 @@ watch(
     if (isMounted && !isInitializing) applyRoute()
   },
 )
-watch(preferences.favoriteTheaterIds, () => {
-  if (preferences.isInitialized.value && !isInitializing) applyRoute()
-})
+watch(
+  [
+    preferences.favoriteTheaterIds,
+    preferences.selectionScopeKey,
+    preferences.isInitialized,
+    preferences.error,
+  ],
+  () => {
+    if (appliedFilters.value.allTheaters) return
+    requestId++
+    catalog.value = null
+    lastLoadKey = ''
+    if (isMounted && !isInitializing) void loadMovies()
+  },
+  { flush: 'sync' },
+)
 onMounted(async () => {
   isMounted = true
   isInitializing = true
@@ -542,6 +563,10 @@ onMounted(async () => {
   isInitializing = false
   if (preferences.isInitialized.value) await applyRoute()
   else await loadMovies()
+})
+onBeforeUnmount(() => {
+  isMounted = false
+  requestId++
 })
 
 const config = useRuntimeConfig()
