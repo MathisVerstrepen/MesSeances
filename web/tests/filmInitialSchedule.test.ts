@@ -190,3 +190,19 @@ test('blank-secret nationwide failure preserves resolved-date upstream error beh
       error.upstreamCause === upstreamCause,
   )
 })
+
+test('client evidence-only loading resolves fallback dates without fetching Paris', async () => {
+  const calls: string[] = []
+  const result = await loadInitialFilmSchedule({
+    requestedDate: REQUESTED_DATE,
+    today: REQUESTED_DATE,
+    fetchNationwide: async (date) => {
+      calls.push(date)
+      return schedule(date, [RESOLVED_DATE], 'France')
+    },
+  })
+  assert.deepEqual(calls, [REQUESTED_DATE, RESOLVED_DATE])
+  assert.equal(result.selectedDate, RESOLVED_DATE)
+  assert.equal(result.nationwide.date, RESOLVED_DATE)
+  assert.deepEqual(result.scoped.theaters, [])
+})

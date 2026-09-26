@@ -36,7 +36,7 @@ export class NationwideInitialScheduleError extends Error {
 interface InitialFilmScheduleOptions {
   requestedDate: string
   today: string
-  fetchScoped: (date: string) => Promise<MovieShowtimesResponse>
+  fetchScoped?: (date: string) => Promise<MovieShowtimesResponse>
   fetchNationwide: (date: string) => Promise<MovieShowtimesResponse>
   fetchBundle?: (date: string) => Promise<MovieShowtimesBundleResponse>
 }
@@ -89,6 +89,25 @@ export async function loadInitialFilmSchedule(
       scoped: bundle.scoped,
       nationwide: bundle.nationwide,
       selectedDate: resolvedDate,
+    }
+  }
+
+  // Client navigation can wait for the exact selection instead of fetching a
+  // disposable Paris schedule. Only public movie evidence enters this result.
+  if (!fetchScoped) {
+    let date = requestedDate
+    const fetch = () =>
+      fetchNationwide(date).catch((error) => {
+        throw new NationwideInitialScheduleError(date, error)
+      })
+    let nationwide = await fetch()
+    const dates = availableDates(nationwide, today)
+    date = selectedDate(dates, date, today)
+    if (date !== requestedDate && dates.length) nationwide = await fetch()
+    return {
+      scoped: { ...nationwide, theaters: [] },
+      nationwide,
+      selectedDate: date,
     }
   }
 

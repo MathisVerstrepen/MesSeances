@@ -130,6 +130,7 @@ function harness(
     useMesSeancesApi: () => ({ movieShowtimes: async () => currentResponse }),
     usePageCinemaSelection: () => ({
       activeTheaterIds,
+      selectionScopeKey: ref(0),
       isInitialized: ref(true),
       error: ref(null),
     }),
