@@ -1,6 +1,7 @@
 package accountmail
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -77,6 +78,54 @@ func TestFeedbackValidation(t *testing.T) {
 	for _, body := range []string{strings.Replace(feedbackBody(t, nil), "arn:aws:sns:eu-west-3:123456789012:feedback", "wrong", 1), `{"Type":"Notification","Type":"Notification"}`, strings.Repeat("x", 65537), `{"Type":"SubscriptionConfirmation"}`, `null`, feedbackBody(t, nil) + `{}`} {
 		if _, err := f.parse(body); err == nil {
 			t.Fatal("invalid envelope accepted")
+		}
+	}
+}
+
+func TestFeedbackNamedFromHeaderKeepsPlainSourceValidation(t *testing.T) {
+	f := testFeedback()
+	f.From = "no-reply@messeances.fr"
+	f.IdentityARN = "arn:aws:ses:eu-west-3:123456789012:identity/messeances.fr"
+	wantDigest, err := testAddress("person@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []struct{ kind, reason string }{{"Bounce", "permanent_bounce"}, {"Complaint", "complaint"}} {
+		for _, source := range []string{f.From, "attacker@example.com", `"MesSeances" <no-reply@messeances.fr>`} {
+			t.Run(event.kind+"/"+source, func(t *testing.T) {
+				// SES mail.source is the envelope address, not the formatted From header.
+				message, err := json.Marshal(map[string]any{
+					"eventType": event.kind,
+					"mail": map[string]any{
+						"source": source, "sourceArn": f.IdentityARN, "sendingAccountId": "123456789012",
+						"destination": []string{"person@example.com"},
+						"tags":        map[string][]string{"ses:configuration-set": {f.ConfigurationSet}},
+						"headers":     []map[string]string{{"name": "From", "value": `"MesSeances" <no-reply@messeances.fr>`}},
+						"commonHeaders": map[string]any{
+							"from": []string{`"MesSeances" <no-reply@messeances.fr>`},
+						},
+					},
+					"bounce":    map[string]any{"bounceType": "Permanent", "bouncedRecipients": []feedbackRecipient{{Email: "person@example.com"}}},
+					"complaint": map[string]any{"complainedRecipients": []feedbackRecipient{{Email: "person@example.com"}}},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, err := json.Marshal(map[string]string{"Type": "Notification", "TopicArn": f.TopicARN, "Message": string(message)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				records, err := f.parse(string(body))
+				if source != f.From {
+					if !errors.Is(err, ErrRejected) || len(records) != 0 {
+						t.Fatalf("forged source accepted: records=%d err=%v", len(records), err)
+					}
+					return
+				}
+				if err != nil || len(records) != 1 || records[0].reason != event.reason || !bytes.Equal(records[0].digest, wantDigest) {
+					t.Fatalf("named sender feedback: records=%v err=%v", records, err)
+				}
+			})
 		}
 	}
 }

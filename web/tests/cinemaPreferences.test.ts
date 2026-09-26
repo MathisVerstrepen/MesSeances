@@ -269,9 +269,15 @@ async function selectionWatcher(
         ?.getText(parsed)
         .includes('selectionScopeKey'),
   )
-  assert.equal(watchers.length, 1, `${path}: find actual selection watcher`)
+  assert.equal(
+    watchers.length,
+    path === 'film/[slug]' ? 2 : 1,
+    `${path}: find every actual selection watcher`,
+  )
   let invalidations = 0
   let loads = 0
+  const callbackCounts: number[] = []
+  const flushModes: string[] = []
   const reload = () => {
     loads++
   }
@@ -290,15 +296,20 @@ async function selectionWatcher(
       sources: Parameters<typeof watch>[0],
       callback: () => void,
       options: Parameters<typeof watch>[2],
-    ) =>
-      watch(
+    ) => {
+      const index = callbackCounts.length
+      callbackCounts.push(0)
+      flushModes.push(options?.flush ?? 'pre')
+      return watch(
         sources,
         () => {
           invalidations++
+          callbackCounts[index] = callbackCounts[index]! + 1
           callback()
         },
         options,
-      ),
+      )
+    },
     isMounted: true,
     isInitializing: false,
     isReady: true,
@@ -314,6 +325,8 @@ async function selectionWatcher(
     schedule: content,
     appliedFilters: ref({ allTheaters: false }),
     pending: ref(false),
+    notFound: ref(false),
+    errorMessage: ref(''),
     route: { query: {} },
     OWNED_QUERY_KEYS: ['q'],
     draftTheaterIds: draft,
@@ -324,13 +337,20 @@ async function selectionWatcher(
     loadTimeline: reload,
     applyRoute: reload,
   }
-  const code = ts.transpileModule(watchers[0]!.getFullText(parsed), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText
+  const code = ts.transpileModule(
+    watchers.map((watcher) => watcher.getFullText(parsed)).join('\n'),
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
+  ).outputText
   const scope = effectScope()
   scope.run(() =>
     new Function(...Object.keys(bindings), code)(...Object.values(bindings)),
   )
+  if (path === 'film/[slug]')
+    assert.deepEqual(
+      flushModes,
+      ['sync', 'pre'],
+      'film privacy is synchronous; admission is batched',
+    )
   return {
     content,
     draft,
@@ -340,6 +360,9 @@ async function selectionWatcher(
     },
     get loads() {
       return loads
+    },
+    get callbackCounts() {
+      return [...callbackCounts]
     },
     stop: () => scope.stop(),
   }
@@ -470,6 +493,7 @@ test('actual page selection watchers keep content on unchanged focus and invalid
     )
     t.after(watcher.stop)
     const initial = watcher.invalidations
+    const initialCallbacks = watcher.callbackCounts
     const loads = watcher.loads
     const content = watcher.content.value
     const draft = watcher.draft.value
@@ -479,6 +503,7 @@ test('actual page selection watchers keep content on unchanged focus and invalid
       f.setResponse(value())
       await focus()
       assert.equal(watcher.invalidations, initial, path)
+      assert.deepEqual(watcher.callbackCounts, initialCallbacks, path)
       assert.equal(watcher.loads, loads, path)
       assert.equal(watcher.content.value, content, path)
       assert.equal(watcher.draft.value, draft, path)
@@ -490,18 +515,80 @@ test('actual page selection watchers keep content on unchanged focus and invalid
     if (path === 'cinemas')
       assert.deepEqual([...watcher.draft.value], ['ugc-3'])
     else assert.ok(watcher.loads > loads, path)
+    if (path === 'film/[slug]') {
+      assert.ok(
+        watcher.callbackCounts.every((count) => count > 0),
+        'both film watchers react to changed theaters',
+      )
+      assert.equal(
+        watcher.loads,
+        watcher.callbackCounts[1],
+        'only admission watcher reloads',
+      )
+    }
     let previous = watcher.invalidations
     // Equal IDs and revision must not conceal a different owner.
     f.setResponse(value('2', ['ugc-3'], 'bob'))
+    const beforeOwnerChange = watcher.callbackCounts
+    const loadsBeforeOwnerChange = watcher.loads
+    if (path === 'film/[slug]') watcher.content.value = content
     f.admit(session('bob'))
+    if (path === 'film/[slug]') {
+      assert.deepEqual(
+        watcher.content.value,
+        { loaded: true, currently_screened: true, theaters: [] },
+        'old account theaters clear before any tick',
+      )
+      assert.ok(
+        watcher.callbackCounts[0]! > beforeOwnerChange[0]!,
+        'privacy watcher fires synchronously',
+      )
+      assert.equal(
+        watcher.callbackCounts[1],
+        beforeOwnerChange[1],
+        'admission watcher waits for batch',
+      )
+      assert.equal(
+        watcher.loads,
+        loadsBeforeOwnerChange,
+        'no speculative synchronous reload',
+      )
+    }
     await settle()
     assert.ok(watcher.invalidations > previous, path)
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-3'])
+    if (path === 'film/[slug]') {
+      assert.ok(
+        watcher.callbackCounts[1]! > beforeOwnerChange[1]!,
+        'admission watcher resumes after account change',
+      )
+      assert.equal(watcher.loads, watcher.callbackCounts[1])
+    }
     previous = watcher.invalidations
+    const beforeLogout = watcher.callbackCounts
+    const loadsBeforeLogout = watcher.loads
+    if (path === 'film/[slug]') watcher.content.value = content
     f.admit(anonymous)
+    if (path === 'film/[slug]') {
+      assert.deepEqual(
+        watcher.content.value,
+        { loaded: true, currently_screened: true, theaters: [] },
+        'account theaters clear synchronously on logout',
+      )
+      assert.ok(watcher.callbackCounts[0]! > beforeLogout[0]!)
+      assert.equal(watcher.callbackCounts[1], beforeLogout[1])
+      assert.equal(watcher.loads, loadsBeforeLogout)
+    }
     await settle()
     assert.ok(watcher.invalidations > previous, path)
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    if (path === 'film/[slug]') {
+      assert.ok(
+        watcher.callbackCounts[1]! > beforeLogout[1]!,
+        'admission watcher resumes with device selection',
+      )
+      assert.equal(watcher.loads, watcher.callbackCounts[1])
+    }
     assert.deepEqual(f.storageWrites, [])
   }
 })
@@ -1130,6 +1217,8 @@ test('shared links override even unresolved account selection without writing ac
     )
     try {
       const counts = watchers.map((watcher) => watcher.invalidations)
+      const callbacks = watchers.map((watcher) => watcher.callbackCounts)
+      const loads = watchers.map((watcher) => watcher.loads)
       const ids = page.activeTheaterIds.value
       const focus = await focusPlugin(f)
       for (const next of [value(), value('2', ['ugc-1']), value('3', [])]) {
@@ -1139,6 +1228,14 @@ test('shared links override even unresolved account selection without writing ac
         assert.deepEqual(
           watchers.map((watcher) => watcher.invalidations),
           counts,
+        )
+        assert.deepEqual(
+          watchers.map((watcher) => watcher.callbackCounts),
+          callbacks,
+        )
+        assert.deepEqual(
+          watchers.map((watcher) => watcher.loads),
+          loads,
         )
       }
     } finally {

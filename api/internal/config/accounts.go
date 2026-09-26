@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"messeances/api/internal/accounts"
 )
@@ -20,6 +22,7 @@ type AccountsConfig struct {
 	GoogleCallbackURL   string
 	AWSRegion           string
 	SESFromEmail        string
+	SESFromName         string
 	SESConfigurationSet string
 	SESFeedbackQueueURL string
 	SESFeedbackTopicARN string
@@ -60,6 +63,10 @@ func loadAccounts(origin string, getenv func(string) string) (AccountsConfig, er
 	}
 	cfg.SESFromEmail = getenv("SES_FROM_EMAIL")
 	if email, err := accounts.NormalizeEmail(cfg.SESFromEmail); err != nil || email != cfg.SESFromEmail {
+		return AccountsConfig{}, configurationError()
+	}
+	cfg.SESFromName = getenv("SES_FROM_NAME")
+	if !validSenderName(cfg.SESFromName) {
 		return AccountsConfig{}, configurationError()
 	}
 	cfg.SESConfigurationSet = getenv("SES_CONFIGURATION_SET")
@@ -104,6 +111,18 @@ func loadAccounts(origin string, getenv func(string) string) (AccountsConfig, er
 	}
 	cfg.OutboxKey, cfg.AddressHMACKey = outbox, hmacKey
 	return cfg, nil
+}
+
+func validSenderName(name string) bool {
+	if name == "" || len(name) > 256 || !utf8.ValidString(name) || strings.TrimSpace(name) != name {
+		return false
+	}
+	for _, r := range name {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func safeConfigValue(value string, limit int) bool {

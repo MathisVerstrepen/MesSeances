@@ -40,7 +40,7 @@ func runAccountMail(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.A
 				}
 				return digest[:], nil
 			}
-			worker := &accountmail.Worker{Pool: pool, Cipher: cipher, Address: address, Sender: &accountmail.SESSender{Client: ses, From: cfg.SESFromEmail, IdentityARN: cfg.SESIdentityARN, ConfigurationSet: cfg.SESConfigurationSet}}
+			worker := &accountmail.Worker{Pool: pool, Cipher: cipher, Address: address, Sender: &accountmail.SESSender{Client: ses, From: cfg.SESFromEmail, FromName: cfg.SESFromName, IdentityARN: cfg.SESIdentityARN, ConfigurationSet: cfg.SESConfigurationSet}}
 			feedback := &accountmail.Feedback{Client: queue, Pool: pool, Address: address, QueueURL: cfg.SESFeedbackQueueURL, TopicARN: cfg.SESFeedbackTopicARN, IdentityARN: cfg.SESIdentityARN, From: cfg.SESFromEmail, ConfigurationSet: cfg.SESConfigurationSet}
 			var workers sync.WaitGroup
 			workers.Add(2)
