@@ -55,13 +55,18 @@ function matchesFormat(format: string) {
 }
 
 async function loadTimeline() {
+  const currentRequest = ++requestId
+  timeline.value = null
   if (preferences.error.value) {
     timeline.value = null
     errorMessage.value = preferences.error.value
     pending.value = false
     return
   }
-  if (!preferences.isInitialized.value) return
+  if (!preferences.isInitialized.value) {
+    pending.value = true
+    return
+  }
   if (preferences.activeTheaterIds.value.length === 0) {
     timeline.value = null
     errorMessage.value = ''
@@ -69,7 +74,6 @@ async function loadTimeline() {
     return
   }
 
-  const currentRequest = ++requestId
   pending.value = true
   errorMessage.value = ''
   try {
@@ -92,7 +96,7 @@ async function loadTimeline() {
 async function retryTimeline() {
   pending.value = true
   errorMessage.value = ''
-  await preferences.initialize()
+  await preferences.retrySynchronization()
   await loadTimeline()
 }
 
@@ -236,9 +240,21 @@ watch(
     if (isMounted) applyRoute()
   },
 )
-watch(preferences.activeTheaterIds, () => {
-  if (preferences.isInitialized.value && !isInitializing) applyRoute()
-})
+watch(
+  [
+    preferences.activeTheaterIds,
+    preferences.selectionScopeKey,
+    preferences.isInitialized,
+    preferences.error,
+  ],
+  () => {
+    requestId++
+    timeline.value = null
+    lastTimelineKey = ''
+    if (isMounted && !isInitializing) void loadTimeline()
+  },
+  { flush: 'sync' },
+)
 
 onMounted(async () => {
   isMounted = true
@@ -255,6 +271,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  isMounted = false
+  requestId++
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })

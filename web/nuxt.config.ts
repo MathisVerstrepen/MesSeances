@@ -1,4 +1,8 @@
 import tailwindcss from '@tailwindcss/vite'
+import {
+  accountPageRoots,
+  accountPrivacyHeaders,
+} from './shared/accountPrivacy'
 
 declare const process: { env: Record<string, string | undefined> }
 
@@ -16,6 +20,23 @@ export default defineNuxtConfig({
     },
   },
   modules: ['@vite-pwa/nuxt'],
+  routeRules: Object.fromEntries(
+    [...accountPageRoots, '/api/v1/auth', '/api/v1/account'].flatMap((path) =>
+      [path, `${path}/**`].map((pattern) => [
+        pattern,
+        {
+          cache: false,
+          prerender: false,
+          headers: accountPrivacyHeaders,
+        },
+      ]),
+    ),
+  ),
+  nitro: {
+    devProxy: {
+      '/api': { target: 'http://localhost:8080/api', changeOrigin: false },
+    },
+  },
   build: {
     transpile: ['@vuepic/vue-datepicker'],
   },
@@ -90,6 +111,18 @@ export default defineNuxtConfig({
     },
     workbox: {
       navigateFallback: null,
+      globIgnores: ['**/*.html', '**/*_payload*', '**/api/**'],
+      navigateFallbackDenylist: [
+        /^\/(connexion|inscription|verification|finaliser|mot-de-passe-oublie|reinitialiser-mot-de-passe|compte)(\/|$)/i,
+        /^\/api\/v1\/(auth|account)(\/|$)/i,
+      ],
+      runtimeCaching: [
+        {
+          urlPattern:
+            /\/(connexion|inscription|verification|finaliser|mot-de-passe-oublie|reinitialiser-mot-de-passe|compte)(\/|$)|\/api\/v1\/(auth|account)(\/|$)/i,
+          handler: 'NetworkOnly',
+        },
+      ],
     },
   },
   runtimeConfig: {
@@ -97,7 +130,7 @@ export default defineNuxtConfig({
     internalApiSharedSecret: '',
     public: {
       appVersion: process.env.NUXT_PUBLIC_APP_VERSION || 'dev',
-      apiBase: 'http://localhost:8080',
+      apiBase: '',
       siteUrl: 'http://localhost:3000',
       umamiScriptUrl: '',
       umamiWebsiteId: '',

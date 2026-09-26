@@ -1,7 +1,22 @@
 <script setup lang="ts">
-import { CalendarRange, Clapperboard, Film, MapPin, Search } from '@lucide/vue'
+import {
+  CalendarRange,
+  Clapperboard,
+  Film,
+  MapPin,
+  Search,
+  UserRound,
+} from '@lucide/vue'
+import { accountDestination } from '~/utils/accountState'
+import { isAccountPage } from '~~/shared/accountPrivacy'
 
 const route = useRoute()
+const { session: accountSession } = useAccountSession()
+const accountHref = computed(() =>
+  accountSession.value
+    ? accountDestination(accountSession.value)
+    : '/connexion',
+)
 const {
   favoriteTheaters,
   favoriteTheaterIds,
@@ -12,7 +27,12 @@ const {
 
 const links = [
   { to: '/planning', label: 'Planning', icon: CalendarRange },
-  { to: '/recherche', label: 'Trouver une séance', icon: Search },
+  {
+    to: '/recherche',
+    label: 'Trouver une séance',
+    mobileLabel: 'Séances',
+    icon: Search,
+  },
   { to: '/films', label: 'Films', icon: Film },
 ]
 
@@ -25,6 +45,13 @@ const hasCompactPageControls = computed(
     route.path === '/planning' ||
     route.path === '/films',
 )
+
+const mobileFavoriteSummary = computed(() => {
+  if (!isInitialized.value && isLoading.value) return 'Chargement…'
+
+  const count = favoriteTheaterIds.value.length
+  return `${count} cinéma${count === 1 ? '' : 's'}`
+})
 
 const favoriteSummary = computed(() => {
   if (!isInitialized.value && isLoading.value) return 'Chargement…'
@@ -44,6 +71,7 @@ const favoriteSummary = computed(() => {
 function isActive(to: string) {
   if (to === '/films')
     return route.path === '/films' || route.path.startsWith('/film/')
+  if (to === '/compte') return isAccountPage(route.path)
   return route.path === to
 }
 
@@ -77,7 +105,7 @@ onMounted(() => {
 
       <NuxtLink
         to="/cinemas"
-        class="order-2 ml-auto flex min-w-0 items-center gap-1.5 border-l-2 border-ink pl-3 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-ink transition-colors hover:text-primary lg:order-none lg:ml-6 lg:pl-4"
+        class="order-2 ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-ink transition-colors hover:text-primary sm:min-w-0 sm:shrink lg:order-none lg:ml-6"
         :class="route.path === '/cinemas' || route.path.startsWith('/cinema/') || route.path.startsWith('/ville/') ? 'text-primary' : undefined"
         :aria-current="route.path === '/cinemas' || route.path.startsWith('/cinema/') || route.path.startsWith('/ville/') ? 'page' : undefined"
         :aria-label="`Gérer mes cinémas, ${favoriteSummary}`"
@@ -88,20 +116,26 @@ onMounted(() => {
           stroke-width="2.5"
           aria-hidden="true"
         />
-        <span class="max-w-28 truncate sm:max-w-44">{{ favoriteSummary }}</span>
+        <span class="whitespace-nowrap sm:hidden">{{
+          mobileFavoriteSummary
+        }}</span>
+        <span class="hidden max-w-44 truncate sm:inline">{{
+          favoriteSummary
+        }}</span>
       </NuxtLink>
 
       <nav
         aria-label="Navigation principale"
-        class="order-3 -mx-4 grid w-[calc(100%+2rem)] grid-cols-3 border-t-2 border-ink sm:-mx-6 sm:w-[calc(100%+3rem)] lg:order-none lg:ml-auto lg:flex lg:w-auto lg:border-t-0"
+        class="order-3 -mx-4 grid w-[calc(100%+2rem)] grid-cols-4 border-t-2 border-ink sm:-mx-6 sm:w-[calc(100%+3rem)] lg:order-none lg:ml-auto lg:flex lg:w-auto lg:border-t-0"
       >
         <NuxtLink
           v-for="link in links"
           :key="link.to"
           :to="link.to"
-          class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 border-r border-ink/20 px-1 text-center text-[9px] font-extrabold uppercase leading-tight tracking-[-0.01em] transition-colors last:border-r-0 sm:px-3 sm:text-[10px] lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:border-r-0 lg:px-4 lg:text-xs lg:aria-[current=page]:after:absolute lg:aria-[current=page]:after:right-4 lg:aria-[current=page]:after:bottom-[0.55rem] lg:aria-[current=page]:after:left-4 lg:aria-[current=page]:after:h-[3px] lg:aria-[current=page]:after:bg-highlight lg:aria-[current=page]:after:content-['']"
+          class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 border-r border-ink/20 px-1 text-center text-[10px] font-extrabold uppercase leading-tight tracking-[-0.01em] transition-colors last:border-r-0 sm:px-3 lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:border-r-0 lg:px-4 lg:text-xs lg:aria-[current=page]:after:absolute lg:aria-[current=page]:after:right-4 lg:aria-[current=page]:after:bottom-[0.55rem] lg:aria-[current=page]:after:left-4 lg:aria-[current=page]:after:h-[3px] lg:aria-[current=page]:after:bg-highlight lg:aria-[current=page]:after:content-['']"
           :class="isActive(link.to) ? 'bg-ink text-white' : 'text-ink hover:bg-highlight'"
           :aria-current="isActive(link.to) ? 'page' : undefined"
+          :aria-label="link.label"
         >
           <component
             :is="link.icon"
@@ -109,7 +143,23 @@ onMounted(() => {
             stroke-width="2.5"
             aria-hidden="true"
           />
-          <span>{{ link.label }}</span>
+          <template v-if="link.mobileLabel">
+            <span class="sm:hidden">{{ link.mobileLabel }}</span>
+            <span class="hidden sm:inline">{{ link.label }}</span>
+          </template>
+          <span v-else>{{ link.label }}</span>
+        </NuxtLink>
+        <NuxtLink
+          :to="accountHref"
+          :prefetch="false"
+          class="nav-link relative flex min-h-14 flex-col items-center justify-center gap-0.5 px-1 text-center text-[10px] font-extrabold uppercase sm:px-3 lg:min-h-[4.5rem] lg:flex-row lg:gap-2 lg:px-4 lg:text-xs lg:aria-[current=page]:after:absolute lg:aria-[current=page]:after:right-4 lg:aria-[current=page]:after:bottom-[0.55rem] lg:aria-[current=page]:after:left-4 lg:aria-[current=page]:after:h-[3px] lg:aria-[current=page]:after:bg-highlight lg:aria-[current=page]:after:content-['']"
+          :class="isActive('/compte') ? 'bg-ink text-white' : 'text-ink hover:bg-highlight'"
+          :aria-current="isActive('/compte') ? 'page' : undefined"
+        >
+          <UserRound :size="15" stroke-width="2.5" aria-hidden="true" />
+          <span>{{
+            accountSession?.account ? 'Mon compte' : 'Connexion'
+          }}</span>
         </NuxtLink>
       </nav>
     </div>

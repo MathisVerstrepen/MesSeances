@@ -5,17 +5,14 @@ const canonicalUrl = absoluteSiteUrl(config.public.siteUrl, '/confidentialite')
 useSeoMeta({
   title: 'Confidentialité - MesSeances',
   description:
-    'Découvrez comment MesSeances utilise le stockage local, les journaux techniques, les images distantes et la mesure d’audience.',
+    'Découvrez les traitements de MesSeances : préférences locales, comptes personnels lorsqu’ils sont disponibles, journaux techniques et mesure d’audience.',
   robots: 'index,follow',
 })
 useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <LegalPageLayout
-    eyebrow="Données personnelles · Brouillon"
-    title="Confidentialité"
-  >
+  <LegalPageLayout eyebrow="Données personnelles" title="Confidentialité">
     <section class="legal-section" aria-labelledby="controller-heading">
       <h2 id="controller-heading">Responsable du traitement</h2>
       <dl class="legal-list">
@@ -35,18 +32,44 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <h3>Préférences de cinémas</h3>
       <p>
-        Le navigateur conserve les identifiants des cinémas sélectionnés dans le
-        stockage local, sous la clé
-        <code>messeances.favoriteTheaterIds.v1</code>. Cette préférence
-        personnalise les séances affichées. Les identifiants peuvent être
-        transmis à l’API MesSeances comme filtres lors de la consultation des
-        pages. Ils ne servent pas à créer un compte utilisateur.
+        Sans connexion à un compte terminé, le navigateur conserve les
+        identifiants des cinémas choisis dans le stockage local, sous la clé
+        <code>messeances.favoriteTheaterIds.v1</code>. Cette sélection locale
+        reste distincte de celle du compte. Les identifiants peuvent être
+        transmis à l’API MesSeances comme filtres pour personnaliser les séances
+        affichées ; ils ne servent pas à créer un compte.
+      </p>
+      <p>
+        Lorsque les comptes sont disponibles et que vous êtes connecté à un
+        compte terminé, les identifiants des cinémas sélectionnés sont
+        enregistrés sur le serveur et associés à ce compte. Ce sont des données
+        personnelles. La sélection du compte prévaut sur celle de chaque
+        appareil, sans remplacer la sélection locale du navigateur.
+      </p>
+      <p>
+        Si le compte n’a encore aucune sélection enregistrée, les cinémas encore
+        disponibles dans le catalogue parmi votre sélection locale enregistrée
+        sont importés une seule fois dans le compte. Sans sélection locale
+        enregistrée valide, les cinémas proposés par défaut restent provisoires
+        : aucun import n’a lieu et le compte attend un enregistrement explicite
+        depuis la page <NuxtLink to="/cinemas">Cinémas</NuxtLink>.
+      </p>
+      <p>
+        Sur les autres appareils connectés au même compte, la sélection est
+        récupérée au retour sur le site, à l’actualisation, lorsque la page
+        redevient active ou lorsque la connexion réseau revient. Les onglets du
+        même navigateur sont également avertis des changements. Il ne s’agit pas
+        d’une synchronisation instantanée entre appareils. En cas de
+        modifications concurrentes, la sélection déjà enregistrée est affichée
+        et les changements non enregistrés doivent être réappliqués.
       </p>
       <p>
         La sélection peut être modifiée depuis la page
-        <NuxtLink to="/cinemas">Cinémas</NuxtLink>. L’effacement des données du
-        site depuis le navigateur supprime la préférence enregistrée et rétablit
-        ensuite la sélection par défaut.
+        <NuxtLink to="/cinemas">Cinémas</NuxtLink>. La déconnexion ou la
+        suppression du compte ne supprime pas la sélection locale du navigateur.
+        L’effacement des données du site dans le navigateur supprime cette
+        sélection locale, sans supprimer celle du compte. Sans sélection
+        enregistrée applicable, les cinémas par défaut sont proposés à nouveau.
       </p>
 
       <h3>Géolocalisation et carte interactive</h3>
@@ -77,6 +100,64 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         d’ouvrir ce lien.
       </p>
 
+      <h3>Comptes personnels</h3>
+      <p>
+        Lorsque la fonctionnalité est disponible, vous pouvez créer un compte
+        privé par email et mot de passe ou avec Google. Les traitements décrits
+        ci-dessous s’appliquent si vous utilisez ces fonctionnalités ; cette
+        notice n’annonce pas leur activation en production.
+      </p>
+      <p>
+        Les données utilisées sont l’email du compte, sa vérification, un nom
+        d’utilisateur unique et définitif, une empreinte sécurisée du mot de
+        passe lorsqu’il existe, ainsi que les informations nécessaires aux
+        sessions et à la prévention des abus. Pour Google, un identifiant de
+        liaison et l’email communiqué par Google sont conservés séparément de
+        l’email du compte. Une photo privée peut être ajoutée dans les
+        paramètres. Aucun nom n’est importé depuis Google. Il n’y a ni profil
+        public ni annuaire. Les identifiants des cinémas sélectionnés sont
+        également associés au compte terminé pour retrouver cette sélection sur
+        les appareils connectés, selon les modalités décrites ci-dessus.
+      </p>
+      <p>
+        Google est sollicité avec les permissions d’identité, d’email et de
+        profil. Après une inscription, une connexion ou une association réussie,
+        le serveur peut récupérer la photo communiquée par Google si aucune
+        photo n’a été ajoutée ou explicitement supprimée. Cet import facultatif
+        ne remplace jamais une photo existante ; son échec n’empêche pas la
+        connexion. Dissocier Google conserve la photo déjà importée.
+      </p>
+      <p>
+        Les photos JPEG, PNG ou WebP non animées de 5 Mio maximum sont
+        vérifiées, orientées automatiquement lorsque les métadonnées le
+        permettent, recadrées au centre et redimensionnées en WebP de 256 × 256
+        pixels, avec une compression avec perte de qualité 80. Seule cette copie
+        sans métadonnées est conservée dans un espace privé du serveur ; la base
+        contient son chemin, pas l’image. L’original et l’adresse de la photo
+        Google ne sont pas conservés. L’aperçu est livré par MesSeances à la
+        session du propriétaire, uniquement dans les paramètres, sans chargement
+        de photo Google par le navigateur, stockage local ou disponibilité hors
+        ligne.
+      </p>
+      <p>
+        Une connexion Google ouvre le service Google uniquement à votre demande.
+        Amazon SES assure l’envoi des emails de vérification, de récupération et
+        de sécurité, avec SNS et SQS pour traiter les échecs de livraison et
+        plaintes. L’accès à Google et à l’email actuel du compte est nécessaire
+        pour les changements sensibles sans mot de passe ; aucun contournement
+        manuel de ces preuves n’est proposé.
+      </p>
+      <p>
+        Les cookies nécessaires au compte sont distincts du cookie
+        d’administration et détaillés dans le résumé des traceurs ci-dessous.
+        Les liens de vérification et les secrets saisis restent en mémoire dans
+        les pages concernées, sans stockage local ou de session. Aucune mesure
+        d’audience n’est envoyée depuis ces pages. Le traceur chargé sur une
+        page publique peut rester présent pendant la navigation, sans constituer
+        une isolation du code tiers. Ces pages ne sont pas disponibles hors
+        ligne.
+      </p>
+
       <h3>Session d’administration</h3>
       <p>
         L’espace réservé à l’administration utilise le cookie
@@ -91,23 +172,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <h3>Mesure d’audience Umami</h3>
       <p>
-        MesSeances utilise en permanence une instance Umami auto-hébergée pour
-        produire des statistiques de fréquentation. Le traceur fonctionne sans
-        cookie et sans suivi entre sites. Il est intégré dans sa configuration
-        par défaut, avec l’identifiant du site pour seul paramètre : aucun
-        événement personnalisé, tag, identifiant distinct ou mécanisme
-        d’identification des utilisateurs n’est configuré.
+        Lorsqu’elle est configurée, une instance Umami auto-hébergée mesure les
+        visites des pages publiques autorisées, sans cookie ni suivi entre
+        sites. Le suivi automatique est désactivé : seules ces visites sont
+        transmises, sans événement personnalisé, performance, tag ni
+        identification des utilisateurs. Les pages de connexion, de compte, de
+        confirmation et d’administration ne transmettent aucune mesure.
       </p>
       <p>
-        Umami enregistre par défaut l’identifiant du site, le nom d’hôte, le
-        chemin visité et sa chaîne de requête, le titre de la page, le site
-        référent, le navigateur, le système d’exploitation, le type d’appareil,
-        les dimensions de l’écran, la langue du navigateur, le pays, la région
-        et la ville déduits de l’adresse IP, les paramètres UTM et les
-        identifiants de clic publicitaire présents dans l’URL, des identifiants
-        techniques d’événement et de session, ainsi que les horodatages
-        associés. L’adresse IP sert à déterminer la localisation, mais n’est pas
-        enregistrée.
+        Les visites transmises contiennent l’identifiant du site, le nom d’hôte,
+        le chemin public sans requête ni fragment, un titre fixe, les dimensions
+        de l’écran et la langue du navigateur. Le référent est limité au chemin
+        public précédent ou au domaine externe d’arrivée ; aucun chemin privé,
+        paramètre UTM ou identifiant de clic n’est transmis. Umami peut en
+        déduire le navigateur, le système d’exploitation, le type d’appareil et
+        la localisation approximative à partir de la requête réseau, avec des
+        identifiants techniques de session et des horodatages. L’adresse IP sert
+        à déterminer la localisation, mais n’est pas enregistrée.
       </p>
 
       <h3>Journaux techniques</h3>
@@ -148,22 +229,61 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </section>
 
     <section class="legal-section" aria-labelledby="purposes-heading">
-      <h2 id="purposes-heading">Finalités et bases légales envisagées</h2>
+      <h2 id="purposes-heading">Finalités et bases légales</h2>
       <ul>
         <li>
+          <strong>Fournir le compte et la connexion demandés :</strong>
+          créer et gérer le compte privé, vérifier l’adresse email, maintenir la
+          session et permettre l’authentification par mot de passe ou Google.
+          Ces traitements reposent sur l’exécution du contrat de service,
+          conformément à l’article 6, paragraphe 1, point b), du RGPD.
+        </li>
+        <li>
+          <strong>Envoyer les emails transactionnels du compte :</strong>
+          transmettre les liens de vérification, de récupération et de
+          confirmation des changements demandés, ainsi que les notifications de
+          sécurité nécessaires au service. Ces envois reposent sur l’exécution
+          du contrat de service, conformément à l’article 6, paragraphe 1, point
+          b), du RGPD, et ne sont pas des messages publicitaires.
+        </li>
+        <li>
+          <strong>Afficher une photo privée facultative :</strong>
+          traiter la photo téléversée ou importée lors de l’utilisation de
+          Google pour personnaliser les paramètres du compte. Cette
+          fonctionnalité facultative repose sur l’exécution du contrat de
+          service pour la personnalisation demandée, conformément à l’article 6,
+          paragraphe 1, point b), du RGPD. Le compte reste utilisable sans
+          photo. Les permissions OAuth de Google définissent les informations
+          accessibles ; elles ne constituent pas, à elles seules, un
+          consentement au sens du RGPD ni une base légale du traitement.
+        </li>
+        <li>
+          <strong>Protéger les comptes et prévenir les abus :</strong>
+          limiter les tentatives abusives, bloquer les envois après un échec
+          permanent ou une plainte et réserver définitivement les noms
+          d’utilisateur supprimés pour empêcher leur réutilisation et prévenir
+          l’usurpation. Ces traitements reposent sur l’intérêt légitime de
+          l’éditeur à sécuriser le service et protéger ses utilisateurs,
+          conformément à l’article 6, paragraphe 1, point f), du RGPD.
+        </li>
+        <li>
           <strong>Personnaliser les séances :</strong>
-          mémoriser et appliquer les cinémas choisis. L’écriture et la lecture
-          de cette préférence dans le stockage local sont exemptées de
-          consentement au titre de l’<a
+          mémoriser et appliquer les cinémas choisis, puis retrouver la
+          sélection du compte sur les appareils connectés. Le stockage des
+          préférences associées au compte et leur synchronisation reposent sur
+          l’exécution du contrat de service pour la personnalisation demandée,
+          conformément à l’article 6, paragraphe 1, point b), du RGPD.
+          L’écriture et la lecture de la préférence locale, y compris sa lecture
+          pour l’import initial, sont exemptées de consentement au titre de l’<a
             href="https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000037813978"
             >article 82 de la loi « Informatique et Libertés »</a
           >, car elles sont strictement nécessaires à une fonctionnalité
-          expressément demandée. Les identifiants de cinémas ne permettent pas,
-          à eux seuls, d’identifier un utilisateur : leur stockage ne constitue
-          donc pas en lui-même un traitement de données personnelles auquel
-          attribuer une base légale au titre du RGPD. Si leur transmission à
-          l’API constitue un traitement de données personnelles, celui-ci repose
-          sur l’intérêt légitime de l’éditeur, conformément à l’<a
+          expressément demandée. Cette exemption de consentement au stockage
+          local ne dispense pas de respecter le RGPD pour les données associées
+          au compte. Hors compte, si la transmission des identifiants à l’API
+          pour filtrer les résultats constitue un traitement de données
+          personnelles, celui-ci repose sur l’intérêt légitime de l’éditeur,
+          conformément à l’<a
             href="https://www.cnil.fr/fr/reglement-europeen-protection-donnees/chapitre2#Article6"
             >article 6, paragraphe 1, point f), du RGPD</a
           >, à seule fin de renvoyer les résultats personnalisés expressément
@@ -238,6 +358,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           service SaaS par un destinataire distinct ;
         </li>
         <li>
+          <strong>Google</strong>, pour l’authentification choisie par
+          l’utilisateur et, le cas échéant, l’import de sa photo : Google reçoit
+          les données techniques de connexion et d’autorisation, notamment
+          l’adresse IP et les en-têtes lors de l’ouverture de son service.
+          MesSeances reçoit l’identifiant Google, l’email et les informations de
+          vérification, ainsi que l’adresse de la photo lorsqu’elle est fournie.
+          Les jetons d’accès du fournisseur ne sont pas conservés ;
+        </li>
+        <li>
+          <strong>Amazon Web Services (AWS)</strong>, pour les emails du compte
+          : SES reçoit l’adresse destinataire et le contenu du message, y
+          compris les liens de confirmation nécessaires. SNS et SQS transmettent
+          et mettent en file les retours de livraison ou de plainte, qui peuvent
+          contenir des adresses email, des identifiants de message, des
+          horodatages et le motif du retour ;
+        </li>
+        <li>
           <strong>TMDB, UGC, Kinepolis, Pathé et ACSTA</strong>, uniquement
           lorsque le navigateur charge automatiquement une affiche ou une image
           distante : chacun reçoit alors les données techniques de la requête
@@ -265,12 +402,95 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
     <section class="legal-section" aria-labelledby="retention-heading">
       <h2 id="retention-heading">Durées de conservation</h2>
+      <h3>Comptes personnels</h3>
+      <p>
+        La photo traitée est conservée jusqu’à son remplacement, sa suppression
+        depuis les paramètres ou la suppression du compte. Ces actions retirent
+        immédiatement l’accès à l’ancienne photo via le service après
+        validation. Le serveur tente ensuite d’effacer le fichier ; en cas
+        d’échec, un nettoyage périodique reprend les fichiers devenus inutiles
+        après un délai minimal d’une heure. Une panne ou un retard de nettoyage
+        peut prolonger leur présence physique. Les copies déjà reçues ne peuvent
+        pas être rappelées. La suppression reste effective lors des connexions
+        Google suivantes : aucun nouvel import automatique n’est effectué. La
+        rétention des sauvegardes et leur effacement restent à valider par
+        l’exploitant, sans promesse de suppression immédiate de ces copies.
+      </p>
+      <p>
+        Les comptes incomplets deviennent inaccessibles 7 jours après leur
+        création et sont supprimés lors du prochain nettoyage périodique. Les
+        comptes terminés sont conservés jusqu’à leur suppression ; aucune purge
+        automatique pour inactivité n’est appliquée. Pour un compte terminé, la
+        suppression demandée après preuve d’identité est immédiate et
+        irréversible dans la base active : compte, moyens de connexion,
+        sessions, préférences de cinémas, liens et messages en attente associés
+        sont supprimés. Le nom d’utilisateur seul reste réservé indéfiniment,
+        sans identifiant de compte, email, identité Google ou date de
+        suppression associés, pour empêcher sa réutilisation et l’usurpation.
+        Cette réserve ne peut pas être annulée depuis l’interface et ne garantit
+        pas l’anonymat du nom d’utilisateur.
+      </p>
+      <dl class="legal-list">
+        <div>
+          <dt>Sessions et liens de confirmation</dt>
+          <dd>
+            Une session expire au plus tard après 30 jours, ou après 7 jours
+            d’inactivité. Un lien de vérification d’email est valable au maximum
+            24 heures, dans la limite des 7 jours d’une inscription incomplète ;
+            un lien de réinitialisation de mot de passe, 30 minutes. Un parcours
+            Google OAuth dure au maximum 10 minutes et une autorisation d’action
+            sensible, à usage unique, 5 minutes. Les enregistrements expirés
+            sont supprimés par nettoyage périodique.
+          </dd>
+        </div>
+        <div>
+          <dt>Emails en attente et suivi d’envoi local</dt>
+          <dd>
+            Le contenu chiffré d’un email en attente est conservé jusqu’à la fin
+            de son traitement ou son expiration, au maximum 24 heures, ou moins
+            si le lien expire avant. Il est effacé dès l’état final d’envoi,
+            d’échec ou d’abandon. Les métadonnées de suivi restantes, sans le
+            contenu chiffré, sont supprimées après 7 jours par nettoyage.
+          </dd>
+        </div>
+        <div>
+          <dt>Blocage local des envois et quotas anti-abus</dt>
+          <dd>
+            L’empreinte HMAC de l’adresse et le motif de blocage après échec
+            permanent ou plainte expirent 180 jours après le dernier retour
+            traité. Les empreintes et compteurs de quotas expirent au plus tard
+            48 heures après le début de leur fenêtre. Ces données sont ensuite
+            supprimées par nettoyage périodique.
+          </dd>
+        </div>
+      </dl>
+      <p>
+        Des données de prévention des abus et de non-envoi après plainte ou
+        échec peuvent subsister indépendamment du compte. Une empreinte
+        d’adresse utilisée pour ces protections reste une donnée personnelle,
+        pas une anonymisation. Une panne ou un retard de nettoyage peut différer
+        l’effacement physique des données expirées, sans prolonger la validité
+        des sessions, liens ou autorisations. Ces limites de l’application ne
+        fixent pas les durées de conservation des prestataires ou des
+        sauvegardes. Aucune suppression immédiate de ces copies externes n’est
+        promise ici.
+      </p>
       <dl class="legal-list">
         <div>
           <dt>Préférences locales</dt>
           <dd>
             Jusqu’à leur remplacement par une nouvelle sélection ou l’effacement
-            des données du site dans le navigateur.
+            des données du site dans le navigateur. La déconnexion et la
+            suppression du compte ne les effacent pas.
+          </dd>
+        </div>
+        <div>
+          <dt>Préférences de cinémas du compte</dt>
+          <dd>
+            Jusqu’à leur remplacement ou la suppression du compte dans la base
+            active. La durée de conservation des sauvegardes et leur effacement
+            restent à valider par l’exploitant ; aucune suppression immédiate de
+            ces copies n’est promise.
           </dd>
         </div>
         <div>
@@ -325,6 +545,16 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         pas garantir l’absence de transfert hors de l’Union européenne pour ces
         requêtes externes.
       </p>
+      <p>
+        L’authentification et l’import de photo via Google, ainsi que l’envoi
+        d’emails et le traitement des retours par AWS SES, SNS et SQS, peuvent
+        également impliquer des traitements hors Union européenne. L’hébergement
+        de MesSeances dans l’Union européenne ne prouve pas que tous les
+        traitements de ces prestataires y restent. Les entités contractantes,
+        régions de traitement et garanties de transfert applicables à Google et
+        AWS restent à confirmer ; cette notice n’affirme pas qu’un mécanisme
+        particulier encadre ces transferts.
+      </p>
     </section>
 
     <section class="legal-section" aria-labelledby="rights-heading">
@@ -362,8 +592,49 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div>
           <dt>Stockage local « Mes cinémas »</dt>
           <dd>
-            Présent pour mémoriser la sélection de l’utilisateur. Qualification
-            et régime applicables à confirmer avant publication.
+            Mémorise la sélection locale utilisée hors compte terminé, distincte
+            de celle du compte. Une sélection locale enregistrée valide peut
+            initialiser un compte sans sélection. Les modifications du compte ne
+            remplacent pas ce stockage, conservé jusqu’à remplacement local ou
+            effacement dans le navigateur, même après déconnexion ou suppression
+            du compte. Il est exempté de consentement dans les conditions
+            exposées dans les finalités ci-dessus.
+          </dd>
+        </div>
+        <div>
+          <dt>Sélection de cinémas du compte</dt>
+          <dd>
+            Conservée sur le serveur, associée au compte terminé et synchronisée
+            sur les appareils connectés selon les modalités ci-dessus. Elle
+            n’est pas recopiée dans le stockage local et reste conservée jusqu’à
+            remplacement ou suppression du compte, sous réserve des limites
+            relatives aux sauvegardes.
+          </dd>
+        </div>
+        <div>
+          <dt>Cookie de session du compte</dt>
+          <dd>
+            <code>__Host-messeances_session</code>
+            en HTTPS : maintient la connexion, pour 30 jours au maximum. La
+            session expire après 7 jours d’inactivité ou à la déconnexion.
+          </dd>
+        </div>
+        <div>
+          <dt>Cookie de preuve d’inscription</dt>
+          <dd>
+            <code>__Host-messeances_registration</code>
+            en HTTPS : prouve que la confirmation d’email a lieu dans le
+            navigateur d’origine de l’inscription. Sa durée maximale est de 7
+            jours ; il est effacé après vérification réussie.
+          </dd>
+        </div>
+        <div>
+          <dt>Cookie du parcours Google</dt>
+          <dd>
+            <code>__Host-messeances_google</code>
+            en HTTPS : lie le retour de Google au navigateur ayant lancé la
+            demande, pour 10 minutes au maximum. Il est effacé au retour de
+            Google.
           </dd>
         </div>
         <div>
@@ -376,17 +647,26 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         <div>
           <dt>Umami</dt>
           <dd>
-            Actif en permanence, sans cookie ni suivi entre sites. Les données
-            collectées sont détaillées ci-dessus.
+            Chargé sur les pages publiques autorisées lorsqu’il est configuré,
+            sans cookie ni suivi entre sites. Peut rester présent pendant la
+            navigation, mais les pages privées ne transmettent aucune mesure.
           </dd>
         </div>
       </dl>
+      <p>
+        Les trois cookies du compte sont strictement nécessaires aux opérations
+        d’inscription, de connexion et de sécurisation demandées, et ne sont pas
+        publicitaires. Ils sont limités au site, marqués <code>Secure</code>,
+        <code>HttpOnly</code>
+        et <code>SameSite=Lax</code> en HTTPS, donc inaccessibles au JavaScript.
+        Leur utilisation ne dépend pas d’un consentement publicitaire.
+      </p>
     </section>
 
     <section class="legal-section" aria-labelledby="updates-heading">
       <h2 id="updates-heading">Mise à jour de la politique</h2>
       <p>
-        Date d’entrée en vigueur : 27 août 2026. Cette politique sera mise à
+        Dernière mise à jour : 24 septembre 2026. Cette politique sera mise à
         jour si les traitements, prestataires ou obligations applicables
         évoluent.
       </p>

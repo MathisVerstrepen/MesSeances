@@ -117,6 +117,7 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
 	t.Helper()
 	var state string
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
+	// Account tables are introduced after 042 and are not preexisting VOF state.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
     (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM public_movies m),
     (SELECT jsonb_agg(to_jsonb(m) ORDER BY provider,provider_movie_id,locale) FROM movie_metadata_cache m),
@@ -130,6 +131,7 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY version) FROM movieflow_schema_migrations s WHERE version < 42),
     (SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)
      FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
+	 AND conrelid NOT IN (SELECT oid FROM pg_class WHERE relnamespace=current_schema()::regnamespace AND (relname='accounts' OR relname LIKE 'account\_%' ESCAPE '\'))
      AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check'))
 )::text`).Scan(&state); err != nil {
 		t.Fatal(err)

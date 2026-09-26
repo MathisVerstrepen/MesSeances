@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { serializeJsonLd, type JsonLdDocument } from '~/utils/jsonLd'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { isAccountPage } from '~~/shared/accountPrivacy'
 
 const config = useRuntimeConfig()
+const route = useRoute()
+const privateDocument = computed(
+  () => isAccountPage(route.path) || /^\/admin(?:\/|$)/i.test(route.path),
+)
 const rootUrl = absoluteSiteUrl(config.public.siteUrl, '/')
 const organizationId = `${rootUrl}#organization`
 const websiteId = `${rootUrl}#website`
@@ -26,24 +31,18 @@ const globalGraph: JsonLdDocument = {
   ],
 }
 const globalJsonLd = serializeJsonLd(globalGraph)
-const umamiScriptUrl = config.public.umamiScriptUrl.trim()
-const umamiWebsiteId = config.public.umamiWebsiteId.trim()
-
-useHead({
-  script: [
-    { type: 'application/ld+json', innerHTML: globalJsonLd },
-    ...(umamiScriptUrl && umamiWebsiteId
-      ? [
-          {
-            key: 'umami-analytics',
-            defer: true,
-            src: umamiScriptUrl,
-            'data-website-id': umamiWebsiteId,
-          },
-        ]
+useHead(() => ({
+  meta: [
+    {
+      name: 'referrer',
+      content: privateDocument.value ? 'no-referrer' : 'strict-origin',
+    },
+    ...(privateDocument.value
+      ? [{ name: 'robots', content: 'noindex, nofollow' }]
       : []),
   ],
-})
+  script: [{ type: 'application/ld+json', innerHTML: globalJsonLd }],
+}))
 </script>
 
 <template>

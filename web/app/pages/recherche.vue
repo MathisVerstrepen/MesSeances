@@ -81,7 +81,9 @@ const {
   isLoading,
   error: preferencesError,
   initialize,
+  retrySynchronization,
   isSharedSelectionDifferent,
+  selectionScopeKey,
 } = usePageCinemaSelection()
 
 interface SearchForm {
@@ -726,6 +728,7 @@ async function runSearch(search: AppliedSearch) {
 }
 
 async function applyRoute() {
+  if (!isInitialized.value || preferencesError.value) return
   const parsed = parseAppliedSearch()
   if (parsed === 'bare' || parsed === null) {
     resetBareState()
@@ -753,15 +756,23 @@ async function applyRoute() {
 }
 
 watch(
-  activeTheaterIds,
-  (favoriteIds) => {
+  [activeTheaterIds, selectionScopeKey, isInitialized, preferencesError],
+  () => {
+    const favoriteIds = activeTheaterIds.value
+    requestId++
+    results.value = null
+    pending.value = false
+    lastSearchKey = ''
     if (!isReady || !OWNED_QUERY_KEYS.some((key) => key in route.query))
       draftTheaterIds.value = [...favoriteIds]
     if (favoriteIds.length > 0) theaterValidationMessage.value = ''
-    if (isReady && OWNED_QUERY_KEYS.some((key) => key in route.query))
-      applyRoute()
+    if (isReady && isInitialized.value) void applyRoute()
+    else if (!isResolvingInitialSearch.value && isInitialized.value) {
+      isReady = true
+      void applyRoute()
+    }
   },
-  { immediate: true },
+  { immediate: true, flush: 'sync' },
 )
 
 watch(isCenteredCalendar, () => {
@@ -793,7 +804,8 @@ watch(
 )
 
 async function initializePreferences() {
-  await initialize()
+  if (preferencesError.value) await retrySynchronization()
+  else await initialize()
   if (!isInitialized.value) {
     isResolvingInitialSearch.value = false
     return
@@ -819,6 +831,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isReady = false
+  requestId++
   mobileMediaQuery?.removeEventListener('change', handleViewportChange)
   compactCalendarMediaQuery?.removeEventListener(
     'change',
@@ -829,6 +843,7 @@ onBeforeUnmount(() => {
 })
 
 async function submitSearch() {
+  if (!isInitialized.value || preferencesError.value) return
   const theaterIds = [...draftTheaterIds.value]
   if (theaterIds.length === 0) {
     theaterValidationMessage.value =

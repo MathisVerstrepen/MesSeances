@@ -326,8 +326,9 @@ test('cinemas page keeps favorite group controls deterministic until preferences
   )
   assert.equal(page.match(/<ClientOnly>/g)?.length, 2)
   assert.equal(
-    page.match(/:disabled="!preferencesReady \|\| group\.theaters\.every/g)
-      ?.length,
+    page.match(
+      /:disabled="!preferencesReady \|\| writesBlocked \|\| group\.theaters\.every/g,
+    )?.length,
     2,
   )
   assert.equal(fallbackBlocks.length, 2)
@@ -404,7 +405,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   )
   const toolbarStart = page.indexOf('class="selection-toolbar mt-7 ')
   const toolbarEnd = page.indexOf(
-    '<p class="sr-only" aria-live="polite">',
+    '<p class="mt-4 text-sm font-bold" role="status">',
     toolbarStart,
   )
   const selectionControlsStart = page.indexOf(

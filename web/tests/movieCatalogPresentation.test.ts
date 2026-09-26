@@ -71,10 +71,7 @@ test('movie detail genre chips link to the filtered film catalog', () => {
   )?.[1]
   assert.ok(genres)
   assert.match(genres, /v-for="genre in schedule\.movie\.genres"/)
-  assert.match(
-    genres,
-    /path: '\/films',\s*query: \{ genres: genre \}/,
-  )
+  assert.match(genres, /path: '\/films',\s*query: \{ genres: genre \}/)
   assert.match(genres, /hash: isUpcomingFilm \? undefined : '#tous-les-films'/)
   assert.match(
     films,

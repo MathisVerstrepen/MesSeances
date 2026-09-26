@@ -34,6 +34,7 @@ type ShortlinkService interface {
 }
 
 type HandlerOptions struct {
+	Accounts             AccountOptions
 	Admin                AdminOptions
 	Readiness            ReadinessOptions
 	Shortlinks           ShortlinkService
@@ -134,13 +135,14 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.Use(observability.HTTPMiddleware(options.Admin.Logger, options.Admin.Metrics))
 	router.Use(jsonContentType)
 	router.Use(recoverJSON(options.Admin.Logger))
-	router.Use(cors.Handler(cors.Options{
+	router.Use(accountAwareCORS(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{webOrigin},
 		AllowedMethods:   []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
 		AllowedHeaders:   []string{"Accept", "Content-Type"},
 		AllowCredentials: true,
 		MaxAge:           300,
-	}))
+	})))
+	registerAccountRoutes(router, options.Accounts)
 
 	router.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, probeResponse{Status: "ok"})
@@ -213,7 +215,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Méthode non autorisée.")
 	})
 
-	return router
+	return accountBoundary(router)
 }
 
 func jsonContentType(next http.Handler) http.Handler {

@@ -639,21 +639,6 @@ async function cleanup() {
   return cleaningUp
 }
 
-for (const [signal, exitCode] of [
-  ['SIGHUP', 129],
-  ['SIGINT', 130],
-  ['SIGTERM', 143],
-]) {
-  process.once(signal, () => {
-    cleanup()
-      .then(() => process.exit(exitCode))
-      .catch(() => {
-        console.error('[screenshot] Capture Chrome cleanup failed.')
-        process.exit(1)
-      })
-  })
-}
-
 async function main() {
   const config = parseConfig()
   await validateOutput(config.output)
@@ -676,6 +661,21 @@ if (
   process.argv[1] &&
   pathToFileURL(resolve(process.argv[1])).href === import.meta.url
 ) {
+  // Importers own their process lifecycle and browser cleanup.
+  for (const [signal, exitCode] of [
+    ['SIGHUP', 129],
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ]) {
+    process.once(signal, () => {
+      cleanup()
+        .then(() => process.exit(exitCode))
+        .catch(() => {
+          console.error('[screenshot] Capture Chrome cleanup failed.')
+          process.exit(1)
+        })
+    })
+  }
   try {
     await main()
   } catch (error) {
