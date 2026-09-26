@@ -13,6 +13,7 @@ func accountConfigFixture() map[string]string {
 		"DATABASE_URL":       "postgres://unused", "ACCOUNTS_ENABLED": "true", "WEB_ORIGIN": "https://messeances.fr",
 		"GOOGLE_CLIENT_ID": "synthetic.apps.googleusercontent.com", "GOOGLE_CLIENT_SECRET": "synthetic-client-secret",
 		"AWS_REGION": "eu-west-3", "SES_FROM_EMAIL": "comptes@example.com", "SES_CONFIGURATION_SET": "accounts",
+		"SES_FROM_NAME":          "MesSeances",
 		"SES_FEEDBACK_TOPIC_ARN": "arn:aws:sns:eu-west-3:123456789012:accounts", "SES_IDENTITY_ARN": "arn:aws:ses:eu-west-3:123456789012:identity/example.com",
 		"SES_FEEDBACK_QUEUE_URL": "https://sqs.eu-west-3.amazonaws.com/123456789012/accounts",
 		"ACCOUNT_OUTBOX_KEY_ID":  "key-1", "ACCOUNT_OUTBOX_KEY": base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)),
@@ -28,7 +29,7 @@ func TestAccountsDisabledRequiresNoProviders(t *testing.T) {
 				return "postgres://unused"
 			case "ACCOUNTS_ENABLED":
 				return enabled
-			case "ACCOUNT_AVATAR_DIR", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AWS_REGION", "ACCOUNT_OUTBOX_KEY", "ACCOUNT_ADDRESS_HMAC_KEY":
+			case "ACCOUNT_AVATAR_DIR", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AWS_REGION", "SES_FROM_EMAIL", "SES_FROM_NAME", "ACCOUNT_OUTBOX_KEY", "ACCOUNT_ADDRESS_HMAC_KEY":
 				t.Fatalf("disabled accounts read provider secret: %s", key)
 			}
 			return ""
@@ -48,11 +49,28 @@ func TestEnabledAccountConfiguration(t *testing.T) {
 	if !cfg.Accounts.Enabled || !cfg.Accounts.SecureCookies || cfg.Accounts.GoogleCallbackURL != "https://messeances.fr/api/v1/auth/google/callback" {
 		t.Fatal("enabled config mismatch")
 	}
+	if cfg.Accounts.SESFromName != "MesSeances" || cfg.Accounts.SESFromEmail != "comptes@example.com" {
+		t.Fatal("sender name and plain email must remain separate")
+	}
 	for _, origin := range []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://[::1]:3000"} {
 		env["WEB_ORIGIN"] = origin
 		cfg, err := Load(APIBase, func(key string) string { return env[key] })
 		if err != nil || cfg.Accounts.SecureCookies || cfg.Accounts.GoogleCallbackURL != origin+"/api/v1/auth/google/callback" {
 			t.Fatalf("localhost configuration failed: %v", err)
+		}
+	}
+}
+
+func TestAccountSenderNameAndIdentity(t *testing.T) {
+	for _, name := range []string{"MesSeances", "Mes Seances", `MesSeances, "Comptes"`, "MesSéances", strings.Repeat("x", 256)} {
+		for _, identity := range []string{"example.com", "comptes@example.com"} {
+			env := accountConfigFixture()
+			env["SES_FROM_NAME"] = name
+			env["SES_IDENTITY_ARN"] = "arn:aws:ses:eu-west-3:123456789012:identity/" + identity
+			cfg, err := Load(APIBase, func(key string) string { return env[key] })
+			if err != nil || cfg.Accounts.SESFromName != name || cfg.Accounts.SESFromEmail != env["SES_FROM_EMAIL"] {
+				t.Fatalf("name=%q identity=%q error=%v", name, identity, err)
+			}
 		}
 	}
 }
@@ -74,6 +92,11 @@ func TestAccountConfigurationFailsGenerically(t *testing.T) {
 		{"ACCOUNTS_ENABLED", "TRUE"}, {"WEB_ORIGIN", "http://messeances.fr"}, {"GOOGLE_CLIENT_SECRET", "private\nvalue"},
 		{"ACCOUNT_AVATAR_DIR", "/"}, {"ACCOUNT_AVATAR_DIR", "relative"}, {"ACCOUNT_AVATAR_DIR", "/private\npath"},
 		{"SES_FROM_EMAIL", "Admin <admin@example.com>"}, {"SES_FEEDBACK_QUEUE_URL", "https://attacker.example/queue"},
+		{"SES_FROM_NAME", " "}, {"SES_FROM_NAME", " MesSeances"}, {"SES_FROM_NAME", "MesSeances "},
+		{"SES_FROM_NAME", "MesSeances\r\nBcc: attacker@example.com"}, {"SES_FROM_NAME", "MesSeances\n"},
+		{"SES_FROM_NAME", "Mes\tSeances"}, {"SES_FROM_NAME", "Mes\x00Seances"}, {"SES_FROM_NAME", "Mes\x7fSeances"},
+		{"SES_FROM_NAME", "Mes\u0085Seances"}, {"SES_FROM_NAME", "Mes\u2028Seances"}, {"SES_FROM_NAME", "Mes\u202eSeances"},
+		{"SES_FROM_NAME", "Mes\xffSeances"}, {"SES_FROM_NAME", strings.Repeat("x", 257)},
 		{"SES_FEEDBACK_QUEUE_URL", "https://sqs.eu-west-3.amazonaws.com/123456789012/accounts#"},
 		{"SES_FEEDBACK_QUEUE_URL", "https://sqs.eu-west-3.amazonaws.com/999999999999/accounts"},
 		{"SES_FEEDBACK_QUEUE_URL", "https://sqs.eu-west-3.amazonaws.com/123456789012/accounts.fifo"},

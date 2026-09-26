@@ -33,11 +33,13 @@ Signed-out and incomplete-account browsing retains the independent browser-local
 | `WEB_ORIGIN` | Canonical HTTPS origin without path. HTTP allowed only for explicitly configured loopback development. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Dedicated Google web client; callback derived from WEB_ORIGIN. |
 | `AWS_REGION` | Same region as SES identity, feedback topic and queues. |
-| `SES_FROM_EMAIL`, `SES_CONFIGURATION_SET`, `SES_IDENTITY_ARN` | Fixed verified sender, configuration set and identity ARN. |
+| `SES_FROM_EMAIL`, `SES_FROM_NAME`, `SES_CONFIGURATION_SET`, `SES_IDENTITY_ARN` | Plain verified sender address, required display name, configuration set and identity ARN. |
 | `SES_FEEDBACK_QUEUE_URL`, `SES_FEEDBACK_TOPIC_ARN` | Standard private queue/topic in expected account and region. |
 | `ACCOUNT_OUTBOX_KEY_ID`, `ACCOUNT_OUTBOX_KEY` | Version label and canonical standard-base64 nonzero 32-byte AES-GCM key. |
 | `ACCOUNT_ADDRESS_HMAC_KEY` | Independent, distinct nonzero 32-byte standard-base64 key for suppression/quota addresses. |
 | AWS credentials | SDK default credential chain; production Compose passes `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optional `AWS_SESSION_TOKEN`. |
+
+Set `SES_FROM_EMAIL=no-reply@messeances.fr` and `SES_FROM_NAME=MesSeances` for the named sender. SES sends the formatted From header `"MesSeances" <no-reply@messeances.fr>`; the SDK's standard mail formatter includes quotes, without changing the displayed sender. The email setting must remain a plain address for SES identity matching and bounce/complaint provenance checks. SES feedback `mail.source` is the plain envelope address, not the formatted From header. The existing verified domain and sender address remain sufficient; no new SES identity, mailbox or DNS record is needed for this display-name change. Enabled deployments must set the new name before restarting on the updated API.
 
 Use ignored operator configuration with restrictive permissions or appropriately mounted restricted credentials. Credential-file mounts are not provisioned by repository Compose. Never put secrets in tracked files, `NUXT_PUBLIC_*`, URLs, process arguments, chat, logs or screenshots. Do not reuse admin/internal-service secrets. Examples intentionally contain empty new credential values.
 
@@ -65,7 +67,7 @@ OAuth admission retains a hard limit of 10,000 stored flows. Before counting, it
 
 Runtime checks queue encryption, retention, ARN and redrive prerequisites before polling and every five minutes. Application validates exact SNS topic and SES source/identity/account/configuration-set fields, bounded JSON and recipients. It never follows message URLs. TLS/SigV4 and restrictive resource policies establish provenance; application field checks are not an IAM audit. Operator must audit policies before enabling sends.
 
-Permanent bounces and complaints commit idempotent suppression before message deletion. Transient bounces do not permanently suppress. Malformed messages remain for bounded queue redrive. Keep SES account suppression enabled as additional protection; application never removes SES suppressions.
+Permanent bounces and complaints commit idempotent suppression before message deletion. Transient bounces do not permanently suppress. Malformed messages remain for bounded queue redrive. Feedback parsing requires the plain `mail.source` even when `headers.From` includes the display name; a formatted or mismatched source is rejected. Keep SES account suppression enabled as additional protection; application never removes SES suppressions. Validate actual named-sender feedback in authorized staging before enabling production registration.
 
 ## Delivery and monitoring
 

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/mail"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -25,13 +26,14 @@ type SESClient interface {
 }
 
 type SESSender struct {
-	Client                              SESClient
-	From, IdentityARN, ConfigurationSet string
+	Client                                        SESClient
+	From, FromName, IdentityARN, ConfigurationSet string
 }
 
 func (s *SESSender) Send(ctx context.Context, m Message) error {
+	from := (&mail.Address{Name: s.FromName, Address: s.From}).String()
 	_, err := s.Client.SendEmail(ctx, &sesv2.SendEmailInput{
-		FromEmailAddress: aws.String(s.From), FromEmailAddressIdentityArn: aws.String(s.IdentityARN), ConfigurationSetName: aws.String(s.ConfigurationSet),
+		FromEmailAddress: aws.String(from), FromEmailAddressIdentityArn: aws.String(s.IdentityARN), ConfigurationSetName: aws.String(s.ConfigurationSet),
 		Destination: &types.Destination{ToAddresses: []string{m.Recipient}},
 		Content:     &types.EmailContent{Simple: &types.Message{Subject: content(m.Subject), Body: &types.Body{Text: content(m.Text), Html: content(m.HTML)}}},
 	}, func(o *sesv2.Options) { o.RetryMaxAttempts = 1 })
