@@ -19,7 +19,10 @@ const frenchReleaseLabel = computed(() =>
 </script>
 
 <template>
-  <li class="flex items-center gap-4 border-b border-ink/20 py-4">
+  <li
+    class="flex gap-3 border-b border-ink/20 py-4 sm:gap-4"
+    :class="$slots.content ? 'items-start' : 'items-center'"
+  >
     <img
       v-if="poster"
       :src="poster"
@@ -57,6 +60,7 @@ const frenchReleaseLabel = computed(() =>
       <p v-else-if="releaseDate" class="mt-1 text-sm text-muted">
         {{ releaseDate.slice(0, 4) }}
       </p>
+      <slot name="content" />
     </div>
     <slot />
   </li>

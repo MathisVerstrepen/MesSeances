@@ -91,7 +91,8 @@ func TestWatchlistStrictTransport(t *testing.T) {
 }
 
 func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
-	for _, route := range []struct{ method, path, body string }{{"GET", watchlistRoute, ""}, {"POST", watchlistRoute, validWatchlistMutation}, {"POST", watchlistRoute + "/sort", validWatchlistSort}, {"POST", watchlistRoute + "/search", validWatchlistSearch}, {"POST", watchlistRoute + "/import", validWatchlistImport}} {
+	for _, route := range []struct{ method, path, body string }{{"GET", watchlistRoute, ""}, {"POST", watchlistRoute, validWatchlistMutation}, {"POST", watchlistRoute + "/sort", validWatchlistSort}, {"POST", watchlistRoute + "/search", validWatchlistSearch}, {"POST", watchlistRoute + "/import", validWatchlistImport},
+		{"POST", watchlistRoute + "/tags", validWatchlistTagCreate}, {"POST", watchlistRoute + "/tags/rename", validWatchlistTagRename}, {"POST", watchlistRoute + "/tags/delete", validWatchlistTagDelete}, {"POST", watchlistRoute + "/tags/assign", validWatchlistTagAssign}} {
 		for _, suffix := range []string{"?", "?username=other"} {
 			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
 			w := httptest.NewRecorder()
@@ -197,6 +198,22 @@ func TestWatchlistIndependentIPQuotasAndSafeErrors(t *testing.T) {
 				t.Fatal("sort did not share membership IP quota")
 			}
 			assertAccountHeaders(t, w)
+			for _, tag := range []struct {
+				handler    http.HandlerFunc
+				path, body string
+			}{
+				{h.createWatchlistTag, "/tags", validWatchlistTagCreate},
+				{h.renameWatchlistTag, "/tags/rename", validWatchlistTagRename},
+				{h.deleteWatchlistTag, "/tags/delete", validWatchlistTagDelete},
+				{h.assignWatchlistTag, "/tags/assign", validWatchlistTagAssign},
+			} {
+				w := httptest.NewRecorder()
+				accountBoundary(h.mutation(tag.handler, h.watchlistWrites)).ServeHTTP(w, theaterPreferenceRequest(t, "POST", watchlistRoute+tag.path, tag.body))
+				if w.Code != 429 {
+					t.Fatal("tag did not share membership IP quota")
+				}
+				assertAccountHeaders(t, w)
+			}
 		}
 		now = now.Add(tc.refill)
 		if ok, _ := tc.limiter.allow(unknownClientKey); !ok {
@@ -213,6 +230,10 @@ func TestWatchlistIndependentIPQuotasAndSafeErrors(t *testing.T) {
 		status int
 		code   string
 	}{
+		{accounts.ErrWatchlistTagNameTaken, 409, "watchlist_tag_name_taken"},
+		{accounts.ErrWatchlistTagLimit, 409, "watchlist_tag_limit_reached"},
+		{accounts.ErrWatchlistTagNotFound, 404, "watchlist_tag_not_found"},
+		{accounts.ErrWatchlistMovieNotSaved, 404, "watchlist_movie_not_saved"},
 		{accounts.ErrWatchlistChanged, 409, "watchlist_changed"}, {accounts.ErrWatchlistLimit, 409, "watchlist_limit_reached"}, {accounts.ErrWatchlistExternalUnavailable, 503, "watchlist_external_unavailable"}, {accounts.ErrWatchlistUnavailable, 503, "watchlist_unavailable"}, {accounts.ErrMovieNotFound, 404, "movie_not_found"}, {enrichment.ErrMovieNotImportable, 400, "movie_not_importable"}, {errors.New("provider secret body"), 503, "watchlist_unavailable"},
 	} {
 		w := httptest.NewRecorder()
@@ -242,14 +263,16 @@ func TestWatchlistRegisteredRoutesIntegration(t *testing.T) {
 	p.request("GET", watchlistRoute, nil, 401, nil)
 	p.request("POST", watchlistRoute, input, 401, nil)
 	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
+	watchlistTagRouteDenied(t, p, 401)
 	p.google(map[string]string{"mode": "login"}, "verified", "/finaliser")
 	p.request("GET", watchlistRoute, nil, 403, nil)
 	p.request("POST", watchlistRoute, input, 403, nil)
 	p.request("POST", watchlistRoute+"/sort", sortInput, 403, nil)
+	watchlistTagRouteDenied(t, p, 403)
 	p.request("POST", "/api/v1/account/username", accountUsername{Username: "watchlist_http"}, 200, nil)
 	var view accounts.WatchlistView
 	p.request("GET", watchlistRoute, nil, 200, &view)
-	if view.Username != "watchlist_http" || view.Revision != "0" || view.SortOrder != "added_desc" || view.Items == nil || len(view.Items) != 0 || view.ExternalSearchAvailable {
+	if view.Username != "watchlist_http" || view.Revision != "0" || view.SortOrder != "added_desc" || view.Items == nil || view.Tags == nil || len(view.Items) != 0 || view.ExternalSearchAvailable {
 		t.Fatal("initial wire mismatch")
 	}
 	p.request("POST", watchlistRoute+"/sort", sortInput, 200, &view)
@@ -298,7 +321,9 @@ func TestWatchlistRegisteredRoutesIntegration(t *testing.T) {
 	}
 	sortInput["expected_username"] = "different_owner"
 	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
+	watchlistTagRegisteredCRUD(t, p, view, movie.Slug)
 	p.request("POST", "/api/v1/auth/logout", struct{}{}, 204, nil)
 	p.request("GET", watchlistRoute, nil, 401, nil)
 	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
+	watchlistTagRouteDenied(t, p, 401)
 }

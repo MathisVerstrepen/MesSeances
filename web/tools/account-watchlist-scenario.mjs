@@ -24,6 +24,15 @@ export async function watchlistScenario({
   let session = { enabled: true, state: 'complete', account: owner }
   let revision = 0
   let saved = []
+  const ownerTags = new Map()
+  const ownerAssignments = new Map()
+  let nextTagId = 1
+  const tags = () => ownerTags.get(session.account.username) ?? []
+  const assignments = () => {
+    if (!ownerAssignments.has(session.account.username))
+      ownerAssignments.set(session.account.username, new Map())
+    return ownerAssignments.get(session.account.username)
+  }
   const sorts = new Map()
   const addedTimes = new Map()
   let uncertainSort = false
@@ -78,10 +87,12 @@ export async function watchlistScenario({
     username: session.account.username,
     revision: String(revision),
     sort_order: sorts.get(session.account.username) ?? 'added_desc',
+    tags: tags(),
     items: saved.map((slug) => ({
       ...movie(slug),
       french_release_date: frenchReleases.get(slug),
       added_at: addedTimes.get(slug) ?? `${date}T00:00:00Z`,
+      tag_ids: assignments().get(slug) ?? [],
     })),
     external_search_available: true,
   })
@@ -219,8 +230,65 @@ export async function watchlistScenario({
         }
         return send(snapshot())
       }
+      if (path.includes('/tags')) {
+        const name = body.name?.trim().replace(/\s+/gu, ' ').normalize('NFC')
+        const existing = tags().find((tag) => tag.id === body.tag_id)
+        if (
+          body.name !== undefined &&
+          (!name ||
+            [...name].length > 40 ||
+            /[\p{Cc}\u2028\u2029]/u.test(body.name))
+        )
+          return send({ error: { code: 'invalid_request' } }, 400)
+        if (
+          name &&
+          tags().some(
+            (tag) =>
+              tag.id !== body.tag_id &&
+              tag.name.toLocaleLowerCase('fr') === name.toLocaleLowerCase('fr'),
+          )
+        )
+          return send({ error: { code: 'watchlist_tag_name_taken' } }, 409)
+        if (!path.endsWith('/tags') && !existing)
+          return send({ error: { code: 'watchlist_tag_not_found' } }, 404)
+        if (path.endsWith('/tags') && tags().length >= 50)
+          return send({ error: { code: 'watchlist_tag_limit_reached' } }, 409)
+        if (path.endsWith('/tags'))
+          ownerTags.set(session.account.username, [
+            ...tags(),
+            { id: String(nextTagId++), name },
+          ])
+        else if (path.endsWith('/rename')) existing.name = name
+        else if (path.endsWith('/delete')) {
+          ownerTags.set(
+            session.account.username,
+            tags().filter((tag) => tag.id !== body.tag_id),
+          )
+          for (const [slug, ids] of assignments())
+            assignments().set(
+              slug,
+              ids.filter((id) => id !== body.tag_id),
+            )
+        } else if (path.endsWith('/assign')) {
+          if (!saved.includes(body.movie_slug))
+            return send({ error: { code: 'watchlist_movie_not_saved' } }, 404)
+          const ids = (assignments().get(body.movie_slug) ?? []).filter(
+            (id) => id !== body.tag_id,
+          )
+          if (body.assigned === 'true') ids.push(body.tag_id)
+          assignments().set(
+            body.movie_slug,
+            ids.sort((a, b) =>
+              BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0,
+            ),
+          )
+        }
+        revision++
+        return send(snapshot())
+      }
       const slug = path.endsWith('/import') ? 'external-film' : body.movie_slug
       saved = saved.filter((item) => item !== slug)
+      if (body.saved === 'false') assignments().delete(slug)
       if (path.endsWith('/import') || body.saved === 'true') saved.unshift(slug)
       revision++
       return send(
@@ -237,11 +305,11 @@ export async function watchlistScenario({
     server.listen(18089, '127.0.0.1', resolve)
   })
   const router = `document.querySelector('#__nuxt').__vue_app__.config.globalProperties.$router`
-  async function screenshot(page, name) {
+  async function screenshot(page, name, captureBeyondViewport = true) {
     if (!process.argv.includes('--visual')) return
     const image = await getCDP().send(
       'Page.captureScreenshot',
-      { format: 'png', captureBeyondViewport: true },
+      { format: 'png', captureBeyondViewport },
       page.sessionId,
     )
     await writeFile(
@@ -412,9 +480,118 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const select = document.querySelector('#watchlist-sort'); const control = select.getBoundingClientRect(); const icon = select.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); return icon.right <= control.left && Math.abs(icon.top + icon.height / 2 - control.top - control.height / 2) < 1 && Math.abs(heading.top + heading.height / 2 - control.top - control.height / 2) < 1; })()`,
+      `(() => { const select = document.querySelector('#watchlist-sort'); const control = select.getBoundingClientRect(); const icon = select.parentElement.querySelector('svg').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return icon.right <= control.left && Math.abs(icon.top + icon.height / 2 - control.top - control.height / 2) < 1 && Math.abs(filter.bottom - control.bottom) < 1 && Math.abs(trigger.bottom - control.bottom) < 1; })()`,
     ),
-    'desktop sort icon and select align inline with Mes films heading',
+    'desktop filter sort and manager share one aligned toolbar below Mes films',
+  )
+  await click(page, 'Gérer les tags')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-manager').matches(':modal') && document.activeElement.getAttribute('aria-label') === 'Fermer la gestion des tags'`,
+    ),
+    'manager uses native modal top layer and initially focuses close control',
+  )
+  const modalAccessibility = await getCDP().send(
+    'Accessibility.getFullAXTree',
+    {},
+    page.sessionId,
+  )
+  check(
+    modalAccessibility.nodes.some(
+      (node) =>
+        node.role?.value === 'dialog' &&
+        node.name?.value === 'Gérer les tags' &&
+        node.properties?.some(
+          (property) => property.name === 'modal' && property.value?.value,
+        ),
+    ),
+    'tag modal exposes accessible title and modal state',
+  )
+  for (let index = 0; index < 8; index++) {
+    for (const type of ['keyDown', 'keyUp']) {
+      await getCDP().send(
+        'Input.dispatchKeyEvent',
+        { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+        page.sessionId,
+      )
+    }
+    check(
+      await evaluate(
+        page,
+        `document.querySelector('#watchlist-tag-manager').contains(document.activeElement) || document.activeElement === document.body`,
+      ),
+      'native modal Tab does not reach background controls',
+    )
+  }
+  await fill(page, 'watchlist-tag-name', '<b>Amis</b>')
+  await click(page, 'Créer')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-name').value === '' && document.querySelector('#watchlist-tag-filter').options.length === 2`,
+    'create reusable tag with empty watchlist',
+  )
+  check(
+    saved.length === 0 && tags()[0]?.name === '<b>Amis</b>',
+    'tag-only account does not save a film',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager b') && document.querySelector('#watchlist-tag-manager').textContent.includes('<b>Amis</b>')`,
+    ),
+    'tag names render escaped text, not HTML',
+  )
+  await fill(page, 'watchlist-tag-name', '<b>amis</b>')
+  await click(page, 'Créer')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-manager [role="alert"]')?.textContent.includes('existe déjà')`,
+    'duplicate tag safe error',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-name').value === '<b>amis</b>'`,
+    ),
+    'duplicate create retains draft after readback',
+  )
+  await fill(
+    page,
+    'watchlist-tag-name',
+    'À revoir au cinéma avec tous les amis',
+  )
+  await click(page, 'Créer')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter').options.length === 3`,
+    'second reusable tag',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+    ),
+    'modal close restores original manager trigger',
+  )
+  await click(page, 'Gérer les tags')
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await getCDP().send(
+      'Input.dispatchMouseEvent',
+      { type, x: 2, y: 2, button: 'left', clickCount: 1 },
+      page.sessionId,
+    )
+  }
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+    ),
+    'native modal backdrop click closes and restores trigger',
   )
   await fill(page, 'watchlist-query', 'private candidate query')
   check(
@@ -605,6 +782,290 @@ export async function watchlistScenario({
     ),
     'imported movie without French evidence has no date or general-year fallback',
   )
+  async function toggleAssignment(slug, tagName, assigned) {
+    await evaluate(
+      page,
+      `(() => { const row = ${savedRow(slug)}; const button = row.querySelector('button[aria-expanded]'); if (button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
+    )
+    await until(
+      page,
+      `${savedRow(slug)}?.querySelector('input[type="checkbox"]:not(:disabled)')`,
+      'row editor available',
+    )
+    await evaluate(
+      page,
+      `(() => { const row = ${savedRow(slug)}; const label = [...row.querySelectorAll('label')].find(label => label.textContent.trim() === ${JSON.stringify(tagName)}); const input = label.querySelector('input'); input.focus(); input.click(); })()`,
+    )
+    await until(
+      page,
+      `!document.querySelector('#watchlist-sort').disabled && (() => { const row = ${savedRow(slug)}; if (!row) return true; const label = [...row.querySelectorAll('label')].find(label => label.textContent.trim() === ${JSON.stringify(tagName)}); return label?.querySelector('input').checked === ${assigned}; })()`,
+      'committed tag assignment',
+    )
+  }
+  const filterTag = async (id) => {
+    await evaluate(
+      page,
+      `(() => { const select = document.querySelector('#watchlist-tag-filter'); select.value = ${JSON.stringify(id)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    )
+    await delay(50)
+  }
+  const firstTag = tags()[0].id
+  const secondTag = tags()[1].id
+  await evaluate(
+    page,
+    `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
+  )
+  const firstCheckbox = `[...${savedRow('saved-film')}.querySelectorAll('label')].find(label => label.textContent.trim() === '<b>Amis</b>').querySelector('input')`
+  await evaluate(page, `${firstCheckbox}.focus()`)
+  hold = true
+  release = undefined
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 },
+    page.sessionId,
+  )
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 },
+    page.sessionId,
+  )
+  await until(page, `${firstCheckbox}.disabled`, 'keyboard tag write pending')
+  check(
+    await evaluate(
+      page,
+      `!${firstCheckbox}.checked && !document.querySelector('ul[aria-label="Tags associés"]') && document.querySelector('#watchlist-sort').disabled`,
+    ),
+    'pending native checkbox stays committed and blocks shared writers',
+  )
+  for (let i = 0; !release && i < 100; i++) await delay(20)
+  check(!!release, 'held keyboard tag assignment reached fixture')
+  hold = false
+  release()
+  await until(
+    page,
+    `${firstCheckbox}.checked && !${firstCheckbox}.disabled`,
+    'keyboard assignment commits',
+  )
+  conflict = true
+  await evaluate(page, `${firstCheckbox}.click()`)
+  await until(
+    page,
+    `!!document.querySelector('main [role="alert"]') && !document.querySelector('#watchlist-sort').disabled`,
+    'rejected assignment reconciles',
+  )
+  check(
+    await evaluate(page, `${firstCheckbox}.checked`),
+    'rejected checkbox restores authoritative checked state',
+  )
+  await toggleAssignment('saved-film', tags()[1].name, true)
+  await toggleAssignment('external-film', '<b>Amis</b>', true)
+  check(
+    await evaluate(
+      page,
+      `document.querySelectorAll('section[aria-labelledby="saved-heading"] input[type="checkbox"]').length === 2`,
+    ),
+    'only one row checkbox editor mounted',
+  )
+  const filterRequests = requests.length
+  await filterTag(secondTag)
+  check(
+    await evaluate(page, `JSON.stringify(${savedOrder}) === '["saved-film"]'`),
+    'single tag filter selects matching saved film',
+  )
+  check(requests.length === filterRequests, 'filter does not fetch or persist')
+  await toggleAssignment('saved-film', tags()[1].name, false)
+  await until(
+    page,
+    `document.querySelector('main').textContent.includes('Aucun film avec ce tag.')`,
+    'filtered empty state after unassignment',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.id === 'watchlist-tag-filter'`,
+    ),
+    'filtered row disappearance restores filter focus',
+  )
+  await click(page, 'Voir tous les films')
+  await filterTag(firstTag)
+  await click(page, 'Gérer les tags')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Renommer <b>Amis</b>"]').click()`,
+  )
+  await fill(page, 'watchlist-tag-rename', 'Soirée cinéma')
+  await click(page, 'Enregistrer')
+  await until(
+    page,
+    `!document.querySelector('#watchlist-tag-rename') && document.querySelector('#watchlist-tag-filter').selectedOptions[0].textContent === 'Soirée cinéma'`,
+    'rename preserves selected ID',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelectorAll('ul[aria-label="Tags associés"]').length === 2 && [...document.querySelectorAll('ul[aria-label="Tags associés"]')].every(list => list.textContent.includes('Soirée cinéma'))`,
+    ),
+    'rename updates every film chip',
+  )
+  check(
+    await evaluate(
+      page,
+      `!['Soirée cinéma', '<b>Amis</b>', 'tag_ids', 'selectedTag', 'renameDraft'].some(marker => JSON.stringify({url:location.href,local:{...localStorage},session:{...sessionStorage},payload:window.__NUXT__,data:document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data}).includes(marker))`,
+    ),
+    'active private tags filter and drafts stay out of URL storage and Nuxt payload',
+  )
+  check(
+    !['Soirée cinéma', '<b>Amis</b>', 'tag_ids'].some((marker) =>
+      JSON.stringify(page.collections).includes(marker),
+    ),
+    'tag values never enter analytics',
+  )
+  await evaluate(page, 'window.scrollTo(0, 0)')
+  await delay(50)
+  await screenshot(page, 'tags-desktop', false)
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const dialog = document.querySelector('#watchlist-tag-manager'); const body = dialog.querySelector('.overflow-y-auto'); const rect = body.getBoundingClientRect(); return dialog.matches(':modal') && rect.top >= 0 && rect.bottom <= innerHeight && dialog.scrollWidth <= innerWidth && body.scrollWidth <= body.clientWidth; })()`,
+    ),
+    '320px modal body stays viewport bounded without horizontal overflow',
+  )
+  await screenshot(page, 'tag-manager-mobile', false)
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const modal = document.querySelector('#watchlist-tag-manager'); const body = modal.querySelector('.overflow-y-auto'); const close = modal.querySelector('button[aria-label="Fermer la gestion des tags"]').getBoundingClientRect(); return body.scrollHeight > body.clientHeight && body.getBoundingClientRect().bottom <= innerHeight && close.top >= 0 && close.bottom <= innerHeight; })()`,
+    ),
+    'short viewport scrolls modal body while close control remains visible',
+  )
+  await screenshot(page, 'tag-manager-short-viewport', false)
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+    },
+    page.sessionId,
+  )
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+    page.sessionId,
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+    ),
+    'Escape dismisses native modal and restores manager trigger',
+  )
+  await evaluate(page, `window.scrollTo(0, 0)`)
+  await screenshot(page, 'saved-tags-mobile')
+  await toggleAssignment('saved-film', 'Soirée cinéma', false)
+  await evaluate(
+    page,
+    `(() => { const button = document.querySelector('button[aria-label="Modifier les tags de Film externe"]'); button.focus(); button.click(); })()`,
+  )
+  check(
+    await evaluate(page, `document.documentElement.scrollWidth <= innerWidth`),
+    '320px long tags and native checkbox editor do not overflow',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#saved-heading').scrollIntoView({block:'start'})`,
+  )
+  await delay(50)
+  await screenshot(page, 'tags-mobile', false)
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    { type: 'keyDown', key: 'Escape', code: 'Escape' },
+    page.sessionId,
+  )
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    { type: 'keyUp', key: 'Escape', code: 'Escape' },
+    page.sessionId,
+  )
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.getAttribute('aria-label') === 'Modifier les tags de Film externe' && document.activeElement.getAttribute('aria-expanded') === 'false' && !document.querySelector('section[aria-labelledby="saved-heading"] input[type="checkbox"]')`,
+    ),
+    'Escape closes tag checkbox disclosure and restores its trigger focus',
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    page.sessionId,
+  )
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
+    'tags survive reload',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').value === '' && ${savedRow('external-film')}.textContent.includes('Soirée cinéma')`,
+    ),
+    'reload recovers committed assignments but resets filter',
+  )
+  await screenshot(page, 'saved-tags-desktop')
+  await filterTag(firstTag)
+  await click(page, 'Gérer les tags')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Supprimer Soirée cinéma"]').click()`,
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-manager').textContent.includes('Les films seront conservés.')`,
+    ),
+    'inline tag deletion explains retained films',
+  )
+  await click(page, 'Supprimer le tag')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter').value === '' && document.querySelector('#watchlist-tag-filter').options.length === 2`,
+    'deleted selected tag resets filter',
+  )
+  check(
+    saved.length === 2 && assignments().get('external-film').length === 0,
+    'deleting tag removes associations but keeps films',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-manager button[aria-label^="Supprimer "]').click()`,
+  )
+  await click(page, 'Supprimer le tag')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-manager').textContent.includes('Aucun tag.')`,
+    'last reusable tag removed',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+  )
   addedTimes.set('external-film', `${date}T00:00:00.000000001Z`)
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
   await until(
@@ -736,6 +1197,8 @@ export async function watchlistScenario({
   await getCDP().send('Page.close', {}, sortTab.sessionId)
   await getCDP().send('Page.bringToFront', {}, page.sessionId)
   await selectSort('release_desc')
+  await click(page, 'Gérer les tags')
+  await fill(page, 'watchlist-tag-name', 'private modal draft')
   const ownerSaved = saved
   session = {
     enabled: true,
@@ -746,8 +1209,15 @@ export async function watchlistScenario({
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
   await until(
     page,
-    `document.querySelector('#watchlist-sort')?.value !== 'release_desc' && !document.querySelector('section[aria-labelledby="saved-heading"] li')`,
+    `!document.querySelector('#watchlist-sort') && !document.querySelector('section[aria-labelledby="saved-heading"] li')`,
     'owner change purges previous private selection',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && !document.querySelector('main').textContent.includes('private modal draft') && document.activeElement.getAttribute('aria-controls') !== 'watchlist-tag-manager'`,
+    ),
+    'owner replacement removes modal and never focuses replacement-owner trigger',
   )
   holdRead = true
   await go(page, '/compte/watchlist')
@@ -847,11 +1317,27 @@ export async function watchlistScenario({
     )
   }
   await screenshot(page, 'desktop')
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] input[type="checkbox"]') && [...document.querySelectorAll('section[aria-labelledby="saved-heading"] li')].filter(row => row.querySelector('a')).every(row => { const poster = row.firstElementChild.getBoundingClientRect(); const title = row.querySelector('a').getBoundingClientRect(); return Math.abs(poster.top - title.top) <= 4; })`,
+    ),
+    'resting saved list has collapsed editors and top-aligned poster/title',
+  )
+  await click(page, 'Gérer les tags')
+  await fill(page, 'watchlist-tag-name', 'route-private-draft')
   await route(page, '/film/external-film')
   await until(
     page,
-    `!!document.querySelector('button[aria-label="Retirer de la watchlist"]')`,
+    `!!document.querySelector('button[aria-label="Retirer de la watchlist"]') && !document.querySelector('#watchlist-tag-filter')`,
     'standalone bookmark on no-trailer no-session film',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && !document.body.textContent.includes('route-private-draft')`,
+    ),
+    'page departure detaches modal and private draft',
   )
   check(
     await evaluate(
@@ -1202,11 +1688,45 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const row = ${savedRow('saved-film')}; const time = row.querySelector('time').getBoundingClientRect(); const action = row.querySelector('button').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth && time.right <= action.left && action.width >= 44 && action.height >= 44; })()`,
+      `(() => { const row = ${savedRow('saved-film')}; const time = row.querySelector('time').getBoundingClientRect(); const action = row.querySelector('button[aria-label="Retirer de la watchlist"]').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth && time.right <= action.left && action.width >= 44 && action.height >= 44; })()`,
     ),
     'mobile full French date fits saved row and preserves bookmark touch target',
   )
   await screenshot(page, 'mobile-saved-date')
+  await click(page, 'Gérer les tags')
+  await fill(page, 'watchlist-tag-name', 'pagehide-private-draft')
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && !document.body.textContent.includes('pagehide-private-draft')`,
+    ),
+    'pagehide removes tag modal and private draft',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
+    'restored watchlist revalidates before manager reopens',
+  )
+  await click(page, 'Gérer les tags')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-name').value === '' && !document.querySelector('#watchlist-tag-rename')`,
+    ),
+    'restored manager never resurrects private drafts',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+  )
   check(
     await evaluate(
       page,
@@ -1327,6 +1847,8 @@ export async function watchlistBackendScenario({
       empty.body.username === username &&
       empty.body.revision === '0' &&
       empty.body.sort_order === 'added_desc' &&
+      Array.isArray(empty.body.tags) &&
+      empty.body.tags.length === 0 &&
       empty.body.items.length === 0,
     'real watchlist starts at revision zero with correct owner and default sort',
   )
@@ -1345,6 +1867,41 @@ export async function watchlistBackendScenario({
     'real private watchlist response retains privacy headers',
   )
   const movies = await request(page, '/movies', undefined, 'GET')
+  await click(page, 'Gérer les tags')
+  await fill(page, 'watchlist-tag-name', 'Soirée privée <b>amis</b>')
+  await click(page, 'Créer')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter').options.length === 2 && document.querySelector('#watchlist-tag-name').value === ''`,
+    'real tag created with no films',
+  )
+  await fill(page, 'watchlist-tag-name', 'À revoir')
+  await click(page, 'Créer')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter').options.length === 3 && document.querySelector('#watchlist-tag-name').value === ''`,
+    'real second reusable tag created',
+  )
+  const tagOnly = await request(page, '/account/watchlist', undefined, 'GET')
+  check(
+    tagOnly.status === 200 &&
+      tagOnly.body.tags.length === 2 &&
+      tagOnly.body.items.length === 0 &&
+      tagOnly.body.revision === '2',
+    'real tag-only state persists without membership',
+  )
+  check(
+    await evaluate(page, `!document.querySelector('#watchlist-tag-manager b')`),
+    'real HTML-like tag name is escaped',
+  )
+  const firstTag = tagOnly.body.tags.find(
+    (tag) => tag.name === 'Soirée privée <b>amis</b>',
+  ).id
+  const secondTag = tagOnly.body.tags.find((tag) => tag.name === 'À revoir').id
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+  )
   check(
     movies.status === 200 && movies.body.items.length > 0,
     'public fixture exposes local movies',
@@ -1443,6 +2000,13 @@ export async function watchlistBackendScenario({
   await go(page, '/compte/watchlist')
   const rows = `Array.from(document.querySelectorAll('[aria-labelledby="saved-heading"] li a')).map(link => decodeURIComponent(link.pathname.split('/').pop()))`
   let committed = pair.body
+  check(
+    committed.tags.length === 2 &&
+      committed.items.every(
+        (item) => Array.isArray(item.tag_ids) && item.tag_ids.length === 0,
+      ),
+    'real membership responses preserve tags and add untagged films',
+  )
   const orders = [
     'added_desc',
     'added_asc',
@@ -1535,6 +2099,104 @@ export async function watchlistBackendScenario({
       ),
     'real sort uses exact private POST body',
   )
+  async function assignReal(slug, name, assigned) {
+    const row = `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]').closest('li')`
+    await evaluate(
+      page,
+      `(() => { const button = ${row}.querySelector('button[aria-expanded]'); if (button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
+    )
+    const checkbox = `[...${row}.querySelectorAll('label')].find(label => label.textContent.trim() === ${JSON.stringify(name)}).querySelector('input')`
+    await until(page, `!${checkbox}.disabled`, 'real tag assignment ready')
+    await evaluate(page, `${checkbox}.click()`)
+    await until(
+      page,
+      `!document.querySelector('#watchlist-sort').disabled && ${checkbox}.checked === ${assigned}`,
+      'real tag assignment committed',
+    )
+  }
+  await assignReal(movie.slug, 'Soirée privée <b>amis</b>', true)
+  await assignReal(movie.slug, 'À revoir', true)
+  await assignReal(otherMovie.slug, 'Soirée privée <b>amis</b>', true)
+  committed = (await request(page, '/account/watchlist', undefined, 'GET')).body
+  check(
+    committed.items.find((item) => item.slug === movie.slug).tag_ids.length ===
+      2 &&
+      committed.items.find((item) => item.slug === otherMovie.slug).tag_ids
+        .length === 1,
+    'real multiple assignments on multiple saved films persist',
+  )
+  await evaluate(
+    page,
+    `(() => { const filter = document.querySelector('#watchlist-tag-filter'); filter.value = ${JSON.stringify(secondTag)}; filter.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    page,
+    `${rows}.length === 1`,
+    'real filter shows matching film only',
+  )
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)') && document.querySelectorAll('ul[aria-label="Tags associés"]').length === 2`,
+    'real assignments survive document reload',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').value === ''`,
+    ),
+    'real reload clears page-local tag filter',
+  )
+  await click(page, 'Gérer les tags')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Renommer Soirée privée <b>amis</b>"]').click()`,
+  )
+  await fill(page, 'watchlist-tag-rename', 'Ensemble privé')
+  await click(page, 'Enregistrer')
+  await until(
+    page,
+    `!document.querySelector('#watchlist-tag-rename') && [...document.querySelectorAll('ul[aria-label="Tags associés"]')].every(list => list.textContent.includes('Ensemble privé'))`,
+    'real rename changes both chips',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+  )
+  await assignReal(movie.slug, 'À revoir', false)
+  await evaluate(
+    page,
+    `(() => { const filter = document.querySelector('#watchlist-tag-filter'); filter.value = ${JSON.stringify(secondTag)}; filter.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('main').textContent.includes('Aucun film avec ce tag.')`,
+    'real filtered-empty state after unassignment',
+  )
+  await click(page, 'Voir tous les films')
+  await click(page, 'Gérer les tags')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Supprimer Ensemble privé"]').click()`,
+  )
+  await click(page, 'Supprimer le tag')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter').options.length === 2 && !document.querySelector('ul[aria-label="Tags associés"]')`,
+    'real tag deleted from every film',
+  )
+  committed = (await request(page, '/account/watchlist', undefined, 'GET')).body
+  check(
+    committed.items.length === 2 &&
+      committed.tags.length === 1 &&
+      !committed.tags.some((tag) => tag.id === firstTag) &&
+      committed.items.every((item) => item.tag_ids.length === 0),
+    'real deletion preserves both films and removes associations',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+  )
   const restore = await request(page, '/account/watchlist', {
     expected_username: username,
     expected_revision: committed.revision,
@@ -1593,6 +2255,12 @@ export async function watchlistBackendScenario({
     'release_asc',
     'expected_username',
     'watchlistOnly',
+    'tag_ids',
+    'selectedTag',
+    'renameDraft',
+    'Soirée privée',
+    'Ensemble privé',
+    'À revoir',
   ]
   check(
     await evaluate(
@@ -1689,6 +2357,7 @@ export async function watchlistBackendScenario({
     secondSnapshot.status === 200 &&
       secondSnapshot.body.sort_order === 'added_desc' &&
       secondSnapshot.body.revision === '0' &&
+      secondSnapshot.body.tags.length === 0 &&
       secondSnapshot.body.items.length === 0,
     'real second owner inherits neither preference nor membership',
   )

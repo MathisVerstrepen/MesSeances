@@ -53,11 +53,11 @@ func TestWatchlistExternalAdmissionHasNoQueue(t *testing.T) {
 }
 
 func TestWatchlistJSONHasOnlyPublicMovieFields(t *testing.T) {
-	encoded, err := json.Marshal(WatchlistView{Username: "owner", Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}})
-	if err != nil || string(encoded) != `{"username":"owner","revision":"0","sort_order":"added_desc","items":[],"external_search_available":false}` {
+	encoded, err := json.Marshal(WatchlistView{Username: "owner", Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}, Tags: []WatchlistTag{}})
+	if err != nil || string(encoded) != `{"username":"owner","revision":"0","sort_order":"added_desc","items":[],"tags":[],"external_search_available":false}` {
 		t.Fatalf("wire=%s error=%v", encoded, err)
 	}
-	encoded, err = json.Marshal(WatchlistItem{WatchlistMovie: WatchlistMovie{Slug: "film-1", Title: "Film"}})
+	encoded, err = json.Marshal(WatchlistItem{WatchlistMovie: WatchlistMovie{Slug: "film-1", Title: "Film"}, TagIDs: []string{}})
 	if err != nil || strings.Contains(string(encoded), "WatchlistMovie") || strings.Contains(string(encoded), "account_id") || strings.Contains(string(encoded), "tmdb_id") {
 		t.Fatal("private identity or nested movie leaked")
 	}

@@ -6,6 +6,7 @@ export interface WatchlistMovie {
 }
 
 export interface WatchlistItem extends WatchlistMovie {
+  tag_ids: string[]
   french_release_date?: string | null
   added_at: string
 }
@@ -23,7 +24,34 @@ export interface AccountWatchlist {
   revision: string
   sort_order: WatchlistSortOrder
   items: WatchlistItem[]
+  tags: WatchlistTag[]
   external_search_available: boolean
+}
+
+export interface WatchlistTag {
+  id: string
+  name: string
+}
+
+export interface CreateWatchlistTag {
+  expected_username: string
+  expected_revision: string
+  name: string
+}
+
+export interface DeleteWatchlistTag {
+  expected_username: string
+  expected_revision: string
+  tag_id: string
+}
+
+export interface RenameWatchlistTag extends DeleteWatchlistTag {
+  name: string
+}
+
+export interface AssignWatchlistTag extends DeleteWatchlistTag {
+  movie_slug: string
+  assigned: 'true' | 'false'
 }
 
 export interface ExternalWatchlistMovie {

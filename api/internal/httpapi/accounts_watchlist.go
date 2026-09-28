@@ -53,6 +53,14 @@ func watchlistHTTPError(w http.ResponseWriter, err error) {
 		status, code = 409, "watchlist_changed"
 	case errors.Is(err, accounts.ErrWatchlistLimit):
 		status, code = 409, "watchlist_limit_reached"
+	case errors.Is(err, accounts.ErrWatchlistTagNameTaken):
+		status, code = 409, "watchlist_tag_name_taken"
+	case errors.Is(err, accounts.ErrWatchlistTagLimit):
+		status, code = 409, "watchlist_tag_limit_reached"
+	case errors.Is(err, accounts.ErrWatchlistTagNotFound):
+		status, code = 404, "watchlist_tag_not_found"
+	case errors.Is(err, accounts.ErrWatchlistMovieNotSaved):
+		status, code = 404, "watchlist_movie_not_saved"
 	case errors.Is(err, accounts.ErrMovieNotFound):
 		status, code = 404, "movie_not_found"
 	case errors.Is(err, enrichment.ErrMovieNotImportable):

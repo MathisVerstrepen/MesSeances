@@ -27,12 +27,17 @@ import type {
   SaveWatchlistSort,
   WatchlistSortOrder,
   WatchlistSearch,
+  CreateWatchlistTag,
+  RenameWatchlistTag,
+  DeleteWatchlistTag,
+  AssignWatchlistTag,
 } from '../app/types/watchlist.ts'
 import * as errors from '../app/utils/accountState.ts'
 import * as dates from '../app/utils/date.ts'
 import * as images from '../app/utils/safeImageUrl.ts'
 import * as upcoming from '../app/utils/upcomingMovies.ts'
 import * as sorting from '../app/utils/watchlistSort.ts'
+import * as tagging from '../app/utils/watchlistTags.ts'
 
 const require = createRequire(import.meta.url)
 const rowSource = await readFile(
@@ -168,12 +173,14 @@ function value(
     username,
     revision,
     sort_order: sortOrder,
+    tags: [],
     items: slugs.map((slug) => ({
       slug,
       title: slug,
       release_date: '1997-07-24',
       french_release_date: '1998-10-14',
       added_at: '2026-09-01T00:00:00Z',
+      tag_ids: [],
     })),
     external_search_available: true,
   }
@@ -202,6 +209,32 @@ async function fixture(client = true) {
   }
   const posts: SaveWatchlist[] = []
   const sortPosts: SaveWatchlistSort[] = []
+  const tagPosts: {
+    action: string
+    input:
+      | CreateWatchlistTag
+      | RenameWatchlistTag
+      | DeleteWatchlistTag
+      | AssignWatchlistTag
+  }[] = []
+  let tagWrite = async (
+    _input:
+      | CreateWatchlistTag
+      | RenameWatchlistTag
+      | DeleteWatchlistTag
+      | AssignWatchlistTag,
+  ) => response
+  function tag(
+    action: string,
+    input:
+      | CreateWatchlistTag
+      | RenameWatchlistTag
+      | DeleteWatchlistTag
+      | AssignWatchlistTag,
+  ) {
+    tagPosts.push({ action, input })
+    return tagWrite(input)
+  }
   const scopes: ReturnType<typeof effectScope>[] = []
   let response = value()
   let admitted = session()
@@ -267,6 +300,10 @@ async function fixture(client = true) {
       },
       searchWatchlist: () => search(),
       importWatchlist: () => imported(),
+      createWatchlistTag: (input: CreateWatchlistTag) => tag('create', input),
+      renameWatchlistTag: (input: RenameWatchlistTag) => tag('rename', input),
+      deleteWatchlistTag: (input: DeleteWatchlistTag) => tag('delete', input),
+      assignWatchlistTag: (input: AssignWatchlistTag) => tag('assign', input),
     }),
     require: () => errors,
   }
@@ -307,6 +344,10 @@ async function fixture(client = true) {
     account,
     posts,
     sortPosts,
+    tagPosts,
+    setTagWrite: (fn: typeof tagWrite) => {
+      tagWrite = fn
+    },
     messages,
     states,
     another: () => module.useWatchlist(),
@@ -357,6 +398,215 @@ test('watchlist is app scoped, client-only, absent from serialized state and gue
       source,
       /useState|useAsyncData|localStorage|sessionStorage/,
     )
+  } finally {
+    f.stop()
+  }
+})
+
+test('four tag operations use shared CAS and committed snapshot without touching movie search', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    f.list.query.value = 'External'
+    await f.list.search()
+    const search = JSON.stringify(f.list.searchResults.value)
+    let revision = 1
+    f.setTagWrite(async () => ({
+      ...value(String(++revision)),
+      tags: [{ id: '9007199254740993', name: 'Soirée' }],
+    }))
+    assert.equal(await f.list.createTag('Soirée'), true)
+    assert.equal(await f.list.renameTag('9007199254740993', 'Amis'), true)
+    assert.equal(
+      await f.list.assignTag('film-1', '9007199254740993', true),
+      true,
+    )
+    assert.equal(
+      await f.list.assignTag('film-1', '9007199254740993', false),
+      true,
+    )
+    assert.equal(await f.list.deleteTag('9007199254740993'), true)
+    assert.deepEqual(
+      f.tagPosts.map(({ action, input }) => [action, input.expected_revision]),
+      [
+        ['create', '1'],
+        ['rename', '2'],
+        ['assign', '3'],
+        ['assign', '4'],
+        ['delete', '5'],
+      ],
+    )
+    assert.ok(
+      f.tagPosts.every(({ input }) => input.expected_username === 'alice'),
+    )
+    assert.equal(JSON.stringify(f.list.searchResults.value), search)
+    assert.equal(f.list.query.value, 'External')
+    assert.ok(f.messages.every((message) => message === 'watchlist-changed'))
+    assert.doesNotMatch(
+      JSON.stringify([...f.states].map(([key, state]) => [key, state.value])),
+      /Soirée|9007199254740993|tag_ids/,
+    )
+  } finally {
+    f.stop()
+  }
+})
+
+test('tag writes serialize sort, membership, import and other tags; revalidation waits', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    const pending = deferred<AccountWatchlist>()
+    f.setTagWrite(() => pending.promise)
+    const save = f.list.createTag('Amis')
+    assert.equal(f.list.tags.value.length, 0)
+    assert.equal(await f.list.saveSort('title_asc'), false)
+    assert.equal(await f.list.save('film-2', true), false)
+    assert.equal(await f.list.importMovie('12'), false)
+    assert.equal(await f.list.createTag('Autre'), false)
+    const refresh = f.account.revalidate()
+    await settle()
+    assert.equal(f.gets, 1)
+    const next = { ...value('2'), tags: [{ id: '1', name: 'Amis' }] }
+    f.setResponse(next)
+    pending.resolve(next)
+    await save
+    await refresh
+    assert.equal(f.list.tags.value[0]?.name, 'Amis')
+    assert.equal(f.tagPosts.length, 1)
+    for (const operation of ['sort', 'membership', 'import'] as const) {
+      const held = deferred<AccountWatchlist>()
+      f.setSort(() => held.promise)
+      f.setWrite(() => held.promise)
+      f.setImport(async () => ({
+        watchlist: await held.promise,
+        movie_slug: 'film-1',
+      }))
+      const write =
+        operation === 'sort'
+          ? f.list.saveSort('title_asc')
+          : operation === 'membership'
+            ? f.list.save('film-1', true)
+            : f.list.importMovie('12')
+      assert.equal(await f.list.assignTag('film-1', '1', true), false)
+      held.resolve(next)
+      await write
+    }
+  } finally {
+    f.stop()
+  }
+})
+
+for (const transition of ['logout', 'owner', 'same-owner'] as const) {
+  test(`late tag response cannot resurrect private state after ${transition}`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      await settle()
+      const pending = deferred<AccountWatchlist>()
+      f.setTagWrite(() => pending.promise)
+      const save = f.list.createTag('Private tag')
+      f.setResponse(value('0', [], transition === 'owner' ? 'bob' : 'alice'))
+      if (transition === 'logout') f.account.clear()
+      else f.admit(session(transition === 'owner' ? 'bob' : 'alice'))
+      await settle()
+      pending.resolve({
+        ...value('99'),
+        tags: [{ id: '1', name: 'Private tag' }],
+      })
+      assert.equal(await save, false)
+      assert.equal(f.list.tags.value.length, 0)
+      assert.deepEqual(f.messages, [])
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('tag timeout after commit reconciles without replay; failed readback blocks all writers', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    const next = { ...value('2'), tags: [{ id: '1', name: 'Amis' }] }
+    f.setTagWrite(async () => {
+      f.setResponse(next)
+      throw new errors.AccountApiError()
+    })
+    assert.equal(await f.list.createTag('Amis'), false)
+    assert.equal(f.list.tags.value[0]?.name, 'Amis')
+    assert.equal(f.tagPosts.length, 1)
+    f.setRead(async () => {
+      throw new errors.AccountApiError()
+    })
+    await f.list.deleteTag('1')
+    assert.equal(f.list.ready.value, false)
+    assert.equal(await f.list.createTag('New'), false)
+    f.setRead(async () => next)
+    await f.list.retry()
+    assert.equal(f.list.ready.value, true)
+    assert.equal(f.tagPosts.length, 2)
+    f.setRead(async () => ({ ...value('1'), tags: [] }))
+    await f.account.revalidate()
+    assert.equal(f.list.tags.value.length, 1)
+    f.setRead(async () => ({ ...next, tags: [{ id: '1', name: 'Renommé' }] }))
+    await f.account.revalidate()
+    assert.equal(f.list.tags.value[0]?.name, 'Renommé')
+  } finally {
+    f.stop()
+  }
+})
+
+test('page-local tag filter combines all sorts, keeps renamed ID, resets deleted ID and scope', async () => {
+  const f = await pageFixture()
+  try {
+    const next = value('2', ['film-1', 'film-2', 'film-3'])
+    next.tags = [
+      { id: '1', name: 'Amis' },
+      { id: '2', name: 'Vide' },
+    ]
+    next.items[0]!.tag_ids = ['1']
+    next.items[2]!.tag_ids = ['1']
+    f.setResponse(next)
+    await f.account.revalidate()
+    const gets = f.gets
+    f.page.selectedTag.value = '1'
+    for (const option of sorting.watchlistSortOptions) {
+      const changed = { ...next, sort_order: option.value }
+      f.setResponse(changed)
+      await f.account.revalidate()
+      assert.deepEqual(
+        f.page.sortedItems.value.map((item) => item.slug),
+        sorting
+          .sortWatchlistItems(
+            changed.items.filter((item) => item.tag_ids.includes('1')),
+            option.value,
+          )
+          .map((item) => item.slug),
+      )
+    }
+    assert.equal(f.gets, gets + 6)
+    assert.equal(f.tagPosts.length, 0)
+    f.setResponse({
+      ...next,
+      tags: [
+        { id: '1', name: 'Renommé' },
+        { id: '2', name: 'Vide' },
+      ],
+    })
+    await f.account.revalidate()
+    assert.equal(f.page.selectedTag.value, '1')
+    f.page.selectedTag.value = '2'
+    assert.equal(f.page.sortedItems.value.length, 0)
+    f.setResponse({ ...next, tags: [] })
+    await f.account.revalidate()
+    assert.equal(f.page.selectedTag.value, '')
+    f.page.selectedTag.value = '1'
+    f.page.openTagEditor.value = 'film-1'
+    f.page.clearPageSearch()
+    assert.equal(f.page.selectedTag.value, '')
+    assert.equal(f.page.openTagEditor.value, '')
   } finally {
     f.stop()
   }
@@ -728,6 +978,8 @@ class TestSelect {
 }
 
 interface PageInteractions {
+  selectedTag: ReturnType<typeof ref<string>>
+  openTagEditor: ReturnType<typeof ref<string>>
   sortedItems: ReturnType<typeof computed<AccountWatchlist['items']>>
   changeSort: (event: { target: unknown }) => Promise<void>
   panelOpen: ReturnType<typeof ref<boolean>>
@@ -774,7 +1026,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { selectedTag, openTagEditor, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -785,7 +1037,11 @@ async function pageFixture() {
       {
         exports,
         require: (id: string) =>
-          id === '~/utils/watchlistSort' ? sorting : errors,
+          id === '~/utils/watchlistSort'
+            ? sorting
+            : id === '~/utils/watchlistTags'
+              ? tagging
+              : errors,
         computed,
         HTMLSelectElement: TestSelect,
         ref,

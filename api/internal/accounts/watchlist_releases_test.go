@@ -79,8 +79,8 @@ func TestWatchlistReleaseDTOOnlySavedItems(t *testing.T) {
 		value   any
 		present bool
 	}{
-		{WatchlistItem{WatchlistMovie: WatchlistMovie{ReleaseDate: "1998-01-01"}, FrenchReleaseDate: "1998-10-14"}, true},
-		{WatchlistItem{WatchlistMovie: WatchlistMovie{ReleaseDate: "1998-01-01"}}, false},
+		{WatchlistItem{WatchlistMovie: WatchlistMovie{ReleaseDate: "1998-01-01"}, FrenchReleaseDate: "1998-10-14", TagIDs: []string{}}, true},
+		{WatchlistItem{WatchlistMovie: WatchlistMovie{ReleaseDate: "1998-01-01"}, TagIDs: []string{}}, false},
 		{WatchlistMovie{ReleaseDate: "1998-01-01"}, false},
 		{WatchlistExternalMovie{ReleaseDate: "1998-01-01"}, false},
 	} {

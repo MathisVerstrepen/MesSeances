@@ -55,6 +55,7 @@ function createWatchlist() {
   )
   const writesBlocked = computed(() => !ready.value || saving.value)
   const items = computed(() => snapshot.value?.items ?? [])
+  const tags = computed(() => snapshot.value?.tags ?? [])
   const sortOrder = computed(() => snapshot.value?.sort_order)
   const slugs = computed(() => new Set(items.value.map((item) => item.slug)))
   const externalAvailable = computed(
@@ -153,7 +154,11 @@ function createWatchlist() {
     movie:
       | { slug: string; saved: boolean }
       | { tmdbId: string }
-      | { sortOrder: WatchlistSortOrder },
+      | { sortOrder: WatchlistSortOrder }
+      | { tag: 'create'; name: string }
+      | { tag: 'rename'; tagId: string; name: string }
+      | { tag: 'delete'; tagId: string }
+      | { tag: 'assign'; tagId: string; slug: string; assigned: boolean },
   ): Promise<string | boolean> {
     if (!import.meta.client || writesBlocked.value || !snapshot.value)
       return false
@@ -169,24 +174,49 @@ function createWatchlist() {
     savingPromise = (async () => {
       try {
         const value =
-          'tmdbId' in movie
-            ? await api.importWatchlist(
-                { ...expected, tmdb_id: movie.tmdbId },
-                controller?.signal,
-              )
-            : 'sortOrder' in movie
-              ? await api.saveWatchlistSort(
-                  { ...expected, sort_order: movie.sortOrder },
+          'tag' in movie
+            ? movie.tag === 'create'
+              ? await api.createWatchlistTag(
+                  { ...expected, name: movie.name },
                   controller?.signal,
                 )
-              : await api.saveWatchlist(
-                  {
-                    ...expected,
-                    movie_slug: movie.slug,
-                    saved: movie.saved ? 'true' : 'false',
-                  },
+              : movie.tag === 'rename'
+                ? await api.renameWatchlistTag(
+                    { ...expected, tag_id: movie.tagId, name: movie.name },
+                    controller?.signal,
+                  )
+                : movie.tag === 'delete'
+                  ? await api.deleteWatchlistTag(
+                      { ...expected, tag_id: movie.tagId },
+                      controller?.signal,
+                    )
+                  : await api.assignWatchlistTag(
+                      {
+                        ...expected,
+                        movie_slug: movie.slug,
+                        tag_id: movie.tagId,
+                        assigned: movie.assigned ? 'true' : 'false',
+                      },
+                      controller?.signal,
+                    )
+            : 'tmdbId' in movie
+              ? await api.importWatchlist(
+                  { ...expected, tmdb_id: movie.tmdbId },
                   controller?.signal,
                 )
+              : 'sortOrder' in movie
+                ? await api.saveWatchlistSort(
+                    { ...expected, sort_order: movie.sortOrder },
+                    controller?.signal,
+                  )
+                : await api.saveWatchlist(
+                    {
+                      ...expected,
+                      movie_slug: movie.slug,
+                      saved: movie.saved ? 'true' : 'false',
+                    },
+                    controller?.signal,
+                  )
         if (!token.valid()) return false
         const imported = 'watchlist' in value ? value : null
         const next = 'watchlist' in value ? value.watchlist : value
@@ -351,6 +381,7 @@ function createWatchlist() {
     ready,
     writesBlocked,
     items,
+    tags,
     sortOrder,
     slugs,
     externalAvailable,
@@ -370,5 +401,11 @@ function createWatchlist() {
     save: (slug: string, saved: boolean) => mutate({ slug, saved }),
     importMovie: (tmdbId: string) => mutate({ tmdbId }),
     saveSort: (sortOrder: WatchlistSortOrder) => mutate({ sortOrder }),
+    createTag: (name: string) => mutate({ tag: 'create', name }),
+    renameTag: (tagId: string, name: string) =>
+      mutate({ tag: 'rename', tagId, name }),
+    deleteTag: (tagId: string) => mutate({ tag: 'delete', tagId }),
+    assignTag: (slug: string, tagId: string, assigned: boolean) =>
+      mutate({ tag: 'assign', slug, tagId, assigned }),
   }
 }

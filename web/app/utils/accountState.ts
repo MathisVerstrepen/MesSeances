@@ -66,7 +66,15 @@ export function accountErrorMessage(cause: unknown): string {
   if (cause.code === 'theater_selection_changed')
     return 'Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer.'
   if (cause.code === 'watchlist_changed')
-    return 'Votre watchlist a changé sur un autre appareil. Vérifiez les films enregistrés avant de recommencer.'
+    return 'Votre watchlist a changé sur un autre appareil. Vérifiez son contenu avant de recommencer.'
+  if (cause.code === 'watchlist_tag_name_taken')
+    return 'Ce nom de tag existe déjà. Choisissez un autre nom.'
+  if (cause.code === 'watchlist_tag_limit_reached')
+    return 'Vous avez déjà 50 tags. Supprimez un tag avant d’en créer un autre.'
+  if (cause.code === 'watchlist_tag_not_found')
+    return 'Ce tag n’est plus disponible. Choisissez un tag dans la liste actualisée.'
+  if (cause.code === 'watchlist_movie_not_saved')
+    return 'Ce film n’est plus dans votre watchlist. Ajoutez-le avant de lui associer un tag.'
   if (cause.code === 'watchlist_limit_reached')
     return 'Votre watchlist contient déjà 1 000 films. Retirez un film avant d’en ajouter un autre.'
   if (cause.code === 'watchlist_external_unavailable')

@@ -16,6 +16,7 @@ const item = (
   slug,
   title: slug,
   added_at: '2026-09-01T00:00:00Z',
+  tag_ids: [],
   ...props,
 })
 const slugs = (items: WatchlistItem[]) => items.map((movie) => movie.slug)

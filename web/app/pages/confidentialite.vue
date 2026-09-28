@@ -74,12 +74,14 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <h3>Watchlist privée et fiches de films publiques</h3>
       <p>
-        Les films de votre watchlist et leur date d’ajout sont associés à votre
-        compte sur le serveur. Cette liste reste privée, sans stockage local ou
-        de session, sans partage dans les liens de recherche et sans
-        transmission à la mesure d’audience. Elle est actualisée au retour sur
-        le site et lors des changements signalés par les autres onglets. La
-        suppression du compte efface cette liste.
+        Les films de votre watchlist, leur date d’ajout, vos tags et leurs
+        associations sont liés à votre compte sur le serveur. Cette liste reste
+        privée, sans stockage local ou de session, sans partage dans les liens
+        de recherche et sans transmission à la mesure d’audience. Elle est
+        actualisée au retour sur le site et lors des changements signalés par
+        les autres onglets. La suppression du compte efface cette liste et ses
+        tags. Supprimer un tag retire ses associations, sans supprimer les
+        films.
       </p>
       <p>
         La recherche peut interroger TMDB via notre serveur, sans transmettre

@@ -30,6 +30,7 @@ type WatchlistItem struct {
 	WatchlistMovie
 	AddedAt           time.Time `json:"added_at"`
 	FrenchReleaseDate string    `json:"french_release_date,omitempty"`
+	TagIDs            []string  `json:"tag_ids"`
 }
 
 type WatchlistView struct {
@@ -37,6 +38,7 @@ type WatchlistView struct {
 	Revision                string          `json:"revision"`
 	SortOrder               string          `json:"sort_order"`
 	Items                   []WatchlistItem `json:"items"`
+	Tags                    []WatchlistTag  `json:"tags"`
 	ExternalSearchAvailable bool            `json:"external_search_available"`
 }
 
@@ -55,15 +57,22 @@ const watchlistSummary = ` 'film-' || p.id::text,
  COALESCE((CASE WHEN o.release_date_overridden THEN o.release_date ELSE p.release_date END)::text,'') `
 
 func (s *Service) readWatchlist(ctx context.Context, tx pgx.Tx, a account) (WatchlistView, int64, error) {
-	view := WatchlistView{Username: *a.username, Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}, ExternalSearchAvailable: s.watchlistProvider != nil}
+	view := WatchlistView{Username: *a.username, Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}, Tags: []WatchlistTag{}, ExternalSearchAvailable: s.watchlistProvider != nil}
 	var revision int64
 	err := tx.QueryRow(ctx, `SELECT revision,sort_order FROM account_watchlist_state WHERE account_id=$1`, a.id).Scan(&revision, &view.SortOrder)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return view, 0, ErrWatchlistUnavailable
 	}
 	view.Revision = strconv.FormatInt(revision, 10)
-	rows, err := tx.Query(ctx, watchlistResolution+`SELECT `+watchlistSummary+`, saved.added_at, COALESCE(fr.french_release_date::text,'')
- FROM (SELECT id,min(added_at) added_at FROM resolved WHERE redirect_to_id IS NULL GROUP BY id) saved
+	view.Tags, err = readWatchlistTags(ctx, tx, a.id)
+	if err != nil {
+		return view, 0, err
+	}
+	rows, err := tx.Query(ctx, watchlistResolution+`SELECT `+watchlistSummary+`, saved.added_at, COALESCE(fr.french_release_date::text,''), saved.tag_ids
+ FROM (SELECT r.id,min(r.added_at) added_at,
+ COALESCE(array_agg(DISTINCT t.tag_id ORDER BY t.tag_id) FILTER (WHERE t.tag_id IS NOT NULL),'{}'::bigint[]) tag_ids
+ FROM resolved r LEFT JOIN account_watchlist_item_tags t ON t.account_id=$1 AND t.public_movie_id=r.saved_id
+ WHERE r.redirect_to_id IS NULL GROUP BY r.id) saved
  JOIN public_movies p ON p.id=saved.id LEFT JOIN public_movie_metadata_overrides o ON o.public_movie_id=p.id
  `+watchlistReleaseObservation+` ORDER BY saved.added_at DESC, 'film-' || p.id::text`, a.id)
 	if err != nil {
@@ -72,8 +81,13 @@ func (s *Service) readWatchlist(ctx context.Context, tx pgx.Tx, a account) (Watc
 	defer rows.Close()
 	for rows.Next() {
 		var item WatchlistItem
-		if err := rows.Scan(&item.Slug, &item.Title, &item.PosterURL, &item.ReleaseDate, &item.AddedAt, &item.FrenchReleaseDate); err != nil {
+		var tagIDs []int64
+		if err := rows.Scan(&item.Slug, &item.Title, &item.PosterURL, &item.ReleaseDate, &item.AddedAt, &item.FrenchReleaseDate, &tagIDs); err != nil {
 			return view, 0, ErrWatchlistUnavailable
+		}
+		item.TagIDs = make([]string, len(tagIDs))
+		for i, id := range tagIDs {
+			item.TagIDs[i] = strconv.FormatInt(id, 10)
 		}
 		item.AddedAt = item.AddedAt.UTC()
 		view.Items = append(view.Items, item)

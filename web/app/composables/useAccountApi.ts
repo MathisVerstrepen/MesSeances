@@ -18,6 +18,10 @@ import type {
   WatchlistSearch,
   ImportWatchlist,
   ImportedWatchlist,
+  CreateWatchlistTag,
+  RenameWatchlistTag,
+  DeleteWatchlistTag,
+  AssignWatchlistTag,
 } from '~/types/watchlist'
 
 export function useAccountApi() {
@@ -87,6 +91,10 @@ export function useAccountApi() {
         'avatar_busy',
         'avatar_not_found',
         'watchlist_changed',
+        'watchlist_tag_name_taken',
+        'watchlist_tag_limit_reached',
+        'watchlist_tag_not_found',
+        'watchlist_movie_not_saved',
         'watchlist_limit_reached',
         'watchlist_external_unavailable',
         'watchlist_unavailable',
@@ -133,6 +141,34 @@ export function useAccountApi() {
     saveWatchlistSort: (input: SaveWatchlistSort, signal?: AbortSignal) =>
       request<AccountWatchlist>(
         '/account/watchlist/sort',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    createWatchlistTag: (input: CreateWatchlistTag, signal?: AbortSignal) =>
+      request<AccountWatchlist>(
+        '/account/watchlist/tags',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    renameWatchlistTag: (input: RenameWatchlistTag, signal?: AbortSignal) =>
+      request<AccountWatchlist>(
+        '/account/watchlist/tags/rename',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    deleteWatchlistTag: (input: DeleteWatchlistTag, signal?: AbortSignal) =>
+      request<AccountWatchlist>(
+        '/account/watchlist/tags/delete',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    assignWatchlistTag: (input: AssignWatchlistTag, signal?: AbortSignal) =>
+      request<AccountWatchlist>(
+        '/account/watchlist/tags/assign',
         { ...input },
         'POST',
         signal,

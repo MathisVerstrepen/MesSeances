@@ -163,6 +163,19 @@ func TestWatchlistAuthorizationAndBoundsIntegration(t *testing.T) {
 		if _, err := f.service.SaveWatchlistSort(ctx, raw, username, "0", "title_asc"); !errors.Is(err, want) {
 			t.Fatalf("sort %v want %v", err, want)
 		}
+		for _, operation := range []func() error{
+			func() error { _, err := f.service.CreateWatchlistTag(ctx, raw, username, "0", "Tag"); return err },
+			func() error { _, err := f.service.RenameWatchlistTag(ctx, raw, username, "0", "1", "Tag"); return err },
+			func() error { _, err := f.service.DeleteWatchlistTag(ctx, raw, username, "0", "1"); return err },
+			func() error {
+				_, err := f.service.AssignWatchlistTag(ctx, raw, username, "0", slug, "1", true)
+				return err
+			},
+		} {
+			if err := operation(); !errors.Is(err, want) {
+				t.Fatalf("tag authorization %v want %v", err, want)
+			}
+		}
 		if _, err := f.service.SearchWatchlist(ctx, raw, username, "Film"); !errors.Is(err, want) {
 			t.Fatalf("search %v want %v", err, want)
 		}
@@ -375,7 +388,7 @@ func TestWatchlistImportEligibilityAndRollbackIntegration(t *testing.T) {
 }
 
 func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
-	for _, mode := range []string{"logout", "revision", "sort", "concurrent import"} {
+	for _, mode := range []string{"logout", "revision", "sort", "tag", "concurrent import"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLifecycleFixture(t)
 			one := f.complete(t, "race@example.com", "race_owner")
@@ -415,6 +428,10 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 				if _, err := f.service.SaveWatchlistSort(t.Context(), other.Cookie.Token, "race_owner", "0", "title_asc"); err != nil {
 					t.Fatal(err)
 				}
+			case "tag":
+				if _, err := f.service.CreateWatchlistTag(t.Context(), one.Cookie.Token, "race_owner", "0", "Tag"); err != nil {
+					t.Fatal(err)
+				}
 			case "concurrent import":
 				two := f.complete(t, "other@example.com", "other_owner")
 				go func() {
@@ -429,7 +446,7 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 			if mode == "logout" {
 				want = ErrUnauthorized
 			}
-			if mode == "revision" || mode == "sort" {
+			if mode == "revision" || mode == "sort" || mode == "tag" {
 				want = ErrWatchlistChanged
 			}
 			if !errors.Is(err, want) {
@@ -446,7 +463,7 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 			} else if err = f.pool.QueryRow(t.Context(), `SELECT count(*) FROM tmdb_catalog_imports`).Scan(&count); err != nil || count != 0 {
 				t.Fatal("revoked import published metadata")
 			}
-			if mode == "sort" {
+			if mode == "sort" || mode == "tag" {
 				if err = f.pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM account_watchlist_items)+(SELECT count(*) FROM movie_metadata_cache)+(SELECT count(*) FROM public_movies)`).Scan(&count); err != nil || count != 0 {
 					t.Fatal("stale import changed membership or catalog", err)
 				}

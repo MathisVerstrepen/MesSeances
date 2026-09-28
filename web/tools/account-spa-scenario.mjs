@@ -111,6 +111,7 @@ export async function spaScenario({
             revision: '0',
             items: [],
             external_search_available: false,
+            tags: [],
             sort_order: 'added_desc',
           }
           break

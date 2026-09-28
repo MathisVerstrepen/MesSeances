@@ -2,6 +2,7 @@
 import { ArrowDownUp, X } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
 import { sortWatchlistItems, watchlistSortOptions } from '~/utils/watchlistSort'
+import { sortWatchlistTags } from '~/utils/watchlistTags'
 
 definePageMeta({ middleware: 'account-auth' })
 useHead({ title: 'Watchlist - MesSeances' })
@@ -13,15 +14,68 @@ const {
   searchError,
   searching,
   items,
+  tags,
   sortOrder,
   ready,
   writesBlocked,
   error,
   owner,
 } = watchlist
+const selectedTag = ref('')
+const openTagEditor = ref('')
+const tagScope = ref(0)
+const tagFilter = useTemplateRef('tagFilter')
+let tagInteraction = 0
+function interactWithTags() {
+  tagInteraction++
+}
+const sortedTags = computed(() => sortWatchlistTags(tags.value))
 const sortedItems = computed(() =>
-  sortOrder.value ? sortWatchlistItems(items.value, sortOrder.value) : [],
+  sortOrder.value
+    ? sortWatchlistItems(
+        items.value.filter(
+          (item) =>
+            !selectedTag.value || item.tag_ids.includes(selectedTag.value),
+        ),
+        sortOrder.value,
+      )
+    : [],
 )
+watch(tags, () => {
+  if (
+    selectedTag.value &&
+    !tags.value.some((tag) => tag.id === selectedTag.value)
+  )
+    selectedTag.value = ''
+})
+watch(sortedItems, () => {
+  if (!sortedItems.value.some((item) => item.slug === openTagEditor.value))
+    openTagEditor.value = ''
+})
+
+async function assignTag(
+  slug: string,
+  tagId: string,
+  assigned: boolean,
+  input: HTMLInputElement,
+) {
+  const scope = tagScope.value
+  const interaction = tagInteraction
+  const focused = document.activeElement === input
+  await watchlist.assignTag(slug, tagId, assigned)
+  await nextTick()
+  if (
+    !focused ||
+    scope !== tagScope.value ||
+    interaction !== tagInteraction ||
+    document.activeElement !== document.body
+  )
+    return
+  if (!sortedItems.value.some((item) => item.slug === slug))
+    tagFilter.value?.focus({ preventScroll: true })
+  else if (input.isConnected && !input.disabled)
+    input.focus({ preventScroll: true })
+}
 
 async function changeSort(event: Event) {
   const select = event.target
@@ -155,10 +209,16 @@ function clearPageSearch() {
   interaction++
   panelOpen.value = false
   watchlist.clearSearch()
+  selectedTag.value = ''
+  openTagEditor.value = ''
+  tagScope.value++
 }
 
 watch(watchlist.scopeKey, clearPageSearch, { flush: 'sync' })
 onMounted(() => {
+  window.addEventListener('pagehide', clearPageSearch)
+  document.addEventListener('pointerdown', interactWithTags)
+  document.addEventListener('keydown', interactWithTags)
   document.addEventListener('pointerdown', outsidePointer)
   document.addEventListener('keydown', escape)
   window.addEventListener('resize', positionPanel)
@@ -168,6 +228,9 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   clearPageSearch()
+  window.removeEventListener('pagehide', clearPageSearch)
+  document.removeEventListener('pointerdown', interactWithTags)
+  document.removeEventListener('keydown', interactWithTags)
   document.removeEventListener('pointerdown', outsidePointer)
   document.removeEventListener('keydown', escape)
   window.removeEventListener('resize', positionPanel)
@@ -427,11 +490,32 @@ onBeforeRouteLeave(clearPageSearch)
         </div>
       </form>
       <section aria-labelledby="saved-heading">
+        <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
         <div
-          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+          class="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
         >
-          <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
-          <div class="flex min-w-0 items-center gap-2 sm:max-w-sm">
+          <div class="min-w-0">
+            <label for="watchlist-tag-filter" class="account-label"
+              >Filtrer par tag</label
+            >
+            <select
+              id="watchlist-tag-filter"
+              ref="tagFilter"
+              v-model="selectedTag"
+              class="account-input min-h-11 w-full min-w-0"
+              :disabled="!ready"
+            >
+              <option value="">Tous les films</option>
+              <option
+                v-for="tag in (ready ? sortedTags : [])"
+                :key="tag.id"
+                :value="tag.id"
+              >
+                {{ tag.name }}
+              </option>
+            </select>
+          </div>
+          <div class="flex min-w-0 items-center gap-2 self-end">
             <label for="watchlist-sort" class="sr-only">Trier par</label>
             <ArrowDownUp
               :size="20"
@@ -440,7 +524,7 @@ onBeforeRouteLeave(clearPageSearch)
             />
             <select
               id="watchlist-sort"
-              class="account-input min-h-11 min-w-0"
+              class="account-input min-h-11 w-full min-w-0"
               :value="ready ? sortOrder : ''"
               :disabled="!ready || writesBlocked"
               @change="changeSort"
@@ -457,6 +541,12 @@ onBeforeRouteLeave(clearPageSearch)
               </option>
             </select>
           </div>
+          <WatchlistTagManager
+            :key="tagScope"
+            :tags="tags"
+            :ready="ready"
+            :blocked="writesBlocked"
+          />
         </div>
         <div
           v-if="!ready && !error"
@@ -470,6 +560,20 @@ onBeforeRouteLeave(clearPageSearch)
         <p v-else-if="ready && !items.length" class="mt-3 text-sm">
           Votre watchlist est vide. Recherchez un film pour l’ajouter.
         </p>
+        <div
+          v-else-if="ready && !sortedItems.length"
+          class="mt-3 text-sm"
+          role="status"
+        >
+          <p>Aucun film avec ce tag.</p>
+          <button
+            type="button"
+            class="account-link min-h-11"
+            @click="selectedTag = ''"
+          >
+            Voir tous les films
+          </button>
+        </div>
         <ul v-else-if="ready">
           <WatchlistMovieRow
             v-for="movie in sortedItems"
@@ -479,6 +583,17 @@ onBeforeRouteLeave(clearPageSearch)
             :poster-url="movie.poster_url"
             :french-release-date="movie.french_release_date"
           >
+            <template #content>
+              <WatchlistItemTags
+                :title="movie.title"
+                :tags="sortedTags"
+                :tag-ids="movie.tag_ids"
+                :open="openTagEditor === movie.slug"
+                :blocked="writesBlocked"
+                @toggle="openTagEditor = openTagEditor === movie.slug ? '' : movie.slug"
+                @assign="(tagId, assigned, input) => assignTag(movie.slug, tagId, assigned, input)"
+              />
+            </template>
             <WatchlistButton :slug="movie.slug" :show-error="false" />
           </WatchlistMovieRow>
         </ul>
