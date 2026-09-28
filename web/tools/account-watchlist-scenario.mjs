@@ -34,6 +34,9 @@ export async function watchlistScenario({
   let hold = false
   let holdSearch = false
   let releaseSearch
+  let holdRead = true
+  let failRead = false
+  let releaseRead
   let release
   const writes = []
   const requests = []
@@ -187,7 +190,18 @@ export async function watchlistScenario({
           catalog_has_more: false,
         })
       }
-      if (req.method === 'GET') return send(snapshot())
+      if (req.method === 'GET') {
+        const value = snapshot()
+        if (holdRead)
+          await new Promise((resolve) => {
+            releaseRead = resolve
+          })
+        if (failRead) {
+          failRead = false
+          return send({ error: { code: 'watchlist_unavailable' } }, 503)
+        }
+        return send(value)
+      }
       if (conflict || body.expected_revision !== String(revision)) {
         conflict = false
         return send({ error: { code: 'watchlist_changed' } }, 409)
@@ -246,6 +260,47 @@ export async function watchlistScenario({
   const savedRow = (slug) =>
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
+  async function checkLoadingLayout(viewport) {
+    await until(
+      page,
+      `!!document.querySelector('section[aria-labelledby="saved-heading"] [role="status"]')`,
+      'saved-list loading status visible',
+    )
+    check(
+      await evaluate(
+        page,
+        `(() => {
+          const input = document.querySelector('#watchlist-query');
+          const form = input.closest('form');
+          const section = document.querySelector('section[aria-labelledby="saved-heading"]');
+          const heading = section.querySelector('#saved-heading');
+          const select = section.querySelector('#watchlist-sort');
+          const status = section.querySelector('[role="status"]');
+          const icon = select?.parentElement.querySelector('svg[aria-hidden="true"]');
+          const nodes = [form, heading, icon, select, status];
+          return nodes.every(node => node?.getBoundingClientRect().width > 0)
+            && nodes.every((node, index) => !index || (nodes[index - 1].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))
+            && document.querySelectorAll('main [role="status"]').length === 1
+            && status.textContent.trim() === 'Chargement de la watchlist…'
+            && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide')
+            && input.disabled && select.disabled && select.value === ''
+            && select.selectedOptions[0].disabled && select.selectedOptions[0].textContent.trim() === 'Trier par'
+            && select.labels[0].textContent.trim() === 'Trier par' && select.labels[0].classList.contains('sr-only')
+            && document.documentElement.scrollWidth <= innerWidth
+            && form.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top
+            && select.getBoundingClientRect().bottom <= status.getBoundingClientRect().top;
+        })()`,
+      ),
+      `${viewport} loading keeps search then heading/icon/disabled neutral select then one skeleton, without stale rows or empty-state flash`,
+    )
+  }
+  async function finishRead() {
+    for (let i = 0; !releaseRead && i < 100; i++) await delay(20)
+    check(!!releaseRead, 'held private watchlist GET reached fixture')
+    holdRead = false
+    releaseRead()
+    releaseRead = undefined
+  }
   async function selectSort(value) {
     await until(
       page,
@@ -271,10 +326,62 @@ export async function watchlistScenario({
     page.sessionId,
   )
   await go(page, '/compte/watchlist')
+  await checkLoadingLayout('desktop')
+  await screenshot(page, 'loading-desktop')
+  const loadingAccessibility = await getCDP().send(
+    'Accessibility.getFullAXTree',
+    {},
+    page.sessionId,
+  )
+  check(
+    loadingAccessibility.nodes.some(
+      (node) =>
+        node.role?.value === 'combobox' &&
+        node.name?.value === 'Trier par' &&
+        node.properties?.some(
+          (property) => property.name === 'disabled' && property.value?.value,
+        ),
+    ),
+    'loading native selector exposes accessible name and disabled state',
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await checkLoadingLayout('mobile')
+  await screenshot(page, 'loading-mobile')
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    page.sessionId,
+  )
+  failRead = true
+  await finishRead()
+  await until(
+    page,
+    `!!document.querySelector('main [role="alert"]')`,
+    'initial read failure replaces loading feedback',
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const section = document.querySelector('section[aria-labelledby="saved-heading"]'); const select = section.querySelector('#watchlist-sort'); return !document.querySelector('main [role="status"]') && document.querySelectorAll('main [role="alert"]').length === 1 && select.disabled && select.value === '' && select.selectedOptions[0].textContent.trim() === 'Tri indisponible' && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide'); })()`,
+    ),
+    'failed initial read retains heading and disabled neutral sort without skeleton or false empty state',
+  )
+  await click(page, 'Réessayer')
   await until(
     page,
     `document.querySelector('main').textContent.includes('Votre watchlist est vide')`,
     'watchlist empty state',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('main [role="status"], main [role="alert"], #watchlist-sort option[value=""]')`,
+    ),
+    'successful retry replaces loading/error placeholder with ready empty state',
   )
   check(
     await evaluate(
@@ -587,7 +694,10 @@ export async function watchlistScenario({
     ),
     'uncertain committed sort read-back updates native selection and rows',
   )
+  holdRead = true
   await go(page, '/compte/watchlist')
+  await checkLoadingLayout('reload with persisted release sort')
+  await finishRead()
   await until(
     page,
     `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'release_desc'`,
@@ -636,10 +746,13 @@ export async function watchlistScenario({
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
   await until(
     page,
-    `!document.querySelector('#watchlist-sort')`,
+    `document.querySelector('#watchlist-sort')?.value !== 'release_desc' && !document.querySelector('section[aria-labelledby="saved-heading"] li')`,
     'owner change purges previous private selection',
   )
+  holdRead = true
   await go(page, '/compte/watchlist')
+  await checkLoadingLayout('replacement owner')
+  await finishRead()
   await until(
     page,
     `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'added_desc' && document.querySelector('main').textContent.includes('Votre watchlist est vide')`,

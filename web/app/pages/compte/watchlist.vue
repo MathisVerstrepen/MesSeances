@@ -198,15 +198,6 @@ onBeforeRouteLeave(clearPageSearch)
           Réessayer
         </button>
       </div>
-      <div
-        v-if="!ready && !error"
-        role="status"
-        class="space-y-3 motion-safe:animate-pulse"
-      >
-        <span class="sr-only">Chargement de la watchlist…</span>
-        <div class="h-24 bg-subtle" />
-        <div class="h-24 bg-subtle" />
-      </div>
       <form
         ref="searchArea"
         class="relative max-w-2xl"
@@ -435,7 +426,7 @@ onBeforeRouteLeave(clearPageSearch)
           </div>
         </div>
       </form>
-      <section v-if="ready" aria-labelledby="saved-heading">
+      <section aria-labelledby="saved-heading">
         <div
           class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
         >
@@ -450,10 +441,13 @@ onBeforeRouteLeave(clearPageSearch)
             <select
               id="watchlist-sort"
               class="account-input min-h-11 min-w-0"
-              :value="sortOrder"
-              :disabled="writesBlocked"
+              :value="ready ? sortOrder : ''"
+              :disabled="!ready || writesBlocked"
               @change="changeSort"
             >
+              <option v-if="!ready" value="" disabled>
+                {{ error ? 'Tri indisponible' : 'Trier par' }}
+              </option>
               <option
                 v-for="option in watchlistSortOptions"
                 :key="option.value"
@@ -464,10 +458,19 @@ onBeforeRouteLeave(clearPageSearch)
             </select>
           </div>
         </div>
-        <p v-if="!items.length" class="mt-3 text-sm">
+        <div
+          v-if="!ready && !error"
+          role="status"
+          class="mt-3 space-y-3 motion-safe:animate-pulse"
+        >
+          <span class="sr-only">Chargement de la watchlist…</span>
+          <div class="h-24 bg-subtle" />
+          <div class="h-24 bg-subtle" />
+        </div>
+        <p v-else-if="ready && !items.length" class="mt-3 text-sm">
           Votre watchlist est vide. Recherchez un film pour l’ajouter.
         </p>
-        <ul v-else>
+        <ul v-else-if="ready">
           <WatchlistMovieRow
             v-for="movie in sortedItems"
             :key="movie.slug"
