@@ -97,6 +97,11 @@ FROM jsonb_to_recordset($1::jsonb) AS v(id bigint, target bigint)
 WHERE upcoming.tmdb_id=v.id AND upcoming.public_movie_id IS DISTINCT FROM v.target`, catalog); err != nil {
 		return fmt.Errorf("transfer catalog evidence failed")
 	}
+	if _, err := tx.Exec(ctx, `UPDATE tmdb_catalog_imports imported SET public_movie_id=v.target
+FROM jsonb_to_recordset($1::jsonb) AS v(id bigint, target bigint)
+WHERE imported.tmdb_id=v.id AND imported.public_movie_id IS DISTINCT FROM v.target`, catalog); err != nil {
+		return fmt.Errorf("transfer imported catalog evidence failed")
+	}
 	if _, err := tx.Exec(ctx, `UPDATE public_movie_sources source SET public_movie_id=v.target
 FROM jsonb_to_recordset($1::jsonb) AS v(provider text, source_id text, target bigint)
 WHERE source.source_provider=v.provider AND source.source_movie_id=v.source_id

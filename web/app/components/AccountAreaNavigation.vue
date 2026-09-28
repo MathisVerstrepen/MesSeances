@@ -5,10 +5,10 @@ const route = useRoute()
 const settingsActive = computed(
   () => route.path.toLowerCase().replace(/\/+$/, '') === '/compte/parametres',
 )
-const upcomingEntries = [
-  { label: 'Watchlist', icon: Bookmark },
-  { label: 'Amis', icon: Users },
-]
+const watchlistActive = computed(
+  () => route.path.toLowerCase().replace(/\/+$/, '') === '/compte/watchlist',
+)
+const upcomingEntries = [{ label: 'Amis', icon: Users }]
 </script>
 
 <template>
@@ -29,6 +29,17 @@ const upcomingEntries = [
             <Settings :size="18" class="shrink-0" aria-hidden="true" />
             Paramètres
           </span>
+        </NuxtLink>
+      </li>
+      <li>
+        <NuxtLink
+          to="/compte/watchlist"
+          :prefetch="false"
+          :aria-current="watchlistActive ? 'page' : undefined"
+          :class="watchlistActive ? 'border-ink bg-ink text-white' : 'border-transparent hover:bg-ink/10'"
+          class="flex min-h-12 items-center gap-2 border-l-4 px-3 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          <Bookmark :size="18" class="shrink-0" aria-hidden="true" />Watchlist
         </NuxtLink>
       </li>
       <li v-for="entry in upcomingEntries" :key="entry.label">

@@ -28,9 +28,12 @@ type Candidate struct {
 	Title         string
 	OriginalTitle string
 	PosterURL     string
+	ReleaseDate   string
 }
 
 type Details struct {
+	// Adult is nil when the provider did not explicitly classify the movie.
+	Adult               *bool
 	ID                  int64
 	IMDBID              string
 	Title               string
@@ -55,6 +58,7 @@ type video struct {
 }
 
 type movieDetailsResponse struct {
+	Adult            *bool  `json:"adult"`
 	ID               int64  `json:"id"`
 	IMDBID           string `json:"imdb_id"`
 	Title            string `json:"title"`
@@ -154,6 +158,7 @@ func (c *Client) Search(ctx context.Context, title string) ([]Candidate, error) 
 			Title         string `json:"title"`
 			OriginalTitle string `json:"original_title"`
 			PosterPath    string `json:"poster_path"`
+			ReleaseDate   string `json:"release_date"`
 		} `json:"results"`
 	}
 	if err := c.get(ctx, "/3/search/movie", query, &response); err != nil {
@@ -168,6 +173,13 @@ func (c *Client) Search(ctx context.Context, title string) ([]Candidate, error) 
 			return nil, fmt.Errorf("tmdb search response is invalid")
 		}
 		candidate := Candidate{ID: item.ID, Title: item.Title, OriginalTitle: item.OriginalTitle}
+		if item.ReleaseDate != "" {
+			date, err := time.Parse(time.DateOnly, item.ReleaseDate)
+			if err != nil || date.Format(time.DateOnly) != item.ReleaseDate {
+				return nil, fmt.Errorf("tmdb search response is invalid")
+			}
+			candidate.ReleaseDate = item.ReleaseDate
+		}
 		if item.PosterPath != "" {
 			posterURL, err := c.posterURL(ctx, item.PosterPath)
 			if err != nil {
@@ -202,6 +214,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 		}
 	}
 	details := Details{ID: response.ID, IMDBID: response.IMDBID, Title: response.Title, OriginalTitle: response.OriginalTitle, OriginalLanguage: response.OriginalLanguage, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerVFYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results, "fr"), Runtime: response.Runtime, Genres: []string{}}
+	details.Adult = response.Adult
 	if response.OriginalLanguage != "" && response.OriginalLanguage != "fr" {
 		var videosResponse struct {
 			ID     int64 `json:"id"`

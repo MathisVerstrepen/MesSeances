@@ -33,7 +33,7 @@ test('search page owns canonical route selection and filters only rendered resul
     pageSource,
     /filterSelectedShowtimeResults\(\s*normalizedResults\.value,\s*selectedShowtimeKeys\.value,?\s*\)/,
   )
-  assert.match(pageSource, /:results="visibleResults"/)
+  assert.match(pageSource, /:results="section.results"/)
   assert.match(pageSource, /:selected-keys="selectedShowtimeKeys"/)
   assert.match(
     pageSource,

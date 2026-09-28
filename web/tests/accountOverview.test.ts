@@ -564,13 +564,13 @@ test('account area is opt-in, with one current route and disabled future categor
     navigation,
     /to="\/compte\/parametres"\s+:prefetch="false"\s+:aria-current="settingsActive \? 'page' : undefined"/,
   )
-  assert.match(navigation, /\{ label: 'Watchlist', icon: Bookmark \}/)
+  assert.match(navigation, /to="\/compte\/watchlist"/)
   assert.match(navigation, /\{ label: 'Amis', icon: Users \}/)
   assert.match(navigation, /v-for="entry in upcomingEntries"/)
   assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
-  assert.equal([...navigation.matchAll(/to=/g)].length, 1)
+  assert.equal([...navigation.matchAll(/to=/g)].length, 2)
   assert.doesNotMatch(navigation, /@click|tabindex|href=/)
   for (const page of [
     'connexion',

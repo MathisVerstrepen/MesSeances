@@ -248,7 +248,7 @@ func run(ctx context.Context) error {
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
-	accountService, err := newAccountService(pool, cfg, avatars)
+	accountService, err := newAccountService(pool, cfg, avatars, admin.enrichmentProvider, schedules.service.RefreshPublishedMovie)
 	if err != nil {
 		return err
 	}
@@ -548,7 +548,7 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 	})
 }
 
-func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *accountavatar.Store) (*accounts.Service, error) {
+func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *accountavatar.Store, provider accounts.WatchlistProvider, refresh func(context.Context, string) error) (*accounts.Service, error) {
 	if !cfg.Accounts.Enabled {
 		return nil, nil
 	}
@@ -570,7 +570,8 @@ func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *ac
 	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
 		Hasher: hasher, Origin: cfg.Server.Origin, AddressHMACKey: cfg.Accounts.AddressHMACKey[:],
 		Google: google, FlowCipher: cipher, Mail: &accountmail.Outbox{Cipher: cipher},
-		Avatars: avatars,
+		Avatars:           avatars,
+		WatchlistProvider: provider, WatchlistRefresh: refresh,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configuration error")

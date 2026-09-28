@@ -226,6 +226,7 @@ async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
   await f.compile('../plugins/account-session.client', {
     useAccountSession: () => f.account,
     useCinemaPreferences: () => f.preferences,
+    useWatchlist: () => ({ startSynchronization() {} }),
     defineNuxtPlugin: (
       plugin: (app: {
         hook: (name: string, callback: () => void) => void
@@ -1125,6 +1126,7 @@ test('account plugin revalidates theater notifications and revisit events withou
           starts++
         },
       }),
+      useWatchlist: () => ({ startSynchronization() {} }),
       useAccountSession: () => ({
         status: ref('ready'),
         refresh: () => {
@@ -1159,13 +1161,15 @@ test('account plugin revalidates theater notifications and revisit events withou
   for (const name of ['focus', 'online', 'visibilitychange'])
     listeners.get(name)!({})
   assert.equal(revalidations, 4)
+  channels[0]!.onmessage!({ data: 'watchlist-changed' })
+  assert.equal(revalidations, 5)
   assert.equal(refreshes, 0)
   channels[0]!.onmessage!({ data: 'changed' })
   assert.equal(refreshes, 1)
   listeners.get('pagehide')!({})
   listeners.get('focus')!({})
   assert.equal(clears, 1)
-  assert.equal(revalidations, 4)
+  assert.equal(revalidations, 5)
   listeners.get('pageshow')!({ persisted: true })
   assert.equal(refreshes, 2)
   assert.equal(starts, 1)

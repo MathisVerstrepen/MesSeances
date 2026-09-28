@@ -35,31 +35,36 @@ type RateLimitError struct{ RetryAfter int }
 func (e *RateLimitError) Error() string { return "account rate limited" }
 
 type ServiceOptions struct {
-	Now            func() time.Time
-	Random         io.Reader
-	Hasher         PasswordHasher
-	Mail           accountmail.Enqueuer
-	Origin         string
-	AddressHMACKey []byte
-	Google         GoogleProvider
-	FlowCipher     accountmail.PayloadCipher
-	Avatars        *accountavatar.Store
-	GooglePictures GooglePictureFetcher
+	Now               func() time.Time
+	Random            io.Reader
+	Hasher            PasswordHasher
+	Mail              accountmail.Enqueuer
+	Origin            string
+	AddressHMACKey    []byte
+	Google            GoogleProvider
+	FlowCipher        accountmail.PayloadCipher
+	Avatars           *accountavatar.Store
+	GooglePictures    GooglePictureFetcher
+	WatchlistProvider WatchlistProvider
+	WatchlistRefresh  func(context.Context, string) error
 }
 
 type Service struct {
-	store      *PostgresStore
-	now        func() time.Time
-	random     io.Reader
-	randomMu   sync.Mutex
-	hasher     PasswordHasher
-	mail       accountmail.Enqueuer
-	origin     string
-	hmacKey    []byte
-	google     GoogleProvider
-	flowCipher accountmail.PayloadCipher
-	avatars    *accountavatar.Store
-	pictures   GooglePictureFetcher
+	store             *PostgresStore
+	now               func() time.Time
+	random            io.Reader
+	randomMu          sync.Mutex
+	hasher            PasswordHasher
+	mail              accountmail.Enqueuer
+	origin            string
+	hmacKey           []byte
+	google            GoogleProvider
+	flowCipher        accountmail.PayloadCipher
+	avatars           *accountavatar.Store
+	pictures          GooglePictureFetcher
+	watchlistProvider WatchlistProvider
+	watchlistRefresh  func(context.Context, string) error
+	watchlistGate     chan struct{}
 }
 
 func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) {
@@ -72,7 +77,7 @@ func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) 
 	if options.GooglePictures == nil && options.Avatars != nil {
 		options.GooglePictures = options.Avatars
 	}
-	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures}, nil
+	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures, watchlistProvider: options.WatchlistProvider, watchlistRefresh: options.WatchlistRefresh, watchlistGate: make(chan struct{}, 2)}, nil
 }
 
 func (s *Service) newToken() (string, Digest, error) {

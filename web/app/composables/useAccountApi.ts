@@ -11,6 +11,13 @@ import type {
 } from '~/types/account'
 import { AccountApiError } from '~/utils/accountState'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
+import type {
+  AccountWatchlist,
+  SaveWatchlist,
+  WatchlistSearch,
+  ImportWatchlist,
+  ImportedWatchlist,
+} from '~/types/watchlist'
 
 export function useAccountApi() {
   const config = useRuntimeConfig()
@@ -78,6 +85,13 @@ export function useAccountApi() {
         'avatar_invalid',
         'avatar_busy',
         'avatar_not_found',
+        'watchlist_changed',
+        'watchlist_limit_reached',
+        'watchlist_external_unavailable',
+        'watchlist_unavailable',
+        'movie_not_found',
+        'movie_not_importable',
+        'onboarding_required',
       ].includes(error.data?.error?.code)
         ? String(error.data.error.code)
         : ''
@@ -106,6 +120,32 @@ export function useAccountApi() {
     logout: () => request<void>('/auth/logout', {}),
     logoutAll: () => request<void>('/auth/logout-all', {}),
     details: () => request<AccountDetails>('/account'),
+    watchlist: (signal?: AbortSignal) =>
+      request<AccountWatchlist>('/account/watchlist', undefined, 'GET', signal),
+    saveWatchlist: (input: SaveWatchlist, signal?: AbortSignal) =>
+      request<AccountWatchlist>(
+        '/account/watchlist',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    searchWatchlist: (
+      input: { expected_username: string; query: string },
+      signal?: AbortSignal,
+    ) =>
+      request<WatchlistSearch>(
+        '/account/watchlist/search',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    importWatchlist: (input: ImportWatchlist, signal?: AbortSignal) =>
+      request<ImportedWatchlist>(
+        '/account/watchlist/import',
+        { ...input },
+        'POST',
+        signal,
+      ),
     theaterPreferences: (signal?: AbortSignal) =>
       request<AccountTheaterPreferences>(
         '/account/theaters',

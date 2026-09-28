@@ -105,6 +105,14 @@ export async function spaScenario({
             }
           }
           break
+        case '/api/v1/account/watchlist':
+          value = {
+            username: currentSession().account?.username ?? '',
+            revision: '0',
+            items: [],
+            external_search_available: false,
+          }
+          break
         case '/api/v1/auth/login':
           setSession({ enabled: true, state: 'complete', account: owner })
           value = currentSession()
@@ -320,7 +328,7 @@ export async function spaScenario({
   )
   await evaluate(
     page,
-    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a[href="/compte/parametres"]').click()`,
   )
   await until(
     page,
@@ -365,7 +373,7 @@ export async function spaScenario({
   )
   await evaluate(
     page,
-    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a[href="/compte/parametres"]').click()`,
   )
   await until(
     page,
@@ -528,7 +536,7 @@ export async function spaScenario({
   )
   await evaluate(
     page,
-    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a[href="/compte/parametres"]').click()`,
   )
   await until(
     page,
