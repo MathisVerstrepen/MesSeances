@@ -58,7 +58,7 @@ func TestAvatarCleanupStartupAndDrain(t *testing.T) {
 func TestAvatarRuntimeDisabledAndSingleOwner(t *testing.T) {
 	cfg := runtimeconfig.Config{}
 	cfg.Accounts.AvatarDir = "/not/a/real/media/root"
-	if s, err := newAccountService(nil, cfg, nil, nil, nil); err != nil || s != nil {
+	if s, err := newAccountService(nil, cfg, nil, nil, nil, nil); err != nil || s != nil {
 		t.Fatal("disabled media touched")
 	}
 	root := t.TempDir()
@@ -80,7 +80,7 @@ func TestAvatarRuntimeDisabledAndSingleOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = newAccountService(nil, cfg, media, nil, nil); err != nil {
+	if _, err = newAccountService(nil, cfg, media, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = accountavatar.Open(root); err == nil {
@@ -96,7 +96,7 @@ func TestAvatarRuntimeDisabledAndSingleOwner(t *testing.T) {
 	if err = two.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = newAccountService(nil, cfg, nil, nil, nil); err == nil || err.Error() != "configuration error" {
+	if _, err = newAccountService(nil, cfg, nil, nil, nil, nil); err == nil || err.Error() != "configuration error" {
 		t.Fatal("enabled service accepted missing root ownership")
 	}
 }

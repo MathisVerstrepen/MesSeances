@@ -28,7 +28,8 @@ type WatchlistMovie struct {
 
 type WatchlistItem struct {
 	WatchlistMovie
-	AddedAt time.Time `json:"added_at"`
+	AddedAt           time.Time `json:"added_at"`
+	FrenchReleaseDate string    `json:"french_release_date,omitempty"`
 }
 
 type WatchlistView struct {
@@ -60,17 +61,17 @@ func (s *Service) readWatchlist(ctx context.Context, tx pgx.Tx, a account) (Watc
 		return view, 0, ErrWatchlistUnavailable
 	}
 	view.Revision = strconv.FormatInt(revision, 10)
-	rows, err := tx.Query(ctx, watchlistResolution+`SELECT `+watchlistSummary+`, saved.added_at
+	rows, err := tx.Query(ctx, watchlistResolution+`SELECT `+watchlistSummary+`, saved.added_at, COALESCE(fr.french_release_date::text,'')
  FROM (SELECT id,min(added_at) added_at FROM resolved WHERE redirect_to_id IS NULL GROUP BY id) saved
  JOIN public_movies p ON p.id=saved.id LEFT JOIN public_movie_metadata_overrides o ON o.public_movie_id=p.id
- ORDER BY saved.added_at DESC, 'film-' || p.id::text`, a.id)
+ `+watchlistReleaseObservation+` ORDER BY saved.added_at DESC, 'film-' || p.id::text`, a.id)
 	if err != nil {
 		return view, 0, ErrWatchlistUnavailable
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var item WatchlistItem
-		if err := rows.Scan(&item.Slug, &item.Title, &item.PosterURL, &item.ReleaseDate, &item.AddedAt); err != nil {
+		if err := rows.Scan(&item.Slug, &item.Title, &item.PosterURL, &item.ReleaseDate, &item.AddedAt, &item.FrenchReleaseDate); err != nil {
 			return view, 0, ErrWatchlistUnavailable
 		}
 		item.AddedAt = item.AddedAt.UTC()

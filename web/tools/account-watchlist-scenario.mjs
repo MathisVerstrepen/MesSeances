@@ -24,6 +24,7 @@ export async function watchlistScenario({
   let session = { enabled: true, state: 'complete', account: owner }
   let revision = 0
   let saved = []
+  const frenchReleases = new Map([['saved-film', '1998-10-14']])
   let externalStatus = 'ready'
   let emptySearch = false
   let conflict = false
@@ -51,7 +52,7 @@ export async function watchlistScenario({
     tmdb_id: null,
     imdb_id: null,
     overview: 'Un film de cinéma.',
-    release_date: '2026-01-01',
+    release_date: slug === 'saved-film' ? '1997-07-24' : '2026-01-01',
     genres: [],
     french_release_date: null,
   })
@@ -72,6 +73,7 @@ export async function watchlistScenario({
     revision: String(revision),
     items: saved.map((slug) => ({
       ...movie(slug),
+      french_release_date: frenchReleases.get(slug),
       added_at: `${date}T00:00:00Z`,
     })),
     external_search_available: true,
@@ -228,6 +230,8 @@ export async function watchlistScenario({
       'watchlist SPA arrival',
     )
   }
+  const savedRow = (slug) =>
+    `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   await launch()
   const page = await tab()
   await getCDP().send('Page.bringToFront', {}, page.sessionId)
@@ -274,6 +278,13 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
+      `(() => { const row = document.querySelector('#watchlist-catalog-panel li'); return row.querySelector('p.text-muted')?.textContent.trim() === '1997' && !row.querySelector('time'); })()`,
+    ),
+    'catalog search keeps general-date year rather than saved French evidence',
+  )
+  check(
+    await evaluate(
+      page,
       `(() => { const before = scrollY; const scroll = document.querySelector('#watchlist-results .overflow-y-auto'); scroll.scrollTop = 500; return scroll.scrollTop === 500 && scrollY === before; })()`,
     ),
     'result scrolling leaves document scroll position unchanged',
@@ -294,6 +305,13 @@ export async function watchlistScenario({
       `document.activeElement.id === 'watchlist-external-tab' && document.activeElement.getAttribute('aria-selected') === 'true' && !document.querySelector('#watchlist-catalog-panel').getClientRects().length && document.querySelector('#watchlist-external-panel').getClientRects().length > 0`,
     ),
     'arrow key changes source tab and visible panel',
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const row = document.querySelector('#watchlist-external-panel li'); return row.querySelector('p.text-muted')?.textContent.trim() === '2026' && !row.querySelector('time'); })()`,
+    ),
+    'external search keeps general-date year',
   )
   await screenshot(page, 'external-tab')
   check(
@@ -355,6 +373,13 @@ export async function watchlistScenario({
     ),
     'confirmed catalog save closes clears and restores input focus',
   )
+  check(
+    await evaluate(
+      page,
+      `(() => { const row = ${savedRow('saved-film')}; return row.querySelector('time')?.getAttribute('datetime') === '1998-10-14' && row.querySelector('time').textContent.trim() === '14 octobre 1998' && !row.textContent.includes('1997'); })()`,
+    ),
+    'saved catalog movie displays verified full French date, not general release year',
+  )
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -410,6 +435,35 @@ export async function watchlistScenario({
     ),
     'confirmed external import closes and clears search',
   )
+  check(
+    await evaluate(
+      page,
+      `(() => { const row = ${savedRow('external-film')}; return !!row && !row.querySelector('time, .text-muted') && !row.textContent.includes('2026'); })()`,
+    ),
+    'imported movie without French evidence has no date or general-year fallback',
+  )
+  const membershipRevision = revision
+  const beforeRefreshWrites = writes.length
+  for (const [evidence, label] of [
+    ['1998-10-07', '7 octobre 1998'],
+    [undefined, null],
+    ['1998-10-14', '14 octobre 1998'],
+    ['1998-02-30', null],
+    ['1998-10-14', '14 octobre 1998'],
+  ]) {
+    if (evidence) frenchReleases.set('saved-film', evidence)
+    else frenchReleases.delete('saved-film')
+    await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+    await until(
+      page,
+      `(() => { const row = ${savedRow('saved-film')}; return !!row && !document.querySelector('#watchlist-query').disabled && ${label ? `row.querySelector('time')?.textContent.trim() === ${JSON.stringify(label)}` : `!row.querySelector('time, .text-muted')`}; })()`,
+      'French evidence revalidation at unchanged membership revision',
+    )
+    check(
+      revision === membershipRevision && writes.length === beforeRefreshWrites,
+      `equal-revision evidence refresh ${evidence ?? 'no evidence'} updates without membership mutation`,
+    )
+  }
   await screenshot(page, 'desktop')
   await route(page, '/film/external-film')
   await until(
@@ -741,16 +795,39 @@ export async function watchlistScenario({
     ),
     'close control returns focus',
   )
+  await click(page, 'Rechercher')
+  await until(
+    page,
+    `!!document.querySelector('button[aria-label="Ajouter Film favori à la watchlist"]:not(:disabled)')`,
+    'mobile saved-date candidate ready',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Ajouter Film favori à la watchlist"]').click()`,
+  )
+  await until(
+    page,
+    `${savedRow('saved-film')}?.querySelector('time')?.textContent.trim() === '14 octobre 1998' && !document.querySelector('#watchlist-results')`,
+    'mobile saved date rendered',
+  )
   check(
     await evaluate(
       page,
-      `!JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, payload: window.__NUXT__ }).match(/private_watchlist_owner|private candidate query|watchlist-only|added_at/)`,
+      `(() => { const row = ${savedRow('saved-film')}; const time = row.querySelector('time').getBoundingClientRect(); const action = row.querySelector('button').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth && time.right <= action.left && action.width >= 44 && action.height >= 44; })()`,
+    ),
+    'mobile full French date fits saved row and preserves bookmark touch target',
+  )
+  await screenshot(page, 'mobile-saved-date')
+  check(
+    await evaluate(
+      page,
+      `!JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, payload: window.__NUXT__, data: document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data, url: location.href }).match(/private_watchlist_owner|private candidate query|watchlist-only|added_at|1998-10-14|14 octobre 1998/)`,
     ),
     'private watchlist identity query membership absent from browser storage and public payload',
   )
   check(
     !page.collections.some((collection) =>
-      /private_watchlist_owner|private candidate query|watchlist-only|saved-film/.test(
+      /private_watchlist_owner|private candidate query|watchlist-only|saved-film|1998-10-14|14 octobre 1998/.test(
         JSON.stringify(collection),
       ),
     ),
@@ -760,7 +837,9 @@ export async function watchlistScenario({
     await fetch('http://127.0.0.1:13009/film/external-film')
   ).text()
   check(
-    !/private_watchlist_owner|added_at|private candidate query/.test(ssr),
+    !/private_watchlist_owner|added_at|private candidate query|1998-10-14|14 octobre 1998/.test(
+      ssr,
+    ),
     'public film SSR excludes account watchlist state',
   )
   check(

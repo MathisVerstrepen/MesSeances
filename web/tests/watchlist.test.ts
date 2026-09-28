@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
-import { computed, effectScope, nextTick, readonly, ref, watch } from 'vue'
+import {
+  type Component,
+  computed,
+  createSSRApp,
+  effectScope,
+  h,
+  nextTick,
+  readonly,
+  ref,
+  watch,
+} from 'vue'
 import type { useWatchlist } from '../app/composables/useWatchlist.ts'
 import type { useAccountSession } from '../app/composables/useAccountSession.ts'
 import type { AccountSession } from '../app/types/account.ts'
@@ -14,6 +27,121 @@ import type {
   WatchlistSearch,
 } from '../app/types/watchlist.ts'
 import * as errors from '../app/utils/accountState.ts'
+import * as dates from '../app/utils/date.ts'
+import * as images from '../app/utils/safeImageUrl.ts'
+import * as upcoming from '../app/utils/upcomingMovies.ts'
+
+const require = createRequire(import.meta.url)
+const rowSource = await readFile(
+  new URL('../app/components/WatchlistMovieRow.vue', import.meta.url),
+  'utf8',
+)
+const { descriptor } = parse(rowSource)
+interface RowModule {
+  default?: Component
+}
+const rowModule: RowModule = {}
+runInNewContext(
+  ts.transpileModule(
+    compileScript(descriptor, {
+      id: 'WatchlistMovieRow',
+      inlineTemplate: true,
+    }).content,
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText,
+  {
+    exports: rowModule,
+    computed,
+    require: (id: string) => {
+      if (id === '~/utils/date') return dates
+      if (id === '~/utils/safeImageUrl') return images
+      if (id === '~/utils/upcomingMovies') return upcoming
+      return require(id)
+    },
+  },
+)
+assert.ok(rowModule.default)
+const WatchlistMovieRow = rowModule.default
+
+interface RowDateProps {
+  releaseDate?: string | null
+  frenchReleaseDate?: string | null
+}
+
+async function renderRow(props: RowDateProps) {
+  const app = createSSRApp(WatchlistMovieRow, {
+    title: 'Film sauvegardé',
+    slug: 'film-1',
+    ...props,
+  })
+  app.component('NuxtLink', {
+    props: ['to'],
+    setup:
+      (props, { slots }) =>
+      () =>
+        h('a', { href: props.to }, slots.default?.()),
+  })
+  return renderToString(app)
+}
+
+test('saved movie row renders a full French theatrical date in semantic time, not the general year', async () => {
+  const html = await renderRow({
+    frenchReleaseDate: '1998-10-14',
+    releaseDate: '1997-07-24',
+  })
+  assert.match(html, /<time datetime="1998-10-14"[^>]*>14 octobre 1998<\/time>/)
+  assert.doesNotMatch(html, /1997/)
+  assert.match(html, /href="\/film\/film-1"/)
+  assert.match(html, /Film sauvegardé/)
+  assert.match(html, /aria-hidden="true"/)
+})
+
+test('saved row omits missing, negative and invalid evidence without date placeholder or inferred year', async () => {
+  for (const frenchReleaseDate of [
+    undefined,
+    null,
+    '',
+    '1998',
+    '1998-02-30',
+    '2025-02-29',
+    '1998-13-14',
+    '1998-10-14T00:00:00Z',
+    'invalid',
+  ]) {
+    const html = await renderRow({ frenchReleaseDate })
+    assert.doesNotMatch(html, /<time|text-muted|1998|2025|Invalid Date/)
+    assert.match(html, /Film sauvegardé/)
+  }
+  assert.match(
+    await renderRow({ frenchReleaseDate: '2000-02-29' }),
+    />29 février 2000<\/time>/,
+  )
+})
+
+test('search rows retain general-date years and saved loop receives no fallback release date', async () => {
+  const html = await renderRow({ releaseDate: '1997-07-24' })
+  assert.match(html, /<p[^>]*>1997<\/p>/)
+  assert.doesNotMatch(html, /<time|juillet/)
+  const page = await readFile(
+    new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+    'utf8',
+  )
+  const rows = [...page.matchAll(/<WatchlistMovieRow\b[^>]*>/g)].map(
+    (match) => match[0],
+  )
+  assert.equal(rows.length, 3)
+  for (const row of rows.slice(0, 2)) {
+    assert.match(row, /:release-date="movie.release_date"/)
+    assert.doesNotMatch(row, /french-release-date/)
+  }
+  assert.match(rows[2]!, /:french-release-date="movie.french_release_date"/)
+  assert.doesNotMatch(rows[2]!, /\s:release-date=/)
+})
 
 function session(username = 'alice'): AccountSession {
   return {
@@ -38,6 +166,8 @@ function value(
     items: slugs.map((slug) => ({
       slug,
       title: slug,
+      release_date: '1997-07-24',
+      french_release_date: '1998-10-14',
       added_at: '2026-09-01T00:00:00Z',
     })),
     external_search_available: true,
@@ -208,6 +338,71 @@ test('watchlist is app scoped, client-only, absent from serialized state and gue
     f.stop()
   }
 })
+
+test('revalidation acquires, replaces and removes French evidence at equal membership revision in private memory only', async () => {
+  const f = await fixture()
+  try {
+    const initial = value()
+    delete initial.items[0]!.french_release_date
+    f.setResponse(initial)
+    f.admit()
+    await settle()
+    assert.equal(f.list.items.value[0]?.french_release_date, undefined)
+    for (const date of ['1998-10-14', '1998-10-07', undefined]) {
+      const updated = value()
+      if (date) updated.items[0]!.french_release_date = date
+      else delete updated.items[0]!.french_release_date
+      f.setResponse(updated)
+      await f.account.revalidate()
+      assert.equal(f.list.ready.value, true)
+      assert.equal(f.list.items.value[0]?.french_release_date, date)
+      assert.equal(f.list.items.value[0]?.release_date, '1997-07-24')
+      assert.equal(f.list.items.value[0]?.added_at, initial.items[0]?.added_at)
+      assert.deepEqual([...f.list.slugs.value], ['film-1'])
+      assert.doesNotMatch(
+        JSON.stringify([...f.states].map(([key, state]) => [key, state.value])),
+        /french_release_date|1998-10|film-1|added_at/,
+      )
+    }
+    assert.equal(f.gets, 4)
+    assert.equal(f.posts.length, 0)
+    assert.deepEqual(f.messages, [])
+    // Metadata refresh keeps membership CAS unchanged for the next real write.
+    await f.list.save('film-2', true)
+    assert.equal(f.posts[0]?.expected_revision, '1')
+    assert.deepEqual(f.messages, ['watchlist-changed'])
+    f.account.clear()
+    assert.equal(f.list.items.value.length, 0)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const transition of ['logout', 'owner'] as const) {
+  test(`late French evidence revalidation is discarded after ${transition}`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      await settle()
+      const pending = deferred<AccountWatchlist>()
+      f.setRead(() => pending.promise)
+      const refresh = f.account.revalidate()
+      await settle()
+      f.setRead(async () => value('1', [], 'bob'))
+      if (transition === 'logout') f.account.clear()
+      else f.admit(session('bob'))
+      await settle()
+      pending.resolve(value())
+      await refresh
+      await settle()
+      assert.equal(f.list.items.value.length, 0)
+      assert.equal(f.list.owner.value, transition === 'logout' ? '' : 'bob')
+      assert.deepEqual(f.messages, [])
+    } finally {
+      f.stop()
+    }
+  })
+}
 
 test('committed snapshots alone change saved status and writes are serialized', async () => {
   const f = await fixture()

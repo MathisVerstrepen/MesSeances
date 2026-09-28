@@ -416,7 +416,7 @@ onBeforeRouteLeave(clearPageSearch)
             :title="movie.title"
             :slug="movie.slug"
             :poster-url="movie.poster_url"
-            :release-date="movie.release_date"
+            :french-release-date="movie.french_release_date"
           >
             <WatchlistButton :slug="movie.slug" :show-error="false" />
           </WatchlistMovieRow>

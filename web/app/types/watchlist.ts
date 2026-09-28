@@ -6,6 +6,7 @@ export interface WatchlistMovie {
 }
 
 export interface WatchlistItem extends WatchlistMovie {
+  french_release_date?: string | null
   added_at: string
 }
 

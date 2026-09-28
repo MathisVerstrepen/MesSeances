@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [050_account_watchlist.sql](050_account_watchlist.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [051_watchlist_french_releases.sql](051_watchlist_french_releases.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -94,7 +94,7 @@ Accounts are independent of schedule generations, administrator authentication a
 | `account_oauth_flows` | State digest PK; browser digest; nonce; encrypted verifier key ID/12-byte nonce/ciphertext; mode (`login`, `link`, `reauth`); nullable account/session/revision/grant/action bindings; created/expiry times with maximum 10 minutes; nullable `claimed_at` inside lifetime; nullable normalized `target_email` iff email-change action; monotonic `authority_event`. Anonymous login has no account bindings; link/reauth require them; linking also requires Google-link grant. |
 | `account_mail_outbox` | Identity ID PK; UNIQUE 32-byte `event_digest`; nullable account/token/revision; checked purpose; encrypted payload key/nonce/ciphertext; state (`pending`, `sent`, `failed`); attempts 0-6; created/expiry/next-attempt; nullable lease expiry/digest and terminal time. Lifetime at most 24 hours. Pending state requires encrypted payload; terminal state requires payload/lease erasure and finish time. |
 | `account_mail_suppressions` | 32-byte address-HMAC PK; reason (`permanent_bounce`, `complaint`); created/updated/expiry times. Expiry at most 4320 hours after update. No account FK; remains personal/security data. |
-| `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username, email change, `avatar_write`, `avatar_import`, `watchlist_write`, `watchlist_search` and `watchlist_import`. |
+| `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username, email change, `avatar_write`, `avatar_import`, `watchlist_write`, `watchlist_search`, `watchlist_import` and `watchlist_release_fetch`. The latter uses one global HMAC key and a 60-attempt/60-second fixed window across accounts and replicas. |
 | `account_theater_preferences` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `theater_ids text[]` validated by `account_theater_ids_valid`. Missing row means never initialized, distinct from an existing row with empty array. No FK to generation-scoped theaters. |
 | `account_watchlist_state` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991. Missing row reads as revision 0 and is not created by a read or an unchanged membership. |
 | `account_watchlist_items` | Composite PK `(account_id, public_movie_id)`; account FK with `ON DELETE CASCADE`; durable `public_movies(id)` FK with default no-action deletion; `added_at timestamptz` default `now()`. No generation-scoped movie FK, slug, title or metadata copy. |
@@ -102,6 +102,21 @@ Accounts are independent of schedule generations, administrator authentication a
 All account ownership foreign keys cascade except username claims. Composite session/account and token/account foreign keys prevent cross-account binding; their deletion cascades dependent grants, flows and queued mail. Account-associated outbox rows cascade on deletion. Terminal delivery metadata is detached from account/token authority. Suppressions and quota HMACs have independent bounded retention.
 
 Watchlist writes serialize on the account row and compare revisions before no-op detection. Application enforces at most 1,000 stored membership rows per account; SQL does not implement a counting trigger. Reads resolve redirect chains to current canonical movies, collapse duplicates with earliest `added_at`, and sort newest first with canonical-slug tie breaking. Removal deletes all owner rows resolving to the selected canonical identity. Splits follow each saved durable ID without duplication. Reconciliation does not lock or rewrite account rows. No accounts are backfilled by migration 050.
+
+### `tmdb_french_release_cache`
+
+Migration 051 creates empty reusable TMDB evidence storage, not public publication evidence or an account backfill. It has no foreign keys, account attribution or raw provider responses and survives account deletion. Only currently saved canonical confirmed TMDB identities are eligible for acquisition.
+
+| Column | Type | Definition |
+| --- | --- | --- |
+| `tmdb_id` | `bigint` | Positive primary key |
+| `french_release_date` | `date` | Nullable earliest verified FR type-2/3 date |
+| `french_releases` | `jsonb` | Nonnull default `[]`; array of at most 64 normalized `{type,date,note}` rows |
+| `verified_at` | `timestamptz` | Nullable; null means no successful observation, not a negative observation |
+| `retry_after` | `timestamptz` | Required persistent claim/backoff/freshness deadline |
+| `attempt_revision` | `bigint` | Required claim revision between 1 and 9,007,199,254,740,991; conditional finalization fence |
+
+An unverified row must have null date and empty evidence. Application normalizes and validates types 1..6, full calendar dates and notes up to 1,024 Unicode code points, then derives the earliest theatrical date before successful writes. Claims increment revision and reserve 15 minutes; success retains positive evidence for 30 days or valid negative evidence for seven days before refresh. Provider errors preserve previous evidence; 404 backs off 24 hours without creating a negative observation. Saved reads and refresh eligibility select the newest verified observation between this cache and upcoming evidence, with upcoming winning ties. Upcoming positives are valid even before structured assessment; upcoming nulls count only after assessment. A newer negative suppresses an older positive. Cache updates never advance membership, schedule or enrichment revisions or create upcoming membership.
 
 ### `tmdb_catalog_imports`
 

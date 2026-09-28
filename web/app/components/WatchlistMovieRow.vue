@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { Film } from '@lucide/vue'
+import { isCalendarDate } from '~/utils/date'
 import { safePosterUrl } from '~/utils/safeImageUrl'
+import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
 const props = defineProps<{
   title: string
   posterUrl?: string | null
   releaseDate?: string | null
+  frenchReleaseDate?: string | null
   slug?: string
 }>()
 const poster = computed(() => safePosterUrl(props.posterUrl))
+const frenchReleaseLabel = computed(() =>
+  props.frenchReleaseDate && isCalendarDate(props.frenchReleaseDate)
+    ? formatFrenchReleaseDate(props.frenchReleaseDate)
+    : '',
+)
 </script>
 
 <template>
@@ -38,7 +46,15 @@ const poster = computed(() => safePosterUrl(props.posterUrl))
         }}</NuxtLink
       >
       <p v-else class="break-words font-bold">{{ title }}</p>
-      <p v-if="releaseDate" class="mt-1 text-sm text-muted">
+      <time
+        v-if="frenchReleaseLabel"
+        :datetime="frenchReleaseDate ?? undefined"
+        class="mt-1 block text-sm text-muted"
+        >{{
+          frenchReleaseLabel
+        }}</time
+      >
+      <p v-else-if="releaseDate" class="mt-1 text-sm text-muted">
         {{ releaseDate.slice(0, 4) }}
       </p>
     </div>
