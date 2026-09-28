@@ -10,9 +10,18 @@ export interface WatchlistItem extends WatchlistMovie {
   added_at: string
 }
 
+export type WatchlistSortOrder =
+  | 'added_desc'
+  | 'added_asc'
+  | 'title_asc'
+  | 'title_desc'
+  | 'release_desc'
+  | 'release_asc'
+
 export interface AccountWatchlist {
   username: string
   revision: string
+  sort_order: WatchlistSortOrder
   items: WatchlistItem[]
   external_search_available: boolean
 }
@@ -44,6 +53,12 @@ export interface ImportWatchlist {
   expected_username: string
   expected_revision: string
   tmdb_id: string
+}
+
+export interface SaveWatchlistSort {
+  expected_username: string
+  expected_revision: string
+  sort_order: WatchlistSortOrder
 }
 
 export interface ImportedWatchlist {

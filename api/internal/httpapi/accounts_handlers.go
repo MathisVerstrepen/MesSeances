@@ -68,6 +68,7 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	post("/account/theaters", h.saveTheaterPreferences, h.theaters)
 	router.Get("/api/v1/account/watchlist", h.watchlist)
 	post("/account/watchlist", h.saveWatchlist, h.watchlistWrites)
+	post("/account/watchlist/sort", h.saveWatchlistSort, h.watchlistWrites)
 	post("/account/watchlist/search", h.searchWatchlist, h.watchlistSearches)
 	post("/account/watchlist/import", h.importWatchlist, h.watchlistImports)
 	post("/auth/register", h.register, h.send)

@@ -111,6 +111,7 @@ export async function spaScenario({
             revision: '0',
             items: [],
             external_search_available: false,
+            sort_order: 'added_desc',
           }
           break
         case '/api/v1/auth/login':

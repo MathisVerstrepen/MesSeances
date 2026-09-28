@@ -2,6 +2,73 @@ package database
 
 import "testing"
 
+func TestWatchlistSortMigrationIntegration(t *testing.T) {
+	for _, upgrade := range []bool{false, true} {
+		name := "fresh"
+		if upgrade {
+			name = "upgrade_from_051"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			pool, _ := newMigrationTestPool(t, ctx, "watchlist_sort_")
+			if upgrade {
+				installMigrationPrefix(t, ctx, pool, 51, "051_watchlist_french_releases.sql")
+			} else if err := RunMigrations(ctx, pool); err != nil {
+				t.Fatal(err)
+			}
+			var owner int64
+			if err := pool.QueryRow(ctx, `INSERT INTO accounts(email,created_at,email_verified_at,verification_source) VALUES('sort@example.com',now(),now(),'email') RETURNING id`).Scan(&owner); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO accounts(email,created_at,email_verified_at,verification_source) VALUES('absent@example.com',now(),now(),'email')`); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO public_movies(identity_anchor_tmdb_id,title,runtime_minutes) VALUES(42,'Film',0)`); err != nil {
+				t.Fatal(err)
+			}
+			for _, query := range []string{
+				`INSERT INTO account_watchlist_state(account_id,revision) VALUES($1,7)`,
+				`INSERT INTO account_watchlist_items(account_id,public_movie_id,added_at) SELECT $1,id,'2026-09-01T12:00:00.123456Z' FROM public_movies`,
+			} {
+				if _, err := pool.Exec(ctx, query, owner); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for range 2 {
+				if err := RunMigrations(ctx, pool); err != nil {
+					t.Fatal(err)
+				}
+			}
+			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			var absent int
+			if err := pool.QueryRow(ctx, `SELECT count(*) FROM account_watchlist_state WHERE account_id<>$1`, owner).Scan(&absent); err != nil || absent != 0 {
+				t.Fatal("migration initialized absent state", err)
+			}
+			var valid bool
+			if err := pool.QueryRow(ctx, `SELECT s.revision=7 AND s.sort_order='added_desc' AND i.added_at='2026-09-01T12:00:00.123456Z'::timestamptz FROM account_watchlist_state s JOIN account_watchlist_items i USING(account_id) WHERE s.account_id=$1`, owner).Scan(&valid); err != nil || !valid {
+				t.Fatal("upgrade changed existing state", err)
+			}
+			for _, order := range []any{"", "TITLE_ASC", "title_asc ", "unknown", nil} {
+				if _, err := pool.Exec(ctx, `UPDATE account_watchlist_state SET sort_order=$1 WHERE account_id=$2`, order, owner); err == nil {
+					t.Fatal("invalid database sort accepted", order)
+				}
+			}
+			for _, order := range []string{"added_desc", "added_asc", "title_asc", "title_desc", "release_desc", "release_asc"} {
+				if _, err := pool.Exec(ctx, `UPDATE account_watchlist_state SET sort_order=$1 WHERE account_id=$2`, order, owner); err != nil {
+					t.Fatal("valid database sort rejected", err)
+				}
+			}
+			if _, err := pool.Exec(ctx, `DELETE FROM accounts WHERE id=$1`, owner); err != nil {
+				t.Fatal(err)
+			}
+			var count int
+			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM account_watchlist_state)+(SELECT count(*) FROM account_watchlist_items)`).Scan(&count); err != nil || count != 0 {
+				t.Fatal("watchlist cascade failed", err)
+			}
+		})
+	}
+}
+
 func TestWatchlistReleaseMigrationIntegration(t *testing.T) {
 	for _, prefix := range []int{0, 50} {
 		t.Run(map[int]string{0: "fresh", 50: "upgrade"}[prefix], func(t *testing.T) {

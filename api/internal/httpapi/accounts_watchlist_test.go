@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ const watchlistRoute = "/api/v1/account/watchlist"
 const validWatchlistMutation = `{"expected_username":"owner","expected_revision":"0","movie_slug":"film-1","saved":"true"}`
 const validWatchlistSearch = `{"expected_username":"owner","query":"Film"}`
 const validWatchlistImport = `{"expected_username":"owner","expected_revision":"0","tmdb_id":"42"}`
+const validWatchlistSort = `{"expected_username":"owner","expected_revision":"0","sort_order":"title_asc"}`
 
 func TestWatchlistStrictTransport(t *testing.T) {
 	for _, tc := range []struct {
@@ -26,6 +28,28 @@ func TestWatchlistStrictTransport(t *testing.T) {
 		{"valid", watchlistRoute, validWatchlistMutation, 503},
 		{"search", watchlistRoute + "/search", validWatchlistSearch, 503},
 		{"import", watchlistRoute + "/import", validWatchlistImport, 503},
+		{"sort", watchlistRoute + "/sort", validWatchlistSort, 503},
+		{"sort missing owner", watchlistRoute + "/sort", `{"expected_revision":"0","sort_order":"title_asc"}`, 400},
+		{"sort missing revision", watchlistRoute + "/sort", `{"expected_username":"owner","sort_order":"title_asc"}`, 400},
+		{"sort missing order", watchlistRoute + "/sort", `{"expected_username":"owner","expected_revision":"0"}`, 400},
+		{"sort null", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `"title_asc"`, `null`, 1), 400},
+		{"sort array", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `"title_asc"`, `[]`, 1), 400},
+		{"sort boolean", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `"title_asc"`, `true`, 1), 400},
+		{"sort number", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `"title_asc"`, `1`, 1), 400},
+		{"sort invalid enum", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `title_asc`, `newest`, 1), 400},
+		{"sort padded enum", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `title_asc`, `title_asc `, 1), 400},
+		{"sort case enum", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `title_asc`, `TITLE_ASC`, 1), 400},
+		{"sort empty enum", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `title_asc`, ``, 1), 400},
+		{"sort overflow revision", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `"0"`, `"9007199254740992"`, 1), 400},
+		{"sort padded revision", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `"0"`, `"01"`, 1), 400},
+		{"sort case field", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `sort_order`, `Sort_order`, 1), 400},
+		{"sort unknown", watchlistRoute + "/sort", strings.TrimSuffix(validWatchlistSort, "}") + `,"account_id":"1"}`, 400},
+		{"sort duplicate", watchlistRoute + "/sort", strings.TrimSuffix(validWatchlistSort, "}") + `,"sort_order":"title_desc"}`, 400},
+		{"sort escaped duplicate", watchlistRoute + "/sort", strings.TrimSuffix(validWatchlistSort, "}") + `,"\u0073ort_order":"title_desc"}`, 400},
+		{"sort trailing", watchlistRoute + "/sort", validWatchlistSort + `{}`, 400},
+		{"sort invalid utf8", watchlistRoute + "/sort", "{\xff}", 400},
+		{"sort surrogate", watchlistRoute + "/sort", strings.Replace(validWatchlistSort, `title_asc`, `\ud800`, 1), 400},
+		{"sort body limit", watchlistRoute + "/sort", validWatchlistSort + strings.Repeat(" ", 8192), 400},
 		{"missing", watchlistRoute, `{}`, 400},
 		{"boolean", watchlistRoute, strings.Replace(validWatchlistMutation, `"true"`, `true`, 1), 400},
 		{"wrong boolean", watchlistRoute, strings.Replace(validWatchlistMutation, `"true"`, `"yes"`, 1), 400},
@@ -67,7 +91,7 @@ func TestWatchlistStrictTransport(t *testing.T) {
 }
 
 func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
-	for _, route := range []struct{ method, path, body string }{{"GET", watchlistRoute, ""}, {"POST", watchlistRoute, validWatchlistMutation}, {"POST", watchlistRoute + "/search", validWatchlistSearch}, {"POST", watchlistRoute + "/import", validWatchlistImport}} {
+	for _, route := range []struct{ method, path, body string }{{"GET", watchlistRoute, ""}, {"POST", watchlistRoute, validWatchlistMutation}, {"POST", watchlistRoute + "/sort", validWatchlistSort}, {"POST", watchlistRoute + "/search", validWatchlistSearch}, {"POST", watchlistRoute + "/import", validWatchlistImport}} {
 		for _, suffix := range []string{"?", "?username=other"} {
 			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
 			w := httptest.NewRecorder()
@@ -105,6 +129,17 @@ func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
 		}
 		if route.method == "GET" {
 			continue
+		}
+		for _, contentType := range []string{"", "text/plain", "application/json; charset=iso-8859-1"} {
+			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+			r := theaterPreferenceRequest(t, route.method, route.path, route.body)
+			r.Header.Set("Content-Type", contentType)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != 400 {
+				t.Fatal("invalid content type accepted")
+			}
+			assertAccountHeaders(t, w)
 		}
 		for _, header := range []string{"Origin", "X-Messeances-CSRF", "Sec-Fetch-Site"} {
 			for _, duplicate := range []bool{false, true} {
@@ -155,6 +190,14 @@ func TestWatchlistIndependentIPQuotasAndSafeErrors(t *testing.T) {
 			t.Fatal("route quota not applied")
 		}
 		assertAccountHeaders(t, w)
+		if tc.path == watchlistRoute {
+			w := httptest.NewRecorder()
+			accountBoundary(h.mutation(h.saveWatchlistSort, h.watchlistWrites)).ServeHTTP(w, theaterPreferenceRequest(t, "POST", watchlistRoute+"/sort", validWatchlistSort))
+			if w.Code != 429 {
+				t.Fatal("sort did not share membership IP quota")
+			}
+			assertAccountHeaders(t, w)
+		}
 		now = now.Add(tc.refill)
 		if ok, _ := tc.limiter.allow(unknownClientKey); !ok {
 			t.Fatal("incorrect refill")
@@ -195,19 +238,26 @@ func TestWatchlistRegisteredRoutesIntegration(t *testing.T) {
 		t.Fatal("browser fixture must persist catalog identities without provider showtimes")
 	}
 	input := map[string]string{"expected_username": "watchlist_http", "expected_revision": "0", "movie_slug": movie.Slug, "saved": "true"}
+	sortInput := map[string]string{"expected_username": "watchlist_http", "expected_revision": "0", "sort_order": "added_desc"}
 	p.request("GET", watchlistRoute, nil, 401, nil)
 	p.request("POST", watchlistRoute, input, 401, nil)
+	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
 	p.google(map[string]string{"mode": "login"}, "verified", "/finaliser")
 	p.request("GET", watchlistRoute, nil, 403, nil)
 	p.request("POST", watchlistRoute, input, 403, nil)
+	p.request("POST", watchlistRoute+"/sort", sortInput, 403, nil)
 	p.request("POST", "/api/v1/account/username", accountUsername{Username: "watchlist_http"}, 200, nil)
 	var view accounts.WatchlistView
 	p.request("GET", watchlistRoute, nil, 200, &view)
-	if view.Username != "watchlist_http" || view.Revision != "0" || view.Items == nil || len(view.Items) != 0 || view.ExternalSearchAvailable {
+	if view.Username != "watchlist_http" || view.Revision != "0" || view.SortOrder != "added_desc" || view.Items == nil || len(view.Items) != 0 || view.ExternalSearchAvailable {
 		t.Fatal("initial wire mismatch")
 	}
+	p.request("POST", watchlistRoute+"/sort", sortInput, 200, &view)
+	if view.Revision != "0" || view.SortOrder != "added_desc" {
+		t.Fatal("default sort initialized resource")
+	}
 	p.request("POST", watchlistRoute, input, 200, &view)
-	if view.Revision != "1" || len(view.Items) != 1 || view.Items[0].Slug != movie.Slug || view.Items[0].Title != movie.Title || view.Items[0].AddedAt.IsZero() {
+	if view.Revision != "1" || view.SortOrder != "added_desc" || len(view.Items) != 1 || view.Items[0].Slug != movie.Slug || view.Items[0].Title != movie.Title || view.Items[0].AddedAt.IsZero() {
 		t.Fatal("saved wire mismatch")
 	}
 	p.request("POST", watchlistRoute, input, 409, nil)
@@ -231,6 +281,24 @@ func TestWatchlistRegisteredRoutesIntegration(t *testing.T) {
 	if view.Revision != "2" || view.Items == nil || len(view.Items) != 0 {
 		t.Fatal("remove wire mismatch")
 	}
+	for i, order := range []string{"title_asc", "title_desc", "release_asc", "release_desc", "added_asc", "added_desc"} {
+		sortInput["expected_revision"] = strconv.Itoa(i + 2)
+		sortInput["sort_order"] = order
+		p.request("POST", watchlistRoute+"/sort", sortInput, 200, &view)
+		if view.Revision != strconv.Itoa(i+3) || view.SortOrder != order || view.Items == nil || len(view.Items) != 0 {
+			t.Fatal("sort wire mismatch")
+		}
+		p.request("POST", watchlistRoute+"/sort", sortInput, 409, nil)
+		sortInput["expected_revision"] = view.Revision
+		p.request("POST", watchlistRoute+"/sort", sortInput, 200, &view)
+		p.request("GET", watchlistRoute, nil, 200, &view)
+		if view.Revision != strconv.Itoa(i+3) || view.SortOrder != order {
+			t.Fatal("sort persistence/no-op failed")
+		}
+	}
+	sortInput["expected_username"] = "different_owner"
+	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
 	p.request("POST", "/api/v1/auth/logout", struct{}{}, 204, nil)
 	p.request("GET", watchlistRoute, nil, 401, nil)
+	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
 }

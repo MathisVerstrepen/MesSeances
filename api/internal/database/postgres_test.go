@@ -108,6 +108,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{49, "049_account_theater_preferences.sql"},
 		{50, "050_account_watchlist.sql"},
 		{51, "051_watchlist_french_releases.sql"},
+		{52, "052_account_watchlist_sort.sql"},
 	}
 
 	items, err := embeddedMigrations()

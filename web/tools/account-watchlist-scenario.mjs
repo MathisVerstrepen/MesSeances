@@ -24,6 +24,9 @@ export async function watchlistScenario({
   let session = { enabled: true, state: 'complete', account: owner }
   let revision = 0
   let saved = []
+  const sorts = new Map()
+  const addedTimes = new Map()
+  let uncertainSort = false
   const frenchReleases = new Map([['saved-film', '1998-10-14']])
   let externalStatus = 'ready'
   let emptySearch = false
@@ -71,10 +74,11 @@ export async function watchlistScenario({
   const snapshot = () => ({
     username: session.account.username,
     revision: String(revision),
+    sort_order: sorts.get(session.account.username) ?? 'added_desc',
     items: saved.map((slug) => ({
       ...movie(slug),
       french_release_date: frenchReleases.get(slug),
-      added_at: `${date}T00:00:00Z`,
+      added_at: addedTimes.get(slug) ?? `${date}T00:00:00Z`,
     })),
     external_search_available: true,
   })
@@ -192,6 +196,15 @@ export async function watchlistScenario({
         await new Promise((resolve) => {
           release = resolve
         })
+      if (path.endsWith('/sort')) {
+        sorts.set(session.account.username, body.sort_order)
+        revision++
+        if (uncertainSort) {
+          uncertainSort = false
+          return send({ error: { code: 'watchlist_unavailable' } }, 503)
+        }
+        return send(snapshot())
+      }
       const slug = path.endsWith('/import') ? 'external-film' : body.movie_slug
       saved = saved.filter((item) => item !== slug)
       if (path.endsWith('/import') || body.saved === 'true') saved.unshift(slug)
@@ -232,6 +245,23 @@ export async function watchlistScenario({
   }
   const savedRow = (slug) =>
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
+  const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
+  async function selectSort(value) {
+    await until(
+      page,
+      `!!document.querySelector('#watchlist-sort:not(:disabled)')`,
+      'sort control available',
+    )
+    await evaluate(
+      page,
+      `(() => { const select = document.querySelector('#watchlist-sort'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+    )
+    await until(
+      page,
+      `document.querySelector('#watchlist-sort:not(:disabled)')?.value === ${JSON.stringify(value)}`,
+      'committed sort selection',
+    )
+  }
   await launch()
   const page = await tab()
   await getCDP().send('Page.bringToFront', {}, page.sessionId)
@@ -252,6 +282,32 @@ export async function watchlistScenario({
       `!document.querySelector('#watchlist-query').disabled && document.querySelectorAll('h1').length === 1`,
     ),
     'watchlist form enabled with single heading',
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const select = document.querySelector('#watchlist-sort'); const label = select.labels[0]; const icon = select.parentElement.querySelector('svg[aria-hidden="true"]'); return select.value === 'added_desc' && select.options.length === 6 && label.textContent.trim() === 'Trier par' && label.classList.contains('sr-only') && getComputedStyle(label).position === 'absolute' && !!icon && icon.getBoundingClientRect().width === 20; })()`,
+    ),
+    'empty watchlist has screen-reader labeled six-option selector and visible decorative sort icon',
+  )
+  const accessibility = await getCDP().send(
+    'Accessibility.getFullAXTree',
+    {},
+    page.sessionId,
+  )
+  check(
+    accessibility.nodes.some(
+      (node) =>
+        node.role?.value === 'combobox' && node.name?.value === 'Trier par',
+    ),
+    'native sort selector retains Trier par accessible name',
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const select = document.querySelector('#watchlist-sort'); const control = select.getBoundingClientRect(); const icon = select.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); return icon.right <= control.left && Math.abs(icon.top + icon.height / 2 - control.top - control.height / 2) < 1 && Math.abs(heading.top + heading.height / 2 - control.top - control.height / 2) < 1; })()`,
+    ),
+    'desktop sort icon and select align inline with Mes films heading',
   )
   await fill(page, 'watchlist-query', 'private candidate query')
   check(
@@ -442,6 +498,208 @@ export async function watchlistScenario({
     ),
     'imported movie without French evidence has no date or general-year fallback',
   )
+  addedTimes.set('external-film', `${date}T00:00:00.000000001Z`)
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-sort:not(:disabled)')`,
+    'sort snapshot revalidated',
+  )
+  for (const [order, expected] of [
+    ['added_desc', ['external-film', 'saved-film']],
+    ['added_asc', ['saved-film', 'external-film']],
+    ['title_asc', ['external-film', 'saved-film']],
+    ['title_desc', ['saved-film', 'external-film']],
+    ['release_desc', ['saved-film', 'external-film']],
+    ['release_asc', ['saved-film', 'external-film']],
+  ]) {
+    await selectSort(order)
+    check(
+      await evaluate(
+        page,
+        `JSON.stringify(${savedOrder}) === ${JSON.stringify(JSON.stringify(expected))}`,
+      ),
+      `${order} commits matching saved-row order`,
+    )
+  }
+  const sortWrites = () =>
+    writes.filter((write) => write.path.endsWith('/watchlist/sort'))
+  check(
+    sortWrites().every(
+      (write) =>
+        Object.keys(write.body).sort().join(',') ===
+        'expected_revision,expected_username,sort_order',
+    ),
+    'sort mutation uses exact narrow revision/owner request',
+  )
+  const beforeConflictSort = sortWrites().length
+  conflict = true
+  await evaluate(
+    page,
+    `(() => { const select = document.querySelector('#watchlist-sort'); select.value = 'title_asc'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'release_asc' && !!document.querySelector('[role="alert"]')`,
+    'rejected sort restores unchanged native selection',
+  )
+  check(
+    sortWrites().length === beforeConflictSort + 1 &&
+      (await evaluate(
+        page,
+        `JSON.stringify(${savedOrder}) === '["saved-film","external-film"]'`,
+      )),
+    'rejected sort keeps committed rows and is never replayed',
+  )
+  hold = true
+  release = undefined
+  await evaluate(
+    page,
+    `(() => { const select = document.querySelector('#watchlist-sort'); select.value = 'title_asc'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort')?.disabled`,
+    'pending sort disables selector',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-sort').value === 'release_asc' && JSON.stringify(${savedOrder}) === '["saved-film","external-film"]' && [...document.querySelectorAll('section[aria-labelledby="saved-heading"] li button')].every(button => button.disabled)`,
+    ),
+    'pending sort restores committed control immediately and locks membership without optimistic reorder',
+  )
+  for (let i = 0; !release && i < 100; i++) await delay(20)
+  check(!!release, 'held sort reached fixture')
+  hold = false
+  release()
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'title_asc'`,
+    'held sort commits',
+  )
+  uncertainSort = true
+  await selectSort('release_desc')
+  check(
+    await evaluate(
+      page,
+      `!!document.querySelector('[role="alert"]') && JSON.stringify(${savedOrder}) === '["saved-film","external-film"]'`,
+    ),
+    'uncertain committed sort read-back updates native selection and rows',
+  )
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'release_desc'`,
+    'sort persists after full reload',
+  )
+  check(
+    await evaluate(
+      page,
+      `JSON.stringify(${savedOrder}) === '["saved-film","external-film"]'`,
+    ),
+    'reloaded account retains committed release order',
+  )
+  const sortTab = await tab(page.browserContextId)
+  await go(sortTab, '/compte/watchlist')
+  await until(
+    sortTab,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'release_desc'`,
+    'another tab reads account preference',
+  )
+  await evaluate(
+    sortTab,
+    `(() => { const select = document.querySelector('#watchlist-sort'); select.value = 'title_asc'; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'title_asc'`,
+    'another tab sort invalidation revalidates committed preference',
+  )
+  check(
+    await evaluate(
+      page,
+      `JSON.stringify(${savedOrder}) === '["external-film","saved-film"]'`,
+    ),
+    'cross-tab preference and saved rows refresh together',
+  )
+  await getCDP().send('Page.close', {}, sortTab.sessionId)
+  await getCDP().send('Page.bringToFront', {}, page.sessionId)
+  await selectSort('release_desc')
+  const ownerSaved = saved
+  session = {
+    enabled: true,
+    state: 'complete',
+    account: { ...owner, username: 'other_sort_owner' },
+  }
+  saved = []
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `!document.querySelector('#watchlist-sort')`,
+    'owner change purges previous private selection',
+  )
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'added_desc' && document.querySelector('main').textContent.includes('Votre watchlist est vide')`,
+    'second account has own default',
+  )
+  await selectSort('title_desc')
+  session = { enabled: true, state: 'anonymous', account: null }
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `!document.querySelector('#watchlist-sort')`,
+    'logout removes private sort selection',
+  )
+  session = { enabled: true, state: 'complete', account: owner }
+  saved = ownerSaved
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'release_desc'`,
+    'original account preference restored after logout/login',
+  )
+  check(
+    sorts.get('other_sort_owner') === 'title_desc',
+    'second account preference remains isolated',
+  )
+  await evaluate(page, `document.querySelector('#watchlist-sort').focus()`)
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    {
+      type: 'keyDown',
+      key: 'ArrowUp',
+      code: 'ArrowUp',
+      windowsVirtualKeyCode: 38,
+    },
+    page.sessionId,
+  )
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    {
+      type: 'keyUp',
+      key: 'ArrowUp',
+      code: 'ArrowUp',
+      windowsVirtualKeyCode: 38,
+    },
+    page.sessionId,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'title_desc'`,
+    'keyboard changes native selector',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.id === 'watchlist-sort' && (getComputedStyle(document.activeElement).outlineStyle !== 'none' || getComputedStyle(document.activeElement).boxShadow !== 'none')`,
+    ),
+    'native sort selector supports keyboard with visible focus',
+  )
+  await selectSort('release_asc')
+  frenchReleases.set('external-film', '1998-10-10')
   const membershipRevision = revision
   const beforeRefreshWrites = writes.length
   for (const [evidence, label] of [
@@ -462,6 +720,17 @@ export async function watchlistScenario({
     check(
       revision === membershipRevision && writes.length === beforeRefreshWrites,
       `equal-revision evidence refresh ${evidence ?? 'no evidence'} updates without membership mutation`,
+    )
+    const expectedOrder =
+      evidence === '1998-10-07'
+        ? ['saved-film', 'external-film']
+        : ['external-film', 'saved-film']
+    check(
+      await evaluate(
+        page,
+        `JSON.stringify(${savedOrder}) === ${JSON.stringify(JSON.stringify(expectedOrder))}`,
+      ),
+      'equal-revision evidence arrival replacement or removal reorders release-sorted saved rows',
     )
   }
   await screenshot(page, 'desktop')
@@ -769,6 +1038,13 @@ export async function watchlistScenario({
     ),
     'mobile has no horizontal overflow and visible account return',
   )
+  check(
+    await evaluate(
+      page,
+      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); return select.height >= 44 && icon.left >= 0 && icon.right <= select.left && select.right <= innerWidth && select.top >= heading.bottom && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
+    ),
+    'mobile icon and sort control stay inline below heading with 44px target and no overflow',
+  )
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -821,13 +1097,13 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, payload: window.__NUXT__, data: document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data, url: location.href }).match(/private_watchlist_owner|private candidate query|watchlist-only|added_at|1998-10-14|14 octobre 1998/)`,
+      `!JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, payload: window.__NUXT__, data: document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data, url: location.href }).match(/private_watchlist_owner|private candidate query|watchlist-only|added_at|sort_order|release_asc|1998-10-14|14 octobre 1998/)`,
     ),
     'private watchlist identity query membership absent from browser storage and public payload',
   )
   check(
     !page.collections.some((collection) =>
-      /private_watchlist_owner|private candidate query|watchlist-only|saved-film|1998-10-14|14 octobre 1998/.test(
+      /private_watchlist_owner|private candidate query|watchlist-only|saved-film|sort_order|release_asc|1998-10-14|14 octobre 1998/.test(
         JSON.stringify(collection),
       ),
     ),
@@ -837,7 +1113,7 @@ export async function watchlistScenario({
     await fetch('http://127.0.0.1:13009/film/external-film')
   ).text()
   check(
-    !/private_watchlist_owner|added_at|private candidate query|1998-10-14|14 octobre 1998/.test(
+    !/private_watchlist_owner|added_at|sort_order|release_asc|private candidate query|1998-10-14|14 octobre 1998/.test(
       ssr,
     ),
     'public film SSR excludes account watchlist state',
@@ -885,29 +1161,37 @@ export async function watchlistBackendScenario({
   mail,
   run,
 }) {
-  const page = await tab()
   const email = `watchlist-${run}@example.test`
   const username = `watchlist_${run}`
-  await go(page, '/inscription')
-  await fill(page, 'account-email', email)
-  await fill(page, 'account-password', 'Synthetic cinema password 42!')
-  await click(page, 'Créer mon compte')
-  await until(
-    page,
-    `document.querySelector('main').textContent.includes('Si cette adresse peut être utilisée')`,
-    'registration accepted',
-  )
-  const message = await mail(email, 'verification')
-  await go(page, message.link)
-  await click(page, 'Confirmer mon email')
-  await until(
-    page,
-    `location.pathname === '/finaliser' && !!document.getElementById('account-username')`,
-    'verified onboarding ready',
-  )
-  await fill(page, 'account-username', username)
-  await click(page, 'Confirmer mon nom')
-  await until(page, `location.pathname === '/compte'`, 'complete account ready')
+  async function register(ownerEmail, ownerName) {
+    const page = await tab()
+    await go(page, '/inscription')
+    await fill(page, 'account-email', ownerEmail)
+    await fill(page, 'account-password', 'Synthetic cinema password 42!')
+    await click(page, 'Créer mon compte')
+    await until(
+      page,
+      `document.querySelector('main').textContent.includes('Si cette adresse peut être utilisée')`,
+      'registration accepted',
+    )
+    const message = await mail(ownerEmail, 'verification')
+    await go(page, message.link)
+    await click(page, 'Confirmer mon email')
+    await until(
+      page,
+      `location.pathname === '/finaliser' && !!document.getElementById('account-username')`,
+      'verified onboarding ready',
+    )
+    await fill(page, 'account-username', ownerName)
+    await click(page, 'Confirmer mon nom')
+    await until(
+      page,
+      `location.pathname === '/compte'`,
+      'complete account ready',
+    )
+    return page
+  }
+  const page = await register(email, username)
   const session = await request(page, '/auth/session', undefined, 'GET')
   check(
     session.status === 200 &&
@@ -929,8 +1213,16 @@ export async function watchlistBackendScenario({
     empty.status === 200 &&
       empty.body.username === username &&
       empty.body.revision === '0' &&
+      empty.body.sort_order === 'added_desc' &&
       empty.body.items.length === 0,
-    'real watchlist starts at revision zero with correct owner',
+    'real watchlist starts at revision zero with correct owner and default sort',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.getElementById('watchlist-sort')?.value === 'added_desc' && !document.getElementById('watchlist-sort').disabled`,
+    ),
+    'real empty watchlist exposes enabled default sort',
   )
   check(
     await evaluate(
@@ -1025,6 +1317,123 @@ export async function watchlistBackendScenario({
     `!!document.querySelector('#saved-heading') && !!document.querySelector('button[aria-label="Retirer de la watchlist"]')`,
     'saved membership survives document reload',
   )
+  const pair = await request(page, '/account/watchlist', {
+    expected_username: username,
+    expected_revision: saved.body.revision,
+    movie_slug: otherMovie.slug,
+    saved: 'true',
+  })
+  check(
+    pair.status === 200 && pair.body.items.length === 2,
+    'real second saved film provides sortable rows',
+  )
+  await go(page, '/compte/watchlist')
+  const rows = `Array.from(document.querySelectorAll('[aria-labelledby="saved-heading"] li a')).map(link => decodeURIComponent(link.pathname.split('/').pop()))`
+  let committed = pair.body
+  const orders = [
+    'added_desc',
+    'added_asc',
+    'title_asc',
+    'title_desc',
+    'release_desc',
+    'release_asc',
+  ]
+  for (const order of orders) {
+    await until(
+      page,
+      `!!document.querySelector('#watchlist-sort:not(:disabled)')`,
+      'real sort ready',
+    )
+    await evaluate(
+      page,
+      `(() => { const select = document.getElementById('watchlist-sort'); select.value = ${JSON.stringify(order)}; select.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+    )
+    await until(
+      page,
+      `document.querySelector('#watchlist-sort:not(:disabled)')?.value === ${JSON.stringify(order)}`,
+      'real sort committed',
+    )
+    const snapshot = await request(page, '/account/watchlist', undefined, 'GET')
+    check(
+      snapshot.status === 200 &&
+        snapshot.body.sort_order === order &&
+        snapshot.body.username === username &&
+        BigInt(snapshot.body.revision) ===
+          BigInt(committed.revision) +
+            (committed.sort_order === order ? 0n : 1n),
+      `real ${order} persisted with shared revision`,
+    )
+    committed = snapshot.body
+    const direction = order.endsWith('_asc') ? 1 : -1
+    const expected = [...committed.items]
+      .sort((left, right) => {
+        let compared = 0
+        if (order.startsWith('title_'))
+          compared = left.title.localeCompare(right.title, 'fr-FR', {
+            sensitivity: 'base',
+            numeric: true,
+          })
+        else if (order.startsWith('added_'))
+          compared = left.added_at.localeCompare(right.added_at)
+        else {
+          const leftDate = left.french_release_date
+          const rightDate = right.french_release_date
+          if (!leftDate || !rightDate)
+            return leftDate
+              ? -1
+              : rightDate
+                ? 1
+                : left.slug.localeCompare(right.slug)
+          compared = leftDate.localeCompare(rightDate)
+        }
+        return compared * direction || left.slug.localeCompare(right.slug)
+      })
+      .map((item) => item.slug)
+    await until(
+      page,
+      `JSON.stringify(${rows}) === ${JSON.stringify(JSON.stringify(expected))}`,
+      `real ${order} rows reordered`,
+    )
+    check(true, `real ${order} selector and rows match persisted preference`)
+  }
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'release_asc'`,
+    'real nondefault sort survives reload',
+  )
+  check(
+    (await request(page, '/account/watchlist', undefined, 'GET')).body
+      .sort_order === 'release_asc',
+    'real nondefault preference survives document reload',
+  )
+  check(
+    page.requests
+      .filter((entry) => entry.path.endsWith('/watchlist/sort'))
+      .every(
+        (entry) =>
+          entry.method === 'POST' &&
+          JSON.stringify([...entry.bodyKeys].sort()) ===
+            JSON.stringify([
+              'expected_revision',
+              'expected_username',
+              'sort_order',
+            ]),
+      ),
+    'real sort uses exact private POST body',
+  )
+  const restore = await request(page, '/account/watchlist', {
+    expected_username: username,
+    expected_revision: committed.revision,
+    movie_slug: otherMovie.slug,
+    saved: 'false',
+  })
+  check(
+    restore.status === 200 &&
+      restore.body.items.length === 1 &&
+      restore.body.sort_order === 'release_asc',
+    'real membership removal preserves sort',
+  )
   const router = `document.querySelector('#__nuxt').__vue_app__.config.globalProperties.$router`
   const searchPath = `/recherche?${params}`
   await go(page, searchPath)
@@ -1067,6 +1476,8 @@ export async function watchlistBackendScenario({
     username,
     email,
     'added_at',
+    'sort_order',
+    'release_asc',
     'expected_username',
     'watchlistOnly',
   ]
@@ -1129,6 +1540,7 @@ export async function watchlistBackendScenario({
   check(
     removed.status === 200 &&
       removed.body.items.length === 0 &&
+      removed.body.sort_order === 'release_asc' &&
       BigInt(removed.body.revision) > BigInt(saved.body.revision),
     'real remove advances revision and clears membership',
   )
@@ -1143,6 +1555,49 @@ export async function watchlistBackendScenario({
     page,
     `document.querySelector('main').textContent.includes('Aucune séance de votre watchlist')`,
     'real empty watchlist-only result state',
+  )
+  const second = await register(
+    `watchlist-b-${run}@example.test`,
+    `watchlist_b_${run}`,
+  )
+  await go(second, '/compte/watchlist')
+  await until(
+    second,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'added_desc'`,
+    'real second owner starts with default sort',
+  )
+  const secondSnapshot = await request(
+    second,
+    '/account/watchlist',
+    undefined,
+    'GET',
+  )
+  check(
+    secondSnapshot.status === 200 &&
+      secondSnapshot.body.sort_order === 'added_desc' &&
+      secondSnapshot.body.revision === '0' &&
+      secondSnapshot.body.items.length === 0,
+    'real second owner inherits neither preference nor membership',
+  )
+  await evaluate(
+    second,
+    `(() => { const select = document.getElementById('watchlist-sort'); select.value = 'title_desc'; select.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    second,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'title_desc'`,
+    'real second owner saves independent preference on empty list',
+  )
+  await go(second, '/compte/watchlist')
+  await until(
+    second,
+    `document.querySelector('#watchlist-sort:not(:disabled)')?.value === 'title_desc'`,
+    'real second owner preference survives reload',
+  )
+  check(
+    (await request(page, '/account/watchlist', undefined, 'GET')).body
+      .sort_order === 'release_asc',
+    'real second owner preference does not alter first owner',
   )
   console.log(
     'SKIP external import: TMDB intentionally disabled in backend fixture',

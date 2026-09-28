@@ -53,8 +53,8 @@ func TestWatchlistExternalAdmissionHasNoQueue(t *testing.T) {
 }
 
 func TestWatchlistJSONHasOnlyPublicMovieFields(t *testing.T) {
-	encoded, err := json.Marshal(WatchlistView{Username: "owner", Revision: "0", Items: []WatchlistItem{}})
-	if err != nil || string(encoded) != `{"username":"owner","revision":"0","items":[],"external_search_available":false}` {
+	encoded, err := json.Marshal(WatchlistView{Username: "owner", Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}})
+	if err != nil || string(encoded) != `{"username":"owner","revision":"0","sort_order":"added_desc","items":[],"external_search_available":false}` {
 		t.Fatalf("wire=%s error=%v", encoded, err)
 	}
 	encoded, err = json.Marshal(WatchlistItem{WatchlistMovie: WatchlistMovie{Slug: "film-1", Title: "Film"}})

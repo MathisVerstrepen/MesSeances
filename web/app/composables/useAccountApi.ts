@@ -14,6 +14,7 @@ import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
   AccountWatchlist,
   SaveWatchlist,
+  SaveWatchlistSort,
   WatchlistSearch,
   ImportWatchlist,
   ImportedWatchlist,
@@ -125,6 +126,13 @@ export function useAccountApi() {
     saveWatchlist: (input: SaveWatchlist, signal?: AbortSignal) =>
       request<AccountWatchlist>(
         '/account/watchlist',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    saveWatchlistSort: (input: SaveWatchlistSort, signal?: AbortSignal) =>
+      request<AccountWatchlist>(
+        '/account/watchlist/sort',
         { ...input },
         'POST',
         signal,

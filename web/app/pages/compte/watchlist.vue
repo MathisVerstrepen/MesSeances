@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { X } from '@lucide/vue'
+import { ArrowDownUp, X } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
+import { sortWatchlistItems, watchlistSortOptions } from '~/utils/watchlistSort'
 
 definePageMeta({ middleware: 'account-auth' })
 useHead({ title: 'Watchlist - MesSeances' })
@@ -12,11 +13,41 @@ const {
   searchError,
   searching,
   items,
+  sortOrder,
   ready,
   writesBlocked,
   error,
   owner,
 } = watchlist
+const sortedItems = computed(() =>
+  sortOrder.value ? sortWatchlistItems(items.value, sortOrder.value) : [],
+)
+
+async function changeSort(event: Event) {
+  const select = event.target
+  if (!(select instanceof HTMLSelectElement)) return
+  const requested = watchlistSortOptions.find(
+    (option) => option.value === select.value,
+  )
+  // Restore synchronously even on rejection: Vue's bound value may not change.
+  // No delayed DOM cleanup can touch a control belonging to a replacement owner.
+  select.value = sortOrder.value ?? ''
+  if (!requested) return
+  const scope = watchlist.scopeKey.value
+  const focused = document.activeElement === select
+  await watchlist.saveSort(requested.value)
+  await nextTick()
+  // Disabling a native select drops keyboard focus. Restore only its own scope,
+  // never steal focus after navigation, an owner change, or another interaction.
+  if (
+    focused &&
+    scope === watchlist.scopeKey.value &&
+    select.isConnected &&
+    !select.disabled &&
+    document.activeElement === document.body
+  )
+    select.focus({ preventScroll: true })
+}
 const searchArea = useTemplateRef('searchArea')
 const searchInput = useTemplateRef('searchInput')
 const resultsPanel = useTemplateRef('resultsPanel')
@@ -405,13 +436,40 @@ onBeforeRouteLeave(clearPageSearch)
         </div>
       </form>
       <section v-if="ready" aria-labelledby="saved-heading">
-        <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
+        <div
+          class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
+          <div class="flex min-w-0 items-center gap-2 sm:max-w-sm">
+            <label for="watchlist-sort" class="sr-only">Trier par</label>
+            <ArrowDownUp
+              :size="20"
+              class="shrink-0 text-ink"
+              aria-hidden="true"
+            />
+            <select
+              id="watchlist-sort"
+              class="account-input min-h-11 min-w-0"
+              :value="sortOrder"
+              :disabled="writesBlocked"
+              @change="changeSort"
+            >
+              <option
+                v-for="option in watchlistSortOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+        </div>
         <p v-if="!items.length" class="mt-3 text-sm">
           Votre watchlist est vide. Recherchez un film pour l’ajouter.
         </p>
         <ul v-else>
           <WatchlistMovieRow
-            v-for="movie in items"
+            v-for="movie in sortedItems"
             :key="movie.slug"
             :title="movie.title"
             :slug="movie.slug"

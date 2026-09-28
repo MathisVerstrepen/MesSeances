@@ -24,12 +24,15 @@ import type {
   AccountWatchlist,
   ImportedWatchlist,
   SaveWatchlist,
+  SaveWatchlistSort,
+  WatchlistSortOrder,
   WatchlistSearch,
 } from '../app/types/watchlist.ts'
 import * as errors from '../app/utils/accountState.ts'
 import * as dates from '../app/utils/date.ts'
 import * as images from '../app/utils/safeImageUrl.ts'
 import * as upcoming from '../app/utils/upcomingMovies.ts'
+import * as sorting from '../app/utils/watchlistSort.ts'
 
 const require = createRequire(import.meta.url)
 const rowSource = await readFile(
@@ -159,10 +162,12 @@ function value(
   revision = '1',
   slugs = ['film-1'],
   username = 'alice',
+  sortOrder: WatchlistSortOrder = 'added_desc',
 ): AccountWatchlist {
   return {
     username,
     revision,
+    sort_order: sortOrder,
     items: slugs.map((slug) => ({
       slug,
       title: slug,
@@ -196,6 +201,7 @@ async function fixture(client = true) {
     },
   }
   const posts: SaveWatchlist[] = []
+  const sortPosts: SaveWatchlistSort[] = []
   const scopes: ReturnType<typeof effectScope>[] = []
   let response = value()
   let admitted = session()
@@ -206,7 +212,16 @@ async function fixture(client = true) {
       String(BigInt(input.expected_revision) + 1n),
       input.saved === 'true' ? [input.movie_slug] : [],
       input.expected_username,
+      response.sort_order,
     )
+    return response
+  }
+  let sort = async (input: SaveWatchlistSort) => {
+    response = {
+      ...response,
+      revision: String(BigInt(input.expected_revision) + 1n),
+      sort_order: input.sort_order,
+    }
     return response
   }
   let search = async (): Promise<WatchlistSearch> => ({
@@ -245,6 +260,10 @@ async function fixture(client = true) {
       saveWatchlist: (input: SaveWatchlist) => {
         posts.push(input)
         return write(input)
+      },
+      saveWatchlistSort: (input: SaveWatchlistSort) => {
+        sortPosts.push(input)
+        return sort(input)
       },
       searchWatchlist: () => search(),
       importWatchlist: () => imported(),
@@ -287,6 +306,7 @@ async function fixture(client = true) {
     list,
     account,
     posts,
+    sortPosts,
     messages,
     states,
     another: () => module.useWatchlist(),
@@ -298,6 +318,9 @@ async function fixture(client = true) {
     },
     setWrite: (fn: typeof write) => {
       write = fn
+    },
+    setSort: (fn: typeof sort) => {
+      sort = fn
     },
     setSearch: (fn: typeof search) => {
       search = fn
@@ -691,7 +714,22 @@ test('dismissal keeps query but fences pending results without ending a newer se
   }
 })
 
+class TestSelect {
+  value: string
+  isConnected = true
+  disabled = false
+  focusCalls = 0
+  constructor(value: string) {
+    this.value = value
+  }
+  focus() {
+    this.focusCalls++
+  }
+}
+
 interface PageInteractions {
+  sortedItems: ReturnType<typeof computed<AccountWatchlist['items']>>
+  changeSort: (event: { target: unknown }) => Promise<void>
   panelOpen: ReturnType<typeof ref<boolean>>
   activeTab: ReturnType<typeof ref<string>>
   panelHeight: ReturnType<typeof ref<number>>
@@ -701,6 +739,12 @@ interface PageInteractions {
   addMovie: (movie: { slug: string } | { tmdb_id: string }) => Promise<void>
   dismiss: (restoreFocus?: boolean) => void
   clearPageSearch: () => void
+}
+
+interface PageDocument {
+  activeElement: unknown
+  body: object
+  removeEventListener: () => void
 }
 
 // Exercise the page's interaction handlers with the real fenced composable.
@@ -716,6 +760,11 @@ async function pageFixture() {
   let focused = ''
   const scope = effectScope()
   const callbacks: (() => void)[] = []
+  const pageDocument: PageDocument = {
+    activeElement: null,
+    body: {},
+    removeEventListener: () => {},
+  }
   // SAFETY: The transpiled page below exports exactly this interaction contract before use.
   const exports = {} as PageInteractions
   const script = source.match(
@@ -725,7 +774,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -735,7 +784,10 @@ async function pageFixture() {
       ).outputText,
       {
         exports,
-        require: () => errors,
+        require: (id: string) =>
+          id === '~/utils/watchlistSort' ? sorting : errors,
+        computed,
+        HTMLSelectElement: TestSelect,
         ref,
         watch,
         nextTick,
@@ -758,13 +810,17 @@ async function pageFixture() {
           return element
         },
         window: { innerHeight: 844, removeEventListener: () => {} },
-        document: { removeEventListener: () => {} },
+        document: pageDocument,
       },
     ),
   )
   return {
     ...f,
     page: exports,
+    pageDocument,
+    get gets() {
+      return f.gets
+    },
     elements,
     get focused() {
       return focused
@@ -920,3 +976,277 @@ test('owner mismatch fails closed and anonymous login never queues a save', asyn
     f.stop()
   }
 })
+
+test('six committed sort choices share owner/revision CAS and preserve search results', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    f.list.query.value = 'External'
+    await f.list.search()
+    const results = JSON.stringify(f.list.searchResults.value)
+    for (const [index, option] of sorting.watchlistSortOptions.entries()) {
+      assert.equal(await f.list.saveSort(option.value), true)
+      assert.equal(f.list.sortOrder.value, option.value)
+      assert.deepEqual(
+        { ...f.sortPosts[index] },
+        {
+          expected_username: 'alice',
+          expected_revision: String(index + 1),
+          sort_order: option.value,
+        },
+      )
+    }
+    assert.equal(JSON.stringify(f.list.searchResults.value), results)
+    assert.equal(f.list.query.value, 'External')
+    assert.equal(f.posts.length, 0)
+    assert.equal(f.messages.length, 6)
+    assert.ok(f.messages.every((message) => message === 'watchlist-changed'))
+    assert.doesNotMatch(
+      JSON.stringify([...f.states].map(([key, state]) => [key, state.value])),
+      /sort_order|release_asc/,
+    )
+  } finally {
+    f.stop()
+  }
+})
+
+test('sort serializes membership/import both ways with no optimistic selection or rows', async () => {
+  const f = await pageFixture()
+  try {
+    const next = value('2', ['film-2', 'film-1'], 'alice', 'title_desc')
+    const pending = deferred<AccountWatchlist>()
+    f.setSort(() => pending.promise)
+    const select = new TestSelect('title_desc')
+    f.page.changeSort({ target: select })
+    assert.equal(select.value, 'added_desc')
+    assert.equal(f.list.sortOrder.value, 'added_desc')
+    assert.equal(f.list.writesBlocked.value, true)
+    assert.deepEqual(
+      f.page.sortedItems.value.map((item) => item.slug),
+      ['film-1'],
+    )
+    assert.equal(await f.list.save('film-3', true), false)
+    assert.equal(await f.list.importMovie('12'), false)
+    assert.equal(await f.list.saveSort('title_asc'), false)
+    pending.resolve(next)
+    await settle()
+    assert.equal(f.list.sortOrder.value, 'title_desc')
+    assert.deepEqual(
+      f.page.sortedItems.value.map((item) => item.slug),
+      ['film-2', 'film-1'],
+    )
+    for (const operation of ['membership', 'import'] as const) {
+      const held = deferred<AccountWatchlist>()
+      f.setWrite(() => held.promise)
+      f.setImport(async () => ({
+        watchlist: await held.promise,
+        movie_slug: 'film-12',
+      }))
+      const write =
+        operation === 'membership'
+          ? f.list.save('film-12', true)
+          : f.list.importMovie('12')
+      assert.equal(await f.list.saveSort('title_asc'), false)
+      held.resolve(value('3', ['film-12'], 'alice', 'title_desc'))
+      await write
+      assert.equal(f.list.sortOrder.value, 'title_desc')
+    }
+    assert.equal(f.sortPosts.length, 1)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const transition of ['logout', 'owner', 'same-owner'] as const) {
+  test(`late sort result is discarded after ${transition}`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      await settle()
+      const pending = deferred<AccountWatchlist>()
+      f.setSort(() => pending.promise)
+      const save = f.list.saveSort('title_desc')
+      f.setResponse(
+        value('3', [], transition === 'owner' ? 'bob' : 'alice', 'release_asc'),
+      )
+      if (transition === 'logout') f.account.clear()
+      else f.admit(session(transition === 'owner' ? 'bob' : 'alice'))
+      await settle()
+      pending.resolve(value('99', ['old-private-film'], 'alice', 'title_desc'))
+      assert.equal(await save, false)
+      assert.equal(
+        f.list.sortOrder.value,
+        transition === 'logout' ? undefined : 'release_asc',
+      )
+      assert.equal(f.list.items.value.length, 0)
+      assert.deepEqual(f.messages, [])
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('older snapshots cannot replace selection but equal-revision French evidence reorders saved projection', async () => {
+  const f = await pageFixture()
+  try {
+    const initial = value('5', ['film-1', 'film-2'], 'alice', 'release_asc')
+    delete initial.items[0]!.french_release_date
+    f.setResponse(initial)
+    await f.account.revalidate()
+    assert.deepEqual(
+      f.page.sortedItems.value.map((item) => item.slug),
+      ['film-2', 'film-1'],
+    )
+    for (const [date, expected] of [
+      ['1997-01-01', ['film-1', 'film-2']],
+      ['1999-01-01', ['film-2', 'film-1']],
+      [undefined, ['film-2', 'film-1']],
+    ] as const) {
+      const updated = structuredClone(initial)
+      updated.items[0]!.french_release_date = date
+      f.setResponse(updated)
+      await f.account.revalidate()
+      assert.deepEqual(
+        f.page.sortedItems.value.map((item) => item.slug),
+        expected,
+      )
+    }
+    f.setResponse(value('4', [], 'alice', 'title_desc'))
+    await f.account.revalidate()
+    assert.equal(f.list.sortOrder.value, 'release_asc')
+    assert.equal(f.list.items.value.length, 2)
+    assert.equal(f.sortPosts.length, 0)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const committed of [false, true]) {
+  test(`sort failure restores native control and reads authoritative ${committed ? 'committed' : 'unchanged'} choice without replay`, async () => {
+    const f = await pageFixture()
+    try {
+      f.setSort(async () => {
+        if (committed)
+          f.setResponse(value('2', ['film-1'], 'alice', 'title_desc'))
+        throw new errors.AccountApiError(
+          committed ? 0 : 409,
+          committed ? '' : 'watchlist_changed',
+        )
+      })
+      const select = new TestSelect('title_desc')
+      f.page.changeSort({ target: select })
+      assert.equal(select.value, 'added_desc')
+      await settle()
+      assert.equal(
+        f.list.sortOrder.value,
+        committed ? 'title_desc' : 'added_desc',
+      )
+      assert.equal(f.list.ready.value, true)
+      assert.ok(f.list.error.value)
+      assert.equal(f.sortPosts.length, 1)
+      assert.equal(f.gets, 2)
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('sort reconciliation failure gates writes until explicit retry, with no replay', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    f.setSort(async () => {
+      throw new errors.AccountApiError()
+    })
+    f.setRead(async () => {
+      throw new errors.AccountApiError(503, 'watchlist_unavailable')
+    })
+    await f.list.saveSort('title_desc')
+    assert.equal(f.list.ready.value, false)
+    assert.equal(await f.list.saveSort('title_desc'), false)
+    f.setRead(async () => value('2', ['film-1'], 'alice', 'release_desc'))
+    await f.list.retry()
+    assert.equal(f.list.sortOrder.value, 'release_desc')
+    assert.equal(f.list.ready.value, true)
+    assert.equal(f.sortPosts.length, 1)
+  } finally {
+    f.stop()
+  }
+})
+
+test('focus revalidation waits for sort and applies other-session authoritative preference', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    const pending = deferred<AccountWatchlist>()
+    f.setSort(() => pending.promise)
+    const save = f.list.saveSort('title_desc')
+    const refresh = f.account.revalidate()
+    await settle()
+    assert.equal(f.gets, 1)
+    assert.equal(f.list.writesBlocked.value, true)
+    f.setResponse(value('3', ['film-1'], 'alice', 'release_desc'))
+    pending.resolve(value('2', ['film-1'], 'alice', 'title_desc'))
+    await save
+    await refresh
+    assert.equal(f.list.sortOrder.value, 'release_desc')
+    assert.equal(f.list.writesBlocked.value, false)
+  } finally {
+    f.stop()
+  }
+})
+
+test('sort response owner mismatch clears private state instead of applying preference', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    f.setSort(async () => value('2', [], 'bob', 'title_desc'))
+    assert.equal(await f.list.saveSort('title_desc'), false)
+    assert.equal(f.list.sortOrder.value, undefined)
+    assert.equal(f.list.items.value.length, 0)
+    assert.equal(f.account.status.value, 'error')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const transition of [
+  'same-control',
+  'owner',
+  'unmount',
+  'moved-focus',
+] as const) {
+  test(`native sort focus restoration respects ${transition}`, async () => {
+    const f = await pageFixture()
+    try {
+      const pending = deferred<AccountWatchlist>()
+      f.setSort(() => pending.promise)
+      const select = new TestSelect('title_desc')
+      f.pageDocument.activeElement = select
+      const change = f.page.changeSort({ target: select })
+      assert.equal(select.value, 'added_desc')
+      // Browser moves focus to body when the select becomes disabled.
+      f.pageDocument.activeElement = f.pageDocument.body
+      if (transition === 'owner') {
+        f.setResponse(value('0', [], 'bob'))
+        f.admit(session('bob'))
+        await settle()
+      } else if (transition === 'unmount') select.isConnected = false
+      else if (transition === 'moved-focus') f.pageDocument.activeElement = {}
+      pending.resolve(value('2', ['film-1'], 'alice', 'title_desc'))
+      await change
+      assert.equal(select.focusCalls, transition === 'same-control' ? 1 : 0)
+      assert.equal(
+        select.value,
+        'added_desc',
+        'completion never writes native value imperatively',
+      )
+    } finally {
+      f.stop()
+    }
+  })
+}

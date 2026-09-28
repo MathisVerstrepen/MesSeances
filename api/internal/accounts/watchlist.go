@@ -35,6 +35,7 @@ type WatchlistItem struct {
 type WatchlistView struct {
 	Username                string          `json:"username"`
 	Revision                string          `json:"revision"`
+	SortOrder               string          `json:"sort_order"`
 	Items                   []WatchlistItem `json:"items"`
 	ExternalSearchAvailable bool            `json:"external_search_available"`
 }
@@ -54,9 +55,9 @@ const watchlistSummary = ` 'film-' || p.id::text,
  COALESCE((CASE WHEN o.release_date_overridden THEN o.release_date ELSE p.release_date END)::text,'') `
 
 func (s *Service) readWatchlist(ctx context.Context, tx pgx.Tx, a account) (WatchlistView, int64, error) {
-	view := WatchlistView{Username: *a.username, Revision: "0", Items: []WatchlistItem{}, ExternalSearchAvailable: s.watchlistProvider != nil}
+	view := WatchlistView{Username: *a.username, Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}, ExternalSearchAvailable: s.watchlistProvider != nil}
 	var revision int64
-	err := tx.QueryRow(ctx, `SELECT revision FROM account_watchlist_state WHERE account_id=$1`, a.id).Scan(&revision)
+	err := tx.QueryRow(ctx, `SELECT revision,sort_order FROM account_watchlist_state WHERE account_id=$1`, a.id).Scan(&revision, &view.SortOrder)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return view, 0, ErrWatchlistUnavailable
 	}
@@ -202,6 +203,57 @@ func (s *Service) SaveWatchlist(ctx context.Context, raw, username, expectedRevi
 		}
 		view, _, err = s.readWatchlist(ctx, tx, a)
 		return err
+	})
+	if err != nil {
+		return WatchlistView{}, watchlistError(err)
+	}
+	return view, nil
+}
+
+func (s *Service) SaveWatchlistSort(ctx context.Context, raw, username, expectedRevision, sortOrder string) (WatchlistView, error) {
+	revision, err := theaterRevision(expectedRevision)
+	if err != nil {
+		return WatchlistView{}, ErrInvalidInput
+	}
+	switch sortOrder {
+	case "added_desc", "added_asc", "title_asc", "title_desc", "release_desc", "release_asc":
+	default:
+		return WatchlistView{}, ErrInvalidInput
+	}
+	if err := s.sessionQuota(ctx, raw, "watchlist_write", false, true); err != nil {
+		return WatchlistView{}, watchlistError(err)
+	}
+	var view WatchlistView
+	err = s.store.withTransaction(ctx, func(tx pgx.Tx) error {
+		a, _, err := s.authorize(ctx, tx, raw, true)
+		if err != nil {
+			return err
+		}
+		if *a.username != username {
+			return ErrUnauthorized
+		}
+		var stored int64
+		view, stored, err = s.readWatchlist(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+		if stored != revision {
+			return ErrWatchlistChanged
+		}
+		if view.SortOrder == sortOrder {
+			return nil
+		}
+		if stored == maxTheaterPreferenceRevision {
+			return ErrWatchlistUnavailable
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO account_watchlist_state(account_id,revision,sort_order) VALUES($1,$2,$3)
+ ON CONFLICT(account_id) DO UPDATE SET revision=EXCLUDED.revision,sort_order=EXCLUDED.sort_order`, a.id, stored+1, sortOrder)
+		if err != nil {
+			return ErrWatchlistUnavailable
+		}
+		view.Revision = strconv.FormatInt(stored+1, 10)
+		view.SortOrder = sortOrder
+		return nil
 	})
 	if err != nil {
 		return WatchlistView{}, watchlistError(err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"sync"
 	"testing"
@@ -159,6 +160,9 @@ func TestWatchlistAuthorizationAndBoundsIntegration(t *testing.T) {
 		if _, err := f.service.SaveWatchlist(ctx, raw, username, "0", slug, true); !errors.Is(err, want) {
 			t.Fatalf("write %v want %v", err, want)
 		}
+		if _, err := f.service.SaveWatchlistSort(ctx, raw, username, "0", "title_asc"); !errors.Is(err, want) {
+			t.Fatalf("sort %v want %v", err, want)
+		}
 		if _, err := f.service.SearchWatchlist(ctx, raw, username, "Film"); !errors.Is(err, want) {
 			t.Fatalf("search %v want %v", err, want)
 		}
@@ -200,6 +204,19 @@ func TestWatchlistAuthorizationAndBoundsIntegration(t *testing.T) {
 	}
 	if _, err = f.service.SaveWatchlist(ctx, one.Cookie.Token, username, max, slug, true); err != nil {
 		t.Fatal("maximum revision no-op failed")
+	}
+	if _, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, username, max, "added_desc"); err != nil {
+		t.Fatal("maximum revision sort no-op failed", err)
+	}
+	if _, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, username, max, "title_asc"); !errors.Is(err, ErrWatchlistUnavailable) {
+		t.Fatal("sort revision overflow accepted", err)
+	}
+	if _, err = f.pool.Exec(ctx, `UPDATE account_watchlist_state SET revision=1`); err != nil {
+		t.Fatal(err)
+	}
+	view, err := f.service.SaveWatchlistSort(ctx, one.Cookie.Token, username, "1", "title_asc")
+	if err != nil || view.Revision != "2" || view.SortOrder != "title_asc" || len(view.Items) != 1000 {
+		t.Fatal("sort at capacity failed", err)
 	}
 	f.advance(SessionIdleLifetime)
 	assertDenied(one.Cookie.Token, ErrUnauthorized)
@@ -358,7 +375,7 @@ func TestWatchlistImportEligibilityAndRollbackIntegration(t *testing.T) {
 }
 
 func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
-	for _, mode := range []string{"logout", "revision", "concurrent import"} {
+	for _, mode := range []string{"logout", "revision", "sort", "concurrent import"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLifecycleFixture(t)
 			one := f.complete(t, "race@example.com", "race_owner")
@@ -390,6 +407,14 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 				if _, err := f.service.SaveWatchlist(t.Context(), one.Cookie.Token, "race_owner", "0", slug, true); err != nil {
 					t.Fatal(err)
 				}
+			case "sort":
+				other, err := f.service.Login(t.Context(), "race@example.com", testPassword, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := f.service.SaveWatchlistSort(t.Context(), other.Cookie.Token, "race_owner", "0", "title_asc"); err != nil {
+					t.Fatal(err)
+				}
 			case "concurrent import":
 				two := f.complete(t, "other@example.com", "other_owner")
 				go func() {
@@ -404,7 +429,7 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 			if mode == "logout" {
 				want = ErrUnauthorized
 			}
-			if mode == "revision" {
+			if mode == "revision" || mode == "sort" {
 				want = ErrWatchlistChanged
 			}
 			if !errors.Is(err, want) {
@@ -421,7 +446,186 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 			} else if err = f.pool.QueryRow(t.Context(), `SELECT count(*) FROM tmdb_catalog_imports`).Scan(&count); err != nil || count != 0 {
 				t.Fatal("revoked import published metadata")
 			}
+			if mode == "sort" {
+				if err = f.pool.QueryRow(t.Context(), `SELECT (SELECT count(*) FROM account_watchlist_items)+(SELECT count(*) FROM movie_metadata_cache)+(SELECT count(*) FROM public_movies)`).Scan(&count); err != nil || count != 0 {
+					t.Fatal("stale import changed membership or catalog", err)
+				}
+			}
 		})
+	}
+}
+
+func TestWatchlistSortPersistenceIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	ctx := t.Context()
+	one := f.complete(t, "sort@example.com", "sort_owner")
+	two := f.complete(t, "other@example.com", "other_owner")
+	view, err := f.service.Watchlist(ctx, one.Cookie.Token)
+	if err != nil || view.SortOrder != "added_desc" || view.Revision != "0" {
+		t.Fatal("missing default", err)
+	}
+	view, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_owner", "0", "added_desc")
+	if err != nil || view.Revision != "0" || view.SortOrder != "added_desc" {
+		t.Fatal("default no-op failed", err)
+	}
+	var count int
+	if err = f.pool.QueryRow(ctx, `SELECT count(*) FROM account_watchlist_state`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("default initialized state", err)
+	}
+	if _, err = f.service.SaveWatchlistSort(ctx, two.Cookie.Token, "sort_owner", "0", "title_asc"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("wrong owner accepted", err)
+	}
+	for i, order := range []string{"added_asc", "title_asc", "title_desc", "release_desc", "release_asc", "added_desc"} {
+		view, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_owner", strconv.Itoa(i), order)
+		if err != nil || view.SortOrder != order || view.Revision != strconv.Itoa(i+1) || len(view.Items) != 0 {
+			t.Fatalf("sort %s: %+v %v", order, view, err)
+		}
+		unchanged, err := f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_owner", view.Revision, order)
+		if err != nil || !reflect.DeepEqual(unchanged, view) {
+			t.Fatal("sort no-op changed snapshot", err)
+		}
+		if _, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_owner", strconv.Itoa(i), order); !errors.Is(err, ErrWatchlistChanged) {
+			t.Fatal("stale sort no-op accepted", err)
+		}
+	}
+	other, err := f.service.Watchlist(ctx, two.Cookie.Token)
+	if err != nil || other.SortOrder != "added_desc" || other.Revision != "0" {
+		t.Fatal("preference crossed account boundary", err)
+	}
+	view, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_owner", "6", "title_asc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := watchlistSeedMovie(t, f, 10, "Alpha")
+	second := watchlistSeedMovie(t, f, 20, "Zulu")
+	for _, slug := range []string{first, second} {
+		f.advance(time.Minute)
+		view, err = f.service.SaveWatchlist(ctx, one.Cookie.Token, "sort_owner", view.Revision, slug, true)
+		if err != nil || view.SortOrder != "title_asc" {
+			t.Fatal("membership reset preference", err)
+		}
+	}
+	if view.Items[0].Slug != second {
+		t.Fatal("server personalized item ordering")
+	}
+	items := view.Items
+	// Include nonempty release evidence and publication clocks in side-effect checks.
+	if _, err = f.pool.Exec(ctx, `INSERT INTO tmdb_french_release_cache(tmdb_id,french_release_date,verified_at,retry_after,attempt_revision) VALUES(10,'1998-10-14',now(),now(),1)`); err != nil {
+		t.Fatal(err)
+	}
+	unchangedState := func() string {
+		t.Helper()
+		var value string
+		if err := f.pool.QueryRow(ctx, `SELECT jsonb_build_array(
+ (SELECT jsonb_agg(to_jsonb(i) ORDER BY account_id,public_movie_id) FROM account_watchlist_items i),
+ (SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM accounts a),
+ (SELECT jsonb_agg(to_jsonb(c) ORDER BY tmdb_id) FROM tmdb_french_release_cache c),
+ (SELECT jsonb_agg(to_jsonb(e)) FROM movie_enrichment_state e),
+ (SELECT jsonb_agg(to_jsonb(s)) FROM schedule_snapshot s),
+ (SELECT jsonb_agg(to_jsonb(p) ORDER BY id) FROM public_movies p))::text`).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	before := unchangedState()
+	view, err = f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_owner", view.Revision, "release_asc")
+	if err != nil || unchangedState() != before || !view.Items[0].AddedAt.Equal(items[0].AddedAt) {
+		t.Fatal("sort changed unrelated state", err)
+	}
+	for _, slug := range []string{first, second, first} {
+		view, err = f.service.SaveWatchlist(ctx, one.Cookie.Token, "sort_owner", view.Revision, slug, false)
+		if err != nil || view.SortOrder != "release_asc" {
+			t.Fatal("last removal reset sort", err)
+		}
+	}
+	view, err = f.service.SaveWatchlist(ctx, one.Cookie.Token, "sort_owner", view.Revision, first, true)
+	if err != nil || view.SortOrder != "release_asc" {
+		t.Fatal("re-add reset sort", err)
+	}
+	f.service.watchlistProvider = watchlistFakeProvider{details: func(_ context.Context, id int64) (tmdb.Details, error) { return watchlistDetails(id), nil }}
+	f.service.watchlistRefresh = func(context.Context, string) error { return nil }
+	result, err := f.service.ImportWatchlist(ctx, one.Cookie.Token, "sort_owner", view.Revision, "42")
+	if err != nil || result.Watchlist.SortOrder != "release_asc" || len(result.Watchlist.Items) != 2 {
+		t.Fatal("import reset sort", err)
+	}
+	if _, err = f.pool.Exec(ctx, `DELETE FROM accounts WHERE email='sort@example.com'`); err != nil {
+		t.Fatal(err)
+	}
+	if err = f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM account_watchlist_state)+(SELECT count(*) FROM account_watchlist_items)`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("private state survived deletion", err)
+	}
+}
+
+func TestWatchlistSortConcurrentCASIntegration(t *testing.T) {
+	for _, membership := range []bool{false, true} {
+		t.Run(fmt.Sprintf("membership=%t", membership), func(t *testing.T) {
+			f := newLifecycleFixture(t)
+			ctx := t.Context()
+			one := f.complete(t, "race@example.com", "sort_race")
+			two, err := f.service.Login(ctx, "race@example.com", testPassword, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			slug := watchlistSeedMovie(t, f, 1, "Film")
+			start, results := make(chan struct{}), make(chan error, 2)
+			go func() {
+				<-start
+				_, err := f.service.SaveWatchlistSort(ctx, one.Cookie.Token, "sort_race", "0", "title_asc")
+				results <- err
+			}()
+			go func() {
+				<-start
+				var err error
+				if membership {
+					_, err = f.service.SaveWatchlist(ctx, two.Cookie.Token, "sort_race", "0", slug, true)
+				} else {
+					_, err = f.service.SaveWatchlistSort(ctx, two.Cookie.Token, "sort_race", "0", "title_desc")
+				}
+				results <- err
+			}()
+			close(start)
+			var successes, conflicts int
+			for range 2 {
+				err := <-results
+				if err == nil {
+					successes++
+				} else if errors.Is(err, ErrWatchlistChanged) {
+					conflicts++
+				} else {
+					t.Fatal(err)
+				}
+			}
+			view, err := f.service.Watchlist(ctx, one.Cookie.Token)
+			if successes != 1 || conflicts != 1 || err != nil || view.Revision != "1" {
+				t.Fatal("shared compare-and-swap lost", err)
+			}
+		})
+	}
+}
+
+func TestWatchlistSortSharesAccountQuotaIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	ctx := t.Context()
+	one := f.complete(t, "quota@example.com", "sort_quota")
+	two, err := f.service.Login(ctx, "quota@example.com", testPassword, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slug := watchlistSeedMovie(t, f, 1, "Film")
+	if _, err = f.service.SaveWatchlist(ctx, one.Cookie.Token, "sort_quota", "0", slug, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.pool.Exec(ctx, `UPDATE account_rate_limits SET count=120 WHERE purpose='watchlist_write'`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = f.service.SaveWatchlistSort(ctx, two.Cookie.Token, "sort_quota", "1", "title_asc")
+	var rate *RateLimitError
+	if !errors.As(err, &rate) || rate.RetryAfter <= 0 {
+		t.Fatal("sort bypassed shared account quota", err)
+	}
+	view, err := f.service.Watchlist(ctx, one.Cookie.Token)
+	if err != nil || view.Revision != "1" || view.SortOrder != "added_desc" || len(view.Items) != 1 {
+		t.Fatal("rejected sort changed state", err)
 	}
 }
 

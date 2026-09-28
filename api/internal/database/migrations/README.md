@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [051_watchlist_french_releases.sql](051_watchlist_french_releases.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [052_account_watchlist_sort.sql](052_account_watchlist_sort.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -96,12 +96,14 @@ Accounts are independent of schedule generations, administrator authentication a
 | `account_mail_suppressions` | 32-byte address-HMAC PK; reason (`permanent_bounce`, `complaint`); created/updated/expiry times. Expiry at most 4320 hours after update. No account FK; remains personal/security data. |
 | `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username, email change, `avatar_write`, `avatar_import`, `watchlist_write`, `watchlist_search`, `watchlist_import` and `watchlist_release_fetch`. The latter uses one global HMAC key and a 60-attempt/60-second fixed window across accounts and replicas. |
 | `account_theater_preferences` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `theater_ids text[]` validated by `account_theater_ids_valid`. Missing row means never initialized, distinct from an existing row with empty array. No FK to generation-scoped theaters. |
-| `account_watchlist_state` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991. Missing row reads as revision 0 and is not created by a read or an unchanged membership. |
+| `account_watchlist_state` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `sort_order text NOT NULL DEFAULT 'added_desc'`, checked against `added_desc`, `added_asc`, `title_asc`, `title_desc`, `release_desc`, `release_asc`. Missing row reads as revision 0 and default sort; reads and unchanged membership/sort never initialize it. |
 | `account_watchlist_items` | Composite PK `(account_id, public_movie_id)`; account FK with `ON DELETE CASCADE`; durable `public_movies(id)` FK with default no-action deletion; `added_at timestamptz` default `now()`. No generation-scoped movie FK, slug, title or metadata copy. |
 
 All account ownership foreign keys cascade except username claims. Composite session/account and token/account foreign keys prevent cross-account binding; their deletion cascades dependent grants, flows and queued mail. Account-associated outbox rows cascade on deletion. Terminal delivery metadata is detached from account/token authority. Suppressions and quota HMACs have independent bounded retention.
 
 Watchlist writes serialize on the account row and compare revisions before no-op detection. Application enforces at most 1,000 stored membership rows per account; SQL does not implement a counting trigger. Reads resolve redirect chains to current canonical movies, collapse duplicates with earliest `added_at`, and sort newest first with canonical-slug tie breaking. Removal deletes all owner rows resolving to the selected canonical identity. Splits follow each saved durable ID without duplication. Reconciliation does not lock or rewrite account rows. No accounts are backfilled by migration 050.
+
+Migration 052 adds the default sort to existing state without changing revisions, membership or addition times; accounts without state remain absent. Membership and sort share one revision. Changing either advances it once, while membership/import writes preserve sort. The preference survives removal of the last item and cascades on account deletion. SQL item ordering remains unchanged; only the browser applies the saved-list preference.
 
 ### `tmdb_french_release_cache`
 

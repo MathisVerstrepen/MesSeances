@@ -1,4 +1,8 @@
-import type { AccountWatchlist, WatchlistSearch } from '~/types/watchlist'
+import type {
+  AccountWatchlist,
+  WatchlistSearch,
+  WatchlistSortOrder,
+} from '~/types/watchlist'
 import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 
 declare module '#app' {
@@ -51,6 +55,7 @@ function createWatchlist() {
   )
   const writesBlocked = computed(() => !ready.value || saving.value)
   const items = computed(() => snapshot.value?.items ?? [])
+  const sortOrder = computed(() => snapshot.value?.sort_order)
   const slugs = computed(() => new Set(items.value.map((item) => item.slug)))
   const externalAvailable = computed(
     () => snapshot.value?.external_search_available ?? false,
@@ -145,7 +150,10 @@ function createWatchlist() {
   }
 
   async function mutate(
-    movie: { slug: string; saved: boolean } | { tmdbId: string },
+    movie:
+      | { slug: string; saved: boolean }
+      | { tmdbId: string }
+      | { sortOrder: WatchlistSortOrder },
   ): Promise<string | boolean> {
     if (!import.meta.client || writesBlocked.value || !snapshot.value)
       return false
@@ -166,14 +174,19 @@ function createWatchlist() {
                 { ...expected, tmdb_id: movie.tmdbId },
                 controller?.signal,
               )
-            : await api.saveWatchlist(
-                {
-                  ...expected,
-                  movie_slug: movie.slug,
-                  saved: movie.saved ? 'true' : 'false',
-                },
-                controller?.signal,
-              )
+            : 'sortOrder' in movie
+              ? await api.saveWatchlistSort(
+                  { ...expected, sort_order: movie.sortOrder },
+                  controller?.signal,
+                )
+              : await api.saveWatchlist(
+                  {
+                    ...expected,
+                    movie_slug: movie.slug,
+                    saved: movie.saved ? 'true' : 'false',
+                  },
+                  controller?.signal,
+                )
         if (!token.valid()) return false
         const imported = 'watchlist' in value ? value : null
         const next = 'watchlist' in value ? value.watchlist : value
@@ -338,6 +351,7 @@ function createWatchlist() {
     ready,
     writesBlocked,
     items,
+    sortOrder,
     slugs,
     externalAvailable,
     error: readonly(error),
@@ -355,5 +369,6 @@ function createWatchlist() {
     clearSearch,
     save: (slug: string, saved: boolean) => mutate({ slug, saved }),
     importMovie: (tmdbId: string) => mutate({ tmdbId }),
+    saveSort: (sortOrder: WatchlistSortOrder) => mutate({ sortOrder }),
   }
 }

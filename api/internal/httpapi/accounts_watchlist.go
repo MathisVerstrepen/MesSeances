@@ -25,6 +25,12 @@ type watchlistImport struct {
 	TMDBID           *string `json:"tmdb_id"`
 }
 
+type watchlistSort struct {
+	ExpectedUsername *string `json:"expected_username"`
+	ExpectedRevision *string `json:"expected_revision"`
+	SortOrder        *string `json:"sort_order"`
+}
+
 func watchlistPath(path string) bool {
 	return path == "/api/v1/account/watchlist" || strings.HasPrefix(path, "/api/v1/account/watchlist/")
 }
@@ -115,6 +121,28 @@ func (h *accountHTTP) searchWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, err := h.service.SearchWatchlist(r.Context(), raw, *input.ExpectedUsername, *input.Query)
+	if err != nil {
+		watchlistHTTPError(w, err)
+		return
+	}
+	writeJSON(w, 200, view)
+}
+
+func (h *accountHTTP) saveWatchlistSort(w http.ResponseWriter, r *http.Request) {
+	var input watchlistSort
+	if !accountJSON(w, r, &input) {
+		return
+	}
+	if input.ExpectedUsername == nil || input.ExpectedRevision == nil || input.SortOrder == nil {
+		watchlistHTTPError(w, accounts.ErrInvalidInput)
+		return
+	}
+	raw, err := h.cookie(r)
+	if err != nil {
+		watchlistHTTPError(w, err)
+		return
+	}
+	view, err := h.service.SaveWatchlistSort(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.SortOrder)
 	if err != nil {
 		watchlistHTTPError(w, err)
 		return

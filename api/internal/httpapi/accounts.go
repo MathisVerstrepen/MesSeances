@@ -86,6 +86,7 @@ func registerAccountRoutes(router chi.Router, options AccountOptions) {
 	router.Post("/api/v1/account/theaters", unavailable)
 	router.Get("/api/v1/account/watchlist", unavailable)
 	router.Post("/api/v1/account/watchlist", unavailable)
+	router.Post("/api/v1/account/watchlist/sort", unavailable)
 	router.Post("/api/v1/account/watchlist/search", unavailable)
 	router.Post("/api/v1/account/watchlist/import", unavailable)
 	router.Get("/api/v1/account/reauth/continuation", unavailable)
