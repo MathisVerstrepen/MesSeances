@@ -459,6 +459,105 @@ export async function watchlistScenario({
       Buffer.from(image.data, 'base64'),
     )
   }
+  async function checkClock(page, variant) {
+    check(
+      await evaluate(
+        page,
+        `(() => {
+          const variant = ${JSON.stringify(variant)};
+          const label = variant === 'remove' ? 'Retirer de la watchlist' : 'Ajouter à la watchlist';
+          const buttons = [...document.querySelectorAll('button[aria-label="' + label + '"]')];
+          return buttons.length > 0 && buttons.every(button => {
+            const icon = button.querySelector('svg[data-watchlist-icon="' + variant + '"]');
+            if (!icon || icon.getAttribute('aria-hidden') !== 'true' || icon.getAttribute('focusable') !== 'false') return false;
+            const paths = [...icon.querySelectorAll('path')];
+            const stroke = 'rgb(39, 39, 42)';
+            const hovered = button.matches(':enabled:hover');
+            const reference = document.createElement('span');
+            reference.style.backgroundColor = hovered ? 'var(--color-subtle)' : '#fff';
+            document.body.append(reference);
+            const background = getComputedStyle(reference).backgroundColor;
+            reference.remove();
+            const rect = button.getBoundingClientRect();
+            return rect.width >= 48 && rect.height >= 48 && button.getAttribute('aria-pressed') === String(variant === 'remove') &&
+              icon.getBoundingClientRect().width === 24 && icon.getBoundingClientRect().height === 24 &&
+              getComputedStyle(button).backgroundColor === background &&
+              icon.getAttribute('viewBox') === '0 0 24 24' && icon.getAttribute('stroke-width') === '2' &&
+              paths.length === (variant === 'add' ? 4 : 3) &&
+              !!icon.querySelector('path[d="M21.92 13.267a10 10 0 1 0-8.653 8.653"]') &&
+              !!icon.querySelector('path[d="M12 6v6l3.644 1.822"]') &&
+              !!icon.querySelector('path[d="M16 19h6"]') &&
+              !!icon.querySelector('path[d="M19 16v6"]') === (variant === 'add') &&
+              paths.every(path => getComputedStyle(path).fill === 'none' && getComputedStyle(path).stroke === stroke) &&
+              !icon.classList.contains('text-primary') &&
+              !icon.querySelector('circle, g, path[d="M7.5 10 12 12 17 6.5"]') && !icon.classList.contains('text-accent') &&
+              !button.querySelector('[class*="bookmark"]');
+          });
+        })()`,
+      ),
+      `${variant} clock has dark 24px plus/minus strokes, white surface with subtle hover, decorative semantics and 48px target`,
+    )
+  }
+  async function captureClockCloseup(page, variant, viewport) {
+    if (!process.argv.includes('--visual')) return
+    const clip = await evaluate(
+      page,
+      `(() => {
+        const rect = document.querySelector('button svg[data-watchlist-icon="${variant}"]').closest('button').getBoundingClientRect();
+        return { x: Math.max(0, rect.left + scrollX - 8), y: Math.max(0, rect.top + scrollY - 8), width: rect.width + 16, height: rect.height + 16, scale: 4 };
+      })()`,
+    )
+    const image = await getCDP().send(
+      'Page.captureScreenshot',
+      { format: 'png', captureBeyondViewport: true, clip },
+      page.sessionId,
+    )
+    await writeFile(
+      `/tmp/opencode/watchlist-clock-${variant}-${viewport}-closeup.png`,
+      Buffer.from(image.data, 'base64'),
+    )
+  }
+  async function captureClockOnBackdrop(page, variant, viewport) {
+    if (!process.argv.includes('--visual')) return
+    // Synthetic poster-like backdrop, local CSS only: no image/provider request.
+    const previous = await evaluate(
+      page,
+      `document.querySelector('.movie-hero').style.backgroundImage`,
+    )
+    try {
+      await evaluate(
+        page,
+        `document.querySelector('.movie-hero').style.backgroundImage = 'linear-gradient(135deg, #17211c, #494439 45%, #111817 70%, #3b4a40)'`,
+      )
+      await checkClock(page, variant)
+      await captureClockCloseup(page, variant, `${viewport}-poster-background`)
+    } finally {
+      await evaluate(
+        page,
+        `document.querySelector('.movie-hero').style.backgroundImage = ${JSON.stringify(previous)}`,
+      )
+    }
+  }
+  async function captureFilmClock(page, variant) {
+    await checkClock(page, variant)
+    await screenshot(page, `clock-${variant}-desktop`)
+    await captureClockCloseup(page, variant, 'desktop')
+    await captureClockOnBackdrop(page, variant, 'desktop')
+    await getCDP().send(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+      page.sessionId,
+    )
+    await checkClock(page, variant)
+    await screenshot(page, `clock-${variant}-mobile`)
+    await captureClockCloseup(page, variant, 'mobile')
+    await captureClockOnBackdrop(page, variant, 'mobile')
+    await getCDP().send(
+      'Emulation.setDeviceMetricsOverride',
+      { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+      page.sessionId,
+    )
+  }
   const route = async (page, path) => {
     await evaluate(page, `${router}.push(${JSON.stringify(path)})`)
     await until(
@@ -2684,6 +2783,14 @@ export async function watchlistScenario({
     )
   }
   await screenshot(page, 'desktop')
+  await checkClock(page, 'remove')
+  check(
+    await evaluate(
+      page,
+      `(() => { const link = document.querySelector('nav[aria-label="Espace personnel"] a[href="/compte/watchlist"]'); const icon = link?.querySelector('svg[data-watchlist-icon="navigation"]'); return link?.textContent.trim() === 'Watchlist' && link.getAttribute('aria-current') === 'page' && icon?.getAttribute('aria-hidden') === 'true' && icon.getAttribute('focusable') === 'false' && icon.querySelectorAll('circle').length === 1 && icon.querySelectorAll('path').length === 1 && !icon.querySelector('g'); })()`,
+    ),
+    'active watchlist navigation keeps its name and decorative plain clock without action badge',
+  )
   check(
     await evaluate(
       page,
@@ -2698,7 +2805,7 @@ export async function watchlistScenario({
   await until(
     page,
     `!!document.querySelector('button[aria-label="Retirer de la watchlist"]') && !document.querySelector('#watchlist-tag-filter')`,
-    'standalone bookmark on no-trailer no-session film',
+    'standalone watchlist clock on no-trailer no-session film',
   )
   check(
     await evaluate(
@@ -2712,9 +2819,10 @@ export async function watchlistScenario({
       page,
       `!document.querySelector('button[aria-haspopup="dialog"]') && document.querySelector('button[aria-label="Retirer de la watchlist"]').getBoundingClientRect().width >= 44`,
     ),
-    'no-trailer bookmark retains accessible target',
+    'no-trailer watchlist clock retains accessible target',
   )
   await screenshot(page, 'film')
+  await captureFilmClock(page, 'remove')
   conflict = true
   await evaluate(
     page,
@@ -2749,7 +2857,7 @@ export async function watchlistScenario({
       page,
       `document.activeElement?.getAttribute('aria-label') === 'Retirer de la watchlist' && (getComputedStyle(document.activeElement).outlineStyle !== 'none' || getComputedStyle(document.activeElement).boxShadow !== 'none')`,
     ),
-    'keyboard navigation shows bookmark focus',
+    'keyboard navigation shows watchlist focus',
   )
   await getCDP().send(
     'Input.dispatchKeyEvent',
@@ -2773,6 +2881,7 @@ export async function watchlistScenario({
     'remove acknowledged',
   )
   check(!saved.includes('external-film'), 'keyboard Enter removes saved film')
+  await captureFilmClock(page, 'add')
   await route(page, '/compte/watchlist')
   await until(
     page,
@@ -3059,8 +3168,9 @@ export async function watchlistScenario({
       page,
       `(() => { const row = ${savedRow('saved-film')}; const time = row.querySelector('time').getBoundingClientRect(); const action = row.querySelector('button[aria-label="Retirer de la watchlist"]').getBoundingClientRect(); return document.documentElement.scrollWidth <= innerWidth && time.right <= action.left && action.width >= 44 && action.height >= 44; })()`,
     ),
-    'mobile full French date fits saved row and preserves bookmark touch target',
+    'mobile full French date fits saved row and preserves watchlist touch target',
   )
+  await checkClock(page, 'remove')
   await screenshot(page, 'mobile-saved-date')
   await click(page, 'Gérer les tags')
   await click(page, 'Créer un tag')

@@ -79,7 +79,7 @@ test('home renders settings and watchlist without initializing settings data or 
       props: ['to', 'prefetch'],
       template: '<a :href="to"><slot /></a>',
     })
-    for (const icon of ['Bookmark', 'Settings', 'ChevronRight'])
+    for (const icon of ['WatchlistIcon', 'Settings', 'ChevronRight'])
       app.component(icon, { template: '<svg />' })
     return renderToString(app)
   }
@@ -144,7 +144,7 @@ test('desktop settings selection follows exact normalized route, not account hom
       template: '<a :href="to"><slot /></a>',
     })
     app.component('Settings', { template: '<svg />' })
-    app.component('Bookmark', { template: '<svg />' })
+    app.component('WatchlistIcon', { template: '<svg />' })
     const html = await renderToString(app)
     assert.equal(html.includes('aria-current="page"'), active.value)
     assert.match(html, /href="\/compte\/parametres"/)

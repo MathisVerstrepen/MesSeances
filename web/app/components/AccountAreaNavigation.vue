@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bookmark, Settings, Users } from '@lucide/vue'
+import { Settings, Users } from '@lucide/vue'
 
 const route = useRoute()
 const settingsActive = computed(
@@ -39,7 +39,7 @@ const upcomingEntries = [{ label: 'Amis', icon: Users }]
           :class="watchlistActive ? 'border-ink bg-ink text-white' : 'border-transparent hover:bg-ink/10'"
           class="flex min-h-12 items-center gap-2 border-l-4 px-3 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
         >
-          <Bookmark :size="18" class="shrink-0" aria-hidden="true" />Watchlist
+          <WatchlistIcon :size="18" class="shrink-0" />Watchlist
         </NuxtLink>
       </li>
       <li v-for="entry in upcomingEntries" :key="entry.label">

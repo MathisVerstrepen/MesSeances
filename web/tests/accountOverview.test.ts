@@ -595,10 +595,12 @@ test('account navigation pairs each label with a decorative icon without changin
     new URL('../app/components/AccountAreaNavigation.vue', import.meta.url),
     'utf8',
   )
+  assert.match(navigation, /import \{ Settings, Users \} from '@lucide\/vue'/)
   assert.match(
     navigation,
-    /import \{ Bookmark, Settings, Users \} from '@lucide\/vue'/,
+    /<WatchlistIcon :size="18" class="shrink-0" \/>Watchlist/,
   )
+  assert.doesNotMatch(navigation, /Bookmark/)
   assert.match(
     navigation,
     /<span class="inline-flex items-center gap-2">\s*<Settings :size="18" class="shrink-0" aria-hidden="true" \/>\s*Paramètres/,

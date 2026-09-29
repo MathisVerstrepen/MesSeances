@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { Bookmark, BookmarkCheck } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
 
 const props = withDefaults(
@@ -41,7 +40,7 @@ async function toggle() {
   <div v-if="account.session.value?.enabled !== false" class="text-ink">
     <button
       type="button"
-      class="inline-flex size-12 items-center justify-center border-2 border-ink bg-surface hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current disabled:cursor-not-allowed disabled:opacity-60"
+      class="inline-flex size-12 items-center justify-center border-2 border-ink bg-surface enabled:hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current disabled:cursor-not-allowed disabled:opacity-60"
       :disabled="unknown || watchlist.saving.value"
       :aria-pressed="unknown ? undefined : saved"
       :aria-label="label"
@@ -49,8 +48,7 @@ async function toggle() {
       :aria-busy="unknown || watchlist.saving.value"
       @click="toggle"
     >
-      <BookmarkCheck v-if="saved" :size="22" aria-hidden="true" />
-      <Bookmark v-else :size="22" aria-hidden="true" />
+      <WatchlistIcon :variant="saved ? 'remove' : 'add'" :size="24" />
     </button>
     <div
       v-if="showError && watchlist.error.value"

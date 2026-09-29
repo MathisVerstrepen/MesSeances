@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bookmark, ChevronRight, Settings } from '@lucide/vue'
+import { ChevronRight, Settings } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
 
 definePageMeta({ middleware: 'account-auth' })
@@ -18,7 +18,7 @@ useHead({ title: 'Mon compte - MesSeances' })
             :prefetch="false"
             class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            <Bookmark :size="20" class="shrink-0" aria-hidden="true" />Watchlist
+            <WatchlistIcon :size="20" class="shrink-0" />Watchlist
             <ChevronRight
               :size="20"
               class="ml-auto shrink-0"
