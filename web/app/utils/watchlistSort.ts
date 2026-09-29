@@ -2,13 +2,29 @@ import type { WatchlistItem, WatchlistSortOrder } from '../types/watchlist.ts'
 import { isCalendarDate } from './date.ts'
 
 export const watchlistSortOptions = [
-  { value: 'added_desc', label: 'Ajouts les plus récents' },
-  { value: 'added_asc', label: 'Ajouts les plus anciens' },
-  { value: 'title_asc', label: 'Titre : A-Z' },
-  { value: 'title_desc', label: 'Titre : Z-A' },
-  { value: 'release_desc', label: 'Sorties françaises les plus récentes' },
-  { value: 'release_asc', label: 'Sorties françaises les plus anciennes' },
-] satisfies { value: WatchlistSortOrder; label: string }[]
+  {
+    value: 'added_desc',
+    label: 'Ajouts les plus récents',
+    shortLabel: 'Ajouts récents',
+  },
+  {
+    value: 'added_asc',
+    label: 'Ajouts les plus anciens',
+    shortLabel: 'Ajouts anciens',
+  },
+  { value: 'title_asc', label: 'Titre : A-Z', shortLabel: 'Titre : A-Z' },
+  { value: 'title_desc', label: 'Titre : Z-A', shortLabel: 'Titre : Z-A' },
+  {
+    value: 'release_desc',
+    label: 'Sorties françaises les plus récentes',
+    shortLabel: 'Sortie FR récente',
+  },
+  {
+    value: 'release_asc',
+    label: 'Sorties françaises les plus anciennes',
+    shortLabel: 'Sortie FR ancienne',
+  },
+] satisfies { value: WatchlistSortOrder; label: string; shortLabel: string }[]
 
 const titles = new Intl.Collator('fr-FR', {
   sensitivity: 'base',

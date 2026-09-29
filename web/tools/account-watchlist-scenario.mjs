@@ -585,6 +585,86 @@ export async function watchlistScenario({
       `${viewport} native tag filter keeps hidden label, inset 20px click-through icon, text clearance and 44px target`,
     )
   }
+  async function checkCompactLayout(width) {
+    check(
+      await evaluate(
+        page,
+        `(() => {
+        const section = document.querySelector('section[aria-labelledby="saved-heading"]');
+        const filter = document.querySelector('#watchlist-tag-filter'), sort = document.querySelector('#watchlist-sort');
+        const manager = document.querySelector('button[aria-controls="watchlist-tag-manager"]');
+        const f = filter.getBoundingClientRect(), s = sort.getBoundingClientRect(), m = manager.getBoundingClientRect();
+        const heading = document.querySelector('#saved-heading').getBoundingClientRect(), toggle = document.querySelector('[aria-label="Affichage des films"]').getBoundingClientRect();
+        const close = (a, b) => Math.abs(a - b) < 1;
+        const full = r => close(r.left, section.getBoundingClientRect().left) && close(r.right, section.getBoundingClientRect().right);
+        const form = document.querySelector('#watchlist-query').closest('form').getBoundingClientRect();
+        const firstHeading = section.querySelector('h3'), firstFilm = section.querySelector('a[href^="/film/"]').closest('li').getBoundingClientRect();
+        return document.documentElement.scrollWidth <= innerWidth
+          && [f,s,m].every(r => r.height >= 44 && r.width >= 44 && r.left >= 0 && r.right <= innerWidth)
+          && manager.textContent.trim() === 'Gérer les tags'
+          && (${width} >= 1024 ? close(f.bottom,s.bottom) && close(s.bottom,m.bottom)
+            : full(f) && f.bottom + 8 <= s.top && (${width} >= 390 ? close(s.top,m.top) && m.left - s.right >= 8 : full(s) && full(m) && m.top - s.bottom >= 8))
+          && (${width} >= 390 ? heading.top >= toggle.top && heading.bottom <= toggle.bottom : toggle.top - heading.bottom >= 8)
+          && (${width} >= 640 || (Math.min(heading.top,toggle.top) - form.bottom <= 32 && firstHeading.getBoundingClientRect().top - Math.max(s.bottom,m.bottom) <= 16 && firstFilm.top - firstHeading.getBoundingClientRect().bottom <= 4));
+      })()`,
+      ),
+      `${width}px toolbar keeps readable control geometry, adaptive heading/toggle and compact mobile vertical gaps`,
+    )
+    for (const value of [
+      'added_desc',
+      'added_asc',
+      'title_asc',
+      'title_desc',
+      'release_desc',
+      'release_asc',
+    ]) {
+      await selectSort(value)
+      check(
+        await evaluate(
+          page,
+          `(() => {
+          const select = document.querySelector('#watchlist-sort'), option = select.selectedOptions[0], css = getComputedStyle(select);
+          const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+          ctx.font = css.font;
+          const available = select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) - 20;
+          const releaseLabels = { release_desc: 'Sortie FR récente', release_asc: 'Sortie FR ancienne' };
+          return option.textContent.trim().length > 0 && !!option.getAttribute('aria-label')
+            && (!releaseLabels[select.value] || option.textContent.trim() === releaseLabels[select.value])
+            && ctx.measureText(option.textContent.trim()).width <= available && css.appearance === 'auto';
+        })()`,
+        ),
+        `${width}px ${value} selected label fits beside inset icon and reserved native arrow`,
+      )
+      if (value.startsWith('release_') && width < 640) {
+        await evaluate(
+          page,
+          'document.activeElement.blur(); window.scrollTo(0, 0)',
+        )
+        await screenshot(page, `compact-${value}-${width}`)
+      }
+    }
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').focus()`,
+    )
+    for (const id of ['watchlist-sort', 'watchlist-tag-manager']) {
+      for (const type of ['keyDown', 'keyUp'])
+        await getCDP().send(
+          'Input.dispatchKeyEvent',
+          { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+          page.sessionId,
+        )
+      check(
+        await evaluate(
+          page,
+          `(() => { const active = document.activeElement, css = getComputedStyle(active); return (active.id === '${id}' || active.getAttribute('aria-controls') === '${id}') && active.matches(':focus-visible') && ((css.outlineStyle !== 'none' && parseFloat(css.outlineWidth) > 0) || css.boxShadow !== 'none'); })()`,
+        ),
+        `${width}px native tab order reaches ${id} with visible focus`,
+      )
+    }
+    await evaluate(page, 'document.activeElement.blur(); window.scrollTo(0, 0)')
+    await screenshot(page, `compact-grouped-${width}`)
+  }
   async function finishRead() {
     for (let i = 0; !releaseRead && i < 100; i++) await delay(20)
     check(!!releaseRead, 'held private watchlist GET reached fixture')
@@ -1929,7 +2009,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-filter').value === '${firstTag}' && ${savedRow('external-film')}.textContent.includes('Soirée cinéma') && [...document.querySelectorAll('ul[aria-label="Tags associés"] li')].filter(chip => chip.textContent.trim() === 'Soirée cinéma').every(chip => getComputedStyle(chip).backgroundColor === 'rgb(219, 234, 254)')`,
+      `document.querySelector('#watchlist-tag-filter').value === '${firstTag}' && !!${savedRow('external-film')} && document.querySelector('#watchlist-group-tag-${firstTag}').textContent.includes('Soirée cinéma') && ![...document.querySelectorAll('ul[aria-label="Tags associés"] li')].some(chip => chip.textContent.trim() === 'Soirée cinéma')`,
     ),
     'route reentry recovers committed assignments and selected filter',
   )
@@ -2001,6 +2081,13 @@ export async function watchlistScenario({
   const beforeGroupingRequests = requests.length
   await checkSegmentedDisplay('desktop list', 0)
   await screenshot(page, 'segmented-list-desktop')
+  check(
+    await evaluate(
+      page,
+      `${savedRow('saved-film')}.querySelectorAll('ul[aria-label="Tags associés"] li').length === 2 && ${savedRow('external-film')}.querySelectorAll('ul[aria-label="Tags associés"] li').length === 1`,
+    ),
+    'Liste retains every assigned chip including active filter membership',
+  )
   await evaluate(
     page,
     `${viewButtons}.querySelector('button:first-child').focus()`,
@@ -2067,6 +2154,36 @@ export async function watchlistScenario({
     'multi-tag film renders in both sections with preserved French release date',
   )
   await screenshot(page, 'grouped-desktop')
+  check(
+    await evaluate(
+      page,
+      `(() => {
+      const chips = row => [...row.querySelectorAll('ul[aria-label="Tags associés"] li')].map(chip => chip.textContent.trim());
+      return JSON.stringify(chips(${groupRow(`tag-${firstTag}`, 'saved-film')})) === ${JSON.stringify(JSON.stringify([tags().find((tag) => tag.id === secondTag).name]))}
+        && JSON.stringify(chips(${groupRow(`tag-${secondTag}`, 'saved-film')})) === ${JSON.stringify(JSON.stringify([tags().find((tag) => tag.id === firstTag).name]))}
+        && chips(${groupRow(`tag-${firstTag}`, 'external-film')}).length === 0
+        && chips(${groupRow('untagged', 'other-film')}).length === 0;
+    })()`,
+    ),
+    'grouped summaries omit only section membership, retain other chips and leave Sans tag unchanged',
+  )
+  for (const width of [1440, 400, 390, 320]) {
+    await getCDP().send(
+      'Emulation.setDeviceMetricsOverride',
+      { width, height: 900, deviceScaleFactor: 1, mobile: width < 640 },
+      page.sessionId,
+    )
+    await evaluate(
+      page,
+      `window.scrollTo(0, 0); new Promise(resolve => requestAnimationFrame(resolve))`,
+    )
+    await checkCompactLayout(width)
+  }
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    page.sessionId,
+  )
   for (const [order, expected] of [
     ['added_desc', ['external-film', 'saved-film']],
     ['added_asc', ['saved-film', 'external-film']],
@@ -2085,6 +2202,13 @@ export async function watchlistScenario({
     )
   }
   await openGroupPicker(`tag-${firstTag}`, 'saved-film')
+  check(
+    await evaluate(
+      page,
+      `${groupRow(`tag-${firstTag}`, 'saved-film')}.querySelectorAll('input:checked').length === 2`,
+    ),
+    'picker still checks both actual memberships including hidden section chip',
+  )
   await openGroupPicker(`tag-${secondTag}`, 'saved-film')
   check(
     await evaluate(
@@ -2124,9 +2248,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!!${groupRow(`tag-${firstTag}`, 'saved-film')} && ${openPickers}.length === 1 && ${groupRow(`tag-${secondTag}`, 'saved-film')}.contains(document.activeElement) && document.activeElement.type === 'checkbox' && [...document.querySelectorAll('section[aria-labelledby="saved-heading"] a[href="/film/saved-film"]')].every(a=>a.closest('li').querySelectorAll('ul[aria-label="Tags associés"] li').length === 2)`,
+      `!!${groupRow(`tag-${firstTag}`, 'saved-film')} && ${openPickers}.length === 1 && ${groupRow(`tag-${secondTag}`, 'saved-film')}.contains(document.activeElement) && document.activeElement.type === 'checkbox' && [...document.querySelectorAll('section[aria-labelledby="saved-heading"] a[href="/film/saved-film"]')].every(a=>a.closest('li').querySelectorAll('ul[aria-label="Tags associés"] li').length === 1)`,
     ),
-    'adding membership creates copy, updates both chips and retains originating checkbox focus',
+    'adding membership creates copy, updates each contextual summary and retains originating checkbox focus',
   )
   await assignGroup(`tag-${secondTag}`, 'saved-film', secondTag)
   check(
@@ -2884,9 +3008,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const style = getComputedStyle(control); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return select.height >= 44 && select.left >= 0 && icon.left > select.left && icon.right < select.right && icon.top > select.top && icon.bottom < select.bottom && select.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= icon.right + 8 && select.right <= innerWidth && select.top >= heading.bottom && select.top >= filter.bottom && trigger.top >= select.bottom && Math.abs(select.left - filter.left) < 1 && Math.abs(select.right - filter.right) < 1 && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
+      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const style = getComputedStyle(control); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return select.height >= 44 && select.left >= 0 && icon.left > select.left && icon.right < select.right && icon.top > select.top && icon.bottom < select.bottom && select.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= icon.right + 8 && select.right <= innerWidth && select.top >= heading.bottom && select.top >= filter.bottom + 8 && Math.abs(trigger.top - select.top) < 1 && trigger.left - select.right >= 8 && Math.abs(select.left - filter.left) < 1 && Math.abs(trigger.right - filter.right) < 1 && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
     ),
-    'mobile sort icon stays inside select with text clearance, stacked toolbar alignment and 44px target',
+    'mobile sort icon keeps text clearance and 44px target beside manager below full-width filter',
   )
   await checkTagFilterPresentation('mobile')
   await fill(page, 'watchlist-query', 'private candidate query')

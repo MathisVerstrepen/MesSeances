@@ -316,7 +316,7 @@ onBeforeRouteLeave(clearPageSearch)
     hide-logout
     hide-explore
   >
-    <div v-if="owner" class="space-y-10">
+    <div v-if="owner" class="space-y-6 sm:space-y-10">
       <div
         v-if="error && !panelOpen && !openTagEditor"
         role="alert"
@@ -561,7 +561,7 @@ onBeforeRouteLeave(clearPageSearch)
         </div>
       </form>
       <section aria-labelledby="saved-heading">
-        <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
           <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
           <div
             role="group"
@@ -590,9 +590,11 @@ onBeforeRouteLeave(clearPageSearch)
           </div>
         </div>
         <div
-          class="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
+          class="mt-3 grid min-w-0 gap-2 min-[390px]:grid-cols-[minmax(0,1fr)_auto] sm:mt-4 sm:grid-cols-2 sm:gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
         >
-          <div class="relative min-w-0 self-end">
+          <div
+            class="relative min-w-0 self-end min-[390px]:col-span-2 sm:col-span-1"
+          >
             <label for="watchlist-tag-filter" class="sr-only"
               >Filtrer par tag</label
             >
@@ -639,8 +641,9 @@ onBeforeRouteLeave(clearPageSearch)
                 v-for="option in watchlistSortOptions"
                 :key="option.value"
                 :value="option.value"
+                :aria-label="option.label"
               >
-                {{ option.label }}
+                {{ option.shortLabel }}
               </option>
             </select>
           </div>
@@ -682,7 +685,7 @@ onBeforeRouteLeave(clearPageSearch)
              Shared write guards stay active; scope invalidation clears the picker. -->
         <div
           v-else-if="ready || openTagEditor"
-          :class="displayMode === 'tags' ? 'mt-6 space-y-8' : ''"
+          :class="displayMode === 'tags' ? 'mt-4 space-y-6 sm:mt-6 sm:space-y-8' : ''"
         >
           <component
             :is="displayMode === 'tags' ? 'section' : 'div'"
@@ -716,6 +719,7 @@ onBeforeRouteLeave(clearPageSearch)
                     :title="movie.title"
                     :tags="sortedTags"
                     :tag-ids="movie.tag_ids"
+                    :context-tag-id="displayMode === 'tags' && section.id.startsWith('tag-') ? section.id.slice(4) : undefined"
                     :open="openTagEditor === rowKey(section.id, movie.slug)"
                     :blocked="writesBlocked"
                     :error="error"

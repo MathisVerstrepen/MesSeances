@@ -291,7 +291,7 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       type="button"
-      class="account-secondary inline-flex min-h-11 w-full items-center justify-center gap-2 sm:w-auto"
+      class="account-secondary inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap max-sm:px-2! max-sm:font-sans! max-sm:text-xs! max-sm:font-semibold! max-sm:normal-case! max-sm:tracking-normal! sm:w-auto"
       :disabled="!ready"
       :aria-expanded="open"
       aria-haspopup="dialog"

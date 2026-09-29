@@ -21,6 +21,36 @@ const item = (
 })
 const slugs = (items: WatchlistItem[]) => items.map((movie) => movie.slug)
 
+test('six distinct compact choices retain original order, values and accessible full names', () => {
+  assert.deepEqual(
+    watchlistSortOptions.map(({ value, shortLabel, label }) => [
+      value,
+      shortLabel,
+      label,
+    ]),
+    [
+      ['added_desc', 'Ajouts récents', 'Ajouts les plus récents'],
+      ['added_asc', 'Ajouts anciens', 'Ajouts les plus anciens'],
+      ['title_asc', 'Titre : A-Z', 'Titre : A-Z'],
+      ['title_desc', 'Titre : Z-A', 'Titre : Z-A'],
+      [
+        'release_desc',
+        'Sortie FR récente',
+        'Sorties françaises les plus récentes',
+      ],
+      [
+        'release_asc',
+        'Sortie FR ancienne',
+        'Sorties françaises les plus anciennes',
+      ],
+    ],
+  )
+  assert.equal(
+    new Set(watchlistSortOptions.map(({ shortLabel }) => shortLabel)).size,
+    6,
+  )
+})
+
 test('all six modes sort a copy, using French theatrical evidence only', () => {
   const items = [
     item('film-b', { title: 'École 10', french_release_date: '2000-02-29' }),

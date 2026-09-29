@@ -132,6 +132,7 @@ function deferred() {
 
 interface CheckboxProps {
   tagIds: string[]
+  contextTagId?: string
   tags: WatchlistTag[]
   open: boolean
   blocked: boolean
@@ -139,6 +140,7 @@ interface CheckboxProps {
 }
 
 interface CheckboxHandlers {
+  assignedTags: ReturnType<typeof computed<WatchlistTag[]>>
   change: (event: { target: unknown }, id: string) => void
   close: (restore?: boolean) => void
   positionPanel: () => void
@@ -677,7 +679,7 @@ async function itemFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { change, close, positionPanel, position }`,
+        `${script}\nexport { change, close, positionPanel, position, assignedTags }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -734,6 +736,39 @@ async function itemFixture() {
     },
   }
 }
+
+test('section context hides only its assigned chip without altering picker membership or list summaries', async () => {
+  const f = await itemFixture()
+  try {
+    f.props.tags = [
+      { id: '1', name: 'Amis', color: 'blue' },
+      { id: '2', name: 'Cinéma', color: 'red' },
+      { id: '3', name: 'Vide', color: 'neutral' },
+    ]
+    f.props.tagIds = ['1', '2']
+    const visibleIds = () => f.handlers.assignedTags.value.map((tag) => tag.id)
+    assert.deepEqual(visibleIds(), ['1', '2'])
+    f.props.contextTagId = '1'
+    assert.deepEqual(visibleIds(), ['2'])
+    f.props.open = true
+    f.input.checked = false
+    f.handlers.change({ target: f.input }, '1')
+    assert.equal(f.input.checked, true)
+    assert.deepEqual(f.calls[0]?.slice(0, 3), ['assign', '1', false])
+    assert.deepEqual(f.props.tagIds, ['1', '2'])
+    assert.match(f.source, /:checked="tagIds.includes\(tag.id\)"/)
+    f.props.contextTagId = '2'
+    assert.deepEqual(visibleIds(), ['1'])
+    f.props.tagIds = ['2']
+    assert.deepEqual(visibleIds(), [])
+    f.props.contextTagId = undefined
+    assert.deepEqual(visibleIds(), ['2'])
+    f.props.tagIds = []
+    assert.deepEqual(visibleIds(), [])
+  } finally {
+    f.stop()
+  }
+})
 
 test('native tag checkbox restores committed value synchronously before emitting one assignment and rejects pending or closed actions', async () => {
   const f = await itemFixture()

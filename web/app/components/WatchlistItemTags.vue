@@ -7,6 +7,7 @@ const props = defineProps<{
   title: string
   tags: WatchlistTag[]
   tagIds: string[]
+  contextTagId?: string
   open: boolean
   blocked: boolean
   error: string
@@ -32,7 +33,9 @@ const position = ref({
 })
 let opening = 0
 const assignedTags = computed(() =>
-  props.tags.filter((tag) => props.tagIds.includes(tag.id)),
+  props.tags.filter(
+    (tag) => props.tagIds.includes(tag.id) && tag.id !== props.contextTagId,
+  ),
 )
 function change(event: Event, tagId: string) {
   const input = event.target
