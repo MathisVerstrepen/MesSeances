@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,6 +21,65 @@ const validWatchlistMutation = `{"expected_username":"owner","expected_revision"
 const validWatchlistSearch = `{"expected_username":"owner","query":"Film"}`
 const validWatchlistImport = `{"expected_username":"owner","expected_revision":"0","tmdb_id":"42"}`
 const validWatchlistSort = `{"expected_username":"owner","expected_revision":"0","sort_order":"title_asc"}`
+const validWatchlistPreferences = `{"expected_username":"owner","expected_revision":"0","view_mode":"tags","filter_tag_id":""}`
+
+func TestWatchlistPreferencesStrictTransport(t *testing.T) {
+	check := func(body string, status int) {
+		t.Helper()
+		h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, theaterPreferenceRequest(t, "POST", watchlistRoute+"/preferences", body))
+		if w.Code != status || (status == 400 && !strings.Contains(w.Body.String(), `"code":"invalid_request"`)) {
+			t.Fatalf("preferences transport status=%d want=%d", w.Code, status)
+		}
+		assertAccountHeaders(t, w)
+	}
+	for _, mode := range []string{"list", "tags"} {
+		for _, filter := range []string{"", "1", "9223372036854775807"} {
+			body := strings.Replace(validWatchlistPreferences, `"tags"`, `"`+mode+`"`, 1)
+			check(strings.Replace(body, `"filter_tag_id":""`, `"filter_tag_id":"`+filter+`"`, 1), 503)
+		}
+	}
+	for _, field := range []string{"expected_username", "expected_revision", "view_mode", "filter_tag_id"} {
+		var input map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(validWatchlistPreferences), &input); err != nil {
+			t.Fatal(err)
+		}
+		for _, value := range []string{"null", "0", "true", "[]", "{}"} {
+			input[field] = json.RawMessage(value)
+			body, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			check(string(body), 400)
+		}
+		delete(input, field)
+		body, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		check(string(body), 400)
+		check(strings.Replace(validWatchlistPreferences, field, strings.ToUpper(field), 1), 400)
+		check(strings.TrimSuffix(validWatchlistPreferences, "}")+`,"`+field+`":""}`, 400)
+	}
+	for _, mode := range []string{"", "LIST", "Tags", "list ", " tags", "grouped"} {
+		check(strings.Replace(validWatchlistPreferences, `"tags"`, `"`+mode+`"`, 1), 400)
+	}
+	for _, filter := range []string{"0", "-1", "+1", "01", " 1", "1 ", "1.0", "1e1", "9223372036854775808", "null"} {
+		check(strings.Replace(validWatchlistPreferences, `"filter_tag_id":""`, `"filter_tag_id":"`+filter+`"`, 1), 400)
+	}
+	for _, body := range []string{
+		strings.TrimSuffix(validWatchlistPreferences, "}") + `,"\u0076iew_mode":"list"}`,
+		strings.TrimSuffix(validWatchlistPreferences, "}") + `,"\u0066ilter_tag_id":"1"}`,
+		strings.TrimSuffix(validWatchlistPreferences, "}") + `,"account_id":"1"}`,
+		strings.Replace(validWatchlistPreferences, `"0"`, `"9007199254740992"`, 1),
+		strings.Replace(validWatchlistPreferences, `"0"`, `"01"`, 1),
+		strings.Replace(validWatchlistPreferences, `tags`, `\ud800`, 1),
+		validWatchlistPreferences + `{}`, validWatchlistPreferences + strings.Repeat(" ", 8192), "{\xff}", `[]`, `null`,
+	} {
+		check(body, 400)
+	}
+}
 
 func TestWatchlistStrictTransport(t *testing.T) {
 	for _, tc := range []struct {
@@ -92,7 +153,7 @@ func TestWatchlistStrictTransport(t *testing.T) {
 
 func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
 	for _, route := range []struct{ method, path, body string }{{"GET", watchlistRoute, ""}, {"POST", watchlistRoute, validWatchlistMutation}, {"POST", watchlistRoute + "/sort", validWatchlistSort}, {"POST", watchlistRoute + "/search", validWatchlistSearch}, {"POST", watchlistRoute + "/import", validWatchlistImport},
-		{"POST", watchlistRoute + "/tags", validWatchlistTagCreate}, {"POST", watchlistRoute + "/tags/update", validWatchlistTagUpdate}, {"POST", watchlistRoute + "/tags/delete", validWatchlistTagDelete}, {"POST", watchlistRoute + "/tags/assign", validWatchlistTagAssign}} {
+		{"POST", watchlistRoute + "/preferences", validWatchlistPreferences}, {"POST", watchlistRoute + "/tags", validWatchlistTagCreate}, {"POST", watchlistRoute + "/tags/update", validWatchlistTagUpdate}, {"POST", watchlistRoute + "/tags/delete", validWatchlistTagDelete}, {"POST", watchlistRoute + "/tags/assign", validWatchlistTagAssign}} {
 		for _, suffix := range []string{"?", "?username=other"} {
 			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
 			w := httptest.NewRecorder()
@@ -118,6 +179,13 @@ func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
 		h.ServeHTTP(w, theaterPreferenceRequest(t, route.method, route.path, route.body))
 		if w.Code != 503 {
 			t.Fatal("disabled accounts route not safely unavailable")
+		}
+		assertAccountHeaders(t, w)
+		unavailable := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: AccountOptions{Enabled: true}})
+		w = httptest.NewRecorder()
+		unavailable.ServeHTTP(w, theaterPreferenceRequest(t, route.method, route.path, route.body))
+		if w.Code != 503 || !strings.Contains(w.Body.String(), `"code":"accounts_unavailable"`) {
+			t.Fatal("enabled unavailable accounts route not registered")
 		}
 		assertAccountHeaders(t, w)
 		for _, method := range []string{"PUT", "OPTIONS"} {
@@ -155,6 +223,17 @@ func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
 				h.ServeHTTP(w, r)
 				if w.Code != 403 {
 					t.Fatal("CSRF boundary bypassed")
+				}
+				assertAccountHeaders(t, w)
+			}
+			if header != "Sec-Fetch-Site" {
+				h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
+				r := theaterPreferenceRequest(t, route.method, route.path, route.body)
+				r.Header.Del(header)
+				w := httptest.NewRecorder()
+				h.ServeHTTP(w, r)
+				if w.Code != 403 {
+					t.Fatal("missing required CSRF header accepted")
 				}
 				assertAccountHeaders(t, w)
 			}
@@ -202,6 +281,7 @@ func TestWatchlistIndependentIPQuotasAndSafeErrors(t *testing.T) {
 				handler    http.HandlerFunc
 				path, body string
 			}{
+				{h.saveWatchlistPreferences, "/preferences", validWatchlistPreferences},
 				{h.createWatchlistTag, "/tags", validWatchlistTagCreate},
 				{h.updateWatchlistTag, "/tags/update", validWatchlistTagUpdate},
 				{h.deleteWatchlistTag, "/tags/delete", validWatchlistTagDelete},
@@ -260,20 +340,28 @@ func TestWatchlistRegisteredRoutesIntegration(t *testing.T) {
 	}
 	input := map[string]string{"expected_username": "watchlist_http", "expected_revision": "0", "movie_slug": movie.Slug, "saved": "true"}
 	sortInput := map[string]string{"expected_username": "watchlist_http", "expected_revision": "0", "sort_order": "added_desc"}
+	prefsInput := map[string]string{"expected_username": "watchlist_http", "expected_revision": "0", "view_mode": "list", "filter_tag_id": ""}
 	p.request("GET", watchlistRoute, nil, 401, nil)
 	p.request("POST", watchlistRoute, input, 401, nil)
 	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
+	p.request("POST", watchlistRoute+"/preferences", prefsInput, 401, nil)
 	watchlistTagRouteDenied(t, p, 401)
 	p.google(map[string]string{"mode": "login"}, "verified", "/finaliser")
 	p.request("GET", watchlistRoute, nil, 403, nil)
 	p.request("POST", watchlistRoute, input, 403, nil)
 	p.request("POST", watchlistRoute+"/sort", sortInput, 403, nil)
+	p.request("POST", watchlistRoute+"/preferences", prefsInput, 403, nil)
 	watchlistTagRouteDenied(t, p, 403)
 	p.request("POST", "/api/v1/account/username", accountUsername{Username: "watchlist_http"}, 200, nil)
 	var view accounts.WatchlistView
 	p.request("GET", watchlistRoute, nil, 200, &view)
-	if view.Username != "watchlist_http" || view.Revision != "0" || view.SortOrder != "added_desc" || view.Items == nil || view.Tags == nil || len(view.Items) != 0 || view.ExternalSearchAvailable {
+	if view.Username != "watchlist_http" || view.Revision != "0" || view.SortOrder != "added_desc" || view.ViewMode != "list" || view.FilterTagID != nil || view.Items == nil || view.Tags == nil || len(view.Items) != 0 || view.ExternalSearchAvailable {
 		t.Fatal("initial wire mismatch")
+	}
+	var wire map[string]json.RawMessage
+	p.request("POST", watchlistRoute+"/preferences", prefsInput, 200, &wire)
+	if string(wire["revision"]) != `"0"` || string(wire["view_mode"]) != `"list"` || string(wire["filter_tag_id"]) != `null` {
+		t.Fatal("default preference no-op initialized state or omitted fields")
 	}
 	p.request("POST", watchlistRoute+"/sort", sortInput, 200, &view)
 	if view.Revision != "0" || view.SortOrder != "added_desc" {
@@ -322,8 +410,73 @@ func TestWatchlistRegisteredRoutesIntegration(t *testing.T) {
 	sortInput["expected_username"] = "different_owner"
 	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
 	watchlistTagRegisteredCRUD(t, p, view, movie.Slug)
+	watchlistPreferencesRegisteredBounds(t, p)
 	p.request("POST", "/api/v1/auth/logout", struct{}{}, 204, nil)
 	p.request("GET", watchlistRoute, nil, 401, nil)
 	p.request("POST", watchlistRoute+"/sort", sortInput, 401, nil)
+	p.request("POST", watchlistRoute+"/preferences", prefsInput, 401, nil)
 	watchlistTagRouteDenied(t, p, 401)
+}
+
+func watchlistPreferencesRegisteredBounds(t *testing.T, p *browserProbe) {
+	t.Helper()
+	var view accounts.WatchlistView
+	p.request("GET", watchlistRoute, nil, 200, &view)
+	if len(view.Tags) != 1 {
+		t.Fatal("missing remaining tag fixture")
+	}
+	id := view.Tags[0].ID
+	for _, pair := range [][2]string{{"list", id}, {"list", ""}, {"tags", ""}, {"tags", id}} {
+		before := view
+		input := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "view_mode": pair[0], "filter_tag_id": pair[1]}
+		p.request("POST", watchlistRoute+"/preferences", input, 200, &view)
+		previous, err := strconv.Atoi(before.Revision)
+		if err != nil || view.Revision != strconv.Itoa(previous+1) || !reflect.DeepEqual(view.Items, before.Items) || !reflect.DeepEqual(view.Tags, before.Tags) || view.SortOrder != before.SortOrder || view.ViewMode != pair[0] || (pair[1] == "" && view.FilterTagID != nil) || (pair[1] != "" && (view.FilterTagID == nil || *view.FilterTagID != pair[1])) {
+			t.Fatal("registered preference pair write not atomic/preserving")
+		}
+		p.request("POST", watchlistRoute+"/preferences", input, 409, nil)
+		input["expected_revision"] = view.Revision
+		var unchanged accounts.WatchlistView
+		p.request("POST", watchlistRoute+"/preferences", input, 200, &unchanged)
+		if !reflect.DeepEqual(unchanged, view) {
+			t.Fatal("registered pair no-op changed snapshot")
+		}
+	}
+	// Foreign and absent well-formed IDs have the same safe response, after CAS.
+	var foreignID string
+	if err := p.h.pool.QueryRow(t.Context(), `WITH owner AS (INSERT INTO accounts(email,created_at,pending_kind) VALUES('foreign-filter@example.com',now(),'email') RETURNING id) INSERT INTO account_watchlist_tags(account_id,name,name_key) SELECT id,'Private','private' FROM owner RETURNING id::text`).Scan(&foreignID); err != nil {
+		t.Fatal(err)
+	}
+	input := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "view_mode": "list", "filter_tag_id": foreignID}
+	var foreign, missing map[string]any
+	p.request("POST", watchlistRoute+"/preferences", input, 404, &foreign)
+	input["filter_tag_id"] = "9223372036854775807"
+	p.request("POST", watchlistRoute+"/preferences", input, 404, &missing)
+	if !reflect.DeepEqual(foreign, missing) {
+		t.Fatal("foreign tag disclosed")
+	}
+	input["expected_revision"] = "0"
+	p.request("POST", watchlistRoute+"/preferences", input, 409, nil)
+	var unchanged accounts.WatchlistView
+	p.request("GET", watchlistRoute, nil, 200, &unchanged)
+	if !reflect.DeepEqual(unchanged, view) {
+		t.Fatal("lookup failure partially changed pair")
+	}
+	// Exercise no-op and transactional rollback at the wire revision limit.
+	if _, err := p.h.pool.Exec(t.Context(), `UPDATE account_watchlist_state SET revision=9007199254740991 WHERE account_id=(SELECT account_id FROM account_username_claims WHERE username='watchlist_http')`); err != nil {
+		t.Fatal(err)
+	}
+	input["expected_revision"], input["view_mode"], input["filter_tag_id"] = "9007199254740991", "tags", id
+	view = accounts.WatchlistView{}
+	p.request("POST", watchlistRoute+"/preferences", input, 200, &view)
+	if view.Revision != "9007199254740991" || view.ViewMode != "tags" || view.FilterTagID == nil || *view.FilterTagID != id {
+		t.Fatal("registered max no-op")
+	}
+	input["view_mode"], input["filter_tag_id"] = "list", ""
+	p.request("POST", watchlistRoute+"/preferences", input, 503, nil)
+	p.request("POST", watchlistRoute+"/tags/delete", map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "tag_id": id}, 503, nil)
+	p.request("GET", watchlistRoute, nil, 200, &unchanged)
+	if !reflect.DeepEqual(unchanged, view) {
+		t.Fatal("registered max rollback failed")
+	}
 }

@@ -34,7 +34,7 @@ func TestWatchlistTagColorsMigrationIntegration(t *testing.T) {
 				err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
  (SELECT jsonb_agg(to_jsonb(t)-'color' ORDER BY account_id,id) FROM account_watchlist_tags t),
  (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id,public_movie_id,tag_id) FROM account_watchlist_item_tags t),
- (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id) FROM account_watchlist_state t),
+ (SELECT jsonb_agg(to_jsonb(t)-'view_mode'-'filter_tag_id' ORDER BY account_id) FROM account_watchlist_state t),
  (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id,public_movie_id) FROM account_watchlist_items t),
  (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM accounts t),
  (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public_movies t))::text`).Scan(&data)

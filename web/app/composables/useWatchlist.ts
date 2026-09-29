@@ -3,6 +3,7 @@ import type {
   WatchlistSearch,
   WatchlistSortOrder,
   WatchlistTagColor,
+  WatchlistViewMode,
 } from '~/types/watchlist'
 import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 
@@ -58,6 +59,8 @@ function createWatchlist() {
   const items = computed(() => snapshot.value?.items ?? [])
   const tags = computed(() => snapshot.value?.tags ?? [])
   const sortOrder = computed(() => snapshot.value?.sort_order)
+  const viewMode = computed(() => snapshot.value?.view_mode)
+  const filterTagId = computed(() => snapshot.value?.filter_tag_id)
   const slugs = computed(() => new Set(items.value.map((item) => item.slug)))
   const externalAvailable = computed(
     () => snapshot.value?.external_search_available ?? false,
@@ -156,6 +159,7 @@ function createWatchlist() {
       | { slug: string; saved: boolean }
       | { tmdbId: string }
       | { sortOrder: WatchlistSortOrder }
+      | { viewMode: WatchlistViewMode; filterTagId: string | null }
       | { tag: 'create'; name: string; color: WatchlistTagColor }
       | { tag: 'update'; tagId: string; name: string; color: WatchlistTagColor }
       | { tag: 'delete'; tagId: string }
@@ -215,14 +219,23 @@ function createWatchlist() {
                     { ...expected, sort_order: movie.sortOrder },
                     controller?.signal,
                   )
-                : await api.saveWatchlist(
-                    {
-                      ...expected,
-                      movie_slug: movie.slug,
-                      saved: movie.saved ? 'true' : 'false',
-                    },
-                    controller?.signal,
-                  )
+                : 'viewMode' in movie
+                  ? await api.saveWatchlistPreferences(
+                      {
+                        ...expected,
+                        view_mode: movie.viewMode,
+                        filter_tag_id: movie.filterTagId,
+                      },
+                      controller?.signal,
+                    )
+                  : await api.saveWatchlist(
+                      {
+                        ...expected,
+                        movie_slug: movie.slug,
+                        saved: movie.saved ? 'true' : 'false',
+                      },
+                      controller?.signal,
+                    )
         if (!token.valid()) return false
         const imported = 'watchlist' in value ? value : null
         const next = 'watchlist' in value ? value.watchlist : value
@@ -389,6 +402,8 @@ function createWatchlist() {
     items,
     tags,
     sortOrder,
+    viewMode,
+    filterTagId,
     slugs,
     externalAvailable,
     error: readonly(error),
@@ -407,6 +422,10 @@ function createWatchlist() {
     save: (slug: string, saved: boolean) => mutate({ slug, saved }),
     importMovie: (tmdbId: string) => mutate({ tmdbId }),
     saveSort: (sortOrder: WatchlistSortOrder) => mutate({ sortOrder }),
+    savePreferences: (
+      viewMode: WatchlistViewMode,
+      filterTagId: string | null,
+    ) => mutate({ viewMode, filterTagId }),
     createTag: (name: string, color: WatchlistTagColor) =>
       mutate({ tag: 'create', name, color }),
     updateTag: (tagId: string, name: string, color: WatchlistTagColor) =>

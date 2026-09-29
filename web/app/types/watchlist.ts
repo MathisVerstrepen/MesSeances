@@ -19,10 +19,14 @@ export type WatchlistSortOrder =
   | 'release_desc'
   | 'release_asc'
 
+export type WatchlistViewMode = 'list' | 'tags'
+
 export interface AccountWatchlist {
   username: string
   revision: string
   sort_order: WatchlistSortOrder
+  view_mode: WatchlistViewMode
+  filter_tag_id: string | null
   items: WatchlistItem[]
   tags: WatchlistTag[]
   external_search_available: boolean
@@ -100,6 +104,13 @@ export interface SaveWatchlistSort {
   expected_username: string
   expected_revision: string
   sort_order: WatchlistSortOrder
+}
+
+export interface SaveWatchlistPreferences {
+  expected_username: string
+  expected_revision: string
+  view_mode: WatchlistViewMode
+  filter_tag_id: string | null
 }
 
 export interface ImportedWatchlist {

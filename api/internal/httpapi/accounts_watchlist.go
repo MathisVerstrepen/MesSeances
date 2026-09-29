@@ -31,6 +31,13 @@ type watchlistSort struct {
 	SortOrder        *string `json:"sort_order"`
 }
 
+type watchlistPreferences struct {
+	ExpectedUsername *string `json:"expected_username"`
+	ExpectedRevision *string `json:"expected_revision"`
+	ViewMode         *string `json:"view_mode"`
+	FilterTagID      *string `json:"filter_tag_id"`
+}
+
 func watchlistPath(path string) bool {
 	return path == "/api/v1/account/watchlist" || strings.HasPrefix(path, "/api/v1/account/watchlist/")
 }
@@ -173,6 +180,28 @@ func (h *accountHTTP) importWatchlist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	view, err := h.service.ImportWatchlist(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.TMDBID)
+	if err != nil {
+		watchlistHTTPError(w, err)
+		return
+	}
+	writeJSON(w, 200, view)
+}
+
+func (h *accountHTTP) saveWatchlistPreferences(w http.ResponseWriter, r *http.Request) {
+	var input watchlistPreferences
+	if !accountJSON(w, r, &input) {
+		return
+	}
+	if input.ExpectedUsername == nil || input.ExpectedRevision == nil || input.ViewMode == nil || input.FilterTagID == nil {
+		watchlistHTTPError(w, accounts.ErrInvalidInput)
+		return
+	}
+	raw, err := h.cookie(r)
+	if err != nil {
+		watchlistHTTPError(w, err)
+		return
+	}
+	view, err := h.service.SaveWatchlistPreferences(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.ViewMode, *input.FilterTagID)
 	if err != nil {
 		watchlistHTTPError(w, err)
 		return

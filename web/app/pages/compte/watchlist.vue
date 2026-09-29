@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowDownUp, List, Tags, X } from '@lucide/vue'
+import type { WatchlistViewMode } from '~/types/watchlist'
 import { accountDestination } from '~/utils/accountState'
 import { groupWatchlistItems } from '~/utils/watchlistGrouping'
 import { sortWatchlistItems, watchlistSortOptions } from '~/utils/watchlistSort'
@@ -22,14 +23,17 @@ const {
   error,
   owner,
 } = watchlist
-const selectedTag = ref('')
-const displayMode = ref<'list' | 'tags'>('list')
+const selectedTag = computed(() => watchlist.filterTagId.value ?? '')
+const displayMode = watchlist.viewMode
 const openTagEditor = ref('')
 const tagScope = ref(0)
 const tagFilter = useTemplateRef('tagFilter')
 let tagInteraction = 0
+// Unlike picker identity changes, our own committed pair must not cancel focus recovery.
+let preferenceInteraction = 0
 function interactWithTags() {
   tagInteraction++
+  preferenceInteraction++
 }
 const sortedTags = computed(() => sortWatchlistTags(tags.value))
 const sortedItems = computed(() =>
@@ -56,13 +60,6 @@ const rowKey = (sectionId: string, slug: string) => `${sectionId}:${slug}`
 watch([selectedTag, displayMode], () => {
   openTagEditor.value = ''
   tagInteraction++
-})
-watch(tags, () => {
-  if (
-    selectedTag.value &&
-    !tags.value.some((tag) => tag.id === selectedTag.value)
-  )
-    selectedTag.value = ''
 })
 watch(savedSections, () => {
   if (
@@ -122,6 +119,56 @@ async function changeSort(event: Event) {
     document.activeElement === document.body
   )
     select.focus({ preventScroll: true })
+}
+
+async function changePreferences(
+  mode: WatchlistViewMode,
+  tagId: string | null,
+  control: HTMLSelectElement | HTMLButtonElement,
+) {
+  if (
+    writesBlocked.value ||
+    (mode === displayMode.value && tagId === watchlist.filterTagId.value)
+  )
+    return
+  const scope = tagScope.value
+  const interaction = preferenceInteraction
+  const focused = document.activeElement === control
+  await watchlist.savePreferences(mode, tagId)
+  await nextTick()
+  if (
+    focused &&
+    scope === tagScope.value &&
+    interaction === preferenceInteraction &&
+    control.isConnected &&
+    !control.disabled &&
+    document.activeElement === document.body
+  )
+    control.focus({ preventScroll: true })
+}
+
+function changeFilter(event: Event) {
+  const select = event.target
+  if (!(select instanceof HTMLSelectElement)) return
+  const requested = select.value || null
+  select.value = selectedTag.value
+  const mode = displayMode.value
+  if (!mode) return
+  return changePreferences(mode, requested, select)
+}
+
+function changeDisplay(mode: WatchlistViewMode, event: Event) {
+  const button = event.currentTarget
+  const tagId = watchlist.filterTagId.value
+  if (!(button instanceof HTMLButtonElement) || tagId === undefined) return
+  return changePreferences(mode, tagId, button)
+}
+
+function clearFilter(event: Event) {
+  const button = event.currentTarget
+  const mode = displayMode.value
+  if (!(button instanceof HTMLButtonElement) || !mode) return
+  return changePreferences(mode, null, button)
 }
 const searchArea = useTemplateRef('searchArea')
 const searchInput = useTemplateRef('searchInput')
@@ -230,8 +277,6 @@ function clearPageSearch() {
   interaction++
   panelOpen.value = false
   watchlist.clearSearch()
-  selectedTag.value = ''
-  displayMode.value = 'list'
   openTagEditor.value = ''
   tagScope.value++
 }
@@ -528,10 +573,10 @@ onBeforeRouteLeave(clearPageSearch)
               :key="mode.value"
               type="button"
               :aria-pressed="displayMode === mode.value"
-              :disabled="!ready"
+              :disabled="writesBlocked"
               class="relative inline-flex min-h-12 min-w-27 items-center justify-center gap-2 px-4 font-mono text-xs font-black uppercase tracking-[0.08em] not-first:border-l-2 not-first:border-ink focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ink focus-visible:ring-offset-0 disabled:opacity-50"
               :class="displayMode === mode.value ? 'bg-ink text-surface shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface text-ink enabled:hover:bg-subtle'"
-              @click="displayMode = mode.value"
+              @click="changeDisplay(mode.value, $event)"
             >
               <component
                 :is="mode.value === 'list' ? List : Tags"
@@ -554,16 +599,16 @@ onBeforeRouteLeave(clearPageSearch)
             <select
               id="watchlist-tag-filter"
               ref="tagFilter"
-              v-model="selectedTag"
+              :value="selectedTag"
               class="account-input min-h-11 w-full min-w-0"
-              :disabled="!ready"
+              :disabled="writesBlocked"
+              @change="changeFilter"
             >
-              <option value="">Tous les films</option>
-              <option
-                v-for="tag in (ready ? sortedTags : [])"
-                :key="tag.id"
-                :value="tag.id"
-              >
+              <option v-if="!displayMode" value="" disabled>
+                {{ error ? 'Filtre indisponible' : 'Filtrer par tag' }}
+              </option>
+              <option v-else value="">Tous les films</option>
+              <option v-for="tag in sortedTags" :key="tag.id" :value="tag.id">
                 {{ tag.name }}
               </option>
             </select>
@@ -622,7 +667,8 @@ onBeforeRouteLeave(clearPageSearch)
           <button
             type="button"
             class="account-link min-h-11"
-            @click="selectedTag = ''"
+            :disabled="writesBlocked"
+            @click="clearFilter"
           >
             Voir tous les films
           </button>

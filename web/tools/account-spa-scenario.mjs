@@ -113,6 +113,8 @@ export async function spaScenario({
             external_search_available: false,
             tags: [],
             sort_order: 'added_desc',
+            view_mode: 'list',
+            filter_tag_id: null,
           }
           break
         case '/api/v1/auth/login':

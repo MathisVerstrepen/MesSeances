@@ -15,6 +15,7 @@ import type {
   AccountWatchlist,
   SaveWatchlist,
   SaveWatchlistSort,
+  SaveWatchlistPreferences,
   WatchlistSearch,
   ImportWatchlist,
   ImportedWatchlist,
@@ -142,6 +143,16 @@ export function useAccountApi() {
       request<AccountWatchlist>(
         '/account/watchlist/sort',
         { ...input },
+        'POST',
+        signal,
+      ),
+    saveWatchlistPreferences: (
+      input: SaveWatchlistPreferences,
+      signal?: AbortSignal,
+    ) =>
+      request<AccountWatchlist>(
+        '/account/watchlist/preferences',
+        { ...input, filter_tag_id: input.filter_tag_id ?? '' },
         'POST',
         signal,
       ),

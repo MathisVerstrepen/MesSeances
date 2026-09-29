@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import type { FetchOptions } from 'ofetch'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
@@ -18,6 +19,7 @@ import {
   watch,
 } from 'vue'
 import type { useWatchlist } from '../app/composables/useWatchlist.ts'
+import type { useAccountApi } from '../app/composables/useAccountApi.ts'
 import type { useAccountSession } from '../app/composables/useAccountSession.ts'
 import type { AccountSession } from '../app/types/account.ts'
 import type {
@@ -25,6 +27,8 @@ import type {
   ImportedWatchlist,
   SaveWatchlist,
   SaveWatchlistSort,
+  SaveWatchlistPreferences,
+  WatchlistViewMode,
   WatchlistSortOrder,
   WatchlistSearch,
   CreateWatchlistTag,
@@ -41,6 +45,10 @@ import * as sorting from '../app/utils/watchlistSort.ts'
 import * as tagging from '../app/utils/watchlistTags.ts'
 
 const require = createRequire(import.meta.url)
+
+interface AccountApiExports {
+  useAccountApi?: typeof useAccountApi
+}
 const rowSource = await readFile(
   new URL('../app/components/WatchlistMovieRow.vue', import.meta.url),
   'utf8',
@@ -174,6 +182,8 @@ function value(
     username,
     revision,
     sort_order: sortOrder,
+    view_mode: 'list',
+    filter_tag_id: null,
     tags: [],
     items: slugs.map((slug) => ({
       slug,
@@ -210,6 +220,7 @@ async function fixture(client = true) {
   }
   const posts: SaveWatchlist[] = []
   const sortPosts: SaveWatchlistSort[] = []
+  const preferencePosts: SaveWatchlistPreferences[] = []
   const tagPosts: {
     action: string
     input:
@@ -242,12 +253,12 @@ async function fixture(client = true) {
   let gets = 0
   let read = async () => response
   let write = async (input: SaveWatchlist) => {
-    response = value(
-      String(BigInt(input.expected_revision) + 1n),
-      input.saved === 'true' ? [input.movie_slug] : [],
-      input.expected_username,
-      response.sort_order,
-    )
+    response = {
+      ...response,
+      revision: String(BigInt(input.expected_revision) + 1n),
+      username: input.expected_username,
+      items: value('0', input.saved === 'true' ? [input.movie_slug] : []).items,
+    }
     return response
   }
   let sort = async (input: SaveWatchlistSort) => {
@@ -255,6 +266,15 @@ async function fixture(client = true) {
       ...response,
       revision: String(BigInt(input.expected_revision) + 1n),
       sort_order: input.sort_order,
+    }
+    return response
+  }
+  let preferences = async (input: SaveWatchlistPreferences) => {
+    response = {
+      ...response,
+      revision: String(BigInt(input.expected_revision) + 1n),
+      view_mode: input.view_mode,
+      filter_tag_id: input.filter_tag_id,
     }
     return response
   }
@@ -266,7 +286,11 @@ async function fixture(client = true) {
     catalog_has_more: false,
   })
   let imported = async (): Promise<ImportedWatchlist> => ({
-    watchlist: value('2', ['film-12']),
+    watchlist: {
+      ...response,
+      revision: '2',
+      items: value('2', ['film-12']).items,
+    },
     movie_slug: 'film-12',
   })
   const context = {
@@ -298,6 +322,10 @@ async function fixture(client = true) {
       saveWatchlistSort: (input: SaveWatchlistSort) => {
         sortPosts.push(input)
         return sort(input)
+      },
+      saveWatchlistPreferences: (input: SaveWatchlistPreferences) => {
+        preferencePosts.push(input)
+        return preferences(input)
       },
       searchWatchlist: () => search(),
       importWatchlist: () => imported(),
@@ -345,6 +373,10 @@ async function fixture(client = true) {
     account,
     posts,
     sortPosts,
+    preferencePosts,
+    setPreferences: (fn: typeof preferences) => {
+      preferences = fn
+    },
     tagPosts,
     setTagWrite: (fn: typeof tagWrite) => {
       tagWrite = fn
@@ -403,6 +435,344 @@ test('watchlist is app scoped, client-only, absent from serialized state and gue
     f.stop()
   }
 })
+
+test('preference transport converts null only at strict typed request boundary', async () => {
+  const source = await readFile(
+    new URL('../app/composables/useAccountApi.ts', import.meta.url),
+    'utf8',
+  )
+  const calls: { url: string; options: FetchOptions<'json'> }[] = []
+  const exports: AccountApiExports = {}
+  runInNewContext(
+    ts.transpileModule(source.replaceAll('import.meta.server', 'false'), {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+      },
+    }).outputText,
+    {
+      exports,
+      useRuntimeConfig: () => ({}),
+      useState: () => ref(false),
+      require: (id: string) =>
+        id === 'ofetch'
+          ? {
+              ofetch: async (url: string, options: FetchOptions<'json'>) => {
+                calls.push({ url, options })
+                return value()
+              },
+            }
+          : errors,
+    },
+  )
+  assert.ok(exports.useAccountApi)
+  for (const tagId of [null, '9007199254740993']) {
+    await exports.useAccountApi().saveWatchlistPreferences({
+      expected_username: 'alice',
+      expected_revision: '7',
+      view_mode: 'tags',
+      filter_tag_id: tagId,
+    })
+    const call = calls.at(-1)!
+    assert.equal(call.url, '/api/v1/account/watchlist/preferences')
+    assert.deepEqual(JSON.parse(JSON.stringify(call.options.body)), {
+      expected_username: 'alice',
+      expected_revision: '7',
+      view_mode: 'tags',
+      filter_tag_id: tagId ?? '',
+    })
+    assert.equal(call.options.retry, false)
+    assert.equal(call.options.cache, 'no-store')
+    assert.equal(call.options.credentials, 'same-origin')
+  }
+})
+
+test('page composes preference pair from one committed snapshot, never initial/default POST or optimistic controls', async () => {
+  const f = await pageFixture()
+  try {
+    assert.equal(f.preferencePosts.length, 0)
+    const next = {
+      ...value('7'),
+      view_mode: 'tags' as const,
+      filter_tag_id: '9007199254740993',
+      tags: [{ id: '9007199254740993', name: 'Privé', color: 'blue' as const }],
+    }
+    f.setResponse(next)
+    await f.account.revalidate()
+    f.page.openTagEditor.value = 'tag-9007199254740993:film-1'
+    const pending = deferred<AccountWatchlist>()
+    f.setPreferences(() => pending.promise)
+    const select = new TestSelect('')
+    const write = f.page.changeFilter({ target: select })
+    assert.equal(select.value, '9007199254740993')
+    assert.equal(f.page.selectedTag.value, '9007199254740993')
+    assert.equal(f.page.displayMode.value, 'tags')
+    assert.equal(f.page.openTagEditor.value, 'tag-9007199254740993:film-1')
+    assert.equal(f.list.writesBlocked.value, true)
+    assert.deepEqual(
+      { ...f.preferencePosts[0] },
+      {
+        expected_username: 'alice',
+        expected_revision: '7',
+        view_mode: 'tags',
+        filter_tag_id: null,
+      },
+    )
+    const committed = { ...next, revision: '8', filter_tag_id: null }
+    f.setResponse(committed)
+    pending.resolve(committed)
+    await write
+    assert.equal(f.page.openTagEditor.value, '')
+    f.setPreferences(async (input) => ({
+      ...committed,
+      revision: '9',
+      view_mode: input.view_mode,
+    }))
+    await f.page.changeDisplay('list', { currentTarget: new TestSelect('') })
+    assert.deepEqual(
+      { ...f.preferencePosts[1] },
+      {
+        expected_username: 'alice',
+        expected_revision: '8',
+        view_mode: 'list',
+        filter_tag_id: null,
+      },
+    )
+    await f.page.changeDisplay('list', { currentTarget: new TestSelect('') })
+    await f.page.changeFilter({ target: new TestSelect('') })
+    f.page.clearPageSearch()
+    assert.equal(f.preferencePosts.length, 2)
+    assert.equal(f.page.displayMode.value, 'list')
+    assert.ok(f.messages.every((message) => message === 'watchlist-changed'))
+    assert.doesNotMatch(
+      JSON.stringify([...f.states].map(([key, state]) => [key, state.value])),
+      /view_mode|filter_tag_id|9007199254740993/,
+    )
+  } finally {
+    f.stop()
+  }
+})
+
+for (const operation of [
+  'sort',
+  'membership',
+  'import',
+  'create',
+  'update',
+  'delete',
+  'assign',
+  'preferences',
+] as const) {
+  test(`preferences serialize in both directions with ${operation}`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      await settle()
+      let pending = deferred<AccountWatchlist>()
+      f.setPreferences(() => pending.promise)
+      f.setSort(() => pending.promise)
+      f.setWrite(() => pending.promise)
+      f.setTagWrite(() => pending.promise)
+      f.setImport(async () => ({
+        watchlist: await pending.promise,
+        movie_slug: 'film-1',
+      }))
+      const other = () =>
+        operation === 'sort'
+          ? f.list.saveSort('title_asc')
+          : operation === 'membership'
+            ? f.list.save('film-1', true)
+            : operation === 'import'
+              ? f.list.importMovie('12')
+              : operation === 'create'
+                ? f.list.createTag('Tag', 'blue')
+                : operation === 'update'
+                  ? f.list.updateTag('1', 'Tag', 'red')
+                  : operation === 'delete'
+                    ? f.list.deleteTag('1')
+                    : operation === 'assign'
+                      ? f.list.assignTag('film-1', '1', true)
+                      : f.list.savePreferences('list', null)
+      const first = f.list.savePreferences('tags', '1')
+      assert.equal(await other(), false)
+      pending.resolve({ ...value('2'), view_mode: 'tags', filter_tag_id: '1' })
+      await first
+      pending = deferred<AccountWatchlist>()
+      const second = other()
+      assert.equal(await f.list.savePreferences('list', null), false)
+      pending.resolve({ ...value('3'), view_mode: 'tags', filter_tag_id: '1' })
+      await second
+      assert.equal(f.list.viewMode.value, 'tags')
+      assert.equal(f.list.filterTagId.value, '1')
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+for (const transition of [
+  'logout',
+  'owner',
+  'same-owner',
+  'pagehide',
+  'offline',
+] as const) {
+  test(`late preference response cannot resurrect private pair after ${transition}`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      await settle()
+      const pending = deferred<AccountWatchlist>()
+      f.setPreferences(() => pending.promise)
+      const write = f.list.savePreferences('tags', '1')
+      f.setResponse(value('0', [], transition === 'owner' ? 'bob' : 'alice'))
+      if (transition === 'owner' || transition === 'same-owner')
+        f.admit(session(transition === 'owner' ? 'bob' : 'alice'))
+      else f.account.clear()
+      await settle()
+      pending.resolve({ ...value('99'), view_mode: 'tags', filter_tag_id: '1' })
+      assert.equal(await write, false)
+      assert.notEqual(f.list.viewMode.value, 'tags')
+      assert.notEqual(f.list.filterTagId.value, '1')
+      assert.deepEqual(f.messages, [])
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+for (const committed of [false, true]) {
+  test(`preference ${committed ? 'post-commit timeout' : 'stale CAS'} reads back without replay and gates failed reconciliation`, async () => {
+    const f = await pageFixture()
+    try {
+      const remote = {
+        ...value('2'),
+        view_mode: 'tags' as const,
+        filter_tag_id: '1',
+      }
+      f.setPreferences(async () => {
+        f.setResponse(remote)
+        throw new errors.AccountApiError(
+          committed ? 0 : 409,
+          committed ? '' : 'watchlist_changed',
+        )
+      })
+      const select = new TestSelect('1')
+      const write = f.page.changeFilter({ target: select })
+      assert.equal(select.value, '')
+      await write
+      assert.equal(f.page.displayMode.value, 'tags')
+      assert.equal(f.page.selectedTag.value, '1')
+      assert.ok(f.list.error.value)
+      assert.equal(f.preferencePosts.length, 1)
+      f.setRead(async () => {
+        throw new errors.AccountApiError()
+      })
+      await f.page.changeDisplay('list', { currentTarget: new TestSelect('') })
+      assert.equal(f.list.ready.value, false)
+      const rejected = new TestSelect('')
+      await f.page.changeFilter({ target: rejected })
+      assert.equal(rejected.value, '1')
+      assert.equal(
+        f.page.selectedTag.value,
+        '1',
+        'unavailable tags are not deletion authority',
+      )
+      assert.equal(f.preferencePosts.length, 2)
+      f.setRead(async () => remote)
+      await f.list.retry()
+      f.setRead(async () => value('1'))
+      await f.account.revalidate()
+      assert.equal(
+        f.page.selectedTag.value,
+        '1',
+        'lower revisions never revert pair',
+      )
+      assert.equal(f.preferencePosts.length, 2)
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('revalidation waits for preference writer then atomically applies remote pair and deletion without POST', async () => {
+  const f = await pageFixture()
+  try {
+    const pending = deferred<AccountWatchlist>()
+    f.setPreferences(() => pending.promise)
+    const write = f.list.savePreferences('tags', '1')
+    const refresh = f.account.revalidate()
+    await settle()
+    assert.equal(f.gets, 1)
+    f.setResponse({
+      ...value('3', [], 'alice', 'title_desc'),
+      view_mode: 'tags',
+      filter_tag_id: '2',
+    })
+    pending.resolve({ ...value('2'), view_mode: 'tags', filter_tag_id: '1' })
+    await write
+    await refresh
+    assert.equal(f.page.selectedTag.value, '2')
+    assert.equal(f.page.displayMode.value, 'tags')
+    f.setResponse({
+      ...value('4', [], 'alice', 'title_desc'),
+      view_mode: 'tags',
+    })
+    await f.account.revalidate()
+    assert.equal(f.page.selectedTag.value, '')
+    assert.equal(f.page.displayMode.value, 'tags')
+    assert.equal(f.list.sortOrder.value, 'title_desc')
+    assert.equal(f.preferencePosts.length, 1)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const control of ['filter', 'mode'] as const) {
+  for (const transition of [
+    'same-control',
+    'owner',
+    'departure',
+    'unmount',
+    'interaction',
+    'moved-focus',
+    'disabled',
+  ] as const) {
+    test(`${control} focus recovery respects ${transition}`, async () => {
+      const f = await pageFixture()
+      try {
+        const pending = deferred<AccountWatchlist>()
+        f.setPreferences(() => pending.promise)
+        const element = new TestSelect('1')
+        f.pageDocument.activeElement = element
+        const write =
+          control === 'filter'
+            ? f.page.changeFilter({ target: element })
+            : f.page.changeDisplay('tags', { currentTarget: element })
+        f.pageDocument.activeElement = f.pageDocument.body
+        if (transition === 'owner') {
+          f.setResponse(value('0', [], 'bob'))
+          f.admit(session('bob'))
+          await settle()
+        }
+        if (transition === 'departure') f.page.clearPageSearch()
+        if (transition === 'unmount') element.isConnected = false
+        if (transition === 'interaction') f.page.interactWithTags()
+        if (transition === 'moved-focus') f.pageDocument.activeElement = {}
+        if (transition === 'disabled') element.disabled = true
+        pending.resolve({
+          ...value('2'),
+          view_mode: 'tags',
+          filter_tag_id: '1',
+        })
+        await write
+        assert.equal(element.focusCalls, transition === 'same-control' ? 1 : 0)
+      } finally {
+        f.stop()
+      }
+    })
+  }
+}
 
 test('four tag operations use shared CAS and committed snapshot without touching movie search', async () => {
   const f = await fixture()
@@ -593,7 +963,7 @@ test('tag timeout after commit reconciles without replay; failed readback blocks
   }
 })
 
-test('page-local tag filter combines all sorts, keeps renamed ID, resets deleted ID and scope', async () => {
+test('committed filter combines all sorts, keeps renamed ID, follows deletion snapshot and survives page cleanup', async () => {
   const f = await pageFixture()
   try {
     const next = value('2', ['film-1', 'film-2', 'film-3'])
@@ -603,10 +973,10 @@ test('page-local tag filter combines all sorts, keeps renamed ID, resets deleted
     ]
     next.items[0]!.tag_ids = ['1']
     next.items[2]!.tag_ids = ['1']
+    next.filter_tag_id = '1'
     f.setResponse(next)
     await f.account.revalidate()
     const gets = f.gets
-    f.page.selectedTag.value = '1'
     for (const option of sorting.watchlistSortOptions) {
       const changed = { ...next, sort_order: option.value }
       f.setResponse(changed)
@@ -632,15 +1002,17 @@ test('page-local tag filter combines all sorts, keeps renamed ID, resets deleted
     })
     await f.account.revalidate()
     assert.equal(f.page.selectedTag.value, '1')
-    f.page.selectedTag.value = '2'
+    f.setResponse({ ...next, filter_tag_id: '2' })
+    await f.account.revalidate()
     assert.equal(f.page.sortedItems.value.length, 0)
-    f.setResponse({ ...next, tags: [] })
+    f.setResponse({ ...next, tags: [], filter_tag_id: null })
     await f.account.revalidate()
     assert.equal(f.page.selectedTag.value, '')
-    f.page.selectedTag.value = '1'
+    f.setResponse(next)
+    await f.account.revalidate()
     f.page.openTagEditor.value = 'film-1'
     f.page.clearPageSearch()
-    assert.equal(f.page.selectedTag.value, '')
+    assert.equal(f.page.selectedTag.value, '1')
     assert.equal(f.page.openTagEditor.value, '')
   } finally {
     f.stop()
@@ -1013,8 +1385,15 @@ class TestSelect {
 }
 
 interface PageInteractions {
-  selectedTag: ReturnType<typeof ref<string>>
-  displayMode: ReturnType<typeof ref<'list' | 'tags'>>
+  selectedTag: ReturnType<typeof computed<string>>
+  displayMode: ReturnType<typeof computed<WatchlistViewMode | undefined>>
+  changeFilter: (event: { target: unknown }) => Promise<void> | undefined
+  changeDisplay: (
+    mode: WatchlistViewMode,
+    event: { currentTarget: unknown },
+  ) => Promise<void> | undefined
+  clearFilter: (event: { currentTarget: unknown }) => Promise<void> | undefined
+  interactWithTags: () => void
   savedSections: ReturnType<typeof computed<grouping.WatchlistGroup[]>>
   openTagEditor: ReturnType<typeof ref<string>>
   assignTag: (
@@ -1069,7 +1448,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { selectedTag, displayMode, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -1089,6 +1468,7 @@ async function pageFixture() {
                 : errors,
         computed,
         HTMLSelectElement: TestSelect,
+        HTMLButtonElement: TestSelect,
         ref,
         watch,
         nextTick,
@@ -1146,14 +1526,14 @@ test('grouped page keeps one rendered picker identity and closes it on view/filt
     f.setResponse(snapshot)
     await f.account.revalidate()
     assert.equal(f.page.displayMode.value, 'list')
-    f.page.displayMode.value = 'tags'
+    await f.page.changeDisplay('tags', { currentTarget: new TestSelect('') })
     await nextTick()
     assert.deepEqual(
       f.page.savedSections.value.map((section) => section.id),
       ['tag-1', 'tag-2'],
     )
     f.page.openTagEditor.value = 'tag-1:film-1'
-    f.page.selectedTag.value = '2'
+    await f.page.changeFilter({ target: new TestSelect('2') })
     await nextTick()
     assert.equal(f.page.openTagEditor.value, '')
     assert.deepEqual(
@@ -1161,7 +1541,7 @@ test('grouped page keeps one rendered picker identity and closes it on view/filt
       ['tag-2'],
     )
     f.page.openTagEditor.value = 'tag-2:film-1'
-    f.page.displayMode.value = 'list'
+    await f.page.changeDisplay('list', { currentTarget: new TestSelect('') })
     await nextTick()
     assert.equal(f.page.openTagEditor.value, '')
     assert.equal(f.page.selectedTag.value, '2')
@@ -1190,9 +1570,9 @@ for (const transition of [
         { id: '2', name: 'Famille', color: 'rose' },
       ]
       snapshot.items[0]!.tag_ids = ['1', '2']
+      snapshot.view_mode = 'tags'
       f.setResponse(snapshot)
       await f.account.revalidate()
-      f.page.displayMode.value = 'tags'
       await nextTick()
       f.page.openTagEditor.value = 'tag-1:film-1'
       const input = new TestSelect('1')
@@ -1209,8 +1589,8 @@ for (const transition of [
       // Native disabled controls lose focus; the DOM unmounts only the removed copy.
       f.pageDocument.activeElement = f.pageDocument.body
       input.isConnected = !removing
-      if (transition === 'view') f.page.displayMode.value = 'list'
-      if (transition === 'filter') f.page.selectedTag.value = '2'
+      if (transition === 'view' || transition === 'filter')
+        f.page.interactWithTags()
       if (transition === 'owner') f.admit(session('bob'))
       if (transition === 'departure') f.page.clearPageSearch()
       if (transition === 'moved-focus') f.pageDocument.activeElement = {}
@@ -1223,6 +1603,8 @@ for (const transition of [
           tag_ids: [removing ? '2' : '1'],
         })),
       }
+      if (transition === 'view') committed.view_mode = 'list'
+      if (transition === 'filter') committed.filter_tag_id = '2'
       pending.resolve(committed)
       await write
       assert.equal(f.tagPosts.length, 1)
@@ -1242,8 +1624,8 @@ for (const transition of [
         assert.equal(f.focused, '')
         assert.equal(f.page.openTagEditor.value, '')
       }
-      if (transition === 'owner' || transition === 'departure')
-        assert.equal(f.page.displayMode.value, 'list')
+      if (transition === 'departure')
+        assert.equal(f.page.displayMode.value, 'tags')
     } finally {
       f.stop()
     }

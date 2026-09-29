@@ -163,6 +163,9 @@ func TestWatchlistAuthorizationAndBoundsIntegration(t *testing.T) {
 		if _, err := f.service.SaveWatchlistSort(ctx, raw, username, "0", "title_asc"); !errors.Is(err, want) {
 			t.Fatalf("sort %v want %v", err, want)
 		}
+		if _, err := f.service.SaveWatchlistPreferences(ctx, raw, username, "0", "tags", ""); !errors.Is(err, want) {
+			t.Fatalf("preferences %v want %v", err, want)
+		}
 		for _, operation := range []func() error{
 			func() error {
 				_, err := f.service.CreateWatchlistTag(ctx, raw, username, "0", "Tag", "neutral")

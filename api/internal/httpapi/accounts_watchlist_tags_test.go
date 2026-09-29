@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -128,10 +129,14 @@ func watchlistTagRouteDenied(t *testing.T, p *browserProbe, status int) {
 func watchlistTagRegisteredCRUD(t *testing.T, p *browserProbe, view accounts.WatchlistView, slug string) {
 	t.Helper()
 	wantColor := "blue"
+	wantMode, wantFilter := "list", ""
 	assertArrays := func() {
 		t.Helper()
 		if view.Tags == nil || view.Items == nil {
 			t.Fatal("null snapshot arrays")
+		}
+		if view.ViewMode != wantMode || (wantFilter == "" && view.FilterTagID != nil) || (wantFilter != "" && (view.FilterTagID == nil || *view.FilterTagID != wantFilter)) {
+			t.Fatal("snapshot lost preferences")
 		}
 		for _, item := range view.Items {
 			if item.TagIDs == nil {
@@ -164,6 +169,28 @@ func watchlistTagRegisteredCRUD(t *testing.T, p *browserProbe, view accounts.Wat
 	p.request("POST", watchlistRoute+"/tags", create, 409, nil)
 	create["expected_revision"] = view.Revision
 	p.request("POST", watchlistRoute+"/tags", create, 409, nil)
+	prefs := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "view_mode": "tags", "filter_tag_id": id}
+	wantMode, wantFilter = "tags", id
+	previous, err := strconv.Atoi(view.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot("POST", watchlistRoute+"/preferences", prefs)
+	if view.Revision != strconv.Itoa(previous+1) || len(view.Items) != 0 {
+		t.Fatal("preference pair not atomic on empty list")
+	}
+	p.request("POST", watchlistRoute+"/preferences", prefs, 409, nil)
+	prefs["expected_revision"] = view.Revision
+	snapshot("POST", watchlistRoute+"/preferences", prefs)
+	if view.Revision != strconv.Itoa(previous+1) {
+		t.Fatal("preference no-op changed revision")
+	}
+	for _, target := range []string{"9223372036854775807", "9223372036854775806"} {
+		prefs["filter_tag_id"] = target
+		p.request("POST", watchlistRoute+"/preferences", prefs, 404, nil)
+	}
+	prefs["filter_tag_id"], prefs["expected_username"] = id, "other_owner"
+	p.request("POST", watchlistRoute+"/preferences", prefs, 401, nil)
 	assign := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "movie_slug": slug, "tag_id": id, "assigned": "true"}
 	p.request("POST", watchlistRoute+"/tags/assign", assign, 404, nil)
 	snapshot("POST", watchlistRoute, map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "movie_slug": slug, "saved": "true"})
@@ -210,6 +237,7 @@ func watchlistTagRegisteredCRUD(t *testing.T, p *browserProbe, view accounts.Wat
 	del := map[string]string{"expected_username": "other_owner", "expected_revision": view.Revision, "tag_id": id}
 	p.request("POST", watchlistRoute+"/tags/delete", del, 401, nil)
 	del["expected_username"] = "watchlist_http"
+	wantFilter = ""
 	snapshot("POST", watchlistRoute+"/tags/delete", del)
 	assertArrays()
 	if len(view.Tags) != 1 || len(view.Items) != 1 || len(view.Items[0].TagIDs) != 0 {
@@ -261,7 +289,7 @@ func watchlistTagRegisteredImport(t *testing.T, p *browserProbe, view accounts.W
 	}
 	assertAccountHeaders(t, w)
 	var result accounts.WatchlistImportView
-	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || !reflect.DeepEqual(result.Watchlist.Tags, view.Tags) || len(result.Watchlist.Items) != len(view.Items)+1 {
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || !reflect.DeepEqual(result.Watchlist.Tags, view.Tags) || result.Watchlist.ViewMode != view.ViewMode || !reflect.DeepEqual(result.Watchlist.FilterTagID, view.FilterTagID) || len(result.Watchlist.Items) != len(view.Items)+1 {
 		t.Fatal("nested import lost tag colors", err)
 	}
 	return result.Watchlist

@@ -69,6 +69,7 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	router.Get("/api/v1/account/watchlist", h.watchlist)
 	post("/account/watchlist", h.saveWatchlist, h.watchlistWrites)
 	post("/account/watchlist/sort", h.saveWatchlistSort, h.watchlistWrites)
+	post("/account/watchlist/preferences", h.saveWatchlistPreferences, h.watchlistWrites)
 	post("/account/watchlist/tags", h.createWatchlistTag, h.watchlistWrites)
 	post("/account/watchlist/tags/update", h.updateWatchlistTag, h.watchlistWrites)
 	post("/account/watchlist/tags/delete", h.deleteWatchlistTag, h.watchlistWrites)

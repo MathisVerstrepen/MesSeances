@@ -37,6 +37,8 @@ type WatchlistView struct {
 	Username                string          `json:"username"`
 	Revision                string          `json:"revision"`
 	SortOrder               string          `json:"sort_order"`
+	ViewMode                string          `json:"view_mode"`
+	FilterTagID             *string         `json:"filter_tag_id"`
 	Items                   []WatchlistItem `json:"items"`
 	Tags                    []WatchlistTag  `json:"tags"`
 	ExternalSearchAvailable bool            `json:"external_search_available"`
@@ -57,9 +59,9 @@ const watchlistSummary = ` 'film-' || p.id::text,
  COALESCE((CASE WHEN o.release_date_overridden THEN o.release_date ELSE p.release_date END)::text,'') `
 
 func (s *Service) readWatchlist(ctx context.Context, tx pgx.Tx, a account) (WatchlistView, int64, error) {
-	view := WatchlistView{Username: *a.username, Revision: "0", SortOrder: "added_desc", Items: []WatchlistItem{}, Tags: []WatchlistTag{}, ExternalSearchAvailable: s.watchlistProvider != nil}
+	view := WatchlistView{Username: *a.username, Revision: "0", SortOrder: "added_desc", ViewMode: "list", Items: []WatchlistItem{}, Tags: []WatchlistTag{}, ExternalSearchAvailable: s.watchlistProvider != nil}
 	var revision int64
-	err := tx.QueryRow(ctx, `SELECT revision,sort_order FROM account_watchlist_state WHERE account_id=$1`, a.id).Scan(&revision, &view.SortOrder)
+	err := tx.QueryRow(ctx, `SELECT revision,sort_order,view_mode,filter_tag_id::text FROM account_watchlist_state WHERE account_id=$1`, a.id).Scan(&revision, &view.SortOrder, &view.ViewMode, &view.FilterTagID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return view, 0, ErrWatchlistUnavailable
 	}
@@ -267,6 +269,73 @@ func (s *Service) SaveWatchlistSort(ctx context.Context, raw, username, expected
 		}
 		view.Revision = strconv.FormatInt(stored+1, 10)
 		view.SortOrder = sortOrder
+		return nil
+	})
+	if err != nil {
+		return WatchlistView{}, watchlistError(err)
+	}
+	return view, nil
+}
+
+func (s *Service) SaveWatchlistPreferences(ctx context.Context, raw, username, expectedRevision, viewMode, filterTagID string) (WatchlistView, error) {
+	revision, err := theaterRevision(expectedRevision)
+	if err != nil || (viewMode != "list" && viewMode != "tags") {
+		return WatchlistView{}, ErrInvalidInput
+	}
+	var tagID *int64
+	if filterTagID != "" {
+		id, err := watchlistTMDBID(filterTagID)
+		if err != nil {
+			return WatchlistView{}, ErrInvalidInput
+		}
+		tagID = &id
+	}
+	if err := s.sessionQuota(ctx, raw, "watchlist_write", false, true); err != nil {
+		return WatchlistView{}, watchlistError(err)
+	}
+	var view WatchlistView
+	err = s.store.withTransaction(ctx, func(tx pgx.Tx) error {
+		a, _, err := s.authorize(ctx, tx, raw, true)
+		if err != nil {
+			return err
+		}
+		if *a.username != username {
+			return ErrUnauthorized
+		}
+		var stored int64
+		view, stored, err = s.readWatchlist(ctx, tx, a)
+		if err != nil {
+			return err
+		}
+		if stored != revision {
+			return ErrWatchlistChanged
+		}
+		if tagID != nil {
+			if _, err := readWatchlistTag(ctx, tx, a.id, *tagID); err != nil {
+				return err
+			}
+		}
+		currentFilter := ""
+		if view.FilterTagID != nil {
+			currentFilter = *view.FilterTagID
+		}
+		if view.ViewMode == viewMode && currentFilter == filterTagID {
+			return nil
+		}
+		if stored == maxTheaterPreferenceRevision {
+			return ErrWatchlistUnavailable
+		}
+		_, err = tx.Exec(ctx, `INSERT INTO account_watchlist_state(account_id,revision,view_mode,filter_tag_id) VALUES($1,$2,$3,$4)
+ ON CONFLICT(account_id) DO UPDATE SET revision=EXCLUDED.revision,view_mode=EXCLUDED.view_mode,filter_tag_id=EXCLUDED.filter_tag_id`, a.id, stored+1, viewMode, tagID)
+		if err != nil {
+			return ErrWatchlistUnavailable
+		}
+		view.Revision = strconv.FormatInt(stored+1, 10)
+		view.ViewMode = viewMode
+		view.FilterTagID = nil
+		if tagID != nil {
+			view.FilterTagID = &filterTagID
+		}
 		return nil
 	})
 	if err != nil {

@@ -92,7 +92,7 @@ export async function watchlistScenario({
   go,
   evaluate,
   until,
-  click,
+  click: rawClick,
   fill,
   check,
   setServer,
@@ -116,9 +116,16 @@ export async function watchlistScenario({
     return ownerAssignments.get(session.account.username)
   }
   const sorts = new Map()
+  const preferences = new Map()
+  const preference = () =>
+    preferences.get(session.account.username) ?? {
+      view_mode: 'list',
+      filter_tag_id: null,
+    }
   const addedTimes = new Map()
   let uncertainSort = false
   let uncertainAssignment = false
+  let uncertainPreferences = false
   const frenchReleases = new Map([['saved-film', '1998-10-14']])
   let externalStatus = 'ready'
   let emptySearch = false
@@ -170,6 +177,7 @@ export async function watchlistScenario({
     username: session.account.username,
     revision: String(revision),
     sort_order: sorts.get(session.account.username) ?? 'added_desc',
+    ...preference(),
     tags: tags(),
     items: saved.map((slug) => ({
       ...movie(slug),
@@ -313,6 +321,35 @@ export async function watchlistScenario({
         }
         return send(snapshot())
       }
+      if (path.endsWith('/preferences')) {
+        if (
+          Object.keys(body).sort().join(',') !==
+            'expected_revision,expected_username,filter_tag_id,view_mode' ||
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Mock HTTP boundary rejects non-string JSON fields before interpreting the preference request.
+          !Object.values(body).every((value) => typeof value === 'string') ||
+          !['list', 'tags'].includes(body.view_mode)
+        )
+          return send({ error: { code: 'invalid_request' } }, 400)
+        if (
+          body.filter_tag_id &&
+          !tags().some((tag) => tag.id === body.filter_tag_id)
+        )
+          return send({ error: { code: 'watchlist_tag_not_found' } }, 404)
+        if (
+          body.view_mode !== preference().view_mode ||
+          (body.filter_tag_id || null) !== preference().filter_tag_id
+        )
+          revision++
+        preferences.set(session.account.username, {
+          view_mode: body.view_mode,
+          filter_tag_id: body.filter_tag_id || null,
+        })
+        if (uncertainPreferences) {
+          uncertainPreferences = false
+          return send({ error: { code: 'watchlist_unavailable' } }, 503)
+        }
+        return send(snapshot())
+      }
       if (path.includes('/tags')) {
         if (
           !['/tags', '/tags/update', '/tags/delete', '/tags/assign'].some(
@@ -356,6 +393,11 @@ export async function watchlistScenario({
           existing.name = name
           existing.color = body.color
         } else if (path.endsWith('/delete')) {
+          if (preference().filter_tag_id === body.tag_id)
+            preferences.set(session.account.username, {
+              ...preference(),
+              filter_tag_id: null,
+            })
           ownerTags.set(
             session.account.username,
             tags().filter((tag) => tag.id !== body.tag_id),
@@ -428,6 +470,21 @@ export async function watchlistScenario({
   const savedRow = (slug) =>
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
+  async function click(target, label) {
+    await rawClick(target, label)
+    if (label === 'Voir tous les films')
+      await until(
+        target,
+        `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === ''`,
+        'all-films preference committed',
+      )
+    if (label === 'Liste' || label === 'Par tag')
+      await until(
+        target,
+        `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === ${JSON.stringify(label)}`,
+        'display preference committed',
+      )
+  }
   async function checkSegmentedDisplay(viewport, selected, disabled = false) {
     check(
       await evaluate(
@@ -499,7 +556,7 @@ export async function watchlistScenario({
       ),
       `${viewport} loading keeps search then heading/icon/disabled neutral select then one skeleton, without stale rows or empty-state flash`,
     )
-    await checkSegmentedDisplay(`${viewport} loading`, 0, true)
+    await checkSegmentedDisplay(`${viewport} loading`, -1, true)
   }
   async function finishRead() {
     for (let i = 0; !releaseRead && i < 100; i++) await delay(20)
@@ -596,6 +653,10 @@ export async function watchlistScenario({
       `!document.querySelector('#watchlist-query').disabled && document.querySelectorAll('h1').length === 1`,
     ),
     'watchlist form enabled with single heading',
+  )
+  check(
+    !writes.some((write) => write.path.endsWith('/preferences')),
+    'initial hydration and retry never POST default preferences',
   )
   check(
     await evaluate(
@@ -1063,14 +1124,225 @@ export async function watchlistScenario({
     )
   }
   const filterTag = async (id) => {
+    await until(
+      page,
+      `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
+      'filter available',
+    )
     await evaluate(
       page,
       `(() => { const select = document.querySelector('#watchlist-tag-filter'); select.value = ${JSON.stringify(id)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
     )
-    await delay(50)
+    await until(
+      page,
+      `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === ${JSON.stringify(id)}`,
+      'filter preference committed',
+    )
   }
   const firstTag = tags()[0].id
   const secondTag = tags()[1].id
+  const preferenceDevice = await tab()
+  await go(preferenceDevice, '/compte/watchlist')
+  await until(
+    preferenceDevice,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
+    'separate device reads preferences',
+  )
+  check(
+    preferenceDevice.browserContextId !== page.browserContextId,
+    'device fixture uses isolated storage and BroadcastChannel context',
+  )
+  const preferenceCount = () =>
+    writes.filter((write) => write.path.endsWith('/preferences')).length
+  const pair = (mode, tag) =>
+    `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === '${mode}' && document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === ${JSON.stringify(tag)}`
+  const beforePreference = preferenceCount()
+  const preferenceRevision = String(revision)
+  hold = true
+  release = undefined
+  await evaluate(
+    page,
+    `document.querySelector('[aria-label="Affichage des films"] button:last-child').click()`,
+  )
+  for (let i = 0; !release && i < 100; i++) await delay(20)
+  check(!!release, 'preference write reaches held fixture')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Liste' && document.querySelector('#watchlist-tag-filter').value === '' && ['#watchlist-sort', '#watchlist-tag-filter', '[aria-label="Affichage des films"] button'].every(selector => [...document.querySelectorAll(selector)].every(control => control.disabled))`,
+    ),
+    'pending display keeps committed pair and blocks filter, display and sort',
+  )
+  await evaluate(
+    page,
+    `(() => { const select = document.querySelector('#watchlist-tag-filter'); select.value = '${firstTag}'; select.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').value === ''`,
+    ),
+    'disabled synthetic filter change rolls native selection back without write',
+  )
+  hold = false
+  release()
+  release = undefined
+  await until(page, pair('Par tag', ''), 'held display commits')
+  check(
+    preferenceCount() === beforePreference + 1 &&
+      JSON.stringify(
+        writes.filter((write) => write.path.endsWith('/preferences')).at(-1)
+          .body,
+      ) ===
+        JSON.stringify({
+          expected_username: owner.username,
+          expected_revision: preferenceRevision,
+          view_mode: 'tags',
+          filter_tag_id: '',
+        }),
+    'one exact owner/revision preference POST carries request-only all-films sentinel',
+  )
+  await filterTag(firstTag)
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    pair('Par tag', firstTag),
+    'reload restores both committed preferences',
+  )
+  check(
+    await evaluate(preferenceDevice, pair('Liste', '')),
+    'separate device receives no live push',
+  )
+  await evaluate(preferenceDevice, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    preferenceDevice,
+    pair('Par tag', firstTag),
+    'separate device focus reads committed pair',
+  )
+  await evaluate(
+    preferenceDevice,
+    `(() => { const select = document.querySelector('#watchlist-tag-filter'); select.value = '${secondTag}'; select.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    preferenceDevice,
+    pair('Par tag', secondTag),
+    'second device commits its filter',
+  )
+  check(
+    await evaluate(page, pair('Par tag', firstTag)),
+    'first device retains last snapshot until reconnect',
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('online'))`)
+  await until(
+    page,
+    pair('Par tag', secondTag),
+    'reconnect updates filter without preference replay',
+  )
+  await click(preferenceDevice, 'Liste')
+  const beforeConflict = preferenceCount()
+  await evaluate(
+    page,
+    `(() => { const select = document.querySelector('#watchlist-tag-filter'); select.value = '${firstTag}'; select.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    page,
+    `${pair('Liste', secondTag)} && !!document.querySelector('main [role="alert"]')`,
+    'stale preference CAS reads back entire current pair',
+  )
+  check(
+    preferenceCount() === beforeConflict + 1,
+    'stale preference write is never replayed',
+  )
+  uncertainPreferences = true
+  const beforeUncertain = preferenceCount()
+  await evaluate(
+    page,
+    `document.querySelector('[aria-label="Affichage des films"] button:last-child').click()`,
+  )
+  await until(
+    page,
+    `${pair('Par tag', secondTag)} && !!document.querySelector('main [role="alert"]')`,
+    'lost preference response reconciles committed pair',
+  )
+  check(
+    preferenceCount() === beforeUncertain + 1,
+    'uncertain committed preference has no automatic replay',
+  )
+  uncertainPreferences = true
+  failRead = true
+  await evaluate(
+    page,
+    `document.querySelector('[aria-label="Affichage des films"] button:first-child').click()`,
+  )
+  await until(
+    page,
+    `!!document.querySelector('main [role="alert"]') && document.querySelector('#watchlist-sort').disabled`,
+    'failed preference readback blocks all writers',
+  )
+  await click(page, 'Réessayer')
+  await until(
+    page,
+    pair('Liste', secondTag),
+    'explicit retry recovers committed pair',
+  )
+  check(
+    !requests.some(
+      (request) =>
+        request.query.includes('filter_tag_id') ||
+        request.query.includes('view_mode'),
+    ),
+    'preferences never travel in URL query',
+  )
+  await filterTag('')
+  await getCDP().send('Target.disposeBrowserContext', {
+    browserContextId: preferenceDevice.browserContextId,
+  })
+  const preferenceTab = await tab(page.browserContextId)
+  await go(preferenceTab, '/compte/watchlist')
+  await until(preferenceTab, pair('Liste', ''), 'same-context tab ready')
+  await click(preferenceTab, 'Par tag')
+  await until(
+    page,
+    pair('Par tag', ''),
+    'ID-free cross-tab signal refreshes authoritative mode',
+  )
+  await click(page, 'Liste')
+  await until(
+    preferenceTab,
+    pair('Liste', ''),
+    'cross-tab preference updates in both directions',
+  )
+  check(true, 'same-browser preference refresh uses existing BroadcastChannel')
+  await getCDP().send('Page.close', {}, preferenceTab.sessionId)
+  await getCDP().send('Page.bringToFront', {}, page.sessionId)
+  await until(page, pair('Liste', ''), 'native filter ready')
+  const keyboardTag = await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-filter').options[1].value`,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-filter').focus()`,
+  )
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+      page.sessionId,
+    )
+  await until(
+    page,
+    pair('Liste', keyboardTag),
+    'native keyboard filter commits',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.id === 'watchlist-tag-filter' && document.activeElement.matches(':focus-visible') && (getComputedStyle(document.activeElement).outlineStyle !== 'none' || getComputedStyle(document.activeElement).boxShadow !== 'none')`,
+    ),
+    'native preference select restores visible keyboard focus after commit',
+  )
+  await filterTag('')
   const picker = `${savedRow('saved-film')}.querySelector('[role="group"]')`
   const rowHeight = await evaluate(
     page,
@@ -1227,7 +1499,12 @@ export async function watchlistScenario({
     await evaluate(page, `JSON.stringify(${savedOrder}) === '["saved-film"]'`),
     'single tag filter selects matching saved film',
   )
-  check(requests.length === filterRequests, 'filter does not fetch or persist')
+  check(
+    requests
+      .slice(filterRequests)
+      .filter((request) => request.path.endsWith('/preferences')).length === 1,
+    'filter commits one preference write',
+  )
   await toggleAssignment('saved-film', tags()[1].name, false)
   await until(
     page,
@@ -1524,6 +1801,12 @@ export async function watchlistScenario({
   }
   ownerTags.set(owner.username, ordinaryTags)
   revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.options.length === 3`,
+    'ordinary tags restored',
+  )
   await click(page, 'Par tag')
   await evaluate(
     page,
@@ -1551,9 +1834,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Liste'`,
+      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
     ),
-    'reload after pagehide resets grouped mode to Liste',
+    'reload after pagehide recovers committed grouped mode',
   )
   await click(page, 'Par tag')
   await evaluate(
@@ -1591,9 +1874,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Liste'`,
+      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
     ),
-    'owner replacement discards grouped mode',
+    'returning owner recovers own committed grouped mode',
   )
   await click(page, 'Par tag')
   await evaluate(
@@ -1617,11 +1900,13 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-filter').value === '' && ${savedRow('external-film')}.textContent.includes('Soirée cinéma') && [...document.querySelectorAll('ul[aria-label="Tags associés"] li')].filter(chip => chip.textContent.trim() === 'Soirée cinéma').every(chip => getComputedStyle(chip).backgroundColor === 'rgb(219, 234, 254)')`,
+      `document.querySelector('#watchlist-tag-filter').value === '${firstTag}' && ${savedRow('external-film')}.textContent.includes('Soirée cinéma') && [...document.querySelectorAll('ul[aria-label="Tags associés"] li')].filter(chip => chip.textContent.trim() === 'Soirée cinéma').every(chip => getComputedStyle(chip).backgroundColor === 'rgb(219, 234, 254)')`,
     ),
-    'reload recovers committed assignments but resets filter',
+    'route reentry recovers committed assignments and selected filter',
   )
   await screenshot(page, 'saved-tags-desktop')
+  await click(page, 'Liste')
+  await filterTag('')
   // A complete private snapshot with duplicate memberships, an empty tag and an
   // untagged film exercises grouping independently of persistent sort state.
   const groupingBefore = {
@@ -1682,7 +1967,7 @@ export async function watchlistScenario({
       page,
       `${viewButtons}.querySelector('button[aria-pressed="true"]').textContent.trim() === 'Liste' && !document.querySelector('h3[id^="watchlist-group-"]')`,
     ),
-    'route reentry starts in ungrouped Liste',
+    'explicit committed Liste renders ungrouped rows',
   )
   const beforeGroupingRequests = requests.length
   await checkSegmentedDisplay('desktop list', 0)
@@ -1719,6 +2004,11 @@ export async function watchlistScenario({
       ),
     )
     .map((tag) => `watchlist-group-tag-${tag.id}`)
+  await until(
+    page,
+    `${viewButtons}.querySelector('button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === 'Par tag'`,
+    'keyboard mode committed',
+  )
   check(
     await evaluate(
       page,
@@ -1735,8 +2025,10 @@ export async function watchlistScenario({
   )
   await checkSegmentedDisplay('desktop grouped', 1)
   check(
-    requests.length === beforeGroupingRequests,
-    'display toggle makes no request',
+    requests
+      .slice(beforeGroupingRequests)
+      .filter((request) => request.path.endsWith('/preferences')).length === 1,
+    'display toggle commits exactly one preference request',
   )
   check(
     await evaluate(
@@ -1858,7 +2150,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!['displayMode', 'savedSections', 'tag_ids', 'Soirée cinéma'].some(marker => JSON.stringify({url:location.href,local:{...localStorage},session:{...sessionStorage},payload:window.__NUXT__,data:document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data}).includes(marker))`,
+      `!['view_mode', 'filter_tag_id', 'displayMode', 'savedSections', 'tag_ids', 'Soirée cinéma'].some(marker => JSON.stringify({url:location.href,local:{...localStorage},session:{...sessionStorage},payload:window.__NUXT__,data:document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data}).includes(marker))`,
     ),
     'grouped view and private tag identities absent from URL, storage and public Nuxt payload',
   )
@@ -1899,9 +2191,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `${viewButtons}.querySelector('button[aria-pressed="true"]').textContent.trim() === 'Liste' && !${groupHeadings}.length && document.querySelector('#watchlist-sort').value === 'release_asc'`,
+      `${viewButtons}.querySelector('button[aria-pressed="true"]').textContent.trim() === 'Par tag' && ${groupHeadings}.length > 0 && document.querySelector('#watchlist-sort').value === 'release_asc'`,
     ),
-    'reload resets local display only, preserving committed account sort',
+    'reload restores committed display and account sort',
   )
   await click(page, 'Par tag')
   await evaluate(
@@ -2662,13 +2954,13 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, payload: window.__NUXT__, data: document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data, url: location.href }).match(/private_watchlist_owner|private candidate query|watchlist-only|added_at|sort_order|release_asc|1998-10-14|14 octobre 1998/)`,
+      `!JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage }, payload: window.__NUXT__, data: document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data, url: location.href }).match(/private_watchlist_owner|private candidate query|watchlist-only|added_at|sort_order|view_mode|filter_tag_id|release_asc|1998-10-14|14 octobre 1998/)`,
     ),
     'private watchlist identity query membership absent from browser storage and public payload',
   )
   check(
     !page.collections.some((collection) =>
-      /private_watchlist_owner|private candidate query|watchlist-only|saved-film|sort_order|release_asc|1998-10-14|14 octobre 1998/.test(
+      /private_watchlist_owner|private candidate query|watchlist-only|saved-film|sort_order|view_mode|filter_tag_id|release_asc|1998-10-14|14 octobre 1998/.test(
         JSON.stringify(collection),
       ),
     ),
@@ -2678,7 +2970,7 @@ export async function watchlistScenario({
     await fetch('http://127.0.0.1:13009/film/external-film')
   ).text()
   check(
-    !/private_watchlist_owner|added_at|sort_order|release_asc|private candidate query|1998-10-14|14 octobre 1998/.test(
+    !/private_watchlist_owner|added_at|sort_order|view_mode|filter_tag_id|release_asc|private candidate query|1998-10-14|14 octobre 1998/.test(
       ssr,
     ),
     'public film SSR excludes account watchlist state',
@@ -2783,6 +3075,8 @@ export async function watchlistBackendScenario({
       empty.body.username === username &&
       empty.body.revision === '0' &&
       empty.body.sort_order === 'added_desc' &&
+      empty.body.view_mode === 'list' &&
+      empty.body.filter_tag_id === null &&
       Array.isArray(empty.body.tags) &&
       empty.body.tags.length === 0 &&
       empty.body.items.length === 0,
@@ -3081,18 +3375,130 @@ export async function watchlistBackendScenario({
     `${rows}.length === 1`,
     'real filter shows matching film only',
   )
+  await click(page, 'Par tag')
+  await until(
+    page,
+    `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === 'Par tag'`,
+    'real grouped preference committed',
+  )
   await go(page, '/compte/watchlist')
   await until(
     page,
-    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)') && document.querySelectorAll('ul[aria-label="Tags associés"]').length === 2`,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)') && document.querySelectorAll('ul[aria-label="Tags associés"]').length === 1`,
     'real assignments survive document reload',
   )
   check(
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-filter').value === ''`,
+      `document.querySelector('#watchlist-tag-filter').value === '${secondTag}' && document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
     ),
-    'real reload clears page-local tag filter',
+    'real reload restores committed filter and grouped view',
+  )
+  const preferenceSnapshot = (
+    await request(page, '/account/watchlist', undefined, 'GET')
+  ).body
+  check(
+    preferenceSnapshot.view_mode === 'tags' &&
+      preferenceSnapshot.filter_tag_id === secondTag,
+    'real backend stores both preference fields',
+  )
+  const device = await tab()
+  check(
+    device.browserContextId !== page.browserContextId,
+    'real device uses independent cookie/storage/BroadcastChannel context',
+  )
+  await go(device, '/connexion')
+  await fill(device, 'account-email', email)
+  await fill(device, 'account-password', 'Synthetic cinema password 42!')
+  await click(device, 'Se connecter')
+  await until(
+    device,
+    `location.pathname === '/compte'`,
+    'same account authenticates in isolated device context',
+  )
+  await go(device, '/compte/watchlist')
+  await until(
+    device,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === '${secondTag}' && document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
+    'separate device restores same committed pair',
+  )
+  await click(device, 'Liste')
+  await until(
+    device,
+    `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === 'Liste'`,
+    'separate device commits list mode',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
+    ),
+    'real separate device does not push preferences into already-open page',
+  )
+  const stalePreference = await request(
+    page,
+    '/account/watchlist/preferences',
+    {
+      expected_username: username,
+      expected_revision: preferenceSnapshot.revision,
+      view_mode: 'tags',
+      filter_tag_id: '',
+    },
+  )
+  check(
+    stalePreference.status === 409,
+    'real stale preference CAS fails without clobbering other device',
+  )
+  const beforeStalePreference = page.requests.filter((entry) =>
+    entry.path.endsWith('/watchlist/preferences'),
+  ).length
+  await evaluate(
+    page,
+    `(() => { const filter = document.querySelector('#watchlist-tag-filter'); filter.value = ''; filter.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === 'Liste' && document.querySelector('#watchlist-tag-filter').value === '${secondTag}'`,
+    'real stale UI write reconciles other device pair',
+  )
+  check(
+    page.requests.filter((entry) =>
+      entry.path.endsWith('/watchlist/preferences'),
+    ).length ===
+      beforeStalePreference + 1 &&
+      (await evaluate(page, `!!document.querySelector('[role="alert"]')`)),
+    'real stale UI preference is rejected and read back without replay',
+  )
+  await evaluate(
+    page,
+    `(() => { const filter = document.querySelector('#watchlist-tag-filter'); filter.value = ''; filter.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === '' && ${rows}.length === 2`,
+    'real explicit all-films preference committed',
+  )
+  await evaluate(device, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    device,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === ''`,
+    'real other device focus refreshes filter',
+  )
+  check(
+    page.requests
+      .filter((entry) => entry.path.endsWith('/watchlist/preferences'))
+      .every(
+        (entry) =>
+          entry.method === 'POST' &&
+          JSON.stringify([...entry.bodyKeys].sort()) ===
+            JSON.stringify([
+              'expected_revision',
+              'expected_username',
+              'filter_tag_id',
+              'view_mode',
+            ]),
+      ),
+    'real preferences use exact private four-field POST body',
   )
   await click(page, 'Gérer les tags')
   await evaluate(
@@ -3156,6 +3562,32 @@ export async function watchlistBackendScenario({
     'real filtered-empty state after unassignment',
   )
   await click(page, 'Voir tous les films')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === ''`,
+    'real empty-filter reset committed',
+  )
+  await evaluate(
+    page,
+    `(() => { const filter = document.querySelector('#watchlist-tag-filter'); filter.value = '${firstTag}'; filter.dispatchEvent(new Event('change', {bubbles:true})); })()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === '${firstTag}'`,
+    'real selected tag prepared for deletion',
+  )
+  await click(page, 'Par tag')
+  await until(
+    page,
+    `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === 'Par tag'`,
+    'real deletion uses persisted nondefault mode',
+  )
+  await evaluate(device, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    device,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === '${firstTag}' && document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
+    'real device sees selected tag before deletion',
+  )
   await click(page, 'Gérer les tags')
   await evaluate(
     page,
@@ -3170,10 +3602,38 @@ export async function watchlistBackendScenario({
   committed = (await request(page, '/account/watchlist', undefined, 'GET')).body
   check(
     committed.items.length === 2 &&
+      committed.view_mode === 'tags' &&
+      committed.filter_tag_id === null &&
+      committed.sort_order === 'release_asc' &&
       committed.tags.length === 1 &&
       !committed.tags.some((tag) => tag.id === firstTag) &&
       committed.items.every((item) => item.tag_ids.length === 0),
     'real deletion preserves both films and removes associations',
+  )
+  check(
+    await evaluate(
+      device,
+      `document.querySelector('#watchlist-tag-filter').value === '${firstTag}'`,
+    ),
+    'real deletion waits for independent device revalidation',
+  )
+  await evaluate(device, `window.dispatchEvent(new Event('online'))`)
+  await until(
+    device,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.value === '' && document.querySelector('#watchlist-sort').value === 'release_asc' && document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag' && ${rows}.length === 2 && document.querySelector('main').textContent.includes('Sans tag')`,
+    'real reconnect clears deleted tag while preserving grouped mode and sort',
+  )
+  const deviceAfterDeletion = await request(
+    device,
+    '/account/watchlist',
+    undefined,
+    'GET',
+  )
+  check(
+    deviceAfterDeletion.body.revision === committed.revision &&
+      deviceAfterDeletion.body.filter_tag_id === null &&
+      deviceAfterDeletion.body.view_mode === 'tags',
+    'real devices converge on one committed deletion revision without repair POST',
   )
   await evaluate(
     page,
@@ -3234,6 +3694,8 @@ export async function watchlistBackendScenario({
     email,
     'added_at',
     'sort_order',
+    'view_mode',
+    'filter_tag_id',
     'release_asc',
     'expected_username',
     'watchlistOnly',
@@ -3339,6 +3801,8 @@ export async function watchlistBackendScenario({
   check(
     secondSnapshot.status === 200 &&
       secondSnapshot.body.sort_order === 'added_desc' &&
+      secondSnapshot.body.view_mode === 'list' &&
+      secondSnapshot.body.filter_tag_id === null &&
       secondSnapshot.body.revision === '0' &&
       secondSnapshot.body.tags.length === 0 &&
       secondSnapshot.body.items.length === 0,
