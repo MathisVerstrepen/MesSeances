@@ -537,6 +537,7 @@ export async function watchlistScenario({
           const section = document.querySelector('section[aria-labelledby="saved-heading"]');
           const heading = section.querySelector('#saved-heading');
           const select = section.querySelector('#watchlist-sort');
+          const filter = section.querySelector('#watchlist-tag-filter');
           const status = section.querySelector('[role="status"]');
           const icon = select?.parentElement.querySelector('svg[aria-hidden="true"]');
           const nodes = [form, heading, icon, select, status];
@@ -549,6 +550,9 @@ export async function watchlistScenario({
             && [...section.querySelectorAll('[aria-label="Affichage des films"] button')].every(button => button.disabled)
             && select.selectedOptions[0].disabled && select.selectedOptions[0].textContent.trim() === 'Trier par'
             && select.labels[0].textContent.trim() === 'Trier par' && select.labels[0].classList.contains('sr-only')
+            && filter.disabled && filter.value === '' && filter.selectedOptions[0].disabled
+            && filter.selectedOptions[0].textContent.trim() === 'Filtrer par tag'
+            && filter.labels[0].textContent.trim() === 'Filtrer par tag' && filter.labels[0].classList.contains('sr-only')
             && document.documentElement.scrollWidth <= innerWidth
             && form.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top
             && select.getBoundingClientRect().bottom <= status.getBoundingClientRect().top;
@@ -557,6 +561,29 @@ export async function watchlistScenario({
       `${viewport} loading keeps search then heading/icon/disabled neutral select then one skeleton, without stale rows or empty-state flash`,
     )
     await checkSegmentedDisplay(`${viewport} loading`, -1, true)
+  }
+  async function checkTagFilterPresentation(viewport) {
+    check(
+      await evaluate(
+        page,
+        `(() => {
+          const select = document.querySelector('#watchlist-tag-filter');
+          const label = select.labels[0], control = select.getBoundingClientRect(), style = getComputedStyle(select);
+          const icon = select.parentElement.querySelector('svg[aria-hidden="true"]');
+          const bounds = icon?.getBoundingClientRect(), labelBounds = label.getBoundingClientRect();
+          return label.textContent.trim() === 'Filtrer par tag' && label.classList.contains('sr-only')
+            && getComputedStyle(label).position === 'absolute' && labelBounds.width <= 1 && labelBounds.height <= 1
+            && icon?.classList.contains('lucide-list-filter') && bounds?.width === 20 && bounds.height === 20
+            && getComputedStyle(icon).pointerEvents === 'none' && style.appearance === 'auto'
+            && control.height >= 44 && control.left >= 0 && control.right <= innerWidth
+            && bounds.left > control.left && bounds.right < control.right && bounds.top > control.top && bounds.bottom < control.bottom
+            && control.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= bounds.right + 8
+            && Math.abs(bounds.top + bounds.height / 2 - control.top - control.height / 2) < 1
+            && document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2) === select;
+        })()`,
+      ),
+      `${viewport} native tag filter keeps hidden label, inset 20px click-through icon, text clearance and 44px target`,
+    )
   }
   async function finishRead() {
     for (let i = 0; !releaseRead && i < 100; i++) await delay(20)
@@ -630,9 +657,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const section = document.querySelector('section[aria-labelledby="saved-heading"]'); const select = section.querySelector('#watchlist-sort'); return !document.querySelector('main [role="status"]') && document.querySelectorAll('main [role="alert"]').length === 1 && select.disabled && select.value === '' && select.selectedOptions[0].textContent.trim() === 'Tri indisponible' && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide'); })()`,
+      `(() => { const section = document.querySelector('section[aria-labelledby="saved-heading"]'); const select = section.querySelector('#watchlist-sort'); const filter = section.querySelector('#watchlist-tag-filter'); return !document.querySelector('main [role="status"]') && document.querySelectorAll('main [role="alert"]').length === 1 && select.disabled && select.value === '' && select.selectedOptions[0].textContent.trim() === 'Tri indisponible' && filter.disabled && filter.value === '' && filter.selectedOptions[0].textContent.trim() === 'Filtre indisponible' && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide'); })()`,
     ),
-    'failed initial read retains heading and disabled neutral sort without skeleton or false empty state',
+    'failed initial read retains heading and disabled neutral sort/filter without skeleton or false empty state',
   )
   await click(page, 'Réessayer')
   await until(
@@ -671,11 +698,12 @@ export async function watchlistScenario({
     page.sessionId,
   )
   check(
-    accessibility.nodes.some(
-      (node) =>
-        node.role?.value === 'combobox' && node.name?.value === 'Trier par',
+    ['Trier par', 'Filtrer par tag'].every((name) =>
+      accessibility.nodes.some(
+        (node) => node.role?.value === 'combobox' && node.name?.value === name,
+      ),
     ),
-    'native sort selector retains Trier par accessible name',
+    'native sort and filter selectors retain accessible names',
   )
   check(
     ['Liste', 'Par tag'].every((label, index) =>
@@ -700,6 +728,7 @@ export async function watchlistScenario({
     ),
     'desktop sort icon sits inside select with text clearance and filter/manager alignment',
   )
+  await checkTagFilterPresentation('desktop')
   await click(page, 'Gérer les tags')
   check(
     await evaluate(
@@ -2859,6 +2888,7 @@ export async function watchlistScenario({
     ),
     'mobile sort icon stays inside select with text clearance, stacked toolbar alignment and 44px target',
   )
+  await checkTagFilterPresentation('mobile')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(

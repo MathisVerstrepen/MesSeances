@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowDownUp, List, Tags, X } from '@lucide/vue'
+import { ArrowDownUp, List, ListFilter, Tags, X } from '@lucide/vue'
 import type { WatchlistViewMode } from '~/types/watchlist'
 import { accountDestination } from '~/utils/accountState'
 import { groupWatchlistItems } from '~/utils/watchlistGrouping'
@@ -592,15 +592,20 @@ onBeforeRouteLeave(clearPageSearch)
         <div
           class="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
         >
-          <div class="min-w-0">
-            <label for="watchlist-tag-filter" class="account-label"
+          <div class="relative min-w-0 self-end">
+            <label for="watchlist-tag-filter" class="sr-only"
               >Filtrer par tag</label
             >
+            <ListFilter
+              :size="20"
+              class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink"
+              aria-hidden="true"
+            />
             <select
               id="watchlist-tag-filter"
               ref="tagFilter"
               :value="selectedTag"
-              class="account-input min-h-11 w-full min-w-0"
+              class="account-input min-h-11 w-full min-w-0 pl-10!"
               :disabled="writesBlocked"
               @change="changeFilter"
             >
