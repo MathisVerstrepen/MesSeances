@@ -561,9 +561,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const select = document.querySelector('#watchlist-sort'); const label = select.labels[0]; const icon = select.parentElement.querySelector('svg[aria-hidden="true"]'); return select.value === 'added_desc' && select.options.length === 6 && label.textContent.trim() === 'Trier par' && label.classList.contains('sr-only') && getComputedStyle(label).position === 'absolute' && !!icon && icon.getBoundingClientRect().width === 20; })()`,
+      `(() => { const select = document.querySelector('#watchlist-sort'); const label = select.labels[0]; const icon = select.parentElement.querySelector('svg[aria-hidden="true"]'); const bounds = icon?.getBoundingClientRect(); return select.value === 'added_desc' && select.options.length === 6 && label.textContent.trim() === 'Trier par' && label.classList.contains('sr-only') && getComputedStyle(label).position === 'absolute' && bounds?.width === 20 && getComputedStyle(icon).pointerEvents === 'none' && getComputedStyle(select).appearance === 'auto' && document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2) === select; })()`,
     ),
-    'empty watchlist has screen-reader labeled six-option selector and visible decorative sort icon',
+    'empty watchlist has screen-reader labeled six-option native selector and click-through decorative sort icon',
   )
   const accessibility = await getCDP().send(
     'Accessibility.getFullAXTree',
@@ -580,9 +580,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const select = document.querySelector('#watchlist-sort'); const control = select.getBoundingClientRect(); const icon = select.parentElement.querySelector('svg').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return icon.right <= control.left && Math.abs(icon.top + icon.height / 2 - control.top - control.height / 2) < 1 && Math.abs(filter.bottom - control.bottom) < 1 && Math.abs(trigger.bottom - control.bottom) < 1; })()`,
+      `(() => { const select = document.querySelector('#watchlist-sort'); const control = select.getBoundingClientRect(); const style = getComputedStyle(select); const icon = select.parentElement.querySelector('svg').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return control.height >= 44 && icon.left > control.left && icon.right < control.right && icon.top > control.top && icon.bottom < control.bottom && control.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= icon.right + 8 && Math.abs(icon.top + icon.height / 2 - control.top - control.height / 2) < 1 && Math.abs(filter.bottom - control.bottom) < 1 && Math.abs(trigger.bottom - control.bottom) < 1; })()`,
     ),
-    'desktop filter sort and manager share one aligned toolbar below Mes films',
+    'desktop sort icon sits inside select with text clearance and filter/manager alignment',
   )
   await click(page, 'Gérer les tags')
   check(
@@ -2157,9 +2157,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); return select.height >= 44 && icon.left >= 0 && icon.right <= select.left && select.right <= innerWidth && select.top >= heading.bottom && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
+      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const style = getComputedStyle(control); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return select.height >= 44 && select.left >= 0 && icon.left > select.left && icon.right < select.right && icon.top > select.top && icon.bottom < select.bottom && select.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= icon.right + 8 && select.right <= innerWidth && select.top >= heading.bottom && select.top >= filter.bottom && trigger.top >= select.bottom && Math.abs(select.left - filter.left) < 1 && Math.abs(select.right - filter.right) < 1 && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
     ),
-    'mobile icon and sort control stay inline below heading with 44px target and no overflow',
+    'mobile sort icon stays inside select with text clearance, stacked toolbar alignment and 44px target',
   )
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')

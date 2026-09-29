@@ -519,16 +519,16 @@ onBeforeRouteLeave(clearPageSearch)
               </option>
             </select>
           </div>
-          <div class="flex min-w-0 items-center gap-2 self-end">
+          <div class="relative min-w-0 self-end">
             <label for="watchlist-sort" class="sr-only">Trier par</label>
             <ArrowDownUp
               :size="20"
-              class="shrink-0 text-ink"
+              class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink"
               aria-hidden="true"
             />
             <select
               id="watchlist-sort"
-              class="account-input min-h-11 w-full min-w-0"
+              class="account-input min-h-11 w-full min-w-0 pl-10!"
               :value="ready ? sortOrder : ''"
               :disabled="!ready || writesBlocked"
               @change="changeSort"
