@@ -498,6 +498,83 @@ export async function watchlistScenario({
       `${variant} clock has dark 24px plus/minus strokes, white surface with subtle hover, decorative semantics and 48px target`,
     )
   }
+  async function checkGroupDots(viewport) {
+    const expected = tags().map((tag) => ({
+      ...tag,
+      dotColor: palette.find(([color]) => color === tag.color)[4],
+    }))
+    check(
+      await evaluate(
+        page,
+        `(() => {
+          const tags = ${JSON.stringify(expected)};
+          const headings = [...document.querySelectorAll('h3[id^="watchlist-group-"]')];
+          const rgb = hex => 'rgb(' + [1,3,5].map(i => parseInt(hex.slice(i, i+2), 16)).join(', ') + ')';
+          const baseline = element => {
+            const probe = document.createElement('span');
+            probe.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+            element.prepend(probe);
+            const y = probe.getBoundingClientRect().top;
+            probe.remove();
+            return y;
+          };
+          return headings.length > 0 && headings.every(heading => {
+            const dot = heading.querySelector('[aria-hidden="true"]');
+            if (heading.id === 'watchlist-group-untagged') return !dot && heading.firstElementChild.textContent === 'Sans tag';
+            const tag = tags.find(tag => heading.id === 'watchlist-group-tag-' + tag.id);
+            if (!tag || !dot) return false;
+            const rect = dot.getBoundingClientRect(), label = dot.nextElementSibling, nameRect = label.getBoundingClientRect();
+            const textBaseline = baseline(label), context = document.createElement('canvas').getContext('2d');
+            context.font = getComputedStyle(label).font;
+            const opticalCenter = textBaseline - context.measureText('x').actualBoundingBoxAscent / 2;
+            return heading.firstElementChild === dot && dot.textContent === '' && !dot.hasAttribute('tabindex')
+              && label.textContent === tag.name && rect.width === 10 && rect.height === 10
+              && getComputedStyle(dot).backgroundColor === rgb(tag.dotColor) && parseFloat(getComputedStyle(dot).borderRadius) >= 5
+              && rect.right + 7 <= nameRect.left && Math.abs(rect.top + rect.height / 2 - opticalCenter) <= 1
+              && Math.abs(baseline(heading.lastElementChild) - textBaseline) < 1
+              && nameRect.right <= innerWidth && heading.lastElementChild.getBoundingClientRect().right <= innerWidth;
+          }) && document.documentElement.scrollWidth <= innerWidth;
+        })()`,
+      ),
+      `${viewport} palette dots align with first-line x-height center and count baseline, including wrapped names; synthetic Sans tag has none`,
+    )
+    const names = await evaluate(
+      page,
+      `[...document.querySelectorAll('h3[id^="watchlist-group-"]')].map(h => [...h.children].filter(child => !child.hasAttribute('aria-hidden')).map(child => child.textContent.trim()).join(' '))`,
+    )
+    const tree = await getCDP().send(
+      'Accessibility.getFullAXTree',
+      {},
+      page.sessionId,
+    )
+    check(
+      names.every((name) =>
+        tree.nodes.some(
+          (node) => node.role?.value === 'heading' && node.name?.value === name,
+        ),
+      ),
+      `${viewport} group accessible names remain tag name and count only`,
+    )
+    if (!process.argv.includes('--visual')) return
+    const clips = await evaluate(
+      page,
+      `[...document.querySelectorAll('h3[id^="watchlist-group-"]')].map(h => {
+        const rect = h.getBoundingClientRect();
+        return { id: h.id, x: Math.max(0, rect.left + scrollX - 4), y: Math.max(0, rect.top + scrollY - 4), width: rect.width + 8, height: rect.height + 8, scale: 3 };
+      })`,
+    )
+    for (const { id, ...clip } of clips) {
+      const image = await getCDP().send(
+        'Page.captureScreenshot',
+        { format: 'png', captureBeyondViewport: true, clip },
+        page.sessionId,
+      )
+      await writeFile(
+        `/tmp/opencode/${id}-${viewport.replaceAll(' ', '-')}-closeup.png`,
+        Buffer.from(image.data, 'base64'),
+      )
+    }
+  }
   async function captureClockCloseup(page, variant, viewport) {
     if (!process.argv.includes('--visual')) return
     const clip = await evaluate(
@@ -2253,6 +2330,40 @@ export async function watchlistScenario({
     'multi-tag film renders in both sections with preserved French release date',
   )
   await screenshot(page, 'grouped-desktop')
+  await checkGroupDots('desktop')
+  const originalTag = { ...tags().find((tag) => tag.id === firstTag) }
+  for (const [name, color] of [
+    [originalTag.name, 'blue'],
+    ['Un très long nom de tag pour les amis', 'violet'],
+    [originalTag.name, 'neutral'],
+    [originalTag.name, originalTag.color],
+  ]) {
+    await click(page, 'Gérer les tags')
+    await evaluate(
+      page,
+      `document.querySelector(${JSON.stringify(`button[aria-label="Modifier ${tags().find((tag) => tag.id === firstTag).name}"]`)}).click()`,
+    )
+    await fill(page, 'watchlist-tag-edit', name)
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="${color}"]').click()`,
+    )
+    await click(page, 'Enregistrer')
+    await until(
+      page,
+      `!document.querySelector('#watchlist-tag-edit') && !document.querySelector('#watchlist-sort').disabled`,
+      'group tag edit committed',
+    )
+    await evaluate(
+      page,
+      `new Promise(resolve => {
+        document.querySelector('#watchlist-tag-manager').addEventListener('close', () => requestAnimationFrame(resolve), { once: true });
+        document.querySelector('button[aria-label="Fermer la gestion des tags"]').click();
+      })`,
+    )
+    await checkGroupDots(`committed ${color} edit`)
+    if (color === 'neutral') await screenshot(page, 'grouped-neutral-desktop')
+  }
   check(
     await evaluate(
       page,
@@ -2277,6 +2388,7 @@ export async function watchlistScenario({
       `window.scrollTo(0, 0); new Promise(resolve => requestAnimationFrame(resolve))`,
     )
     await checkCompactLayout(width)
+    await checkGroupDots(`${width}px`)
   }
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',

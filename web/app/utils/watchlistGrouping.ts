@@ -1,8 +1,13 @@
-import type { WatchlistItem, WatchlistTag } from '../types/watchlist.ts'
+import type {
+  WatchlistItem,
+  WatchlistTag,
+  WatchlistTagColor,
+} from '../types/watchlist.ts'
 
 export interface WatchlistGroup {
   id: string
   name: string
+  color: WatchlistTagColor | null
   items: WatchlistItem[]
 }
 
@@ -18,12 +23,14 @@ export function groupWatchlistItems(
     .map<WatchlistGroup>((tag) => ({
       id: `tag-${tag.id}`,
       name: tag.name,
+      color: tag.color,
       items: [],
     }))
   const byId = new Map(groups.map((group) => [group.id, group]))
   const untagged: WatchlistGroup = {
     id: 'untagged',
     name: 'Sans tag',
+    color: null,
     items: [],
   }
   for (const item of items) {

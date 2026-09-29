@@ -6,7 +6,10 @@ import {
   sortWatchlistItems,
   watchlistSortOptions,
 } from '../app/utils/watchlistSort.ts'
-import { sortWatchlistTags } from '../app/utils/watchlistTags.ts'
+import {
+  sortWatchlistTags,
+  watchlistTagPalette,
+} from '../app/utils/watchlistTags.ts'
 
 const tag = (id: string, name: string): WatchlistTag => ({
   id,
@@ -75,6 +78,29 @@ test('tag filter selects only its section, suppressing untagged and empty sectio
   assert.deepEqual(groupWatchlistItems(source, tags, '999'), [])
   assert.deepEqual(groupWatchlistItems([], tags), [])
   assert.deepEqual(groupWatchlistItems([], []), [])
+})
+
+test('groups carry stored palette colors after edits, while only synthetic Sans tag has no color', () => {
+  const source = [
+    item('tagged', { tag_ids: ['1'] }),
+    item('none', { tag_ids: [] }),
+  ]
+  // SAFETY: This static palette defines exactly the WatchlistTag color keys.
+  for (const color of Object.keys(
+    watchlistTagPalette,
+  ) as WatchlistTag['color'][]) {
+    const definition: WatchlistTag = { id: '1', name: 'Sans tag', color }
+    const groups = groupWatchlistItems(source, [definition])
+    assert.equal(groups[0]?.color, color)
+    assert.equal(groups[1]?.color, null)
+    const renamed = groupWatchlistItems(source, [
+      { ...definition, name: 'Amis' },
+    ])
+    assert.equal(renamed[0]?.id, groups[0]?.id)
+    assert.equal(renamed[0]?.name, 'Amis')
+    assert.equal(renamed[0]?.color, color)
+    assert.deepEqual(renamed[0]?.items, groups[0]?.items)
+  }
 })
 
 for (const { value: order } of watchlistSortOptions) {

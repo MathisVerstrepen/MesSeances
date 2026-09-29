@@ -4,7 +4,7 @@ import type { WatchlistViewMode } from '~/types/watchlist'
 import { accountDestination } from '~/utils/accountState'
 import { groupWatchlistItems } from '~/utils/watchlistGrouping'
 import { sortWatchlistItems, watchlistSortOptions } from '~/utils/watchlistSort'
-import { sortWatchlistTags } from '~/utils/watchlistTags'
+import { sortWatchlistTags, watchlistTagPalette } from '~/utils/watchlistTags'
 
 definePageMeta({ middleware: 'account-auth' })
 useHead({ title: 'Watchlist - MesSeances' })
@@ -54,7 +54,7 @@ const savedSections = computed(() =>
         sortedTags.value,
         selectedTag.value,
       )
-    : [{ id: 'list', name: '', items: sortedItems.value }],
+    : [{ id: 'list', name: '', color: null, items: sortedItems.value }],
 )
 const rowKey = (sectionId: string, slug: string) => `${sectionId}:${slug}`
 watch([selectedTag, displayMode], () => {
@@ -698,10 +698,16 @@ onBeforeRouteLeave(clearPageSearch)
               :id="`watchlist-group-${section.id}`"
               class="flex items-baseline gap-2 text-lg font-bold"
             >
+              <span
+                v-if="section.color"
+                aria-hidden="true"
+                class="size-2.5 shrink-0 rounded-full"
+                :style="{ backgroundColor: watchlistTagPalette[section.color].borderColor }"
+              />
               <span class="min-w-0 [overflow-wrap:anywhere]">{{
                 section.name
               }}</span>
-              <span class="text-sm font-normal text-muted"
+              <span class="shrink-0 text-sm font-normal text-muted"
                 >({{ section.items.length }})</span
               >
             </h3>
