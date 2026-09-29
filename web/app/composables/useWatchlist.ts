@@ -2,6 +2,7 @@ import type {
   AccountWatchlist,
   WatchlistSearch,
   WatchlistSortOrder,
+  WatchlistTagColor,
 } from '~/types/watchlist'
 import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 
@@ -155,8 +156,8 @@ function createWatchlist() {
       | { slug: string; saved: boolean }
       | { tmdbId: string }
       | { sortOrder: WatchlistSortOrder }
-      | { tag: 'create'; name: string }
-      | { tag: 'rename'; tagId: string; name: string }
+      | { tag: 'create'; name: string; color: WatchlistTagColor }
+      | { tag: 'update'; tagId: string; name: string; color: WatchlistTagColor }
       | { tag: 'delete'; tagId: string }
       | { tag: 'assign'; tagId: string; slug: string; assigned: boolean },
   ): Promise<string | boolean> {
@@ -177,12 +178,17 @@ function createWatchlist() {
           'tag' in movie
             ? movie.tag === 'create'
               ? await api.createWatchlistTag(
-                  { ...expected, name: movie.name },
+                  { ...expected, name: movie.name, color: movie.color },
                   controller?.signal,
                 )
-              : movie.tag === 'rename'
-                ? await api.renameWatchlistTag(
-                    { ...expected, tag_id: movie.tagId, name: movie.name },
+              : movie.tag === 'update'
+                ? await api.updateWatchlistTag(
+                    {
+                      ...expected,
+                      tag_id: movie.tagId,
+                      name: movie.name,
+                      color: movie.color,
+                    },
                     controller?.signal,
                   )
                 : movie.tag === 'delete'
@@ -401,9 +407,10 @@ function createWatchlist() {
     save: (slug: string, saved: boolean) => mutate({ slug, saved }),
     importMovie: (tmdbId: string) => mutate({ tmdbId }),
     saveSort: (sortOrder: WatchlistSortOrder) => mutate({ sortOrder }),
-    createTag: (name: string) => mutate({ tag: 'create', name }),
-    renameTag: (tagId: string, name: string) =>
-      mutate({ tag: 'rename', tagId, name }),
+    createTag: (name: string, color: WatchlistTagColor) =>
+      mutate({ tag: 'create', name, color }),
+    updateTag: (tagId: string, name: string, color: WatchlistTagColor) =>
+      mutate({ tag: 'update', tagId, name, color }),
     deleteTag: (tagId: string) => mutate({ tag: 'delete', tagId }),
     assignTag: (slug: string, tagId: string, assigned: boolean) =>
       mutate({ tag: 'assign', slug, tagId, assigned }),

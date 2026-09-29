@@ -2,6 +2,79 @@ package database
 
 import "testing"
 
+func TestWatchlistTagColorsMigrationIntegration(t *testing.T) {
+	for _, upgrade := range []bool{false, true} {
+		name := "fresh"
+		if upgrade {
+			name = "upgrade_from_053"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			pool, _ := newMigrationTestPool(t, ctx, "watchlist_colors_")
+			if upgrade {
+				installMigrationPrefix(t, ctx, pool, 53, "053_account_watchlist_tags.sql")
+			} else if err := RunMigrations(ctx, pool); err != nil {
+				t.Fatal(err)
+			}
+			exec := func(sql string) {
+				t.Helper()
+				if _, err := pool.Exec(ctx, sql); err != nil {
+					t.Fatal(err)
+				}
+			}
+			exec(`INSERT INTO accounts(id,email,created_at,email_verified_at,verification_source) OVERRIDING SYSTEM VALUE VALUES(1,'one@example.com',now(),now(),'email'),(2,'two@example.com',now(),now(),'email')`)
+			exec(`INSERT INTO public_movies(id,identity_anchor_tmdb_id,title,runtime_minutes) OVERRIDING SYSTEM VALUE VALUES(10,10,'Film',0)`)
+			exec(`INSERT INTO account_watchlist_state(account_id,revision,sort_order) VALUES(1,7,'release_asc')`)
+			exec(`INSERT INTO account_watchlist_items(account_id,public_movie_id,added_at) VALUES(1,10,'2026-09-01T12:00:00.123456Z'),(2,10,'2026-09-02T12:00:00Z')`)
+			exec(`INSERT INTO account_watchlist_tags(account_id,id,name,name_key) OVERRIDING SYSTEM VALUE VALUES(1,100,'Été','été'),(2,200,'Été','été')`)
+			exec(`INSERT INTO account_watchlist_item_tags VALUES(1,10,100),(2,10,200)`)
+			snapshot := func() string {
+				t.Helper()
+				var data string
+				err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
+ (SELECT jsonb_agg(to_jsonb(t)-'color' ORDER BY account_id,id) FROM account_watchlist_tags t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id,public_movie_id,tag_id) FROM account_watchlist_item_tags t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id) FROM account_watchlist_state t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id,public_movie_id) FROM account_watchlist_items t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM accounts t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public_movies t))::text`).Scan(&data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return data
+			}
+			before := snapshot()
+			for range 2 {
+				if err := RunMigrations(ctx, pool); err != nil {
+					t.Fatal(err)
+				}
+			}
+			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
+			if snapshot() != before {
+				t.Fatal("color migration changed existing data or initialized absent state")
+			}
+			var neutral bool
+			if err := pool.QueryRow(ctx, `SELECT bool_and(color='neutral') FROM account_watchlist_tags`).Scan(&neutral); err != nil || !neutral {
+				t.Fatal("existing tags not neutral", err)
+			}
+			for _, color := range []string{"neutral", "red", "amber", "green", "teal", "blue", "violet", "rose"} {
+				if _, err := pool.Exec(ctx, `UPDATE account_watchlist_tags SET color=$1 WHERE account_id=1`, color); err != nil {
+					t.Fatal("palette rejected", err)
+				}
+			}
+			for _, color := range []any{nil, "", "purple", "BLUE", " blue", "blue ", "#2563eb", "var(--blue)"} {
+				if _, err := pool.Exec(ctx, `UPDATE account_watchlist_tags SET color=$1 WHERE account_id=1`, color); err == nil {
+					t.Fatal("invalid SQL color accepted")
+				}
+			}
+			var color string
+			if err := pool.QueryRow(ctx, `INSERT INTO account_watchlist_tags(account_id,name,name_key) VALUES(1,'Default','default') RETURNING color`).Scan(&color); err != nil || color != "neutral" {
+				t.Fatal("SQL default absent", err)
+			}
+		})
+	}
+}
+
 func TestWatchlistTagsMigrationIntegration(t *testing.T) {
 	for _, upgrade := range []bool{false, true} {
 		name := "fresh"

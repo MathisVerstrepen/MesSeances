@@ -28,15 +28,27 @@ export interface AccountWatchlist {
   external_search_available: boolean
 }
 
+export type WatchlistTagColor =
+  | 'neutral'
+  | 'red'
+  | 'amber'
+  | 'green'
+  | 'teal'
+  | 'blue'
+  | 'violet'
+  | 'rose'
+
 export interface WatchlistTag {
   id: string
   name: string
+  color: WatchlistTagColor
 }
 
 export interface CreateWatchlistTag {
   expected_username: string
   expected_revision: string
   name: string
+  color: WatchlistTagColor
 }
 
 export interface DeleteWatchlistTag {
@@ -45,8 +57,9 @@ export interface DeleteWatchlistTag {
   tag_id: string
 }
 
-export interface RenameWatchlistTag extends DeleteWatchlistTag {
+export interface UpdateWatchlistTag extends DeleteWatchlistTag {
   name: string
+  color: WatchlistTagColor
 }
 
 export interface AssignWatchlistTag extends DeleteWatchlistTag {

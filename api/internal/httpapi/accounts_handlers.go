@@ -70,7 +70,7 @@ func registerAccountLifecycle(router chi.Router, options AccountOptions, unavail
 	post("/account/watchlist", h.saveWatchlist, h.watchlistWrites)
 	post("/account/watchlist/sort", h.saveWatchlistSort, h.watchlistWrites)
 	post("/account/watchlist/tags", h.createWatchlistTag, h.watchlistWrites)
-	post("/account/watchlist/tags/rename", h.renameWatchlistTag, h.watchlistWrites)
+	post("/account/watchlist/tags/update", h.updateWatchlistTag, h.watchlistWrites)
 	post("/account/watchlist/tags/delete", h.deleteWatchlistTag, h.watchlistWrites)
 	post("/account/watchlist/tags/assign", h.assignWatchlistTag, h.watchlistWrites)
 	post("/account/watchlist/search", h.searchWatchlist, h.watchlistSearches)

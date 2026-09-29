@@ -164,8 +164,14 @@ func TestWatchlistAuthorizationAndBoundsIntegration(t *testing.T) {
 			t.Fatalf("sort %v want %v", err, want)
 		}
 		for _, operation := range []func() error{
-			func() error { _, err := f.service.CreateWatchlistTag(ctx, raw, username, "0", "Tag"); return err },
-			func() error { _, err := f.service.RenameWatchlistTag(ctx, raw, username, "0", "1", "Tag"); return err },
+			func() error {
+				_, err := f.service.CreateWatchlistTag(ctx, raw, username, "0", "Tag", "neutral")
+				return err
+			},
+			func() error {
+				_, err := f.service.UpdateWatchlistTag(ctx, raw, username, "0", "1", "Tag", "red")
+				return err
+			},
 			func() error { _, err := f.service.DeleteWatchlistTag(ctx, raw, username, "0", "1"); return err },
 			func() error {
 				_, err := f.service.AssignWatchlistTag(ctx, raw, username, "0", slug, "1", true)
@@ -429,7 +435,7 @@ func TestWatchlistImportReauthorizationAndConcurrencyIntegration(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "tag":
-				if _, err := f.service.CreateWatchlistTag(t.Context(), one.Cookie.Token, "race_owner", "0", "Tag"); err != nil {
+				if _, err := f.service.CreateWatchlistTag(t.Context(), one.Cookie.Token, "race_owner", "0", "Tag", "neutral"); err != nil {
 					t.Fatal(err)
 				}
 			case "concurrent import":

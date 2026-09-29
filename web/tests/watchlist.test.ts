@@ -28,7 +28,7 @@ import type {
   WatchlistSortOrder,
   WatchlistSearch,
   CreateWatchlistTag,
-  RenameWatchlistTag,
+  UpdateWatchlistTag,
   DeleteWatchlistTag,
   AssignWatchlistTag,
 } from '../app/types/watchlist.ts'
@@ -213,14 +213,14 @@ async function fixture(client = true) {
     action: string
     input:
       | CreateWatchlistTag
-      | RenameWatchlistTag
+      | UpdateWatchlistTag
       | DeleteWatchlistTag
       | AssignWatchlistTag
   }[] = []
   let tagWrite = async (
     _input:
       | CreateWatchlistTag
-      | RenameWatchlistTag
+      | UpdateWatchlistTag
       | DeleteWatchlistTag
       | AssignWatchlistTag,
   ) => response
@@ -228,7 +228,7 @@ async function fixture(client = true) {
     action: string,
     input:
       | CreateWatchlistTag
-      | RenameWatchlistTag
+      | UpdateWatchlistTag
       | DeleteWatchlistTag
       | AssignWatchlistTag,
   ) {
@@ -301,7 +301,7 @@ async function fixture(client = true) {
       searchWatchlist: () => search(),
       importWatchlist: () => imported(),
       createWatchlistTag: (input: CreateWatchlistTag) => tag('create', input),
-      renameWatchlistTag: (input: RenameWatchlistTag) => tag('rename', input),
+      updateWatchlistTag: (input: UpdateWatchlistTag) => tag('update', input),
       deleteWatchlistTag: (input: DeleteWatchlistTag) => tag('delete', input),
       assignWatchlistTag: (input: AssignWatchlistTag) => tag('assign', input),
     }),
@@ -414,10 +414,13 @@ test('four tag operations use shared CAS and committed snapshot without touching
     let revision = 1
     f.setTagWrite(async () => ({
       ...value(String(++revision)),
-      tags: [{ id: '9007199254740993', name: 'Soirée' }],
+      tags: [{ id: '9007199254740993', name: 'Soirée', color: 'blue' }],
     }))
-    assert.equal(await f.list.createTag('Soirée'), true)
-    assert.equal(await f.list.renameTag('9007199254740993', 'Amis'), true)
+    assert.equal(await f.list.createTag('Soirée', 'blue'), true)
+    assert.equal(
+      await f.list.updateTag('9007199254740993', 'Amis', 'rose'),
+      true,
+    )
     assert.equal(
       await f.list.assignTag('film-1', '9007199254740993', true),
       true,
@@ -431,7 +434,7 @@ test('four tag operations use shared CAS and committed snapshot without touching
       f.tagPosts.map(({ action, input }) => [action, input.expected_revision]),
       [
         ['create', '1'],
-        ['rename', '2'],
+        ['update', '2'],
         ['assign', '3'],
         ['assign', '4'],
         ['delete', '5'],
@@ -440,6 +443,27 @@ test('four tag operations use shared CAS and committed snapshot without touching
     assert.ok(
       f.tagPosts.every(({ input }) => input.expected_username === 'alice'),
     )
+    assert.deepEqual(JSON.parse(JSON.stringify(f.tagPosts.slice(0, 2))), [
+      {
+        action: 'create',
+        input: {
+          expected_username: 'alice',
+          expected_revision: '1',
+          name: 'Soirée',
+          color: 'blue',
+        },
+      },
+      {
+        action: 'update',
+        input: {
+          expected_username: 'alice',
+          expected_revision: '2',
+          tag_id: '9007199254740993',
+          name: 'Amis',
+          color: 'rose',
+        },
+      },
+    ])
     assert.equal(JSON.stringify(f.list.searchResults.value), search)
     assert.equal(f.list.query.value, 'External')
     assert.ok(f.messages.every((message) => message === 'watchlist-changed'))
@@ -459,16 +483,19 @@ test('tag writes serialize sort, membership, import and other tags; revalidation
     await settle()
     const pending = deferred<AccountWatchlist>()
     f.setTagWrite(() => pending.promise)
-    const save = f.list.createTag('Amis')
+    const save = f.list.createTag('Amis', 'neutral')
     assert.equal(f.list.tags.value.length, 0)
     assert.equal(await f.list.saveSort('title_asc'), false)
     assert.equal(await f.list.save('film-2', true), false)
     assert.equal(await f.list.importMovie('12'), false)
-    assert.equal(await f.list.createTag('Autre'), false)
+    assert.equal(await f.list.createTag('Autre', 'red'), false)
     const refresh = f.account.revalidate()
     await settle()
     assert.equal(f.gets, 1)
-    const next = { ...value('2'), tags: [{ id: '1', name: 'Amis' }] }
+    const next: AccountWatchlist = {
+      ...value('2'),
+      tags: [{ id: '1', name: 'Amis', color: 'neutral' }],
+    }
     f.setResponse(next)
     pending.resolve(next)
     await save
@@ -506,14 +533,14 @@ for (const transition of ['logout', 'owner', 'same-owner'] as const) {
       await settle()
       const pending = deferred<AccountWatchlist>()
       f.setTagWrite(() => pending.promise)
-      const save = f.list.createTag('Private tag')
+      const save = f.list.createTag('Private tag', 'violet')
       f.setResponse(value('0', [], transition === 'owner' ? 'bob' : 'alice'))
       if (transition === 'logout') f.account.clear()
       else f.admit(session(transition === 'owner' ? 'bob' : 'alice'))
       await settle()
       pending.resolve({
         ...value('99'),
-        tags: [{ id: '1', name: 'Private tag' }],
+        tags: [{ id: '1', name: 'Private tag', color: 'violet' }],
       })
       assert.equal(await save, false)
       assert.equal(f.list.tags.value.length, 0)
@@ -529,12 +556,15 @@ test('tag timeout after commit reconciles without replay; failed readback blocks
   try {
     f.admit()
     await settle()
-    const next = { ...value('2'), tags: [{ id: '1', name: 'Amis' }] }
+    const next: AccountWatchlist = {
+      ...value('2'),
+      tags: [{ id: '1', name: 'Amis', color: 'teal' }],
+    }
     f.setTagWrite(async () => {
       f.setResponse(next)
       throw new errors.AccountApiError()
     })
-    assert.equal(await f.list.createTag('Amis'), false)
+    assert.equal(await f.list.createTag('Amis', 'teal'), false)
     assert.equal(f.list.tags.value[0]?.name, 'Amis')
     assert.equal(f.tagPosts.length, 1)
     f.setRead(async () => {
@@ -542,7 +572,7 @@ test('tag timeout after commit reconciles without replay; failed readback blocks
     })
     await f.list.deleteTag('1')
     assert.equal(f.list.ready.value, false)
-    assert.equal(await f.list.createTag('New'), false)
+    assert.equal(await f.list.createTag('New', 'neutral'), false)
     f.setRead(async () => next)
     await f.list.retry()
     assert.equal(f.list.ready.value, true)
@@ -550,9 +580,13 @@ test('tag timeout after commit reconciles without replay; failed readback blocks
     f.setRead(async () => ({ ...value('1'), tags: [] }))
     await f.account.revalidate()
     assert.equal(f.list.tags.value.length, 1)
-    f.setRead(async () => ({ ...next, tags: [{ id: '1', name: 'Renommé' }] }))
+    f.setRead(async () => ({
+      ...next,
+      tags: [{ id: '1', name: 'Renommé', color: 'rose' }],
+    }))
     await f.account.revalidate()
     assert.equal(f.list.tags.value[0]?.name, 'Renommé')
+    assert.equal(f.list.tags.value[0]?.color, 'rose')
   } finally {
     f.stop()
   }
@@ -563,8 +597,8 @@ test('page-local tag filter combines all sorts, keeps renamed ID, resets deleted
   try {
     const next = value('2', ['film-1', 'film-2', 'film-3'])
     next.tags = [
-      { id: '1', name: 'Amis' },
-      { id: '2', name: 'Vide' },
+      { id: '1', name: 'Amis', color: 'neutral' },
+      { id: '2', name: 'Vide', color: 'blue' },
     ]
     next.items[0]!.tag_ids = ['1']
     next.items[2]!.tag_ids = ['1']
@@ -591,8 +625,8 @@ test('page-local tag filter combines all sorts, keeps renamed ID, resets deleted
     f.setResponse({
       ...next,
       tags: [
-        { id: '1', name: 'Renommé' },
-        { id: '2', name: 'Vide' },
+        { id: '1', name: 'Renommé', color: 'green' },
+        { id: '2', name: 'Vide', color: 'blue' },
       ],
     })
     await f.account.revalidate()

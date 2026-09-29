@@ -250,7 +250,11 @@ onBeforeRouteLeave(clearPageSearch)
     hide-explore
   >
     <div v-if="owner" class="space-y-10">
-      <div v-if="error && !panelOpen" role="alert" class="account-alert">
+      <div
+        v-if="error && !panelOpen && !openTagEditor"
+        role="alert"
+        class="account-alert"
+      >
         <p>{{ error }}</p>
         <button
           type="button"
@@ -549,7 +553,7 @@ onBeforeRouteLeave(clearPageSearch)
           />
         </div>
         <div
-          v-if="!ready && !error"
+          v-if="!ready && !error && !openTagEditor"
           role="status"
           class="mt-3 space-y-3 motion-safe:animate-pulse"
         >
@@ -574,7 +578,9 @@ onBeforeRouteLeave(clearPageSearch)
             Voir tous les films
           </button>
         </div>
-        <ul v-else-if="ready">
+        <!-- Keep the committed rows mounted while an open picker reconciles a write.
+             Shared write guards stay active; scope invalidation clears the picker. -->
+        <ul v-else-if="ready || openTagEditor">
           <WatchlistMovieRow
             v-for="movie in sortedItems"
             :key="movie.slug"
@@ -590,7 +596,11 @@ onBeforeRouteLeave(clearPageSearch)
                 :tag-ids="movie.tag_ids"
                 :open="openTagEditor === movie.slug"
                 :blocked="writesBlocked"
+                :error="error"
+                :retry-blocked="watchlist.saving.value || watchlist.loading.value"
                 @toggle="openTagEditor = openTagEditor === movie.slug ? '' : movie.slug"
+                @close="openTagEditor = ''"
+                @retry="watchlist.retry"
                 @assign="(tagId, assigned, input) => assignTag(movie.slug, tagId, assigned, input)"
               />
             </template>

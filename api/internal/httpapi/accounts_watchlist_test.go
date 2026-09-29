@@ -92,7 +92,7 @@ func TestWatchlistStrictTransport(t *testing.T) {
 
 func TestWatchlistSecurityBoundaryAndDisabledRoutes(t *testing.T) {
 	for _, route := range []struct{ method, path, body string }{{"GET", watchlistRoute, ""}, {"POST", watchlistRoute, validWatchlistMutation}, {"POST", watchlistRoute + "/sort", validWatchlistSort}, {"POST", watchlistRoute + "/search", validWatchlistSearch}, {"POST", watchlistRoute + "/import", validWatchlistImport},
-		{"POST", watchlistRoute + "/tags", validWatchlistTagCreate}, {"POST", watchlistRoute + "/tags/rename", validWatchlistTagRename}, {"POST", watchlistRoute + "/tags/delete", validWatchlistTagDelete}, {"POST", watchlistRoute + "/tags/assign", validWatchlistTagAssign}} {
+		{"POST", watchlistRoute + "/tags", validWatchlistTagCreate}, {"POST", watchlistRoute + "/tags/update", validWatchlistTagUpdate}, {"POST", watchlistRoute + "/tags/delete", validWatchlistTagDelete}, {"POST", watchlistRoute + "/tags/assign", validWatchlistTagAssign}} {
 		for _, suffix := range []string{"?", "?username=other"} {
 			h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
 			w := httptest.NewRecorder()
@@ -203,7 +203,7 @@ func TestWatchlistIndependentIPQuotasAndSafeErrors(t *testing.T) {
 				path, body string
 			}{
 				{h.createWatchlistTag, "/tags", validWatchlistTagCreate},
-				{h.renameWatchlistTag, "/tags/rename", validWatchlistTagRename},
+				{h.updateWatchlistTag, "/tags/update", validWatchlistTagUpdate},
 				{h.deleteWatchlistTag, "/tags/delete", validWatchlistTagDelete},
 				{h.assignWatchlistTag, "/tags/assign", validWatchlistTagAssign},
 			} {

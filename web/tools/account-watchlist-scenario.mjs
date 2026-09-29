@@ -3,6 +3,88 @@ import { createServer } from 'node:http'
 import { writeFile } from 'node:fs/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 
+const palette = [
+  ['neutral', 'Neutre', '#f4f4f5', '#3f3f46', '#71717a'],
+  ['red', 'Rouge', '#fee2e2', '#991b1b', '#dc2626'],
+  ['amber', 'Ambre', '#fef3c7', '#92400e', '#b45309'],
+  ['green', 'Vert', '#dcfce7', '#166534', '#15803d'],
+  ['teal', 'Sarcelle', '#ccfbf1', '#115e59', '#0f766e'],
+  ['blue', 'Bleu', '#dbeafe', '#1e40af', '#2563eb'],
+  ['violet', 'Violet', '#ede9fe', '#5b21b6', '#7c3aed'],
+  ['rose', 'Rose', '#ffe4e6', '#9f1239', '#e11d48'],
+]
+
+async function checkPalette(page, evaluate, check) {
+  check(
+    await evaluate(
+      page,
+      `(() => {
+    const expected = ${JSON.stringify(palette)};
+    const radios = [...document.querySelectorAll('#watchlist-tag-manager form:first-of-type input[type="radio"]')];
+    const rgb = hex => 'rgb(' + [1,3,5].map(i => parseInt(hex.slice(i, i+2), 16)).join(', ') + ')';
+    const lum = rgb => { const c = rgb.match(/\\d+/g).map(n => { const x = Number(n)/255; return x <= .04045 ? x/12.92 : ((x+.055)/1.055)**2.4 }); return c[0]*.2126+c[1]*.7152+c[2]*.0722 };
+    const contrast = (a,b) => (Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);
+    if (!radios.length) return false;
+    const grid = getComputedStyle(radios[0].closest('label').parentElement);
+    if (grid.gridTemplateColumns.split(' ').length !== (innerWidth >= 640 ? 4 : 2) || parseFloat(grid.gap) < 8) return false;
+    return radios.length === 8 && new Set(radios.map(r => r.name)).size === 1 && radios.every((r,i) => {
+      const label = r.closest('label'), style = getComputedStyle(label), marker = getComputedStyle(label.querySelector('[aria-hidden]')), rect = label.getBoundingClientRect(), token = expected[i];
+      return r.value === token[0] && label.textContent.trim() === token[1] && marker.backgroundColor === rgb(token[2]) && marker.color === rgb(token[3]) && marker.borderColor === rgb(token[4]) && rect.height >= 44 && rect.width >= 44 && contrast(style.color, style.backgroundColor) >= 4.5 && contrast(style.borderColor, style.backgroundColor) >= 3 && contrast(marker.borderColor, marker.backgroundColor) >= 3;
+    });
+  })()`,
+    ),
+    'eight named native radios have compact exact-color markers, accessible tile contrast and touch targets',
+  )
+}
+
+async function exerciseTagColors({
+  page,
+  evaluate,
+  check,
+  fill,
+  click,
+  until,
+  name,
+}) {
+  const state = `JSON.stringify({filter:document.querySelector('#watchlist-tag-filter').value, films:[...document.querySelectorAll('section[aria-labelledby="saved-heading"] a[href^="/film/"]')].map(a=>a.pathname)})`
+  const before = await evaluate(page, state)
+  const chips = (tagName) =>
+    `[...document.querySelectorAll('ul[aria-label="Tags associés"] li')].filter(chip => chip.textContent.trim() === ${JSON.stringify(tagName)})`
+  check(
+    await evaluate(
+      page,
+      `${chips(name)}.length === 2 && ${chips(name)}.every(chip => getComputedStyle(chip).backgroundColor === 'rgb(219, 234, 254)' && getComputedStyle(chip).color === 'rgb(30, 64, 175)' && getComputedStyle(chip).borderColor === 'rgb(37, 99, 235)')`,
+    ),
+    'atomic name/color update colors both assigned chips with exact blue tokens',
+  )
+  for (const [nextName, color, background] of [
+    [name, 'violet', 'rgb(237, 233, 254)'],
+    [`${name} +`, 'violet', 'rgb(237, 233, 254)'],
+    [name, 'neutral', 'rgb(244, 244, 245)'],
+  ]) {
+    await evaluate(
+      page,
+      `document.querySelector(${JSON.stringify(`button[aria-label="Modifier ${name}"]`)}).click()`,
+    )
+    await fill(page, 'watchlist-tag-edit', nextName)
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="${color}"]').click()`,
+    )
+    await click(page, 'Enregistrer')
+    await until(
+      page,
+      `!document.querySelector('#watchlist-tag-edit') && ${chips(nextName)}.length === 2 && ${chips(nextName)}.every(chip => getComputedStyle(chip).backgroundColor === ${JSON.stringify(background)})`,
+      'color-only, name-only and neutral reset commit all assigned chips',
+    )
+    check(
+      (await evaluate(page, state)) === before,
+      'tag edits preserve filter ID and saved-film order',
+    )
+    name = nextName
+  }
+}
+
 export async function watchlistScenario({
   getCDP,
   launch,
@@ -36,6 +118,7 @@ export async function watchlistScenario({
   const sorts = new Map()
   const addedTimes = new Map()
   let uncertainSort = false
+  let uncertainAssignment = false
   const frenchReleases = new Map([['saved-film', '1998-10-14']])
   let externalStatus = 'ready'
   let emptySearch = false
@@ -231,6 +314,17 @@ export async function watchlistScenario({
         return send(snapshot())
       }
       if (path.includes('/tags')) {
+        if (
+          !['/tags', '/tags/update', '/tags/delete', '/tags/assign'].some(
+            (suffix) => path === `/api/v1/account/watchlist${suffix}`,
+          )
+        )
+          return send({ error: { code: 'not_found' } }, 404)
+        if (
+          (path.endsWith('/tags') || path.endsWith('/update')) &&
+          !palette.some(([color]) => body.color === color)
+        )
+          return send({ error: { code: 'invalid_request' } }, 400)
         const name = body.name?.trim().replace(/\s+/gu, ' ').normalize('NFC')
         const existing = tags().find((tag) => tag.id === body.tag_id)
         if (
@@ -256,10 +350,12 @@ export async function watchlistScenario({
         if (path.endsWith('/tags'))
           ownerTags.set(session.account.username, [
             ...tags(),
-            { id: String(nextTagId++), name },
+            { id: String(nextTagId++), name, color: body.color },
           ])
-        else if (path.endsWith('/rename')) existing.name = name
-        else if (path.endsWith('/delete')) {
+        else if (path.endsWith('/update')) {
+          existing.name = name
+          existing.color = body.color
+        } else if (path.endsWith('/delete')) {
           ownerTags.set(
             session.account.username,
             tags().filter((tag) => tag.id !== body.tag_id),
@@ -284,6 +380,10 @@ export async function watchlistScenario({
           )
         }
         revision++
+        if (path.endsWith('/assign') && uncertainAssignment) {
+          uncertainAssignment = false
+          return send({ error: { code: 'watchlist_unavailable' } }, 503)
+        }
         return send(snapshot())
       }
       const slug = path.endsWith('/import') ? 'external-film' : body.movie_slug
@@ -488,6 +588,13 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
+      `!document.querySelector('#watchlist-tag-manager form, #watchlist-tag-manager fieldset') && document.querySelector('button[aria-controls="watchlist-tag-create"]').getAttribute('aria-expanded') === 'false'`,
+    ),
+    'manager opens list-first without expanded creation or color picker',
+  )
+  check(
+    await evaluate(
+      page,
       `document.querySelector('#watchlist-tag-manager').matches(':modal') && document.activeElement.getAttribute('aria-label') === 'Fermer la gestion des tags'`,
     ),
     'manager uses native modal top layer and initially focuses close control',
@@ -524,15 +631,33 @@ export async function watchlistScenario({
       'native modal Tab does not reach background controls',
     )
   }
+  await click(page, 'Créer un tag')
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.id === 'watchlist-tag-name' && document.querySelectorAll('#watchlist-tag-manager form').length === 1`,
+    ),
+    'create opener expands and focuses sole form',
+  )
   await fill(page, 'watchlist-tag-name', '<b>Amis</b>')
+  await checkPalette(page, evaluate, check)
   await click(page, 'Créer')
   await until(
     page,
-    `document.querySelector('#watchlist-tag-name').value === '' && document.querySelector('#watchlist-tag-filter').options.length === 2`,
+    `!document.querySelector('#watchlist-tag-name') && document.querySelector('#watchlist-tag-filter').options.length === 2`,
     'create reusable tag with empty watchlist',
   )
   check(
-    saved.length === 0 && tags()[0]?.name === '<b>Amis</b>',
+    await evaluate(
+      page,
+      `document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-create'`,
+    ),
+    'confirmed unchanged create restores focus to opener',
+  )
+  check(
+    saved.length === 0 &&
+      tags()[0]?.name === '<b>Amis</b>' &&
+      tags()[0]?.color === 'neutral',
     'tag-only account does not save a film',
   )
   check(
@@ -542,7 +667,48 @@ export async function watchlistScenario({
     ),
     'tag names render escaped text, not HTML',
   )
+  await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', '<b>amis</b>')
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-name').form.querySelector('input[value="neutral"]').focus()`,
+  )
+  for (const type of ['keyDown', 'keyUp']) {
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      {
+        type,
+        key: 'ArrowRight',
+        code: 'ArrowRight',
+        windowsVirtualKeyCode: 39,
+      },
+      page.sessionId,
+    )
+  }
+  check(
+    await evaluate(
+      page,
+      `(() => { const radio = document.activeElement; const style = getComputedStyle(radio.closest('label')); return radio.value === 'red' && radio.checked && radio.matches(':focus-visible') && style.outlineWidth === '2px' && style.outlineColor === 'rgb(39, 39, 42)' && style.outlineOffset === '2px'; })()`,
+    ),
+    'native arrow key selects named color and exposes 2px high-contrast separated focus outline',
+  )
+  await getCDP().send(
+    'Emulation.setEmulatedMedia',
+    { features: [{ name: 'forced-colors', value: 'active' }] },
+    page.sessionId,
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const radio = document.activeElement; return radio.checked && radio.value === 'red' && getComputedStyle(radio).appearance !== 'none' && getComputedStyle(radio).forcedColorAdjust !== 'none' && getComputedStyle(radio.closest('label')).outlineStyle !== 'none'; })()`,
+    ),
+    'forced colors preserves native checked state and visible focus',
+  )
+  await getCDP().send(
+    'Emulation.setEmulatedMedia',
+    { features: [] },
+    page.sessionId,
+  )
   await click(page, 'Créer')
   await until(
     page,
@@ -552,7 +718,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-name').value === '<b>amis</b>'`,
+      `document.querySelector('#watchlist-tag-name').value === '<b>amis</b>' && document.querySelector('#watchlist-tag-name').form.querySelector('input[value="red"]').checked`,
     ),
     'duplicate create retains draft after readback',
   )
@@ -566,6 +732,27 @@ export async function watchlistScenario({
     page,
     `document.querySelector('#watchlist-tag-filter').options.length === 3`,
     'second reusable tag',
+  )
+  check(
+    tags()[1].color === 'red' &&
+      (await evaluate(page, `!document.querySelector('#watchlist-tag-name')`)),
+    'nonneutral create persists selected color and collapses unchanged form',
+  )
+  await click(page, 'Créer un tag')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-name').value === '' && document.querySelector('#watchlist-tag-create input[value="neutral"]').checked`,
+    ),
+    'fresh creation resets name and color to neutral',
+  )
+  await click(page, 'Annuler')
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-create') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-create'`,
+    ),
+    'cancel creation returns focus to connected opener',
   )
   await evaluate(
     page,
@@ -811,11 +998,72 @@ export async function watchlistScenario({
   }
   const firstTag = tags()[0].id
   const secondTag = tags()[1].id
+  const picker = `${savedRow('saved-film')}.querySelector('[role="group"]')`
+  const rowHeight = await evaluate(
+    page,
+    `${savedRow('saved-film')}.getBoundingClientRect().height`,
+  )
+  const listHeight = await evaluate(
+    page,
+    'document.documentElement.scrollHeight',
+  )
   await evaluate(
     page,
     `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
   )
   const firstCheckbox = `[...${savedRow('saved-film')}.querySelectorAll('label')].find(label => label.textContent.trim() === '<b>Amis</b>').querySelector('input')`
+  check(
+    await evaluate(
+      page,
+      `(() => { const p = ${picker}, r = p.getBoundingClientRect(), button = ${savedRow('saved-film')}.querySelector('button[aria-expanded]'); return getComputedStyle(p).position === 'fixed' && r.width <= 320 && r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && document.activeElement === ${firstCheckbox} && button.textContent.trim() === 'Tag' && button.getBoundingClientRect().height >= 44 && ${savedRow('saved-film')}.getBoundingClientRect().height === ${rowHeight} && document.documentElement.scrollHeight === ${listHeight}; })()`,
+    ),
+    'compact film-anchored picker focuses first checkbox without expanding row or page',
+  )
+  const pickerAX = await getCDP().send(
+    'Accessibility.getFullAXTree',
+    {},
+    page.sessionId,
+  )
+  check(
+    pickerAX.nodes.some(
+      (node) =>
+        node.role?.value === 'group' &&
+        node.name?.value === 'Tags de Film favori',
+    ),
+    'picker group exposes film-specific title',
+  )
+  await screenshot(page, 'tag-picker-desktop', false)
+  await evaluate(
+    page,
+    `document.querySelector('#saved-heading').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}))`,
+  )
+  check(
+    await evaluate(page, `!${picker}`),
+    'outside pointer dismisses compact picker',
+  )
+  await evaluate(
+    page,
+    `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
+  )
+  for (let index = 0; index < 2; index++) {
+    for (const type of ['keyDown', 'keyUp'])
+      await getCDP().send(
+        'Input.dispatchKeyEvent',
+        { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+        page.sessionId,
+      )
+  }
+  check(
+    await evaluate(
+      page,
+      `!${picker} && document.activeElement.getAttribute('aria-label') === 'Retirer de la watchlist'`,
+    ),
+    'Tab traverses choices then leaves nonmodal picker without focus theft',
+  )
+  await evaluate(
+    page,
+    `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
+  )
   await evaluate(page, `${firstCheckbox}.focus()`)
   hold = true
   release = undefined
@@ -847,24 +1095,58 @@ export async function watchlistScenario({
     'keyboard assignment commits',
   )
   conflict = true
+  holdRead = true
+  releaseRead = undefined
+  const assignmentsBeforeFailure = writes.filter((write) =>
+    write.path.endsWith('/tags/assign'),
+  ).length
   await evaluate(page, `${firstCheckbox}.click()`)
+  for (let i = 0; !releaseRead && i < 100; i++) await delay(20)
+  check(
+    await evaluate(
+      page,
+      `!!${picker} && ${firstCheckbox}.checked && ${firstCheckbox}.disabled`,
+    ),
+    'uncertain reconciliation retains open picker and committed disabled checkbox',
+  )
+  failRead = true
+  await finishRead()
   await until(
     page,
-    `!!document.querySelector('main [role="alert"]') && !document.querySelector('#watchlist-sort').disabled`,
-    'rejected assignment reconciles',
+    `!!${picker}?.querySelector('[role="alert"]') && !${picker}.querySelector('[role="alert"] button').disabled`,
+    'failed assignment and failed readback remain recoverable inside picker',
+  )
+  await click(page, 'Actualiser les tags')
+  await until(
+    page,
+    `!!${picker} && !${firstCheckbox}.disabled && !${picker}.querySelector('[role="alert"]')`,
+    'explicit refresh reconciles without closing picker',
+  )
+  check(
+    writes.filter((write) => write.path.endsWith('/tags/assign')).length ===
+      assignmentsBeforeFailure + 1,
+    'error refresh never replays assignment',
   )
   check(
     await evaluate(page, `${firstCheckbox}.checked`),
     'rejected checkbox restores authoritative checked state',
   )
+  uncertainAssignment = true
   await toggleAssignment('saved-film', tags()[1].name, true)
+  check(
+    await evaluate(
+      page,
+      `!!${picker} && !!${picker}.querySelector('[role="alert"]') && ${picker}.querySelectorAll('input:checked').length === 2`,
+    ),
+    'uncertain committed second choice reads back both assignments and keeps panel open with error',
+  )
   await toggleAssignment('external-film', '<b>Amis</b>', true)
   check(
     await evaluate(
       page,
       `document.querySelectorAll('section[aria-labelledby="saved-heading"] input[type="checkbox"]').length === 2`,
     ),
-    'only one row checkbox editor mounted',
+    'only one compact row picker mounted',
   )
   const filterRequests = requests.length
   await filterTag(secondTag)
@@ -889,15 +1171,80 @@ export async function watchlistScenario({
   await click(page, 'Voir tous les films')
   await filterTag(firstTag)
   await click(page, 'Gérer les tags')
+  await click(page, 'Créer un tag')
+  await fill(page, 'watchlist-tag-name', 'Brouillon conservé')
   await evaluate(
     page,
-    `document.querySelector('button[aria-label="Renommer <b>Amis</b>"]').click()`,
+    `document.querySelector('button[aria-label="Modifier <b>Amis</b>"]').click()`,
   )
-  await fill(page, 'watchlist-tag-rename', 'Soirée cinéma')
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.id === 'watchlist-tag-edit' && !document.querySelector('#watchlist-tag-create')`,
+    ),
+    'edit collapses creation and focuses name',
+  )
+  await click(page, 'Créer un tag')
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-edit') && document.querySelector('#watchlist-tag-name').value === 'Brouillon conservé'`,
+    ),
+    'creation closes edit and preserves same-owner create draft',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Supprimer <b>Amis</b>"]').click()`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-create') && !document.querySelector('#watchlist-tag-edit') && document.activeElement.id === 'watchlist-tag-delete-cancel'`,
+    ),
+    'delete closes creation and focuses safe cancellation',
+  )
+  await click(page, 'Annuler')
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.getAttribute('aria-label') === 'Supprimer <b>Amis</b>' && !document.querySelector('#watchlist-tag-delete-cancel')`,
+    ),
+    'cancel deletion restores row action without mutation',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Supprimer <b>Amis</b>"]').click()`,
+  )
+  await click(page, 'Créer un tag')
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-tag-delete-cancel') && document.querySelectorAll('#watchlist-tag-manager form').length === 1`,
+    ),
+    'creation closes delete confirmation',
+  )
+  await click(page, 'Annuler')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Modifier <b>Amis</b>"]').click()`,
+  )
+  await fill(page, 'watchlist-tag-edit', 'Soirée cinéma')
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="blue"]').click()`,
+  )
+  check(
+    await evaluate(
+      page,
+      `new Set([...document.querySelectorAll('#watchlist-tag-manager input[type="radio"]')].map(input => input.name)).size === 1 && document.querySelectorAll('#watchlist-tag-manager form').length === 1 && !document.querySelector('#watchlist-tag-create')`,
+    ),
+    'only active edit palette and its single native radio group are mounted',
+  )
+  await screenshot(page, 'tag-color-edit-desktop', false)
   await click(page, 'Enregistrer')
   await until(
     page,
-    `!document.querySelector('#watchlist-tag-rename') && document.querySelector('#watchlist-tag-filter').selectedOptions[0].textContent === 'Soirée cinéma'`,
+    `!document.querySelector('#watchlist-tag-edit') && document.querySelector('#watchlist-tag-filter').selectedOptions[0].textContent === 'Soirée cinéma'`,
     'rename preserves selected ID',
   )
   check(
@@ -907,10 +1254,56 @@ export async function watchlistScenario({
     ),
     'rename updates every film chip',
   )
+  await exerciseTagColors({
+    page,
+    evaluate,
+    check,
+    fill,
+    click,
+    until,
+    name: 'Soirée cinéma',
+  })
+  // Leave a committed nonneutral chip visible for desktop/mobile captures.
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Modifier Soirée cinéma"]').click()`,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="blue"]').click()`,
+  )
+  await click(page, 'Enregistrer')
+  await until(
+    page,
+    `!document.querySelector('#watchlist-tag-edit')`,
+    'blue color-only update committed',
+  )
+  const beforeCancel = writes.length
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Modifier Soirée cinéma"]').click()`,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="amber"]').click()`,
+  )
+  await click(page, 'Annuler')
   check(
     await evaluate(
       page,
-      `!['Soirée cinéma', '<b>Amis</b>', 'tag_ids', 'selectedTag', 'renameDraft'].some(marker => JSON.stringify({url:location.href,local:{...localStorage},session:{...sessionStorage},payload:window.__NUXT__,data:document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data}).includes(marker))`,
+      `document.activeElement.getAttribute('aria-label') === 'Modifier Soirée cinéma' && !document.querySelector('#watchlist-tag-manager form')`,
+    ),
+    'cancel edit restores row action without opening another form',
+  )
+  check(
+    writes.length === beforeCancel &&
+      tags().find((tag) => tag.id === firstTag).color === 'blue',
+    'cancel discards draft color without a mutation',
+  )
+  check(
+    await evaluate(
+      page,
+      `!['Soirée cinéma', '<b>Amis</b>', 'tag_ids', 'selectedTag', 'editDraft', 'editColor'].some(marker => JSON.stringify({url:location.href,local:{...localStorage},session:{...sessionStorage},payload:window.__NUXT__,data:document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data}).includes(marker))`,
     ),
     'active private tags filter and drafts stay out of URL storage and Nuxt payload',
   )
@@ -936,6 +1329,9 @@ export async function watchlistScenario({
     '320px modal body stays viewport bounded without horizontal overflow',
   )
   await screenshot(page, 'tag-manager-mobile', false)
+  await click(page, 'Créer un tag')
+  await checkPalette(page, evaluate, check)
+  await screenshot(page, 'tag-create-mobile', false)
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
@@ -1010,6 +1406,63 @@ export async function watchlistScenario({
     ),
     'Escape closes tag checkbox disclosure and restores its trigger focus',
   )
+  const ordinaryTags = [...tags()]
+  ownerTags.set(owner.username, [
+    ...ordinaryTags,
+    ...Array.from({ length: 12 }, (_, index) => ({
+      id: String(nextTagId++),
+      name: `Sélection cinéma ${index + 1}`,
+      color: palette[index % palette.length][0],
+    })),
+  ])
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.options.length === 15`,
+    'long picker fixture revalidated',
+  )
+  for (const [name, width, height] of [
+    ['mobile', 320, 844],
+    ['short-viewport', 320, 320],
+  ]) {
+    await getCDP().send(
+      'Emulation.setDeviceMetricsOverride',
+      { width, height, deviceScaleFactor: 1, mobile: true },
+      page.sessionId,
+    )
+    await evaluate(
+      page,
+      `(() => { const button = document.querySelector('button[aria-label="Modifier les tags de Film externe"]'); button.scrollIntoView({block:'end'}); if(button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
+    )
+    await delay(100)
+    check(
+      await evaluate(
+        page,
+        `(() => { const p = document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]'), r = p.getBoundingClientRect(), scroll = p.querySelector('.overflow-y-auto'), close = p.querySelector('button'), c = close.getBoundingClientRect(); return r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && scroll.scrollHeight > scroll.clientHeight && scroll.clientHeight > 0 && p.scrollWidth <= p.clientWidth && [...p.querySelectorAll('label')].every(label=>label.getBoundingClientRect().height >= 44) && close.contains(document.elementFromPoint(c.left+c.width/2,c.top+c.height/2)); })()`,
+      ),
+      `${name} picker clamps all edges, scrolls internally and retains reachable close control`,
+    )
+    await screenshot(page, `tag-picker-${name}`, false)
+    await evaluate(
+      page,
+      `document.querySelector('button[aria-label="Fermer les tags"]').click()`,
+    )
+  }
+  ownerTags.set(owner.username, ordinaryTags)
+  revision++
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Modifier les tags de Film externe"]').click()`,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('pagehide'))`)
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]') && !document.querySelector('button[aria-label="Modifier les tags de Film externe"]')`,
+    ),
+    'pagehide removes picker and its private options immediately',
+  )
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
@@ -1021,10 +1474,60 @@ export async function watchlistScenario({
     `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
     'tags survive reload',
   )
+  await evaluate(
+    page,
+    `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
+  )
+  const priorSaved = saved
+  session = {
+    enabled: true,
+    state: 'complete',
+    account: { ...owner, username: 'picker_replacement_owner' },
+  }
+  saved = []
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `!document.querySelector('#watchlist-sort')`,
+    'picker owner invalidation',
+  )
   check(
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-filter').value === '' && ${savedRow('external-film')}.textContent.includes('Soirée cinéma')`,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]') && !document.activeElement.getAttribute('aria-label')?.startsWith('Modifier les tags de')`,
+    ),
+    'owner change removes picker and never restores old-owner focus',
+  )
+  session = { enabled: true, state: 'complete', account: owner }
+  saved = priorSaved
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
+    'original owner picker data reloaded',
+  )
+  await evaluate(
+    page,
+    `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
+  )
+  await route(page, '/compte')
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]')`,
+    ),
+    'route departure unmounts picker',
+  )
+  await route(page, '/compte/watchlist')
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
+    'watchlist reentry after picker dismissal',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').value === '' && ${savedRow('external-film')}.textContent.includes('Soirée cinéma') && [...document.querySelectorAll('ul[aria-label="Tags associés"] li')].filter(chip => chip.textContent.trim() === 'Soirée cinéma').every(chip => getComputedStyle(chip).backgroundColor === 'rgb(219, 234, 254)')`,
     ),
     'reload recovers committed assignments but resets filter',
   )
@@ -1066,6 +1569,18 @@ export async function watchlistScenario({
     page,
     `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
   )
+  await evaluate(
+    page,
+    `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!!${picker} && ${picker}.textContent.includes('Créez un tag dans') && document.activeElement.getAttribute('aria-label') === 'Fermer les tags'`,
+    ),
+    'empty picker points to existing manager and focuses close control',
+  )
+  await evaluate(page, `${picker}.querySelector('button').click()`)
   addedTimes.set('external-film', `${date}T00:00:00.000000001Z`)
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
   await until(
@@ -1198,6 +1713,7 @@ export async function watchlistScenario({
   await getCDP().send('Page.bringToFront', {}, page.sessionId)
   await selectSort('release_desc')
   await click(page, 'Gérer les tags')
+  await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'private modal draft')
   const ownerSaved = saved
   session = {
@@ -1325,6 +1841,7 @@ export async function watchlistScenario({
     'resting saved list has collapsed editors and top-aligned poster/title',
   )
   await click(page, 'Gérer les tags')
+  await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'route-private-draft')
   await route(page, '/film/external-film')
   await until(
@@ -1694,6 +2211,7 @@ export async function watchlistScenario({
   )
   await screenshot(page, 'mobile-saved-date')
   await click(page, 'Gérer les tags')
+  await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'pagehide-private-draft')
   await evaluate(
     page,
@@ -1719,9 +2237,17 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-name').value === '' && !document.querySelector('#watchlist-tag-rename')`,
+      `!document.querySelector('#watchlist-tag-name') && !document.querySelector('#watchlist-tag-edit')`,
     ),
-    'restored manager never resurrects private drafts',
+    'restored manager opens list-first',
+  )
+  await click(page, 'Créer un tag')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-name').value === '' && document.querySelector('#watchlist-tag-create input[value="neutral"]').checked`,
+    ),
+    'restored creation never resurrects private name or color drafts',
   )
   await evaluate(
     page,
@@ -1868,18 +2394,24 @@ export async function watchlistBackendScenario({
   )
   const movies = await request(page, '/movies', undefined, 'GET')
   await click(page, 'Gérer les tags')
+  await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'Soirée privée <b>amis</b>')
   await click(page, 'Créer')
   await until(
     page,
-    `document.querySelector('#watchlist-tag-filter').options.length === 2 && document.querySelector('#watchlist-tag-name').value === ''`,
+    `document.querySelector('#watchlist-tag-filter').options.length === 2 && !document.querySelector('#watchlist-tag-name')`,
     'real tag created with no films',
   )
+  await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'À revoir')
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-name').form.querySelector('input[value="rose"]').click()`,
+  )
   await click(page, 'Créer')
   await until(
     page,
-    `document.querySelector('#watchlist-tag-filter').options.length === 3 && document.querySelector('#watchlist-tag-name').value === ''`,
+    `document.querySelector('#watchlist-tag-filter').options.length === 3 && !document.querySelector('#watchlist-tag-name')`,
     'real second reusable tag created',
   )
   const tagOnly = await request(page, '/account/watchlist', undefined, 'GET')
@@ -1898,6 +2430,11 @@ export async function watchlistBackendScenario({
     (tag) => tag.name === 'Soirée privée <b>amis</b>',
   ).id
   const secondTag = tagOnly.body.tags.find((tag) => tag.name === 'À revoir').id
+  check(
+    tagOnly.body.tags.find((tag) => tag.id === firstTag).color === 'neutral' &&
+      tagOnly.body.tags.find((tag) => tag.id === secondTag).color === 'rose',
+    'real neutral default and nonneutral create persist required colors',
+  )
   await evaluate(
     page,
     `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
@@ -2150,14 +2687,49 @@ export async function watchlistBackendScenario({
   await click(page, 'Gérer les tags')
   await evaluate(
     page,
-    `document.querySelector('button[aria-label="Renommer Soirée privée <b>amis</b>"]').click()`,
+    `document.querySelector('button[aria-label="Modifier Soirée privée <b>amis</b>"]').click()`,
   )
-  await fill(page, 'watchlist-tag-rename', 'Ensemble privé')
+  await fill(page, 'watchlist-tag-edit', 'Ensemble privé')
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="blue"]').click()`,
+  )
   await click(page, 'Enregistrer')
   await until(
     page,
-    `!document.querySelector('#watchlist-tag-rename') && [...document.querySelectorAll('ul[aria-label="Tags associés"]')].every(list => list.textContent.includes('Ensemble privé'))`,
+    `!document.querySelector('#watchlist-tag-edit') && [...document.querySelectorAll('ul[aria-label="Tags associés"]')].every(list => list.textContent.includes('Ensemble privé'))`,
     'real rename changes both chips',
+  )
+  const coloredSnapshot = (
+    await request(page, '/account/watchlist', undefined, 'GET')
+  ).body
+  check(
+    coloredSnapshot.tags.find((tag) => tag.id === firstTag).name ===
+      'Ensemble privé' &&
+      coloredSnapshot.tags.find((tag) => tag.id === firstTag).color === 'blue',
+    'real atomic name and color stored in same definition',
+  )
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `document.querySelectorAll('ul[aria-label="Tags associés"]').length === 2 && !document.querySelector('#watchlist-sort').disabled`,
+    'real colored tags survive document reload',
+  )
+  await click(page, 'Gérer les tags')
+  await exerciseTagColors({
+    page,
+    evaluate,
+    check,
+    fill,
+    click,
+    until,
+    name: 'Ensemble privé',
+  })
+  check(
+    (
+      await request(page, '/account/watchlist', undefined, 'GET')
+    ).body.tags.find((tag) => tag.id === firstTag).color === 'neutral',
+    'real color-only/name-only edits and neutral reset persisted',
   )
   await evaluate(
     page,
@@ -2257,7 +2829,8 @@ export async function watchlistBackendScenario({
     'watchlistOnly',
     'tag_ids',
     'selectedTag',
-    'renameDraft',
+    'editDraft',
+    'editColor',
     'Soirée privée',
     'Ensemble privé',
     'À revoir',

@@ -21,51 +21,61 @@ func TestWatchlistTagsCRUDIsolationIntegration(t *testing.T) {
 	if err != nil || view.Tags == nil || len(view.Tags) != 0 || view.Revision != "0" {
 		t.Fatal("empty tags", err)
 	}
-	view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "  E\u0301te\u0301  ")
+	view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "  E\u0301te\u0301  ", "blue")
 	if err != nil || view.Revision != "1" || view.SortOrder != "added_desc" || len(view.Tags) != 1 || view.Tags[0].Name != "Été" || len(view.Items) != 0 {
 		t.Fatal("tag-only initialization", err)
 	}
 	id := view.Tags[0].ID
 	for _, name := range []string{"été", "E\u0301TE\u0301"} {
-		if _, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "1", name); !errors.Is(err, ErrWatchlistTagNameTaken) {
+		if _, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "1", name, "red"); !errors.Is(err, ErrWatchlistTagNameTaken) {
 			t.Fatal("normalized collision", err)
 		}
 	}
-	if _, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "Été"); !errors.Is(err, ErrWatchlistChanged) {
+	if _, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "Été", "red"); !errors.Is(err, ErrWatchlistChanged) {
 		t.Fatal("collision preceded CAS", err)
 	}
-	other, err := f.service.CreateWatchlistTag(ctx, two.Cookie.Token, "other_owner", "0", "Été")
-	if err != nil || len(other.Tags) != 1 || other.Tags[0].ID == id {
+	other, err := f.service.CreateWatchlistTag(ctx, two.Cookie.Token, "other_owner", "0", "Été", "red")
+	if err != nil || len(other.Tags) != 1 || other.Tags[0].ID == id || other.Tags[0].Color != "red" || view.Tags[0].Color != "blue" {
 		t.Fatal("same name not owner-private", err)
 	}
 	for _, target := range []string{other.Tags[0].ID, "9223372036854775807"} {
+		if _, err := f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", "0", target, "Other", "red"); !errors.Is(err, ErrWatchlistChanged) {
+			t.Fatal("stale revision did not precede tag lookup", err)
+		}
 		if _, err := f.service.DeleteWatchlistTag(ctx, raw, "tags_owner", "1", target); !errors.Is(err, ErrWatchlistTagNotFound) {
 			t.Fatal("foreign/absent delete", err)
 		}
-		if _, err := f.service.RenameWatchlistTag(ctx, raw, "tags_owner", "1", target, "Other"); !errors.Is(err, ErrWatchlistTagNotFound) {
+		if _, err := f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", "1", target, "Other", "red"); !errors.Is(err, ErrWatchlistTagNotFound) {
 			t.Fatal("foreign/absent rename", err)
 		}
 		if _, err := f.service.AssignWatchlistTag(ctx, raw, "tags_owner", "1", "film-10", target, true); !errors.Is(err, ErrWatchlistTagNotFound) {
 			t.Fatal("foreign/absent assignment", err)
 		}
 	}
-	if _, err := f.service.CreateWatchlistTag(ctx, two.Cookie.Token, "tags_owner", "1", "Other"); !errors.Is(err, ErrUnauthorized) {
+	if _, err := f.service.CreateWatchlistTag(ctx, two.Cookie.Token, "tags_owner", "1", "Other", "neutral"); !errors.Is(err, ErrUnauthorized) {
 		t.Fatal("wrong owner created tag", err)
 	}
-	unchanged, err := f.service.RenameWatchlistTag(ctx, raw, "tags_owner", "1", id, " Éte\u0301 ")
+	if _, err := f.service.UpdateWatchlistTag(ctx, two.Cookie.Token, "tags_owner", "1", id, "Other", "red"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatal("update owner guard", err)
+	}
+	unchanged, err := f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", "1", id, " Éte\u0301 ", "blue")
 	if err != nil || !reflect.DeepEqual(unchanged, view) {
 		t.Fatal("unchanged rename", err)
 	}
-	view, err = f.service.RenameWatchlistTag(ctx, raw, "tags_owner", "1", id, "ÉTÉ")
+	view, err = f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", "1", id, "ÉTÉ", "blue")
 	if err != nil || view.Revision != "2" || view.Tags[0].Name != "ÉTÉ" {
 		t.Fatal("case-only rename", err)
 	}
-	view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "2", "Ete")
+	view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "2", "Ete", "neutral")
 	if err != nil || len(view.Tags) != 2 {
 		t.Fatal("accents incorrectly removed", err)
 	}
-	if _, err := f.service.RenameWatchlistTag(ctx, raw, "tags_owner", view.Revision, id, "ete"); !errors.Is(err, ErrWatchlistTagNameTaken) {
+	if _, err := f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", view.Revision, id, "ete", "rose"); !errors.Is(err, ErrWatchlistTagNameTaken) {
 		t.Fatal("rename collision", err)
+	}
+	persistedCollision, err := f.service.Watchlist(ctx, raw)
+	if err != nil || !reflect.DeepEqual(persistedCollision, view) {
+		t.Fatal("name collision changed color", err)
 	}
 	slug := watchlistSeedMovie(t, f, 10, "Film")
 	if _, err := f.service.AssignWatchlistTag(ctx, raw, "tags_owner", view.Revision, slug, id, true); !errors.Is(err, ErrWatchlistMovieNotSaved) {
@@ -142,6 +152,100 @@ func watchlistTagUnrelatedState(t *testing.T, f *lifecycleFixture) string {
 	return state
 }
 
+func TestWatchlistTagColorsAtomicUpdatesIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	ctx := t.Context()
+	one := f.complete(t, "colors@example.com", "colors_owner")
+	raw := one.Cookie.Token
+	view := WatchlistView{Revision: "0"}
+	var err error
+	for _, color := range []string{"neutral", "red", "amber", "green", "teal", "blue", "violet", "rose"} {
+		view, err = f.service.CreateWatchlistTag(ctx, raw, "colors_owner", view.Revision, color, color)
+		if err != nil || view.Tags[len(view.Tags)-1].Color != color {
+			t.Fatal("palette create", color, err)
+		}
+	}
+	slug := watchlistSeedMovie(t, f, 10, "Film")
+	view, err = f.service.SaveWatchlist(ctx, raw, "colors_owner", view.Revision, slug, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err = f.service.SaveWatchlistSort(ctx, raw, "colors_owner", view.Revision, "release_asc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := view.Tags[0].ID
+	view, err = f.service.AssignWatchlistTag(ctx, raw, "colors_owner", view.Revision, slug, id, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := watchlistTagUnrelatedState(t, f)
+	items := view.Items
+	for _, change := range []struct{ name, color string }{{"neutral", "blue"}, {"New name", "blue"}, {"Combined", "rose"}, {"Combined", "neutral"}} {
+		previous := view
+		view, err = f.service.UpdateWatchlistTag(ctx, raw, "colors_owner", view.Revision, id, change.name, change.color)
+		rev, parseErr := strconv.Atoi(previous.Revision)
+		if err != nil || parseErr != nil || view.Revision != strconv.Itoa(rev+1) || view.Tags[0].Name != change.name || view.Tags[0].Color != change.color {
+			t.Fatal("atomic edit did not advance once", err)
+		}
+		if view.SortOrder != "release_asc" || !reflect.DeepEqual(view.Items, items) || before != watchlistTagUnrelatedState(t, f) {
+			t.Fatal("color edit changed unrelated state")
+		}
+		if _, err := f.service.UpdateWatchlistTag(ctx, raw, "colors_owner", previous.Revision, id, change.name, change.color); !errors.Is(err, ErrWatchlistChanged) {
+			t.Fatal("stale color no-op accepted", err)
+		}
+		unchanged, err := f.service.UpdateWatchlistTag(ctx, raw, "colors_owner", view.Revision, id, " "+change.name+" ", change.color)
+		if err != nil || !reflect.DeepEqual(unchanged, view) {
+			t.Fatal("normalized color no-op", err)
+		}
+	}
+	login, err := f.service.Login(ctx, "colors@example.com", testPassword, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := f.service.Watchlist(ctx, login.Cookie.Token)
+	if err != nil || !reflect.DeepEqual(persisted, view) {
+		t.Fatal("new session lost colors", err)
+	}
+}
+
+func TestWatchlistTagRecolorFencesDelayedImportIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	ctx := t.Context()
+	one := f.complete(t, "colors@example.com", "colors_owner")
+	raw := one.Cookie.Token
+	view, err := f.service.CreateWatchlistTag(ctx, raw, "colors_owner", "0", "Tag", "neutral")
+	if err != nil {
+		t.Fatal(err)
+	}
+	started, resume := make(chan struct{}), make(chan struct{})
+	f.service.watchlistProvider = watchlistFakeProvider{details: func(ctx context.Context, id int64) (tmdb.Details, error) {
+		close(started)
+		select {
+		case <-resume:
+			return watchlistDetails(id), nil
+		case <-ctx.Done():
+			return tmdb.Details{}, ctx.Err()
+		}
+	}}
+	f.service.watchlistRefresh = func(context.Context, string) error { return nil }
+	result := make(chan error, 1)
+	go func() {
+		_, err := f.service.ImportWatchlist(ctx, raw, "colors_owner", view.Revision, "42")
+		result <- err
+	}()
+	<-started
+	_, updateErr := f.service.UpdateWatchlistTag(ctx, raw, "colors_owner", view.Revision, view.Tags[0].ID, "Tag", "blue")
+	close(resume)
+	if err := <-result; !errors.Is(err, ErrWatchlistChanged) || updateErr != nil {
+		t.Fatal("recolor failed to fence delayed import", updateErr, err)
+	}
+	var count int
+	if err := f.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM account_watchlist_items)+(SELECT count(*) FROM tmdb_catalog_imports)+(SELECT count(*) FROM movie_metadata_cache)+(SELECT count(*) FROM public_movies)`).Scan(&count); err != nil || count != 0 {
+		t.Fatal("stale import published", err)
+	}
+}
+
 func TestWatchlistTagsCanonicalUnionSplitIntegration(t *testing.T) {
 	f := newLifecycleFixture(t)
 	ctx := t.Context()
@@ -159,7 +263,7 @@ func TestWatchlistTagsCanonicalUnionSplitIntegration(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"Action", "Drame", "Nouveau"} {
-		view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, name)
+		view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, name, "neutral")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -246,7 +350,7 @@ func TestWatchlistTagsCapacityRevisionAndQuotaIntegration(t *testing.T) {
 	view := WatchlistView{Revision: "0"}
 	var err error
 	for i := 0; i < maxWatchlistTags; i++ {
-		view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, fmt.Sprintf("Tag %d", i))
+		view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, fmt.Sprintf("Tag %d", i), "neutral")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -256,25 +360,28 @@ func TestWatchlistTagsCapacityRevisionAndQuotaIntegration(t *testing.T) {
 			t.Fatal("tags not numerically ordered", view.Tags)
 		}
 	}
-	if _, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, "Overflow"); !errors.Is(err, ErrWatchlistTagLimit) {
+	if _, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, "Overflow", "neutral"); !errors.Is(err, ErrWatchlistTagLimit) {
 		t.Fatal("tag cap", err)
 	}
 	view, err = f.service.DeleteWatchlistTag(ctx, raw, "tags_owner", view.Revision, view.Tags[0].ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, "Available")
+	view, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, "Available", "neutral")
 	if err != nil || len(view.Tags) != maxWatchlistTags {
 		t.Fatal("capacity not recovered", err)
 	}
 	releaseSQL(t, f, `UPDATE account_watchlist_state SET revision=9007199254740991`)
 	max := strconv.FormatInt(maxTheaterPreferenceRevision, 10)
-	view, err = f.service.RenameWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, view.Tags[0].Name)
+	view, err = f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, view.Tags[0].Name, view.Tags[0].Color)
 	if err != nil || view.Revision != max {
 		t.Fatal("max no-op", err)
 	}
-	if _, err = f.service.RenameWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, "Changed"); !errors.Is(err, ErrWatchlistUnavailable) {
+	if _, err = f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, "Changed", "red"); !errors.Is(err, ErrWatchlistUnavailable) {
 		t.Fatal("max changed", err)
+	}
+	if _, err = f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, view.Tags[0].Name, "rose"); !errors.Is(err, ErrWatchlistUnavailable) {
+		t.Fatal("max recolor", err)
 	}
 	if _, err = f.service.DeleteWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID); !errors.Is(err, ErrWatchlistUnavailable) {
 		t.Fatal("max delete", err)
@@ -285,9 +392,12 @@ func TestWatchlistTagsCapacityRevisionAndQuotaIntegration(t *testing.T) {
 	}
 	releaseSQL(t, f, `UPDATE account_rate_limits SET count=120 WHERE purpose='watchlist_write'`)
 	for _, operation := range []func() error{
-		func() error { _, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", max, "New"); return err },
 		func() error {
-			_, err := f.service.RenameWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, "New")
+			_, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", max, "New", "neutral")
+			return err
+		},
+		func() error {
+			_, err := f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", max, view.Tags[0].ID, "New", "red")
 			return err
 		},
 		func() error {
@@ -315,14 +425,14 @@ func TestWatchlistTagsCapacityRevisionAndQuotaIntegration(t *testing.T) {
 }
 
 func TestWatchlistTagsConcurrentCASIntegration(t *testing.T) {
-	for _, mode := range []string{"tag", "sort", "membership", "assignment/delete"} {
+	for _, mode := range []string{"tag", "sort", "membership", "update", "assignment", "delete", "assignment/delete"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newLifecycleFixture(t)
 			ctx := t.Context()
 			one := f.complete(t, "tags@example.com", "tags_owner")
 			raw := one.Cookie.Token
 			slug := watchlistSeedMovie(t, f, 1, "Film")
-			view, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "Action")
+			view, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "Action", "neutral")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -339,7 +449,7 @@ func TestWatchlistTagsConcurrentCASIntegration(t *testing.T) {
 				if mode == "assignment/delete" {
 					_, err = f.service.AssignWatchlistTag(ctx, raw, "tags_owner", view.Revision, slug, id, true)
 				} else {
-					_, err = f.service.RenameWatchlistTag(ctx, raw, "tags_owner", view.Revision, id, "New")
+					_, err = f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", view.Revision, id, "Action", "blue")
 				}
 				results <- err
 			}()
@@ -348,12 +458,16 @@ func TestWatchlistTagsConcurrentCASIntegration(t *testing.T) {
 				var err error
 				switch mode {
 				case "tag":
-					_, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, "Second")
+					_, err = f.service.CreateWatchlistTag(ctx, raw, "tags_owner", view.Revision, "Second", "red")
 				case "sort":
 					_, err = f.service.SaveWatchlistSort(ctx, raw, "tags_owner", view.Revision, "title_asc")
 				case "membership":
 					_, err = f.service.SaveWatchlist(ctx, raw, "tags_owner", view.Revision, slug, false)
-				case "assignment/delete":
+				case "update":
+					_, err = f.service.UpdateWatchlistTag(ctx, raw, "tags_owner", view.Revision, id, "New", "rose")
+				case "assignment":
+					_, err = f.service.AssignWatchlistTag(ctx, raw, "tags_owner", view.Revision, slug, id, true)
+				case "delete", "assignment/delete":
 					_, err = f.service.DeleteWatchlistTag(ctx, raw, "tags_owner", view.Revision, id)
 				}
 				results <- err
@@ -398,8 +512,8 @@ func TestWatchlistTagsFullSnapshotBoundsIntegration(t *testing.T) {
 	}
 	want[49] = "9223372036854775807"
 	for i, tag := range view.Tags {
-		if tag.ID != want[i] {
-			t.Fatal("tag precision or numeric order", tag)
+		if tag.ID != want[i] || tag.Color != "neutral" {
+			t.Fatal("tag precision, numeric order or default color", tag)
 		}
 	}
 	for _, item := range view.Items {
@@ -435,7 +549,7 @@ func TestWatchlistTagsImportSnapshotIntegration(t *testing.T) {
 	raw := one.Cookie.Token
 	f.service.watchlistProvider = watchlistFakeProvider{details: func(_ context.Context, id int64) (tmdb.Details, error) { return watchlistDetails(id), nil }}
 	f.service.watchlistRefresh = func(context.Context, string) error { return nil }
-	view, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "Tag")
+	view, err := f.service.CreateWatchlistTag(ctx, raw, "tags_owner", "0", "Tag", "teal")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,7 +19,7 @@ import type {
   ImportWatchlist,
   ImportedWatchlist,
   CreateWatchlistTag,
-  RenameWatchlistTag,
+  UpdateWatchlistTag,
   DeleteWatchlistTag,
   AssignWatchlistTag,
 } from '~/types/watchlist'
@@ -152,9 +152,9 @@ export function useAccountApi() {
         'POST',
         signal,
       ),
-    renameWatchlistTag: (input: RenameWatchlistTag, signal?: AbortSignal) =>
+    updateWatchlistTag: (input: UpdateWatchlistTag, signal?: AbortSignal) =>
       request<AccountWatchlist>(
-        '/account/watchlist/tags/rename',
+        '/account/watchlist/tags/update',
         { ...input },
         'POST',
         signal,

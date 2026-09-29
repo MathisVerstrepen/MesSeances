@@ -1,22 +1,26 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
 
 	"messeances/api/internal/accounts"
+	"messeances/api/internal/tmdb"
 )
 
-const validWatchlistTagCreate = `{"expected_username":"owner","expected_revision":"0","name":"Action"}`
-const validWatchlistTagRename = `{"expected_username":"owner","expected_revision":"0","tag_id":"1","name":"Action"}`
+const validWatchlistTagCreate = `{"expected_username":"owner","expected_revision":"0","name":"Action","color":"neutral"}`
+const validWatchlistTagUpdate = `{"expected_username":"owner","expected_revision":"0","tag_id":"1","name":"Action","color":"neutral"}`
 const validWatchlistTagDelete = `{"expected_username":"owner","expected_revision":"0","tag_id":"1"}`
 const validWatchlistTagAssign = `{"expected_username":"owner","expected_revision":"0","movie_slug":"film-1","tag_id":"1","assigned":"true"}`
 
 func TestWatchlistTagsStrictTransport(t *testing.T) {
-	for _, route := range []struct{ path, body string }{{"/tags", validWatchlistTagCreate}, {"/tags/rename", validWatchlistTagRename}, {"/tags/delete", validWatchlistTagDelete}, {"/tags/assign", validWatchlistTagAssign}} {
+	for _, route := range []struct{ path, body string }{{"/tags", validWatchlistTagCreate}, {"/tags/update", validWatchlistTagUpdate}, {"/tags/delete", validWatchlistTagDelete}, {"/tags/assign", validWatchlistTagAssign}} {
 		t.Run(route.path, func(t *testing.T) {
 			for _, method := range []string{"GET", "PUT", "DELETE", "PATCH"} {
 				h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: lifecycleHTTPOptions(t)})
@@ -85,13 +89,33 @@ func TestWatchlistTagsStrictTransport(t *testing.T) {
 					check(strings.Replace(route.body, `"true"`, `"`+flag+`"`, 1), 400)
 				}
 			}
+			if _, ok := input["color"]; ok {
+				for _, color := range []string{"", "purple", "BLUE", " blue", "blue ", "#2563eb", "var(--blue)", "rgb(0,0,0)"} {
+					check(strings.Replace(route.body, "neutral", color, 1), 400)
+				}
+				for _, color := range []string{"neutral", "red", "amber", "green", "teal", "blue", "violet", "rose"} {
+					check(strings.Replace(route.body, "neutral", color, 1), 503)
+				}
+			}
 		})
+	}
+}
+
+func TestWatchlistTagRenameRouteRemoved(t *testing.T) {
+	for _, options := range []AccountOptions{{}, lifecycleHTTPOptions(t)} {
+		h := NewHandlerWithOptions(nil, "https://messeances.fr", HandlerOptions{Accounts: options})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, theaterPreferenceRequest(t, "POST", watchlistRoute+"/tags/rename", validWatchlistTagUpdate))
+		if w.Code != 404 {
+			t.Fatal("legacy rename route still registered", w.Code)
+		}
+		assertAccountHeaders(t, w)
 	}
 }
 
 func watchlistTagRouteDenied(t *testing.T, p *browserProbe, status int) {
 	t.Helper()
-	for _, route := range []struct{ path, body string }{{"/tags", validWatchlistTagCreate}, {"/tags/rename", validWatchlistTagRename}, {"/tags/delete", validWatchlistTagDelete}, {"/tags/assign", validWatchlistTagAssign}} {
+	for _, route := range []struct{ path, body string }{{"/tags", validWatchlistTagCreate}, {"/tags/update", validWatchlistTagUpdate}, {"/tags/delete", validWatchlistTagDelete}, {"/tags/assign", validWatchlistTagAssign}} {
 		var input map[string]string
 		if err := json.Unmarshal([]byte(route.body), &input); err != nil {
 			t.Fatal(err)
@@ -103,6 +127,7 @@ func watchlistTagRouteDenied(t *testing.T, p *browserProbe, status int) {
 
 func watchlistTagRegisteredCRUD(t *testing.T, p *browserProbe, view accounts.WatchlistView, slug string) {
 	t.Helper()
+	wantColor := "blue"
 	assertArrays := func() {
 		t.Helper()
 		if view.Tags == nil || view.Items == nil {
@@ -113,11 +138,26 @@ func watchlistTagRegisteredCRUD(t *testing.T, p *browserProbe, view accounts.Wat
 				t.Fatal("null tag_ids")
 			}
 		}
+		for _, tag := range view.Tags {
+			if tag.Color != wantColor {
+				t.Fatal("snapshot lost committed color")
+			}
+		}
 	}
-	create := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "name": " Action "}
-	p.request("POST", watchlistRoute+"/tags", create, 200, &view)
+	snapshot := func(method, path string, body any) {
+		t.Helper()
+		// Decode into a new value, so omitted fields cannot inherit old data.
+		view = accounts.WatchlistView{}
+		response := p.request(method, path, body, 200, &view)
+		if response.header.Get("Cache-Control") != "no-store" || response.header.Get("Referrer-Policy") != "no-referrer" || !strings.Contains(response.header.Get("Vary"), "Cookie") {
+			t.Fatal("snapshot missing privacy headers")
+		}
+		assertArrays()
+	}
+	create := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "name": " Action ", "color": "blue"}
+	snapshot("POST", watchlistRoute+"/tags", create)
 	assertArrays()
-	if len(view.Tags) != 1 || view.Tags[0].Name != "Action" {
+	if len(view.Tags) != 1 || view.Tags[0].Name != "Action" || view.Tags[0].Color != "blue" {
 		t.Fatal("create wire")
 	}
 	id := view.Tags[0].ID
@@ -126,37 +166,103 @@ func watchlistTagRegisteredCRUD(t *testing.T, p *browserProbe, view accounts.Wat
 	p.request("POST", watchlistRoute+"/tags", create, 409, nil)
 	assign := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "movie_slug": slug, "tag_id": id, "assigned": "true"}
 	p.request("POST", watchlistRoute+"/tags/assign", assign, 404, nil)
-	p.request("POST", watchlistRoute, map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "movie_slug": slug, "saved": "true"}, 200, &view)
+	snapshot("POST", watchlistRoute, map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "movie_slug": slug, "saved": "true"})
 	assertArrays()
 	assign["expected_revision"] = view.Revision
-	p.request("POST", watchlistRoute+"/tags/assign", assign, 200, &view)
+	snapshot("POST", watchlistRoute+"/tags/assign", assign)
 	assertArrays()
 	if !reflect.DeepEqual(view.Items[0].TagIDs, []string{id}) {
 		t.Fatal("assign wire")
 	}
-	rename := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "tag_id": id, "name": "<b>Été</b>"}
-	p.request("POST", watchlistRoute+"/tags/rename", rename, 200, &view)
-	if view.Tags[0].Name != "<b>Été</b>" || len(view.Items[0].TagIDs) != 1 {
-		t.Fatal("rename wire")
+	update := map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "tag_id": id, "name": "<b>Été</b>", "color": "rose"}
+	p.request("POST", watchlistRoute+"/tags/rename", update, 404, nil)
+	wantColor = "rose"
+	snapshot("POST", watchlistRoute+"/tags/update", update)
+	if view.Tags[0].Name != "<b>Été</b>" || view.Tags[0].Color != "rose" || len(view.Items[0].TagIDs) != 1 {
+		t.Fatal("update wire")
 	}
-	p.request("GET", watchlistRoute, nil, 200, &view)
+	snapshot("GET", watchlistRoute, nil)
+	snapshot("POST", watchlistRoute+"/sort", map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "sort_order": "title_asc"})
+	// Color-only, name-only, normalized no-op and neutral reset use one route.
+	for _, change := range []struct{ name, color string }{{"<b>Été</b>", "blue"}, {"Renamed", "blue"}, {" Renamed ", "blue"}, {"Renamed", "neutral"}} {
+		wantColor = change.color
+		snapshot("POST", watchlistRoute+"/tags/update", map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "tag_id": id, "name": change.name, "color": change.color})
+	}
+	view = watchlistTagRegisteredImport(t, p, view)
+	assertArrays()
+	// Remove the imported item again without losing reusable definitions.
+	for _, item := range view.Items {
+		if item.Slug != slug {
+			snapshot("POST", watchlistRoute, map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "movie_slug": item.Slug, "saved": "false"})
+		}
+	}
 	assign["expected_revision"] = view.Revision
 	assign["assigned"] = "false"
-	p.request("POST", watchlistRoute+"/tags/assign", assign, 200, &view)
+	snapshot("POST", watchlistRoute+"/tags/assign", assign)
 	if len(view.Items[0].TagIDs) != 0 {
 		t.Fatal("unassign wire")
 	}
 	assign["expected_revision"] = view.Revision
 	assign["assigned"] = "true"
-	p.request("POST", watchlistRoute+"/tags/assign", assign, 200, &view)
+	snapshot("POST", watchlistRoute+"/tags/assign", assign)
+	// Delete one definition while another remains, checking nonempty color output.
+	snapshot("POST", watchlistRoute+"/tags", map[string]string{"expected_username": "watchlist_http", "expected_revision": view.Revision, "name": "Remaining", "color": "neutral"})
 	del := map[string]string{"expected_username": "other_owner", "expected_revision": view.Revision, "tag_id": id}
 	p.request("POST", watchlistRoute+"/tags/delete", del, 401, nil)
 	del["expected_username"] = "watchlist_http"
-	p.request("POST", watchlistRoute+"/tags/delete", del, 200, &view)
+	snapshot("POST", watchlistRoute+"/tags/delete", del)
 	assertArrays()
-	if len(view.Tags) != 0 || len(view.Items) != 1 || len(view.Items[0].TagIDs) != 0 {
+	if len(view.Tags) != 1 || len(view.Items) != 1 || len(view.Items[0].TagIDs) != 0 {
 		t.Fatal("tag delete removed film")
 	}
 	del["expected_revision"] = view.Revision
 	p.request("POST", watchlistRoute+"/tags/delete", del, 404, nil)
+}
+
+type watchlistColorHTTPProvider struct{}
+
+func (watchlistColorHTTPProvider) Search(context.Context, string) ([]tmdb.Candidate, error) {
+	return []tmdb.Candidate{}, nil
+}
+
+func (watchlistColorHTTPProvider) Details(_ context.Context, id int64) (tmdb.Details, error) {
+	adult := false
+	return tmdb.Details{ID: id, Adult: &adult, Title: "Imported color fixture", OriginalTitle: "Imported color fixture", Genres: []string{}}, nil
+}
+
+func watchlistTagRegisteredImport(t *testing.T, p *browserProbe, view accounts.WatchlistView) accounts.WatchlistView {
+	t.Helper()
+	// Reuse the guarded isolated database and complete cookie session, but use
+	// a separate registered router with a fake provider. The browser fixture's
+	// normal missing-provider behavior remains unchanged.
+	service, err := accounts.NewService(accounts.NewPostgresStore(p.h.pool), accounts.ServiceOptions{
+		Hasher: unavailableAccountHasher{}, Origin: p.h.origin, AddressHMACKey: []byte(strings.Repeat("c", 32)),
+		WatchlistProvider: watchlistColorHTTPProvider{}, WatchlistRefresh: func(context.Context, string) error { return nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandlerWithOptions(nil, p.h.origin, HandlerOptions{Accounts: AccountOptions{Enabled: true, Service: service, Origin: p.h.origin}})
+	u, err := url.Parse(p.h.apiURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, watchlistRoute+"/import", strings.NewReader(`{"expected_username":"watchlist_http","expected_revision":"`+view.Revision+`","tmdb_id":"42"}`))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", p.h.origin)
+	r.Header.Set("X-Messeances-CSRF", "1")
+	for _, cookie := range p.client.Jar.Cookies(u) {
+		r.AddCookie(cookie)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatal("registered fake import failed", w.Code)
+	}
+	assertAccountHeaders(t, w)
+	var result accounts.WatchlistImportView
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || !reflect.DeepEqual(result.Watchlist.Tags, view.Tags) || len(result.Watchlist.Items) != len(view.Items)+1 {
+		t.Fatal("nested import lost tag colors", err)
+	}
+	return result.Watchlist
 }

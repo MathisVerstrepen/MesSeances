@@ -10,13 +10,15 @@ type watchlistTagCreate struct {
 	ExpectedUsername *string `json:"expected_username"`
 	ExpectedRevision *string `json:"expected_revision"`
 	Name             *string `json:"name"`
+	Color            *string `json:"color"`
 }
 
-type watchlistTagRename struct {
+type watchlistTagUpdate struct {
 	ExpectedUsername *string `json:"expected_username"`
 	ExpectedRevision *string `json:"expected_revision"`
 	TagID            *string `json:"tag_id"`
 	Name             *string `json:"name"`
+	Color            *string `json:"color"`
 }
 
 type watchlistTagDelete struct {
@@ -38,7 +40,7 @@ func (h *accountHTTP) createWatchlistTag(w http.ResponseWriter, r *http.Request)
 	if !accountJSON(w, r, &input) {
 		return
 	}
-	if input.ExpectedUsername == nil || input.ExpectedRevision == nil || input.Name == nil {
+	if input.ExpectedUsername == nil || input.ExpectedRevision == nil || input.Name == nil || input.Color == nil {
 		watchlistHTTPError(w, accounts.ErrInvalidInput)
 		return
 	}
@@ -47,7 +49,7 @@ func (h *accountHTTP) createWatchlistTag(w http.ResponseWriter, r *http.Request)
 		watchlistHTTPError(w, err)
 		return
 	}
-	view, err := h.service.CreateWatchlistTag(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.Name)
+	view, err := h.service.CreateWatchlistTag(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.Name, *input.Color)
 	if err != nil {
 		watchlistHTTPError(w, err)
 		return
@@ -55,12 +57,12 @@ func (h *accountHTTP) createWatchlistTag(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, view)
 }
 
-func (h *accountHTTP) renameWatchlistTag(w http.ResponseWriter, r *http.Request) {
-	var input watchlistTagRename
+func (h *accountHTTP) updateWatchlistTag(w http.ResponseWriter, r *http.Request) {
+	var input watchlistTagUpdate
 	if !accountJSON(w, r, &input) {
 		return
 	}
-	if input.ExpectedUsername == nil || input.ExpectedRevision == nil || input.TagID == nil || input.Name == nil {
+	if input.ExpectedUsername == nil || input.ExpectedRevision == nil || input.TagID == nil || input.Name == nil || input.Color == nil {
 		watchlistHTTPError(w, accounts.ErrInvalidInput)
 		return
 	}
@@ -69,7 +71,7 @@ func (h *accountHTTP) renameWatchlistTag(w http.ResponseWriter, r *http.Request)
 		watchlistHTTPError(w, err)
 		return
 	}
-	view, err := h.service.RenameWatchlistTag(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.TagID, *input.Name)
+	view, err := h.service.UpdateWatchlistTag(r.Context(), raw, *input.ExpectedUsername, *input.ExpectedRevision, *input.TagID, *input.Name, *input.Color)
 	if err != nil {
 		watchlistHTTPError(w, err)
 		return

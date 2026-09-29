@@ -22,8 +22,18 @@ var (
 )
 
 type WatchlistTag struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`
+}
+
+func validWatchlistTagColor(color string) bool {
+	switch color {
+	case "neutral", "red", "amber", "green", "teal", "blue", "violet", "rose":
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeWatchlistTag(name string) (string, string, error) {
@@ -44,7 +54,7 @@ func normalizeWatchlistTag(name string) (string, string, error) {
 }
 
 func readWatchlistTags(ctx context.Context, tx pgx.Tx, accountID int64) ([]WatchlistTag, error) {
-	rows, err := tx.Query(ctx, `SELECT t.id::text,t.name FROM account_watchlist_tags t WHERE t.account_id=$1 ORDER BY t.id`, accountID)
+	rows, err := tx.Query(ctx, `SELECT t.id::text,t.name,t.color FROM account_watchlist_tags t WHERE t.account_id=$1 ORDER BY t.id`, accountID)
 	if err != nil {
 		return nil, ErrWatchlistUnavailable
 	}
@@ -52,7 +62,7 @@ func readWatchlistTags(ctx context.Context, tx pgx.Tx, accountID int64) ([]Watch
 	tags := []WatchlistTag{}
 	for rows.Next() {
 		var tag WatchlistTag
-		if err := rows.Scan(&tag.ID, &tag.Name); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Color); err != nil {
 			return nil, ErrWatchlistUnavailable
 		}
 		tags = append(tags, tag)
@@ -124,7 +134,10 @@ func watchlistTagNameAvailable(ctx context.Context, tx pgx.Tx, accountID, except
 	return nil
 }
 
-func (s *Service) CreateWatchlistTag(ctx context.Context, raw, username, expectedRevision, name string) (WatchlistView, error) {
+func (s *Service) CreateWatchlistTag(ctx context.Context, raw, username, expectedRevision, name, color string) (WatchlistView, error) {
+	if !validWatchlistTagColor(color) {
+		return WatchlistView{}, ErrInvalidInput
+	}
 	name, key, err := normalizeWatchlistTag(name)
 	if err != nil {
 		return WatchlistView{}, err
@@ -140,26 +153,29 @@ func (s *Service) CreateWatchlistTag(ctx context.Context, raw, username, expecte
 		if count >= maxWatchlistTags {
 			return false, ErrWatchlistTagLimit
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO account_watchlist_tags(account_id,name,name_key) VALUES($1,$2,$3)`, a.id, name, key); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO account_watchlist_tags(account_id,name,name_key,color) VALUES($1,$2,$3,$4)`, a.id, name, key, color); err != nil {
 			return false, ErrWatchlistUnavailable
 		}
 		return true, nil
 	})
 }
 
-func watchlistTagName(ctx context.Context, tx pgx.Tx, accountID, tagID int64) (string, error) {
-	var name string
-	err := tx.QueryRow(ctx, `SELECT name FROM account_watchlist_tags WHERE account_id=$1 AND id=$2`, accountID, tagID).Scan(&name)
+func readWatchlistTag(ctx context.Context, tx pgx.Tx, accountID, tagID int64) (WatchlistTag, error) {
+	var tag WatchlistTag
+	err := tx.QueryRow(ctx, `SELECT id::text,name,color FROM account_watchlist_tags WHERE account_id=$1 AND id=$2`, accountID, tagID).Scan(&tag.ID, &tag.Name, &tag.Color)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", ErrWatchlistTagNotFound
+		return WatchlistTag{}, ErrWatchlistTagNotFound
 	}
 	if err != nil {
-		return "", ErrWatchlistUnavailable
+		return WatchlistTag{}, ErrWatchlistUnavailable
 	}
-	return name, nil
+	return tag, nil
 }
 
-func (s *Service) RenameWatchlistTag(ctx context.Context, raw, username, expectedRevision, tagID, name string) (WatchlistView, error) {
+func (s *Service) UpdateWatchlistTag(ctx context.Context, raw, username, expectedRevision, tagID, name, color string) (WatchlistView, error) {
+	if !validWatchlistTagColor(color) {
+		return WatchlistView{}, ErrInvalidInput
+	}
 	id, err := watchlistTMDBID(tagID)
 	if err != nil {
 		return WatchlistView{}, ErrInvalidInput
@@ -169,14 +185,14 @@ func (s *Service) RenameWatchlistTag(ctx context.Context, raw, username, expecte
 		return WatchlistView{}, err
 	}
 	return s.mutateWatchlistTag(ctx, raw, username, expectedRevision, func(tx pgx.Tx, a account) (bool, error) {
-		current, err := watchlistTagName(ctx, tx, a.id, id)
-		if err != nil || current == name {
+		current, err := readWatchlistTag(ctx, tx, a.id, id)
+		if err != nil || (current.Name == name && current.Color == color) {
 			return false, err
 		}
 		if err := watchlistTagNameAvailable(ctx, tx, a.id, id, key); err != nil {
 			return false, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE account_watchlist_tags SET name=$3,name_key=$4 WHERE account_id=$1 AND id=$2`, a.id, id, name, key); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE account_watchlist_tags SET name=$3,name_key=$4,color=$5 WHERE account_id=$1 AND id=$2`, a.id, id, name, key, color); err != nil {
 			return false, ErrWatchlistUnavailable
 		}
 		return true, nil
@@ -189,7 +205,7 @@ func (s *Service) DeleteWatchlistTag(ctx context.Context, raw, username, expecte
 		return WatchlistView{}, ErrInvalidInput
 	}
 	return s.mutateWatchlistTag(ctx, raw, username, expectedRevision, func(tx pgx.Tx, a account) (bool, error) {
-		if _, err := watchlistTagName(ctx, tx, a.id, id); err != nil {
+		if _, err := readWatchlistTag(ctx, tx, a.id, id); err != nil {
 			return false, err
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM account_watchlist_tags WHERE account_id=$1 AND id=$2`, a.id, id); err != nil {
@@ -209,7 +225,7 @@ func (s *Service) AssignWatchlistTag(ctx context.Context, raw, username, expecte
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, int64(6211428337968315)); err != nil {
 			return false, ErrWatchlistUnavailable
 		}
-		if _, err := watchlistTagName(ctx, tx, a.id, id); err != nil {
+		if _, err := readWatchlistTag(ctx, tx, a.id, id); err != nil {
 			return false, err
 		}
 		movieID, err := resolveWatchlistMovie(ctx, tx, slug)
