@@ -428,6 +428,43 @@ export async function watchlistScenario({
   const savedRow = (slug) =>
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
+  async function checkSegmentedDisplay(viewport, selected, disabled = false) {
+    check(
+      await evaluate(
+        page,
+        `(() => {
+          const group = document.querySelector('[role="group"][aria-label="Affichage des films"]');
+          const buttons = [...group.querySelectorAll('button')];
+          const outer = group.getBoundingClientRect(), style = getComputedStyle(group);
+          const rects = buttons.map(button => button.getBoundingClientRect());
+          const close = (a, b) => Math.abs(a - b) < 1;
+          return buttons.length === 2 && style.borderRadius === '0px'
+            && ['Top', 'Right', 'Bottom', 'Left'].every(side => style['border' + side + 'Width'] === '2px' && style['border' + side + 'Color'] === 'rgb(39, 39, 42)')
+            && close(rects[0].right, rects[1].left) && close(rects[0].top, rects[1].top)
+            && close(rects[0].left, outer.left + 2) && close(rects[1].right, outer.right - 2)
+            && outer.left >= 0 && outer.right <= innerWidth
+            && buttons.every((button, index) => {
+              const css = getComputedStyle(button), rect = rects[index], icon = button.querySelector('svg');
+              const active = index === ${selected};
+              return button.textContent.trim() === ['Liste', 'Par tag'][index]
+                && button.type === 'button' && button.disabled === ${disabled}
+                && button.getAttribute('aria-pressed') === String(active)
+                && rect.width >= 44 && rect.height >= 44 && close(rect.top, outer.top + 2) && close(rect.bottom, outer.bottom - 2)
+                && css.borderRadius === '0px' && css.borderLeftWidth === (index ? '2px' : '0px')
+                && (!index || css.borderLeftColor === 'rgb(39, 39, 42)')
+                && ['Top', 'Right', 'Bottom'].every(side => css['border' + side + 'Width'] === '0px')
+                && css.color === (active ? 'rgb(255, 255, 255)' : 'rgb(39, 39, 42)')
+                && css.backgroundColor === (active ? 'rgb(39, 39, 42)' : 'rgb(255, 255, 255)')
+                && (active ? css.boxShadow.endsWith('rgb(168, 191, 163) 0px -4px 0px 0px inset') : css.boxShadow === 'none')
+                && icon?.getAttribute('aria-hidden') === 'true' && icon.getAttribute('focusable') === 'false'
+                && icon.classList.contains(index ? 'lucide-tags' : 'lucide-list')
+                && icon.getBoundingClientRect().width === 18 && icon.getBoundingClientRect().height === 18;
+            });
+        })()`,
+      ),
+      `${viewport} segmented display has shared rectangular border, single divider, no gap, decorative icons, 44px targets and selected sage underline`,
+    )
+  }
   async function checkLoadingLayout(viewport) {
     await until(
       page,
@@ -452,6 +489,7 @@ export async function watchlistScenario({
             && status.textContent.trim() === 'Chargement de la watchlist…'
             && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide')
             && input.disabled && select.disabled && select.value === ''
+            && [...section.querySelectorAll('[aria-label="Affichage des films"] button')].every(button => button.disabled)
             && select.selectedOptions[0].disabled && select.selectedOptions[0].textContent.trim() === 'Trier par'
             && select.labels[0].textContent.trim() === 'Trier par' && select.labels[0].classList.contains('sr-only')
             && document.documentElement.scrollWidth <= innerWidth
@@ -461,6 +499,7 @@ export async function watchlistScenario({
       ),
       `${viewport} loading keeps search then heading/icon/disabled neutral select then one skeleton, without stale rows or empty-state flash`,
     )
+    await checkSegmentedDisplay(`${viewport} loading`, 0, true)
   }
   async function finishRead() {
     for (let i = 0; !releaseRead && i < 100; i++) await delay(20)
@@ -576,6 +615,22 @@ export async function watchlistScenario({
         node.role?.value === 'combobox' && node.name?.value === 'Trier par',
     ),
     'native sort selector retains Trier par accessible name',
+  )
+  check(
+    ['Liste', 'Par tag'].every((label, index) =>
+      accessibility.nodes.some(
+        (node) =>
+          node.role?.value === 'button' &&
+          node.name?.value.toLocaleLowerCase('fr') ===
+            label.toLocaleLowerCase('fr') &&
+          node.properties?.some(
+            (property) =>
+              property.name === 'pressed' &&
+              String(property.value?.value) === String(index === 0),
+          ),
+      ),
+    ),
+    'display buttons expose only Liste and Par tag names with exclusive pressed state',
   )
   check(
     await evaluate(
@@ -754,9 +809,13 @@ export async function watchlistScenario({
     ),
     'cancel creation returns focus to connected opener',
   )
+  // Let the previous native close event finish before reopening another dialog.
   await evaluate(
     page,
-    `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+    `new Promise(resolve => {
+      document.querySelector('#watchlist-tag-manager').addEventListener('close', () => requestAnimationFrame(resolve), { once: true });
+      document.querySelector('button[aria-label="Fermer la gestion des tags"]').click();
+    })`,
   )
   check(
     await evaluate(
@@ -766,6 +825,15 @@ export async function watchlistScenario({
     'modal close restores original manager trigger',
   )
   await click(page, 'Gérer les tags')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-manager')?.matches(':modal')`,
+    'modal top layer ready before physical backdrop click',
+  )
+  await evaluate(
+    page,
+    `new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`,
+  )
   for (const type of ['mousePressed', 'mouseReleased']) {
     await getCDP().send(
       'Input.dispatchMouseEvent',
@@ -773,6 +841,11 @@ export async function watchlistScenario({
       page.sessionId,
     )
   }
+  await until(
+    page,
+    `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+    'backdrop close and focus restoration have rendered',
+  )
   check(
     await evaluate(
       page,
@@ -1439,7 +1512,7 @@ export async function watchlistScenario({
     check(
       await evaluate(
         page,
-        `(() => { const p = document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]'), r = p.getBoundingClientRect(), scroll = p.querySelector('.overflow-y-auto'), close = p.querySelector('button'), c = close.getBoundingClientRect(); return r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && scroll.scrollHeight > scroll.clientHeight && scroll.clientHeight > 0 && p.scrollWidth <= p.clientWidth && [...p.querySelectorAll('label')].every(label=>label.getBoundingClientRect().height >= 44) && close.contains(document.elementFromPoint(c.left+c.width/2,c.top+c.height/2)); })()`,
+        `(() => { const p = document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]'), r = p.getBoundingClientRect(), scroll = p.querySelector('.overflow-y-auto'), close = p.querySelector('button'), c = close.getBoundingClientRect(); return r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && scroll.scrollHeight > scroll.clientHeight && scroll.clientHeight > 0 && p.scrollWidth <= p.clientWidth && [...p.querySelectorAll('label')].every(label=>label.getBoundingClientRect().height >= 44) && close.contains(document.elementFromPoint(c.left+c.width/2,c.top+c.height/2)); })()`,
       ),
       `${name} picker clamps all edges, scrolls internally and retains reachable close control`,
     )
@@ -1451,6 +1524,7 @@ export async function watchlistScenario({
   }
   ownerTags.set(owner.username, ordinaryTags)
   revision++
+  await click(page, 'Par tag')
   await evaluate(
     page,
     `document.querySelector('button[aria-label="Modifier les tags de Film externe"]').click()`,
@@ -1459,7 +1533,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]') && !document.querySelector('button[aria-label="Modifier les tags de Film externe"]')`,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]') && !document.querySelector('button[aria-label="Modifier les tags de Film externe"]')`,
     ),
     'pagehide removes picker and its private options immediately',
   )
@@ -1474,6 +1548,14 @@ export async function watchlistScenario({
     `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
     'tags survive reload',
   )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Liste'`,
+    ),
+    'reload after pagehide resets grouped mode to Liste',
+  )
+  await click(page, 'Par tag')
   await evaluate(
     page,
     `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
@@ -1494,7 +1576,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]') && !document.activeElement.getAttribute('aria-label')?.startsWith('Modifier les tags de')`,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]') && !document.querySelector('[id^="watchlist-group-"]') && !document.activeElement.getAttribute('aria-label')?.startsWith('Modifier les tags de')`,
     ),
     'owner change removes picker and never restores old-owner focus',
   )
@@ -1506,6 +1588,14 @@ export async function watchlistScenario({
     `!!document.querySelector('#watchlist-tag-filter:not(:disabled)')`,
     'original owner picker data reloaded',
   )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Liste'`,
+    ),
+    'owner replacement discards grouped mode',
+  )
+  await click(page, 'Par tag')
   await evaluate(
     page,
     `${savedRow('saved-film')}.querySelector('button[aria-expanded]').click()`,
@@ -1514,7 +1604,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('section[aria-labelledby="saved-heading"] [role="group"]')`,
+      `!document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]')`,
     ),
     'route departure unmounts picker',
   )
@@ -1532,6 +1622,322 @@ export async function watchlistScenario({
     'reload recovers committed assignments but resets filter',
   )
   await screenshot(page, 'saved-tags-desktop')
+  // A complete private snapshot with duplicate memberships, an empty tag and an
+  // untagged film exercises grouping independently of persistent sort state.
+  const groupingBefore = {
+    saved: [...saved],
+    tags: [...tags()],
+    assignments: new Map(assignments()),
+    sort: sorts.get(owner.username) ?? 'added_desc',
+  }
+  saved = ['saved-film', 'external-film', 'other-film']
+  const emptyTag = String(nextTagId++)
+  ownerTags.set(owner.username, [
+    ...tags(),
+    { id: emptyTag, name: 'Vide', color: 'neutral' },
+  ])
+  assignments().set('saved-film', [firstTag, secondTag])
+  assignments().set('external-film', [firstTag])
+  assignments().set('other-film', [])
+  addedTimes.set('external-film', `${date}T00:00:00.000000001Z`)
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedOrder}.length === 3 && !document.querySelector('#watchlist-sort').disabled`,
+    'grouping source snapshot ready',
+  )
+  const viewButtons = `document.querySelector('[aria-label="Affichage des films"]')`
+  const group = (id) =>
+    `document.querySelector('section[aria-labelledby="watchlist-group-${id}"]')`
+  const groupRow = (id, slug) =>
+    `${group(id)}?.querySelector('a[href="/film/${slug}"]')?.closest('li')`
+  const groupHeadings = `[...document.querySelectorAll('h3[id^="watchlist-group-"]')].map(node => node.id)`
+  const openPickers = `document.querySelectorAll('section[aria-labelledby="saved-heading"] li [role="group"]')`
+  async function openGroupPicker(id, slug) {
+    await evaluate(
+      page,
+      `${groupRow(id, slug)}.querySelector('button[aria-expanded]').click()`,
+    )
+    await until(
+      page,
+      `${groupRow(id, slug)}?.querySelector('input:not(:disabled)')`,
+      'group instance picker opens',
+    )
+  }
+  async function assignGroup(id, slug, tagId) {
+    const name = tags().find((tag) => tag.id === tagId).name
+    await evaluate(
+      page,
+      `(() => { const input = [...${groupRow(id, slug)}.querySelectorAll('label')].find(label => label.textContent.trim() === ${JSON.stringify(name)}).querySelector('input'); input.focus(); input.click(); })()`,
+    )
+    await until(
+      page,
+      `!document.querySelector('#watchlist-sort').disabled`,
+      'group assignment settled',
+    )
+  }
+  check(
+    await evaluate(
+      page,
+      `${viewButtons}.querySelector('button[aria-pressed="true"]').textContent.trim() === 'Liste' && !document.querySelector('h3[id^="watchlist-group-"]')`,
+    ),
+    'route reentry starts in ungrouped Liste',
+  )
+  const beforeGroupingRequests = requests.length
+  await checkSegmentedDisplay('desktop list', 0)
+  await screenshot(page, 'segmented-list-desktop')
+  await evaluate(
+    page,
+    `${viewButtons}.querySelector('button:first-child').focus()`,
+  )
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+      page.sessionId,
+    )
+  check(
+    await evaluate(
+      page,
+      `document.activeElement === ${viewButtons}.querySelector('button:last-child') && document.activeElement.matches(':focus-visible') && getComputedStyle(document.activeElement).outlineStyle === 'solid' && getComputedStyle(document.activeElement).outlineColor === 'rgb(39, 39, 42)' && parseFloat(getComputedStyle(document.activeElement).outlineOffset) >= 2 && parseFloat(getComputedStyle(document.activeElement).zIndex) > 0`,
+    ),
+    'Tab reaches adjacent segment with separated high-contrast focus above shared border',
+  )
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32 },
+      page.sessionId,
+    )
+  const groupedTagIds = [...tags()]
+    .filter((tag) => tag.id !== emptyTag)
+    .sort((a, b) =>
+      new Intl.Collator('fr', { sensitivity: 'base', numeric: true }).compare(
+        a.name,
+        b.name,
+      ),
+    )
+    .map((tag) => `watchlist-group-tag-${tag.id}`)
+  check(
+    await evaluate(
+      page,
+      `JSON.stringify(${groupHeadings}) === ${JSON.stringify(JSON.stringify([...groupedTagIds, 'watchlist-group-untagged']))} && ${group(`tag-${firstTag}`)}.querySelector('h3').textContent.includes('(2)') && ${group(`tag-${secondTag}`)}.querySelector('h3').textContent.includes('(1)') && ${group('untagged')}.querySelector('h3').textContent.includes('Sans tag')`,
+    ),
+    'group headings follow French order with counts, no empty tags and Sans tag last',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.activeElement.textContent.trim() === 'Par tag' && document.activeElement.getAttribute('aria-pressed') === 'true' && document.activeElement.matches(':focus-visible') && parseFloat(getComputedStyle(document.activeElement).outlineWidth) >= 2`,
+    ),
+    'native keyboard display toggle retains visible focus and pressed state',
+  )
+  await checkSegmentedDisplay('desktop grouped', 1)
+  check(
+    requests.length === beforeGroupingRequests,
+    'display toggle makes no request',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelectorAll('section[aria-labelledby="saved-heading"] a[href="/film/saved-film"]').length === 2 && ${groupRow(`tag-${firstTag}`, 'saved-film')}.querySelector('time').textContent.trim() === '14 octobre 1998'`,
+    ),
+    'multi-tag film renders in both sections with preserved French release date',
+  )
+  await screenshot(page, 'grouped-desktop')
+  for (const [order, expected] of [
+    ['added_desc', ['external-film', 'saved-film']],
+    ['added_asc', ['saved-film', 'external-film']],
+    ['title_asc', ['external-film', 'saved-film']],
+    ['title_desc', ['saved-film', 'external-film']],
+    ['release_desc', ['saved-film', 'external-film']],
+    ['release_asc', ['saved-film', 'external-film']],
+  ]) {
+    await selectSort(order)
+    check(
+      await evaluate(
+        page,
+        `JSON.stringify([...${group(`tag-${firstTag}`)}.querySelectorAll('a')].map(a=>a.pathname.split('/').at(-1))) === ${JSON.stringify(JSON.stringify(expected))} && !!${groupRow(`tag-${secondTag}`, 'saved-film')} && !!${groupRow('untagged', 'other-film')}`,
+      ),
+      `${order} orders each group without interleaving sections`,
+    )
+  }
+  await openGroupPicker(`tag-${firstTag}`, 'saved-film')
+  await openGroupPicker(`tag-${secondTag}`, 'saved-film')
+  check(
+    await evaluate(
+      page,
+      `${openPickers}.length === 1 && ${groupRow(`tag-${firstTag}`, 'saved-film')}.querySelector('button[aria-expanded]').getAttribute('aria-expanded') === 'false' && ${groupRow(`tag-${secondTag}`, 'saved-film')}.querySelector('button[aria-expanded]').getAttribute('aria-expanded') === 'true'`,
+    ),
+    'duplicate rows share membership but only selected picker instance opens',
+  )
+  await getCDP().send(
+    'Input.dispatchKeyEvent',
+    {
+      type: 'keyDown',
+      key: 'Escape',
+      code: 'Escape',
+      windowsVirtualKeyCode: 27,
+    },
+    page.sessionId,
+  )
+  check(
+    await evaluate(
+      page,
+      `${openPickers}.length === 0 && document.activeElement === ${groupRow(`tag-${secondTag}`, 'saved-film')}.querySelector('button[aria-expanded]')`,
+    ),
+    'Escape restores exact duplicate-row trigger',
+  )
+  await openGroupPicker(`tag-${firstTag}`, 'saved-film')
+  await assignGroup(`tag-${firstTag}`, 'saved-film', firstTag)
+  check(
+    await evaluate(
+      page,
+      `!${groupRow(`tag-${firstTag}`, 'saved-film')} && !!${groupRow(`tag-${secondTag}`, 'saved-film')} && ${openPickers}.length === 0 && document.activeElement.id === 'watchlist-tag-filter'`,
+    ),
+    'removing active duplicate row closes picker and focuses connected filter while other copy remains',
+  )
+  await openGroupPicker(`tag-${secondTag}`, 'saved-film')
+  await assignGroup(`tag-${secondTag}`, 'saved-film', firstTag)
+  check(
+    await evaluate(
+      page,
+      `!!${groupRow(`tag-${firstTag}`, 'saved-film')} && ${openPickers}.length === 1 && ${groupRow(`tag-${secondTag}`, 'saved-film')}.contains(document.activeElement) && document.activeElement.type === 'checkbox' && [...document.querySelectorAll('section[aria-labelledby="saved-heading"] a[href="/film/saved-film"]')].every(a=>a.closest('li').querySelectorAll('ul[aria-label="Tags associés"] li').length === 2)`,
+    ),
+    'adding membership creates copy, updates both chips and retains originating checkbox focus',
+  )
+  await assignGroup(`tag-${secondTag}`, 'saved-film', secondTag)
+  check(
+    await evaluate(
+      page,
+      `!${group(`tag-${secondTag}`)} && ${openPickers}.length === 0 && document.activeElement.id === 'watchlist-tag-filter'`,
+    ),
+    'removing last row omits section and safely restores focus',
+  )
+  await openGroupPicker('untagged', 'other-film')
+  await assignGroup('untagged', 'other-film', secondTag)
+  check(
+    await evaluate(
+      page,
+      `!${group('untagged')} && !!${groupRow(`tag-${secondTag}`, 'other-film')} && ${openPickers}.length === 0 && document.activeElement.id === 'watchlist-tag-filter'`,
+    ),
+    'first confirmed assignment moves Sans tag film and restores focus after category disappears',
+  )
+  await openGroupPicker(`tag-${secondTag}`, 'other-film')
+  await assignGroup(`tag-${secondTag}`, 'other-film', secondTag)
+  await openGroupPicker(`tag-${firstTag}`, 'saved-film')
+  await assignGroup(`tag-${firstTag}`, 'saved-film', secondTag)
+  await filterTag(secondTag)
+  check(
+    await evaluate(
+      page,
+      `${openPickers}.length === 0 && JSON.stringify(${groupHeadings}) === ' ["watchlist-group-tag-${secondTag}"]'.trim() && ${savedOrder}.length === 1 && document.querySelector('#watchlist-sort').value === 'release_asc'`,
+    ),
+    'filter closes picker, restricts grouped view to one section and keeps sort',
+  )
+  await filterTag(emptyTag)
+  check(
+    await evaluate(
+      page,
+      `!${groupHeadings}.length && document.querySelector('main').textContent.includes('Aucun film avec ce tag.')`,
+    ),
+    'selected empty tag retains existing filtered-empty message',
+  )
+  await filterTag(firstTag)
+  await click(page, 'Liste')
+  check(
+    await evaluate(
+      page,
+      `!${groupHeadings}.length && ${savedOrder}.length === 2 && document.querySelector('#watchlist-tag-filter').value === '${firstTag}' && document.querySelector('#watchlist-sort').value === 'release_asc'`,
+    ),
+    'return to Liste retains tag filter and sort without duplicate rows',
+  )
+  await click(page, 'Par tag')
+  await filterTag('')
+  check(
+    await evaluate(
+      page,
+      `!['displayMode', 'savedSections', 'tag_ids', 'Soirée cinéma'].some(marker => JSON.stringify({url:location.href,local:{...localStorage},session:{...sessionStorage},payload:window.__NUXT__,data:document.querySelector('#__nuxt').__vue_app__.$nuxt.payload.data}).includes(marker))`,
+    ),
+    'grouped view and private tag identities absent from URL, storage and public Nuxt payload',
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.scrollTo(0, 0)`)
+  check(
+    await evaluate(
+      page,
+      `document.documentElement.scrollWidth <= innerWidth && [...${viewButtons}.querySelectorAll('button')].every(button=>button.getBoundingClientRect().height>=44 && button.getBoundingClientRect().width>=44) && [...document.querySelectorAll('h3[id^="watchlist-group-"]')].every(h=>h.getBoundingClientRect().right <= innerWidth)`,
+    ),
+    '320px grouped toolbar and long headings fit viewport with 44px display controls',
+  )
+  await screenshot(page, 'grouped-mobile')
+  await checkSegmentedDisplay('320px grouped', 1)
+  await openGroupPicker(`tag-${secondTag}`, 'saved-film')
+  await screenshot(page, 'grouped-picker-mobile', false)
+  await click(page, 'Liste')
+  check(
+    await evaluate(
+      page,
+      `${openPickers}.length === 0 && ${savedOrder}.length === 3`,
+    ),
+    'view change closes duplicate picker and restores unique list rows',
+  )
+  await checkSegmentedDisplay('320px list', 0)
+  await screenshot(page, 'segmented-list-mobile')
+  await click(page, 'Par tag')
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `!!document.querySelector('#watchlist-sort:not(:disabled)')`,
+    'grouped reload ready',
+  )
+  check(
+    await evaluate(
+      page,
+      `${viewButtons}.querySelector('button[aria-pressed="true"]').textContent.trim() === 'Liste' && !${groupHeadings}.length && document.querySelector('#watchlist-sort').value === 'release_asc'`,
+    ),
+    'reload resets local display only, preserving committed account sort',
+  )
+  await click(page, 'Par tag')
+  await evaluate(
+    page,
+    `${groupRow(`tag-${secondTag}`, 'saved-film')}.querySelector('button[aria-label="Retirer de la watchlist"]').click()`,
+  )
+  await until(
+    page,
+    `!document.querySelector('#watchlist-sort').disabled && !${savedRow('saved-film')}`,
+    'grouped bookmark removal committed',
+  )
+  check(
+    await evaluate(
+      page,
+      `!${group(`tag-${secondTag}`)} && ${savedOrder}.length === 2 && !document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/saved-film"]')`,
+    ),
+    'one grouped bookmark removal removes every copy and resulting empty section',
+  )
+  await click(page, 'Liste')
+  saved = groupingBefore.saved
+  ownerTags.set(owner.username, groupingBefore.tags)
+  ownerAssignments.set(owner.username, groupingBefore.assignments)
+  sorts.set(owner.username, groupingBefore.sort)
+  addedTimes.delete('external-film')
+  revision++
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedOrder}.length === 2 && !document.querySelector('#watchlist-sort').disabled`,
+    'original fixture restored after grouping',
+  )
   await filterTag(firstTag)
   await click(page, 'Gérer les tags')
   await evaluate(
@@ -2305,6 +2711,10 @@ export async function watchlistScenario({
     'anonymous save uses normal sign-in',
   )
   check(writes.length === before, 'anonymous action queues no mutation')
+  check(
+    !page.external && !second.external,
+    'watchlist tabs requested no unexpected external resources',
+  )
 }
 // Real Chrome -> Nitro -> Go -> isolated PostgreSQL. Uses the backend's shared
 // canonical catalogue fixture without seeding or altering its database directly.

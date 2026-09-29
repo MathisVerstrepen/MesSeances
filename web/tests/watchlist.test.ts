@@ -36,6 +36,7 @@ import * as errors from '../app/utils/accountState.ts'
 import * as dates from '../app/utils/date.ts'
 import * as images from '../app/utils/safeImageUrl.ts'
 import * as upcoming from '../app/utils/upcomingMovies.ts'
+import * as grouping from '../app/utils/watchlistGrouping.ts'
 import * as sorting from '../app/utils/watchlistSort.ts'
 import * as tagging from '../app/utils/watchlistTags.ts'
 
@@ -1013,7 +1014,15 @@ class TestSelect {
 
 interface PageInteractions {
   selectedTag: ReturnType<typeof ref<string>>
+  displayMode: ReturnType<typeof ref<'list' | 'tags'>>
+  savedSections: ReturnType<typeof computed<grouping.WatchlistGroup[]>>
   openTagEditor: ReturnType<typeof ref<string>>
+  assignTag: (
+    slug: string,
+    tagId: string,
+    assigned: boolean,
+    input: TestSelect,
+  ) => Promise<void>
   sortedItems: ReturnType<typeof computed<AccountWatchlist['items']>>
   changeSort: (event: { target: unknown }) => Promise<void>
   panelOpen: ReturnType<typeof ref<boolean>>
@@ -1060,7 +1069,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { selectedTag, openTagEditor, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { selectedTag, displayMode, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -1075,7 +1084,9 @@ async function pageFixture() {
             ? sorting
             : id === '~/utils/watchlistTags'
               ? tagging
-              : errors,
+              : id === '~/utils/watchlistGrouping'
+                ? grouping
+                : errors,
         computed,
         HTMLSelectElement: TestSelect,
         ref,
@@ -1121,6 +1132,122 @@ async function pageFixture() {
       f.stop()
     },
   }
+}
+
+test('grouped page keeps one rendered picker identity and closes it on view/filter changes', async () => {
+  const f = await pageFixture()
+  try {
+    const snapshot = value('2')
+    snapshot.tags = [
+      { id: '1', name: 'Amis', color: 'blue' },
+      { id: '2', name: 'Famille', color: 'rose' },
+    ]
+    snapshot.items[0]!.tag_ids = ['1', '2']
+    f.setResponse(snapshot)
+    await f.account.revalidate()
+    assert.equal(f.page.displayMode.value, 'list')
+    f.page.displayMode.value = 'tags'
+    await nextTick()
+    assert.deepEqual(
+      f.page.savedSections.value.map((section) => section.id),
+      ['tag-1', 'tag-2'],
+    )
+    f.page.openTagEditor.value = 'tag-1:film-1'
+    f.page.selectedTag.value = '2'
+    await nextTick()
+    assert.equal(f.page.openTagEditor.value, '')
+    assert.deepEqual(
+      f.page.savedSections.value.map((section) => section.id),
+      ['tag-2'],
+    )
+    f.page.openTagEditor.value = 'tag-2:film-1'
+    f.page.displayMode.value = 'list'
+    await nextTick()
+    assert.equal(f.page.openTagEditor.value, '')
+    assert.equal(f.page.selectedTag.value, '2')
+    assert.equal(f.tagPosts.length, 0)
+    assert.equal(f.sortPosts.length, 0)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const transition of [
+  'removed-instance',
+  'retained-instance',
+  'view',
+  'filter',
+  'owner',
+  'departure',
+  'moved-focus',
+] as const) {
+  test(`grouped assignment restores focus only within valid rendered instance: ${transition}`, async () => {
+    const f = await pageFixture()
+    try {
+      const snapshot = value('2')
+      snapshot.tags = [
+        { id: '1', name: 'Amis', color: 'blue' },
+        { id: '2', name: 'Famille', color: 'rose' },
+      ]
+      snapshot.items[0]!.tag_ids = ['1', '2']
+      f.setResponse(snapshot)
+      await f.account.revalidate()
+      f.page.displayMode.value = 'tags'
+      await nextTick()
+      f.page.openTagEditor.value = 'tag-1:film-1'
+      const input = new TestSelect('1')
+      f.pageDocument.activeElement = input
+      const pending = deferred<AccountWatchlist>()
+      f.setTagWrite(() => pending.promise)
+      const removing = transition !== 'retained-instance'
+      const write = f.page.assignTag(
+        'film-1',
+        removing ? '1' : '2',
+        false,
+        input,
+      )
+      // Native disabled controls lose focus; the DOM unmounts only the removed copy.
+      f.pageDocument.activeElement = f.pageDocument.body
+      input.isConnected = !removing
+      if (transition === 'view') f.page.displayMode.value = 'list'
+      if (transition === 'filter') f.page.selectedTag.value = '2'
+      if (transition === 'owner') f.admit(session('bob'))
+      if (transition === 'departure') f.page.clearPageSearch()
+      if (transition === 'moved-focus') f.pageDocument.activeElement = {}
+      await nextTick()
+      const committed = {
+        ...snapshot,
+        revision: '3',
+        items: snapshot.items.map((item) => ({
+          ...item,
+          tag_ids: [removing ? '2' : '1'],
+        })),
+      }
+      pending.resolve(committed)
+      await write
+      assert.equal(f.tagPosts.length, 1)
+      if (transition === 'removed-instance') {
+        assert.equal(f.page.openTagEditor.value, '')
+        assert.equal(f.focused, 'tagFilter')
+        assert.deepEqual(
+          f.page.savedSections.value.map((section) => section.id),
+          ['tag-2'],
+        )
+      } else if (transition === 'retained-instance') {
+        assert.equal(f.page.openTagEditor.value, 'tag-1:film-1')
+        assert.equal(input.focusCalls, 1)
+        assert.equal(f.focused, '')
+      } else {
+        assert.equal(input.focusCalls, 0)
+        assert.equal(f.focused, '')
+        assert.equal(f.page.openTagEditor.value, '')
+      }
+      if (transition === 'owner' || transition === 'departure')
+        assert.equal(f.page.displayMode.value, 'list')
+    } finally {
+      f.stop()
+    }
+  })
 }
 
 test('search panel opens only on submit, bounds height and supports roving tabs', async () => {

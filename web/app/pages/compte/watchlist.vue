@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ArrowDownUp, X } from '@lucide/vue'
+import { ArrowDownUp, List, Tags, X } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
+import { groupWatchlistItems } from '~/utils/watchlistGrouping'
 import { sortWatchlistItems, watchlistSortOptions } from '~/utils/watchlistSort'
 import { sortWatchlistTags } from '~/utils/watchlistTags'
 
@@ -22,6 +23,7 @@ const {
   owner,
 } = watchlist
 const selectedTag = ref('')
+const displayMode = ref<'list' | 'tags'>('list')
 const openTagEditor = ref('')
 const tagScope = ref(0)
 const tagFilter = useTemplateRef('tagFilter')
@@ -41,6 +43,20 @@ const sortedItems = computed(() =>
       )
     : [],
 )
+const savedSections = computed(() =>
+  displayMode.value === 'tags'
+    ? groupWatchlistItems(
+        sortedItems.value,
+        sortedTags.value,
+        selectedTag.value,
+      )
+    : [{ id: 'list', name: '', items: sortedItems.value }],
+)
+const rowKey = (sectionId: string, slug: string) => `${sectionId}:${slug}`
+watch([selectedTag, displayMode], () => {
+  openTagEditor.value = ''
+  tagInteraction++
+})
 watch(tags, () => {
   if (
     selectedTag.value &&
@@ -48,8 +64,14 @@ watch(tags, () => {
   )
     selectedTag.value = ''
 })
-watch(sortedItems, () => {
-  if (!sortedItems.value.some((item) => item.slug === openTagEditor.value))
+watch(savedSections, () => {
+  if (
+    !savedSections.value.some((section) =>
+      section.items.some(
+        (item) => rowKey(section.id, item.slug) === openTagEditor.value,
+      ),
+    )
+  )
     openTagEditor.value = ''
 })
 
@@ -71,8 +93,7 @@ async function assignTag(
     document.activeElement !== document.body
   )
     return
-  if (!sortedItems.value.some((item) => item.slug === slug))
-    tagFilter.value?.focus({ preventScroll: true })
+  if (!input.isConnected) tagFilter.value?.focus({ preventScroll: true })
   else if (input.isConnected && !input.disabled)
     input.focus({ preventScroll: true })
 }
@@ -210,6 +231,7 @@ function clearPageSearch() {
   panelOpen.value = false
   watchlist.clearSearch()
   selectedTag.value = ''
+  displayMode.value = 'list'
   openTagEditor.value = ''
   tagScope.value++
 }
@@ -494,7 +516,34 @@ onBeforeRouteLeave(clearPageSearch)
         </div>
       </form>
       <section aria-labelledby="saved-heading">
-        <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
+          <div
+            role="group"
+            aria-label="Affichage des films"
+            class="inline-flex shrink-0 border-2 border-ink bg-surface"
+          >
+            <button
+              v-for="mode in ([{ value: 'list', label: 'Liste' }, { value: 'tags', label: 'Par tag' }] as const)"
+              :key="mode.value"
+              type="button"
+              :aria-pressed="displayMode === mode.value"
+              :disabled="!ready"
+              class="relative inline-flex min-h-12 min-w-27 items-center justify-center gap-2 px-4 font-mono text-xs font-black uppercase tracking-[0.08em] not-first:border-l-2 not-first:border-ink focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ink focus-visible:ring-offset-0 disabled:opacity-50"
+              :class="displayMode === mode.value ? 'bg-ink text-surface shadow-[inset_0_-4px_0_var(--color-highlight)]' : 'bg-surface text-ink enabled:hover:bg-subtle'"
+              @click="displayMode = mode.value"
+            >
+              <component
+                :is="mode.value === 'list' ? List : Tags"
+                :size="18"
+                class="shrink-0"
+                aria-hidden="true"
+                focusable="false"
+              />
+              {{ mode.label }}
+            </button>
+          </div>
+        </div>
         <div
           class="mt-4 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
         >
@@ -580,33 +629,57 @@ onBeforeRouteLeave(clearPageSearch)
         </div>
         <!-- Keep the committed rows mounted while an open picker reconciles a write.
              Shared write guards stay active; scope invalidation clears the picker. -->
-        <ul v-else-if="ready || openTagEditor">
-          <WatchlistMovieRow
-            v-for="movie in sortedItems"
-            :key="movie.slug"
-            :title="movie.title"
-            :slug="movie.slug"
-            :poster-url="movie.poster_url"
-            :french-release-date="movie.french_release_date"
+        <div
+          v-else-if="ready || openTagEditor"
+          :class="displayMode === 'tags' ? 'mt-6 space-y-8' : ''"
+        >
+          <component
+            :is="displayMode === 'tags' ? 'section' : 'div'"
+            v-for="section in savedSections"
+            :key="section.id"
+            :aria-labelledby="displayMode === 'tags' ? `watchlist-group-${section.id}` : undefined"
           >
-            <template #content>
-              <WatchlistItemTags
+            <h3
+              v-if="displayMode === 'tags'"
+              :id="`watchlist-group-${section.id}`"
+              class="flex items-baseline gap-2 text-lg font-bold"
+            >
+              <span class="min-w-0 [overflow-wrap:anywhere]">{{
+                section.name
+              }}</span>
+              <span class="text-sm font-normal text-muted"
+                >({{ section.items.length }})</span
+              >
+            </h3>
+            <ul>
+              <WatchlistMovieRow
+                v-for="movie in section.items"
+                :key="movie.slug"
                 :title="movie.title"
-                :tags="sortedTags"
-                :tag-ids="movie.tag_ids"
-                :open="openTagEditor === movie.slug"
-                :blocked="writesBlocked"
-                :error="error"
-                :retry-blocked="watchlist.saving.value || watchlist.loading.value"
-                @toggle="openTagEditor = openTagEditor === movie.slug ? '' : movie.slug"
-                @close="openTagEditor = ''"
-                @retry="watchlist.retry"
-                @assign="(tagId, assigned, input) => assignTag(movie.slug, tagId, assigned, input)"
-              />
-            </template>
-            <WatchlistButton :slug="movie.slug" :show-error="false" />
-          </WatchlistMovieRow>
-        </ul>
+                :slug="movie.slug"
+                :poster-url="movie.poster_url"
+                :french-release-date="movie.french_release_date"
+              >
+                <template #content>
+                  <WatchlistItemTags
+                    :title="movie.title"
+                    :tags="sortedTags"
+                    :tag-ids="movie.tag_ids"
+                    :open="openTagEditor === rowKey(section.id, movie.slug)"
+                    :blocked="writesBlocked"
+                    :error="error"
+                    :retry-blocked="watchlist.saving.value || watchlist.loading.value"
+                    @toggle="openTagEditor = openTagEditor === rowKey(section.id, movie.slug) ? '' : rowKey(section.id, movie.slug)"
+                    @close="openTagEditor = ''"
+                    @retry="watchlist.retry"
+                    @assign="(tagId, assigned, input) => assignTag(movie.slug, tagId, assigned, input)"
+                  />
+                </template>
+                <WatchlistButton :slug="movie.slug" :show-error="false" />
+              </WatchlistMovieRow>
+            </ul>
+          </component>
+        </div>
       </section>
     </div>
     <NuxtLink
