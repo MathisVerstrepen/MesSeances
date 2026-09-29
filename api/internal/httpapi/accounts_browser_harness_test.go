@@ -211,6 +211,7 @@ func newBrowserHarness(t *testing.T, origin string) *browserHarness {
 		s.EndTime = s.StartTime.Add(100 * time.Minute)
 		s.Movie.PosterURL, s.BookingURL, s.Movie.Enrichment = "", "", nil
 	}
+	persistBrowserCatalog(t, ctx, pool, &data)
 	catalog, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{DefaultCity: "Lille"})
 	if err != nil {
 		t.Fatal("browser harness catalog unavailable")
@@ -220,6 +221,48 @@ func newBrowserHarness(t *testing.T, origin string) *browserHarness {
 		Admin:    AdminOptions{Password: browserHarnessAdminPassword, SessionSecret: string(hmacKey)},
 	})
 	return h
+}
+
+// Keep synthetic showtimes in memory, but give public pages and account APIs
+// the same database-allocated canonical identities. No provider snapshot or
+// persisted showtime is needed for this test-only catalog.
+func persistBrowserCatalog(t *testing.T, ctx context.Context, pool *pgxpool.Pool, data *schedule.Dataset) {
+	t.Helper()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal("browser catalog transaction unavailable")
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	ids := make(map[string]int64)
+	for i := range data.Showtimes {
+		movie := &data.Showtimes[i].Movie
+		provider := movie.Provider
+		if provider == "" {
+			provider = data.Provider
+		}
+		key := string(provider) + ":" + movie.ProviderID
+		id, exists := ids[key]
+		if !exists {
+			genres := append([]string{}, movie.Genres...)
+			var updatedAt time.Time
+			err = tx.QueryRow(ctx, `INSERT INTO public_movies(identity_anchor_provider,identity_anchor_source_movie_id,title,runtime_minutes,overview,release_date,genres)
+ VALUES($1,$2,$3,$4,NULLIF($5,''),NULLIF($6,'')::date,$7) RETURNING id,updated_at`, provider, movie.ProviderID, movie.Title, movie.RuntimeMinutes, movie.Overview, movie.ReleaseDate, genres).Scan(&id, &updatedAt)
+			if err != nil {
+				t.Fatal("browser catalog movie persistence failed")
+			}
+			if _, err = tx.Exec(ctx, `INSERT INTO movie_slug_aliases(slug,public_movie_id,alias_kind,source_provider,source_movie_id) VALUES($1,$2,'source',$3,$4)`, movie.Slug, id, provider, movie.ProviderID); err != nil {
+				t.Fatal("browser catalog alias persistence failed")
+			}
+			ids[key] = id
+			data.PublicMovies = append(data.PublicMovies, schedule.PublicMovieRecord{ID: id, IdentityAnchorProvider: provider, IdentityAnchorSourceID: movie.ProviderID, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, Overview: movie.Overview, ReleaseDate: movie.ReleaseDate, Genres: genres, UpdatedAt: updatedAt.UTC()})
+			data.MovieSources = append(data.MovieSources, schedule.PublicMovieSourceRecord{Provider: provider, SourceMovieID: movie.ProviderID, PublicMovieID: id, SourceSlug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, Overview: movie.Overview, ReleaseDate: movie.ReleaseDate, Genres: genres})
+			data.MovieAliases = append(data.MovieAliases, schedule.MovieSlugAliasRecord{Slug: movie.Slug, PublicMovieID: id, Kind: "source", Provider: provider, SourceMovieID: movie.ProviderID})
+		}
+		movie.Provider, movie.PublicMovieID = provider, id
+	}
+	if err = tx.Commit(ctx); err != nil {
+		t.Fatal("browser catalog publication failed")
+	}
 }
 
 func (h *browserHarness) serve(t *testing.T, port string) {

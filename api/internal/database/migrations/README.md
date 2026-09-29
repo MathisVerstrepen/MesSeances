@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [049_account_theater_preferences.sql](049_account_theater_preferences.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [055_account_watchlist_preferences.sql](055_account_watchlist_preferences.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -40,7 +40,9 @@ public_movies
   <- public_movie_sources
   <- movie_slug_aliases
    <- public_movie_metadata_overrides
-   <- tmdb_upcoming_movies
+    <- tmdb_upcoming_movies
+    <- tmdb_catalog_imports
+    <- account_watchlist_items -> accounts
   <- public_movies.redirect_to_id
 local_movie_groups <-> local_movie_group_members
 sync_schedules <- sync_schedule_occurrence_claims
@@ -79,7 +81,7 @@ Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and
 
 ## Account tables
 
-Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql), [045_account_registration_binding.sql](045_account_registration_binding.sql), [046_account_avatars.sql](046_account_avatars.sql), [047_account_avatar_webp.sql](047_account_avatar_webp.sql) and [049_account_theater_preferences.sql](049_account_theater_preferences.sql). Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
+Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql), [045_account_registration_binding.sql](045_account_registration_binding.sql), [046_account_avatars.sql](046_account_avatars.sql), [047_account_avatar_webp.sql](047_account_avatar_webp.sql), [049_account_theater_preferences.sql](049_account_theater_preferences.sql) and [050_account_watchlist.sql](050_account_watchlist.sql). Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
 
 | Table | Columns and constraints |
 | --- | --- |
@@ -92,10 +94,45 @@ Accounts are independent of schedule generations, administrator authentication a
 | `account_oauth_flows` | State digest PK; browser digest; nonce; encrypted verifier key ID/12-byte nonce/ciphertext; mode (`login`, `link`, `reauth`); nullable account/session/revision/grant/action bindings; created/expiry times with maximum 10 minutes; nullable `claimed_at` inside lifetime; nullable normalized `target_email` iff email-change action; monotonic `authority_event`. Anonymous login has no account bindings; link/reauth require them; linking also requires Google-link grant. |
 | `account_mail_outbox` | Identity ID PK; UNIQUE 32-byte `event_digest`; nullable account/token/revision; checked purpose; encrypted payload key/nonce/ciphertext; state (`pending`, `sent`, `failed`); attempts 0-6; created/expiry/next-attempt; nullable lease expiry/digest and terminal time. Lifetime at most 24 hours. Pending state requires encrypted payload; terminal state requires payload/lease erasure and finish time. |
 | `account_mail_suppressions` | 32-byte address-HMAC PK; reason (`permanent_bounce`, `complaint`); created/updated/expiry times. Expiry at most 4320 hours after update. No account FK; remains personal/security data. |
-| `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username, email change, `avatar_write` and `avatar_import`. |
+| `account_rate_limits` | Purpose, HMAC key, window start and window seconds form PK; positive count; expiry. Windows 60/900/3600/86400 seconds; retention at most 48 hours from window start. Checked purposes cover login, verification/reset sending, step-up, Google start, token confirmation, username, email change, `avatar_write`, `avatar_import`, `watchlist_write`, `watchlist_search`, `watchlist_import` and `watchlist_release_fetch`. The latter uses one global HMAC key and a 60-attempt/60-second fixed window across accounts and replicas. |
 | `account_theater_preferences` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `theater_ids text[]` validated by `account_theater_ids_valid`. Missing row means never initialized, distinct from an existing row with empty array. No FK to generation-scoped theaters. |
+| `account_watchlist_state` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `sort_order text NOT NULL DEFAULT 'added_desc'`, checked against `added_desc`, `added_asc`, `title_asc`, `title_desc`, `release_desc`, `release_asc`; `view_mode text NOT NULL DEFAULT 'list'`, checked against `list`, `tags`; nullable `filter_tag_id bigint`, default NULL. Composite `(account_id, filter_tag_id)` FK to `account_watchlist_tags(account_id, id)` with `ON DELETE SET NULL (filter_tag_id)` preserves the account key/state. Missing row reads as revision 0, default sort and list/all films; reads and unchanged mutations never initialize it. |
+| `account_watchlist_items` | Composite PK `(account_id, public_movie_id)`; account FK with `ON DELETE CASCADE`; durable `public_movies(id)` FK with default no-action deletion; `added_at timestamptz` default `now()`. No generation-scoped movie FK, slug, title or metadata copy. |
+| `account_watchlist_tags` | Composite PK `(account_id, id)`; account FK with `ON DELETE CASCADE`; positive `id bigint GENERATED ALWAYS AS IDENTITY`; nonblank `name text` of 1-40 characters; nonblank `name_key text COLLATE "C"` of 1-120 characters; UNIQUE `(account_id, name_key)`; `color text NOT NULL DEFAULT 'neutral'`, checked against `neutral`, `red`, `amber`, `green`, `teal`, `blue`, `violet`, `rose`. Names, keys and colors are private account data. |
+| `account_watchlist_item_tags` | Composite PK `(account_id, public_movie_id, tag_id)`; composite ownership FKs to `account_watchlist_items(account_id, public_movie_id)` and `account_watchlist_tags(account_id, id)`, both `ON DELETE CASCADE`; lookup index `(account_id, tag_id)`. No generation-scoped FK or copied metadata. |
 
 All account ownership foreign keys cascade except username claims. Composite session/account and token/account foreign keys prevent cross-account binding; their deletion cascades dependent grants, flows and queued mail. Account-associated outbox rows cascade on deletion. Terminal delivery metadata is detached from account/token authority. Suppressions and quota HMACs have independent bounded retention.
+
+Watchlist writes serialize on the account row and compare revisions before no-op detection. Application enforces at most 1,000 stored membership rows per account; SQL does not implement a counting trigger. Reads resolve redirect chains to current canonical movies, collapse duplicates with earliest `added_at`, and sort newest first with canonical-slug tie breaking. Removal deletes all owner rows resolving to the selected canonical identity. Splits follow each saved durable ID without duplication. Reconciliation does not lock or rewrite account rows. No accounts are backfilled by migration 050.
+
+Migration 052 adds the default sort to existing state without changing revisions, membership or addition times; accounts without state remain absent. Membership and sort share one revision. Changing either advances it once, while membership/import writes preserve sort. The preference survives removal of the last item and cascades on account deletion. SQL item ordering remains unchanged; only the browser applies the saved-list preference.
+
+Tag definitions and assignments share that same account lock, revision and `watchlist_write` quota. The service caps definitions at 50 per account and existing membership at 1,000 stored rows, bounding associations at 50,000; no counting trigger is installed. Normalization rejects invalid UTF-8, Unicode controls and line/paragraph separators, collapses Unicode whitespace, NFC-normalizes display text, then computes a Unicode-case-folded NFC key. SQL enforces lengths, nonblank values and owner uniqueness; application enforces normalized input. Migration 053 creates empty tables without backfilling state, altering existing revisions/sort/membership or touching catalog publication.
+
+Saved-item projections union distinct tag IDs across the same resolved durable rows that determine canonical membership and earliest addition time, in one statement. Tag definitions and IDs are returned in numeric-ID order. Assignments acquire the catalog writer lock after account/session authorization and revision comparison. Assigning an already-present union tag is a no-op; a new assignment attaches once to the earliest `added_at` row with numeric saved-ID ties. Unassigning clears all contributing rows. Splits follow stored associations without fan-out; reconciliation still never touches private rows. Film removal cascades assignments but preserves reusable tags; re-adding starts untagged. Tag deletion preserves films and cascades only assignments. Account deletion cascades all private tag data. A first tag can initialize revision 1 with default sort on an empty list; deleting the last tag does not reset state.
+
+Migration 054 adds neutral color to existing tags without changing names, keys, IDs, assignments, revisions, sort, addition times or absent watchlist state. The default also applies to direct SQL inserts, but the private API requires an explicit exact palette value. Name and color updates are atomic under the same watchlist CAS; only an unchanged normalized name and unchanged color are a no-op. Colors are definition-only data and do not affect canonical assignment resolution or publication.
+
+Migration 055 gives existing state `view_mode='list'` and NULL filter without changing revision, sort, membership, addition times, tags/colors/assignments or public data, and does not initialize absent state. View mode and selected owned tag are saved as one pair under the existing account lock and shared revision. Revision comparison precedes owned-tag lookup and no-op detection. Unchanged pairs succeed even at maximum revision; actual changes fail there without mutation. Other mutations preserve the pair. Selected-tag deletion clears only the filter through the FK in the same transaction as assignment deletion and the service's single revision increment; exhausted-revision rollback restores all three. Deleting an unselected tag or removing/unassigning its last film does not reset a surviving selection. Mode, sort and state survive empty lists and last-tag deletion; account deletion cascades private state through its existing account FK, without deleting public movies. No preference trigger, separate revision, backfill job or public API field is added.
+
+### `tmdb_french_release_cache`
+
+Migration 051 creates empty reusable TMDB evidence storage, not public publication evidence or an account backfill. It has no foreign keys, account attribution or raw provider responses and survives account deletion. Only currently saved canonical confirmed TMDB identities are eligible for acquisition.
+
+| Column | Type | Definition |
+| --- | --- | --- |
+| `tmdb_id` | `bigint` | Positive primary key |
+| `french_release_date` | `date` | Nullable earliest verified FR type-2/3 date |
+| `french_releases` | `jsonb` | Nonnull default `[]`; array of at most 64 normalized `{type,date,note}` rows |
+| `verified_at` | `timestamptz` | Nullable; null means no successful observation, not a negative observation |
+| `retry_after` | `timestamptz` | Required persistent claim/backoff/freshness deadline |
+| `attempt_revision` | `bigint` | Required claim revision between 1 and 9,007,199,254,740,991; conditional finalization fence |
+
+An unverified row must have null date and empty evidence. Application normalizes and validates types 1..6, full calendar dates and notes up to 1,024 Unicode code points, then derives the earliest theatrical date before successful writes. Claims increment revision and reserve 15 minutes; success retains positive evidence for 30 days or valid negative evidence for seven days before refresh. Provider errors preserve previous evidence; 404 backs off 24 hours without creating a negative observation. Saved reads and refresh eligibility select the newest verified observation between this cache and upcoming evidence, with upcoming winning ties. Upcoming positives are valid even before structured assessment; upcoming nulls count only after assessment. A newer negative suppresses an older positive. Cache updates never advance membership, schedule or enrichment revisions or create upcoming membership.
+
+### `tmdb_catalog_imports`
+
+Public import evidence is independent of account lifetime and French theatrical-release evidence. Columns are positive `tmdb_id bigint` primary key, `public_movie_id bigint` FK to durable `public_movies(id)` with default no-action deletion, and required `published_at timestamptz`. No importing account, attribution or private membership data is stored. Application admits only Details explicitly classified `adult=false`, stores validated metadata and reconciles canonical identity in the same transaction as private membership. Imported pages survive watchlist removal and account deletion. Reconciliation retargets this evidence alongside upcoming evidence; metadata refresh enumerates both. Neither evidence nor its timestamp implies provider synchronization or completed upcoming discovery.
 
 `account_theater_ids_valid(text[])` is an immutable strict SQL function enforcing at most 4,096 distinct nonnull IDs, each matching `^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$` under `C` collation. Nonempty arrays must be one-dimensional with lower bound 1; empty arrays are valid. The application stores IDs in canonical ASCII order, uses account-row serialization and revision comparison for concurrent updates, and preserves syntactically valid IDs that are absent from the current schedule. Preference revisions do not change authentication revisions or invalidate sessions. No existing accounts are backfilled by migration 049.
 
@@ -540,6 +577,8 @@ All indexes below use PostgreSQL's default B-tree method. Primary-key and unique
 | `public_movies_anchor_key` | `public_movies` | `identity_anchor_provider, identity_anchor_source_movie_id` | Unique where `redirect_to_id IS NULL` |
 | `public_movies_tmdb_anchor_key` | `public_movies` | `identity_anchor_tmdb_id` | Unique where `redirect_to_id IS NULL` |
 | `tmdb_upcoming_movies_public_movie_id_idx` | `tmdb_upcoming_movies` | `public_movie_id` | Nonunique |
+| `tmdb_catalog_imports_public_movie_id_idx` | `tmdb_catalog_imports` | `public_movie_id` | Nonunique |
+| `account_watchlist_items_movie_idx` | `account_watchlist_items` | `public_movie_id` | Nonunique |
 | `tmdb_upcoming_movies_release_date_idx` | `tmdb_upcoming_movies` | `french_release_date, public_movie_id` | Nonunique where `active` |
 | `public_movie_sources_public_movie_id_idx` | `public_movie_sources` | `public_movie_id` | Nonunique |
 | `movie_slug_aliases_public_movie_id_idx` | `movie_slug_aliases` | `public_movie_id` | Nonunique |

@@ -597,6 +597,66 @@ test('settings API uses exact actions, same-origin privacy and empty 202/204 bod
   ])
 })
 
+test('watchlist wire uses same-origin private requests, decimal revisions and exact POST bodies', async () => {
+  const calls: { path: string; body: unknown }[] = []
+  const transport = createFetch({
+    fetch: async (input, options) => {
+      const path = String(input)
+      assert.equal(options?.credentials, 'same-origin')
+      assert.equal(options?.cache, 'no-store')
+      assert.equal(options?.redirect, 'error')
+      if (options?.method === 'POST')
+        assert.equal(new Headers(options.headers).get('X-Messeances-CSRF'), '1')
+      calls.push({
+        path,
+        body: options?.body ? JSON.parse(String(options.body)) : undefined,
+      })
+      return Response.json({})
+    },
+    Headers,
+    AbortController,
+  })
+  const exports = await compile('../app/composables/useAccountApi.ts', {
+    useRuntimeConfig: () => ({ public: {} }),
+    require: (name: string) =>
+      name === 'ofetch'
+        ? { ofetch: transport, FetchError }
+        : { AccountApiError },
+  })
+  assert.ok(exports.useAccountApi)
+  const api = exports.useAccountApi()
+  const expected = {
+    expected_username: 'owner',
+    expected_revision: '9007199254740993',
+  }
+  await api.watchlist()
+  await api.saveWatchlist({
+    ...expected,
+    movie_slug: 'canonical-film',
+    saved: 'true',
+  })
+  await api.searchWatchlist({
+    expected_username: 'owner',
+    query: 'Private search',
+  })
+  await api.importWatchlist({ ...expected, tmdb_id: '123' })
+  assert.deepEqual(calls, [
+    { path: '/api/v1/account/watchlist', body: undefined },
+    {
+      path: '/api/v1/account/watchlist',
+      body: { ...expected, movie_slug: 'canonical-film', saved: 'true' },
+    },
+    {
+      path: '/api/v1/account/watchlist/search',
+      body: { expected_username: 'owner', query: 'Private search' },
+    },
+    {
+      path: '/api/v1/account/watchlist/import',
+      body: { ...expected, tmdb_id: '123' },
+    },
+  ])
+})
+
 test('failed writes never retry or retain credential-bearing request errors', async () => {
   let attempts = 0
   const transport = createFetch({

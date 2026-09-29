@@ -44,7 +44,7 @@ function evaluate(source: string, globals: Context) {
   return exports
 }
 
-test('home renders one available section without initializing settings data or secrets', async () => {
+test('home renders settings and watchlist without initializing settings data or secrets', async () => {
   const session = ref<AccountSession | null>({
     enabled: true,
     state: 'complete',
@@ -79,20 +79,21 @@ test('home renders one available section without initializing settings data or s
       props: ['to', 'prefetch'],
       template: '<a :href="to"><slot /></a>',
     })
-    for (const icon of ['Settings', 'ChevronRight'])
+    for (const icon of ['WatchlistIcon', 'Settings', 'ChevronRight'])
       app.component(icon, { template: '<svg />' })
     return renderToString(app)
   }
   const html = await render()
   assert.equal(title, 'Mon compte - MesSeances')
   assert.match(html, /<h1>Mon compte<\/h1>/)
-  assert.equal([...html.matchAll(/<li>/g)].length, 1)
+  assert.equal([...html.matchAll(/<li>/g)].length, 2)
+  assert.match(html, /href="\/compte\/watchlist"/)
   assert.match(html, /href="\/compte\/parametres"/)
   assert.match(home, /:prefetch="false"/)
   assert.match(home, /min-h-12/)
   assert.doesNotMatch(
     home,
-    /useAccount(?:Api|Details|PasswordAction|Google|Secrets)|AccountAvatar|Watchlist|Amis/,
+    /useAccount(?:Api|Details|PasswordAction|Google|Secrets)|AccountAvatar|Amis/,
   )
   assert.doesNotMatch(html, /<input|<form|Reprendre la connexion/)
   for (const [next, destination] of [
@@ -132,13 +133,18 @@ test('desktop settings selection follows exact normalized route, not account hom
     assert.equal(active.value, path.toLowerCase().includes('/parametres'))
     const app = createSSRApp({
       render: compile(descriptor.template!.content),
-      setup: () => ({ settingsActive: active, upcomingEntries: [] }),
+      setup: () => ({
+        settingsActive: active,
+        watchlistActive: false,
+        upcomingEntries: [],
+      }),
     })
     app.component('NuxtLink', {
       props: ['to', 'prefetch'],
       template: '<a :href="to"><slot /></a>',
     })
     app.component('Settings', { template: '<svg />' })
+    app.component('WatchlistIcon', { template: '<svg />' })
     const html = await renderToString(app)
     assert.equal(html.includes('aria-current="page"'), active.value)
     assert.match(html, /href="\/compte\/parametres"/)

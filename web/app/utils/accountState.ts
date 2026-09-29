@@ -65,6 +65,26 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Trop de tentatives. Patientez un instant avant de réessayer.'
   if (cause.code === 'theater_selection_changed')
     return 'Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer.'
+  if (cause.code === 'watchlist_changed')
+    return 'Votre watchlist a changé sur un autre appareil. Vérifiez son contenu avant de recommencer.'
+  if (cause.code === 'watchlist_tag_name_taken')
+    return 'Ce nom de tag existe déjà. Choisissez un autre nom.'
+  if (cause.code === 'watchlist_tag_limit_reached')
+    return 'Vous avez déjà 50 tags. Supprimez un tag avant d’en créer un autre.'
+  if (cause.code === 'watchlist_tag_not_found')
+    return 'Ce tag n’est plus disponible. Choisissez un tag dans la liste actualisée.'
+  if (cause.code === 'watchlist_movie_not_saved')
+    return 'Ce film n’est plus dans votre watchlist. Ajoutez-le avant de lui associer un tag.'
+  if (cause.code === 'watchlist_limit_reached')
+    return 'Votre watchlist contient déjà 1 000 films. Retirez un film avant d’en ajouter un autre.'
+  if (cause.code === 'watchlist_external_unavailable')
+    return 'La recherche externe est indisponible. Réessayez plus tard ou choisissez un film du catalogue.'
+  if (cause.code === 'watchlist_unavailable')
+    return 'La watchlist est indisponible. Vérifiez votre connexion, puis réessayez.'
+  if (cause.code === 'movie_not_found')
+    return 'Ce film n’est plus disponible. Relancez la recherche avant de recommencer.'
+  if (cause.code === 'movie_not_importable')
+    return 'Ce film ne peut pas être ajouté au catalogue. Choisissez un autre film.'
   if (cause.code === 'avatar_changed')
     return 'La photo a changé pendant cette action. Vérifiez son état avant de recommencer.'
   if (cause.code === 'avatar_too_large')

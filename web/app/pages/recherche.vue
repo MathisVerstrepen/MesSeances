@@ -27,6 +27,7 @@ import {
   singularQueryValue,
 } from '~/utils/routeQuery'
 import { buildSearchMetaDescription } from '~/utils/searchMetadata'
+import { partitionWatchlistResults } from '~/utils/watchlistResults'
 import { buildCompleteSearchShareTarget } from '~/utils/searchShareTarget'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
@@ -74,6 +75,15 @@ const ADS_BUFFER_MINUTES = 15
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
+const watchlist = useWatchlist()
+const watchlistOnly = ref(false)
+watch(
+  watchlist.scopeKey,
+  () => {
+    watchlistOnly.value = false
+  },
+  { flush: 'sync' },
+)
 const {
   activeTheaterIds,
   activeTheaters,
@@ -160,7 +170,7 @@ const routeSelectedOnly = computed(
 const selectedOnly = computed(
   () => selectedCount.value > 0 && routeSelectedOnly.value,
 )
-const visibleResults = computed(() =>
+const compatibleResults = computed(() =>
   selectedOnly.value
     ? filterSelectedShowtimeResults(
         normalizedResults.value,
@@ -170,6 +180,22 @@ const visibleResults = computed(() =>
         normalizedResults.value,
         selectedShowtimeKeys.value,
       ),
+)
+const personalizedPending = computed(
+  () => !!watchlist.owner.value && !watchlist.ready.value,
+)
+const resultSections = computed(() => {
+  if (personalizedPending.value) return []
+  if (!watchlist.owner.value)
+    return [{ key: 'public', title: '', results: compatibleResults.value }]
+  return partitionWatchlistResults(
+    compatibleResults.value,
+    watchlist.slugs.value,
+    watchlistOnly.value,
+  )
+})
+const visibleResults = computed(() =>
+  resultSections.value.flatMap((section) => section.results),
 )
 const shareTarget = computed(() => {
   const search = appliedSearch.value
@@ -1156,6 +1182,19 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </label>
 
           <label
+            v-if="watchlist.owner.value"
+            class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
+          >
+            <input
+              v-model="watchlistOnly"
+              type="checkbox"
+              class="size-4 accent-primary"
+              :disabled="!watchlist.ready.value"
+            >
+            <span>Ma watchlist uniquement</span>
+          </label>
+
+          <label
             v-if="selectedCount"
             class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
           >
@@ -1229,7 +1268,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               class="flex min-h-12 min-w-14 flex-col items-center justify-center px-2 font-mono font-black leading-none text-ink"
             >
               <span class="text-base">{{
-                results ? visibleResults.length : '-'
+                results && !personalizedPending ? visibleResults.length : '-'
               }}</span>
               <span class="mt-1 text-[9px] uppercase"
                 >séance{{ visibleResults.length === 1 ? '' : 's' }}</span
@@ -1299,7 +1338,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           >
             <div class="min-w-0">
               <p class="shrink-0 font-semibold text-ink">
-                {{ visibleResults.length }} séance{{
+                {{ personalizedPending ? '-' : visibleResults.length }} séance{{
                   visibleResults.length > 1 ? 's' : ''
                 }}
               </p>
@@ -1393,7 +1432,23 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <p class="max-w-lg">{{ errorMessage }}</p>
         </EditorialStatePanel>
         <EditorialStatePanel
-          v-else-if="results?.length === 0"
+          v-else-if="results && personalizedPending"
+          :semantic="watchlist.error.value ? 'alert' : 'status'"
+          size="tall"
+          shadow="medium"
+        >
+          <p>{{ watchlist.error.value || 'Chargement de votre watchlist…' }}</p>
+          <button
+            v-if="watchlist.error.value"
+            type="button"
+            class="mt-3 min-h-11 font-bold underline"
+            @click="watchlist.retry"
+          >
+            Réessayer
+          </button>
+        </EditorialStatePanel>
+        <EditorialStatePanel
+          v-else-if="results && visibleResults.length === 0"
           size="tall"
           shadow="medium"
           class="search-state font-extrabold"
@@ -1405,17 +1460,39 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               aria-hidden="true"
             /></template
           >
-          <p>Aucune séance ne tient entièrement dans ce créneau.</p>
+          <p>
+            {{
+              watchlistOnly ? 'Aucune séance de votre watchlist ne correspond à ces filtres.' : 'Aucune séance ne correspond à ce créneau et aux filtres sélectionnés.'
+            }}
+          </p>
+          <button
+            v-if="watchlistOnly"
+            type="button"
+            class="mt-3 min-h-11 font-bold underline"
+            @click="watchlistOnly = false"
+          >
+            Afficher aussi les autres films
+          </button>
         </EditorialStatePanel>
-        <ShowtimeResults
-          v-else-if="results"
-          :results="visibleResults"
-          :grouping="resultGrouping"
-          :layout="resultLayout"
-          scope="multi-theater"
-          :selected-keys="selectedShowtimeKeys"
-          @toggle-selection="toggleShowtimeSelection"
-        />
+        <div v-else-if="results" class="space-y-8">
+          <section
+            v-for="section in resultSections"
+            :key="section.key"
+            :aria-label="section.title || undefined"
+          >
+            <h3 v-if="section.title" class="mb-4 text-xl font-black text-ink">
+              {{ section.title }}
+            </h3>
+            <ShowtimeResults
+              :results="section.results"
+              :grouping="resultGrouping"
+              :layout="resultLayout"
+              scope="multi-theater"
+              :selected-keys="selectedShowtimeKeys"
+              @toggle-selection="toggleShowtimeSelection"
+            />
+          </section>
+        </div>
         <EditorialStatePanel
           v-else
           size="tall"

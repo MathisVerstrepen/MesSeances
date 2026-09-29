@@ -4,7 +4,11 @@ import "fmt"
 
 // ValidateCatalogOnlyDataset never weakens provider snapshot validation.
 func ValidateCatalogOnlyDataset(data Dataset) error {
-	if data.SchemaVersion != SchemaVersion || data.Timezone != Timezone || data.UpcomingCompletedAt.IsZero() || !data.GeneratedAt.Equal(data.UpcomingCompletedAt) || data.Provider != "" || data.Scope != "" || data.Window != (Window{}) || len(data.Theaters) != 0 || len(data.Showtimes) != 0 {
+	published := data.CatalogPublishedAt
+	if published.IsZero() {
+		published = data.UpcomingCompletedAt
+	}
+	if data.SchemaVersion != SchemaVersion || data.Timezone != Timezone || published.IsZero() || !data.GeneratedAt.Equal(published) || data.Provider != "" || data.Scope != "" || data.Window != (Window{}) || len(data.Theaters) != 0 || len(data.Showtimes) != 0 {
 		return fmt.Errorf("invalid catalog-only dataset")
 	}
 	return validatePublicMovieCatalog(data)

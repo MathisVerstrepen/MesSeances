@@ -1,6 +1,7 @@
 export default defineNuxtPlugin((nuxtApp) => {
   const account = useAccountSession()
   useCinemaPreferences().startSynchronization()
+  useWatchlist().startSynchronization()
   let active = true
   const refresh = () => {
     if (active) void account.refresh()
@@ -29,6 +30,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     channel.onmessage = (event) => {
       if (event.data === 'changed') refresh()
       if (event.data === 'theaters-changed') focus()
+      if (event.data === 'watchlist-changed') focus()
     }
   }
   nuxtApp.hook('app:mounted', () => {

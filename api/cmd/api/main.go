@@ -248,11 +248,15 @@ func run(ctx context.Context) error {
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
-	accountService, err := newAccountService(pool, cfg, avatars)
+	accountService, err := newAccountService(pool, cfg, avatars, admin.enrichmentProvider, admin.watchlistReleaseProvider, schedules.service.RefreshPublishedMovie)
 	if err != nil {
 		return err
 	}
 	if accountService != nil {
+		if admin.watchlistReleaseProvider != nil {
+			polling.Add(1)
+			go func() { defer polling.Done(); runAccountWatchlistReleases(workerCtx, accountService, logger) }()
+		}
 		polling.Add(1)
 		go func() { defer polling.Done(); runAccountAvatarCleanup(workerCtx, accountService, logger) }()
 		polling.Add(1)
@@ -302,18 +306,20 @@ func newScheduleRuntime(ctx context.Context, pool *pgxpool.Pool, logger *slog.Lo
 }
 
 type adminRuntime struct {
-	upcomingManager        *enrichment.UpcomingManager
-	options                httpapi.AdminOptions
-	enrichmentStore        *enrichment.PostgresStore
-	enrichmentProvider     enrichment.Provider
-	metadataRefreshManager *enrichment.MetadataRefreshManager
-	geocodingManager       *geocoding.Manager
+	upcomingManager          *enrichment.UpcomingManager
+	options                  httpapi.AdminOptions
+	enrichmentStore          *enrichment.PostgresStore
+	enrichmentProvider       enrichment.Provider
+	watchlistReleaseProvider accounts.WatchlistReleaseProvider
+	metadataRefreshManager   *enrichment.MetadataRefreshManager
+	geocodingManager         *geocoding.Manager
 }
 
 func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.Config, logger *slog.Logger, metrics *observability.Metrics) (adminRuntime, error) {
 	store := enrichment.NewPostgresStore(pool)
 	var provider adminTMDBProvider
 	var upcomingProvider enrichment.UpcomingProvider
+	var releaseProvider accounts.WatchlistReleaseProvider
 	if cfg.TMDB.Token != "" {
 		client, err := tmdb.NewClient(cfg.TMDB.Token)
 		if err != nil {
@@ -321,6 +327,7 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		}
 		provider = client
 		upcomingProvider = client
+		releaseProvider = client
 	}
 	gate := enrichment.NewTMDBRunGate()
 	options, metadataRefreshManager, err := newAdminOptions(ctx, cfg.Admin.Password, cfg.Admin.SessionSecret, store, provider, gate)
@@ -350,12 +357,13 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		options.TMDBUpcoming = upcomingManager
 	}
 	return adminRuntime{
-		upcomingManager:        upcomingManager,
-		options:                options,
-		enrichmentStore:        store,
-		enrichmentProvider:     provider,
-		metadataRefreshManager: metadataRefreshManager,
-		geocodingManager:       geocodingManager,
+		upcomingManager:          upcomingManager,
+		options:                  options,
+		enrichmentStore:          store,
+		enrichmentProvider:       provider,
+		watchlistReleaseProvider: releaseProvider,
+		metadataRefreshManager:   metadataRefreshManager,
+		geocodingManager:         geocodingManager,
 	}, nil
 }
 
@@ -548,7 +556,7 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 	})
 }
 
-func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *accountavatar.Store) (*accounts.Service, error) {
+func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *accountavatar.Store, provider accounts.WatchlistProvider, releases accounts.WatchlistReleaseProvider, refresh func(context.Context, string) error) (*accounts.Service, error) {
 	if !cfg.Accounts.Enabled {
 		return nil, nil
 	}
@@ -570,7 +578,9 @@ func newAccountService(pool *pgxpool.Pool, cfg runtimeconfig.Config, avatars *ac
 	service, err := accounts.NewService(accounts.NewPostgresStore(pool), accounts.ServiceOptions{
 		Hasher: hasher, Origin: cfg.Server.Origin, AddressHMACKey: cfg.Accounts.AddressHMACKey[:],
 		Google: google, FlowCipher: cipher, Mail: &accountmail.Outbox{Cipher: cipher},
-		Avatars: avatars,
+		Avatars:           avatars,
+		WatchlistProvider: provider, WatchlistRefresh: refresh,
+		WatchlistReleaseProvider: releases,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configuration error")

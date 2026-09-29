@@ -12,11 +12,12 @@ import (
 type Source interface{ Snapshot() *SnapshotView }
 
 type PostgresSource struct {
-	reader   SnapshotReader
-	view     atomic.Pointer[SnapshotView]
-	revision SnapshotRevision
-	logger   *slog.Logger
-	observer RefreshObserver
+	refreshGate chan struct{}
+	reader      SnapshotReader
+	view        atomic.Pointer[SnapshotView]
+	revision    SnapshotRevision
+	logger      *slog.Logger
+	observer    RefreshObserver
 }
 
 type RefreshObserver interface {
@@ -39,7 +40,7 @@ func NewPostgresSource(ctx context.Context, reader SnapshotReader, option ...Sou
 	if options.Logger == nil {
 		options.Logger = slog.New(slog.DiscardHandler)
 	}
-	source := &PostgresSource{reader: reader, logger: options.Logger, observer: options.Observer}
+	source := &PostgresSource{reader: reader, logger: options.Logger, observer: options.Observer, refreshGate: make(chan struct{}, 1)}
 	data, revision, err := reader.Load(ctx)
 	if err != nil {
 		if errors.Is(err, ErrNoCompleteSnapshot) {
@@ -83,6 +84,18 @@ func (s *PostgresSource) runTicks(ctx context.Context, ticks <-chan time.Time) {
 }
 
 func (s *PostgresSource) refresh(ctx context.Context) {
+	_ = s.Refresh(ctx)
+}
+
+// Refresh serializes polling and synchronous publication reads. Waiting is
+// cancellable, and a stale concurrent load can never replace a newer snapshot.
+func (s *PostgresSource) Refresh(ctx context.Context) error {
+	select {
+	case s.refreshGate <- struct{}{}:
+		defer func() { <-s.refreshGate }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	started := time.Now()
 	result := "unchanged"
 	stage, reason := "none", "none"
@@ -116,15 +129,15 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 			result = "check_failed"
 			reason = "read_failed"
 		}
-		return
+		return err
 	}
 	if currentRevision.ScheduleVersion < 0 || currentRevision.EnrichmentVersion < 0 || currentRevision.TheaterLocationVersion < 0 || currentRevision.ScheduleVersion == 0 && currentRevision.EnrichmentVersion == 0 {
 		result = "invalid_revision"
 		stage, reason = "revision_check", "invalid_revision"
-		return
+		return fmt.Errorf("invalid snapshot revision")
 	}
 	if currentRevision == s.revision {
-		return
+		return nil
 	}
 	loadCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	data, loadedRevision, err := s.reader.Load(loadCtx)
@@ -138,17 +151,17 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 			result = "load_failed"
 			reason = "read_failed"
 		}
-		return
+		return err
 	}
 	if loadedRevision.ScheduleVersion < 0 || loadedRevision.EnrichmentVersion < 0 || loadedRevision.TheaterLocationVersion < 0 || loadedRevision.ScheduleVersion == 0 && loadedRevision.EnrichmentVersion == 0 {
 		result = "invalid_revision"
 		stage, reason = "snapshot_load", "invalid_revision"
-		return
+		return fmt.Errorf("invalid snapshot revision")
 	}
 	if ValidateSnapshotDataset(data, loadedRevision) != nil {
 		result = "invalid_dataset"
 		stage, reason = "dataset_validation", "invalid_dataset"
-		return
+		return fmt.Errorf("invalid snapshot dataset")
 	}
 	view := NewSnapshotView(data, loadedRevision)
 	s.view.Store(view)
@@ -156,6 +169,7 @@ func (s *PostgresSource) refresh(ctx context.Context) {
 	s.setRevisionMetrics(loadedRevision)
 	s.setFreshnessMetrics(data)
 	result = "reloaded"
+	return nil
 }
 
 func (s *PostgresSource) setFreshnessMetrics(data Dataset) {
