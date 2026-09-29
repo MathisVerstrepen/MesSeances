@@ -31,7 +31,15 @@ func TestConfigAndProgramShapes(t *testing.T) {
 	if _, err := parseProgram([]byte(strings.Replace(programFixture, "ST,OCAP", "ST,OCAP,LAZER", 1)), c); err != nil {
 		t.Fatalf("laser program rejected: %v", err)
 	}
+	viProgram, err := parseProgram([]byte(strings.Replace(programFixture, "ST,OCAP", "VI", 1)), c)
+	if err != nil {
+		t.Fatalf("VI program rejected: %v", err)
+	}
+	if language, format, err := attributes(viProgram.Events[0].Sessions[0]); err != nil || language != schedule.LanguageVF || format != schedule.Format4DX {
+		t.Fatalf("VI program attributes: %s/%s, %v", language, format, err)
+	}
 	for _, replacement := range []struct{ from, to string }{
+		{`"ST,OCAP"`, `"VI,UNKNOWN"`},
 		{`"events":[`, `"other":[`}, {`"id":"123"`, `"id":"EMS0565"`}, {`"id":1`, `"id":2`}, {`"result":`, `"error":`}, {`"VF"`, `"UNKNOWN"`}, {`"ST,OCAP"`, `"ST,UNKNOWN"`}, {`"emsx056500000001"`, `"emsx131500000001"`}, {`"duration":"100"`, `"duration":-1`}, {`"first_part_duration":10`, `"first_part_duration":1.5`},
 	} {
 		if _, err := parseProgram([]byte(strings.Replace(programFixture, replacement.from, replacement.to, 1)), c); err == nil {
@@ -75,6 +83,9 @@ func TestAttributesAndParisTimes(t *testing.T) {
 		language         schedule.Language
 		format           schedule.Format
 	}{
+		{"VF", "VI", nil, schedule.LanguageVF, schedule.Format2D},
+		{"VF", "3D,VI", nil, schedule.LanguageVF, schedule.Format3D},
+		{"VO", "VI", nil, schedule.LanguageVO, schedule.Format2D},
 		{"VF", "LAZER", nil, schedule.LanguageVF, schedule.Format2D},
 		{"VO", "ST, LAZER,4K,ATMOS,HFR", nil, schedule.LanguageVOSTFR, schedule.Format2D},
 		{"VF", "LAZER,ST,OCAP", nil, schedule.LanguageVFSTF, schedule.Format2D},
