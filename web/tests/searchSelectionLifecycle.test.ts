@@ -11,6 +11,7 @@ import * as date from '../app/utils/date.ts'
 import * as routeQuery from '../app/utils/routeQuery.ts'
 import * as showtimeFilters from '../app/utils/showtimeFilters.ts'
 import * as showtimeResults from '../app/utils/showtimeResults.ts'
+import { partitionWatchlistResults } from '../app/utils/watchlistResults.ts'
 import { buildCompleteSearchShareTarget } from '../app/utils/searchShareTarget.ts'
 import { absoluteSiteUrl } from '../app/utils/siteUrl.ts'
 import { isValidShortLinkTarget } from '../app/utils/shortLinkTarget.ts'
@@ -41,6 +42,7 @@ interface PageState {
   isTheaterListOpen: Ref<boolean>
   pending: Ref<boolean>
   selectedOnly: Ref<boolean>
+  watchlistOnly: Ref<boolean>
   selectedCount: Ref<number>
   visibleResults: Ref<ShowtimeResultViewModel[]>
   shareTarget: Ref<string | null>
@@ -106,11 +108,19 @@ function harness(
   const activeTheaterIds = ref(['ugc-25', 'ugc-46', 'ugc-45'])
   const isInitialized = ref(true)
   const selectionScopeKey = ref(0)
+  const watchlist = {
+    owner: ref(''),
+    ready: ref(false),
+    scopeKey: ref(0),
+    slugs: ref(new Set<string>()),
+  }
   const bindings = {
     ...date,
     ...routeQuery,
     ...showtimeFilters,
     ...showtimeResults,
+    partitionWatchlistResults,
+    useWatchlist: () => watchlist,
     computed,
     reactive,
     ref,
@@ -152,7 +162,7 @@ function harness(
   const page = scope.run(() =>
     new Function(
       ...Object.keys(bindings),
-      `${compiled}\nreturn { form, draftTheaterIds, isTheaterListOpen, pending, selectedOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
+      `${compiled}\nreturn { form, draftTheaterIds, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
     )(...Object.values(bindings)),
   ) as PageState
   return {
@@ -161,10 +171,47 @@ function harness(
     activeTheaterIds,
     isInitialized,
     selectionScopeKey,
+    watchlist,
     stop: () => scope.stop(),
     searchCalls: () => searchCalls,
   }
 }
+
+test('watchlist updates only private projection, preserves share selection and never refetches', async () => {
+  const f = harness(searchQuery)
+  try {
+    await f.page.initializePreferences()
+    await nextTick()
+    const calls = f.searchCalls()
+    const share = f.page.shareTarget.value
+    const query = JSON.stringify(f.route.query)
+    f.watchlist.owner.value = 'alice'
+    assert.deepEqual(f.page.visibleResults.value, [])
+    f.watchlist.slugs.value = new Set(['film-13'])
+    f.watchlist.ready.value = true
+    assert.deepEqual(
+      f.page.visibleResults.value.map((item) => item.movieSlug),
+      ['film-13', 'film-12'],
+    )
+    f.page.watchlistOnly.value = true
+    assert.deepEqual(
+      f.page.visibleResults.value.map((item) => item.movieSlug),
+      ['film-13'],
+    )
+    assert.equal(f.page.shareTarget.value, share)
+    assert.equal(JSON.stringify(f.route.query), query)
+    assert.equal(f.searchCalls(), calls)
+    f.watchlist.slugs.value = new Set()
+    assert.equal(f.page.visibleResults.value.length, 0)
+    f.watchlist.owner.value = ''
+    f.watchlist.scopeKey.value++
+    assert.equal(f.page.watchlistOnly.value, false)
+    assert.equal(f.page.visibleResults.value.length, 2)
+    assert.equal(f.searchCalls(), calls)
+  } finally {
+    f.stop()
+  }
+})
 
 test('selection invalidation fences a pending search without rewriting its URL until selection resolves', async () => {
   let resolve!: (value: SlotResult[]) => void

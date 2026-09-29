@@ -10,6 +10,10 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { CDP, CaptureError, terminateProcessGroup } from './screenshot.mjs'
 import { spaScenario, trackerFixture } from './account-spa-scenario.mjs'
 import { avatarScenario } from './account-avatar-scenario.mjs'
+import {
+  watchlistBackendScenario,
+  watchlistScenario,
+} from './account-watchlist-scenario.mjs'
 
 const origin = 'http://127.0.0.1:13009'
 const api = 'http://127.0.0.1:18089'
@@ -227,7 +231,9 @@ async function tab(context, fixtureSession) {
                 { name: 'Content-Type', value: 'application/javascript' },
               ],
               body: Buffer.from(
-                process.argv.includes('--spa')
+                process.argv.includes('--spa') ||
+                  process.argv.includes('--watchlist') ||
+                  process.argv.includes('--watchlist-backend')
                   ? await trackerFixture(
                       page.sameOriginCollector
                         ? origin
@@ -633,7 +639,7 @@ async function inspectStyle(page, name) {
           `(() => {
             const nav = document.querySelector('.account-area-navigation'), current = nav.querySelector('a'), future = [...nav.querySelectorAll('button')], settings = location.pathname.toLowerCase().split('/').filter(Boolean).join('/') === 'compte/parametres';
             const title = document.querySelector('main h1'), back = document.querySelector('.account-area-inner > a[href="/compte"]');
-            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 1 && current.getAttribute('href') === '/compte/parametres' && (current.getAttribute('aria-current') === 'page') === settings && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 2 && future.every((el, index) => el.disabled && !el.hasAttribute('href') && el.textContent.includes(['Watchlist', 'Amis'][index]) && el.textContent.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && title.textContent.trim() === (settings ? 'Paramètres' : 'Mon compte') && (settings ? back && (${width} >= 1024 ? !back.getClientRects().length : back.getBoundingClientRect().bottom <= title.getBoundingClientRect().top && back.textContent.includes('Mon compte')) : !back);
+            return nav.getAttribute('aria-label') === 'Espace personnel' && nav.querySelectorAll('a').length === 2 && !!nav.querySelector('a[href="/compte/watchlist"]') && current.getAttribute('href') === '/compte/parametres' && (current.getAttribute('aria-current') === 'page') === settings && current.textContent.trim() === 'Paramètres' && getComputedStyle(current).textDecorationLine === 'none' && future.length === 1 && future.every(el => el.disabled && !el.hasAttribute('href') && el.textContent.includes('Amis') && el.textContent.includes('À venir')) && document.querySelectorAll('main h1').length === 1 && title.textContent.trim() === (settings ? 'Paramètres' : 'Mon compte') && (settings ? back && (${width} >= 1024 ? !back.getClientRects().length : back.getBoundingClientRect().bottom <= title.getBoundingClientRect().top && back.textContent.includes('Mon compte')) : !back);
           })()`,
         ),
         `${name}: ${width}px current-page semantics and disabled future entries without routes`,
@@ -963,7 +969,7 @@ async function openSettings(page) {
   )
   await evaluate(
     page,
-    `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+    `document.querySelector('nav[aria-label="Rubriques du compte"] a[href="/compte/parametres"]').click()`,
   )
   await until(
     page,
@@ -2011,7 +2017,7 @@ async function overviewScenario() {
     check(
       await evaluate(
         page,
-        `document.querySelectorAll('nav[aria-label="Rubriques du compte"] li').length === 1 && !document.querySelector('main input,main form,#trigger-password')`,
+        `document.querySelectorAll('nav[aria-label="Rubriques du compte"] li').length === 2 && !!document.querySelector('nav[aria-label="Rubriques du compte"] a[href="/compte/watchlist"]') && !document.querySelector('main input,main form,#trigger-password')`,
       ),
       `${method}: home has only available settings link and no settings secrets`,
     )
@@ -2881,11 +2887,36 @@ async function main() {
             '--overview',
             '--auth-focus',
             '--spa',
+            '--watchlist',
+            '--watchlist-backend',
             '--no-analytics',
           ].includes(arg),
       )
   )
     throw new HarnessError('Unknown scenario argument')
+  if (process.argv.includes('--watchlist')) {
+    phase = 'DB-free watchlist contract'
+    await watchlistScenario({
+      getCDP: () => cdp,
+      launch,
+      tab,
+      go,
+      evaluate,
+      until,
+      click,
+      fill,
+      check,
+      setServer: (server) => {
+        overviewServer = server
+      },
+    })
+    check(
+      !interceptionFailure && allPages.every((page) => !page.external),
+      'watchlist network boundary excludes external providers',
+    )
+    console.log(`ACCOUNT_BROWSER_PASS scenario=watchlist assertions=${passed}`)
+    return
+  }
   if (process.argv.includes('--spa')) {
     phase = 'DB-free SPA and pinned Umami'
     await spaScenario({
@@ -2951,6 +2982,30 @@ async function main() {
     'Nitro same-origin proxy ready',
   )
   await launch()
+  if (process.argv.includes('--watchlist-backend')) {
+    phase = 'watchlist with real HTTP and PostgreSQL'
+    const complete = await watchlistBackendScenario({
+      tab,
+      go,
+      evaluate,
+      until,
+      click,
+      fill,
+      check,
+      request,
+      mail,
+      run,
+    })
+    check(
+      !interceptionFailure && allPages.every((page) => !page.external),
+      'backend watchlist excludes external providers',
+    )
+    console.log(
+      `ACCOUNT_BROWSER_${complete ? 'PASS' : 'BLOCKED'} scenario=watchlist-backend assertions=${passed}`,
+    )
+    if (!complete) process.exitCode = 2
+    return
+  }
   if (process.argv.includes('--avatar')) {
     phase = 'private avatars with real HTTP and synthetic Google'
     await avatarScenario({

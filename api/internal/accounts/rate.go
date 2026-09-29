@@ -41,6 +41,12 @@ func (s *Service) quota(ctx context.Context, purpose, key string, send bool) err
 		}
 		now := s.now().UTC()
 		rules := []struct{ seconds, limit int }{{900, 10}}
+		switch purpose {
+		case "watchlist_search", "watchlist_release_fetch":
+			rules = []struct{ seconds, limit int }{{60, 60}}
+		case "watchlist_write":
+			rules = []struct{ seconds, limit int }{{60, 120}}
+		}
 		if send {
 			rules = []struct{ seconds, limit int }{{3600, 3}, {86400, 10}}
 		}

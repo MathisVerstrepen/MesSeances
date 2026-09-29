@@ -72,6 +72,25 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         enregistrée applicable, les cinémas par défaut sont proposés à nouveau.
       </p>
 
+      <h3>Watchlist privée et fiches de films publiques</h3>
+      <p>
+        Les films de votre watchlist, leur date d’ajout, vos tags et leurs
+        associations sont liés à votre compte sur le serveur. Cette liste reste
+        privée, sans stockage local ou de session, sans partage dans les liens
+        de recherche et sans transmission à la mesure d’audience. Elle est
+        actualisée au retour sur le site et lors des changements signalés par
+        les autres onglets. La suppression du compte efface cette liste et ses
+        tags. Supprimer un tag retire ses associations, sans supprimer les
+        films.
+      </p>
+      <p>
+        La recherche peut interroger TMDB via notre serveur, sans transmettre
+        votre identité de compte. Ajouter un film externe crée immédiatement sa
+        fiche publique à partir des métadonnées TMDB, même sans séance. Cette
+        fiche ne mentionne pas votre compte et reste publique après le retrait
+        de votre watchlist ou la suppression de votre compte.
+      </p>
+
       <h3>Géolocalisation et carte interactive</h3>
       <p>
         La géolocalisation ne démarre qu’après un clic sur le bouton

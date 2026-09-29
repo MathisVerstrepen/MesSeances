@@ -15,7 +15,7 @@ func addCatalogEvidence(ctx context.Context, tx pgx.Tx, components []*component)
 			byTMDB[item.tmdbID] = item
 		}
 	}
-	rows, err := tx.Query(ctx, "SELECT tmdb_id,public_movie_id FROM tmdb_upcoming_movies ORDER BY tmdb_id")
+	rows, err := tx.Query(ctx, "SELECT tmdb_id,public_movie_id FROM tmdb_upcoming_movies UNION SELECT tmdb_id,public_movie_id FROM tmdb_catalog_imports ORDER BY tmdb_id")
 	if err != nil {
 		return nil, fmt.Errorf("read catalog identity evidence failed")
 	}

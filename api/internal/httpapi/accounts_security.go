@@ -25,11 +25,12 @@ const accountRegistrationCookieName = "__Host-messeances_registration"
 const accountDevRegistrationCookieName = "messeances_registration_dev"
 
 type accountHTTP struct {
-	service            *accounts.Service
-	origin, cookieName string
-	secure             bool
-	login, send, step  *tokenBucketLimiter
-	theaters           *tokenBucketLimiter
+	service                                              *accounts.Service
+	origin, cookieName                                   string
+	secure                                               bool
+	login, send, step                                    *tokenBucketLimiter
+	theaters                                             *tokenBucketLimiter
+	watchlistWrites, watchlistSearches, watchlistImports *tokenBucketLimiter
 }
 
 func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
@@ -46,10 +47,13 @@ func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
 		name = accountDevCookieName
 	}
 	return &accountHTTP{service: options.Service, origin: options.Origin, cookieName: name, secure: secure,
-		login:    newTokenBucketLimiter(20, 20.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
-		send:     newTokenBucketLimiter(10, 10.0/3600, time.Hour, maxRateLimitClients, time.Now),
-		step:     newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
-		theaters: newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now)}, nil
+		watchlistWrites:   newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now),
+		watchlistSearches: newTokenBucketLimiter(60, 60.0/60, time.Minute, maxRateLimitClients, time.Now),
+		watchlistImports:  newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		login:             newTokenBucketLimiter(20, 20.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		send:              newTokenBucketLimiter(10, 10.0/3600, time.Hour, maxRateLimitClients, time.Now),
+		step:              newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
+		theaters:          newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now)}, nil
 }
 
 func accountError(w http.ResponseWriter, err error) {
@@ -106,7 +110,7 @@ func (h *accountHTTP) mutation(next http.HandlerFunc, limiter *tokenBucketLimite
 	return h.mutationBoundary(func(w http.ResponseWriter, r *http.Request) {
 		media, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if len(r.Header.Values("Content-Type")) != 1 || err != nil || media != "application/json" || len(params) > 1 || (len(params) == 1 && strings.ToLower(params["charset"]) != "utf-8") {
-			accountError(w, accounts.ErrInvalidInput)
+			accountInvalidInput(w, r)
 			return
 		}
 		next(w, r)
@@ -125,7 +129,7 @@ func (h *accountHTTP) mutationBoundary(next http.HandlerFunc, limiter *tokenBuck
 			return
 		}
 		if r.URL.RawQuery != "" || r.URL.ForceQuery {
-			accountError(w, accounts.ErrInvalidInput)
+			accountInvalidInput(w, r)
 			return
 		}
 		if allowed, retry := limiter.allow(requestIdentityFromContext(r.Context()).publicKey); !allowed {
@@ -146,7 +150,7 @@ func accountJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 func accountJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int64) bool {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil || !utf8.Valid(body) {
-		accountError(w, accounts.ErrInvalidInput)
+		accountInvalidInput(w, r)
 		return false
 	}
 	fields := map[string]bool{}
@@ -157,7 +161,7 @@ func accountJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int
 	d := json.NewDecoder(bytes.NewReader(body))
 	opening, err := d.Token()
 	if err != nil || opening != json.Delim('{') {
-		accountError(w, accounts.ErrInvalidInput)
+		accountInvalidInput(w, r)
 		return false
 	}
 	seen := map[string]bool{}
@@ -165,20 +169,20 @@ func accountJSONLimit(w http.ResponseWriter, r *http.Request, dst any, limit int
 		key, e := d.Token()
 		name, ok := key.(string)
 		if e != nil || !ok || seen[name] || !fields[name] {
-			accountError(w, accounts.ErrInvalidInput)
+			accountInvalidInput(w, r)
 			return false
 		}
 		seen[name] = true
 		var value json.RawMessage
 		if err = d.Decode(&value); err != nil || len(value) == 0 || value[0] != '"' || !accountJSONString(value) {
-			accountError(w, accounts.ErrInvalidInput)
+			accountInvalidInput(w, r)
 			return false
 		}
 	}
 	closing, err := d.Token()
 	var extra any
 	if err != nil || closing != json.Delim('}') || !errors.Is(d.Decode(&extra), io.EOF) || json.Unmarshal(body, dst) != nil {
-		accountError(w, accounts.ErrInvalidInput)
+		accountInvalidInput(w, r)
 		return false
 	}
 	return true

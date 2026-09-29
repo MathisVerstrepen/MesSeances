@@ -12,6 +12,7 @@ type Window struct {
 }
 
 type Dataset struct {
+	CatalogPublishedAt  time.Time                 `json:"-"`
 	UpcomingCompletedAt time.Time                 `json:"-"`
 	SchemaVersion       int                       `json:"schema_version"`
 	Provider            Provider                  `json:"provider"`

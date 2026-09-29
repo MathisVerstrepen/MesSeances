@@ -21,16 +21,18 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			defer cancel()
 			pool := historyMigrationPool(t, ctx)
 			var before string
+			var relations []uint32
 			if upgrade {
 				installMigrationPrefix(t, ctx, pool, 41, "041_movie_original_language.sql")
 				seedVOFLanguageMigration(t, ctx, pool)
-				before = vofLanguageMigrationState(t, ctx, pool)
+				relations = vofLanguageMigrationRelations(t, ctx, pool)
+				before = vofLanguageMigrationState(t, ctx, pool, relations)
 			}
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if upgrade {
-				if got := vofLanguageMigrationState(t, ctx, pool); got != before {
+				if got := vofLanguageMigrationState(t, ctx, pool, relations); got != before {
 					t.Fatal("migration changed existing metadata, rows, identities, timestamps, or unrelated constraints")
 				}
 			} else {
@@ -65,7 +67,9 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT applied_at FROM movieflow_schema_migrations WHERE version=42`).Scan(&applied); err != nil {
 				t.Fatal(err)
 			}
-			before = vofLanguageMigrationState(t, ctx, pool)
+			// The rerun must preserve constraints on all relations now present, too.
+			relations = vofLanguageMigrationRelations(t, ctx, pool)
+			before = vofLanguageMigrationState(t, ctx, pool, relations)
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
@@ -74,7 +78,7 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT count(*)=1 AND bool_and(applied_at=$1) FROM movieflow_schema_migrations WHERE version=42`, applied).Scan(&once); err != nil || !once {
 				t.Fatal("migration 042 reapplied", err)
 			}
-			if got := vofLanguageMigrationState(t, ctx, pool); got != before {
+			if got := vofLanguageMigrationState(t, ctx, pool, relations); got != before {
 				t.Fatal("migration rerun changed existing state")
 			}
 		})
@@ -89,7 +93,8 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			if _, err := pool.Exec(ctx, `UPDATE `+table+` SET language='VOF' WHERE provider='ugc'`); err != nil {
 				t.Fatal("prefix 041 fixture rejected VOF", err)
 			}
-			before := vofLanguageMigrationState(t, ctx, pool)
+			relations := vofLanguageMigrationRelations(t, ctx, pool)
+			before := vofLanguageMigrationState(t, ctx, pool, relations)
 			if err := RunMigrations(ctx, pool); err == nil || err.Error() != "database migration 042 failed" {
 				t.Fatalf("expected transactional 042 failure: %v", err)
 			}
@@ -98,10 +103,61 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_constraint WHERE conrelid IN ('showtimes'::regclass,'screening_history_showtimes'::regclass) AND conname IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check')`).Scan(&checks); err != nil || checks != 0 {
 				t.Fatalf("partial 042 checks survived rollback: count=%d err=%v", checks, err)
 			}
-			if got := vofLanguageMigrationState(t, ctx, pool); got != before {
+			if got := vofLanguageMigrationState(t, ctx, pool, relations); got != before {
 				t.Fatal("failed migration changed existing state")
 			}
 		})
+	}
+}
+
+func TestVOFLanguageMigrationConstraintScopeIntegration(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	pool := historyMigrationPool(t, ctx)
+	installMigrationPrefix(t, ctx, pool, 41, "041_movie_original_language.sql")
+	seedVOFLanguageMigration(t, ctx, pool)
+	if _, err := pool.Exec(ctx, `CREATE TABLE vof_existing_relation (id bigint)`); err != nil {
+		t.Fatal(err)
+	}
+	relations := vofLanguageMigrationRelations(t, ctx, pool)
+	before := vofLanguageMigrationState(t, ctx, pool, relations)
+	previous := before
+	for _, step := range []struct {
+		name    string
+		sql     string
+		changed bool
+	}{
+		{
+			name: "new relation constraints ignored",
+			sql:  `CREATE TABLE vof_new_relation (id bigint PRIMARY KEY CHECK (id > 0) REFERENCES public_movies(id))`,
+		},
+		{
+			name:    "first constraint on existing relation detected",
+			sql:     `ALTER TABLE vof_existing_relation ADD CONSTRAINT vof_scope_check CHECK (id > 0)`,
+			changed: true,
+		},
+		{
+			name:    "modified constraint detected",
+			sql:     `ALTER TABLE vof_existing_relation DROP CONSTRAINT vof_scope_check, ADD CONSTRAINT vof_scope_check CHECK (id > 1)`,
+			changed: true,
+		},
+		{
+			name:    "removed constraint detected",
+			sql:     `ALTER TABLE vof_existing_relation DROP CONSTRAINT vof_scope_check`,
+			changed: true,
+		},
+	} {
+		if _, err := pool.Exec(ctx, step.sql); err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		got := vofLanguageMigrationState(t, ctx, pool, relations)
+		if (got != previous) != step.changed {
+			t.Fatalf("%s: snapshot changed=%t want=%t", step.name, got != previous, step.changed)
+		}
+		previous = got
+	}
+	if previous != before {
+		t.Fatal("removing the added constraint did not restore the baseline snapshot")
 	}
 }
 
@@ -113,11 +169,21 @@ func seedVOFLanguageMigration(t *testing.T, ctx context.Context, pool *pgxpool.P
 	}
 }
 
-func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+func vofLanguageMigrationRelations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []uint32 {
+	t.Helper()
+	var relations []uint32
+	// Capture relations, not constraints: even an initially unconstrained relation must be guarded.
+	if err := pool.QueryRow(ctx, `SELECT array_agg(oid ORDER BY oid) FROM pg_class WHERE relnamespace=current_schema()::regnamespace`).Scan(&relations); err != nil {
+		t.Fatal(err)
+	}
+	return relations
+}
+
+func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, relations []uint32) string {
 	t.Helper()
 	var state string
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
-	// Account tables are introduced after 042 and are not preexisting VOF state.
+	// Compare constraints only on the captured baseline relations, not tables added by later migrations.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
     (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM public_movies m),
     (SELECT jsonb_agg(to_jsonb(m) ORDER BY provider,provider_movie_id,locale) FROM movie_metadata_cache m),
@@ -131,9 +197,9 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY version) FROM movieflow_schema_migrations s WHERE version < 42),
     (SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)
      FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
-	 AND conrelid NOT IN (SELECT oid FROM pg_class WHERE relnamespace=current_schema()::regnamespace AND (relname='accounts' OR relname LIKE 'account\_%' ESCAPE '\'))
+     AND conrelid = ANY($1::oid[])
      AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check'))
-)::text`).Scan(&state); err != nil {
+)::text`, relations).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	return state

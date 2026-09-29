@@ -26,7 +26,7 @@ export async function avatarScenario({
     )
     await evaluate(
       target,
-      `document.querySelector('nav[aria-label="Rubriques du compte"] a').click()`,
+      `document.querySelector('nav[aria-label="Rubriques du compte"] a[href="/compte/parametres"]').click()`,
     )
   }
   // Hold delivery of real HTTP responses, not mocked session/account values.

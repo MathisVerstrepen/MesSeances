@@ -220,7 +220,7 @@ test('search accepts unavailable quick dates without broadening calendar-date av
   )
   assert.match(
     searchSource,
-    /v-else-if="results\?\.length === 0"[\s\S]*?Aucune séance ne tient entièrement dans ce créneau\./,
+    /v-else-if="results && visibleResults.length === 0"[\s\S]*?Aucune séance ne correspond à ce créneau et aux filtres sélectionnés\./,
   )
   assert.match(
     searchSource,

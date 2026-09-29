@@ -1051,11 +1051,14 @@ if (
               </NuxtLink>
             </li>
           </ul>
-          <MovieTrailer
-            :movie-title="schedule.movie.title"
-            :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
-            :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
-          />
+          <div class="flex flex-wrap items-start gap-3">
+            <MovieTrailer
+              :movie-title="schedule.movie.title"
+              :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
+              :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
+            />
+            <WatchlistButton class="mt-5" :slug="schedule.movie.slug" />
+          </div>
           <div
             v-if="schedule.movie.overview?.trim()"
             class="mt-7 max-w-3xl border-l-2 pl-4"

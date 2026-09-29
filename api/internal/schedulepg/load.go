@@ -62,15 +62,25 @@ func loadMetadata(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.Sn
 	var provider, scope string
 	err := tx.QueryRow(ctx, `SELECT s.version, e.version, l.version, s.schema_version, s.provider, s.scope, s.generated_at, s.timezone, s.window_from, s.window_through FROM schedule_snapshot s CROSS JOIN movie_enrichment_state e CROSS JOIN theater_location_state l WHERE s.singleton=true AND e.singleton=true AND l.singleton=true`).Scan(&revision.ScheduleVersion, &revision.EnrichmentVersion, &revision.TheaterLocationVersion, &data.SchemaVersion, &provider, &scope, &data.GeneratedAt, &data.Timezone, &from, &through)
 	if errors.Is(err, pgx.ErrNoRows) {
-		err = tx.QueryRow(ctx, `SELECT u.completed_at,e.version,l.version FROM tmdb_upcoming_state u CROSS JOIN movie_enrichment_state e CROSS JOIN theater_location_state l WHERE u.singleton AND e.singleton AND l.singleton`).Scan(&data.UpcomingCompletedAt, &revision.EnrichmentVersion, &revision.TheaterLocationVersion)
+		var upcoming *time.Time
+		err = tx.QueryRow(ctx, `SELECT p.published_at,u.completed_at,e.version,l.version
+FROM (SELECT max(published_at) AS published_at FROM (
+ SELECT completed_at AS published_at FROM tmdb_upcoming_state WHERE singleton
+ UNION ALL SELECT published_at FROM tmdb_catalog_imports
+) publications) p CROSS JOIN movie_enrichment_state e CROSS JOIN theater_location_state l
+LEFT JOIN tmdb_upcoming_state u ON u.singleton
+WHERE p.published_at IS NOT NULL AND e.singleton AND l.singleton`).Scan(&data.CatalogPublishedAt, &upcoming, &revision.EnrichmentVersion, &revision.TheaterLocationVersion)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return schedule.Dataset{}, schedule.SnapshotRevision{}, schedule.ErrNoCompleteSnapshot
 		}
 		if err != nil {
 			return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("read catalog metadata failed")
 		}
-		data.UpcomingCompletedAt = data.UpcomingCompletedAt.UTC()
-		data.GeneratedAt, data.SchemaVersion, data.Timezone = data.UpcomingCompletedAt, schedule.SchemaVersion, schedule.Timezone
+		if upcoming != nil {
+			data.UpcomingCompletedAt = upcoming.UTC()
+		}
+		data.CatalogPublishedAt = data.CatalogPublishedAt.UTC()
+		data.GeneratedAt, data.SchemaVersion, data.Timezone = data.CatalogPublishedAt, schedule.SchemaVersion, schedule.Timezone
 		return data, revision, nil
 	}
 	if err != nil {

@@ -851,6 +851,10 @@ func validateTargets(ctx context.Context, tx pgx.Tx) error {
     JOIN public_movies movie ON movie.id=upcoming.public_movie_id
     WHERE movie.redirect_to_id IS NOT NULL OR movie.confirmed_tmdb_id IS DISTINCT FROM upcoming.tmdb_id
 ) OR EXISTS (
+    SELECT 1 FROM tmdb_catalog_imports imported
+    JOIN public_movies movie ON movie.id=imported.public_movie_id
+    WHERE movie.redirect_to_id IS NOT NULL OR movie.confirmed_tmdb_id IS DISTINCT FROM imported.tmdb_id
+) OR EXISTS (
     SELECT 1 FROM movie_slug_aliases alias
     JOIN public_movies movie ON movie.id=alias.public_movie_id
     WHERE movie.redirect_to_id IS NOT NULL
