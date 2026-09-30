@@ -49,6 +49,7 @@ useHead(() => ({
   <div class="flex min-h-screen flex-col">
     <VitePwaManifest />
     <AppHeader />
+    <ClientOnly><AppUpdateNotice /></ClientOnly>
     <div class="min-w-0 flex-1">
       <NuxtPage />
     </div>

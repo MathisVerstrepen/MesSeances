@@ -218,7 +218,7 @@ test('privacy boundary suppresses tracking, keeps SPA transitions and prepends b
   const config = await read('../nuxt.config.ts')
   assert.match(config, /handler: 'NetworkOnly'/)
   assert.match(config, /navigateFallback: null/)
-  assert.match(config, /globIgnores:.*_payload/)
+  assert.match(config, /globIgnores:\s*\[[^\]]*_payload/)
   assert.match(config, /changeOrigin: false/)
 })
 
