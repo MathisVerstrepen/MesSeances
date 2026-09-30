@@ -10,6 +10,8 @@ export default defineNuxtConfig({
   compatibilityDate: '2024-11-01',
   devtools: { enabled: false },
   experimental: {
+    checkOutdatedBuildInterval: false,
+    emitRouteChunkError: 'manual',
     defaults: {
       nuxtLink: {
         prefetchOn: {
@@ -20,18 +22,39 @@ export default defineNuxtConfig({
     },
   },
   modules: ['@vite-pwa/nuxt'],
-  routeRules: Object.fromEntries(
-    [...accountPageRoots, '/api/v1/auth', '/api/v1/account'].flatMap((path) =>
-      [path, `${path}/**`].map((pattern) => [
-        pattern,
-        {
-          cache: false,
-          prerender: false,
-          headers: accountPrivacyHeaders,
-        },
-      ]),
+  routeRules: {
+    ...Object.fromEntries(
+      [...accountPageRoots, '/api/v1/auth', '/api/v1/account'].flatMap((path) =>
+        [path, `${path}/**`].map((pattern) => [
+          pattern,
+          {
+            cache: false,
+            prerender: false,
+            headers: accountPrivacyHeaders,
+          },
+        ]),
+      ),
     ),
-  ),
+    '/_nuxt/builds/latest.json': {
+      cache: false,
+      headers: { 'Cache-Control': 'no-store' },
+    },
+  },
+  hooks: {
+    'pwa:beforeBuildServiceWorker'(options) {
+      // Nuxt's preceding transform adds this mutable pointer back to precache.
+      options.workbox.manifestTransforms = [
+        ...(options.workbox.manifestTransforms || []),
+        (entries) => ({
+          manifest: entries.filter(
+            (entry) =>
+              !entry.url.split('?')[0]?.endsWith('/builds/latest.json'),
+          ),
+          warnings: [],
+        }),
+      ]
+    },
+  },
   nitro: {
     devProxy: {
       '/api': { target: 'http://localhost:8080/api', changeOrigin: false },
@@ -79,8 +102,10 @@ export default defineNuxtConfig({
     ],
     includeManifestIcons: true,
     client: {
+      registerPlugin: false,
       installPrompt: false,
     },
+    injectRegister: false,
     manifest: {
       name: 'MesSeances - Vos séances, au bon moment',
       short_name: 'MesSeances',
@@ -111,12 +136,23 @@ export default defineNuxtConfig({
     },
     workbox: {
       navigateFallback: null,
-      globIgnores: ['**/*.html', '**/*_payload*', '**/api/**'],
+      globIgnores: [
+        '**/*.html',
+        '**/*_payload*',
+        '**/api/**',
+        '**/builds/latest.json',
+      ],
       navigateFallbackDenylist: [
         /^\/(connexion|inscription|verification|finaliser|mot-de-passe-oublie|reinitialiser-mot-de-passe|compte)(\/|$)/i,
         /^\/api\/v1\/(auth|account)(\/|$)/i,
       ],
       runtimeCaching: [
+        {
+          urlPattern: ({ url, sameOrigin }) =>
+            sameOrigin && url.pathname === '/_nuxt/builds/latest.json',
+          handler: 'NetworkOnly',
+          options: { fetchOptions: { cache: 'no-store' } },
+        },
         {
           urlPattern:
             /\/(connexion|inscription|verification|finaliser|mot-de-passe-oublie|reinitialiser-mot-de-passe|compte)(\/|$)|\/api\/v1\/(auth|account)(\/|$)/i,
