@@ -1,0 +1,18 @@
+{
+  "baseImage": "messeances-orca:base",
+  "authImage": "messeances-orca:authenticated",
+  "snapshotId": "",
+  "authSourceSnapshotId": "",
+  "repoUrl": "https://github.com/MathisVerstrepen/messeances.git",
+  "repoRef": "dev",
+  "projectRoot": "/home/mathis/projects/messeances",
+  "username": "mathis",
+  "cpus": "4",
+  "memory": "8g",
+  "postgresCpus": "1",
+  "postgresMemory": "1g",
+  "networkPrefix": "10.240",
+  "sourceComposeProject": "movieflow",
+  "sourcePostgresContainer": "",
+  "postgresImage": "postgres:18-alpine"
+}

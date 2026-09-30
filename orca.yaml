@@ -1,0 +1,7 @@
+environmentRecipes:
+  - id: local-docker
+    name: Docker · MesSeances
+    create: ./scripts/orca-vm/docker-create.sh
+    suspend: ./scripts/orca-vm/docker-suspend.sh
+    resume: ./scripts/orca-vm/docker-resume.sh
+    destroy: ./scripts/orca-vm/docker-destroy.sh
