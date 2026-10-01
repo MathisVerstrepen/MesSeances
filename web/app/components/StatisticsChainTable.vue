@@ -2,9 +2,13 @@
 import type { HistoryChainRank } from '~/types/api'
 import { statisticsChainLabels, statisticsCount } from '~/utils/statistics'
 
-defineProps<{
-  rows: HistoryChainRank[]
-}>()
+withDefaults(
+  defineProps<{
+    rows: HistoryChainRank[]
+    showMovieCount?: boolean
+  }>(),
+  { showMovieCount: true },
+)
 </script>
 
 <template>
@@ -16,7 +20,8 @@ defineProps<{
   >
     <table class="w-full min-w-[36rem] border-collapse text-left text-sm">
       <caption class="sr-only">
-        Circuits classés par séances puis films, par ordre décroissant.
+        Circuits classés par séances{{ showMovieCount ? ' puis films' : '' }},
+        par ordre décroissant.
       </caption>
       <thead class="border-y-2 border-ink bg-[#e8e6de]">
         <tr>
@@ -28,7 +33,13 @@ defineProps<{
           >
             Séances
           </th>
-          <th scope="col" class="px-3 py-3 text-right font-extrabold">Films</th>
+          <th
+            v-if="showMovieCount"
+            scope="col"
+            class="px-3 py-3 text-right font-extrabold"
+          >
+            Films
+          </th>
           <th scope="col" class="px-3 py-3 text-right font-extrabold">
             Cinémas
           </th>
@@ -48,7 +59,10 @@ defineProps<{
           <td class="px-3 py-4 text-right font-mono tabular-nums">
             {{ statisticsCount(row.showtime_count) }}
           </td>
-          <td class="px-3 py-4 text-right font-mono tabular-nums">
+          <td
+            v-if="showMovieCount"
+            class="px-3 py-4 text-right font-mono tabular-nums"
+          >
             {{ statisticsCount(row.movie_count) }}
           </td>
           <td class="px-3 py-4 text-right font-mono tabular-nums">
@@ -56,7 +70,9 @@ defineProps<{
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td colspan="4" class="p-4">Aucune donnée pour ces filtres.</td>
+          <td :colspan="showMovieCount ? 4 : 3" class="p-4">
+            Aucune donnée pour ces filtres.
+          </td>
         </tr>
       </tbody>
     </table>

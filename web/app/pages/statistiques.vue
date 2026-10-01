@@ -378,7 +378,9 @@ const totals = computed(() =>
   data.value
     ? [
         { label: 'Séances', count: data.value.totals.showtimes },
-        { label: 'Films', count: data.value.totals.movies },
+        ...(!selectedFilm.value
+          ? [{ label: 'Films', count: data.value.totals.movies }]
+          : []),
         { label: 'Cinémas', count: data.value.totals.theaters },
         { label: 'Villes', count: data.value.totals.cities },
       ]
@@ -792,7 +794,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
           <section :class="sectionClass" aria-labelledby="statistics-totals">
             <h2 id="statistics-totals" :class="headingClass">En chiffres</h2>
-            <dl class="grid grid-cols-2 gap-x-5 gap-y-8 lg:grid-cols-4">
+            <dl
+              class="grid grid-cols-2 gap-x-5 gap-y-8"
+              :class="selectedFilm ? 'lg:grid-cols-3' : 'lg:grid-cols-4'"
+            >
               <div
                 v-for="total in totals"
                 :key="total.label"
@@ -820,7 +825,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <p class="font-extrabold">
               Aucune séance enregistrée pour ces filtres.
             </p>
-            <p class="text-sm">
+            <p v-if="!selectedFilm" class="text-sm">
               Part des films les plus programmés : {{ statisticsShare(0, 0) }}.
             </p>
             <template #actions
@@ -843,7 +848,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 :rows="data.daily_showtimes"
               />
             </section>
-            <section :class="sectionClass" aria-labelledby="statistics-top">
+            <section
+              v-if="!selectedFilm"
+              :class="sectionClass"
+              aria-labelledby="statistics-top"
+            >
               <h2 id="statistics-top" :class="headingClass">
                 Films les plus programmés
               </h2>
@@ -895,7 +904,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 unit="séances"
               />
             </section>
-            <section :class="sectionClass" aria-labelledby="statistics-genres">
+            <section
+              v-if="!selectedFilm"
+              :class="sectionClass"
+              aria-labelledby="statistics-genres"
+            >
               <h2 id="statistics-genres" :class="headingClass">
                 Genres et durées
               </h2>
@@ -930,7 +943,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             </section>
             <section :class="sectionClass" aria-labelledby="statistics-chains">
               <h2 id="statistics-chains" :class="headingClass">Par circuit</h2>
-              <StatisticsChainTable :rows="data.chains" />
+              <StatisticsChainTable
+                :rows="data.chains"
+                :show-movie-count="!selectedFilm"
+              />
             </section>
             <section :class="sectionClass" aria-labelledby="statistics-local">
               <h2 id="statistics-local" :class="headingClass">
@@ -940,9 +956,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 :key="signature"
                 :local="data.local"
                 :limits="historyData?.limits.local"
+                :show-movie-count="!selectedFilm"
               />
             </section>
             <section
+              v-if="!selectedFilm"
               :class="sectionClass"
               aria-labelledby="statistics-concentration"
             >

@@ -9,17 +9,23 @@ import {
   type StatisticsLocalSort,
 } from '~/utils/statistics'
 
-const props = defineProps<{
-  local: StatisticsResponse['local']
-  limits?: { cities: boolean; theaters: boolean }
-}>()
+const props = withDefaults(
+  defineProps<{
+    local: StatisticsResponse['local']
+    limits?: { cities: boolean; theaters: boolean }
+    showMovieCount?: boolean
+  }>(),
+  { showMovieCount: true },
+)
 const mode = ref<'cities' | 'theaters'>('cities')
 const sort = ref<StatisticsLocalSort | null>(null)
 const page = ref(1)
 const columns = computed<{ key: StatisticsLocalColumn; label: string }[]>(
   () => [
     { key: 'name', label: mode.value === 'cities' ? 'Ville' : 'Cinéma' },
-    { key: 'movie_count', label: 'Films' },
+    ...(props.showMovieCount
+      ? [{ key: 'movie_count' as const, label: 'Films' }]
+      : []),
     { key: 'showtime_count', label: 'Séances' },
     mode.value === 'cities'
       ? { key: 'theater_count', label: 'Cinémas' }
@@ -72,7 +78,8 @@ const buttonClass =
         mode === 'cities' ? '100 premières villes' : '100 premiers cinémas'
       }}</strong
       >. Tri et pagination limités à ces 100 résultats, classés initialement par
-      séances puis films. Les totaux portent sur tous les résultats filtrés.
+      séances{{ showMovieCount ? ' puis films' : '' }}. Les totaux portent sur
+      tous les résultats filtrés.
     </p>
     <div
       class="max-w-full overflow-x-auto focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
@@ -83,7 +90,8 @@ const buttonClass =
       <table class="w-full min-w-[36rem] border-collapse text-left text-sm">
         <caption class="sr-only">
           Offre locale. Activer un en-tête pour trier les résultats affichés.
-          Tri initial : séances puis films, par ordre décroissant.
+          Tri initial : séances{{ showMovieCount ? ' puis films' : '' }}, par
+          ordre décroissant.
         </caption>
         <thead class="border-y-2 border-ink bg-[#e8e6de]">
           <tr>
@@ -118,7 +126,7 @@ const buttonClass =
                 'theater_count' in row ? statisticsCityName(row.name) : row.name
               }}
             </th>
-            <td class="px-3 py-4 font-mono tabular-nums">
+            <td v-if="showMovieCount" class="px-3 py-4 font-mono tabular-nums">
               {{ statisticsCount(row.movie_count) }}
             </td>
             <td class="px-3 py-4 font-mono tabular-nums">
@@ -134,7 +142,9 @@ const buttonClass =
             </td>
           </tr>
           <tr v-if="!result.rows.length">
-            <td colspan="4" class="p-4">Aucune donnée pour ces filtres.</td>
+            <td :colspan="columns.length" class="p-4">
+              Aucune donnée pour ces filtres.
+            </td>
           </tr>
         </tbody>
       </table>
