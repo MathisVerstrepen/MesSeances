@@ -468,6 +468,7 @@ async function fixture(client = true) {
   const scopes: ReturnType<typeof effectScope>[] = []
   let response = value()
   let admitted = session()
+  let sessionRead = async () => admitted
   let gets = 0
   let read = async () => response
   let write = async (input: SaveWatchlist) => {
@@ -528,7 +529,7 @@ async function fixture(client = true) {
     },
     useNuxtApp: () => app,
     useAccountApi: () => ({
-      session: async () => admitted,
+      session: () => sessionRead(),
       watchlist: async () => {
         gets++
         return read()
@@ -607,6 +608,9 @@ async function fixture(client = true) {
     },
     setRead: (fn: typeof read) => {
       read = fn
+    },
+    setSessionRead: (fn: typeof sessionRead) => {
+      sessionRead = fn
     },
     setWrite: (fn: typeof write) => {
       write = fn
@@ -1455,6 +1459,63 @@ test('failed reconciliation gates results and writes until explicit retry succee
   }
 })
 
+test('same-owner held session and watchlist reads retain display readiness but reject every write', async () => {
+  const f = await pageFixture()
+  try {
+    const next = {
+      ...value('7', ['film-1'], 'alice', 'title_desc'),
+      view_mode: 'tags' as const,
+      filter_tag_id: '1',
+      tags: [{ id: '1', name: 'Amis', color: 'blue' as const }],
+    }
+    next.items[0]!.tag_ids = ['1']
+    f.setResponse(next)
+    await f.account.revalidate()
+    const rows = f.list.items.value
+    const heldSession = deferred<AccountSession>()
+    const heldRead = deferred<AccountWatchlist>()
+    f.setSessionRead(() => heldSession.promise)
+    f.setRead(() => heldRead.promise)
+    const refresh = f.account.revalidate()
+    const assertHeld = async () => {
+      assert.equal(f.list.ready.value, true)
+      assert.equal(f.list.items.value, rows)
+      assert.equal(f.page.selectedTag.value, '1')
+      assert.equal(f.page.displayMode.value, 'tags')
+      assert.equal(f.list.sortOrder.value, 'title_desc')
+      assert.equal(f.list.writesBlocked.value, true)
+      assert.equal(await f.list.save('film-1', false), false)
+      assert.equal(await f.list.saveSort('added_desc'), false)
+      assert.equal(await f.list.savePreferences('list', null), false)
+      assert.equal(await f.list.createTag('Autre', 'red'), false)
+      assert.equal(await f.list.updateTag('1', 'Autre', 'red'), false)
+      assert.equal(await f.list.deleteTag('1'), false)
+      assert.equal(await f.list.assignTag('film-1', '1', false), false)
+      assert.equal(await f.list.importMovie('12'), false)
+      await f.list.search()
+      assert.equal(
+        f.posts.length +
+          f.sortPosts.length +
+          f.preferencePosts.length +
+          f.tagPosts.length,
+        0,
+      )
+    }
+    await settle()
+    await assertHeld()
+    heldSession.resolve(session())
+    await settle()
+    await assertHeld()
+    heldRead.resolve(next)
+    await refresh
+    assert.equal(f.list.ready.value, true)
+    assert.equal(f.list.writesBlocked.value, false)
+    assert.deepEqual(f.messages, [])
+  } finally {
+    f.stop()
+  }
+})
+
 test('focus revalidation waits for writes and reads committed state under new session revision', async () => {
   const f = await fixture()
   try {
@@ -1465,7 +1526,8 @@ test('focus revalidation waits for writes and reads committed state under new se
     const save = f.list.save('film-2', true)
     const refresh = f.account.revalidate()
     await settle()
-    assert.equal(f.list.ready.value, false)
+    assert.equal(f.list.ready.value, true)
+    assert.equal(f.list.writesBlocked.value, true)
     f.setResponse(value('2', ['film-2']))
     pending.resolve(value('2', ['film-2']))
     await save

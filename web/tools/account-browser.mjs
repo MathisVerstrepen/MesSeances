@@ -2886,6 +2886,13 @@ async function authFocusScenario() {
 }
 
 async function main() {
+  if (
+    process.argv.includes('--focus-refresh') &&
+    !process.argv.includes('--watchlist')
+  )
+    throw new HarnessError(
+      'Focus refresh requires the DB-free watchlist fixture',
+    )
   // Run each scenario against a freshly started backend fixture. Real rate limits
   // deliberately remain enabled; neither driver nor fixture bypasses them.
   const google = process.argv.slice(2).includes('--google')
@@ -2902,6 +2909,7 @@ async function main() {
             '--auth-focus',
             '--spa',
             '--watchlist',
+            '--focus-refresh',
             '--watchlist-backend',
             '--no-analytics',
           ].includes(arg),

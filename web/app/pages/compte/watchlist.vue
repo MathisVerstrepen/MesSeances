@@ -23,6 +23,15 @@ const {
   error,
   owner,
 } = watchlist
+const softRefresh = computed(
+  () =>
+    account.revalidating.value &&
+    ready.value &&
+    !watchlist.saving.value &&
+    !searching.value &&
+    !error.value &&
+    !searchError.value,
+)
 const selectedTag = computed(() => watchlist.filterTagId.value ?? '')
 const displayMode = watchlist.viewMode
 const openTagEditor = ref('')
@@ -522,6 +531,7 @@ onBeforeRouteLeave(clearPageSearch)
     back-to-account
     hide-logout
     hide-explore
+    :class="{ 'soft-refresh': softRefresh }"
   >
     <template #title-actions>
       <button
@@ -1076,3 +1086,17 @@ onBeforeRouteLeave(clearPageSearch)
     >
   </AccountShell>
 </template>
+
+<style scoped>
+@reference "../../assets/css/main.css";
+
+/* Only authority-blocked controls, not invalid or consumed dialog actions. */
+.soft-refresh :deep(button:disabled:not(dialog button)),
+.soft-refresh :deep(select:disabled:not(dialog select)),
+.soft-refresh :deep(label:has(input:disabled):not(dialog label)),
+.soft-refresh :deep(#watchlist-configuration button:disabled),
+.soft-refresh :deep(#watchlist-configuration select:disabled),
+.soft-refresh :deep(#watchlist-add button[type="submit"]:disabled) {
+  @apply opacity-100!;
+}
+</style>

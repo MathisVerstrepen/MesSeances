@@ -158,6 +158,15 @@ export async function watchlistScenario({
   let failRead = false
   let releaseRead
   let release
+  let holdSession = false
+  let releaseSession
+  let holdDetails = false
+  let releaseDetails
+  let failSession = false
+  let failDetails = false
+  let avatarBytes
+  let holdLogoutAll = false
+  let releaseLogoutAll
   const writes = []
   const requests = []
   const date = new Intl.DateTimeFormat('en-CA', {
@@ -248,7 +257,41 @@ export async function watchlistScenario({
       res.statusCode = status
       res.end(JSON.stringify(value))
     }
-    if (path === '/api/v1/auth/session') return send(session)
+    if (path === '/api/v1/auth/session') {
+      const value = session
+      if (holdSession)
+        await new Promise((resolve) => {
+          releaseSession = resolve
+        })
+      if (failSession) return send({ error: { code: 'unavailable' } }, 503)
+      return send(value)
+    }
+    if (path === '/api/v1/account') {
+      const value = {
+        ...session.account,
+        avatar_url: '/api/v1/account/avatar/1',
+        allowed_methods: ['password'],
+        pending_email: null,
+        google_email: null,
+      }
+      if (holdDetails)
+        await new Promise((resolve) => {
+          releaseDetails = resolve
+        })
+      if (failDetails) return send({ error: { code: 'unavailable' } }, 503)
+      return send(value)
+    }
+    if (path === '/api/v1/account/avatar/1') {
+      res.setHeader('Content-Type', 'image/webp')
+      return res.end(avatarBytes)
+    }
+    if (path === '/api/v1/auth/logout-all') {
+      if (holdLogoutAll)
+        await new Promise((resolve) => {
+          releaseLogoutAll = resolve
+        })
+      return send({ error: { code: 'recent_auth_required' } }, 403)
+    }
     if (path === '/api/v1/theaters') return send([theater])
     if (path === '/api/v1/account/theaters')
       return send({
@@ -1097,6 +1140,336 @@ export async function watchlistScenario({
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     page.sessionId,
   )
+  if (process.argv.includes('--focus-refresh')) {
+    // Reuse the DB-free watchlist fixture for both account pages. No provider,
+    // storage fallback or synthetic focus event in this bounded regression lane.
+    avatarBytes = Buffer.from(
+      await evaluate(
+        page,
+        `(() => { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#a8bfa3'; ctx.fillRect(0, 0, 64, 64); return canvas.toDataURL('image/webp').split(',')[1] })()`,
+      ),
+      'base64',
+    )
+    holdRead = false
+    saved = ['saved-film']
+    sorts.set(owner.username, 'title_desc')
+    ownerTags.set(owner.username, [{ id: '1', name: 'Privé', color: 'blue' }])
+    assignments().set('saved-film', ['1'])
+    preferences.set(owner.username, { view_mode: 'tags', filter_tag_id: '1' })
+    const away = await tab(page.browserContextId)
+    const failures = []
+    const stable = async (expression, label) => {
+      const result = await evaluate(page, expression)
+      if (!result)
+        failures.push(
+          `${label}: ${JSON.stringify(await evaluate(page, `window.__focusProof.nodes.map(({node,opacity,rect}) => ({id:node.id, label:node.getAttribute('aria-label'), connected:node.isConnected, disabled:node.disabled, opacity:getComputedStyle(node).opacity, expectedOpacity:opacity, rect:node.getBoundingClientRect().toJSON(), expectedRect:rect}))`))}`,
+        )
+      else check(result, label)
+    }
+    const waitHeld = async (read, label) => {
+      for (let i = 0; !read() && i < 100; i++) await delay(20)
+      check(!!read(), label)
+    }
+    const nativeReturn = async () => {
+      await getCDP().send('Page.bringToFront', {}, away.sessionId)
+      await until(
+        page,
+        `document.visibilityState === 'hidden' && !document.hasFocus()`,
+        'native tab departure',
+      )
+      await getCDP().send('Page.bringToFront', {}, page.sessionId)
+      await until(
+        page,
+        `document.visibilityState === 'visible' && document.hasFocus()`,
+        'native tab return',
+      )
+    }
+    for (const path of ['/compte/watchlist', '/compte/parametres']) {
+      await getCDP().send('Page.bringToFront', {}, page.sessionId)
+      await go(page, path)
+      const settings = path.endsWith('parametres')
+      const root = settings
+        ? '.account-overview-sections'
+        : 'section[aria-labelledby="saved-heading"]'
+      await until(
+        page,
+        settings
+          ? `!!document.querySelector('#trigger-avatar img') && !document.querySelector('#trigger-avatar').disabled`
+          : `!!${savedRow('saved-film')} && !document.querySelector('#watchlist-sort').disabled`,
+        `${path} ready`,
+      )
+      if (settings) {
+        await evaluate(page, `document.querySelector('#trigger-email').click()`)
+        await fill(page, 'new-email', 'draft@example.test')
+        await fill(page, 'email-password', 'private-draft')
+      } else {
+        await evaluate(
+          page,
+          `${savedRow('saved-film')}.querySelector('button[aria-label^="Modifier les tags"]').click()`,
+        )
+        await until(
+          page,
+          `!!document.querySelector('main label input[type="checkbox"]')`,
+          'floating tag picker opens',
+        )
+        await evaluate(
+          page,
+          `window.__tagFocusProof = [...document.querySelectorAll('main label:has(input[type="checkbox"])')].map(node => ({node, opacity:getComputedStyle(node).opacity}))`,
+        )
+      }
+      const selectors = settings
+        ? [
+            '#trigger-avatar',
+            'button[aria-label="Supprimer la photo"]',
+            '#editor-email button[type="submit"]',
+            '.overview-session-actions button',
+          ]
+        : [
+            '#watchlist-sort',
+            '#watchlist-tag-filter',
+            '[aria-label="Affichage des films"] button',
+            '[data-watchlist-remove]',
+            '[aria-controls="watchlist-add"]',
+          ]
+      await evaluate(
+        page,
+        `(() => { window.__focusProof = { root: document.querySelector(${JSON.stringify(root)}), fields:[...document.querySelectorAll('#editor-email input')].map(node=>({node,rect:node.getBoundingClientRect().toJSON(),opacity:getComputedStyle(node).opacity,disabled:node.disabled})), nodes: [...document.querySelectorAll(${JSON.stringify(selectors.join(','))})].map(node => ({node, opacity:getComputedStyle(node).opacity, rect:node.getBoundingClientRect().toJSON()})), row: ${settings ? "document.querySelector('#new-email')" : savedRow('saved-film')}, image: document.querySelector('#trigger-avatar img'), imageSrc: document.querySelector('#trigger-avatar img')?.src, revoked: [] }; const revoke = URL.revokeObjectURL; URL.revokeObjectURL = url => { window.__focusProof.revoked.push(url); revoke.call(URL, url) }; })()`,
+      )
+      const beforeWrites = writes.length
+      const beforeImages = requests.filter((request) =>
+        request.path.startsWith('/api/v1/account/avatar/'),
+      ).length
+      holdSession = true
+      releaseSession = undefined
+      if (settings) {
+        holdDetails = true
+        releaseDetails = undefined
+      } else {
+        holdRead = true
+        releaseRead = undefined
+      }
+      await nativeReturn()
+      await waitHeld(
+        () => releaseSession,
+        'native return starts held auth/session',
+      )
+      const prove = async (phase) => {
+        await stable(
+          `window.__focusProof.root.isConnected && window.__focusProof.row.isConnected && !document.querySelector('main .animate-pulse, main .motion-safe\\\\:animate-pulse')`,
+          `${path} ${phase}: original content stays mounted`,
+        )
+        await stable(
+          `window.__focusProof.nodes.every(({node,opacity,rect}) => node.isConnected && node.disabled && getComputedStyle(node).opacity === opacity && JSON.stringify(node.getBoundingClientRect().toJSON()) === JSON.stringify(rect))`,
+          `${path} ${phase}: disabled controls keep opacity and geometry`,
+        )
+        if (settings) {
+          await stable(
+            `window.__focusProof.fields.length === 2 && window.__focusProof.fields.every(({node,rect,opacity,disabled}) => node.isConnected && node.disabled === disabled && getComputedStyle(node).opacity === opacity && JSON.stringify(node.getBoundingClientRect().toJSON()) === JSON.stringify(rect))`,
+            `${path} ${phase}: original edit fields keep native state and geometry`,
+          )
+          await stable(
+            `document.querySelector('#new-email')?.value === 'draft@example.test' && document.querySelector('#email-password')?.value === 'private-draft' && window.__focusProof.image === document.querySelector('#trigger-avatar img') && window.__focusProof.imageSrc === document.querySelector('#trigger-avatar img')?.src && !window.__focusProof.revoked.length`,
+            `${path} ${phase}: editor drafts and avatar blob unchanged`,
+          )
+          await evaluate(
+            page,
+            `document.querySelector('#editor-email').dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})); document.querySelector('#trigger-avatar').click()`,
+          )
+        } else {
+          await stable(
+            `window.__tagFocusProof.every(({node,opacity}) => node.isConnected && node.querySelector('input').disabled && getComputedStyle(node).opacity === opacity)`,
+            `${path} ${phase}: floating picker stays mounted and undimmed with disabled assignment inputs`,
+          )
+          await stable(
+            `document.querySelector('#watchlist-sort').value === 'title_desc' && document.querySelector('#watchlist-tag-filter').value === '1' && document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
+            `${path} ${phase}: committed sort/filter/mode retained`,
+          )
+          await evaluate(
+            page,
+            `document.querySelector('#watchlist-sort').dispatchEvent(new Event('change', {bubbles:true})); document.querySelector('[data-watchlist-remove]')?.click()`,
+          )
+        }
+        check(
+          writes.length === beforeWrites,
+          `${path} ${phase}: no mutation dispatched`,
+        )
+      }
+      await prove('auth held')
+      holdSession = false
+      releaseSession()
+      await waitHeld(
+        () => (settings ? releaseDetails : releaseRead),
+        'same-owner private read held',
+      )
+      await prove('private read held')
+      // Capture after geometry assertions: full-page Chrome capture can alter
+      // scrollbar width, which must not contaminate the held-request proof.
+      await screenshot(
+        page,
+        `focus-${settings ? 'settings' : 'watchlist'}-private-held`,
+        false,
+      )
+      check(
+        requests.filter((request) =>
+          request.path.startsWith('/api/v1/account/avatar/'),
+        ).length === beforeImages,
+        `${path}: unchanged avatar not refetched`,
+      )
+      if (settings) {
+        holdDetails = false
+        releaseDetails()
+      } else {
+        holdRead = false
+        releaseRead()
+      }
+      await until(
+        page,
+        `!document.querySelector(${JSON.stringify(selectors[0])}).disabled`,
+        'refresh finishes without replay',
+      )
+      check(
+        writes.length === beforeWrites,
+        `${path}: no write replay after refresh`,
+      )
+      await screenshot(
+        page,
+        `focus-${settings ? 'settings' : 'watchlist'}-settled`,
+        false,
+      )
+      if (settings) {
+        holdLogoutAll = true
+        await click(page, 'Déconnecter tous les appareils')
+        await waitHeld(() => releaseLogoutAll, 'genuine settings mutation held')
+        check(
+          await evaluate(
+            page,
+            `document.querySelector('#trigger-avatar').disabled && getComputedStyle(document.querySelector('#trigger-avatar')).opacity === '0.5' && [...document.querySelectorAll('.overview-session-actions button')].every(button => button.disabled && getComputedStyle(button).opacity === '0.5')`,
+          ),
+          'genuine settings busy remains disabled and dimmed',
+        )
+        holdLogoutAll = false
+        releaseLogoutAll()
+        await until(
+          page,
+          `!document.querySelector('#trigger-avatar').disabled`,
+          'busy failure finishes',
+        )
+      }
+    }
+    check(
+      !failures.length,
+      `focus stability regressions: ${failures.join('; ') || 'none'}`,
+    )
+    // Privacy boundaries remain destructive. Recover with fresh route admission,
+    // never restore drafts or pending intent from a previous owner/lifetime.
+    for (const path of ['/compte/watchlist', '/compte/parametres']) {
+      for (const boundary of [
+        'owner',
+        'state',
+        'signout',
+        'session-error',
+        'private-error',
+        'pagehide',
+      ]) {
+        session = { enabled: true, state: 'complete', account: owner }
+        failSession = failDetails = false
+        await go(page, path)
+        const settings = path.endsWith('parametres')
+        await until(
+          page,
+          settings
+            ? `!!document.querySelector('#trigger-avatar img') && !document.querySelector('#trigger-avatar').disabled`
+            : `!!${savedRow('saved-film')} && !document.querySelector('#watchlist-sort').disabled`,
+          'privacy fixture ready',
+        )
+        if (settings) {
+          await evaluate(
+            page,
+            `window.__privateAvatar = document.querySelector('#trigger-avatar img').src; window.__privateRevoked=[]; const revoke=URL.revokeObjectURL.bind(URL); URL.revokeObjectURL=url=>{window.__privateRevoked.push(url);return revoke(url)}`,
+          )
+          await evaluate(
+            page,
+            `document.querySelector('#trigger-email').click()`,
+          )
+          await fill(page, 'new-email', 'private-draft@example.test')
+        }
+        if (boundary === 'pagehide') {
+          if (settings) holdDetails = true
+          else holdRead = true
+          await nativeReturn()
+          await waitHeld(
+            () => (settings ? releaseDetails : releaseRead),
+            'late private response held before pagehide',
+          )
+        }
+        if (boundary === 'owner')
+          session = {
+            enabled: true,
+            state: 'complete',
+            account: { ...owner, username: 'replacement' },
+          }
+        if (boundary === 'state')
+          session = { enabled: true, state: 'pending_username', account: null }
+        if (boundary === 'signout')
+          session = { enabled: true, state: 'anonymous', account: null }
+        if (boundary === 'session-error') failSession = true
+        if (boundary === 'private-error') {
+          if (settings) failDetails = true
+          else failRead = true
+        }
+        if (boundary === 'pagehide')
+          await evaluate(
+            page,
+            `window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}))`,
+          )
+        else await nativeReturn()
+        await until(
+          page,
+          settings
+            ? `!document.querySelector('#new-email, #trigger-avatar img') && !document.querySelector('.account-overview-sections')`
+            : `!${savedRow('saved-film')}`,
+          `${path} ${boundary} purges private content`,
+        )
+        if (settings)
+          check(
+            await evaluate(
+              page,
+              `window.__privateRevoked.includes(window.__privateAvatar)`,
+            ),
+            `${path} ${boundary}: private avatar URL revoked`,
+          )
+        if (boundary === 'pagehide') {
+          if (settings) {
+            holdDetails = false
+            releaseDetails()
+            releaseDetails = undefined
+          } else {
+            holdRead = false
+            releaseRead()
+            releaseRead = undefined
+          }
+          await delay(250)
+          check(
+            await evaluate(
+              page,
+              settings
+                ? `!document.querySelector('#trigger-avatar img')`
+                : `!${savedRow('saved-film')}`,
+            ),
+            `${path}: late private completion cannot restore pagehide content`,
+          )
+        }
+        check(
+          await evaluate(
+            page,
+            `![localStorage,sessionStorage,window.__NUXT__].some(value => /private-draft|Privé|draft@example.test/.test(JSON.stringify(value)))`,
+          ),
+          `${path} ${boundary}: private drafts/tags absent from persistence`,
+        )
+      }
+    }
+    return
+  }
   await go(page, '/compte/watchlist')
   await checkLoadingLayout('desktop')
   await screenshot(page, 'loading-desktop')
@@ -4178,6 +4551,13 @@ export async function watchlistScenario({
     'Emulation.setDeviceMetricsOverride',
     { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
     page.sessionId,
+  )
+  // Page.bringToFront also revalidates auth. Test normal close restoration only
+  // after its opener is focusable; held-refresh behavior has its own lane.
+  await until(
+    page,
+    `!!document.querySelector('[aria-controls="watchlist-add"]:not(:disabled)')`,
+    'mobile add opener ready for focus restoration',
   )
   await evaluate(
     page,
