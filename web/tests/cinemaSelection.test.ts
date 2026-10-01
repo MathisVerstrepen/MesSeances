@@ -4,8 +4,7 @@ import test from 'node:test'
 import type { Theater } from '../app/types/api.ts'
 import {
   groupTheatersByCityIdentity,
-  groupSelectedTheatersFirst,
-  selectedFirst,
+  cinemaListSections,
   isBroadTheaterSelection,
   updateTheaterSelection,
 } from '../app/utils/cinemaSelection.ts'
@@ -120,19 +119,29 @@ test('header groups saved favorite cities by city slug with first label retained
   )
 })
 
-test('selected cinemas precede every unselected city group with unique keys and precise group actions', () => {
+test('selected summary copies share rows while the complete directory keeps source order', () => {
   const rows = [
     theater('a', 'Paris', 'paris'),
     theater('b', 'Paris', 'paris'),
     theater('c', 'Lille', 'lille'),
     theater('d', 'Lille', 'lille'),
   ]
-  const groups = groupSelectedTheatersFirst(rows, new Set(['b', 'd']))
-  assert.deepEqual(
-    groups.flatMap((group) => group.theaters.map((row) => row.id)),
-    ['b', 'd', 'a', 'c'],
+  const sections = cinemaListSections(
+    rows,
+    new Set(['b', 'd']),
+    (row) => row.id,
   )
-  assert.equal(new Set(groups.map((group) => group.key)).size, 4)
+  assert.deepEqual(
+    sections.map((section) => [section.key, section.rows.map((row) => row.id)]),
+    [
+      ['selected', ['b', 'd']],
+      ['all', ['a', 'b', 'c', 'd']],
+    ],
+  )
+  assert.equal(sections[0]!.rows[0], rows[1])
+  assert.equal(sections[1]!.rows, rows)
+  const groups = groupTheatersByCityIdentity(sections[1]!.rows)
+  assert.equal(groups.length, 2)
   assert.deepEqual(
     updateTheaterSelection(['b', 'd'], groups[0]!.theaters, false),
     ['d'],
@@ -142,17 +151,44 @@ test('selected cinemas precede every unselected city group with unique keys and 
     distance: index,
     nearest: index === 0,
   }))
-  const ordered = selectedFirst(
+  const ordered = cinemaListSections(
     distances,
     new Set(['d', 'b']),
     (row) => row.theater.id,
   )
   assert.deepEqual(
-    ordered.map((row) => row.distance),
-    [1, 3, 0, 2],
+    ordered.map((section) => section.rows.map((row) => row.distance)),
+    [
+      [1, 3],
+      [0, 1, 2, 3],
+    ],
   )
-  assert.equal(ordered[2]?.nearest, true)
+  assert.equal(
+    ordered[0]!.rows.every((row) => !row.nearest),
+    true,
+  )
+  assert.equal(ordered[1]!.rows[0]?.nearest, true)
   assert.equal(isBroadTheaterSelection([], rows), true)
   assert.equal(isBroadTheaterSelection(['a', 'b', 'c', 'd'], rows), true)
   assert.equal(isBroadTheaterSelection(['a'], rows), false)
+})
+
+test('selected-only has one section, no selection has only all, empty filtered rows never add a summary', () => {
+  const rows = [theater('a', 'Paris', 'paris'), theater('b', 'Lille', 'lille')]
+  const id = (row: Theater) => row.id
+  assert.deepEqual(
+    cinemaListSections(rows, new Set(['b', 'hidden']), id, true),
+    [{ key: 'selected', rows: [rows[1]] }],
+  )
+  assert.deepEqual(cinemaListSections(rows, new Set(), id), [
+    { key: 'all', rows },
+  ])
+  assert.deepEqual(cinemaListSections(rows, new Set(['hidden']), id, true), [])
+  assert.deepEqual(cinemaListSections([], new Set(['b']), id), [
+    { key: 'all', rows: [] },
+  ])
+  assert.deepEqual(
+    cinemaListSections(rows, new Set(['a', 'b']), id).map((s) => s.key),
+    ['selected', 'all'],
+  )
 })

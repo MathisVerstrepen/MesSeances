@@ -19,8 +19,8 @@ import {
 import type { Theater } from '~/types/api'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import {
-  groupSelectedTheatersFirst,
-  selectedFirst,
+  cinemaListSections,
+  groupTheatersByCityIdentity,
   updateTheaterSelection,
 } from '~/utils/cinemaSelection'
 import { serializeJsonLd } from '~/utils/jsonLd'
@@ -206,18 +206,25 @@ const isNearbyMode = computed(
 const usedPositionMapUrl = computed(() =>
   userPosition.value ? buildOpenStreetMapPositionUrl(userPosition.value) : null,
 )
-const visibleGroups = computed(() =>
-  groupSelectedTheatersFirst(displayedTheaters.value, selectedIds.value),
-)
-
 const nearbyRows = computed(() =>
   userPosition.value
-    ? selectedFirst(
-        sortTheatersByDistance(displayedTheaters.value, userPosition.value),
-        selectedIds.value,
-        (row) => row.theater.id,
-      )
+    ? sortTheatersByDistance(searchResults.value, userPosition.value)
     : [],
+)
+const listSections = computed(() =>
+  cinemaListSections(
+    displayedTheaters.value,
+    selectedIds.value,
+    (theater) => theater.id,
+    selectedOnly.value,
+  ).map((section) => {
+    const ids = new Set(section.rows.map((theater) => theater.id))
+    return {
+      key: section.key,
+      groups: groupTheatersByCityIdentity(section.rows),
+      nearbyRows: nearbyRows.value.filter((row) => ids.has(row.theater.id)),
+    }
+  }),
 )
 const visibleTheaterCount = computed(() => displayedTheaters.value.length)
 
@@ -255,16 +262,56 @@ async function applyDraftSelection(nextIds: string[]) {
   draftFavoriteTheaterIds.value = [...favoriteTheaterIds.value]
 }
 
-function toggleTheater(id: string) {
+async function toggleTheater(id: string, event?: Event) {
+  if (writesBlocked.value || isUnmounted) return
   const theater = directoryTheaters.value.find((item) => item.id === id)
   if (!theater) return
-  applyDraftSelection(
+  const target = event?.currentTarget
+  const focusedInput =
+    target instanceof HTMLElement && document.activeElement === target
+      ? target
+      : null
+  const fullListRow = focusedInput?.closest('#cinema-section-all')
+    ? focusedInput.closest<HTMLElement>('.theater-grid > div')
+    : null
+  const rowTop = fullListRow?.getBoundingClientRect().top
+  const scope = selectionScopeKey.value
+  // Native anchoring can miss the first/last summary and pending-feedback height changes.
+  function restoreRowPosition() {
+    if (
+      !fullListRow?.isConnected ||
+      rowTop === undefined ||
+      isUnmounted ||
+      scope !== selectionScopeKey.value ||
+      (document.activeElement !== focusedInput &&
+        document.activeElement !== document.body)
+    )
+      return
+    const shift = fullListRow.getBoundingClientRect().top - rowTop
+    if (Math.abs(shift) > 1)
+      window.scrollBy({ top: shift, behavior: 'instant' })
+  }
+  const pending = applyDraftSelection(
     updateTheaterSelection(
       draftFavoriteTheaterIds.value,
       [theater],
       !selectedIds.value.has(id),
     ),
   )
+  await nextTick()
+  restoreRowPosition()
+  const anchoredScrollY = fullListRow ? window.scrollY : null
+  await pending
+  await nextTick()
+  if (anchoredScrollY === window.scrollY) restoreRowPosition()
+  if (
+    focusedInput?.isConnected &&
+    !writesBlocked.value &&
+    !isUnmounted &&
+    scope === selectionScopeKey.value &&
+    document.activeElement === document.body
+  )
+    focusedInput.focus({ preventScroll: true })
 }
 
 function showList() {
@@ -819,235 +866,250 @@ useHead(() => ({
         </EditorialStatePanel>
 
         <div v-else>
-          <template v-if="viewMode === 'list'">
-            <div
-              v-if="isNearbyMode"
-              class="theater-grid grid border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] sm:grid-cols-2"
+          <div v-if="viewMode === 'list'" class="space-y-10">
+            <section
+              v-for="section in listSections"
+              :key="section.key"
+              :id="`cinema-section-${section.key}`"
+              :aria-labelledby="`cinema-section-${section.key}-title`"
             >
+              <h3
+                :id="`cinema-section-${section.key}-title`"
+                class="editorial-heading mb-5"
+              >
+                {{
+                  section.key === 'selected' ? 'Cinémas sélectionnés' : 'Tous les cinémas'
+                }}
+              </h3>
               <div
-                v-for="row in nearbyRows"
-                :key="row.theater.id"
-                class="border-b-2 border-ink p-4 odd:border-r-2 last:border-b-0 [&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:p-5 max-sm:odd:border-r-0 max-sm:[&:nth-last-child(2):nth-child(odd)]:border-b-2"
-                :class="selectedIds.has(row.theater.id) ? 'bg-[#f1efe8] shadow-[inset_5px_0_0_var(--color-highlight)] [&_.theater-check]:bg-ink [&_.theater-check]:text-white [&_.theater-check]:shadow-[3px_3px_0_var(--color-highlight)]' : 'bg-surface'"
+                v-if="isNearbyMode"
+                class="theater-grid grid border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] sm:grid-cols-2"
               >
                 <div
-                  v-if="row.distanceKm !== null"
-                  class="mb-3 flex min-h-6 flex-wrap items-center gap-2 font-mono text-[11px] font-black uppercase"
+                  v-for="row in section.nearbyRows"
+                  :key="row.theater.id"
+                  class="border-b-2 border-ink p-4 odd:border-r-2 last:border-b-0 [&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:p-5 max-sm:odd:border-r-0 max-sm:[&:nth-last-child(2):nth-child(odd)]:border-b-2"
+                  :class="selectedIds.has(row.theater.id) ? 'bg-[#f1efe8] shadow-[inset_5px_0_0_var(--color-highlight)] [&_.theater-check]:bg-ink [&_.theater-check]:text-white [&_.theater-check]:shadow-[3px_3px_0_var(--color-highlight)]' : 'bg-surface'"
                 >
-                  <span v-if="row.distanceKm !== null">{{
-                    formatTheaterDistance(row.distanceKm)
-                  }}</span>
-                  <span
-                    v-if="row.isNearest"
-                    class="border-2 border-ink bg-highlight px-[0.4rem] py-[0.15rem]"
-                    >Le plus proche</span
+                  <div
+                    v-if="row.distanceKm !== null"
+                    class="mb-3 flex min-h-6 flex-wrap items-center gap-2 font-mono text-[11px] font-black uppercase"
                   >
-                </div>
-                <div class="flex items-start gap-4">
-                  <label
-                    class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5"
-                  >
-                    <input
-                      type="checkbox"
-                      class="peer sr-only"
-                      :aria-label="`Sélectionner ${theaterDisplayName(row.theater)}`"
-                      :checked="selectedIds.has(row.theater.id)"
-                      :disabled="writesBlocked"
-                      @change="toggleTheater(row.theater.id)"
-                    >
+                    <span v-if="row.distanceKm !== null">{{
+                      formatTheaterDistance(row.distanceKm)
+                    }}</span>
                     <span
-                      class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
-                      aria-hidden="true"
-                      ><Check
-                        v-if="selectedIds.has(row.theater.id)"
-                        :size="18"
-                        stroke-width="3"
-                      /></span
+                      v-if="row.isNearest"
+                      class="border-2 border-ink bg-highlight px-[0.4rem] py-[0.15rem]"
+                      >Le plus proche</span
                     >
-                  </label>
-                  <NuxtLink
-                    :to="`/cinema/${encodeURIComponent(row.theater.slug)}`"
-                    :aria-label="`Voir les séances : ${theaterDisplayName(row.theater)}`"
-                    class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent"
-                  >
-                    <span class="min-w-0 flex-1"
-                      ><TheaterName
-                        :name="theaterDisplayName(row.theater)"
-                        :provider="row.theater.provider"
-                        class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg"
-                      /><span
-                        class="mt-2 block text-sm font-medium leading-relaxed text-ink"
-                        ><template v-if="row.theater.address"
-                          >{{ row.theater.address }},
-                        </template>{{ row.theater.postal_code }}
-                        {{ row.theater.city }}</span
-                      ></span
+                  </div>
+                  <div class="flex items-start gap-4">
+                    <label
+                      class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5"
                     >
-                    <ArrowRight
-                      :size="22"
-                      class="mt-0.5 shrink-0 text-ink group-hover:text-primary"
-                      aria-hidden="true"
-                    />
-                  </NuxtLink>
+                      <input
+                        type="checkbox"
+                        class="peer sr-only"
+                        :aria-label="`Sélectionner ${theaterDisplayName(row.theater)}`"
+                        :checked="selectedIds.has(row.theater.id)"
+                        :disabled="writesBlocked"
+                        @change="toggleTheater(row.theater.id, $event)"
+                      >
+                      <span
+                        class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
+                        aria-hidden="true"
+                        ><Check
+                          v-if="selectedIds.has(row.theater.id)"
+                          :size="18"
+                          stroke-width="3"
+                        /></span
+                      >
+                    </label>
+                    <NuxtLink
+                      :to="`/cinema/${encodeURIComponent(row.theater.slug)}`"
+                      :aria-label="`Voir les séances : ${theaterDisplayName(row.theater)}`"
+                      class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent"
+                    >
+                      <span class="min-w-0 flex-1"
+                        ><TheaterName
+                          :name="theaterDisplayName(row.theater)"
+                          :provider="row.theater.provider"
+                          class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg"
+                        /><span
+                          class="mt-2 block text-sm font-medium leading-relaxed text-ink"
+                          ><template v-if="row.theater.address"
+                            >{{ row.theater.address }},
+                          </template>{{ row.theater.postal_code }}
+                          {{ row.theater.city }}</span
+                        ></span
+                      >
+                      <ArrowRight
+                        :size="22"
+                        class="mt-0.5 shrink-0 text-ink group-hover:text-primary"
+                        aria-hidden="true"
+                      />
+                    </NuxtLink>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div v-else class="space-y-8">
-              <section
-                v-for="group in visibleGroups"
-                :key="group.key"
-                class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]"
-              >
-                <header
-                  class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:p-5"
+              <div v-else class="space-y-8">
+                <section
+                  v-for="group in section.groups"
+                  :key="group.citySlug"
+                  class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]"
                 >
-                  <div class="min-w-0">
-                    <h3
-                      class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl"
-                    >
-                      <NuxtLink
-                        :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`"
-                        class="inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] underline decoration-2 underline-offset-4 hover:text-primary"
-                        >{{
-                          group.city
-                        }}</NuxtLink
-                      >
-                    </h3>
-                  </div>
-                  <label
-                    v-if="group.theaters.length > 1"
-                    class="city-group-selection flex size-11 shrink-0 cursor-pointer items-center justify-center has-disabled:cursor-not-allowed has-disabled:opacity-40 lg:hidden"
+                  <header
+                    class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:p-5"
                   >
-                    <input
-                      type="checkbox"
-                      class="peer sr-only"
-                      :aria-label="`${groupSelectionState(group.theaters) === 'all' ? 'Désélectionner' : 'Sélectionner'} les cinémas affichés du groupe ${group.city}`"
-                      :checked="groupSelectionState(group.theaters) === 'all'"
-                      :indeterminate.prop="groupSelectionState(group.theaters) === 'some'"
-                      :disabled="!preferencesReady || writesBlocked"
-                      @change="updateGroup(group.theaters, groupSelectionState(group.theaters) !== 'all')"
-                    >
-                    <span
-                      class="grid size-7 place-items-center border-2 border-ink bg-surface text-ink peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[3px_3px_0_var(--color-highlight)] peer-indeterminate:bg-ink peer-indeterminate:text-white peer-indeterminate:shadow-[3px_3px_0_var(--color-highlight)] peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
-                      aria-hidden="true"
-                    >
-                      <Check
-                        v-if="groupSelectionState(group.theaters) === 'all'"
-                        :size="18"
-                        stroke-width="3"
-                      />
-                      <Minus
-                        v-else-if="groupSelectionState(group.theaters) === 'some'"
-                        :size="18"
-                        stroke-width="3"
-                      />
-                    </span>
-                  </label>
-                  <div
-                    class="hidden gap-2 lg:flex"
-                    role="group"
-                    :aria-label="`Modifier mes cinémas à ${group.city}`"
-                  >
-                    <ClientOnly>
-                      <button
-                        type="button"
-                        class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
-                        :disabled="!preferencesReady || writesBlocked || group.theaters.every((theater) => selectedIds.has(theater.id))"
-                        @click="updateGroup(group.theaters, true)"
+                    <div class="min-w-0">
+                      <h4
+                        class="text-2xl font-black uppercase tracking-[-0.045em] sm:text-3xl"
                       >
-                        Tout sélectionner
-                      </button>
-                      <button
-                        type="button"
-                        class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
-                        :disabled="!preferencesReady || writesBlocked || group.theaters.every((theater) => !selectedIds.has(theater.id))"
-                        @click="updateGroup(group.theaters, false)"
+                        <NuxtLink
+                          :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`"
+                          class="inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] underline decoration-2 underline-offset-4 hover:text-primary"
+                          >{{
+                            group.city
+                          }}</NuxtLink
+                        >
+                      </h4>
+                    </div>
+                    <label
+                      v-if="group.theaters.length > 1"
+                      class="city-group-selection flex size-11 shrink-0 cursor-pointer items-center justify-center has-disabled:cursor-not-allowed has-disabled:opacity-40 lg:hidden"
+                    >
+                      <input
+                        type="checkbox"
+                        class="peer sr-only"
+                        :aria-label="`${groupSelectionState(group.theaters) === 'all' ? 'Désélectionner' : 'Sélectionner'} les cinémas affichés du groupe ${group.city}`"
+                        :checked="groupSelectionState(group.theaters) === 'all'"
+                        :indeterminate.prop="groupSelectionState(group.theaters) === 'some'"
+                        :disabled="!preferencesReady || writesBlocked"
+                        @change="updateGroup(group.theaters, groupSelectionState(group.theaters) !== 'all')"
                       >
-                        Désélectionner
-                      </button>
-                      <template #fallback>
+                      <span
+                        class="grid size-7 place-items-center border-2 border-ink bg-surface text-ink peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[3px_3px_0_var(--color-highlight)] peer-indeterminate:bg-ink peer-indeterminate:text-white peer-indeterminate:shadow-[3px_3px_0_var(--color-highlight)] peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
+                        aria-hidden="true"
+                      >
+                        <Check
+                          v-if="groupSelectionState(group.theaters) === 'all'"
+                          :size="18"
+                          stroke-width="3"
+                        />
+                        <Minus
+                          v-else-if="groupSelectionState(group.theaters) === 'some'"
+                          :size="18"
+                          stroke-width="3"
+                        />
+                      </span>
+                    </label>
+                    <div
+                      class="hidden gap-2 lg:flex"
+                      role="group"
+                      :aria-label="`Modifier mes cinémas à ${group.city}`"
+                    >
+                      <ClientOnly>
                         <button
                           type="button"
-                          class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled
+                          class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
+                          :disabled="!preferencesReady || writesBlocked || group.theaters.every((theater) => selectedIds.has(theater.id))"
+                          @click="updateGroup(group.theaters, true)"
                         >
                           Tout sélectionner
                         </button>
                         <button
                           type="button"
-                          class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled
+                          class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
+                          :disabled="!preferencesReady || writesBlocked || group.theaters.every((theater) => !selectedIds.has(theater.id))"
+                          @click="updateGroup(group.theaters, false)"
                         >
                           Désélectionner
                         </button>
-                      </template>
-                    </ClientOnly>
-                  </div>
-                </header>
+                        <template #fallback>
+                          <button
+                            type="button"
+                            class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled
+                          >
+                            Tout sélectionner
+                          </button>
+                          <button
+                            type="button"
+                            class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled
+                          >
+                            Désélectionner
+                          </button>
+                        </template>
+                      </ClientOnly>
+                    </div>
+                  </header>
 
-                <div class="theater-grid grid sm:grid-cols-2">
-                  <div
-                    v-for="theater in group.theaters"
-                    :key="theater.id"
-                    class="border-b-2 border-ink p-4 odd:border-r-2 last:border-b-0 [&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:p-5 max-sm:odd:border-r-0 max-sm:[&:nth-last-child(2):nth-child(odd)]:border-b-2"
-                    :class="[
+                  <div class="theater-grid grid sm:grid-cols-2">
+                    <div
+                      v-for="theater in group.theaters"
+                      :key="theater.id"
+                      class="border-b-2 border-ink p-4 odd:border-r-2 last:border-b-0 [&:nth-last-child(2):nth-child(odd)]:border-b-0 sm:p-5 max-sm:odd:border-r-0 max-sm:[&:nth-last-child(2):nth-child(odd)]:border-b-2"
+                      :class="[
                     selectedIds.has(theater.id) ? 'bg-[#f1efe8] shadow-[inset_5px_0_0_var(--color-highlight)] [&_.theater-check]:bg-ink [&_.theater-check]:text-white [&_.theater-check]:shadow-[3px_3px_0_var(--color-highlight)]' : 'bg-surface',
                     group.theaters.length === 1 ? '!border-r-0 sm:col-span-2' : ''
                   ]"
-                  >
-                    <div class="flex items-start gap-4">
-                      <label
-                        class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5"
-                      >
-                        <input
-                          type="checkbox"
-                          class="peer sr-only"
-                          :aria-label="`Sélectionner ${theaterDisplayName(theater)}`"
-                          :checked="selectedIds.has(theater.id)"
-                          :disabled="writesBlocked"
-                          @change="toggleTheater(theater.id)"
+                    >
+                      <div class="flex items-start gap-4">
+                        <label
+                          class="flex min-h-11 shrink-0 cursor-pointer items-start pt-0.5"
                         >
-                        <span
-                          class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
-                          aria-hidden="true"
-                          ><Check
-                            v-if="selectedIds.has(theater.id)"
-                            :size="18"
-                            stroke-width="3"
-                          /></span
+                          <input
+                            type="checkbox"
+                            class="peer sr-only"
+                            :aria-label="`Sélectionner ${theaterDisplayName(theater)}`"
+                            :checked="selectedIds.has(theater.id)"
+                            :disabled="writesBlocked"
+                            @change="toggleTheater(theater.id, $event)"
+                          >
+                          <span
+                            class="theater-check grid size-7 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
+                            aria-hidden="true"
+                            ><Check
+                              v-if="selectedIds.has(theater.id)"
+                              :size="18"
+                              stroke-width="3"
+                            /></span
+                          >
+                        </label>
+                        <NuxtLink
+                          :to="`/cinema/${encodeURIComponent(theater.slug)}`"
+                          :aria-label="`Voir les séances : ${theaterDisplayName(theater)}`"
+                          class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent"
                         >
-                      </label>
-                      <NuxtLink
-                        :to="`/cinema/${encodeURIComponent(theater.slug)}`"
-                        :aria-label="`Voir les séances : ${theaterDisplayName(theater)}`"
-                        class="group flex min-h-11 min-w-0 flex-1 items-start gap-4 no-underline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-accent"
-                      >
-                        <span class="min-w-0 flex-1"
-                          ><TheaterName
-                            :name="theaterDisplayName(theater)"
-                            :provider="theater.provider"
-                            class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg"
-                          /><span
-                            class="mt-2 block text-sm font-medium leading-relaxed text-ink"
-                            ><template v-if="theater.address"
-                              >{{ theater.address }},
-                            </template>{{ theater.postal_code }}
-                            {{ theater.city }}</span
-                          ></span
-                        >
-                        <ArrowRight
-                          :size="22"
-                          class="mt-0.5 shrink-0 text-ink group-hover:text-primary"
-                          aria-hidden="true"
-                        />
-                      </NuxtLink>
+                          <span class="min-w-0 flex-1"
+                            ><TheaterName
+                              :name="theaterDisplayName(theater)"
+                              :provider="theater.provider"
+                              class="block text-base font-black leading-tight tracking-[-0.02em] text-ink group-hover:text-primary sm:text-lg"
+                            /><span
+                              class="mt-2 block text-sm font-medium leading-relaxed text-ink"
+                              ><template v-if="theater.address"
+                                >{{ theater.address }},
+                              </template>{{ theater.postal_code }}
+                              {{ theater.city }}</span
+                            ></span
+                          >
+                          <ArrowRight
+                            :size="22"
+                            class="mt-0.5 shrink-0 text-ink group-hover:text-primary"
+                            aria-hidden="true"
+                          />
+                        </NuxtLink>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </section>
-            </div>
-          </template>
+                </section>
+              </div>
+            </section>
+          </div>
 
           <NuxtErrorBoundary v-else>
             <LazyCinemaTheaterMap

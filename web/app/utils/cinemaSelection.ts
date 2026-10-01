@@ -1,35 +1,24 @@
 import type { Theater } from '../types/api'
 
 export interface CinemaCityGroup {
-  key?: string
   city: string
   citySlug: string
   theaters: Theater[]
 }
 
-export function selectedFirst<T>(
+export function cinemaListSections<T>(
   rows: readonly T[],
   selectedIds: ReadonlySet<string>,
   id: (row: T) => string,
-): T[] {
+  selectedOnly = false,
+): { key: 'selected' | 'all'; rows: readonly T[] }[] {
+  const selected = rows.filter((row) => selectedIds.has(id(row)))
   return [
-    ...rows.filter((row) => selectedIds.has(id(row))),
-    ...rows.filter((row) => !selectedIds.has(id(row))),
+    ...(selected.length > 0
+      ? [{ key: 'selected' as const, rows: selected }]
+      : []),
+    ...(!selectedOnly ? [{ key: 'all' as const, rows }] : []),
   ]
-}
-
-export function groupSelectedTheatersFirst(
-  theaters: readonly Theater[],
-  selectedIds: ReadonlySet<string>,
-): CinemaCityGroup[] {
-  return [true, false].flatMap((selected) =>
-    groupTheatersByCityIdentity(
-      theaters.filter((theater) => selectedIds.has(theater.id) === selected),
-    ).map((group) => ({
-      ...group,
-      key: `${selected ? 'selected' : 'unselected'}:${group.citySlug}`,
-    })),
-  )
 }
 
 export function isBroadTheaterSelection(

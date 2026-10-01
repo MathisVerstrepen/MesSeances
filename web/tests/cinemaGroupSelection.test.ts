@@ -4,7 +4,7 @@ import test from 'node:test'
 import ts from 'typescript'
 import { computed, ref } from 'vue'
 import {
-  groupSelectedTheatersFirst,
+  groupTheatersByCityIdentity,
   updateTheaterSelection,
 } from '../app/utils/cinemaSelection.ts'
 import type { Theater } from '../app/types/api.ts'
@@ -121,7 +121,7 @@ test('unchecked and synthetic mixed checkbox select displayed group, preserving 
   }
 })
 
-test('checked checkbox deselects only displayed group and selected-first partitions remain intact', async () => {
+test('checked checkbox deselects only displayed group and full city groups naturally become mixed', async () => {
   const { page, bindings, writes, settle } = harness([
     'hidden',
     'shown-a',
@@ -132,15 +132,15 @@ test('checked checkbox deselects only displayed group and selected-first partiti
   bindings.favoriteTheaterIds.value = ['hidden']
   await settle(true)
   assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['hidden'])
-  const groups = groupSelectedTheatersFirst(members, new Set(['shown-a']))
+  const groups = groupTheatersByCityIdentity(members)
   assert.deepEqual(
     groups.map((group) => group.theaters.map((item) => item.id)),
-    [['shown-a'], ['shown-b']],
+    [['shown-a', 'shown-b']],
   )
   const mixed = harness(['shown-a']).page
   assert.deepEqual(
     groups.map((group) => mixed.groupSelectionState(group.theaters)),
-    ['all', 'none'],
+    ['some'],
   )
 })
 
@@ -179,10 +179,13 @@ test('pending group acknowledgments cannot update departed or changed owners', a
 
 test('mobile heading has native mixed checkbox only for multi-member groups; desktop pair stays', () => {
   const header = source.slice(
-    source.indexOf('<header', source.indexOf('v-for="group in visibleGroups"')),
+    source.indexOf(
+      '<header',
+      source.indexOf('v-for="group in section.groups"'),
+    ),
     source.indexOf(
       '</header>',
-      source.indexOf('v-for="group in visibleGroups"'),
+      source.indexOf('v-for="group in section.groups"'),
     ),
   )
   const checkbox = header.slice(
