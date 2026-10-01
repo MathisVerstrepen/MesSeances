@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { isBroadTheaterSelection } from '../app/utils/cinemaSelection.ts'
 import ts from 'typescript'
 import { computed, nextTick, reactive, ref, type Ref } from 'vue'
 import type { LocationQuery } from 'vue-router'
@@ -72,6 +73,10 @@ function response(
     genres: [],
   }
   return {
+    catalog_revision: 'r1',
+    pagination: null,
+    available_languages: languages.filter((language) => language !== ''),
+    available_formats: ['2D'],
     movie,
     release_status: 'showing',
     currently_screened: true,
@@ -112,6 +117,7 @@ function harness(
   const activeTheaterIds = ref(['ugc-25'])
   let currentResponse = initialResponse
   const bindings = {
+    isBroadTheaterSelection,
     ...routeQuery,
     ...filters,
     computed,
@@ -129,6 +135,7 @@ function harness(
     }),
     useMesSeancesApi: () => ({ movieShowtimes: async () => currentResponse }),
     usePageCinemaSelection: () => ({
+      theaters: ref([{ id: 'ugc-25' }, { id: 'other' }]),
       activeTheaterIds,
       selectionScopeKey: ref(0),
       isInitialized: ref(true),
@@ -150,11 +157,11 @@ function harness(
   }
 }
 
-test('film keeps nationwide movie evidence but no nationwide showtimes for an empty selection', async () => {
+test('film displays bounded nationwide showtimes for an empty selection', async () => {
   const { page, activeTheaterIds } = harness({}, response(['VF']))
   activeTheaterIds.value = []
   await page.applyRoute()
-  assert.equal(page.visibleShowtimeCount.value, 0)
+  assert.equal(page.visibleShowtimeCount.value, 1)
 })
 
 for (const language of ['ORIGINAL', 'VOF'] as const) {

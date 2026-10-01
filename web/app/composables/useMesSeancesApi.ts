@@ -198,13 +198,17 @@ export function useMesSeancesApi() {
         { query: queryValues(query) },
       )
     },
-    movieShowtimesBundle(slug: string, date: string) {
+    movieShowtimesBundle(
+      slug: string,
+      date: string,
+      filters: Pick<MovieShowtimesQuery, 'language' | 'format' | 'sort'> = {},
+    ) {
       if (!hasInternalApiIdentity)
         throw new Error('Internal API identity unavailable')
       return apiFetch<MovieShowtimesBundleResponse>(
         `${apiBase}/api/v1/internal/movies/${encodeURIComponent(slug)}/showtimes-bundle`,
         {
-          query: { date, city: 'Paris' },
+          query: queryValues({ date, ...filters }),
           retry: false,
         },
       )

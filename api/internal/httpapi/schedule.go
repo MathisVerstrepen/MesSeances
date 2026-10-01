@@ -139,11 +139,19 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 
 func (api *API) movieShowtimes(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	page, ok := parsePositiveInteger(w, query, "page", "Le paramètre page doit être un entier supérieur ou égal à 1.")
+	if !ok {
+		return
+	}
 	result, err := api.schedule.MovieShowtimes(schedule.MovieShowtimesQuery{
 		Slug:       chi.URLParam(r, "slug"),
 		Date:       query.Get("date"),
 		City:       query.Get("city"),
 		TheaterIDs: parseCSVQuery(query, "theaters"),
+		Page:       page,
+		Language:   schedule.Language(query.Get("language")),
+		Format:     schedule.Format(query.Get("format")),
+		Sort:       schedule.MovieShowtimesSort(query.Get("sort")),
 	})
 	if err != nil {
 		writeServiceError(w, err)

@@ -6,6 +6,31 @@ export interface CinemaCityGroup {
   theaters: Theater[]
 }
 
+export function cinemaListSections<T>(
+  rows: readonly T[],
+  selectedIds: ReadonlySet<string>,
+  id: (row: T) => string,
+): { key: 'selected' | 'all'; rows: readonly T[] }[] {
+  const selected = rows.filter((row) => selectedIds.has(id(row)))
+  return [
+    ...(selected.length > 0
+      ? [{ key: 'selected' as const, rows: selected }]
+      : []),
+    { key: 'all', rows },
+  ]
+}
+
+export function isBroadTheaterSelection(
+  ids: readonly string[],
+  catalog: readonly Pick<Theater, 'id'>[],
+): boolean {
+  const selected = new Set(ids)
+  return (
+    selected.size === 0 ||
+    (catalog.length > 0 && catalog.every((theater) => selected.has(theater.id)))
+  )
+}
+
 export function groupTheatersByCityIdentity(
   theaters: readonly Theater[],
 ): CinemaCityGroup[] {

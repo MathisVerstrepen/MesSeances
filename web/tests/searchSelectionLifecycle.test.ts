@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { isBroadTheaterSelection } from '../app/utils/cinemaSelection.ts'
 import ts from 'typescript'
 import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
@@ -115,6 +116,7 @@ function harness(
     slugs: ref(new Set<string>()),
   }
   const bindings = {
+    isBroadTheaterSelection,
     ...date,
     ...routeQuery,
     ...showtimeFilters,
@@ -137,6 +139,12 @@ function harness(
       },
     }),
     usePageCinemaSelection: () => ({
+      theaters: ref([
+        { id: 'ugc-25', available_dates: ['2026-09-13'] },
+        { id: 'ugc-46', available_dates: ['2026-09-13'] },
+        { id: 'ugc-45', available_dates: ['2026-09-13'] },
+        { id: 'other', available_dates: ['2026-09-14'] },
+      ]),
       activeTheaterIds,
       activeTheaters: ref([
         { id: 'ugc-25', available_dates: ['2026-09-13'] },
@@ -210,6 +218,74 @@ test('watchlist updates only private projection, preserves share selection and n
     assert.equal(f.searchCalls(), calls)
   } finally {
     f.stop()
+  }
+})
+
+test('complete empty theater marker searches nationwide despite saved preferences and shares the marker', async () => {
+  const requests: SlotQuery[] = []
+  const h = harness({ ...searchQuery, theaters: '' }, async (query) => {
+    requests.push(query)
+    return response
+  })
+  try {
+    await h.page.initializePreferences()
+    await nextTick()
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0]?.theaters, undefined)
+    assert.equal(h.route.query.theaters, '')
+    assert.equal(
+      new URL(
+        h.page.shareTarget.value!,
+        'https://messeances.fr',
+      ).searchParams.get('theaters'),
+      '',
+    )
+    assert.deepEqual(h.page.draftTheaterIds.value, [])
+  } finally {
+    h.stop()
+  }
+})
+
+test('fresh empty scope submits nationwide without constructing catalog IDs; empty partial draft stays invalid', async () => {
+  const requests: SlotQuery[] = []
+  const h = harness({}, async (query) => {
+    requests.push(query)
+    return response
+  })
+  try {
+    h.activeTheaterIds.value = []
+    await h.page.initializePreferences()
+    await h.page.submitSearch()
+    await nextTick()
+    assert.equal(h.route.query.theaters, '')
+    assert.equal(requests[0]?.theaters, undefined)
+    assert.deepEqual(h.page.draftTheaterIds.value, [])
+    h.route.query = {}
+    h.activeTheaterIds.value = ['ugc-25']
+    await nextTick()
+    h.page.toggleSearchTheater('ugc-25')
+    const before = requests.length
+    await h.page.submitSearch()
+    assert.equal(requests.length, before)
+    assert.equal(h.route.query.theaters, undefined)
+  } finally {
+    h.stop()
+  }
+})
+
+test('incomplete, repeated, and malformed nationwide route scope remains invalid', async () => {
+  for (const query of [
+    { theaters: '', date: searchQuery.date },
+    { ...searchQuery, theaters: ['', ''] },
+    { ...searchQuery, theaters: ',' },
+  ]) {
+    const h = harness(query)
+    try {
+      await h.page.initializePreferences()
+      assert.equal(h.searchCalls(), 0)
+    } finally {
+      h.stop()
+    }
   }
 })
 

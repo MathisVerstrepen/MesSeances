@@ -12,9 +12,6 @@ func (s *Service) SearchSlot(query SlotQuery) ([]SlotResult, error) {
 	if city != "" && hasTheaters {
 		return nil, invalid("Les paramètres city et theaters sont mutuellement exclusifs.")
 	}
-	if city == "" && !hasTheaters {
-		return nil, invalid("Le paramètre city ou theaters est requis.")
-	}
 	date, err := s.parseDate(query.Date)
 	if err != nil {
 		return nil, err

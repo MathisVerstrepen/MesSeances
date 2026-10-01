@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1034,12 +1037,12 @@ func TestCanonicalMoviesTransportEndedAliasesAndValidation(t *testing.T) {
 	}
 	for _, slug := range []string{"ugc-film-10", "film-2"} {
 		detail := performRequest(t, handler, "/api/v1/movies/"+slug+"/showtimes?date=2026-08-15&theaters=ugc-99")
-		if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `"slug":"film-1"`) || !strings.Contains(detail.Body.String(), `"currently_screened":true`) || !strings.Contains(detail.Body.String(), `"available_dates":[],"theaters":[]`) {
+		if detail.Code != http.StatusOK || !strings.Contains(detail.Body.String(), `"slug":"film-1"`) || !strings.Contains(detail.Body.String(), `"currently_screened":true`) || !strings.Contains(detail.Body.String(), `"available_dates":[]`) || !strings.Contains(detail.Body.String(), `"theaters":[]`) {
 			t.Fatalf("slug=%s status=%d body=%s", slug, detail.Code, detail.Body.String())
 		}
 	}
 	ended := performRequest(t, handler, "/api/v1/movies/film-3/showtimes?date=2026-08-15")
-	if ended.Code != http.StatusOK || !strings.Contains(ended.Body.String(), `"currently_screened":false`) || !strings.Contains(ended.Body.String(), `"available_dates":[],"theaters":[]`) {
+	if ended.Code != http.StatusOK || !strings.Contains(ended.Body.String(), `"currently_screened":false`) || !strings.Contains(ended.Body.String(), `"available_dates":[]`) || !strings.Contains(ended.Body.String(), `"theaters":[]`) {
 		t.Fatalf("ended status=%d body=%s", ended.Code, ended.Body.String())
 	}
 	pastService, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return start.Add(24 * time.Hour) }})
@@ -1056,6 +1059,143 @@ func TestCanonicalMoviesTransportEndedAliasesAndValidation(t *testing.T) {
 	allWithFalse := performRequest(t, handler, "/api/v1/movies?include_ended=true&currently_screened=false&page_size=10")
 	if allWithFalse.Code != http.StatusOK || !strings.Contains(allWithFalse.Body.String(), `"total":2`) {
 		t.Fatalf("all with false status=%d body=%s", allWithFalse.Code, allWithFalse.Body.String())
+	}
+}
+
+func pagingShowtimesHandler(t *testing.T) (http.Handler, []string) {
+	t.Helper()
+	data := fixtureDataset(t)
+	theater, showing := data.Theaters[0], data.Showtimes[0]
+	data.Theaters, data.Showtimes = nil, nil
+	ids := []string{}
+	for i := range 24 {
+		row := theater
+		row.ID, row.Name = fmt.Sprintf("ugc-%02d", i), fmt.Sprintf("Cinema %02d", i)
+		row.ProviderID, row.Slug, row.City = fmt.Sprint(i), row.ID, "Paris"
+		ids = append(ids, row.ID)
+		data.Theaters = append(data.Theaters, row)
+		if i == 23 {
+			continue
+		}
+		r := showing
+		r.ID, r.ProviderShowingID, r.TheaterID = fmt.Sprintf("ugc-showing-%02d", i), fmt.Sprint(i), row.ID
+		r.StartTime = showing.StartTime.Add(time.Duration(23-i) * time.Minute)
+		r.EndTime = r.StartTime.Add(100 * time.Minute)
+		if i >= 10 {
+			r.Language, r.Format = schedule.LanguageVF, schedule.FormatIMAX
+		}
+		data.Showtimes = append(data.Showtimes, r)
+	}
+	source := fixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{ScheduleVersion: 7, EnrichmentVersion: 3})}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{InternalSharedSecret: strings.Repeat("a", 64)}), ids
+}
+
+func TestMovieShowtimesPagingTransport(t *testing.T) {
+	base := "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15"
+	_, ids := pagingShowtimesHandler(t)
+	for _, tc := range []struct {
+		name, query        string
+		count, page, total int
+		more               bool
+		first              string
+	}{
+		{"omitted", "", 10, 1, 23, true, "ugc-00"},
+		{"second", "&page=2", 10, 2, 23, true, "ugc-10"},
+		{"last", "&page=3", 3, 3, 23, false, "ugc-20"},
+		{"beyond", "&page=4", 0, 4, 23, false, ""},
+		{"machine max", "&page=" + strconv.Itoa(math.MaxInt), 0, math.MaxInt, 23, false, ""},
+		{"ignored page_size", "&page_size=999999", 10, 1, 23, true, "ugc-00"},
+		{"all IDs with duplicate", "&theaters=" + strings.Join(ids, ",") + "," + ids[0], 10, 1, 23, true, "ugc-00"},
+		{"full city", "&city=Paris", 10, 1, 23, true, "ugc-00"},
+		{"partial", "&theaters=" + strings.Join(ids[:12], ","), 12, 0, 12, false, "ugc-00"},
+		{"partial page", "&theaters=" + strings.Join(ids[:12], ",") + "&page=1", 10, 1, 12, true, "ugc-00"},
+		{"filtered beyond ten", "&language=VF&format=IMAX", 10, 1, 13, true, "ugc-10"},
+		{"next beyond ten", "&sort=next", 10, 1, 23, true, "ugc-22"},
+		{"filtered next", "&language=VF&format=IMAX&sort=next", 10, 1, 13, true, "ugc-22"},
+		{"empty filters", "&language=VO", 0, 1, 0, false, ""},
+		{"empty defaults", "&language=&format=&sort=", 10, 1, 23, true, "ugc-00"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, _ := pagingShowtimesHandler(t)
+			response := performRequest(t, handler, base+tc.query)
+			var result schedule.MovieSchedule
+			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if len(result.Theaters) != tc.count || (tc.page == 0) != (result.Pagination == nil) || tc.count > 0 && result.Theaters[0].ID != tc.first {
+				t.Fatalf("result=%+v", result)
+			}
+			if result.Pagination != nil && *result.Pagination != (schedule.MovieShowtimesPagination{Page: tc.page, PageSize: 10, Total: tc.total, HasMore: tc.more}) {
+				t.Fatalf("pagination=%+v", result.Pagination)
+			}
+			if result.CatalogRevision != "schedule:7;enrichment:3" || !result.CurrentlyScreened || result.ReleaseStatus != "showing" || !reflect.DeepEqual(result.AvailableDates, []string{"2026-08-15"}) || !reflect.DeepEqual(result.AvailableLanguages, []schedule.Language{schedule.LanguageVOSTFR, schedule.LanguageVF}) || !reflect.DeepEqual(result.AvailableFormats, []schedule.Format{schedule.FormatIMAX, schedule.FormatScreenX}) {
+				t.Fatalf("metadata=%+v", result)
+			}
+		})
+	}
+}
+
+func TestMovieShowtimesInvalidQueriesTransport(t *testing.T) {
+	for _, query := range []string{
+		"page=", "page=0", "page=-1", "page=1.5", "page=abc", "page=" + strconv.Itoa(math.MaxInt) + "0",
+		"language=invalid", "format=invalid", "sort=invalid", "theaters=", "theaters=unknown",
+	} {
+		t.Run(query, func(t *testing.T) {
+			handler, _ := pagingShowtimesHandler(t)
+			response := performRequest(t, handler, "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&"+query)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_query"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestInternalMovieShowtimesPagingTransport(t *testing.T) {
+	for _, city := range []string{"", "&city=Paris"} {
+		handler, _ := pagingShowtimesHandler(t)
+		target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15" + city + "&language=VF&format=IMAX&sort=next&page=3&theaters=unknown"
+		response := requestFrom(t, handler, http.MethodGet, target, "192.0.2.10:1234", http.Header{internalServiceTokenHeader: {strings.Repeat("a", 64)}})
+		var bundle movieShowtimesBundle
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &bundle) != nil {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		if len(bundle.Scoped.Theaters) != 10 || len(bundle.Nationwide.Theaters) != 10 || bundle.Scoped.Theaters[0].ID != "ugc-22" || bundle.Nationwide.Theaters[0].ID != "ugc-00" || bundle.Scoped.Pagination.Page != 1 || bundle.Scoped.Pagination.Total != 13 || bundle.Nationwide.Pagination.Page != 1 || bundle.Nationwide.Pagination.Total != 23 || bundle.Scoped.CatalogRevision != bundle.Nationwide.CatalogRevision {
+			t.Fatalf("bundle=%+v", bundle)
+		}
+	}
+	for _, query := range []string{"language=invalid", "format=invalid", "sort=invalid"} {
+		handler, _ := pagingShowtimesHandler(t)
+		response := requestFrom(t, handler, http.MethodGet, "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&"+query, "192.0.2.10:1234", http.Header{internalServiceTokenHeader: {strings.Repeat("a", 64)}})
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_query"`) {
+			t.Fatalf("query=%s status=%d body=%s", query, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestNationwideTimelineAndSlotTransport(t *testing.T) {
+	data := fixtureDataset(t)
+	service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(service, "http://localhost:3000")
+	response := performRequest(t, handler, "/api/v1/timeline?date=2026-08-15")
+	var timeline schedule.Timeline
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &timeline) != nil || len(timeline.Theaters) != 3 {
+		t.Fatalf("timeline status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = performRequest(t, handler, "/api/v1/search/slot?date=2026-08-15&start_after=08:00&finish_before=02:00")
+	var results []schedule.SlotResult
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &results) != nil || len(results) != 3 {
+		t.Fatalf("slot status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = performRequest(t, handler, "/api/v1/search/slot?city=Lyon&date=2026-08-15&start_after=08:00&finish_before=02:00")
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &results) != nil || len(results) != 1 || results[0].Theater.City != "Lyon" {
+		t.Fatalf("city slot status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
@@ -1114,6 +1254,15 @@ func TestMovieShowtimesTransport(t *testing.T) {
 	}
 	if emptyPayload["currently_screened"] != true {
 		t.Fatalf("global current-screening signal lost under theater filter: %+v", emptyPayload)
+	}
+	for _, key := range []string{"available_languages", "available_formats", "theaters"} {
+		values, ok := emptyPayload[key].([]any)
+		if !ok || len(values) != 0 {
+			t.Fatalf("%s must serialize as []: %+v", key, emptyPayload)
+		}
+	}
+	if revision, ok := emptyPayload["catalog_revision"].(string); !ok || revision != "" || emptyPayload["pagination"] != nil {
+		t.Fatalf("empty partial metadata=%+v", emptyPayload)
 	}
 	obsolete := performRequest(t, handler, "/api/v1/movies/ugc-film-200/showtimes?date=2026-08-15")
 	assertAPIError(t, obsolete, http.StatusNotFound, "not_found", "Film introuvable.")
@@ -1302,7 +1451,6 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"showtimes date required", "/api/v1/movies/tmdb-film-42/showtimes", "Le paramètre date est requis."},
 		{"showtimes scopes", "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&city=Lille&theaters=ugc-25", "Les paramètres city et theaters sont mutuellement exclusifs."},
 		{"showtimes unknown theater", "/api/v1/movies/tmdb-film-42/showtimes?date=2026-08-15&theaters=inconnu", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
-		{"slot missing scope", "/api/v1/search/slot?date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre city ou theaters est requis."},
 		{"slot duplicate scopes", "/api/v1/search/slot?city=Lille&theaters=ugc-25&date=2026-08-15&start_after=12:00&finish_before=15:00", "Les paramètres city et theaters sont mutuellement exclusifs."},
 		{"slot empty theater", "/api/v1/search/slot?theaters=&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"slot unknown theater", "/api/v1/search/slot?theaters=inconnu&date=2026-08-15&start_after=12:00&finish_before=15:00", "Le paramètre theaters contient un identifiant de cinéma inconnu."},

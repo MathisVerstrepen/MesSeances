@@ -431,7 +431,6 @@ func newSyncRuntime(ctx context.Context, pool *pgxpool.Pool, store *schedulepg.S
 
 func newProductionScheduleOptions() schedule.ServiceOptions {
 	return schedule.ServiceOptions{
-		DefaultCity: "Paris",
 		CityAliases: map[string][]string{
 			"Lille": {"Lille", "Villeneuve d'Ascq"},
 		},

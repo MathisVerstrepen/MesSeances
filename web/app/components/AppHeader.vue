@@ -50,6 +50,7 @@ const mobileFavoriteSummary = computed(() => {
   if (!isInitialized.value && isLoading.value) return 'Chargement…'
 
   const count = favoriteTheaterIds.value.length
+  if (count === 0 && isInitialized.value) return 'Tous les cinémas'
   return `${count} cinéma${count === 1 ? '' : 's'}`
 })
 
@@ -63,7 +64,8 @@ const favoriteSummary = computed(() => {
       cityLabels.set(theater.city_slug, theater.city)
   }
   const cities = [...cityLabels.values()]
-  if (count === 0) return 'Mes cinémas'
+  if (count === 0)
+    return isInitialized.value ? 'Tous les cinémas' : 'Mes cinémas'
   if (cities.length === 1) return `${cities[0]} · ${count}`
   return `${count} cinémas · ${cities.length} villes`
 })

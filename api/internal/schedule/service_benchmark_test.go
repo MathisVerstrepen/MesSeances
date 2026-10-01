@@ -92,10 +92,34 @@ func BenchmarkServiceMovies(b *testing.B) {
 
 func BenchmarkServiceMovieShowtimes(b *testing.B) {
 	_, service := benchmarkService(b)
-	query := MovieShowtimesQuery{Slug: "ugc-film-1", Date: "2026-08-15"}
-	b.ReportAllocs()
-	for b.Loop() {
-		_, _ = service.MovieShowtimes(query)
+	partial := make([]string, 99)
+	for i := range partial {
+		partial[i] = fmt.Sprintf("ugc-%d", i+1)
+	}
+	for _, tc := range []struct {
+		name  string
+		page  int
+		ids   []string
+		count int
+	}{
+		{"BroadFirstPage", 0, nil, 10},
+		{"BroadLastPage", 10, nil, 10},
+		{"PartialUnpaged", 0, partial, 99},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			query := MovieShowtimesQuery{Slug: "ugc-film-1", Date: "2026-08-15", Page: tc.page, TheaterIDs: tc.ids}
+			result, err := service.MovieShowtimes(query)
+			if err != nil || len(result.Theaters) != tc.count {
+				b.Fatalf("cinemas=%d want=%d err=%v", len(result.Theaters), tc.count, err)
+			}
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := service.MovieShowtimes(query); err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(tc.count), "cinemas/op")
+		})
 	}
 }
 

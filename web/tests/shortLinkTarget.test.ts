@@ -236,6 +236,27 @@ test('upserts one canonical shared field without changing other raw fields', () 
     ),
     '/films?q=x&shared_theaters=known-1',
   )
-  assert.equal(withSharedTheaterSelection('/films?q=x', []), null)
+  assert.equal(withSharedTheaterSelection('/films?q=x', []), '/films?q=x')
+  assert.equal(
+    withSharedTheaterSelection('/film/film-1?shared_theaters=ugc-1', []),
+    '/film/film-1',
+  )
+  assert.equal(
+    withSharedTheaterSelection(
+      '/planning?shared%5Ftheaters=ugc-1&shared_theaters=ugc-2&language=VOF',
+      [],
+    ),
+    '/planning?language=VOF',
+  )
+  const emptySearch = withSharedTheaterSelection(
+    '/recherche?theaters=&date=2026-09-13&start_after=18%3A00&finish_before=23%3A30&shared_theaters=ugc-1',
+    [],
+  )!
+  assert.equal(
+    emptySearch,
+    '/recherche?theaters=&date=2026-09-13&start_after=18%3A00&finish_before=23%3A30',
+  )
+  assert.equal(isValidShortLinkTarget(emptySearch), true)
+  assert.equal(withSharedTheaterSelection('/planning?%ZZ=broken', []), null)
   assert.equal(withSharedTheaterSelection('/films?%zz=x', ['known-1']), null)
 })

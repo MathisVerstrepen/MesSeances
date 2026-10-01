@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isBroadTheaterSelection } from '~/utils/cinemaSelection'
 import {
   AlertTriangle,
   ArrowDownUp,
@@ -13,6 +14,7 @@ import {
 import type {
   MovieShowtimesResponse,
   MovieShowtimesTheater,
+  MovieShowtimesQuery,
   Showtime,
   ShowtimeFormat,
 } from '~/types/api'
@@ -85,6 +87,15 @@ const synopsisExpanded = ref(false)
 const synopsisOverflows = ref(false)
 const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
+const appendPending = ref(false)
+const appendError = ref('')
+const broadScope = computed(() =>
+  isBroadTheaterSelection(
+    preferences.activeTheaterIds.value,
+    preferences.theaters.value,
+  ),
+)
+let isUnmounted = false
 const isEndedFilm = computed(() => schedule.value?.release_status === 'ended')
 const isUpcomingFilm = computed(
   () => schedule.value?.release_status === 'upcoming',
@@ -107,20 +118,51 @@ let lastScheduleKey = ''
 // to this page instance. Rejected requests are removed so retry can recover.
 const nationwideRequests = new Map<string, Promise<MovieShowtimesResponse>>()
 
-function nationwideSchedule(movieSlug: string, date: string) {
-  const key = `${movieSlug}|${date}`
+function publicSchedule(
+  movieSlug: string,
+  date: string,
+  filters: Pick<MovieShowtimesQuery, 'language' | 'format' | 'sort'> = {},
+) {
+  const key = `${movieSlug}|${date}|${filters.language ?? 'ALL'}|${filters.format ?? 'ALL'}|${filters.sort ?? 'catalog'}`
   const existing = nationwideRequests.get(key)
   if (existing) return existing
-  const request = api.movieShowtimes(movieSlug, { date }).catch((error) => {
-    nationwideRequests.delete(key)
-    throw error
-  })
+  const request = api
+    .movieShowtimes(movieSlug, { date, page: 1, ...filters })
+    .catch((error) => {
+      if (nationwideRequests.get(key) === request)
+        nationwideRequests.delete(key)
+      throw error
+    })
   nationwideRequests.set(key, request)
   return request
 }
 
+function nationwideSchedule(movieSlug: string, date: string) {
+  return publicSchedule(movieSlug, date)
+}
+
+function serverFilters() {
+  return {
+    language: activeLanguage.value || 'ALL',
+    format: activeTechnology.value,
+    sort: sortByNextShowtime.value ? ('next' as const) : ('catalog' as const),
+  }
+}
+
+function resetPagination() {
+  requestId++
+  appendPending.value = false
+  appendError.value = ''
+  if (schedule.value)
+    schedule.value = { ...schedule.value, theaters: [], pagination: null }
+  lastScheduleKey = ''
+}
+
 function scheduleKey() {
-  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}`
+  const filters = broadScope.value
+    ? `|${activeLanguage.value}|${activeTechnology.value}|${sortByNextShowtime.value}`
+    : ''
+  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}${filters}`
 }
 
 const slug = computed(() => {
@@ -182,21 +224,13 @@ const tmdbUrl = computed(
     externalLinks.value.find((link) => link.destination === 'tmdb')?.url ?? '',
 )
 const languages = computed<Array<Showtime['language']>>(() => {
-  const values =
-    schedule.value?.theaters.flatMap((theater) =>
-      theater.showtimes.map((showtime) => showtime.language),
-    ) ?? []
-  return [...new Set(values)]
+  return schedule.value?.available_languages ?? []
 })
 const languageOptions = computed<
   Array<{ value: LanguageFilter; label: string }>
 >(() => [...availableFilmLanguageOptions(languages.value)])
 const technologyFormats = computed<ShowtimeFormat[]>(() => {
-  const formats =
-    schedule.value?.theaters.flatMap((theater) =>
-      theater.showtimes.map((showtime) => showtime.format),
-    ) ?? []
-  return [...new Set(formats)]
+  return schedule.value?.available_formats ?? []
 })
 const technologyOptions = computed<
   Array<{ value: TechnologyFilter; label: string }>
@@ -302,14 +336,17 @@ const visibleTheaters = computed<
   const theaters = schedule.value.theaters
     .map((theater) => ({
       ...theater,
-      showtimes: theater.showtimes.filter(matchesFilter).map((showtime) => ({
-        ...showtime,
-        timingState: showtimeTimingState(showtime),
-        end: resolveShowtimeEnd(showtime),
-      })),
+      showtimes: theater.showtimes
+        .filter((showtime) => broadScope.value || matchesFilter(showtime))
+        .map((showtime) => ({
+          ...showtime,
+          timingState: showtimeTimingState(showtime),
+          end: resolveShowtimeEnd(showtime),
+        })),
     }))
     .filter((theater) => theater.showtimes.length > 0)
 
+  if (broadScope.value) return theaters
   return theaters.sort((left, right) => {
     if (sortByNextShowtime.value) {
       const earliestTime = (theater: MovieShowtimesTheater) =>
@@ -434,9 +471,14 @@ interface NationwideSeoState {
 }
 
 async function loadSchedule() {
+  if (isUnmounted) return
   // Wait for stable selection before reloading an existing movie. A new slug
   // can still load public evidence even when account synchronization failed.
-  if (!preferences.isInitialized.value && schedule.value?.currently_screened) {
+  if (
+    !preferences.isInitialized.value &&
+    (schedule.value?.currently_screened ||
+      (!schedule.value && !preferences.error.value))
+  ) {
     pending.value = !preferences.error.value
     errorMessage.value = preferences.error.value ?? ''
     return
@@ -445,17 +487,26 @@ async function loadSchedule() {
   if (key === lastScheduleKey) return
   lastScheduleKey = key
   const currentRequest = ++requestId
+  appendPending.value = false
+  appendError.value = ''
+  if (schedule.value)
+    schedule.value = { ...schedule.value, theaters: [], pagination: null }
   if (!slug.value || !selectedDate.value) return
   const movieSlug = slug.value
   const requestedDate = selectedDate.value
   const selectedTheaters = preferences.activeTheaterIds.value.join(',')
+  const filters = serverFilters()
+  const isBroad = broadScope.value
   pending.value = true
   errorMessage.value = ''
   notFound.value = false
 
   try {
     // Resolve nationwide screening evidence before sending saved theater IDs.
-    let response = await nationwideSchedule(movieSlug, requestedDate)
+    let response =
+      isBroad && preferences.isInitialized.value
+        ? await publicSchedule(movieSlug, requestedDate, filters)
+        : await nationwideSchedule(movieSlug, requestedDate)
     if (currentRequest !== requestId) return
     if (response.movie.slug !== movieSlug) {
       await navigateTo(
@@ -474,7 +525,7 @@ async function loadSchedule() {
       return
     }
     const theaterIds =
-      response.currently_screened && selectedTheaters
+      response.currently_screened && !isBroad && selectedTheaters
         ? selectedTheaters
         : undefined
     if (theaterIds)
@@ -482,10 +533,8 @@ async function loadSchedule() {
         date: requestedDate,
         theaters: theaterIds,
       })
-    else if (response.currently_screened) {
-      // Nationwide evidence belongs to movie/SEO data, not an empty selection.
-      response = { ...response, theaters: [] }
-    }
+    else if (response.currently_screened)
+      response = await publicSchedule(movieSlug, requestedDate, filters)
     if (currentRequest !== requestId) return
     if (currentRequest === requestId) {
       schedule.value = response
@@ -506,20 +555,19 @@ async function loadSchedule() {
               date: resolvedDate,
               theaters: theaterIds,
             })
-          : await nationwideSchedule(movieSlug, resolvedDate)
-        if (!theaterIds && response.currently_screened)
-          response = { ...response, theaters: [] }
+          : await publicSchedule(movieSlug, resolvedDate, filters)
       } else if (responseDates.length === 0) {
         selectedDate.value = today.value
         lastScheduleKey = scheduleKey()
       }
       if (currentRequest !== requestId) return
       schedule.value = response
-      isPersonalizedSchedule.value = response.currently_screened
+      isPersonalizedSchedule.value = response.currently_screened && !isBroad
       const canonicalQuery = filmQuery()
       if (!queriesEqual(route.query, canonicalQuery))
         await router.replace({ query: canonicalQuery })
       await nextTick()
+      if (isUnmounted || currentRequest !== requestId) return
       await normalizeDynamicFilters()
     }
   } catch (error) {
@@ -539,6 +587,64 @@ async function loadSchedule() {
         !preferences.isInitialized.value &&
         !preferences.error.value &&
         schedule.value?.currently_screened === true
+  }
+}
+
+async function loadMore() {
+  const loaded = schedule.value
+  if (
+    isUnmounted ||
+    !preferences.isInitialized.value ||
+    !broadScope.value ||
+    pending.value ||
+    appendPending.value ||
+    !loaded?.pagination?.has_more
+  )
+    return
+  const currentRequest = requestId
+  const key = scheduleKey()
+  const movieSlug = slug.value
+  const date = selectedDate.value
+  const filters = serverFilters()
+  const nextPage = loaded.pagination.page + 1
+  const valid = () =>
+    !isUnmounted &&
+    currentRequest === requestId &&
+    key === scheduleKey() &&
+    schedule.value?.pagination?.page === nextPage - 1
+  appendPending.value = true
+  appendError.value = ''
+  try {
+    const response = await api.movieShowtimes(movieSlug, {
+      date,
+      page: nextPage,
+      ...filters,
+    })
+    if (!valid()) return
+    if (response.catalog_revision !== loaded.catalog_revision) {
+      for (const cacheKey of nationwideRequests.keys())
+        if (cacheKey.startsWith(`${movieSlug}|${date}|`))
+          nationwideRequests.delete(cacheKey)
+      clearNuxtData((cacheKey) =>
+        cacheKey.startsWith(`film-schedule:${movieSlug}|`),
+      )
+      resetPagination()
+      await loadSchedule()
+      return
+    }
+    const existingIds = new Set(loaded.theaters.map((theater) => theater.id))
+    schedule.value = {
+      ...response,
+      theaters: [
+        ...loaded.theaters,
+        ...response.theaters.filter((theater) => !existingIds.has(theater.id)),
+      ],
+    }
+  } catch (cause) {
+    if (valid()) appendError.value = getFrenchApiError(cause)
+  } finally {
+    if (!isUnmounted && currentRequest === requestId && key === scheduleKey())
+      appendPending.value = false
   }
 }
 
@@ -572,6 +678,7 @@ async function refreshFilmDay() {
   const currentDay = todayInParis()
   if (currentDay === today.value) return
   today.value = currentDay
+  resetPagination()
   if (isReady) await applyRoute()
 }
 
@@ -599,7 +706,8 @@ async function retryLoad() {
 }
 
 hydrateRoute()
-const initialScheduleKey = `${slug.value}|${selectedDate.value}`
+const initialFilters = serverFilters()
+const initialScheduleKey = `${slug.value}|${selectedDate.value}|${initialFilters.language}|${initialFilters.format}|${initialFilters.sort}`
 const initialRequestedDate = selectedDate.value
 const nationwideSeo: NationwideSeoState = { schedule: null }
 const initialResult = await useAsyncData(
@@ -609,23 +717,19 @@ const initialResult = await useAsyncData(
       const result = await loadInitialFilmSchedule({
         requestedDate: initialRequestedDate,
         today: today.value,
-        fetchScoped:
-          import.meta.server || !preferences.isInitialized.value
-            ? (date) => api.movieShowtimes(slug.value, { date, city: 'Paris' })
-            : undefined,
-        fetchNationwide: (date) => api.movieShowtimes(slug.value, { date }),
+        fetchScoped: (date) => publicSchedule(slug.value, date, initialFilters),
+        fetchNationwide: (date) => nationwideSchedule(slug.value, date),
         fetchBundle:
           import.meta.server && api.hasInternalApiIdentity
-            ? (date) => api.movieShowtimesBundle(slug.value, date)
+            ? (date) =>
+                api.movieShowtimesBundle(slug.value, date, initialFilters)
             : undefined,
       })
       if (import.meta.server) nationwideSeo.schedule = result.nationwide
       return {
         kind: 'success' as const,
         schedule: result.scoped,
-        // The client needs screening metadata/dates, not all national showtimes.
-        // Server JSON-LD above retains the full public nationwide response.
-        nationwide: { ...result.nationwide, theaters: [] },
+        nationwide: result.nationwide,
         selectedDate: result.selectedDate,
         errorMessage: '',
       }
@@ -656,13 +760,18 @@ const initialResult = await useAsyncData(
       }
     }
   },
+  { immediate: import.meta.server },
 )
 
 const initialState = initialResult.data.value
 if (initialState?.kind === 'success') {
   nationwideRequests.set(
-    `${slug.value}|${initialState.nationwide.date}`,
+    `${slug.value}|${initialState.nationwide.date}|ALL|ALL|catalog`,
     Promise.resolve(initialState.nationwide),
+  )
+  nationwideRequests.set(
+    `${slug.value}|${initialState.schedule.date}|${initialFilters.language}|${initialFilters.format}|${initialFilters.sort}`,
+    Promise.resolve(initialState.schedule),
   )
 }
 const responseSlug = initialState?.schedule?.movie.slug
@@ -695,10 +804,7 @@ watch(
     preferences.error,
   ],
   () => {
-    requestId++
-    if (schedule.value?.currently_screened)
-      schedule.value = { ...schedule.value, theaters: [] }
-    lastScheduleKey = ''
+    resetPagination()
   },
   { flush: 'sync' },
 )
@@ -717,6 +823,20 @@ watch(
 )
 watch(
   () => route.query,
+  (query, previous) => {
+    const changed = [
+      'date',
+      ...(broadScope.value ? ['language', 'format', 'sort'] : []),
+    ].some(
+      (key) =>
+        singularQueryValue(query[key]) !== singularQueryValue(previous[key]),
+    )
+    if (isReady && changed) resetPagination()
+  },
+  { flush: 'sync' },
+)
+watch(
+  () => route.query,
   () => {
     if (isReady) applyRoute()
   },
@@ -731,7 +851,7 @@ watch(
   },
 )
 watch(slug, () => {
-  requestId++
+  resetPagination()
   schedule.value = null
   isPersonalizedSchedule.value = false
   backdropFailed.value = false
@@ -751,6 +871,7 @@ onMounted(() => {
   initializePreferencesAndLoad()
 })
 onBeforeUnmount(() => {
+  isUnmounted = true
   isReady = false
   requestId++
   if (currentTimeTimer !== undefined) window.clearInterval(currentTimeTimer)
@@ -1480,7 +1601,7 @@ if (
           </EditorialStatePanel>
 
           <EditorialStatePanel
-            v-else-if="schedule.theaters.length === 0"
+            v-else-if="schedule.theaters.length === 0 && activeLanguage === 'ALL' && activeTechnology === 'ALL'"
             size="detail"
             shadow="large"
             class="film-state mt-10 font-extrabold"
@@ -1659,6 +1780,35 @@ if (
                 </li>
               </ul>
             </section>
+          </div>
+          <div
+            v-if="!pending && !errorMessage && broadScope && schedule.pagination"
+            class="mt-8 flex flex-wrap items-center justify-center gap-3"
+          >
+            <p
+              v-if="appendError"
+              role="alert"
+              class="w-full text-center text-sm font-bold text-primary"
+            >
+              {{ appendError }}
+            </p>
+            <button
+              v-if="schedule.pagination.has_more"
+              type="button"
+              class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-2 text-sm font-bold text-white hover:bg-primary focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+              :disabled="appendPending"
+              :aria-busy="appendPending"
+              @click="loadMore"
+            >
+              {{
+                appendPending ? 'Chargement…' : appendError ? 'Réessayer' : 'Charger plus'
+              }}
+            </button>
+            <NuxtLink
+              to="/cinemas"
+              class="inline-flex min-h-11 items-center justify-center border-2 border-ink px-4 py-2 text-sm font-bold hover:bg-highlight focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+              >Configurer mes cinémas</NuxtLink
+            >
           </div>
         </div>
       </section>

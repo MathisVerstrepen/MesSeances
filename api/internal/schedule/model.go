@@ -215,14 +215,32 @@ type MovieTheaterShowtimes struct {
 }
 
 type MovieSchedule struct {
-	ReleaseStatus     string                  `json:"release_status"`
-	Movie             MovieCatalogItem        `json:"movie"`
-	BackdropURL       *string                 `json:"backdrop_url"`
-	CurrentlyScreened bool                    `json:"currently_screened"`
-	Date              string                  `json:"date"`
-	AvailableDates    []string                `json:"available_dates"`
-	Theaters          []MovieTheaterShowtimes `json:"theaters"`
+	ReleaseStatus      string                    `json:"release_status"`
+	Movie              MovieCatalogItem          `json:"movie"`
+	BackdropURL        *string                   `json:"backdrop_url"`
+	CurrentlyScreened  bool                      `json:"currently_screened"`
+	Date               string                    `json:"date"`
+	AvailableDates     []string                  `json:"available_dates"`
+	CatalogRevision    string                    `json:"catalog_revision"`
+	AvailableLanguages []Language                `json:"available_languages"`
+	AvailableFormats   []Format                  `json:"available_formats"`
+	Pagination         *MovieShowtimesPagination `json:"pagination"`
+	Theaters           []MovieTheaterShowtimes   `json:"theaters"`
 }
+
+type MovieShowtimesPagination struct {
+	Page     int  `json:"page"`
+	PageSize int  `json:"page_size"`
+	Total    int  `json:"total"`
+	HasMore  bool `json:"has_more"`
+}
+
+type MovieShowtimesSort string
+
+const (
+	MovieShowtimesSortCatalog MovieShowtimesSort = "catalog"
+	MovieShowtimesSortNext    MovieShowtimesSort = "next"
+)
 
 type SlotResult struct {
 	Showtime           Showtime       `json:"showtime"`
@@ -266,6 +284,10 @@ type MovieShowtimesQuery struct {
 	Date       string
 	City       string
 	TheaterIDs []string
+	Page       int
+	Language   Language
+	Format     Format
+	Sort       MovieShowtimesSort
 }
 
 type TheaterShowtimesQuery struct {

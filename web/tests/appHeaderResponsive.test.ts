@@ -102,7 +102,12 @@ test('cinema summary shows an untruncated mobile count and keeps full desktop an
       full: '4 cinémas · 2 villes',
     },
     { count: 1, cities: ['Lille'], mobile: '1 cinéma', full: 'Lille · 1' },
-    { count: 0, cities: [], mobile: '0 cinémas', full: 'Mes cinémas' },
+    {
+      count: 0,
+      cities: [],
+      mobile: 'Tous les cinémas',
+      full: 'Tous les cinémas',
+    },
     {
       count: 0,
       cities: [],

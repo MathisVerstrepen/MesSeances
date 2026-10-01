@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { isBroadTheaterSelection } from '../app/utils/cinemaSelection.ts'
 import ts from 'typescript'
 import {
   computed,
@@ -54,6 +55,12 @@ function response(
   query: MovieShowtimesQuery = { date: TODAY },
 ): MovieShowtimesResponse {
   return {
+    catalog_revision: 'r1',
+    available_languages: ['VF', 'VOSTFR'],
+    available_formats: ['2D', 'IMAX'],
+    pagination: query.theaters
+      ? null
+      : { page: query.page ?? 1, page_size: 10, total: 1, has_more: false },
     movie: {
       slug,
       title: 'Film',
@@ -90,7 +97,7 @@ function response(
 function publicPayload() {
   return {
     kind: 'success',
-    schedule: response('film-1', { date: TODAY, city: 'Paris' }),
+    schedule: response('film-1', { date: TODAY }),
     nationwide: response(),
     selectedDate: TODAY,
     errorMessage: '',
@@ -132,6 +139,7 @@ async function harness(options: Options = {}) {
   const query: LocationQuery = options.query ?? {}
   const route = reactive({ params: { slug: 'film-1' }, query })
   const preferences = {
+    theaters: ref([{ id: 'ugc-25' }, { id: 'ugc-26' }, { id: 'other' }]),
     activeTheaterIds: ref(options.ids ?? ['ugc-25']),
     selectionScopeKey: ref(0),
     isInitialized: ref(options.initialized ?? true),
@@ -141,6 +149,9 @@ async function harness(options: Options = {}) {
   }
   const calls: Array<{ slug: string; query: MovieShowtimesQuery }> = []
   const bundleCalls: string[] = []
+  const bundleFilters: Array<
+    Pick<MovieShowtimesQuery, 'language' | 'format' | 'sort'>
+  > = []
   const redirects: unknown[] = []
   const heads: unknown[] = []
   const statuses: number[] = []
@@ -149,6 +160,7 @@ async function harness(options: Options = {}) {
   let payload: unknown
   let loaderCalls = 0
   const bindings = {
+    isBroadTheaterSelection,
     ...routeQuery,
     ...filters,
     ...initialSchedule,
@@ -182,10 +194,15 @@ async function harness(options: Options = {}) {
           ? options.fetch(slug, query)
           : response(slug, query)
       },
-      movieShowtimesBundle: async (slug: string, date: string) => {
+      movieShowtimesBundle: async (
+        slug: string,
+        date: string,
+        filters: Pick<MovieShowtimesQuery, 'language' | 'format' | 'sort'>,
+      ) => {
         bundleCalls.push(date)
+        bundleFilters.push(filters)
         return {
-          scoped: response(slug, { date, city: 'Paris' }),
+          scoped: response(slug, { date }),
           nationwide: response(slug, { date }),
         }
       },
@@ -193,9 +210,10 @@ async function harness(options: Options = {}) {
     useAsyncData: async (
       _key: string,
       loader: () => Promise<ReturnType<typeof publicPayload>>,
+      asyncOptions: { immediate?: boolean } = {},
     ) => {
       if (options.payload) payload = options.payload
-      else {
+      else if (asyncOptions.immediate !== false) {
         loaderCalls++
         payload = await loader()
       }
@@ -246,6 +264,7 @@ async function harness(options: Options = {}) {
     preferences,
     calls,
     bundleCalls,
+    bundleFilters,
     redirects,
     heads,
     statuses,
@@ -268,7 +287,10 @@ test('ready client navigation sends one nationwide and one selected request, nev
   await h.mount()
   assert.deepEqual(
     h.calls.map(({ query }) => query),
-    [{ date: TODAY }, { date: TODAY, theaters: 'ugc-25' }],
+    [
+      { date: TODAY, page: 1 },
+      { date: TODAY, theaters: 'ugc-25' },
+    ],
   )
   assert.deepEqual(
     h.page.schedule.value?.theaters.map(({ id }) => id),
@@ -287,7 +309,7 @@ test('hydration reuses SSR public evidence and waits across account initializati
   t.after(h.close)
   assert.deepEqual(
     h.page.schedule.value?.theaters.map(({ id }) => id),
-    ['paris'],
+    ['nationwide'],
   )
   await h.mount()
   for (let i = 0; i < 3; i++) {
@@ -307,26 +329,63 @@ test('hydration reuses SSR public evidence and waits across account initializati
   assert.equal(h.page.pending.value, false)
 })
 
-test('SSR stays Paris scoped with nationwide SEO and never serializes saved selection', async (t) => {
+test('SSR stays nationwide bounded with nationwide SEO and never serializes saved selection', async (t) => {
   for (const bundle of [true, false]) {
     const h = await harness({ server: true, bundle, ids: ['private-theater'] })
     t.after(h.close)
     assert.deepEqual(
       h.page.schedule.value?.theaters.map(({ id }) => id),
-      ['paris'],
+      ['nationwide'],
     )
     assert.equal(JSON.stringify(h.payload).includes('private-theater'), false)
     assert.deepEqual(JSON.parse(JSON.stringify(h.payload)).nationwide, {
       ...response(),
-      theaters: [],
     })
     assert.equal(h.heads.length, 2)
     assert.equal(h.page.robots.value, 'index,follow')
     assert.deepEqual(
       h.calls.map(({ query }) => query),
-      bundle ? [] : [{ date: TODAY }, { date: TODAY, city: 'Paris' }],
+      bundle ? [] : [{ date: TODAY, page: 1 }],
     )
     assert.deepEqual(h.bundleCalls, bundle ? [TODAY] : [])
+  }
+})
+
+test('filtered public SSR and bundle use route filters; hydrated broad page reuses only identical query', async (t) => {
+  const filters = {
+    language: 'ORIGINAL' as const,
+    format: 'IMAX' as const,
+    sort: 'next' as const,
+  }
+  for (const bundle of [true, false]) {
+    const h = await harness({ server: true, bundle, ids: [], query: filters })
+    t.after(h.close)
+    assert.deepEqual(h.bundleFilters, bundle ? [filters] : [])
+    assert.deepEqual(
+      h.calls.map(({ query }) => query),
+      bundle
+        ? []
+        : [
+            { date: TODAY, page: 1 },
+            { date: TODAY, page: 1, ...filters },
+          ],
+    )
+    const before = h.calls.length
+    await h.mount()
+    assert.equal(h.calls.length, before)
+    h.route.query = { language: 'VF' }
+    await settle()
+    assert.deepEqual(h.calls.at(-1)?.query, {
+      date: TODAY,
+      page: 1,
+      language: 'VF',
+      format: 'ALL',
+      sort: 'catalog',
+    })
+    assert.equal(h.calls.length, before + 1)
+    h.route.query = filters
+    await settle()
+    assert.equal(h.calls.length, before + 1)
   }
 })
 
@@ -342,7 +401,10 @@ test('selection and date changes reuse only matching nationwide evidence; filter
   await settle()
   assert.deepEqual(
     h.calls.slice(3).map(({ query }) => query),
-    [{ date: TOMORROW }, { date: TOMORROW, theaters: 'ugc-26' }],
+    [
+      { date: TOMORROW, page: 1 },
+      { date: TOMORROW, theaters: 'ugc-26' },
+    ],
   )
   h.route.query = { ...h.route.query, sort: 'next' }
   await settle()
@@ -352,18 +414,21 @@ test('selection and date changes reuse only matching nationwide evidence; filter
   assert.deepEqual(
     h.calls.slice(5).map(({ slug, query }) => [slug, query]),
     [
-      ['film-2', { date: TOMORROW }],
+      ['film-2', { date: TOMORROW, page: 1 }],
       ['film-2', { date: TOMORROW, theaters: 'ugc-26' }],
     ],
   )
 })
 
-test('empty selection shows no nationwide theaters and shared query is preserved', async (t) => {
+test('empty selection shows nationwide theaters and shared query is preserved', async (t) => {
   const h = await harness({ ids: [], query: { shared_theaters: '' } })
   t.after(h.close)
   await h.mount()
   assert.equal(h.calls.length, 1)
-  assert.deepEqual(h.page.schedule.value?.theaters, [])
+  assert.deepEqual(
+    h.page.schedule.value?.theaters.map(({ id }) => id),
+    ['nationwide'],
+  )
   h.preferences.activeTheaterIds.value = ['ugc-shared']
   h.route.query = { shared_theaters: 'ugc-shared', language: 'ORIGINAL' }
   await settle()
@@ -450,13 +515,13 @@ test('scoped error retry reuses nationwide evidence', async (t) => {
   assert.equal(h.page.errorMessage.value, '')
 })
 
-test('uninitialized client navigation keeps public Paris fallback until selection settles', async (t) => {
+test('uninitialized client navigation waits for selection before any schedule request', async (t) => {
   const h = await harness({ initialized: false })
   t.after(h.close)
   await h.mount()
   assert.deepEqual(
     h.calls.map(({ query }) => query),
-    [{ date: TODAY }, { date: TODAY, city: 'Paris' }],
+    [],
   )
   h.preferences.error.value = 'Synchronisation indisponible'
   await settle()
@@ -471,8 +536,11 @@ test('uninitialized client navigation keeps public Paris fallback until selectio
   await h.page.retryLoad()
   await settle()
   assert.deepEqual(
-    h.calls.slice(2).map(({ query }) => query),
-    [{ date: TODAY, theaters: 'ugc-26' }],
+    h.calls.map(({ query }) => query),
+    [
+      { date: TODAY, page: 1 },
+      { date: TODAY, theaters: 'ugc-26' },
+    ],
   )
 })
 
@@ -488,7 +556,7 @@ test('selected scope resolves its own fallback date without duplicate requests f
   assert.deepEqual(
     h.calls.map(({ query }) => query),
     [
-      { date: TODAY },
+      { date: TODAY, page: 1 },
       { date: TODAY, theaters: 'ugc-25' },
       { date: TOMORROW, theaters: 'ugc-25' },
     ],
@@ -500,6 +568,7 @@ test('selected scope resolves its own fallback date without duplicate requests f
 
 test('ended films remain public without waiting for account preferences', async (t) => {
   const h = await harness({
+    server: true,
     initialized: false,
     fetch: async (slug, query) => ({
       ...response(slug, query),
@@ -513,7 +582,7 @@ test('ended films remain public without waiting for account preferences', async 
   await h.mount()
   h.preferences.selectionScopeKey.value++
   await settle()
-  assert.equal(h.calls.length, 2)
+  assert.equal(h.calls.length, 1)
   assert.equal(h.page.pending.value, false)
   assert.equal(h.page.schedule.value?.release_status, 'ended')
 })
@@ -532,6 +601,7 @@ test('SSR failures preserve HTTP status and canonical slugs preserve shared quer
   }
   const query = { shared_theaters: 'ugc-25', language: 'ORIGINAL' }
   const h = await harness({
+    server: true,
     query,
     fetch: async (_slug, query) => response('canonical-film', query),
   })
@@ -565,7 +635,10 @@ test('concurrent selection changes share an in-flight nationwide date request an
   await settle()
   assert.deepEqual(
     h.calls.slice(2).map(({ query }) => query),
-    [{ date: TOMORROW }, { date: TOMORROW, theaters: 'ugc-26' }],
+    [
+      { date: TOMORROW, page: 1 },
+      { date: TOMORROW, theaters: 'ugc-26' },
+    ],
   )
 })
 
@@ -579,7 +652,7 @@ test('slug changes still load public movie content during failed preference sync
   h.route.params.slug = 'film-2'
   await settle()
   assert.deepEqual(h.calls.slice(2), [
-    { slug: 'film-2', query: { date: TODAY } },
+    { slug: 'film-2', query: { date: TODAY, page: 1 } },
   ])
   assert.equal(h.page.schedule.value?.movie.slug, 'film-2')
   assert.deepEqual(h.page.schedule.value?.theaters, [])

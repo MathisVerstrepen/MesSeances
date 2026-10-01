@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isBroadTheaterSelection } from '~/utils/cinemaSelection'
 import {
   AlertTriangle,
   CalendarSearch,
@@ -87,6 +88,7 @@ watch(
 const {
   activeTheaterIds,
   activeTheaters,
+  theaters,
   isInitialized,
   isLoading,
   error: preferencesError,
@@ -124,6 +126,13 @@ const appliedSearch = ref<AppliedSearch | null>(null)
 const isFilterSheetOpen = ref(false)
 const isTheaterListOpen = ref(false)
 const draftTheaterIds = ref<string[]>([])
+const draftBroadScope = ref(false)
+const broadPreferenceScope = computed(() =>
+  isBroadTheaterSelection(activeTheaterIds.value, theaters.value),
+)
+const searchScopeTheaters = computed(() =>
+  broadPreferenceScope.value ? theaters.value : activeTheaters.value,
+)
 const filterForm = ref<HTMLFormElement | null>(null)
 const sheetCloseButton = ref<HTMLButtonElement | null>(null)
 const modifierButton = ref<HTMLButtonElement | null>(null)
@@ -218,7 +227,9 @@ const activeFilterSummary = computed(() => {
   const items = [
     formatLongDate(search.date),
     `${search.startAfter.replace(':', 'h')}–${search.finishBefore.replace(':', 'h')}`,
-    `${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`,
+    search.theaterIds.length
+      ? `${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
+      : 'Tous les cinémas',
     search.includeAds
       ? 'Publicités incluses'
       : `Publicités exclues · arrivée +${search.bufferAds} min`,
@@ -230,17 +241,19 @@ const activeFilterSummary = computed(() => {
 const compactFilterSummary = computed(() => {
   const search = appliedSearch.value
   if (!search) return ''
-  return `${formatCompactDate(search.date)} · ${formatCompactTime(search.startAfter)}–${formatCompactTime(search.finishBefore)} · ${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
+  return `${formatCompactDate(search.date)} · ${formatCompactTime(search.startAfter)}–${formatCompactTime(search.finishBefore)} · ${search.theaterIds.length ? `${search.theaterIds.length} cinémas` : 'Tous les cinémas'}`
 })
 const draftTheaterIdSet = computed(() => new Set(draftTheaterIds.value))
 const draftTheaters = computed(() =>
-  activeTheaters.value.filter((theater) =>
+  searchScopeTheaters.value.filter((theater) =>
     draftTheaterIdSet.value.has(theater.id),
   ),
 )
 const availableDateOptions = computed(() => {
   const available = new Set(
-    draftTheaters.value.flatMap((theater) => theater.available_dates ?? []),
+    (draftBroadScope.value ? theaters.value : draftTheaters.value).flatMap(
+      (theater) => theater.available_dates ?? [],
+    ),
   )
   return [...available].sort()
 })
@@ -252,6 +265,7 @@ const quickDateOptions = computed(() => [
 const hasValidSelectedDate = computed(() => Boolean(calendarDate(form.date)))
 const favoriteSummary = computed(() => {
   const count = draftTheaterIds.value.length
+  if (draftBroadScope.value) return 'Tous les cinémas'
   return `${count} cinéma${count === 1 ? '' : 's'} inclus`
 })
 let isReady = false
@@ -336,9 +350,9 @@ function toggleSearchTheater(theaterId: string) {
   const selected = new Set(draftTheaterIds.value)
   if (selected.has(theaterId)) selected.delete(theaterId)
   else selected.add(theaterId)
-  draftTheaterIds.value = activeTheaterIds.value.filter((id) =>
-    selected.has(id),
-  )
+  draftTheaterIds.value = searchScopeTheaters.value
+    .filter((theater) => selected.has(theater.id))
+    .map((theater) => theater.id)
   if (draftTheaterIds.value.length > 0) theaterValidationMessage.value = ''
 }
 
@@ -642,7 +656,10 @@ function resetBareState() {
   resultScrollIntent = false
   requestId++
   todayDate.value = todayInParis()
-  draftTheaterIds.value = [...activeTheaterIds.value]
+  draftBroadScope.value = broadPreferenceScope.value
+  draftTheaterIds.value = draftBroadScope.value
+    ? []
+    : [...activeTheaterIds.value]
   form.date = availableDateOptions.value.includes(todayDate.value)
     ? todayDate.value
     : (availableDateOptions.value[0] ?? '')
@@ -670,7 +687,8 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   const startAfter = singularQueryValue(route.query.start_after)
   const finishBefore = singularQueryValue(route.query.finish_before)
   if (
-    !theaterValue ||
+    theaterValue === undefined ||
+    theaterValue === null ||
     !date ||
     !startAfter ||
     !finishBefore ||
@@ -679,18 +697,23 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
   )
     return null
 
-  const theaterIds = theaterValue?.split(',') ?? []
-  const availableTheaterIds = new Set(activeTheaterIds.value)
+  const theaterIds = theaterValue === '' ? [] : theaterValue.split(',')
+  const availableTheaterIds = new Set(
+    broadPreferenceScope.value
+      ? theaters.value.map((theater) => theater.id)
+      : activeTheaterIds.value,
+  )
   if (
-    theaterIds.length === 0 ||
     new Set(theaterIds).size !== theaterIds.length ||
     theaterIds.some((id) => !availableTheaterIds.has(id))
   )
     return null
 
   const routeAvailableDates = new Set(
-    activeTheaters.value
-      .filter((theater) => theaterIds.includes(theater.id))
+    (theaterIds.length === 0 ? theaters.value : searchScopeTheaters.value)
+      .filter(
+        (theater) => theaterIds.length === 0 || theaterIds.includes(theater.id),
+      )
       .flatMap((theater) => theater.available_dates ?? []),
   )
   if (!routeAvailableDates.has(date) && !quickDateOptions.value.includes(date))
@@ -715,6 +738,7 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
 }
 
 function hydrateAppliedSearch(search: AppliedSearch) {
+  draftBroadScope.value = search.theaterIds.length === 0
   draftTheaterIds.value = [...search.theaterIds]
   form.date = search.date
   form.startAfter = search.startAfter
@@ -732,7 +756,11 @@ async function runSearch(search: AppliedSearch) {
   results.value = null
   try {
     const response = await api.searchSlot({
-      theaters: search.theaterIds.join(','),
+      theaters:
+        search.theaterIds.length === 0 ||
+        isBroadTheaterSelection(search.theaterIds, theaters.value)
+          ? undefined
+          : search.theaterIds.join(','),
       date: search.date,
       start_after: search.startAfter,
       finish_before: search.finishBefore,
@@ -789,8 +817,10 @@ watch(
     results.value = null
     pending.value = false
     lastSearchKey = ''
-    if (!isReady || !OWNED_QUERY_KEYS.some((key) => key in route.query))
-      draftTheaterIds.value = [...favoriteIds]
+    if (!isReady || !OWNED_QUERY_KEYS.some((key) => key in route.query)) {
+      draftBroadScope.value = broadPreferenceScope.value
+      draftTheaterIds.value = draftBroadScope.value ? [] : [...favoriteIds]
+    }
     if (favoriteIds.length > 0) theaterValidationMessage.value = ''
     if (isReady && isInitialized.value) void applyRoute()
     else if (!isResolvingInitialSearch.value && isInitialized.value) {
@@ -871,7 +901,7 @@ onBeforeUnmount(() => {
 async function submitSearch() {
   if (!isInitialized.value || preferencesError.value) return
   const theaterIds = [...draftTheaterIds.value]
-  if (theaterIds.length === 0) {
+  if (theaterIds.length === 0 && !draftBroadScope.value) {
     theaterValidationMessage.value =
       'Sélectionnez au moins un cinéma pour lancer la recherche.'
     return
@@ -1027,7 +1057,10 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               />
               Chargement des cinémas…
             </div>
-            <div v-else-if="activeTheaterIds.length" class="clear-both">
+            <div
+              v-else-if="!draftBroadScope && searchScopeTheaters.length"
+              class="clear-both"
+            >
               <button
                 type="button"
                 class="flex min-h-12 w-full items-center justify-between gap-3 border-2 border-ink bg-surface px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
@@ -1049,7 +1082,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 class="border-2 border-t-0 border-ink bg-surface"
               >
                 <label
-                  v-for="theater in activeTheaters"
+                  v-for="theater in searchScopeTheaters"
                   :key="theater.id"
                   class="flex min-h-12 cursor-pointer items-center gap-3 border-b border-ink/25 px-3 py-2.5 text-sm last:border-b-0 hover:bg-[#e8e6de]"
                 >
@@ -1082,7 +1115,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               v-else
               class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary"
             >
-              Aucun cinéma sélectionné. Ajoutez-en pour lancer une recherche.
+              Tous les cinémas
             </p>
             <p
               v-if="theaterValidationMessage"
