@@ -55,8 +55,8 @@ async function component(name: string): Promise<Component> {
 const Table = await component('StatisticsChainTable')
 const TheaterName = await component('TheaterName')
 const BrandLogo = await component('BrandLogo')
-const render = (rows: HistoryChainRank[]) => {
-  const app = createSSRApp(Table, { rows })
+const render = (rows: HistoryChainRank[], showMovieCount?: boolean) => {
+  const app = createSSRApp(Table, { rows, showMovieCount })
   app.component('TheaterName', TheaterName)
   app.component('BrandLogo', BrandLogo)
   return renderToString(app)
@@ -197,10 +197,23 @@ test('SSR keeps the table and spans all columns for empty results', async () => 
   assert.match(html, /<table\b/)
   assert.match(
     html,
-    /<td colspan="4"[^>]*>Aucune donnée pour ces filtres\.<\/td>/,
+    /<td colspan="4"[^>]*>\s*Aucune donnée pour ces filtres\.\s*<\/td>/,
   )
   assert.doesNotMatch(html, /scope="row"|<img\b/)
   assert.deepEqual(cells(html, 'td'), ['Aucune donnée pour ces filtres.'])
+})
+
+test('movie-filtered circuits omit film header and cells, with matching caption and empty span', async () => {
+  const rows: HistoryChainRank[] = [
+    { chain: 'ugc', showtime_count: 12, movie_count: 1, theater_count: 3 },
+  ]
+  const html = await render(rows, false)
+  assert.deepEqual(cells(html, 'th'), ['Circuit', 'Séances', 'Cinémas', 'UGC'])
+  assert.deepEqual(cells(html, 'td'), ['12', '3'])
+  assert.match(html, /Circuits classés par séances, par ordre décroissant\./)
+  assert.doesNotMatch(html, /Films|puis films/)
+  assert.match(await render([], false), /<td colspan="3"/)
+  assert.deepEqual(cells(await render(rows, true), 'td'), ['12', '1', '3'])
 })
 
 test('page passes history chains directly before local rankings within nonzero details', async () => {
@@ -214,7 +227,7 @@ test('page passes history chains directly before local rankings within nonzero d
   )
   assert.match(
     page,
-    /<section :class="sectionClass" aria-labelledby="statistics-chains">\s*<h2 id="statistics-chains" :class="headingClass">Par circuit<\/h2>\s*<StatisticsChainTable :rows="data.chains"\s*\/>\s*<\/section>\s*<section[^>]*aria-labelledby="statistics-local"/,
+    /<section :class="sectionClass" aria-labelledby="statistics-chains">\s*<h2 id="statistics-chains" :class="headingClass">Par circuit<\/h2>\s*<StatisticsChainTable\s+:rows="data.chains"\s+:show-movie-count="!selectedFilm"\s*\/>\s*<\/section>\s*<section[^>]*aria-labelledby="statistics-local"/,
   )
   const totals = page.indexOf('id="statistics-totals"')
   const empty = page.indexOf('v-if="data.totals.showtimes === 0"')

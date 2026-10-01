@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import test from 'node:test'
+import { compileTemplate } from '@vue/compiler-sfc'
+import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
 import {
   computed,
+  createSSRApp,
   effectScope,
   isRef,
   nextTick,
   reactive,
   ref,
+  h,
   shallowRef,
   watch,
   type Ref,
+  type RenderFunction,
 } from 'vue'
 import type { LocationQuery } from 'vue-router'
 import type { MovieShowtimesQuery, StatisticsQuery } from '../app/types/api.ts'
@@ -53,6 +59,8 @@ interface TitleResult {
   backdrop?: string | null
 }
 interface Page {
+  selectedFilm: Ref<string>
+  totals: Ref<{ label: string; count: number }[]>
   selectedFilmLabel: Ref<string>
   backdropUrl: Ref<string | null>
   backdropAvailable: Ref<boolean>
@@ -75,6 +83,8 @@ async function harness(
   query: LocationQuery,
   options: {
     historyError?: boolean
+    showtimes?: number
+    movies?: number
     lookup?: (film: string) => Promise<MovieResult>
   } = {},
 ) {
@@ -108,7 +118,28 @@ async function harness(
         return {
           options: null,
           limits: { options: undefined },
-          totals: { showtimes: 0, movies: 0, theaters: 0, cities: 0 },
+          totals: {
+            showtimes: options.showtimes ?? 0,
+            movies: options.movies ?? 0,
+            theaters: 2,
+            cities: 1,
+          },
+          generated_at: '2026-09-15T10:00:00Z',
+          coverage: { collection_started_at: null },
+          concentration: {
+            top_movie_count: 1,
+            top_showtime_count: 12,
+            other_showtime_count: 0,
+          },
+          top_movies: { by_showtimes: [], by_theaters: [] },
+          daily_showtimes: [],
+          heatmap: [],
+          versions: [],
+          formats: [],
+          genres: [],
+          runtimes: [],
+          chains: [],
+          local: { cities: [], theaters: [] },
         }
       },
       movieShowtimes: async (film: string, query: MovieShowtimesQuery) => {
@@ -157,7 +188,7 @@ async function harness(
   // SAFETY: The wrapper explicitly returns these actual page setup bindings.
   const page = (await new Function(
     ...Object.keys(bindings),
-    `return (async () => { ${compiled}\nreturn { selectedFilmLabel, backdropUrl, backdropAvailable, backdropFailed, draft, error, apply, reset } })()`,
+    `return (async () => { ${compiled}\nreturn { selectedFilm, totals, selectedFilmLabel, backdropUrl, backdropAvailable, backdropFailed, draft, error, apply, reset, data, historyData, pending, showSkeleton, buttonClass, headingClass, sectionClass, dateLabel, timestampLabel, generatedLabel, statisticsCount, statisticsShare, statisticsChainLabels, signature, movieBars, buckets, concentration, reload } })()`,
   )(...Object.values(bindings))) as Page
   return {
     page,
@@ -171,6 +202,157 @@ async function harness(
     },
   }
 }
+
+// Compile the actual result template, keeping route/draft behavior in the real page setup.
+const resultTemplate = source.slice(
+  source.indexOf('<div class="mt-10'),
+  source.lastIndexOf('    </div>'),
+)
+const template = compileTemplate({
+  source: resultTemplate,
+  filename: 'statistiques.vue',
+  id: 'statistics-results',
+})
+assert.deepEqual(template.errors, [])
+interface TemplateModule {
+  render?: RenderFunction
+}
+const templateExports: TemplateModule = {}
+new Function(
+  'require',
+  'exports',
+  ts.transpileModule(template.code, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText,
+)(createRequire(import.meta.url), templateExports)
+const renderResults = async (page: Page) => {
+  const app = createSSRApp({
+    setup: () => page,
+    render: templateExports.render,
+  })
+  app.component('EditorialStatePanel', {
+    setup:
+      (_, { slots }) =>
+      () =>
+        h('div', [slots.default?.(), slots.actions?.()]),
+  })
+  for (const name of [
+    'StatisticsLineChart',
+    'StatisticsBarChart',
+    'StatisticsHeatmap',
+    'AlertTriangle',
+    'RefreshCw',
+  ])
+    app.component(name, { render: () => h('div') })
+  for (const name of ['StatisticsChainTable', 'StatisticsLocalTable'])
+    app.component(name, {
+      props: ['showMovieCount'],
+      setup: (props) => () =>
+        h('table', {
+          'data-table': name,
+          'data-movies': String(props.showMovieCount),
+        }),
+    })
+  return renderToString(app)
+}
+
+test('applied movie hides only requested result sections and metric across every period and intersection', async (context) => {
+  for (const { value: period } of history.statisticsPeriods) {
+    for (const filtered of [false, true]) {
+      const query: LocationQuery = {
+        period,
+        date: '2026-09-15',
+        date_to: '2026-09-21',
+        city: ['paris'],
+        theater: ['ugc-1'],
+        language: 'VF',
+      }
+      if (filtered) query.film = 'film-632'
+      const harnessResult = await harness(query, { showtimes: 12, movies: 1 })
+      context.after(harnessResult.stop)
+      const html = await renderResults(harnessResult.page)
+      assert.equal(html.includes('lg:grid-cols-3'), filtered)
+      assert.equal(html.includes('lg:grid-cols-4'), !filtered)
+      assert.deepEqual(
+        harnessResult.page.totals.value.map((total) => total.label),
+        filtered
+          ? ['Séances', 'Cinémas', 'Villes']
+          : ['Séances', 'Films', 'Cinémas', 'Villes'],
+      )
+      assert.equal(/<dt\b[^>]*>\s*Films\s*<\/dt>/.test(html), !filtered)
+      for (const section of ['top', 'genres', 'concentration'])
+        assert.equal(
+          html.includes(`id="statistics-${section}"`),
+          !filtered,
+          `${period}: ${section}`,
+        )
+      for (const section of [
+        'totals',
+        'daily',
+        'hours',
+        'versions',
+        'formats',
+        'chains',
+        'local',
+      ])
+        assert.ok(html.includes(`id="statistics-${section}"`), section)
+      assert.equal(
+        (html.match(new RegExp(`data-movies="${!filtered}"`, 'g')) ?? [])
+          .length,
+        2,
+      )
+    }
+  }
+})
+
+test('zero-result movie filters hide film metric and concentration copy, while general empty state stays intact', async (context) => {
+  for (const filtered of [false, true]) {
+    const query: LocationQuery = {
+      period: 'all',
+      city: ['missing'],
+    }
+    if (filtered) query.film = 'unknown-film'
+    const harnessResult = await harness(query)
+    context.after(harnessResult.stop)
+    const html = await renderResults(harnessResult.page)
+    assert.ok(html.includes('Aucune séance enregistrée pour ces filtres.'))
+    assert.ok(html.includes('Réinitialiser'))
+    assert.equal(html.includes('Part des films les plus programmés'), !filtered)
+    assert.equal(/<dt\b[^>]*>\s*Films\s*<\/dt>/.test(html), !filtered)
+  }
+})
+
+test('movie display remains applied through draft removal; Apply, Reset and history navigation update it', async (context) => {
+  const harnessResult = await harness(
+    { period: 'all', film: 'film-632' },
+    { showtimes: 12, movies: 1 },
+  )
+  context.after(harnessResult.stop)
+  const { page, route } = harnessResult
+  page.draft.value.film = ''
+  assert.equal(page.selectedFilm.value, 'film-632')
+  assert.doesNotMatch(await renderResults(page), /id="statistics-top"/)
+  await page.apply()
+  await settle()
+  assert.match(await renderResults(page), /id="statistics-top"/)
+  page.draft.value.film = 'film-632'
+  assert.match(await renderResults(page), /id="statistics-top"/)
+  await page.apply()
+  await settle()
+  assert.doesNotMatch(await renderResults(page), /id="statistics-top"/)
+  await page.reset()
+  await settle()
+  assert.match(await renderResults(page), /id="statistics-top"/)
+  route.query = { period: 'all', film: 'film-632' }
+  await settle()
+  assert.doesNotMatch(await renderResults(page), /id="statistics-top"/)
+  route.query = { period: 'all' }
+  await settle()
+  assert.match(await renderResults(page), /id="statistics-top"/)
+})
 
 test('selected title resolves with zero rows or failed history, including redirected and ended films', async (context) => {
   for (const historyError of [false, true]) {
@@ -212,6 +394,7 @@ test('title requests use only valid film identity, independently of other invali
     context.after(h.stop)
     assert.deepEqual(h.movieCalls, [], JSON.stringify(film))
     assert.equal(h.page.selectedFilmLabel.value, 'Titre indisponible')
+    assert.equal(h.page.selectedFilm.value, '')
   }
   const h = await harness({
     film: ' film-230 ',
