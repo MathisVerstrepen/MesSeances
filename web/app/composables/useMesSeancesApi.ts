@@ -54,6 +54,8 @@ import type {
   HistoryOptionsQuery,
   HistoryOptionsResponse,
   Theater,
+  TheaterActivityQuery,
+  TheaterActivityResponse,
   TheaterShowtimesResponse,
   TheaterQuery,
   TimelineQuery,
@@ -179,6 +181,16 @@ export function useMesSeancesApi() {
         {
           query: date ? { date } : undefined,
         },
+      )
+    },
+    theaterActivity(
+      slug: string,
+      query: TheaterActivityQuery = {},
+      signal?: AbortSignal,
+    ) {
+      return apiFetch<TheaterActivityResponse>(
+        `${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/activity`,
+        { query: queryValues(query), signal, retry: false },
       )
     },
     movies(query: MoviesQuery = {}) {
@@ -663,6 +675,24 @@ export function getFrenchApiError(cause: unknown): string {
   const message = parseApiFailure(cause)?.data?.error?.message
   if (message !== undefined) return message
   return 'Impossible de joindre le service. Vérifiez que l’API est démarrée, puis réessayez.'
+}
+
+export function getFrenchActivityApiError(cause: unknown): string {
+  const code = getApiErrorCode(cause)
+  const status = getApiErrorStatus(cause)
+  if (code === 'history_query_timeout')
+    return 'La recherche historique prend trop de temps. Réessayez.'
+  if (code === 'history_busy' || status === 429)
+    return 'Le service historique est occupé. Patientez un instant avant de réessayer.'
+  if (code === 'history_unavailable' || status === 503)
+    return 'L’historique est temporairement indisponible. Réessayez plus tard.'
+  if (code === 'not_found' || status === 404)
+    return 'L’historique de ce cinéma n’est plus disponible. Revenez à la liste des cinémas.'
+  if (code === 'invalid_query' || status === 400)
+    return 'Cette page d’activité n’est plus accessible. Actualisez la page pour reprendre depuis le début.'
+  if (status !== undefined && status >= 500)
+    return 'Le service historique a rencontré une erreur. Réessayez plus tard.'
+  return 'Impossible de joindre le service historique. Vérifiez votre connexion, puis réessayez.'
 }
 
 export function getFrenchShortLinkPreparationError(cause: unknown): string {

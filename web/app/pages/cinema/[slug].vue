@@ -66,8 +66,12 @@ const requestedDate = computed(() =>
   calendarDate(singularQueryValue(route.query.date)),
 )
 const selectedDate = computed(() => requestedDate.value ?? todayInParis())
-const currentView = computed(() =>
-  singularQueryValue(route.query.view) === 'films' ? 'films' : 'showtimes',
+const currentView = computed(
+  () =>
+    enumQueryValue(singularQueryValue(route.query.view), [
+      'films',
+      'activity',
+    ]) ?? 'showtimes',
 )
 const filmSearch = computed(() =>
   currentView.value === 'films'
@@ -240,9 +244,9 @@ async function loadMovies(theaterId: string, force = false) {
   moviesPending.value = false
 }
 
-function viewQuery(view: 'showtimes' | 'films') {
+function viewQuery(view: 'showtimes' | 'films' | 'activity') {
   return mergeOwnedQuery(route.query, FILMS_QUERY_KEYS, {
-    view: view === 'films' ? 'films' : undefined,
+    view: view === 'showtimes' ? undefined : view,
     q: undefined,
     sort: undefined,
   })
@@ -678,10 +682,7 @@ useHead(() => ({
         </div>
       </header>
 
-      <section
-        class="mt-12"
-        :aria-labelledby="currentView === 'films' ? 'cinema-films-heading' : 'cinema-showtimes-heading'"
-      >
+      <section class="mt-12" :aria-labelledby="`cinema-${currentView}-heading`">
         <div
           class="flex flex-col gap-5 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between"
         >
@@ -699,11 +700,18 @@ useHead(() => ({
               Séances
             </h2>
             <h2
-              v-else
+              v-else-if="currentView === 'films'"
               id="cinema-films-heading"
               class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl"
             >
               Films
+            </h2>
+            <h2
+              v-else
+              id="cinema-activity-heading"
+              class="mt-2 text-4xl font-black tracking-[-0.05em] sm:text-5xl"
+            >
+              Activité
             </h2>
             <p
               v-if="currentView === 'showtimes' && response.date"
@@ -716,7 +724,7 @@ useHead(() => ({
           </div>
           <div class="flex items-center gap-3 self-stretch sm:self-auto">
             <nav
-              class="grid flex-1 grid-cols-2 border-2 border-ink bg-surface sm:flex-none"
+              class="grid min-w-0 flex-1 grid-cols-3 border-2 border-ink bg-surface sm:flex-none"
               aria-label="Vue de la programmation"
             >
               <NuxtLink
@@ -734,6 +742,14 @@ useHead(() => ({
                 :aria-current="currentView === 'films' ? 'page' : undefined"
               >
                 Films
+              </NuxtLink>
+              <NuxtLink
+                :to="{ query: viewQuery('activity') }"
+                class="inline-flex min-h-11 items-center justify-center border-l-2 border-ink px-[0.9rem] py-[0.6rem] font-mono text-[0.7rem] font-black uppercase tracking-[0.08em] [transition:background-color_150ms_ease,color_150ms_ease] hover:bg-ink hover:text-surface focus-visible:relative focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transition-none"
+                :class="currentView === 'activity' ? 'bg-ink text-surface' : ''"
+                :aria-current="currentView === 'activity' ? 'page' : undefined"
+              >
+                Activité
               </NuxtLink>
             </nav>
             <ShareButton class="shrink-0" />
@@ -866,6 +882,12 @@ useHead(() => ({
             scope="single-theater"
           />
         </template>
+
+        <CinemaActivity
+          v-else-if="currentView === 'activity'"
+          :key="slug"
+          :slug="slug"
+        />
 
         <template v-else>
           <MovieCatalogControls

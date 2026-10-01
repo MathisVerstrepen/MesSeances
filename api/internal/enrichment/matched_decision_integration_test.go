@@ -39,9 +39,15 @@ func TestSaveDecisionMatchedEvidenceRemovalIntegration(t *testing.T) {
 		t.Fatal("create integration schema failed")
 	}
 	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "movieflow_matched_decision_test_") || len(schema) != len("movieflow_matched_decision_test_")+16 {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
+			t.Error("drop integration schema failed")
+		}
 	})
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -53,6 +59,7 @@ func TestSaveDecisionMatchedEvidenceRemovalIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
+	assertEnrichmentTestSchema(t, pool, schema)
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run integration migrations failed")
 	}

@@ -12,6 +12,7 @@ type Window struct {
 }
 
 type Dataset struct {
+	Coverage            []PublicationCoverage     `json:"-"`
 	CatalogPublishedAt  time.Time                 `json:"-"`
 	UpcomingCompletedAt time.Time                 `json:"-"`
 	SchemaVersion       int                       `json:"schema_version"`
@@ -137,6 +138,7 @@ type ShowtimeRecord struct {
 
 func cloneDataset(in Dataset) Dataset {
 	out := in
+	out.Coverage = append([]PublicationCoverage(nil), in.Coverage...)
 	out.Theaters = append([]TheaterRecord(nil), in.Theaters...)
 	for i := range out.Theaters {
 		out.Theaters[i].AvailableDates = append([]string(nil), in.Theaters[i].AvailableDates...)

@@ -886,6 +886,44 @@ export interface TheaterShowtimesResponse {
   showtimes: TimelineShowtime[]
 }
 
+export interface TheaterActivityQuery {
+  limit?: number
+  cursor?: string
+}
+
+export interface TheaterActivityItem {
+  event_id: string
+  type: 'added_to_program' | 'return_to_program'
+  detected_at: string
+  first_screening_date: string
+  previous_program_end_date: string | null
+  movie: {
+    slug: string
+    title: string
+    poster_url: string | null
+    updated_at: string
+  }
+  has_upcoming_showtimes: boolean
+  next_showtime_date: string | null
+}
+
+export interface TheaterActivityResponse {
+  generated_at: string
+  timezone: 'Europe/Paris'
+  theater: Theater
+  coverage: {
+    history_started_at: string | null
+    last_publication_at: string | null
+    source_generated_at: string | null
+    completeness: 'unknown' | 'partial'
+    bootstrap: 'baseline'
+    return_minimum_break_days: 28
+  }
+  items: TheaterActivityItem[]
+  limit: number
+  next_cursor: string | null
+}
+
 export interface TheaterQuery {
   city?: string
   chain?: string

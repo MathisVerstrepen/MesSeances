@@ -156,29 +156,45 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 	}
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].rawURL < jobs[j].rawURL })
 
-	showtimeGroups, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: WorkerCount}, func(phaseCtx context.Context, job showtimeJob) ([]schedule.ShowtimeRecord, error) {
+	type responseResult struct {
+		records []schedule.ShowtimeRecord
+		unknown map[string]bool
+	}
+	showtimeGroups, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: WorkerCount}, func(phaseCtx context.Context, job showtimeJob) (responseResult, error) {
 		body, fetchErr := getter.Get(phaseCtx, job.operation, job.rawURL)
 		if fetchErr != nil {
-			return nil, fetchErr
+			return responseResult{}, fetchErr
 		}
-		records, parseErr := parseShowtimeResponse(body, job, location)
+		unknown := map[string]bool{}
+		records, parseErr := parseShowtimeResponse(body, job, location, unknown)
 		if parseErr != nil {
-			return nil, requestError(job.operation, CategoryInvalidPayload, 0, parseErr)
+			return responseResult{}, requestError(job.operation, CategoryInvalidPayload, 0, parseErr)
 		}
-		return records, nil
+		return responseResult{records, unknown}, nil
 	})
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, err
 	}
 	seenShowingIDs := map[string]bool{}
-	for _, group := range showtimeGroups {
-		for _, record := range group {
+	unknownDates := map[string]map[string]bool{}
+	for i, group := range showtimeGroups {
+		id := "pathe-" + jobs[i].theater.slug
+		if unknownDates[id] == nil {
+			unknownDates[id] = map[string]bool{}
+		}
+		for date := range group.unknown {
+			unknownDates[id][date] = true
+		}
+		for _, record := range group.records {
 			if seenShowingIDs[record.ProviderShowingID] {
 				return schedule.Dataset{}, SyncSummary{}, datasetValidationError{message: "Pathé sync produced duplicate showing identity"}
 			}
 			seenShowingIDs[record.ProviderShowingID] = true
 			dataset.Showtimes = append(dataset.Showtimes, record)
 		}
+	}
+	for i, theater := range dataset.Theaters {
+		dataset.Coverage = append(dataset.Coverage, schedule.ProgramCoverage(theater.ID, programs[i], unknownDates[theater.ID])...)
 	}
 	sort.Slice(dataset.Showtimes, func(i, j int) bool {
 		a, b := dataset.Showtimes[i], dataset.Showtimes[j]
@@ -206,9 +222,9 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (schedule.Dat
 	return dataset, summary, nil
 }
 
-func parseShowtimeResponse(body []byte, job showtimeJob, location *time.Location) ([]schedule.ShowtimeRecord, error) {
+func parseShowtimeResponse(body []byte, job showtimeJob, location *time.Location, unknown ...map[string]bool) ([]schedule.ShowtimeRecord, error) {
 	if job.operation == OperationMovieTimes {
-		return parseMovieShowtimeResponse(body, job, location)
+		return parseMovieShowtimeResponse(body, job, location, unknown...)
 	}
 	var response []sessionResponse
 	if err := decodeJSON(body, &response); err != nil {
@@ -220,7 +236,7 @@ func parseShowtimeResponse(body []byte, job showtimeJob, location *time.Location
 	return parseSessions(response, job.movie, job.theater, job.advertisedDate, location)
 }
 
-func parseMovieShowtimeResponse(body []byte, job showtimeJob, location *time.Location) ([]schedule.ShowtimeRecord, error) {
+func parseMovieShowtimeResponse(body []byte, job showtimeJob, location *time.Location, unknown ...map[string]bool) ([]schedule.ShowtimeRecord, error) {
 	// Like cinema programs, movie dates use [] instead of {} when empty.
 	var response objectOrEmptyArray[[]sessionResponse]
 	if err := decodeJSON(body, &response); err != nil {
@@ -233,6 +249,9 @@ func parseMovieShowtimeResponse(body []byte, job showtimeJob, location *time.Loc
 	for _, date := range job.dates {
 		items, exists := response[date]
 		if !exists {
+			if len(unknown) > 0 {
+				unknown[0][date] = true
+			}
 			continue
 		}
 		if items == nil {

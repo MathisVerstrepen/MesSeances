@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [055_account_watchlist_preferences.sql](055_account_watchlist_preferences.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [056_cinema_activity.sql](056_cinema_activity.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -267,6 +267,21 @@ Both showtime tables explicitly reject the query-only `ORIGINAL` and `VOF` langu
 Receipt timestamps describe successful database publication, not scraping freshness or proof that a screening occurred. Repeated identities preserve first receipt and replace mutable fields; missing identities remain. Latest retained theater metadata applies to all its history. City identities use the same inventory-based Go algorithm as upcoming cities. Films resolve through durable source keys to current canonical public metadata, so merges, splits and overrides can reclassify past counts. Booking URLs stay internal. There is no edit log, bootstrap, cancellation inference or reconstruction of pruned data.
 
 Old binaries embedding only 038 reject the newer migration ledger. Rollback requires a compatible corrective build retaining 039 or an explicitly approved consistent restore, not dropping history or deleting migration history. Writers must be updated together to avoid unrecorded publications.
+
+## Cinema activity journal
+
+Migration 056 creates empty tables without reconstructing announcements or coverage. Activity writes share the schedule publication transaction and receipt clock. First publication of each cinema establishes a silent baseline, including retained positive source familiarity. Copied or failed providers write nothing. Omitted cinemas do not advance actual observation metadata.
+
+| Table | Columns and constraints |
+| --- | --- |
+| `cinema_activity_state` | Durable theater PK/FK; required first baseline `history_started_at`, latest `last_publication_at` (not before baseline) and `source_generated_at`. |
+| `cinema_activity_coverage` | PK `(provider,generation,theater_id,service_date)`; ten-provider check, positive generation without live FK; composite durable provider/theater FK; status `complete` or `unknown`, controlled basis `date_response`, `accepted_omission`, `unproven`; source and receipt timestamps. Complete evidence is restricted to validated date-response providers. Index theater/date/source time/receipt/generation descending. |
+| `cinema_activity_episodes` | Positive bigint identity PK and theater/ID ownership key; durable theater and immutable source-anchor FKs; kind `baseline`, `added_to_program`, `return_to_program`; immutable receipt, first announced date and detecting generation; mutable conservative observed bounds. Returns require previous end and matching inclusive break bounds of at least 28 dates; other kinds require all three null. Nullable self-FK supersession points only to an older ID. Partial theater/receipt/ID descending index covers surviving public events; partial theater/ID descending index bounds the first-page committed upper ID. |
+| `cinema_activity_episode_sources` | PK `(theater_id,episode_id,source_provider,source_movie_id)`; composite episode ownership FK and durable source FK; conservative source date bounds and first/latest receipts. Theater/source/latest-episode index. Superseded links remain retained. |
+
+References are noncascading; no generation pruning, triggers or delivery infrastructure affects the journal. Identity reconciliation conservatively coalesces overlapping source-linked runs without emitting events, changing immutable facts, resurrecting superseded rows or fanning out events on splits. Public reads follow the surviving immutable source anchor to current canonical metadata.
+
+Coverage is not a claim that screenings occurred. A return requires 28 programming-free service dates, each with latest successful acquisition and receipt inside that same Paris cinema day `[03:00,next day 03:00)`. Unknown observations invalidate earlier complete receipts; future observations cannot bridge outages. Unadvertised dates and observed-only providers remain unknown, deliberately suppressing many returns. Historical completeness is always partial after baseline and unknown before it. Deploy all writers together; older binaries reject the newer ledger. Rollback requires a compatible corrective build, not dropping tables or editing migration history.
 
 ## Movie enrichment and grouping
 

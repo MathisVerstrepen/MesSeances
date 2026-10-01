@@ -141,6 +141,7 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 		through string
 	}
 	type scheduleResult struct {
+		unknown map[string]bool
 		index   int
 		program map[string][]string
 		records []schedule.ShowtimeRecord
@@ -175,8 +176,9 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 	allowMissingDate := expiringServiceDate(options.Now, location, options.From)
 	groups, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: min(WorkerCount, len(jobs))}, func(phaseCtx context.Context, job scheduleJob) (scheduleResult, error) {
 		currentProgram := job.program
+		unknown := map[string]bool{}
 		through := job.through
-		records, fetchErr := fetchCompleteSchedule(phaseCtx, getter, job.theater, currentProgram, movies, location, options.From, through, allowMissingDate)
+		records, fetchErr := fetchCompleteSchedule(phaseCtx, getter, job.theater, currentProgram, movies, location, options.From, through, allowMissingDate, unknown)
 		if errors.Is(fetchErr, errProviderSnapshotChanged) {
 			body, refreshErr := getter.Get(phaseCtx, OperationProgram, programURL(job.theater.id))
 			if refreshErr != nil {
@@ -195,13 +197,14 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 			if through == "" {
 				records, fetchErr = []schedule.ShowtimeRecord{}, nil
 			} else {
-				records, fetchErr = fetchCompleteSchedule(phaseCtx, getter, job.theater, currentProgram, movies, location, options.From, through, allowMissingDate)
+				unknown = map[string]bool{}
+				records, fetchErr = fetchCompleteSchedule(phaseCtx, getter, job.theater, currentProgram, movies, location, options.From, through, allowMissingDate, unknown)
 			}
 		}
 		if fetchErr != nil {
 			return scheduleResult{}, fetchErr
 		}
-		return scheduleResult{index: job.index, program: currentProgram, records: records}, nil
+		return scheduleResult{index: job.index, program: currentProgram, records: records, unknown: unknown}, nil
 	})
 	if err != nil {
 		return schedule.Dataset{}, summary, err
@@ -211,6 +214,7 @@ func syncSnapshot(ctx context.Context, getter Getter, options SyncOptions) (resu
 	for _, group := range groups {
 		dates, through := programDates(group.program)
 		dataset.Theaters[group.index].AvailableDates = dates
+		dataset.Coverage = append(dataset.Coverage, schedule.ProgramCoverage(dataset.Theaters[group.index].ID, group.program, group.unknown)...)
 		if through > dataset.Window.Through {
 			dataset.Window.Through = through
 		}
@@ -268,6 +272,7 @@ func programDates(program map[string][]string) ([]string, string) {
 }
 
 type scheduleFetcher struct {
+	unknown          map[string]bool
 	getter           Getter
 	theater          cinema
 	movies           map[string]movie
@@ -276,8 +281,13 @@ type scheduleFetcher struct {
 	cache            map[string][]schedule.ShowtimeRecord
 }
 
-func fetchCompleteSchedule(ctx context.Context, getter Getter, theater cinema, program map[string][]string, movies map[string]movie, location *time.Location, from, through, allowMissingDate string) ([]schedule.ShowtimeRecord, error) {
+func fetchCompleteSchedule(ctx context.Context, getter Getter, theater cinema, program map[string][]string, movies map[string]movie, location *time.Location, from, through, allowMissingDate string, unknown ...map[string]bool) ([]schedule.ShowtimeRecord, error) {
 	fetcher := scheduleFetcher{getter: getter, theater: theater, movies: movies, location: location, allowMissingDate: allowMissingDate, cache: map[string][]schedule.ShowtimeRecord{}}
+	if len(unknown) > 0 {
+		fetcher.unknown = unknown[0]
+	} else {
+		fetcher.unknown = map[string]bool{}
+	}
 	records, err := fetcher.fetchWindow(ctx, program, from, through)
 	if err == nil || from == through || !isScheduleServerError(err) {
 		return records, err
@@ -330,7 +340,7 @@ func (f *scheduleFetcher) fetchWindow(ctx context.Context, program map[string][]
 	if err != nil {
 		return nil, err
 	}
-	records, err := parseSchedule(body, f.theater, windowProgram, f.movies, f.location, f.allowMissingDate)
+	records, err := parseSchedule(body, f.theater, windowProgram, f.movies, f.location, f.allowMissingDate, f.unknown)
 	if err != nil {
 		return nil, fmt.Errorf("parse CGR schedule: %w", err)
 	}

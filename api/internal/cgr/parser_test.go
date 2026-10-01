@@ -30,9 +30,13 @@ func TestParseScheduleAllowsOnlyExpiredCurrentServiceDateToDisappear(t *testing.
 	theater := cinema{id: "W8010", timeZone: schedule.Timezone}
 	movies := map[string]movie{"1001": {id: "1001", title: "Synthetic", runtime: 90}}
 	program := map[string][]string{"1001": {"2026-08-24"}}
-	records, err := parseSchedule(fixture(t, "schedule_w8010.json"), theater, program, movies, location, "2026-08-24")
+	unknown := map[string]bool{}
+	records, err := parseSchedule(fixture(t, "schedule_w8010.json"), theater, program, movies, location, "2026-08-24", unknown)
 	if err != nil || len(records) != 0 {
 		t.Fatalf("records=%d err=%v", len(records), err)
+	}
+	if !unknown["2026-08-24"] {
+		t.Fatal("accepted missing date certified as complete")
 	}
 	if _, err = parseSchedule(fixture(t, "schedule_w8010.json"), theater, program, movies, location, ""); !errors.Is(err, errProviderSnapshotChanged) {
 		t.Fatalf("future missing date error=%v", err)
