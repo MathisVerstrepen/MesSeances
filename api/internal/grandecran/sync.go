@@ -182,15 +182,22 @@ func syncSnapshot(ctx context.Context, g Getter, o SyncOptions) (schedule.Datase
 	if service.Format(time.DateOnly) == o.From {
 		allowMissing = o.From
 	}
-	showings, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: min(WorkerCount, len(jobs))}, func(ctx context.Context, j job) ([]schedule.ShowtimeRecord, error) {
+	type scheduleResult struct {
+		records  []schedule.ShowtimeRecord
+		coverage []schedule.PublicationCoverage
+	}
+	showings, err := parallel.MapOrdered(ctx, jobs, parallel.Options{Workers: min(WorkerCount, len(jobs))}, func(ctx context.Context, j job) (scheduleResult, error) {
 		f := scheduleFetcher{getter: g, cinema: j.cinema, movies: movies, location: location, allowMissing: allowMissing, cache: map[string][]schedule.ShowtimeRecord{}}
-		return f.fetch(ctx, j.program, o.From, j.through)
+		f.unknown = map[string]bool{}
+		records, err := f.fetch(ctx, j.program, o.From, j.through)
+		return scheduleResult{records, schedule.ProgramCoverage("grandecran-"+j.cinema.ID, j.program, f.unknown)}, err
 	})
 	if err != nil {
 		return schedule.Dataset{}, summary, err
 	}
 	for _, group := range showings {
-		data.Showtimes = append(data.Showtimes, group...)
+		data.Showtimes = append(data.Showtimes, group.records...)
+		data.Coverage = append(data.Coverage, group.coverage...)
 	}
 	sort.Slice(data.Showtimes, func(i, j int) bool {
 		a, b := data.Showtimes[i], data.Showtimes[j]
@@ -240,6 +247,7 @@ func programDates(p map[string][]string) ([]string, string) {
 }
 
 type scheduleFetcher struct {
+	unknown      map[string]bool
 	getter       Getter
 	cinema       cinema
 	movies       map[string]schedule.MovieRecord
@@ -271,7 +279,7 @@ func (f *scheduleFetcher) window(ctx context.Context, p map[string][]string, fro
 	if err != nil {
 		return nil, err
 	}
-	records, err := parseSchedule(body, f.cinema, filtered, f.movies, f.location, f.allowMissing)
+	records, err := parseSchedule(body, f.cinema, filtered, f.movies, f.location, f.allowMissing, f.unknown)
 	if err == nil {
 		f.cache[key] = records
 	}

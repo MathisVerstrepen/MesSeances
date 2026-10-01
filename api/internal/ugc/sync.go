@@ -166,25 +166,36 @@ func Sync(ctx context.Context, client Getter, options SyncOptions) (schedule.Dat
 			showingsJobs = append(showingsJobs, showingsFetchJob{requestedID: result.requestedID, cinema: cinema, serviceDate: serviceDate, rawURL: showingURL})
 		}
 	}
-	showingsResults, err := parallel.MapOrdered(ctx, showingsJobs, parallel.Options{Workers: ugcWorkerCount}, func(phaseCtx context.Context, job showingsFetchJob) ([]schedule.ShowtimeRecord, error) {
+	type showingResult struct {
+		records  []schedule.ShowtimeRecord
+		complete bool
+	}
+	showingsResults, err := parallel.MapOrdered(ctx, showingsJobs, parallel.Options{Workers: ugcWorkerCount}, func(phaseCtx context.Context, job showingsFetchJob) (showingResult, error) {
 		showingPage, requestErr := client.Get(phaseCtx, OperationShowings, job.rawURL)
 		if requestErr != nil {
-			return nil, requestErr
+			return showingResult{}, requestErr
 		}
 		if !matchesFinalURL(showingPage.FinalURL, job.rawURL) {
-			return nil, requestError(OperationShowings, CategoryRedirect, 0, 0, nil)
+			return showingResult{}, requestError(OperationShowings, CategoryRedirect, 0, 0, nil)
 		}
-		records, parseErr := ParseShowings(bytes.NewReader(showingPage.Body), job.cinema, job.serviceDate)
+		complete := false
+		records, parseErr := parseShowings(bytes.NewReader(showingPage.Body), job.cinema, job.serviceDate, &complete)
 		if parseErr != nil {
-			return nil, requestError(OperationShowings, CategoryInvalidPayload, 0, 0, parseErr)
+			return showingResult{}, requestError(OperationShowings, CategoryInvalidPayload, 0, 0, parseErr)
 		}
-		return records, nil
+		return showingResult{records, complete}, nil
 	})
 	if err != nil {
 		return schedule.Dataset{}, SyncSummary{}, err
 	}
-	for _, records := range showingsResults {
-		data.Showtimes = append(data.Showtimes, records...)
+	for i, result := range showingsResults {
+		data.Showtimes = append(data.Showtimes, result.records...)
+		status, basis := schedule.CoverageComplete, schedule.CoverageDateResponse
+		if !result.complete {
+			status, basis = schedule.CoverageUnknown, schedule.CoverageAcceptedOmission
+		}
+		job := showingsJobs[i]
+		data.Coverage = append(data.Coverage, schedule.PublicationCoverage{TheaterID: "ugc-" + job.cinema.ProviderID, ServiceDate: job.serviceDate, Status: status, Basis: basis})
 	}
 	if len(data.Theaters) == 0 {
 		return schedule.Dataset{}, SyncSummary{}, newDatasetValidationError("sync produced no active cinemas", nil)

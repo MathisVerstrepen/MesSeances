@@ -838,9 +838,15 @@ func TestMultiProviderPostgresStoreIntegration(t *testing.T) {
 		t.Fatal("create integration schema failed")
 	}
 	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "movieflow_pathe_store_test_") || len(schema) != len("movieflow_pathe_store_test_")+16 {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE")
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
+			t.Error("drop integration schema failed")
+		}
 	})
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -852,6 +858,10 @@ func TestMultiProviderPostgresStoreIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
+	var currentSchema string
+	if err := pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&currentSchema); err != nil || currentSchema != schema {
+		t.Fatal("isolated integration schema assertion failed", err)
+	}
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run migrations failed")
 	}
@@ -1605,9 +1615,15 @@ func TestPostgresStoreRecordCountsIntegration(t *testing.T) {
 		t.Fatal("create integration schema failed")
 	}
 	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "movieflow_count_test_") || len(schema) != len("movieflow_count_test_")+16 {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		_, _ = bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE"); err != nil {
+			t.Error("drop integration schema failed")
+		}
 	})
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -1619,6 +1635,10 @@ func TestPostgresStoreRecordCountsIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
+	var currentSchema string
+	if err := pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&currentSchema); err != nil || currentSchema != schema {
+		t.Fatal("isolated integration schema assertion failed", err)
+	}
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}

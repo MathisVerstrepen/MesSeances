@@ -95,6 +95,9 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 			return fmt.Errorf("invalid theater passes")
 		}
 	}
+	if err := validateCoverage(data, theaters); err != nil {
+		return err
+	}
 	showings := map[string]bool{}
 	providerShowings := map[string]bool{}
 	localMovies := map[int64]MovieRecord{}

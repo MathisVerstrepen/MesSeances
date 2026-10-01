@@ -220,8 +220,15 @@ func (s *Store) Replace(ctx context.Context, datasets []schedule.Dataset) (sched
 	for _, data := range datasets {
 		refreshed = append(refreshed, string(data.Provider))
 	}
+	familiar, err := activityFamiliarity(ctx, tx, version, refreshed)
+	if err != nil {
+		return schedule.PublicationResult{}, fmt.Errorf("read activity familiarity: %w", err)
+	}
 	if err := retainHistory(ctx, tx, version, refreshed, receivedAt); err != nil {
 		return schedule.PublicationResult{}, err
+	}
+	if err := retainActivity(ctx, tx, version, datasets, receivedAt, familiar); err != nil {
+		return schedule.PublicationResult{}, fmt.Errorf("retain cinema activity: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return schedule.PublicationResult{}, fmt.Errorf("commit schedule replacement failed")

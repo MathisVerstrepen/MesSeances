@@ -162,6 +162,17 @@ func Reconcile(ctx context.Context, tx pgx.Tx) error {
 	if err := persistAssignments(ctx, tx, components, movies, retainedOrphans); err != nil {
 		return err
 	}
+	changed := []sourceKey{}
+	for _, item := range components {
+		for _, member := range item.members {
+			if member.publicID != item.publicID {
+				changed = append(changed, member.key)
+			}
+		}
+	}
+	if err := normalizeActivityIdentity(ctx, tx, changed); err != nil {
+		return err
+	}
 	if err := persistAliases(ctx, tx, components); err != nil {
 		return err
 	}

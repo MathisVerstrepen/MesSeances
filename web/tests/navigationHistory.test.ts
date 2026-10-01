@@ -130,6 +130,7 @@ test('cinema date changes replace history while grouping, layout, and view tabs 
     /<NuxtLink\s+:to="\{ query: viewQuery\('showtimes'\) \}"/,
   )
   assert.match(cinema, /<NuxtLink\s+:to="\{ query: viewQuery\('films'\) \}"/)
+  assert.match(cinema, /<NuxtLink\s+:to="\{ query: viewQuery\('activity'\) \}"/)
   assert.match(
     functionSource(cinema, 'viewQuery'),
     /mergeOwnedQuery\(route\.query, FILMS_QUERY_KEYS/,

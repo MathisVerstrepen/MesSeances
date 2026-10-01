@@ -172,6 +172,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
+	assertEnrichmentTestSchema(t, pool, schema)
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run integration migrations failed")
 	}
