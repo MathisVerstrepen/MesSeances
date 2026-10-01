@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Check,
   LoaderCircle,
-  LogOut,
   MapPin,
   RefreshCw,
 } from '@lucide/vue'
@@ -55,8 +54,6 @@ const geocodingInitialPending = ref(true)
 const geocodingRequestPending = ref(false)
 const geocodingStarting = ref(false)
 const geocodingError = ref('')
-const loggingOut = ref(false)
-const logoutError = ref('')
 let requestId = 0
 let isMounted = false
 let lastLoadPage = 0
@@ -385,20 +382,6 @@ function changePage(nextOffset: number) {
   void router.push({ query: pageQuery(Math.floor(nextOffset / PAGE_SIZE) + 1) })
 }
 
-async function logout() {
-  if (loggingOut.value) return
-  loggingOut.value = true
-  logoutError.value = ''
-  try {
-    await api.adminLogout()
-    await navigateTo('/admin/login')
-  } catch (error) {
-    logoutError.value = getFrenchAdminApiError(error)
-  } finally {
-    loggingOut.value = false
-  }
-}
-
 watch(
   () => route.query,
   () => {
@@ -420,64 +403,34 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+  <main class="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
     <div
-      class="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between"
+      class="flex flex-col gap-4 border-b-2 border-ink pb-6 sm:flex-row sm:items-center sm:justify-between"
     >
       <div>
         <NuxtLink
           to="/admin"
-          class="mb-1 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-muted hover:text-accent"
+          class="mb-1 inline-flex min-h-11 items-center gap-1 font-mono text-xs font-bold text-ink underline underline-offset-4 hover:text-primary"
         >
           <ArrowLeft :size="16" aria-hidden="true" />
           Administration
         </NuxtLink>
-        <h1
-          class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]"
-        >
-          Localisations des cinémas
-        </h1>
+        <h1 class="editorial-title">Localisations des cinémas</h1>
       </div>
-      <button
-        type="button"
-        class="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="loggingOut"
-        @click="logout"
-      >
-        <LoaderCircle
-          v-if="loggingOut"
-          :size="17"
-          class="animate-spin"
-          aria-hidden="true"
-        />
-        <LogOut v-else :size="17" aria-hidden="true" />
-        {{ loggingOut ? 'Déconnexion…' : 'Se déconnecter' }}
-      </button>
     </div>
 
     <p class="sr-only" role="status" aria-live="polite">{{ successMessage }}</p>
 
-    <div
-      v-if="logoutError"
-      class="mt-6 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-      role="alert"
-    >
-      <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-      <p>{{ logoutError }}</p>
-    </div>
-
     <section
-      class="mt-6 rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6"
+      class="mt-6 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] sm:p-6"
       aria-labelledby="geocoding-title"
       :aria-busy="geocodingJob?.state === 'running' || geocodingStarting ? 'true' : undefined"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="geocoding-title" class="text-lg font-semibold text-ink">
-          Géocodage IGN
-        </h2>
+        <h2 id="geocoding-title" class="editorial-heading">Géocodage IGN</h2>
         <button
           type="button"
-          class="button-primary h-auto min-h-11"
+          class="editorial-button"
           :disabled="geocodingControlsDisabled"
           @click="startGeocoding"
         >
@@ -494,7 +447,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
 
       <div
         v-if="geocodingError"
-        class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+        class="editorial-alert mt-4 flex items-start gap-3 p-3"
         role="alert"
       >
         <AlertTriangle :size="19" class="shrink-0" aria-hidden="true" />
@@ -532,9 +485,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
         role="status"
         aria-live="polite"
       >
-        <span
-          class="inline-flex items-center gap-2 font-semibold text-amber-800"
-        >
+        <span class="inline-flex items-center gap-2 font-semibold text-ink">
           <LoaderCircle :size="18" class="animate-spin" aria-hidden="true" />
           Géocodage en cours
         </span>
@@ -551,7 +502,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
         >
           <span
             class="font-semibold"
-            :class="geocodingJob.state === 'succeeded' ? 'text-green-700' : 'text-red-700'"
+            :class="geocodingJob.state === 'succeeded' ? 'text-accent' : 'text-primary'"
             >{{
               geocodingStateLabel(geocodingJob)
             }}</span
@@ -561,7 +512,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
           >
           <span
             v-if="geocodingJob.state === 'failed' && geocodingJob.error_code"
-            class="font-medium text-red-700"
+            class="font-medium text-primary"
             >{{
               geocodingFailureLabels[geocodingJob.error_code]
             }}</span
@@ -623,7 +574,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
 
     <div
       v-if="loadError"
-      class="mt-6 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      class="editorial-alert mt-6 flex items-start gap-3 p-4"
       role="alert"
     >
       <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
@@ -641,11 +592,13 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
       </div>
     </div>
 
-    <div
+    <EditorialStatePanel
       v-if="pending"
-      class="state-panel mt-6"
-      role="status"
-      aria-live="polite"
+      class="mt-6"
+      semantic="status"
+      live="polite"
+      size="compact"
+      shadow="small"
     >
       <LoaderCircle
         :size="28"
@@ -653,13 +606,18 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
         aria-hidden="true"
       />
       <p>Chargement des localisations…</p>
-    </div>
+    </EditorialStatePanel>
 
     <template v-else-if="result">
-      <div v-if="!result.items.length" class="state-panel mt-6">
+      <EditorialStatePanel
+        v-if="!result.items.length"
+        class="mt-6"
+        size="compact"
+        shadow="small"
+      >
         <Check :size="30" class="text-accent" aria-hidden="true" />
         <p>Aucune localisation à traiter.</p>
-      </div>
+      </EditorialStatePanel>
 
       <ul
         v-else
@@ -669,22 +627,20 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
         <li
           v-for="item in result.items"
           :key="locationKey(item)"
-          class="rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6"
+          class="border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] sm:p-6"
         >
           <article :aria-labelledby="`theater-${domKey(item)}`">
             <div
-              class="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-4"
+              class="flex flex-wrap items-start justify-between gap-3 border-b-2 border-ink pb-4"
             >
               <div class="min-w-0">
-                <p
-                  class="text-xs font-semibold uppercase tracking-wide text-muted"
-                >
+                <p class="font-mono text-xs font-bold text-muted">
                   {{ providerLabels[item.provider] }} ·
                   {{ item.provider_theater_id }}
                 </p>
                 <h2
                   :id="`theater-${domKey(item)}`"
-                  class="mt-1 text-lg font-semibold text-ink"
+                  class="editorial-heading mt-1"
                 >
                   {{ item.name }}
                 </h2>
@@ -701,8 +657,8 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                 </p>
               </div>
               <span
-                class="rounded-full px-2.5 py-1 text-xs font-semibold"
-                :class="item.status === 'ambiguous' ? 'bg-amber-100 text-amber-800' : 'bg-subtle text-muted'"
+                class="border-2 border-ink px-2.5 py-1 font-mono text-xs font-bold text-ink"
+                :class="item.status === 'ambiguous' ? 'bg-highlight' : 'bg-canvas'"
                 >{{
                   statusLabel(item)
                 }}</span
@@ -710,7 +666,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
             </div>
 
             <section
-              class="border-b border-line py-4"
+              class="border-b border-ink/30 py-4"
               :aria-labelledby="`suggestion-${domKey(item)}`"
             >
               <h3
@@ -763,7 +719,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                 </dl>
                 <button
                   type="button"
-                  class="button-primary mt-4 h-auto min-h-11"
+                  class="editorial-button mt-4"
                   :disabled="!item.can_accept_suggestion || Boolean(pendingActions[locationKey(item)])"
                   @click="acceptSuggestion(item)"
                 >
@@ -809,7 +765,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                     <input
                       :id="`latitude-${domKey(item)}`"
                       v-model="draftFor(item).latitude"
-                      class="field h-11 min-h-11"
+                      class="editorial-field"
                       type="text"
                       inputmode="decimal"
                       autocomplete="off"
@@ -821,7 +777,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                     <p
                       v-if="draftErrors[locationKey(item)]?.latitude"
                       :id="`latitude-error-${domKey(item)}`"
-                      class="mt-1.5 text-sm font-medium text-red-700"
+                      class="mt-1.5 text-sm font-medium text-primary"
                       role="alert"
                     >
                       {{ draftErrors[locationKey(item)]?.latitude }}
@@ -836,7 +792,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                     <input
                       :id="`longitude-${domKey(item)}`"
                       v-model="draftFor(item).longitude"
-                      class="field h-11 min-h-11"
+                      class="editorial-field"
                       type="text"
                       inputmode="decimal"
                       autocomplete="off"
@@ -848,7 +804,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                     <p
                       v-if="draftErrors[locationKey(item)]?.longitude"
                       :id="`longitude-error-${domKey(item)}`"
-                      class="mt-1.5 text-sm font-medium text-red-700"
+                      class="mt-1.5 text-sm font-medium text-primary"
                       role="alert"
                     >
                       {{ draftErrors[locationKey(item)]?.longitude }}
@@ -857,7 +813,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
                 </div>
                 <button
                   type="submit"
-                  class="button-primary mt-4 h-auto min-h-11"
+                  class="editorial-button mt-4"
                   :disabled="Boolean(pendingActions[locationKey(item)])"
                 >
                   <LoaderCircle
@@ -876,7 +832,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
 
             <div
               v-if="itemErrors[locationKey(item)]"
-              class="mt-4 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+              class="editorial-alert mt-4 flex items-start gap-2 p-3"
               role="alert"
             >
               <AlertTriangle :size="18" class="shrink-0" aria-hidden="true" />
@@ -888,12 +844,12 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
 
       <nav
         v-if="offset > 0 || canGoNext"
-        class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t border-line pt-6 sm:flex"
+        class="mt-8 grid grid-cols-2 items-center justify-center gap-4 border-t-2 border-ink pt-6 sm:flex"
         aria-label="Pagination des localisations de cinémas"
       >
         <button
           type="button"
-          class="h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50"
+          class="editorial-button-outline"
           :disabled="offset === 0 || pending"
           @click="changePage(offset - PAGE_SIZE)"
         >
@@ -906,7 +862,7 @@ useHead({ title: 'Localisations des cinémas - MesSeances' })
         >
         <button
           type="button"
-          class="h-11 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink disabled:opacity-50"
+          class="editorial-button-outline"
           :disabled="!canGoNext || pending"
           @click="changePage(offset + PAGE_SIZE)"
         >

@@ -420,14 +420,7 @@ test('upcoming review page owns accessible direct action, status recovery, initi
         /<button\s+type="button"\s+class="([^"]+)"[^>]+@click="startUpcomingSync"/,
       )?.[1]
       ?.split(' ') ?? []
-  for (const token of [
-    'inline-flex',
-    'min-h-11',
-    'w-full',
-    'sm:w-auto',
-    'bg-primary',
-    'text-white',
-  ])
+  for (const token of ['editorial-button', 'w-full', 'sm:w-auto'])
     assert.ok(buttonClass.includes(token), token)
   for (const method of ['adminUpcomingSyncStatus', 'adminStartUpcomingSync']) {
     assert.match(

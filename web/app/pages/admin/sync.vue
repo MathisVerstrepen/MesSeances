@@ -7,7 +7,6 @@ import {
   ChevronDown,
   Clock3,
   LoaderCircle,
-  LogOut,
   RefreshCw,
   X,
 } from '@lucide/vue'
@@ -32,7 +31,6 @@ const status = ref<AdminSyncResponse | null>(null)
 const initialPending = ref(true)
 const statusRequestPending = ref(false)
 const startingTarget = ref<AdminSyncTarget | null>(null)
-const loggingOut = ref(false)
 const errorMessage = ref('')
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
@@ -92,7 +90,7 @@ const providerStateLabels = {
 } satisfies Record<AdminSyncProviderState, string>
 
 const targetLabels = {
-  all: 'Tous les cinémas',
+  all: 'Tous',
   ugc: 'UGC',
   kinepolis: 'Kinepolis',
   pathe: 'Pathé',
@@ -104,6 +102,19 @@ const targetLabels = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
 } satisfies Record<AdminSyncTarget, string>
+
+const providerBrands = {
+  ugc: 'UGC',
+  kinepolis: 'KINEPOLIS',
+  pathe: 'PATHE',
+  cgr: 'CGR',
+  megarama: 'MEGARAMA',
+  cineville: 'CINEVILLE',
+  mk2: 'MK2',
+  cinewest: 'CINEWEST',
+  grandecran: 'Grand Ecran',
+  noecinemas: 'Noé Cinémas',
+} as const satisfies Record<Provider, string>
 
 const providerLabels = {
   ugc: 'UGC',
@@ -175,6 +186,15 @@ function requestedProviders(run: AdminSyncJob): Provider[] {
   )
 }
 
+function formatNewShowtimes(run: AdminSyncJob): string {
+  const count = requestedProviders(run).reduce(
+    (total, provider) =>
+      total + (run.providers[provider].outcome?.sync.new_showtimes ?? 0),
+    0,
+  )
+  return `+ ${count} séance${count === 1 ? '' : 's'}`
+}
+
 function clearPolling() {
   if (pollTimer !== undefined) {
     clearTimeout(pollTimer)
@@ -238,22 +258,6 @@ async function startSync(target: AdminSyncTarget) {
   }
 }
 
-async function logout() {
-  if (loggingOut.value) return
-  clearPolling()
-  loggingOut.value = true
-  errorMessage.value = ''
-  try {
-    await api.adminLogout()
-    await navigateTo('/admin/login')
-  } catch (error) {
-    errorMessage.value = getFrenchAdminApiError(error)
-    schedulePolling()
-  } finally {
-    loggingOut.value = false
-  }
-}
-
 function providerIcon(state: AdminSyncProviderState) {
   if (state === 'succeeded') return Check
   if (state === 'failed') return X
@@ -262,9 +266,9 @@ function providerIcon(state: AdminSyncProviderState) {
 }
 
 function providerIconClass(state: AdminSyncProviderState): string {
-  if (state === 'succeeded') return 'text-green-700'
-  if (state === 'failed') return 'text-red-700'
-  if (state === 'running') return 'animate-spin text-accent'
+  if (state === 'succeeded') return 'text-accent'
+  if (state === 'failed') return 'text-primary'
+  if (state === 'running') return 'animate-spin text-ink'
   return 'text-muted'
 }
 
@@ -286,44 +290,25 @@ useHead({ title: 'Synchronisation - MesSeances' })
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+  <main class="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
     <div
-      class="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between"
+      class="flex flex-col gap-4 border-b-2 border-ink pb-6 sm:flex-row sm:items-center sm:justify-between"
     >
       <div>
         <NuxtLink
           to="/admin"
-          class="mb-2 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-accent"
+          class="mb-2 inline-flex min-h-11 items-center gap-1 font-mono text-xs font-bold text-ink underline underline-offset-4 hover:text-primary"
         >
           <ArrowLeft :size="16" aria-hidden="true" />
           Administration
         </NuxtLink>
-        <h1
-          class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]"
-        >
-          Synchronisation des séances
-        </h1>
+        <h1 class="editorial-title">Synchronisation des séances</h1>
       </div>
-      <button
-        type="button"
-        class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="loggingOut"
-        @click="logout"
-      >
-        <LoaderCircle
-          v-if="loggingOut"
-          :size="17"
-          class="animate-spin"
-          aria-hidden="true"
-        />
-        <LogOut v-else :size="17" aria-hidden="true" />
-        {{ loggingOut ? 'Déconnexion…' : 'Se déconnecter' }}
-      </button>
     </div>
 
     <div
       v-if="errorMessage"
-      class="mt-6 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      class="editorial-alert mt-6 flex items-start gap-3 p-4"
       role="alert"
     >
       <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
@@ -341,11 +326,13 @@ useHead({ title: 'Synchronisation - MesSeances' })
       </div>
     </div>
 
-    <div
+    <EditorialStatePanel
       v-if="initialPending"
-      class="state-panel mt-6"
-      role="status"
-      aria-live="polite"
+      class="mt-6"
+      semantic="status"
+      live="polite"
+      size="compact"
+      shadow="small"
     >
       <LoaderCircle
         :size="28"
@@ -353,21 +340,18 @@ useHead({ title: 'Synchronisation - MesSeances' })
         aria-hidden="true"
       />
       <p>Chargement de l’état de synchronisation…</p>
-    </div>
+    </EditorialStatePanel>
 
     <template v-else>
       <section
-        class="mt-6 rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6"
+        class="mt-6 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] sm:p-6"
         aria-labelledby="launch-title"
       >
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="launch-title" class="text-lg font-semibold text-ink">
+          <h2 id="launch-title" class="editorial-heading">
             Lancer une synchronisation
           </h2>
-          <NuxtLink
-            to="/admin/sync-schedules"
-            class="inline-flex min-h-11 items-center gap-2 rounded-md border border-line bg-surface px-3 text-sm font-semibold text-ink transition hover:border-line-hover hover:text-accent"
-          >
+          <NuxtLink to="/admin/sync-schedules" class="editorial-button-outline">
             <CalendarClock :size="17" aria-hidden="true" />
             Planifier
           </NuxtLink>
@@ -377,7 +361,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
             v-for="target in targets"
             :key="target"
             type="button"
-            class="button-primary"
+            class="editorial-button"
             :disabled="controlsDisabled"
             @click="startSync(target)"
           >
@@ -387,6 +371,17 @@ useHead({ title: 'Synchronisation - MesSeances' })
               class="animate-spin"
               aria-hidden="true"
             />
+            <span
+              v-else-if="target !== 'all'"
+              class="flex h-8 w-9 shrink-0 items-center justify-center bg-surface p-1"
+              aria-hidden="true"
+            >
+              <BrandLogo
+                :brand="providerBrands[target]"
+                decorative
+                class="sync-launch-logo h-full! w-full!"
+              />
+            </span>
             <RefreshCw v-else :size="17" aria-hidden="true" />
             {{ targetLabels[target] }}
           </button>
@@ -395,16 +390,16 @@ useHead({ title: 'Synchronisation - MesSeances' })
 
       <section
         v-if="activeJob"
-        class="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6"
+        class="mt-6 border-2 border-ink bg-canvas p-5 shadow-[5px_5px_0_#27272a] sm:p-6"
         aria-labelledby="active-title"
       >
         <div class="space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="active-title" class="text-lg font-semibold text-ink">
+            <h2 id="active-title" class="editorial-heading">
               Synchronisation en cours
             </h2>
             <span
-              class="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800"
+              class="border-2 border-ink bg-highlight px-3 py-1 font-mono text-xs font-bold text-ink"
               aria-live="polite"
             >
               {{ stateLabels[activeJob.state] }}
@@ -445,7 +440,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
           </dl>
 
           <ul
-            class="divide-y divide-amber-200 border-y border-amber-200"
+            class="divide-y divide-ink/30 border-y-2 border-ink"
             aria-label="État par fournisseur"
           >
             <li
@@ -474,9 +469,9 @@ useHead({ title: 'Synchronisation - MesSeances' })
 
       <section class="mt-6" aria-labelledby="history-title">
         <div
-          class="flex items-center justify-between gap-3 border-b border-line pb-3"
+          class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-ink pb-3"
         >
-          <h2 id="history-title" class="text-lg font-semibold text-ink">
+          <h2 id="history-title" class="editorial-heading">
             Historique des synchronisations
           </h2>
           <span v-if="history.length" class="text-sm text-muted"
@@ -485,7 +480,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
           >
         </div>
 
-        <div v-if="history.length" class="divide-y divide-line">
+        <div v-if="history.length" class="divide-y divide-ink/30">
           <details v-for="(run, index) in history" :key="run.id" class="group">
             <summary
               class="flex cursor-pointer list-none items-center gap-3 py-4 marker:content-none"
@@ -494,8 +489,15 @@ useHead({ title: 'Synchronisation - MesSeances' })
                 :is="run.state === 'succeeded' ? Check : X"
                 :size="19"
                 class="shrink-0"
-                :class="run.state === 'succeeded' ? 'text-green-700' : 'text-red-700'"
+                :class="run.state === 'succeeded' ? 'text-accent' : 'text-primary'"
                 aria-hidden="true"
+              />
+              <BrandLogo
+                v-if="run.target !== 'all'"
+                :brand="providerBrands[run.target]"
+                variant="display"
+                decorative
+                class="sync-history-logo h-12! w-12!"
               />
               <span class="min-w-0 flex-1">
                 <span class="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -504,7 +506,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
                   }}</span>
                   <span
                     class="text-sm font-medium"
-                    :class="run.state === 'succeeded' ? 'text-green-700' : 'text-red-700'"
+                    :class="run.state === 'succeeded' ? 'text-accent' : 'text-primary'"
                     >{{
                       stateLabels[run.state]
                     }}</span
@@ -516,12 +518,12 @@ useHead({ title: 'Synchronisation - MesSeances' })
                   <span>{{ formatDateTime(run.started_at) }}</span>
                   <span class="tabular-nums">{{ formatDuration(run) }}</span>
                   <span>{{ triggerLabels[run.trigger] }}</span>
-                  <span>Du {{ run.from }} au {{ run.through }}</span>
+                  <span>{{ formatNewShowtimes(run) }}</span>
                 </span>
               </span>
               <span
                 v-if="index === 0"
-                class="hidden rounded-full bg-canvas px-2.5 py-1 text-xs font-semibold text-muted sm:inline"
+                class="hidden border-2 border-ink bg-canvas px-2.5 py-1 font-mono text-xs font-bold text-ink sm:inline"
                 >Dernière</span
               >
               <ChevronDown
@@ -535,7 +537,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
               <div
                 v-for="provider in requestedProviders(run)"
                 :key="provider"
-                class="border-t border-line py-4 first:border-t-0 first:pt-0"
+                class="border-t border-ink/30 py-4 first:border-t-0 first:pt-0"
               >
                 <div class="flex flex-wrap items-center justify-between gap-2">
                   <h3 class="font-semibold text-ink">
@@ -556,7 +558,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
 
                 <p
                   v-if="run.providers[provider].error_code"
-                  class="mt-2 text-sm font-medium text-red-700"
+                  class="mt-2 text-sm font-medium text-primary"
                 >
                   {{ failureLabels[run.providers[provider].error_code] }}
                 </p>
@@ -644,7 +646,7 @@ useHead({ title: 'Synchronisation - MesSeances' })
                     </div>
                   </dl>
 
-                  <div class="mt-4 border-t border-line pt-3 text-sm">
+                  <div class="mt-4 border-t border-ink/30 pt-3 text-sm">
                     <p>
                       <span class="text-muted">Enrichissement TMDB</span>
                       <span class="ml-1 font-semibold text-ink">{{
@@ -703,9 +705,9 @@ useHead({ title: 'Synchronisation - MesSeances' })
           </details>
         </div>
 
-        <p v-else class="py-6 text-sm text-muted">
+        <EditorialStatePanel v-else class="mt-4" size="compact" shadow="small">
           Aucune synchronisation enregistrée.
-        </p>
+        </EditorialStatePanel>
       </section>
     </template>
   </main>

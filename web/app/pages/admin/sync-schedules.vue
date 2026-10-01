@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Clock3,
   LoaderCircle,
-  LogOut,
   Plus,
   RefreshCw,
   Save,
@@ -84,8 +83,6 @@ const syncStatus = ref<AdminSyncResponse | null>(null)
 const syncStatusPending = ref(true)
 const syncStatusLoaded = ref(false)
 const syncStatusError = ref('')
-const loggingOut = ref(false)
-const logoutError = ref('')
 const sections = reactive<TargetSectionState[]>(
   targets.map((target) => ({ target, entries: [] })),
 )
@@ -381,30 +378,16 @@ async function deleteSchedule(
   }
 }
 
-async function logout() {
-  if (loggingOut.value) return
-  loggingOut.value = true
-  logoutError.value = ''
-  try {
-    await api.adminLogout()
-    await navigateTo('/admin/login')
-  } catch (error) {
-    logoutError.value = getFrenchAdminApiError(error)
-  } finally {
-    loggingOut.value = false
-  }
-}
-
 function entryLabel(entry: ScheduleEntryState): string {
   if (!entry.persisted) return 'Nouvelle'
   return entry.persisted.enabled ? 'Activée' : 'Désactivée'
 }
 
 function entryLabelClass(entry: ScheduleEntryState): string {
-  if (!entry.persisted) return 'bg-accent-soft text-accent'
+  if (!entry.persisted) return 'bg-surface text-ink'
   return entry.persisted.enabled
-    ? 'bg-green-100 text-green-800'
-    : 'bg-amber-100 text-amber-800'
+    ? 'bg-highlight text-ink'
+    : 'bg-canvas text-ink'
 }
 
 function formatDateTime(value: string): string {
@@ -445,8 +428,8 @@ function latestTrigger(provider: Provider): string {
 }
 
 function outcomeClass(state: AdminSyncProviderState | null): string {
-  if (state === 'succeeded') return 'text-green-700'
-  if (state === 'failed') return 'text-red-700'
+  if (state === 'succeeded') return 'text-accent'
+  if (state === 'failed') return 'text-primary'
   return 'text-muted'
 }
 
@@ -468,52 +451,24 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+  <main class="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
     <div
-      class="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between"
+      class="flex flex-col gap-4 border-b-2 border-ink pb-6 sm:flex-row sm:items-center sm:justify-between"
     >
       <div>
         <NuxtLink
           to="/admin"
-          class="mb-2 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-muted hover:text-accent"
+          class="mb-2 inline-flex min-h-11 items-center gap-1 font-mono text-xs font-bold text-ink underline underline-offset-4 hover:text-primary"
         >
           <ArrowLeft :size="16" aria-hidden="true" />
           Administration
         </NuxtLink>
-        <h1
-          class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]"
-        >
-          Planification des synchronisations
-        </h1>
+        <h1 class="editorial-title">Planification des synchronisations</h1>
       </div>
-      <button
-        type="button"
-        class="inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="loggingOut"
-        @click="logout"
-      >
-        <LoaderCircle
-          v-if="loggingOut"
-          :size="17"
-          class="animate-spin"
-          aria-hidden="true"
-        />
-        <LogOut v-else :size="17" aria-hidden="true" />
-        {{ loggingOut ? 'Déconnexion…' : 'Se déconnecter' }}
-      </button>
     </div>
 
     <div
-      v-if="logoutError"
-      class="mt-6 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-      role="alert"
-    >
-      <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
-      <p>{{ logoutError }}</p>
-    </div>
-
-    <div
-      class="mt-6 flex items-center gap-3 rounded-lg border border-accent-line bg-accent-soft p-4 text-sm text-ink"
+      class="mt-6 flex items-center gap-3 border-l-4 border-ink bg-highlight/30 p-4 text-sm text-ink"
     >
       <CalendarClock
         :size="20"
@@ -523,11 +478,13 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
       <p><span class="font-semibold">Fuseau horaire :</span> Europe/Paris</p>
     </div>
 
-    <div
+    <EditorialStatePanel
       v-if="schedulesPending && !schedulesLoaded"
-      class="mt-6 flex min-h-48 items-center justify-center gap-3 rounded-lg border border-dashed border-line bg-canvas p-6 text-sm text-muted"
-      role="status"
-      aria-live="polite"
+      class="mt-6"
+      semantic="status"
+      live="polite"
+      size="compact"
+      shadow="small"
     >
       <LoaderCircle
         :size="22"
@@ -535,11 +492,11 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
         aria-hidden="true"
       />
       Chargement des planifications…
-    </div>
+    </EditorialStatePanel>
 
     <div
       v-else-if="schedulesError && !schedulesLoaded"
-      class="mt-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      class="editorial-alert mt-6 p-4"
       role="alert"
     >
       <div class="flex items-start gap-3">
@@ -563,22 +520,19 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
       <section
         v-for="section in sections"
         :key="section.target"
-        class="rounded-lg border border-line bg-surface p-5 shadow-sm sm:p-6"
+        class="border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] sm:p-6"
         :aria-labelledby="`${section.target}-title`"
       >
         <div
-          class="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4"
+          class="flex flex-wrap items-center justify-between gap-3 border-b-2 border-ink pb-4"
         >
-          <h2
-            :id="`${section.target}-title`"
-            class="text-xl font-semibold text-ink"
-          >
+          <h2 :id="`${section.target}-title`" class="editorial-heading">
             {{ targetLabels[section.target] }}
           </h2>
           <button
             :id="`${section.target}-add`"
             type="button"
-            class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover"
+            class="editorial-button-outline"
             @click="addSchedule(section)"
           >
             <Plus :size="17" aria-hidden="true" />
@@ -588,7 +542,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
 
         <div
           v-if="!targetAvailable(section.target)"
-          class="mt-4 flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
+          class="mt-4 flex items-start gap-3 border-l-4 border-ink bg-highlight/30 p-4 text-sm text-ink"
           role="status"
         >
           <AlertTriangle :size="19" class="shrink-0" aria-hidden="true" />
@@ -600,7 +554,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
 
         <div
           v-if="section.entries.length === 0"
-          class="mt-5 flex min-h-24 items-center justify-center rounded-md border border-dashed border-line bg-canvas p-4 text-center text-sm text-muted"
+          class="mt-5 flex min-h-24 items-center justify-center border-y-2 border-ink bg-canvas p-4 text-center text-sm text-ink"
         >
           Aucune planification.
         </div>
@@ -609,7 +563,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
           <article
             v-for="(entry, index) in section.entries"
             :key="entry.clientKey"
-            class="border-b border-line py-6 last:border-b-0"
+            class="border-b border-ink/30 py-6 last:border-b-0"
             :aria-labelledby="`${entry.clientKey}-title`"
           >
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -621,7 +575,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                 Planification {{ index + 1 }}
               </h3>
               <span
-                class="rounded-full px-3 py-1 text-sm font-semibold"
+                class="border-2 border-ink px-3 py-1 font-mono text-xs font-bold"
                 :class="entryLabelClass(entry)"
                 >{{
                   entryLabel(entry)
@@ -638,12 +592,12 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
               >
                 <fieldset :disabled="entry.pending !== null">
                   <label
-                    class="flex min-h-11 cursor-pointer items-center gap-3 rounded-md border border-line px-3 py-2 text-sm font-semibold text-ink hover:border-line-hover has-disabled:cursor-not-allowed has-disabled:opacity-60"
+                    class="flex min-h-11 cursor-pointer items-center gap-3 border-2 border-ink bg-canvas px-3 py-2 text-sm font-semibold text-ink has-checked:bg-highlight has-disabled:cursor-not-allowed has-disabled:opacity-60"
                   >
                     <input
                       v-model="entry.draft.enabled"
                       type="checkbox"
-                      class="size-5 shrink-0 accent-accent"
+                      class="size-5 shrink-0 accent-ink"
                       :disabled="!targetAvailable(entry.target) && !entry.draft.enabled"
                       @change="updateDirty(entry)"
                     >
@@ -669,7 +623,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                           @change="setMode(entry, kind)"
                         >
                         <span
-                          class="flex min-h-11 items-center justify-center rounded-md border border-line px-3 text-center text-sm font-semibold text-muted transition hover:border-line-hover peer-checked:border-accent peer-checked:bg-accent-soft peer-checked:text-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2"
+                          class="flex min-h-11 items-center justify-center border-2 border-ink px-3 text-center font-mono text-xs font-bold text-ink transition-colors hover:bg-canvas peer-checked:bg-highlight peer-focus-visible:ring-2 peer-focus-visible:ring-ink peer-focus-visible:ring-offset-2"
                         >
                           {{ label }}
                         </span>
@@ -690,7 +644,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                       :id="`${entry.clientKey}-time`"
                       v-model="entry.draft.time"
                       type="time"
-                      class="field mt-2 min-h-11"
+                      class="editorial-field mt-2"
                       :aria-invalid="entry.showValidation && Boolean(validation(entry).errors.time)"
                       :aria-describedby="entry.showValidation && validation(entry).errors.time ? `${entry.clientKey}-time-error` : undefined"
                       @input="updateDirty(entry)"
@@ -699,7 +653,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                     <p
                       v-if="entry.showValidation && validation(entry).errors.time"
                       :id="`${entry.clientKey}-time-error`"
-                      class="mt-2 text-sm font-medium text-red-700"
+                      class="mt-2 text-sm font-medium text-primary"
                     >
                       {{ validation(entry).errors.time }}
                     </p>
@@ -729,7 +683,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                           @blur="revealValidation(entry)"
                         >
                         <span
-                          class="flex min-h-11 items-center justify-center rounded-md border border-line px-2 text-sm font-semibold text-muted transition hover:border-line-hover peer-checked:border-accent peer-checked:bg-accent-soft peer-checked:text-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent peer-focus-visible:ring-offset-2"
+                          class="flex min-h-11 items-center justify-center border-2 border-ink px-2 font-mono text-xs font-bold text-ink transition-colors hover:bg-canvas peer-checked:bg-highlight peer-focus-visible:ring-2 peer-focus-visible:ring-ink peer-focus-visible:ring-offset-2"
                         >
                           {{ weekday.short }}
                         </span>
@@ -738,7 +692,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                     <p
                       v-if="entry.showValidation && validation(entry).errors.weekdays"
                       :id="`${entry.clientKey}-weekdays-error`"
-                      class="mt-2 text-sm font-medium text-red-700"
+                      class="mt-2 text-sm font-medium text-primary"
                     >
                       {{ validation(entry).errors.weekdays }}
                     </p>
@@ -754,7 +708,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                       :id="`${entry.clientKey}-cron`"
                       v-model="entry.draft.expression"
                       type="text"
-                      class="field mt-2 min-h-11 font-mono"
+                      class="editorial-field mt-2 font-mono"
                       autocomplete="off"
                       spellcheck="false"
                       :aria-invalid="entry.showValidation && Boolean(validation(entry).errors.expression)"
@@ -772,7 +726,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                     <p
                       v-if="entry.showValidation && validation(entry).errors.expression"
                       :id="`${entry.clientKey}-cron-error`"
-                      class="mt-2 text-sm font-medium text-red-700"
+                      class="mt-2 text-sm font-medium text-primary"
                     >
                       {{ validation(entry).errors.expression }}
                     </p>
@@ -780,11 +734,11 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                 </fieldset>
 
                 <div
-                  class="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-5"
+                  class="mt-6 flex flex-wrap items-center gap-3 border-t border-ink/30 pt-5"
                 >
                   <button
                     type="submit"
-                    class="button-primary min-h-11"
+                    class="editorial-button"
                     :disabled="entry.pending !== null || !entry.dirty"
                   >
                     <LoaderCircle
@@ -800,7 +754,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                   </button>
                   <button
                     type="button"
-                    class="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-red-200 px-4 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    class="editorial-button-danger"
                     :disabled="entry.pending !== null"
                     :aria-label="`Supprimer la planification ${index + 1} - ${targetLabels[section.target]}`"
                     @click="deleteSchedule(section, entry)"
@@ -825,7 +779,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
 
                 <div
                   v-if="entry.error"
-                  class="mt-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+                  class="editorial-alert mt-4 flex items-start gap-3 p-4"
                   role="alert"
                 >
                   <AlertTriangle
@@ -837,7 +791,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                 </div>
                 <div
                   v-if="entry.success"
-                  class="mt-4 flex items-start gap-3 rounded-md border border-green-200 bg-green-50 p-4 text-sm text-green-800"
+                  class="mt-4 flex items-start gap-3 border-l-4 border-ink bg-highlight/30 p-4 text-sm text-ink"
                   role="status"
                   aria-live="polite"
                 >
@@ -861,7 +815,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
                 </h4>
                 <p
                   v-if="entry.dirty"
-                  class="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+                  class="mt-3 border-l-4 border-ink bg-canvas p-3 text-sm text-ink"
                 >
                   Enregistrez les modifications pour recalculer les horaires.
                 </p>
@@ -894,7 +848,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
 
         <section
           v-if="isProvider(section.target)"
-          class="mt-1 border-t border-line pt-5"
+          class="mt-1 border-t-2 border-ink pt-5"
           :aria-labelledby="`${section.target}-latest-title`"
         >
           <div class="flex items-center justify-between gap-3">
@@ -918,7 +872,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
 
           <div
             v-if="syncStatusPending && !syncStatusLoaded"
-            class="mt-3 flex min-h-24 items-center justify-center gap-3 rounded-md bg-canvas p-4 text-sm text-muted"
+            class="mt-3 flex min-h-24 items-center justify-center gap-3 border-y-2 border-ink bg-canvas p-4 text-sm text-ink"
             role="status"
             aria-live="polite"
           >
@@ -931,7 +885,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
           </div>
           <div
             v-else-if="syncStatusError && !syncStatusLoaded"
-            class="mt-3 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            class="editorial-alert mt-3 flex items-start gap-3 p-3"
             role="alert"
           >
             <AlertTriangle :size="18" class="shrink-0" aria-hidden="true" />
@@ -973,7 +927,7 @@ useHead({ title: 'Planification des synchronisations - MesSeances' })
           </dl>
           <div
             v-else-if="syncStatusLoaded"
-            class="mt-3 flex min-h-24 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-line bg-canvas p-4 text-center text-sm text-muted"
+            class="mt-3 flex min-h-24 flex-col items-center justify-center gap-2 border-y-2 border-ink bg-canvas p-4 text-center text-sm text-ink"
           >
             <Clock3 :size="20" aria-hidden="true" />
             Aucune exécution enregistrée.

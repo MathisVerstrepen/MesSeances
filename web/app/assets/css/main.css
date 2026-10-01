@@ -57,16 +57,46 @@
 }
 
 @layer components {
-  .field {
-    @apply h-10 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink transition hover:border-line-hover focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
+  .editorial-field {
+    @apply min-h-11 w-full min-w-0 rounded-none border-2 border-ink bg-surface px-3 py-2 text-sm text-ink transition-colors focus:shadow-[inset_0_0_0_2px_var(--color-highlight)] disabled:cursor-not-allowed disabled:opacity-60;
   }
 
-  .button-primary {
-    @apply inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-5 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50;
+  .editorial-button,
+  .editorial-button-outline,
+  .editorial-button-danger {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-none border-2 border-ink px-4 py-2 text-center font-mono text-xs font-bold leading-relaxed transition-colors disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-  .state-panel {
-    @apply flex min-h-48 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-line bg-surface p-8 text-center text-muted;
+  .editorial-button {
+    @apply bg-ink text-white shadow-[3px_3px_0_var(--color-highlight)] enabled:hover:bg-primary;
+  }
+
+  a.editorial-button:hover {
+    @apply bg-primary;
+  }
+
+  .editorial-button-outline {
+    @apply bg-surface text-ink enabled:hover:bg-highlight;
+  }
+
+  a.editorial-button-outline:hover {
+    @apply bg-highlight;
+  }
+
+  .editorial-button-danger {
+    @apply border-primary bg-primary-soft text-primary enabled:hover:bg-primary enabled:hover:text-white;
+  }
+
+  .editorial-title {
+    @apply [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(2rem,6vw,3.5rem)] font-black leading-[1.05] tracking-[-0.065em] text-ink;
+  }
+
+  .editorial-heading {
+    @apply [font-family:'Noto_Sans_Variable',sans-serif] text-xl font-black leading-tight tracking-[-0.035em] text-ink;
+  }
+
+  .editorial-alert {
+    @apply border-2 border-primary bg-primary-soft text-sm text-primary;
   }
 }
 
