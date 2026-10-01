@@ -647,7 +647,45 @@ export async function watchlistScenario({
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
   async function click(target, label) {
-    await rawClick(target, label)
+    const sheetAction =
+      ['Liste', 'Par tag'].includes(label) &&
+      (await evaluate(target, `innerWidth < 1024`))
+    if (
+      sheetAction &&
+      !(await evaluate(
+        target,
+        `!!document.querySelector('#watchlist-configuration')`,
+      ))
+    ) {
+      await rawClick(target, 'Configuration')
+      await until(
+        target,
+        `document.querySelector('#watchlist-configuration')?.matches(':modal')`,
+        'mobile configuration opens',
+      )
+    }
+    if (
+      label === 'Rechercher' &&
+      !(await evaluate(target, `!!document.querySelector('#watchlist-add')`))
+    ) {
+      await rawClick(target, 'Ajouter')
+      await until(
+        target,
+        `document.querySelector('#watchlist-add')?.matches(':modal')`,
+        'add modal opens before search',
+      )
+    }
+    if (sheetAction)
+      await evaluate(
+        target,
+        `(() => { const button = [...document.querySelectorAll('#watchlist-configuration button')].find(button=>button.textContent.trim() === ${JSON.stringify(label)}); button.focus(); button.click() })()`,
+      )
+    else if (label.startsWith('Fermer'))
+      await evaluate(
+        target,
+        `document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`,
+      )
+    else await rawClick(target, label)
     if (label === 'Voir tous les films')
       await until(
         target,
@@ -660,13 +698,18 @@ export async function watchlistScenario({
         `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === ${JSON.stringify(label)}`,
         'display preference committed',
       )
+    if (sheetAction)
+      await evaluate(
+        target,
+        `document.querySelector('button[aria-label="Fermer la configuration"]').click()`,
+      )
   }
   async function checkSegmentedDisplay(viewport, selected, disabled = false) {
     check(
       await evaluate(
         page,
         `(() => {
-          const group = document.querySelector('[role="group"][aria-label="Affichage des films"]');
+           const group = [...document.querySelectorAll('[role="group"][aria-label="Affichage des films"]')].find(node => node.checkVisibility());
           const buttons = [...group.querySelectorAll('button')];
           const outer = group.getBoundingClientRect(), style = getComputedStyle(group);
           const rects = buttons.map(button => button.getBoundingClientRect());
@@ -698,6 +741,22 @@ export async function watchlistScenario({
       `${viewport} segmented display has shared rectangular border, single divider, no gap, decorative icons, 44px targets and selected sage underline`,
     )
   }
+  async function escapeOverlay() {
+    for (const type of ['keyDown', 'keyUp'])
+      await getCDP().send(
+        'Input.dispatchKeyEvent',
+        { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+        page.sessionId,
+      )
+  }
+  async function backdropClick() {
+    for (const type of ['mousePressed', 'mouseReleased'])
+      await getCDP().send(
+        'Input.dispatchMouseEvent',
+        { type, x: 8, y: 8, button: 'left', clickCount: 1 },
+        page.sessionId,
+      )
+  }
   async function checkLoadingLayout(viewport) {
     await until(
       page,
@@ -708,21 +767,21 @@ export async function watchlistScenario({
       await evaluate(
         page,
         `(() => {
-          const input = document.querySelector('#watchlist-query');
-          const form = input.closest('form');
+           const add = document.querySelector('button[aria-controls="watchlist-add"]');
           const section = document.querySelector('section[aria-labelledby="saved-heading"]');
           const heading = section.querySelector('#saved-heading');
           const select = section.querySelector('#watchlist-sort');
           const filter = section.querySelector('#watchlist-tag-filter');
           const status = section.querySelector('[role="status"]');
           const icon = select?.parentElement.querySelector('svg[aria-hidden="true"]');
-          const nodes = [form, heading, icon, select, status];
-          return nodes.every(node => node?.getBoundingClientRect().width > 0)
-            && nodes.every((node, index) => !index || (nodes[index - 1].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))
+           const mobile = innerWidth < 1024;
+           const config = document.querySelector('button[aria-controls="watchlist-configuration"]');
+           return add.disabled && add.checkVisibility() && !document.querySelector('#watchlist-query')
+             && (mobile ? config.checkVisibility() && !select.checkVisibility() : select.checkVisibility())
             && document.querySelectorAll('main [role="status"]').length === 1
             && status.textContent.trim() === 'Chargement de la watchlist…'
             && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide')
-            && input.disabled && select.disabled && select.value === ''
+             && select.disabled && select.value === ''
             && [...section.querySelectorAll('[aria-label="Affichage des films"] button')].every(button => button.disabled)
             && select.selectedOptions[0].disabled && select.selectedOptions[0].textContent.trim() === 'Trier par'
             && select.labels[0].textContent.trim() === 'Trier par' && select.labels[0].classList.contains('sr-only')
@@ -730,20 +789,20 @@ export async function watchlistScenario({
             && filter.selectedOptions[0].textContent.trim() === 'Filtrer par tag'
             && filter.labels[0].textContent.trim() === 'Filtrer par tag' && filter.labels[0].classList.contains('sr-only')
             && document.documentElement.scrollWidth <= innerWidth
-            && form.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top
-            && select.getBoundingClientRect().bottom <= status.getBoundingClientRect().top;
+             && (mobile || select.getBoundingClientRect().bottom <= status.getBoundingClientRect().top);
         })()`,
       ),
-      `${viewport} loading keeps search then heading/icon/disabled neutral select then one skeleton, without stale rows or empty-state flash`,
+      `${viewport} loading keeps disabled header add, responsive controls and one skeleton, without inline search or false empty state`,
     )
-    await checkSegmentedDisplay(`${viewport} loading`, -1, true)
+    if (viewport === 'desktop')
+      await checkSegmentedDisplay(`${viewport} loading`, -1, true)
   }
   async function checkTagFilterPresentation(viewport) {
     check(
       await evaluate(
         page,
         `(() => {
-          const select = document.querySelector('#watchlist-tag-filter');
+           const select = document.querySelector(innerWidth < 1024 ? '#watchlist-mobile-tag-filter' : '#watchlist-tag-filter');
           const label = select.labels[0], control = select.getBoundingClientRect(), style = getComputedStyle(select);
           const icon = select.parentElement.querySelector('svg[aria-hidden="true"]');
           const bounds = icon?.getBoundingClientRect(), labelBounds = label.getBoundingClientRect();
@@ -762,26 +821,40 @@ export async function watchlistScenario({
     )
   }
   async function checkCompactLayout(width) {
+    const mobile = width < 1024
+    const sortId = mobile ? 'watchlist-mobile-sort' : 'watchlist-sort'
+    if (mobile) {
+      check(
+        await evaluate(
+          page,
+          `!document.querySelector('#watchlist-sort').checkVisibility() && !document.querySelector('#watchlist-tag-filter').checkVisibility() && !document.querySelector('#watchlist-query') && document.querySelector('button[aria-controls="watchlist-configuration"]').checkVisibility() && document.querySelector('button[aria-controls="watchlist-tag-manager"]').checkVisibility()`,
+        ),
+        `${width}px base hides preferences and search, keeps separate tag manager`,
+      )
+      await click(page, 'Configuration')
+      await until(
+        page,
+        `document.querySelector('#watchlist-configuration')?.matches(':modal')`,
+        'configuration enters top layer',
+      )
+    }
     check(
       await evaluate(
         page,
         `(() => {
         const section = document.querySelector('section[aria-labelledby="saved-heading"]');
-        const filter = document.querySelector('#watchlist-tag-filter'), sort = document.querySelector('#watchlist-sort');
+         const filter = document.querySelector('${mobile ? '#watchlist-mobile-tag-filter' : '#watchlist-tag-filter'}'), sort = document.querySelector('#${sortId}');
         const manager = document.querySelector('button[aria-controls="watchlist-tag-manager"]');
         const f = filter.getBoundingClientRect(), s = sort.getBoundingClientRect(), m = manager.getBoundingClientRect();
-        const heading = document.querySelector('#saved-heading').getBoundingClientRect(), toggle = document.querySelector('[aria-label="Affichage des films"]').getBoundingClientRect();
+         const toggle = [...document.querySelectorAll('[aria-label="Affichage des films"]')].find(node=>node.checkVisibility()).getBoundingClientRect();
         const close = (a, b) => Math.abs(a - b) < 1;
         const full = r => close(r.left, section.getBoundingClientRect().left) && close(r.right, section.getBoundingClientRect().right);
-        const form = document.querySelector('#watchlist-query').closest('form').getBoundingClientRect();
-        const firstHeading = section.querySelector('h3'), firstFilm = section.querySelector('a[href^="/film/"]').closest('li').getBoundingClientRect();
+         const sheet = document.querySelector('#watchlist-configuration')?.getBoundingClientRect();
         return document.documentElement.scrollWidth <= innerWidth
           && [f,s,m].every(r => r.height >= 44 && r.width >= 44 && r.left >= 0 && r.right <= innerWidth)
           && manager.textContent.trim() === 'Gérer les tags'
-          && (${width} >= 1024 ? close(f.bottom,s.bottom) && close(s.bottom,m.bottom)
-            : full(f) && f.bottom + 8 <= s.top && (${width} >= 390 ? close(s.top,m.top) && m.left - s.right >= 8 : full(s) && full(m) && m.top - s.bottom >= 8))
-          && (${width} >= 390 ? heading.top >= toggle.top && heading.bottom <= toggle.bottom : toggle.top - heading.bottom >= 8)
-          && (${width} >= 640 || (Math.min(heading.top,toggle.top) - form.bottom <= 32 && firstHeading.getBoundingClientRect().top - Math.max(s.bottom,m.bottom) <= 16 && firstFilm.top - firstHeading.getBoundingClientRect().bottom <= 4));
+           && (${width} >= 1024 ? close(f.bottom,s.bottom) && close(s.bottom,m.bottom)
+             : close(sheet.bottom,innerHeight) && sheet.top >= 16 && f.bottom + 8 <= s.top && toggle.bottom <= f.top && document.body.style.overflow === 'hidden' && document.activeElement.getAttribute('aria-label') === 'Fermer la configuration' && !document.querySelector('#watchlist-configuration button[aria-controls="watchlist-tag-manager"]'));
       })()`,
       ),
       `${width}px toolbar keeps readable control geometry, adaptive heading/toggle and compact mobile vertical gaps`,
@@ -799,7 +872,7 @@ export async function watchlistScenario({
         await evaluate(
           page,
           `(() => {
-          const select = document.querySelector('#watchlist-sort'), option = select.selectedOptions[0], css = getComputedStyle(select);
+           const select = document.querySelector('#${sortId}'), option = select.selectedOptions[0], css = getComputedStyle(select);
           const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
           ctx.font = css.font;
           const available = select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) - 20;
@@ -821,9 +894,11 @@ export async function watchlistScenario({
     }
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-filter').focus()`,
+      `document.querySelector('${mobile ? '#watchlist-mobile-tag-filter' : '#watchlist-tag-filter'}').focus()`,
     )
-    for (const id of ['watchlist-sort', 'watchlist-tag-manager']) {
+    for (const id of mobile
+      ? [sortId]
+      : ['watchlist-sort', 'watchlist-tag-manager']) {
       for (const type of ['keyDown', 'keyUp'])
         await getCDP().send(
           'Input.dispatchKeyEvent',
@@ -838,6 +913,17 @@ export async function watchlistScenario({
         `${width}px native tab order reaches ${id} with visible focus`,
       )
     }
+    if (mobile) {
+      await checkSegmentedDisplay(`${width}px sheet`, 1)
+      await checkTagFilterPresentation(`${width}px sheet`)
+      await screenshot(page, `configuration-${width}`, false)
+      await click(page, 'Fermer la configuration')
+      await until(
+        page,
+        `!document.querySelector('#watchlist-configuration') && document.activeElement.getAttribute('aria-controls') === 'watchlist-configuration' && document.body.style.overflow !== 'hidden'`,
+        'configuration close restores opener and scroll',
+      )
+    }
     await evaluate(page, 'document.activeElement.blur(); window.scrollTo(0, 0)')
     await screenshot(page, `compact-grouped-${width}`)
   }
@@ -849,18 +935,22 @@ export async function watchlistScenario({
     releaseRead = undefined
   }
   async function selectSort(value) {
+    const id = await evaluate(
+      page,
+      `document.querySelector('#watchlist-configuration') ? 'watchlist-mobile-sort' : 'watchlist-sort'`,
+    )
     await until(
       page,
-      `!!document.querySelector('#watchlist-sort:not(:disabled)')`,
+      `!!document.querySelector('#${id}:not(:disabled)')`,
       'sort control available',
     )
     await evaluate(
       page,
-      `(() => { const select = document.querySelector('#watchlist-sort'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+      `(() => { const select = document.querySelector('#${id}'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
     )
     await until(
       page,
-      `document.querySelector('#watchlist-sort:not(:disabled)')?.value === ${JSON.stringify(value)}`,
+      `document.querySelector('#${id}:not(:disabled)')?.value === ${JSON.stringify(value)}`,
       'committed sort selection',
     )
   }
@@ -933,7 +1023,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-query').disabled && document.querySelectorAll('h1').length === 1`,
+      `!document.querySelector('button[aria-controls="watchlist-add"]').disabled && !document.querySelector('#watchlist-query') && document.querySelectorAll('h1').length === 1`,
     ),
     'watchlist form enabled with single heading',
   )
@@ -1199,10 +1289,26 @@ export async function watchlistScenario({
     ),
     'native modal backdrop click closes and restores trigger',
   )
+  await click(page, 'Ajouter')
+  await until(
+    page,
+    `document.querySelector('#watchlist-add')?.matches(':modal') && document.activeElement.id === 'watchlist-query' && document.body.style.overflow === 'hidden'`,
+    'header add opens focused search dialog and locks background',
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const h = document.querySelector('h1').getBoundingClientRect(), b = document.querySelector('button[aria-controls="watchlist-add"]').getBoundingClientRect(); return b.left > h.right && b.top < h.bottom && b.bottom > h.top })()`,
+    ),
+    'Ajouter sits at end of Watchlist title row',
+  )
   await fill(page, 'watchlist-query', 'private candidate query')
   check(
-    await evaluate(page, `!document.querySelector('#watchlist-results')`),
-    'typing alone never opens or submits search',
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-catalog-panel li')`,
+    ),
+    'typing alone never submits search',
   )
   const documentHeight = await evaluate(
     page,
@@ -1217,9 +1323,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const panel = document.querySelector('#watchlist-results'); const scroll = panel.querySelector('.overflow-y-auto'); const form = document.querySelector('form'); return getComputedStyle(panel).position === 'absolute' && panel.getBoundingClientRect().top >= document.querySelector('#watchlist-query').getBoundingClientRect().bottom && panel.getBoundingClientRect().bottom <= innerHeight && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollHeight === ${documentHeight} && form.contains(panel) && document.activeElement.id === 'watchlist-catalog-tab'; })()`,
+      `(() => { const dialog = document.querySelector('#watchlist-add'), scroll = dialog.querySelector('.overflow-y-auto'), rect = dialog.getBoundingClientRect(); return dialog.matches(':modal') && rect.top >= 16 && rect.bottom <= innerHeight - 16 && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollHeight === ${documentHeight} && document.activeElement.id === 'watchlist-catalog-tab'; })()`,
     ),
-    'results overlay is anchored, viewport bounded and does not expand document',
+    'search modal is viewport bounded, scrollable and does not expand document',
   )
   check(
     await evaluate(
@@ -1231,7 +1337,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const before = scrollY; const scroll = document.querySelector('#watchlist-results .overflow-y-auto'); scroll.scrollTop = 500; return scroll.scrollTop === 500 && scrollY === before; })()`,
+      `(() => { const before = scrollY; const scroll = document.querySelector('#watchlist-add .overflow-y-auto'); scroll.scrollTop = 500; return scroll.scrollTop === 500 && scrollY === before; })()`,
     ),
     'result scrolling leaves document scroll position unchanged',
   )
@@ -1315,9 +1421,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.querySelector('#watchlist-query').value === '' && document.activeElement.id === 'watchlist-query'`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add' && document.body.style.overflow !== 'hidden'`,
     ),
-    'confirmed catalog save closes clears and restores input focus',
+    'confirmed catalog save closes and restores header focus and scroll',
   )
   check(
     await evaluate(
@@ -1326,6 +1432,7 @@ export async function watchlistScenario({
     ),
     'saved catalog movie displays verified full French date, not general release year',
   )
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -1377,7 +1484,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.querySelector('#watchlist-query').value === ''`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add'`,
     ),
     'confirmed external import closes and clears search',
   )
@@ -1956,6 +2063,17 @@ export async function watchlistScenario({
     { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
     page.sessionId,
   )
+  await until(
+    page,
+    `!document.querySelector('#watchlist-tag-manager')`,
+    'breakpoint closes tag manager without stale focus restoration',
+  )
+  await click(page, 'Gérer les tags')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-manager')?.matches(':modal')`,
+    'mobile manager remains separately accessible',
+  )
   check(
     await evaluate(
       page,
@@ -2527,12 +2645,19 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.documentElement.scrollWidth <= innerWidth && [...${viewButtons}.querySelectorAll('button')].every(button=>button.getBoundingClientRect().height>=44 && button.getBoundingClientRect().width>=44) && [...document.querySelectorAll('h3[id^="watchlist-group-"]')].every(h=>h.getBoundingClientRect().right <= innerWidth)`,
+      `document.documentElement.scrollWidth <= innerWidth && document.querySelector('button[aria-controls="watchlist-configuration"]').getBoundingClientRect().height >= 44 && [...document.querySelectorAll('h3[id^="watchlist-group-"]')].every(h=>h.getBoundingClientRect().right <= innerWidth)`,
     ),
     '320px grouped toolbar and long headings fit viewport with 44px display controls',
   )
   await screenshot(page, 'grouped-mobile')
+  await click(page, 'Configuration')
   await checkSegmentedDisplay('320px grouped', 1)
+  await escapeOverlay()
+  await until(
+    page,
+    `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden' && document.activeElement.getAttribute('aria-controls') === 'watchlist-configuration'`,
+    'configuration Escape restores opener and scroll',
+  )
   await openGroupPicker(`tag-${secondTag}`, 'saved-film')
   await screenshot(page, 'grouped-picker-mobile', false)
   await click(page, 'Liste')
@@ -2543,8 +2668,15 @@ export async function watchlistScenario({
     ),
     'view change closes duplicate picker and restores unique list rows',
   )
+  await click(page, 'Configuration')
   await checkSegmentedDisplay('320px list', 0)
   await screenshot(page, 'segmented-list-mobile')
+  await backdropClick()
+  await until(
+    page,
+    `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden' && document.activeElement.getAttribute('aria-controls') === 'watchlist-configuration'`,
+    'configuration backdrop restores opener and scroll',
+  )
   await click(page, 'Par tag')
   await go(page, '/compte/watchlist')
   await until(
@@ -2583,10 +2715,16 @@ export async function watchlistScenario({
   sorts.set(owner.username, groupingBefore.sort)
   addedTimes.delete('external-film')
   revision++
+  await click(page, 'Configuration')
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     page.sessionId,
+  )
+  await until(
+    page,
+    `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden' && document.activeElement.getAttribute('aria-controls') !== 'watchlist-configuration'`,
+    'desktop breakpoint closes sheet without focusing hidden trigger',
   )
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
   await until(
@@ -2875,7 +3013,7 @@ export async function watchlistScenario({
     await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
     await until(
       page,
-      `(() => { const row = ${savedRow('saved-film')}; return !!row && !document.querySelector('#watchlist-query').disabled && ${label ? `row.querySelector('time')?.textContent.trim() === ${JSON.stringify(label)}` : `!row.querySelector('time, .text-muted')`}; })()`,
+      `(() => { const row = ${savedRow('saved-film')}; return !!row && !document.querySelector('button[aria-controls="watchlist-add"]').disabled && ${label ? `row.querySelector('time')?.textContent.trim() === ${JSON.stringify(label)}` : `!row.querySelector('time, .text-muted')`}; })()`,
       'French evidence revalidation at unchanged membership revision',
     )
     check(
@@ -2997,17 +3135,15 @@ export async function watchlistScenario({
   await route(page, '/compte/watchlist')
   await until(
     page,
-    `!!document.querySelector('#watchlist-query:not(:disabled)')`,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
     'watchlist returns',
   )
   check(
-    await evaluate(
-      page,
-      `document.querySelector('#watchlist-query').value === ''`,
-    ),
+    await evaluate(page, `!document.querySelector('#watchlist-query')`),
     'search draft clears on route departure',
   )
   externalStatus = 'unavailable'
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -3044,7 +3180,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.activeElement.id === 'watchlist-query' && document.querySelector('#watchlist-query').value === 'private candidate query'`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add' && document.body.style.overflow !== 'hidden'`,
     ),
     'Escape closes and returns focus without deleting draft',
   )
@@ -3052,22 +3188,27 @@ export async function watchlistScenario({
   await click(page, 'Rechercher')
   for (let i = 0; !releaseSearch && i < 100; i++) await delay(20)
   check(!!releaseSearch, 'pending search reached fixture')
-  await evaluate(
-    page,
-    `document.querySelector('#saved-heading').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`,
-  )
+  await backdropClick()
   holdSearch = false
   releaseSearch()
   await delay(100)
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.querySelector('#watchlist-query').value === 'private candidate query'`,
+      `!document.querySelector('#watchlist-add') && document.body.style.overflow !== 'hidden'`,
     ),
     'outside dismissal fences late search results',
   )
   emptySearch = true
   externalStatus = 'ready'
+  await click(page, 'Ajouter')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-query').value === 'private candidate query'`,
+    ),
+    'dismissal preserves draft for reopening',
+  )
   await click(page, 'Rechercher')
   await until(
     page,
@@ -3092,9 +3233,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.activeElement.getAttribute('aria-label') === 'Retirer de la watchlist'`,
+      `document.querySelector('#watchlist-add').matches(':modal') && document.activeElement.getAttribute('aria-label') !== 'Retirer de la watchlist'`,
     ),
-    'keyboard focus can leave non-modal panel without a trap',
+    'native search modal prevents background focus',
   )
   externalStatus = 'disabled'
   await click(page, 'Rechercher')
@@ -3118,6 +3259,13 @@ export async function watchlistScenario({
   externalStatus = 'ready'
   const searchPath = `/recherche?theaters=ugc-1&date=${date}&start_after=10%3A00&finish_before=23%3A00`
   await route(page, searchPath)
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-add') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'navigation removes open search dialog and scroll lock',
+  )
   await until(
     page,
     `document.querySelector('section[aria-label="Ma watchlist"]') && document.querySelector('section[aria-label="Autres films"]')`,
@@ -3216,7 +3364,7 @@ export async function watchlistScenario({
   )
   await until(
     page,
-    `!!document.querySelector('#watchlist-query:not(:disabled)')`,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
     'mobile watchlist route',
   )
   check(
@@ -3229,11 +3377,11 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const style = getComputedStyle(control); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return select.height >= 44 && select.left >= 0 && icon.left > select.left && icon.right < select.right && icon.top > select.top && icon.bottom < select.bottom && select.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= icon.right + 8 && select.right <= innerWidth && select.top >= heading.bottom && select.top >= filter.bottom + 8 && Math.abs(trigger.top - select.top) < 1 && trigger.left - select.right >= 8 && Math.abs(select.left - filter.left) < 1 && Math.abs(trigger.right - filter.right) < 1 && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
+      `!document.querySelector('#watchlist-sort').checkVisibility() && !document.querySelector('#watchlist-tag-filter').checkVisibility() && document.querySelector('button[aria-controls="watchlist-configuration"]').checkVisibility() && !document.querySelector('#watchlist-query')`,
     ),
-    'mobile sort icon keeps text clearance and 44px target beside manager below full-width filter',
+    'mobile base hides display/filter/sort behind Configuration',
   )
-  await checkTagFilterPresentation('mobile')
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -3244,19 +3392,51 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const panel = document.querySelector('#watchlist-results').getBoundingClientRect(); const scroll = document.querySelector('#watchlist-results .overflow-y-auto'); return panel.left >= 0 && panel.right <= innerWidth && panel.bottom <= innerHeight && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollWidth <= innerWidth; })()`,
+      `(() => { const panel = document.querySelector('#watchlist-add').getBoundingClientRect(); const scroll = document.querySelector('#watchlist-add .overflow-y-auto'); return panel.left >= 0 && panel.right <= innerWidth && panel.bottom <= innerHeight && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollWidth <= innerWidth; })()`,
     ),
     'mobile overlay fits width and scrolls inside available viewport',
   )
   await screenshot(page, 'mobile')
+  await getCDP().send('Page.bringToFront', {}, page.sessionId)
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 320, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  // CDP device metrics can defer resize notification while this tab is backgrounded.
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await until(
+    page,
+    `parseFloat(getComputedStyle(document.querySelector('#watchlist-add')).maxHeight) <= 288`,
+    'short mobile visual viewport applies modal height',
+  )
+  await screenshot(page, 'add-short-viewport', false)
+  const shortGeometry = await evaluate(
+    page,
+    `(() => { const d = document.querySelector('#watchlist-add').getBoundingClientRect(), close = document.querySelector('button[aria-label="Fermer l’ajout de film"]').getBoundingClientRect(), scroll = document.querySelector('#watchlist-add .overflow-y-auto'); return {top:d.top,bottom:d.bottom,height:innerHeight,vh:visualViewport.height,offset:visualViewport.offsetTop,closeTop:close.top,closeBottom:close.bottom,client:scroll.clientHeight,content:scroll.scrollHeight} })()`,
+  )
+  check(
+    shortGeometry.top >= 15.5 &&
+      shortGeometry.bottom <= shortGeometry.height - 15.5 &&
+      shortGeometry.closeTop >= shortGeometry.top &&
+      shortGeometry.closeBottom <= shortGeometry.bottom &&
+      shortGeometry.client > 0 &&
+      shortGeometry.content > shortGeometry.client,
+    `short mobile search keeps close visible and results scrollable ${JSON.stringify(shortGeometry)}`,
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
   await evaluate(
     page,
-    `document.querySelector('button[aria-label="Fermer les résultats"]').click()`,
+    `document.querySelector('button[aria-label="Fermer l’ajout de film"]').click()`,
   )
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.activeElement.id === 'watchlist-query'`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add' && document.body.style.overflow !== 'hidden'`,
     ),
     'close control returns focus',
   )
@@ -3284,6 +3464,66 @@ export async function watchlistScenario({
   )
   await checkClock(page, 'remove')
   await screenshot(page, 'mobile-saved-date')
+  await click(page, 'Configuration')
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'pagehide closes configuration and unlocks scroll',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
+    'pageshow readies add without reopening sheet',
+  )
+  await click(page, 'Ajouter')
+  await fill(page, 'watchlist-query', 'private candidate query')
+  holdSearch = true
+  releaseSearch = undefined
+  await click(page, 'Rechercher')
+  for (let i = 0; !releaseSearch && i < 100; i++) await delay(20)
+  check(!!releaseSearch, 'late search reaches fixture before pagehide')
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  holdSearch = false
+  releaseSearch()
+  await delay(100)
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-add') && !document.querySelector('#watchlist-query') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'pagehide fences late search and unlocks modal scroll',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
+    'pageshow revalidates private watchlist',
+  )
+  await click(page, 'Ajouter')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-query').value === ''`,
+    ),
+    'pageshow never restores private modal query',
+  )
+  await escapeOverlay()
   await click(page, 'Gérer les tags')
   await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'pagehide-private-draft')
@@ -3553,6 +3793,7 @@ export async function watchlistBackendScenario({
   const movie = chronological.find(
     (slot) => slot.showtime.movie.slug !== otherMovie.slug,
   ).showtime.movie
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', movie.title)
   await click(page, 'Rechercher')
   await until(

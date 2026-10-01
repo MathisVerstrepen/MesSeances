@@ -60,11 +60,17 @@ async function logout() {
           <span aria-hidden="true">‹</span>
           Mon compte
         </NuxtLink>
-        <h1
-          class="mb-8 border-b-2 border-ink pb-6 [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(2rem,6vw,3.5rem)] font-black leading-[1.05] tracking-[-0.065em] sm:mb-9 sm:pb-8"
+        <div
+          :class="$slots['title-actions'] ? 'mb-8 flex items-center justify-between gap-3 border-b-2 border-ink pb-6 sm:mb-9 sm:pb-8' : ''"
         >
-          {{ title }}
-        </h1>
+          <h1
+            class="min-w-0 [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(2rem,6vw,3.5rem)] font-black leading-[1.05] tracking-[-0.065em]"
+            :class="$slots['title-actions'] ? '' : 'mb-8 border-b-2 border-ink pb-6 sm:mb-9 sm:pb-8'"
+          >
+            {{ title }}
+          </h1>
+          <slot name="title-actions" />
+        </div>
         <div
           v-if="status === 'idle' || status === 'loading'"
           role="status"

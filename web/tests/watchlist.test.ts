@@ -737,6 +737,7 @@ for (const control of ['filter', 'mode'] as const) {
     'interaction',
     'moved-focus',
     'disabled',
+    'hidden',
   ] as const) {
     test(`${control} focus recovery respects ${transition}`, async () => {
       const f = await pageFixture()
@@ -760,6 +761,7 @@ for (const control of ['filter', 'mode'] as const) {
         if (transition === 'interaction') f.page.interactWithTags()
         if (transition === 'moved-focus') f.pageDocument.activeElement = {}
         if (transition === 'disabled') element.disabled = true
+        if (transition === 'hidden') element.visible = false
         pending.resolve({
           ...value('2'),
           view_mode: 'tags',
@@ -1375,12 +1377,16 @@ class TestSelect {
   value: string
   isConnected = true
   disabled = false
+  visible = true
   focusCalls = 0
   constructor(value: string) {
     this.value = value
   }
   focus() {
     this.focusCalls++
+  }
+  checkVisibility() {
+    return this.visible
   }
 }
 
@@ -1407,7 +1413,16 @@ interface PageInteractions {
   panelOpen: ReturnType<typeof ref<boolean>>
   activeTab: ReturnType<typeof ref<string>>
   panelHeight: ReturnType<typeof ref<number>>
+  panelTop: ReturnType<typeof ref<number>>
+  panelBottom: ReturnType<typeof ref<number>>
+  positionPanel: () => void
   submitSearch: () => Promise<void>
+  openSearch: () => Promise<void>
+  openConfiguration: () => Promise<void>
+  closeConfiguration: (restoreFocus?: boolean) => void
+  configurationOpen: ReturnType<typeof ref<boolean>>
+  isDesktop: ReturnType<typeof ref<boolean>>
+  breakpointChanged: () => void
   selectTab: (tab: string) => void
   tabKeydown: (event: { key: string; preventDefault: () => void }) => void
   addMovie: (movie: { slug: string } | { tmdb_id: string }) => Promise<void>
@@ -1417,8 +1432,9 @@ interface PageInteractions {
 
 interface PageDocument {
   activeElement: unknown
-  body: object
+  body: { style: { overflow: string } }
   removeEventListener: () => void
+  addEventListener: () => void
 }
 
 // Exercise the page's interaction handlers with the real fenced composable.
@@ -1434,10 +1450,23 @@ async function pageFixture() {
   let focused = ''
   const scope = effectScope()
   const callbacks: (() => void)[] = []
+  const mounted: (() => void)[] = []
+  const viewport = {
+    height: 844,
+    offsetTop: 0,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
+  const media = {
+    matches: true,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
   const pageDocument: PageDocument = {
     activeElement: null,
-    body: {},
+    body: { style: { overflow: 'auto' } },
     removeEventListener: () => {},
+    addEventListener: () => {},
   }
   // SAFETY: The transpiled page below exports exactly this interaction contract before use.
   const exports = {} as PageInteractions
@@ -1448,7 +1477,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, panelTop, panelBottom, positionPanel, openSearch, openConfiguration, closeConfiguration, configurationOpen, isDesktop, breakpointChanged, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -1476,11 +1505,19 @@ async function pageFixture() {
         useAccountSession: () => f.account,
         useHead: () => {},
         definePageMeta: () => {},
-        onMounted: () => {},
+        onMounted: (fn: () => void) => mounted.push(fn),
         onBeforeUnmount: (fn: () => void) => callbacks.push(fn),
         onBeforeRouteLeave: () => {},
         useTemplateRef: (name: string) => {
           const element = ref({
+            isConnected: true,
+            disabled: false,
+            checkVisibility: () => true,
+            showModal: () => {},
+            close: () => {},
+            focusFilter: () => {
+              focused = 'tagFilter'
+            },
             focus: () => {
               focused = name
             },
@@ -1490,11 +1527,18 @@ async function pageFixture() {
           elements.set(name, element)
           return element
         },
-        window: { innerHeight: 844, removeEventListener: () => {} },
+        window: {
+          innerHeight: 844,
+          visualViewport: viewport,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          matchMedia: () => media,
+        },
         document: pageDocument,
       },
     ),
   )
+  mounted.forEach((fn) => fn())
   return {
     ...f,
     page: exports,
@@ -1503,6 +1547,8 @@ async function pageFixture() {
       return f.gets
     },
     elements,
+    media,
+    viewport,
     get focused() {
       return focused
     },
@@ -1632,16 +1678,84 @@ for (const transition of [
   })
 }
 
-test('search panel opens only on submit, bounds height and supports roving tabs', async () => {
+test('configuration is mobile-only, saves immediately, restores trigger and closes on breakpoint', async () => {
+  const f = await pageFixture()
+  try {
+    await f.page.openConfiguration()
+    assert.equal(f.page.configurationOpen.value, false)
+    f.media.matches = false
+    f.page.breakpointChanged()
+    await f.page.openConfiguration()
+    assert.equal(f.page.configurationOpen.value, true)
+    assert.equal(f.focused, 'configurationClose')
+    assert.equal(f.pageDocument.body.style.overflow, 'hidden')
+    await f.page.changeDisplay('tags', { currentTarget: new TestSelect('') })
+    assert.equal(f.page.displayMode.value, 'tags')
+    assert.equal(f.page.configurationOpen.value, true)
+    f.page.closeConfiguration()
+    await nextTick()
+    assert.equal(f.focused, 'configurationTrigger')
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+    await f.page.openConfiguration()
+    f.media.matches = true
+    f.page.breakpointChanged()
+    await nextTick()
+    assert.equal(f.page.configurationOpen.value, false)
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+    assert.equal(f.focused, 'configurationClose')
+    assert.equal(f.page.displayMode.value, 'tags')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const overlay of ['search', 'configuration'] as const) {
+  for (const boundary of ['owner', 'departure', 'unmount'] as const) {
+    test(`${overlay} opening and focus restoration fenced at ${boundary} boundary`, async () => {
+      const f = await pageFixture()
+      try {
+        f.media.matches = false
+        f.page.breakpointChanged()
+        const opening =
+          overlay === 'search'
+            ? f.page.openSearch()
+            : f.page.openConfiguration()
+        if (boundary === 'owner') f.admit(session('bob'))
+        else if (boundary === 'departure') f.page.clearPageSearch()
+        else f.stop()
+        await opening
+        assert.equal(f.page.panelOpen.value, false)
+        assert.equal(f.page.configurationOpen.value, false)
+        assert.equal(f.pageDocument.body.style.overflow, 'auto')
+        assert.equal(f.focused, '')
+      } finally {
+        if (boundary !== 'unmount') f.stop()
+      }
+    })
+  }
+}
+
+test('header search dialog opens before submit, locks scroll and supports roving tabs', async () => {
   const f = await pageFixture()
   try {
     f.list.query.value = 'External'
     assert.equal(f.page.panelOpen.value, false)
     assert.equal(f.list.searchResults.value, null)
     await f.page.submitSearch()
+    assert.equal(f.page.panelOpen.value, false)
+    await f.page.openSearch()
+    assert.equal(f.focused, 'searchInput')
+    assert.equal(f.pageDocument.body.style.overflow, 'hidden')
+    await f.page.submitSearch()
     assert.equal(f.page.panelOpen.value, true)
     assert.equal(f.focused, 'catalogTab')
-    assert.equal(f.page.panelHeight.value, 328)
+    assert.equal(f.page.panelHeight.value, 844)
+    f.viewport.height = 320
+    f.viewport.offsetTop = 60
+    f.page.positionPanel()
+    assert.equal(f.page.panelHeight.value, 320)
+    assert.equal(f.page.panelTop.value, 60)
+    assert.equal(f.page.panelBottom.value, 464)
     for (const [key, tab] of [
       ['ArrowRight', 'external'],
       ['ArrowRight', 'catalog'],
@@ -1662,8 +1776,10 @@ test('search panel opens only on submit, bounds height and supports roving tabs'
       assert.equal(f.elements.get('resultsScroll')?.value.scrollTop, 0)
     }
     f.page.dismiss(true)
+    await nextTick()
     assert.equal(f.page.panelOpen.value, false)
-    assert.equal(f.focused, 'searchInput')
+    assert.equal(f.focused, 'addTrigger')
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
     assert.equal(f.list.query.value, 'External')
   } finally {
     f.stop()
@@ -1675,6 +1791,7 @@ for (const imported of [false, true]) {
     const f = await pageFixture()
     try {
       f.list.query.value = 'External'
+      await f.page.openSearch()
       await f.page.submitSearch()
       const candidate = imported ? { tmdb_id: '12' } : { slug: 'film-1' }
       const failed = async () => {
@@ -1697,7 +1814,7 @@ for (const imported of [false, true]) {
       assert.equal(f.page.panelOpen.value, false)
       assert.equal(f.list.query.value, '')
       assert.equal(f.list.searchResults.value, null)
-      assert.equal(f.focused, 'searchInput')
+      assert.equal(f.focused, 'addTrigger')
       if (!imported) assert.ok(f.posts.every((post) => post.saved === 'true'))
     } finally {
       f.stop()
@@ -1709,6 +1826,7 @@ test('late successful add cannot dismiss a newer search; owner invalidation clos
   const f = await pageFixture()
   try {
     f.list.query.value = 'External'
+    await f.page.openSearch()
     await f.page.submitSearch()
     const pending = deferred<AccountWatchlist>()
     f.setWrite(() => pending.promise)
@@ -1719,6 +1837,7 @@ test('late successful add cannot dismiss a newer search; owner invalidation clos
     await add
     assert.equal(f.list.query.value, 'Another search draft')
     assert.equal(f.focused, 'catalogTab')
+    await f.page.openSearch()
     await f.page.submitSearch()
     f.account.clear()
     assert.equal(f.page.panelOpen.value, false)
@@ -1733,6 +1852,7 @@ test('uncertain committed add preserves search despite read-back membership; unm
   const f = await pageFixture()
   try {
     f.list.query.value = 'External'
+    await f.page.openSearch()
     await f.page.submitSearch()
     f.setWrite(async () => {
       f.setResponse(value('2', ['film-2']))
