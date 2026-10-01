@@ -10,6 +10,7 @@ import {
   LogOut,
   MapPin,
   RefreshCw,
+  Users,
 } from '@lucide/vue'
 
 definePageMeta({ middleware: 'admin-auth' })
@@ -150,6 +151,20 @@ useHead({ title: 'Administration - MesSeances' })
           </span>
           <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Localisations des cinémas</span
+          >
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
+        </NuxtLink>
+        <NuxtLink
+          to="/admin/accounts"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
+        >
+          <span
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
+          >
+            <Users :size="22" aria-hidden="true" />
+          </span>
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
+            >Comptes</span
           >
           <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>

@@ -282,6 +282,34 @@ export interface AdminSessionResponse {
   authenticated: boolean
 }
 
+export type AdminAccountState =
+  | 'complete'
+  | 'pending_email'
+  | 'pending_username'
+  | 'expired'
+
+export interface AdminAccountItem {
+  email: string
+  username: string | null
+  state: AdminAccountState
+  created_at: string
+  email_verified_at: string | null
+  has_password: boolean
+  google_linked: boolean
+}
+
+export interface AdminAccountsQuery {
+  limit: number
+  offset: number
+}
+
+export interface AdminAccountsResponse {
+  items: AdminAccountItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export const adminMovieFields = [
   'title',
   'runtime_minutes',

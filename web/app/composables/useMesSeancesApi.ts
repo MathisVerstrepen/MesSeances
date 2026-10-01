@@ -1,5 +1,7 @@
 import type {
   AdminAcceptTheaterLocationSuggestionRequest,
+  AdminAccountsQuery,
+  AdminAccountsResponse,
   AdminAddLocalMovieMembersRequest,
   AdminAddLocalMovieMembersResponse,
   AdminCreateLocalMovieGroupRequest,
@@ -217,6 +219,19 @@ export function useMesSeancesApi() {
       return apiFetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, {
         credentials: 'include',
       })
+    },
+    adminAccounts(query: AdminAccountsQuery, signal?: AbortSignal) {
+      return withAdminRedirect(
+        apiFetch<AdminAccountsResponse>(`${apiBase}/api/v1/admin/accounts`, {
+          credentials: 'include',
+          query: queryValues(query),
+          signal,
+          retry: false,
+          cache: 'no-store',
+          referrerPolicy: 'no-referrer',
+          timeout: 15000,
+        }),
+      )
     },
     adminMovies(query: AdminMoviesQuery, signal?: AbortSignal) {
       return withAdminRedirect(
@@ -658,6 +673,8 @@ export function getFrenchShortLinkPreparationError(cause: unknown): string {
 
 export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
+  if (code === 'admin_accounts_unavailable')
+    return 'Impossible de charger les comptes : le service est temporairement indisponible. Réessayez plus tard.'
   if (code === 'admin_unavailable')
     return 'L’administration est désactivée sur ce service.'
   if (code === 'invalid_upcoming_review_query')
