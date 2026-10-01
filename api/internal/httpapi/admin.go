@@ -24,6 +24,7 @@ type adminAPI struct {
 	locations      TheaterLocationController
 	geocoding      TheaterGeocodingController
 	movies         *enrichment.AdminMovieService
+	accounts       AdminAccountsLister
 	now            func() time.Time
 }
 
@@ -48,6 +49,7 @@ func newAdminAPI(origin string, options AdminOptions) *adminAPI {
 		origin: origin, password: password, key: key, hasKey: hasKey,
 		tmdbUpcoming:   options.TMDBUpcoming,
 		upcomingReview: options.UpcomingReviews,
+		accounts:       options.Accounts,
 		reviews:        options.Reviews, tmdbReruns: options.TMDBReruns, tmdbRefreshes: options.TMDBRefreshes, locals: options.LocalMovies, syncs: options.Syncs, schedules: options.SyncSchedules, locations: options.TheaterLocations, geocoding: options.TheaterGeocoding, movies: options.Movies, now: options.Now,
 	}
 }

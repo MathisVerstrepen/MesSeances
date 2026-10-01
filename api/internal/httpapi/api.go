@@ -58,6 +58,7 @@ type AdminOptions struct {
 	TheaterLocations TheaterLocationController
 	TheaterGeocoding TheaterGeocodingController
 	Movies           *enrichment.AdminMovieService
+	Accounts         AdminAccountsLister
 	Now              func() time.Time
 	Logger           *slog.Logger
 	Metrics          *observability.Metrics
@@ -174,6 +175,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		router.Use(api.admin.noStore)
 		router.With(api.admin.requireOrigin).Post("/login", api.admin.login)
 		router.Get("/session", api.admin.session)
+		router.With(adminAccountsPrivacy, api.admin.authorize).Get("/accounts", api.admin.adminAccounts)
 		router.Group(func(router chi.Router) {
 			router.Use(api.admin.authorize)
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)

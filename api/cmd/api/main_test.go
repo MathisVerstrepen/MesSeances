@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"messeances/api/internal/accounts"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/geocoding"
@@ -341,6 +342,13 @@ func TestUpcomingRuntimeAvailabilityWithoutProxiesIntegration(t *testing.T) {
 			defer runtime.upcomingManager.Close()
 			if runtime.options.UpcomingReviews == nil {
 				t.Fatal("DB-only upcoming review service missing")
+			}
+			if runtime.options.Accounts == nil {
+				t.Fatal("provider-independent admin account service missing")
+			}
+			accountPage, err := runtime.options.Accounts.List(t.Context(), accounts.AdminAccountsQuery{Limit: 50})
+			if err != nil || accountPage.Total != 0 || accountPage.Items == nil {
+				t.Fatalf("empty admin accounts with providers disabled: %+v %v", accountPage, err)
 			}
 			list, err := runtime.options.UpcomingReviews.List(t.Context(), enrichment.UpcomingReviewQuery{Filter: "all", Limit: 50})
 			if err != nil || list.Total != 0 || list.Items == nil {

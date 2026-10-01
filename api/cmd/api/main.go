@@ -343,6 +343,8 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 	}
 	options.TheaterLocations = newTheaterLocationController(pool, time.Now)
 	options.UpcomingReviews = enrichment.NewUpcomingReviewService(store, time.Now)
+	// Admin reads remain available even when account providers are disabled.
+	options.Accounts = accounts.NewAdminService(accounts.NewPostgresStore(pool), time.Now)
 	options.TheaterGeocoding = geocodingManager
 	options.Logger = logger
 	options.Metrics = metrics
