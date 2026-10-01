@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   LocateFixed,
   Map as MapIcon,
+  Minus,
   RefreshCw,
   Search,
   SlidersHorizontal,
@@ -273,6 +274,14 @@ function showList() {
 function recoverMapBoundary(clearError: () => void) {
   showList()
   clearError()
+}
+
+function groupSelectionState(groupTheaters: readonly Theater[]) {
+  if (groupTheaters.every((theater) => selectedIds.value.has(theater.id)))
+    return 'all'
+  return groupTheaters.some((theater) => selectedIds.value.has(theater.id))
+    ? 'some'
+    : 'none'
 }
 
 function updateGroup(groupTheaters: readonly Theater[], select: boolean) {
@@ -891,7 +900,7 @@ useHead(() => ({
                 class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]"
               >
                 <header
-                  class="grid gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-5"
+                  class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b-2 border-ink bg-[#f1efe8] p-4 sm:p-5"
                 >
                   <div class="min-w-0">
                     <h3
@@ -899,15 +908,44 @@ useHead(() => ({
                     >
                       <NuxtLink
                         :to="`/ville/${encodeURIComponent(group.citySlug)}/cinemas`"
-                        class="inline-flex min-h-11 items-center underline decoration-2 underline-offset-4 hover:text-primary"
+                        class="inline-flex min-h-11 max-w-full items-center [overflow-wrap:anywhere] underline decoration-2 underline-offset-4 hover:text-primary"
                         >{{
                           group.city
                         }}</NuxtLink
                       >
                     </h3>
                   </div>
+                  <label
+                    v-if="group.theaters.length > 1"
+                    class="city-group-selection flex size-11 shrink-0 cursor-pointer items-center justify-center has-disabled:cursor-not-allowed has-disabled:opacity-40 lg:hidden"
+                  >
+                    <input
+                      type="checkbox"
+                      class="peer sr-only"
+                      :aria-label="`${groupSelectionState(group.theaters) === 'all' ? 'Désélectionner' : 'Sélectionner'} les cinémas affichés du groupe ${group.city}`"
+                      :checked="groupSelectionState(group.theaters) === 'all'"
+                      :indeterminate.prop="groupSelectionState(group.theaters) === 'some'"
+                      :disabled="!preferencesReady || writesBlocked"
+                      @change="updateGroup(group.theaters, groupSelectionState(group.theaters) !== 'all')"
+                    >
+                    <span
+                      class="grid size-7 place-items-center border-2 border-ink bg-surface text-ink peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[3px_3px_0_var(--color-highlight)] peer-indeterminate:bg-ink peer-indeterminate:text-white peer-indeterminate:shadow-[3px_3px_0_var(--color-highlight)] peer-focus-visible:outline-3 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-accent"
+                      aria-hidden="true"
+                    >
+                      <Check
+                        v-if="groupSelectionState(group.theaters) === 'all'"
+                        :size="18"
+                        stroke-width="3"
+                      />
+                      <Minus
+                        v-else-if="groupSelectionState(group.theaters) === 'some'"
+                        :size="18"
+                        stroke-width="3"
+                      />
+                    </span>
+                  </label>
                   <div
-                    class="grid grid-cols-2 gap-2 sm:flex"
+                    class="hidden gap-2 lg:flex"
                     role="group"
                     :aria-label="`Modifier mes cinémas à ${group.city}`"
                   >
