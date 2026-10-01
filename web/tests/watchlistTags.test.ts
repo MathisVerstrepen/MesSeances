@@ -1008,6 +1008,85 @@ test('compact tag trigger uses 28px minimum height while preserving width, focus
   assert.match(trigger, /<Plus :size="16" aria-hidden="true"\s*\/>\s*Tag/)
 })
 
+test('floating picker matches square modal styling without changing anchored group or dismissal semantics', async () => {
+  const f = await itemFixture()
+  try {
+    const panel = f.source.slice(f.source.indexOf('ref="panel"'))
+    assert.match(
+      panel,
+      /fixed z-40 flex flex-col overflow-hidden rounded-none border-2 border-ink bg-surface p-0 text-ink shadow-lg/,
+    )
+    assert.match(panel, /:style="position"/)
+    assert.match(panel, /role="group"/)
+    assert.match(panel, /items-start gap-3 border-b border-ink\/20 p-4/)
+    assert.match(
+      panel,
+      /<h3\s+:id="`\$\{regionId\}-title`"\s+class="min-w-0 flex-1"/,
+    )
+    assert.match(
+      panel,
+      /flex size-11 shrink-0 items-center justify-center hover:bg-subtle focus-visible:outline-2/,
+    )
+    assert.match(panel, /aria-label="Fermer les tags"\s+@click="close\(true\)"/)
+    assert.match(panel, /<X :size="20" aria-hidden="true"/)
+    assert.match(panel, /min-h-0 overflow-y-auto overscroll-contain p-4/)
+    assert.match(
+      panel,
+      /flex min-h-11 cursor-pointer items-center gap-3 px-2 py-2/,
+    )
+    assert.doesNotMatch(panel, /rounded-(?:lg|md)|<dialog|aria-modal|backdrop/)
+    assert.doesNotMatch(f.source, /showModal|lockScroll|body\.style\.overflow/)
+    assert.match(f.source, /document\[method\]\('pointerdown', outside\)/)
+    assert.match(f.source, /document\[method\]\('focusin', outside\)/)
+    assert.match(f.source, /document\[method\]\('keydown', keydown\)/)
+  } finally {
+    f.stop()
+  }
+})
+
+test('floating heading keeps Tags above a smaller single-line original movie title with accessible ellipsis', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
+    'utf8',
+  )
+  const heading = source.match(/<h3\b[\s\S]*?<\/h3>/)?.[0]
+  assert.ok(heading)
+  assert.match(source, /:aria-labelledby="`\$\{regionId\}-title`"/)
+  assert.match(heading, /:id="`\$\{regionId\}-title`"/)
+  assert.match(heading, /class="min-w-0 flex-1"/)
+  assert.match(
+    heading,
+    /<span class="account-heading block">Tags<\/span>\s*<span class="block truncate text-sm font-normal">\{\{ title \}\}<\/span>/,
+  )
+  assert.doesNotMatch(
+    heading,
+    /line-clamp|aria-hidden|aria-label|slice|substring/,
+  )
+})
+
+test('fixed two-line floating header retains 8px above/below gap and 320px cap', async () => {
+  const f = await itemFixture()
+  try {
+    f.props.open = true
+    f.templateRefs.heading.value.offsetHeight = 120
+    f.anchor.top = 100
+    f.anchor.bottom = 128
+    f.handlers.positionPanel()
+    assert.equal(f.handlers.position.value.top, '136px')
+    assert.equal(f.handlers.position.value.maxHeight, '320px')
+    f.anchor.top = 600
+    f.anchor.bottom = 628
+    f.handlers.positionPanel()
+    assert.equal(f.handlers.position.value.top, '272px')
+    f.viewport.height = 250
+    f.handlers.positionPanel()
+    assert.equal(f.handlers.position.value.top, '8px')
+    assert.equal(f.handlers.position.value.maxHeight, '234px')
+  } finally {
+    f.stop()
+  }
+})
+
 test('section context hides only its assigned chip without altering picker membership or list summaries', async () => {
   const f = await itemFixture()
   try {

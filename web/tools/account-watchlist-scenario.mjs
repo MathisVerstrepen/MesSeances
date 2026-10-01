@@ -146,6 +146,7 @@ export async function watchlistScenario({
   let uncertainSort = false
   let uncertainAssignment = false
   let uncertainPreferences = false
+  let uncertainRemoval = false
   const frenchReleases = new Map([['saved-film', '1998-10-14']])
   let externalStatus = 'ready'
   let emptySearch = false
@@ -162,11 +163,12 @@ export async function watchlistScenario({
   const date = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Paris',
   }).format(new Date())
+  let externalTitle = 'Film externe'
   const movie = (slug) => ({
     slug,
     title:
       slug === 'external-film'
-        ? 'Film externe'
+        ? externalTitle
         : slug === 'saved-film'
           ? 'Film favori'
           : 'Autre film',
@@ -453,6 +455,10 @@ export async function watchlistScenario({
       if (body.saved === 'false') assignments().delete(slug)
       if (path.endsWith('/import') || body.saved === 'true') saved.unshift(slug)
       revision++
+      if (body.saved === 'false' && uncertainRemoval) {
+        uncertainRemoval = false
+        return send({ error: { code: 'watchlist_unavailable' } }, 503)
+      }
       return send(
         path.endsWith('/import')
           ? { watchlist: snapshot(), movie_slug: slug }
@@ -505,6 +511,22 @@ export async function watchlistScenario({
     )
   }
   async function checkClock(page, variant) {
+    if (
+      variant === 'remove' &&
+      (await evaluate(
+        page,
+        `!!document.querySelector('[data-watchlist-remove]')`,
+      ))
+    ) {
+      check(
+        await evaluate(
+          page,
+          `(() => { const buttons = [...document.querySelectorAll('[data-watchlist-remove]')]; return buttons.length > 0 && buttons.every(button => { const style = getComputedStyle(button), rect = button.getBoundingClientRect(), icon = button.querySelector('svg'); return button.getAttribute('aria-label') === 'Retirer de la watchlist' && button.getAttribute('aria-haspopup') === 'dialog' && !button.textContent.trim() && style.borderWidth === '0px' && rect.width >= 44 && rect.height >= 44 && icon?.getAttribute('aria-hidden') === 'true' && icon?.getAttribute('focusable') === 'false' && icon.getBoundingClientRect().width === 20 && icon.querySelectorAll('path').length === 2 && !icon.querySelector('circle') }) })()`,
+        ),
+        'watchlist-only removal uses named borderless decorative X and 44px target; film clock unchanged',
+      )
+      return
+    }
     check(
       await evaluate(
         page,
@@ -1643,6 +1665,345 @@ export async function watchlistScenario({
     ),
     'imported movie without French evidence has no date or general-year fallback',
   )
+  const removalWrites = () =>
+    writes.filter(
+      (write) =>
+        write.path === '/api/v1/account/watchlist' &&
+        write.body.saved === 'false',
+    )
+  const removePanel = `document.querySelector('#watchlist-remove')`
+  async function openRemove(slug = 'external-film') {
+    await until(
+      page,
+      `${savedRow(slug)}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+      'removal opener ready',
+    )
+    await evaluate(
+      page,
+      `${savedRow(slug)}.querySelector('[data-watchlist-remove]').click()`,
+    )
+    await until(
+      page,
+      `${removePanel}?.matches(':modal') && document.activeElement.textContent.trim() === 'Annuler'`,
+      'confirmation opens with safe Cancel focus',
+    )
+  }
+  async function checkRemovalSurface(name) {
+    const geometry = await evaluate(
+      page,
+      `(() => { const dialog = ${removePanel}, rect = dialog.getBoundingClientRect(), style = getComputedStyle(dialog), header = dialog.firstElementChild, title = document.querySelector('#watchlist-remove-title'), close = header.querySelector('button'), body = header.nextElementSibling; return {left: rect.left, top: rect.top, width: rect.width, bottom: rect.bottom, title: title.textContent, valid: dialog.matches(':modal') && style.borderWidth === '2px' && style.borderColor === 'rgb(39, 39, 42)' && style.borderRadius === '0px' && style.backgroundColor === 'rgb(255, 255, 255)' && style.padding === '0px' && style.boxShadow !== 'none' && rect.width === Math.min(672, innerWidth - 32) && rect.top >= 15.5 && rect.bottom <= innerHeight - 15.5 && getComputedStyle(header).padding === '16px' && getComputedStyle(header).borderBottomWidth === '1px' && close.getBoundingClientRect().width === 44 && close.querySelector('svg').getBoundingClientRect().width === 20 && getComputedStyle(body).padding === '16px' && getComputedStyle(body).overflowY === 'auto' && body.scrollWidth <= body.clientWidth && title.scrollWidth <= title.clientWidth && document.body.style.overflow === 'hidden' } })()`,
+    )
+    check(
+      geometry.valid,
+      `${name} confirmation matches square native modal surface, bounded title/internal scroll and fixed close ${JSON.stringify(geometry)}`,
+    )
+    const tree = await getCDP().send(
+      'Accessibility.getFullAXTree',
+      {},
+      page.sessionId,
+    )
+    check(
+      tree.nodes.some(
+        (node) =>
+          node.role?.value === 'dialog' &&
+          node.name?.value === 'Retirer de la watchlist' &&
+          node.description?.value === geometry.title,
+      ),
+      `${name} native confirmation exposes selected movie as full accessible description`,
+    )
+    await screenshot(page, `remove-confirmation-${name}`, false)
+  }
+  await getCDP().send('Page.bringToFront', {}, page.sessionId)
+  await checkClock(page, 'remove')
+  const beforeRemoveCancel = removalWrites().length
+  for (const channel of ['cancel', 'close', 'escape', 'backdrop']) {
+    await openRemove()
+    check(
+      removalWrites().length === beforeRemoveCancel,
+      `opening ${channel} confirmation sends no removal`,
+    )
+    if (channel === 'cancel') {
+      await checkRemovalSurface('desktop')
+      for (let i = 0; i < 4; i++) {
+        for (const type of ['keyDown', 'keyUp'])
+          await getCDP().send(
+            'Input.dispatchKeyEvent',
+            { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+            page.sessionId,
+          )
+        check(
+          await evaluate(
+            page,
+            `${removePanel}.contains(document.activeElement) || document.activeElement === document.body`,
+          ),
+          'confirmation Tab never focuses background control',
+        )
+      }
+      await evaluate(
+        page,
+        `document.querySelector('[aria-controls="watchlist-add"]').focus()`,
+      )
+      check(
+        await evaluate(
+          page,
+          `document.activeElement.getAttribute('aria-controls') !== 'watchlist-add'`,
+        ),
+        'confirmation rejects background programmatic focus',
+      )
+      await evaluate(
+        page,
+        `document.querySelector('#watchlist-remove-heading').click()`,
+      )
+      check(
+        await evaluate(page, `${removePanel}.matches(':modal')`),
+        'inside confirmation header is not backdrop',
+      )
+      // Chromium can cycle Tab through browser chrome, triggering account revalidation.
+      await getCDP().send('Page.bringToFront', {}, page.sessionId)
+      await evaluate(
+        page,
+        `${removePanel}.querySelector('.account-secondary').focus()`,
+      )
+      await until(
+        page,
+        `document.activeElement === ${removePanel}.querySelector('.account-secondary') && !document.querySelector('[aria-controls="watchlist-add"]').disabled && !!${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+        'foreground account snapshot ready before cancellation',
+      )
+      await click(page, 'Annuler')
+    } else if (channel === 'close') await click(page, 'Fermer la confirmation')
+    else if (channel === 'escape') await escapeOverlay()
+    else await backdropClick()
+    try {
+      await until(
+        page,
+        `!${removePanel} && document.body.style.overflow !== 'hidden' && document.activeElement.hasAttribute('data-watchlist-remove')`,
+        `${channel} closes confirmation, restores same opener and scroll`,
+      )
+    } catch (cause) {
+      const focusState = await evaluate(
+        page,
+        `({pageFocused: document.hasFocus(), activeTag: document.activeElement.tagName, activeBody: document.activeElement === document.body, activeRemove: document.activeElement.hasAttribute('data-watchlist-remove'), activeConnected: document.activeElement.isConnected, activeDisabled: !!document.activeElement.disabled, activeControls: document.activeElement.getAttribute('aria-controls'), dialogExists: !!${removePanel}, scrollLocked: document.body.style.overflow === 'hidden', enabledRemovals: document.querySelectorAll('[data-watchlist-remove]:not(:disabled)').length, addDisabled: !!document.querySelector('[aria-controls="watchlist-add"]').disabled})`,
+      )
+      throw new Error(
+        `${channel} cancellation focus diagnostic ${JSON.stringify(focusState)}`,
+        { cause },
+      )
+    }
+    check(
+      removalWrites().length === beforeRemoveCancel &&
+        saved.includes('external-film'),
+      `${channel} never mutates membership`,
+    )
+  }
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+      page.sessionId,
+    )
+  await until(
+    page,
+    `!!document.querySelector('[data-watchlist-remove]:not(:disabled)') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'committed row ready for keyboard focus styling',
+  )
+  // Native dialog dismissal changes the Tab starting point; inspect the current cross.
+  const crossFocus = await evaluate(
+    page,
+    `(() => { const cross = document.querySelector('[data-watchlist-remove]:not(:disabled)'); cross.focus(); const style = getComputedStyle(cross); return {active: document.activeElement === cross, focusVisible: cross.matches(':focus-visible'), width: style.outlineWidth, line: style.outlineStyle, offset: style.outlineOffset} })()`,
+  )
+  check(
+    crossFocus.active &&
+      crossFocus.focusVisible &&
+      crossFocus.width === '3px' &&
+      crossFocus.line === 'solid' &&
+      crossFocus.offset === '3px',
+    `borderless removal cross retains separated keyboard focus outline ${JSON.stringify(crossFocus)}`,
+  )
+  externalTitle =
+    'Un très long titre de cinéma pour identifier clairement le film à retirer sans dépasser la fenêtre de confirmation'
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.textContent.includes(${JSON.stringify(externalTitle)}) && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'long removal title snapshot ready',
+  )
+  await openRemove()
+  await checkRemovalSurface('desktop-long-title')
+  await click(page, 'Annuler')
+  externalTitle = 'Film externe'
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('a').textContent.trim() === 'Film externe' && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'original title restored before conflict',
+  )
+  conflict = true
+  await openRemove()
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  await until(
+    page,
+    `${removePanel}?.querySelector('[role="alert"]') && ${removePanel}.querySelector('.account-primary').disabled && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'removal conflict completes readback with local recovery and consumed intent',
+  )
+  check(
+    removalWrites().length === beforeRemoveCancel + 1 &&
+      saved.includes('external-film'),
+    'conflict dispatches once without false removal',
+  )
+  await click(page, 'Réessayer')
+  await until(
+    page,
+    `!${removePanel}.querySelector('[role="alert"]') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'confirmation retry only refreshes authoritative state',
+  )
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  check(
+    removalWrites().length === beforeRemoveCancel + 1,
+    'readback never replays removal or reuses consumed confirmation',
+  )
+  await click(page, 'Annuler')
+  uncertainRemoval = true
+  await openRemove()
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  await until(
+    page,
+    `${removePanel}?.querySelector('[role="alert"]') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'uncertain committed removal stays open with readback error',
+  )
+  check(
+    !saved.includes('external-film') &&
+      removalWrites().length === beforeRemoveCancel + 2,
+    'uncertain committed removal neither reports success nor replays',
+  )
+  await click(page, 'Réessayer')
+  await until(
+    page,
+    `!${removePanel}.querySelector('[role="alert"]') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'removed target readback recovers without a new removal',
+  )
+  check(
+    await evaluate(
+      page,
+      `${removePanel}.querySelector('.account-primary').disabled`,
+    ),
+    'externally absent target cannot be reconfirmed',
+  )
+  await click(page, 'Annuler')
+  await until(
+    page,
+    `!${removePanel} && document.activeElement.hasAttribute('data-watchlist-remove') && document.body.style.overflow !== 'hidden'`,
+    'removed opener falls back to surviving list cross',
+  )
+  // Restore synthetic fixture membership for the existing preference/tag acceptance lane.
+  saved.unshift('external-film')
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'restored fixture snapshot ready',
+  )
+  await openRemove()
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!${removePanel} && !document.querySelector('#watchlist-remove-title') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'pagehide synchronously purges removal target/title and scroll lock',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'pageshow restores membership without removal intent',
+  )
+  check(
+    await evaluate(page, `!${removePanel}`),
+    'pageshow does not restore private confirmation',
+  )
+  await openRemove()
+  session = {
+    enabled: true,
+    state: 'complete',
+    account: { ...owner, username: 'removal_replacement_owner' },
+  }
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `!${removePanel} && document.body.style.overflow !== 'hidden'`,
+    'owner replacement clears confirmation and lock',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-remove-title') && document.activeElement.getAttribute('aria-controls') !== 'watchlist-remove'`,
+    ),
+    'owner replacement never restores old private title or opener',
+  )
+  session = { enabled: true, state: 'complete', account: owner }
+  await go(page, '/compte/watchlist')
+  await openRemove()
+  hold = true
+  release = undefined
+  const beforeLate = removalWrites().length
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click(); ${removePanel}.querySelector('.account-primary').click()`,
+  )
+  for (let i = 0; !release && i < 100; i++) await delay(20)
+  check(
+    !!release && removalWrites().length === beforeLate + 1,
+    'confirmed held removal dispatches exactly once despite duplicate click',
+  )
+  // Account navigation revalidation waits for the held writer. Start navigation,
+  // observe synchronous page cleanup, then release the write before awaiting arrival.
+  await evaluate(page, `(() => { void ${router}.push('/compte') })()`)
+  await until(
+    page,
+    `!${removePanel} && document.body.style.overflow !== 'hidden' && !document.querySelector('#watchlist-remove-title')`,
+    'navigation purges pending confirmation and private title',
+  )
+  hold = false
+  release()
+  await until(
+    page,
+    `${router}?.currentRoute.value.path === '/compte'`,
+    'departed page remains active',
+  )
+  for (let i = 0; saved.includes('external-film') && i < 100; i++)
+    await delay(20)
+  check(
+    !saved.includes('external-film') &&
+      (await evaluate(
+        page,
+        `!${removePanel} && document.body.style.overflow !== 'hidden'`,
+      )),
+    'late committed removal cannot resurrect overlay or scroll lock after navigation',
+  )
+  saved.unshift('external-film')
+  revision++
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'existing tag lane restored after late removal',
+  )
   async function toggleAssignment(slug, tagName, assigned) {
     await evaluate(
       page,
@@ -1884,6 +2245,62 @@ export async function watchlistScenario({
   )
   await filterTag('')
   const picker = `${savedRow('saved-film')}.querySelector('[role="group"]')`
+  const floatingHeaderHeights = new Map()
+  async function checkFloatingStyle(name, placement) {
+    const geometry = await evaluate(
+      page,
+      `(() => {
+      const p = document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]'), r = p.getBoundingClientRect(), s = getComputedStyle(p), header = p.firstElementChild, h = getComputedStyle(header), title = header.querySelector('h3'), label = title.firstElementChild, movie = title.lastElementChild, l = getComputedStyle(label), m = getComputedStyle(movie), lr = label.getBoundingClientRect(), mr = movie.getBoundingClientRect(), close = header.querySelector('button'), c = close.getBoundingClientRect(), body = p.lastElementChild, b = getComputedStyle(body), anchor = p.parentElement.querySelector('button[aria-expanded]').getBoundingClientRect(), original = p.closest('li').querySelector('a').textContent.trim();
+      const square = [p, close, ...body.querySelectorAll('label')].every(node => getComputedStyle(node).borderRadius === '0px');
+      return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height, anchorTop:anchor.top, anchorBottom:anchor.bottom, headerHeight:header.getBoundingClientRect().height, movieHeight:mr.height, movieLineHeight:parseFloat(m.lineHeight), titleFont:parseFloat(l.fontSize), movieFont:parseFloat(m.fontSize), titleWidth:movie.clientWidth, titleScrollWidth:movie.scrollWidth, original, surface:s.position === 'fixed' && s.borderTopWidth === '2px' && s.borderColor === 'rgb(39, 39, 42)' && s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(39, 39, 42)' && s.padding === '0px' && s.boxShadow !== 'none' && square, header:h.padding === '16px' && h.gap === '12px' && h.borderBottomWidth === '1px' && label.classList.contains('account-heading') && label.textContent === 'Tags' && movie.textContent === original && l.display === 'block' && m.display === 'block' && parseFloat(m.fontSize) < parseFloat(l.fontSize) && m.fontWeight === '400' && m.whiteSpace === 'nowrap' && m.overflowX === 'hidden' && m.textOverflow === 'ellipsis' && Math.abs(mr.height-parseFloat(m.lineHeight)) < 1 && mr.top >= lr.bottom && mr.right <= c.left-12+1 && title.classList.contains('min-w-0') && !title.hasAttribute('aria-hidden'), close:c.width === 44 && c.height === 44 && close.querySelector('svg').getAttribute('width') === '20' && c.right <= r.right && c.top >= r.top && c.bottom <= r.bottom, body:b.padding === '16px' && b.overflowY === 'auto' && b.overscrollBehaviorY === 'contain' && body.clientHeight > 0 && p.scrollWidth <= p.clientWidth, anchored:p.getAttribute('role') === 'group' && !p.hasAttribute('aria-modal') && !document.querySelector('dialog:modal') && document.body.style.overflow !== 'hidden', bound:r.left >= 8 && r.right <= innerWidth-8 && r.top >= 8 && r.bottom <= innerHeight-8 && r.width <= 320 && r.height <= 320 };
+    })()`,
+    )
+    const previousHeight = floatingHeaderHeights.get(geometry.width)
+    check(
+      previousHeight === undefined ||
+        Math.abs(previousHeight - geometry.headerHeight) < 1,
+      `${name} short and long movie titles retain equal header height`,
+    )
+    floatingHeaderHeights.set(geometry.width, geometry.headerHeight)
+    check(
+      geometry.original.length > 60
+        ? geometry.titleScrollWidth > geometry.titleWidth
+        : geometry.titleScrollWidth === geometry.titleWidth,
+      `${name} one-line movie title ${geometry.original.length > 60 ? 'ellipsizes long text' : 'fits short text'}`,
+    )
+    const floatingAX = await getCDP().send(
+      'Accessibility.getFullAXTree',
+      {},
+      page.sessionId,
+    )
+    check(
+      floatingAX.nodes.some(
+        (node) =>
+          node.role?.value === 'group' &&
+          node.name?.value === `Tags ${geometry.original}`,
+      ),
+      `${name} floating group retains full accessible movie title`,
+    )
+    check(
+      geometry.surface &&
+        geometry.header &&
+        geometry.close &&
+        geometry.body &&
+        geometry.anchored &&
+        geometry.bound,
+      `${name} floating picker matches square surface/header/body without modal behavior ${JSON.stringify(geometry)}`,
+    )
+    if (placement)
+      check(
+        Math.abs(
+          placement === 'below'
+            ? geometry.top - geometry.anchorBottom - 8
+            : geometry.anchorTop - geometry.bottom - 8,
+        ) < 1,
+        `${name} floating picker remains ${placement} trigger with 8px gap`,
+      )
+    await screenshot(page, `tag-floating-style-${name}`, false)
+  }
   const rowHeight = await evaluate(
     page,
     `${savedRow('saved-film')}.getBoundingClientRect().height`,
@@ -1900,7 +2317,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const p = ${picker}, r = p.getBoundingClientRect(), button = ${savedRow('saved-film')}.querySelector('button[aria-expanded]'); return getComputedStyle(p).position === 'fixed' && r.width <= 320 && r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && document.activeElement === ${firstCheckbox} && button.textContent.trim() === 'Tag' && button.getBoundingClientRect().height >= 44 && ${savedRow('saved-film')}.getBoundingClientRect().height === ${rowHeight} && document.documentElement.scrollHeight === ${listHeight}; })()`,
+      `(() => { const p = ${picker}, r = p.getBoundingClientRect(), button = ${savedRow('saved-film')}.querySelector('button[aria-expanded]'); return getComputedStyle(p).position === 'fixed' && r.width <= 320 && r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && document.activeElement === ${firstCheckbox} && button.textContent.trim() === 'Tag' && button.getBoundingClientRect().height >= 28 && ${savedRow('saved-film')}.getBoundingClientRect().height === ${rowHeight} && document.documentElement.scrollHeight === ${listHeight}; })()`,
     ),
     'compact film-anchored picker focuses first checkbox without expanding row or page',
   )
@@ -1912,12 +2329,12 @@ export async function watchlistScenario({
   check(
     pickerAX.nodes.some(
       (node) =>
-        node.role?.value === 'group' &&
-        node.name?.value === 'Tags de Film favori',
+        node.role?.value === 'group' && node.name?.value === 'Tags Film favori',
     ),
     'picker group exposes film-specific title',
   )
   await screenshot(page, 'tag-picker-desktop', false)
+  await checkFloatingStyle('desktop', 'below')
   await checkChips(page, evaluate, check, 'desktop assignment picker')
   await evaluate(
     page,
@@ -2352,6 +2769,8 @@ export async function watchlistScenario({
     'Escape closes tag checkbox disclosure and restores its trigger focus',
   )
   const ordinaryTags = [...tags()]
+  const longPickerTitle =
+    'Un très long titre de cinéma pour vérifier le panneau flottant et son bouton de fermeture'
   ownerTags.set(owner.username, [
     ...ordinaryTags,
     ...Array.from({ length: 12 }, (_, index) => ({
@@ -2367,18 +2786,29 @@ export async function watchlistScenario({
     `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.options.length === 15`,
     'long picker fixture revalidated',
   )
-  for (const [name, width, height] of [
-    ['mobile', 320, 844],
-    ['short-viewport', 320, 320],
+  for (const [name, width, height, title] of [
+    ['desktop-long', 1440, 900, longPickerTitle],
+    ['desktop-short', 1440, 900, 'Film externe'],
+    ['mobile', 320, 844, longPickerTitle],
+    ['mobile-short', 320, 844, 'Film externe'],
+    ['short-viewport', 320, 320, longPickerTitle],
   ]) {
     await getCDP().send(
       'Emulation.setDeviceMetricsOverride',
       { width, height, deviceScaleFactor: 1, mobile: true },
       page.sessionId,
     )
+    externalTitle = title
+    revision++
+    await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+    await until(
+      page,
+      `${savedRow('external-film')}.querySelector('a')?.textContent.trim() === ${JSON.stringify(title)} && !${savedRow('external-film')}.querySelector('button[aria-expanded]').disabled`,
+      `${name} movie title fixture revalidated`,
+    )
     await evaluate(
       page,
-      `(() => { const button = document.querySelector('button[aria-label="Modifier les tags de Film externe"]'); button.scrollIntoView({block:'end'}); if(button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
+      `(() => { const button = ${savedRow('external-film')}.querySelector('button[aria-expanded]'); button.scrollIntoView({block:'end'}); if(button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
     )
     await delay(100)
     check(
@@ -2389,12 +2819,36 @@ export async function watchlistScenario({
       `${name} picker clamps all edges, scrolls internally and retains reachable close control`,
     )
     await screenshot(page, `tag-picker-${name}`, false)
+    await checkFloatingStyle(
+      name,
+      name === 'mobile'
+        ? 'above'
+        : name === 'mobile-short'
+          ? 'below'
+          : undefined,
+    )
+    const beforeScroll = await evaluate(
+      page,
+      `({page:scrollY, close:document.querySelector('button[aria-label="Fermer les tags"]').getBoundingClientRect().top})`,
+    )
+    await evaluate(
+      page,
+      `document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"] .overflow-y-auto').scrollTop = 9999`,
+    )
+    check(
+      await evaluate(
+        page,
+        `(() => { const p = document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]'); return p.querySelector('.overflow-y-auto').scrollTop > 0 && scrollY === ${beforeScroll.page} && p.querySelector('button').getBoundingClientRect().top === ${beforeScroll.close} })()`,
+      ),
+      `${name} floating options scroll without moving close control or document`,
+    )
     await checkChips(page, evaluate, check, `320px ${name} assignment picker`)
     await evaluate(
       page,
       `document.querySelector('button[aria-label="Fermer les tags"]').click()`,
     )
   }
+  externalTitle = 'Film externe'
   ownerTags.set(owner.username, ordinaryTags)
   revision++
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
@@ -2933,9 +3387,23 @@ export async function watchlistScenario({
     'reload restores committed display and account sort',
   )
   await click(page, 'Par tag')
+  const beforeGroupedRemove = removalWrites().length
   await evaluate(
     page,
     `${groupRow(`tag-${secondTag}`, 'saved-film')}.querySelector('button[aria-label="Retirer de la watchlist"]').click()`,
+  )
+  await until(
+    page,
+    `${removePanel}?.matches(':modal')`,
+    'grouped duplicate opens one central confirmation',
+  )
+  check(
+    removalWrites().length === beforeGroupedRemove,
+    'grouped opener preserves every duplicate until confirmation',
+  )
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
   )
   await until(
     page,
@@ -2948,6 +3416,14 @@ export async function watchlistScenario({
       `!${group(`tag-${secondTag}`)} && ${savedOrder}.length === 2 && !document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/saved-film"]')`,
     ),
     'one grouped bookmark removal removes every copy and resulting empty section',
+  )
+  check(
+    removalWrites().length === beforeGroupedRemove + 1 &&
+      (await evaluate(
+        page,
+        `!${removePanel} && document.body.style.overflow !== 'hidden' && (document.activeElement.hasAttribute('data-watchlist-remove') || document.activeElement.getAttribute('aria-controls') === 'watchlist-add')`,
+      )),
+    'grouped confirmed removal dispatches once and restores surviving focus',
   )
   await click(page, 'Liste')
   saved = groupingBefore.saved
@@ -2974,6 +3450,39 @@ export async function watchlistScenario({
     'original fixture restored after grouping',
   )
   await filterTag(firstTag)
+  const filteredBefore = {
+    saved: [...saved],
+    assignments: new Map(
+      [...assignments()].map(([slug, ids]) => [slug, [...ids]]),
+    ),
+  }
+  const filteredSlug = await evaluate(page, `${savedOrder}[0]`)
+  await openRemove(filteredSlug)
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  await until(
+    page,
+    `!${removePanel} && !document.querySelector('#watchlist-tag-filter').disabled`,
+    'filtered removal committed',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').value === ${JSON.stringify(firstTag)} && !${savedRow(filteredSlug)} && document.body.style.overflow !== 'hidden'`,
+    ),
+    'filtered removal keeps committed filter and removes target only',
+  )
+  saved = filteredBefore.saved
+  ownerAssignments.set(owner.username, filteredBefore.assignments)
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow(filteredSlug)}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'filtered fixture restored for tag deletion',
+  )
   await click(page, 'Gérer les tags')
   await evaluate(
     page,
@@ -3705,6 +4214,70 @@ export async function watchlistScenario({
   )
   await checkClock(page, 'remove')
   await screenshot(page, 'mobile-saved-date')
+  const mobileRemovalSaved = [...saved]
+  saved.unshift('external-film')
+  externalTitle =
+    'Un très long titre de cinéma pour identifier clairement le film à retirer sans dépasser la fenêtre de confirmation'
+  revision++
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.textContent.includes(${JSON.stringify(externalTitle)}) && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    '320px long removal fixture ready',
+  )
+  await checkClock(page, 'remove')
+  await screenshot(page, 'remove-cross-mobile-320', false)
+  const beforeMobileCancel = removalWrites().length
+  await openRemove()
+  await checkRemovalSurface('mobile-320')
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await until(
+    page,
+    `parseFloat(getComputedStyle(${removePanel}).maxHeight) <= 288`,
+    'short confirmation viewport bounds applied',
+  )
+  await checkRemovalSurface('short-viewport')
+  check(
+    await evaluate(
+      page,
+      `(() => { const body = ${removePanel}.querySelector('.overflow-y-auto'), close = ${removePanel}.querySelector('button[aria-label="Fermer la confirmation"]'), before = scrollY, top = close.getBoundingClientRect().top; body.scrollTop = 9999; return body.scrollTop > 0 && scrollY === before && close.getBoundingClientRect().top === top && close.getBoundingClientRect().bottom <= innerHeight })()`,
+    ),
+    'short confirmation scrolls internally with close fixed and background still',
+  )
+  await escapeOverlay()
+  await until(
+    page,
+    `!${removePanel} && document.body.style.overflow !== 'hidden' && document.activeElement.hasAttribute('data-watchlist-remove')`,
+    'mobile Escape restores cross and scrolling',
+  )
+  check(
+    removalWrites().length === beforeMobileCancel,
+    'mobile/short confirmation inspection never dispatches removal',
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  saved = mobileRemovalSaved
+  externalTitle = 'Film externe'
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('saved-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)') && !${savedRow('external-film')}`,
+    'mobile fixture restored after nonmutating confirmation',
+  )
   await click(page, 'Configuration')
   await evaluate(
     page,
@@ -4612,6 +5185,15 @@ export async function watchlistBackendScenario({
   await evaluate(
     page,
     `document.querySelector('button[aria-label="Retirer de la watchlist"]').click()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-remove')?.matches(':modal')`,
+    'real removal confirmation opens',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-remove .account-primary').click()`,
   )
   await until(
     page,

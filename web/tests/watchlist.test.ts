@@ -1646,6 +1646,15 @@ interface PageInteractions {
   addMovie: (movie: { slug: string } | { tmdb_id: string }) => Promise<void>
   dismiss: (restoreFocus?: boolean) => void
   clearPageSearch: () => void
+  removalTarget: ReturnType<typeof ref<{ slug: string; title: string } | null>>
+  removing: ReturnType<typeof ref<boolean>>
+  removalAttempted: ReturnType<typeof ref<boolean>>
+  openRemoval: (
+    movie: { slug: string; title: string },
+    event: { currentTarget: unknown },
+  ) => Promise<void>
+  closeRemoval: (restoreFocus?: boolean) => void
+  confirmRemoval: () => Promise<void>
 }
 
 interface PageDocument {
@@ -1653,6 +1662,7 @@ interface PageDocument {
   body: { style: { overflow: string } }
   removeEventListener: () => void
   addEventListener: () => void
+  querySelector: () => TestSelect | null
 }
 
 // Exercise the page's interaction handlers with the real fenced composable.
@@ -1685,6 +1695,7 @@ async function pageFixture() {
     body: { style: { overflow: 'auto' } },
     removeEventListener: () => {},
     addEventListener: () => {},
+    querySelector: () => null,
   }
   // SAFETY: The transpiled page below exports exactly this interaction contract before use.
   const exports = {} as PageInteractions
@@ -1695,7 +1706,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, panelTop, panelBottom, positionPanel, openSearch, openConfiguration, closeConfiguration, configurationOpen, isDesktop, breakpointChanged, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, panelTop, panelBottom, positionPanel, openSearch, openConfiguration, closeConfiguration, configurationOpen, isDesktop, breakpointChanged, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch, removalTarget, removing, removalAttempted, openRemoval, closeRemoval, confirmRemoval }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -1776,6 +1787,177 @@ async function pageFixture() {
       f.stop()
     },
   }
+}
+
+test('watchlist-only cross opens guarded confirmation; cancellation never mutates', async () => {
+  const f = await pageFixture()
+  try {
+    const source = await readFile(
+      new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+      'utf8',
+    )
+    assert.match(
+      source,
+      /<button\s[^>]*data-watchlist-remove[^>]*class="[^"]*size-11[^"]*\bself-center\b[^"]*"[^>]*aria-label="Retirer de la watchlist"[^>]*>\s*<X :size="20"/,
+    )
+    assert.doesNotMatch(source, /<WatchlistButton/)
+    assert.match(source, /@cancel.prevent="closeRemoval\(\)"/)
+    const opener = new TestSelect('')
+    f.page.openTagEditor.value = 'list:film-1'
+    await f.page.openSearch()
+    await f.page.openRemoval(
+      { slug: 'film-1', title: 'Titre privé' },
+      { currentTarget: opener },
+    )
+    assert.equal(f.page.panelOpen.value, false)
+    assert.equal(f.page.openTagEditor.value, '')
+    assert.equal(f.focused, 'removalCancel')
+    assert.equal(f.pageDocument.body.style.overflow, 'hidden')
+    assert.equal(f.posts.length, 0)
+    f.page.closeRemoval()
+    await settle()
+    assert.equal(opener.focusCalls, 1)
+    assert.equal(f.page.removalTarget.value, null)
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+    assert.equal(f.posts.length, 0)
+  } finally {
+    f.stop()
+  }
+})
+
+test('one explicit confirmation dispatches existing removal once and restores surviving focus', async () => {
+  const f = await pageFixture()
+  try {
+    const opener = new TestSelect('')
+    await f.page.openRemoval(
+      { slug: 'film-1', title: 'Titre privé' },
+      { currentTarget: opener },
+    )
+    const pending = deferred<AccountWatchlist>()
+    f.setWrite(() => pending.promise)
+    const save = f.page.confirmRemoval()
+    await f.page.confirmRemoval()
+    assert.equal(f.posts.length, 1)
+    assert.equal(f.posts[0]?.saved, 'false')
+    assert.equal(f.page.removing.value, true)
+    opener.isConnected = false
+    const surviving = new TestSelect('')
+    f.pageDocument.querySelector = () => surviving
+    pending.resolve(value('2', []))
+    await save
+    await settle()
+    assert.equal(f.page.removalTarget.value, null)
+    assert.equal(surviving.focusCalls, 1)
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const committed of [false, true]) {
+  test(`uncertain removal readback ${committed ? 'removed' : 'retained'} target never replays; fresh intent required`, async () => {
+    const f = await pageFixture()
+    try {
+      const opener = new TestSelect('')
+      await f.page.openRemoval(
+        { slug: 'film-1', title: 'Titre privé' },
+        { currentTarget: opener },
+      )
+      f.setWrite(async () => {
+        f.setResponse(value('2', committed ? [] : ['film-1']))
+        throw new errors.AccountApiError()
+      })
+      await f.page.confirmRemoval()
+      assert.ok(f.page.removalTarget.value)
+      assert.ok(f.list.error.value)
+      assert.equal(f.page.removalAttempted.value, true)
+      assert.equal(f.focused, 'removalCancel')
+      await f.page.confirmRemoval()
+      await f.list.retry()
+      await f.page.confirmRemoval()
+      assert.equal(f.posts.length, 1)
+      f.page.closeRemoval()
+      await settle()
+      await f.page.openRemoval(
+        { slug: 'film-1', title: 'Titre privé' },
+        { currentTarget: opener },
+      )
+      if (committed) assert.equal(f.page.removalTarget.value, null)
+      else {
+        assert.equal(f.page.removalAttempted.value, false)
+        f.setWrite(async () => value('3', []))
+        await f.page.confirmRemoval()
+        assert.equal(f.posts.length, 2)
+        await settle()
+        assert.equal(f.page.removalTarget.value, null)
+      }
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('external target disappearance cancels confirmation without dispatch; disconnected opener uses add fallback', async () => {
+  const f = await pageFixture()
+  try {
+    const opener = new TestSelect('')
+    await f.page.openRemoval(
+      { slug: 'film-1', title: 'Titre privé' },
+      { currentTarget: opener },
+    )
+    opener.isConnected = false
+    f.setResponse(value('2', []))
+    await f.account.revalidate()
+    await settle()
+    assert.equal(f.page.removalTarget.value, null)
+    await f.page.confirmRemoval()
+    assert.equal(f.posts.length, 0)
+    assert.equal(f.focused, 'addTrigger')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const boundary of [
+  'owner',
+  'departure',
+  'unmount',
+  'cancel-and-reopen',
+] as const) {
+  test(`late removal completion cannot resurrect/refocus at ${boundary} boundary`, async () => {
+    const f = await pageFixture()
+    const opener = new TestSelect('')
+    try {
+      await f.page.openRemoval(
+        { slug: 'film-1', title: 'Titre privé' },
+        { currentTarget: opener },
+      )
+      const pending = deferred<AccountWatchlist>()
+      f.setWrite(() => pending.promise)
+      const save = f.page.confirmRemoval()
+      if (boundary === 'owner') f.admit('bob')
+      else if (boundary === 'unmount') f.stop()
+      else f.page.clearPageSearch()
+      assert.equal(f.page.removalTarget.value, null)
+      assert.equal(f.pageDocument.body.style.overflow, 'auto')
+      pending.resolve(value('2', []))
+      await save
+      await settle()
+      assert.equal(f.page.removalTarget.value, null)
+      assert.equal(opener.focusCalls, 0)
+      if (boundary === 'cancel-and-reopen') {
+        f.setResponse(value('3', ['film-2']))
+        await f.account.revalidate()
+        await f.page.openRemoval(
+          { slug: 'film-2', title: 'Nouveau titre' },
+          { currentTarget: opener },
+        )
+        assert.equal(f.page.removalTarget.value?.title, 'Nouveau titre')
+      }
+    } finally {
+      if (boundary !== 'unmount') f.stop()
+    }
+  })
 }
 
 test('grouped page keeps one rendered picker identity and closes it on view/filter changes', async () => {

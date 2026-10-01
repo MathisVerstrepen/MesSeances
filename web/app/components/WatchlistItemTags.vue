@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
       v-if="open"
       :id="regionId"
       ref="panel"
-      class="fixed z-40 flex flex-col overflow-hidden rounded-lg border-2 border-ink bg-surface shadow-lg"
+      class="fixed z-40 flex flex-col overflow-hidden rounded-none border-2 border-ink bg-surface p-0 text-ink shadow-lg"
       :style="position"
       :aria-labelledby="`${regionId}-title`"
       :aria-busy="blocked"
@@ -173,24 +173,22 @@ onBeforeUnmount(() => {
     >
       <div
         ref="heading"
-        class="flex shrink-0 items-start gap-2 border-b border-ink/20 py-1 pl-3 pr-1"
+        class="flex shrink-0 items-start gap-3 border-b border-ink/20 p-4"
       >
-        <h3
-          :id="`${regionId}-title`"
-          class="min-w-0 flex-1 py-3 text-sm font-semibold [overflow-wrap:anywhere] line-clamp-2"
-        >
-          Tags de {{ title }}
+        <h3 :id="`${regionId}-title`" class="min-w-0 flex-1">
+          <span class="account-heading block">Tags</span>
+          <span class="block truncate text-sm font-normal">{{ title }}</span>
         </h3>
         <button
           type="button"
-          class="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-[-4px]"
+          class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-[-4px]"
           aria-label="Fermer les tags"
           @click="close(true)"
         >
           <X :size="20" aria-hidden="true" />
         </button>
       </div>
-      <div ref="options" class="min-h-0 overflow-y-auto overscroll-contain p-2">
+      <div ref="options" class="min-h-0 overflow-y-auto overscroll-contain p-4">
         <div v-if="error" role="alert" class="account-alert mb-2">
           <p>{{ error }}</p>
           <button
@@ -202,13 +200,13 @@ onBeforeUnmount(() => {
             Actualiser les tags
           </button>
         </div>
-        <p v-if="!tags.length" class="p-2 text-sm">
+        <p v-if="!tags.length" class="text-sm">
           Créez un tag dans « Gérer les tags ».
         </p>
         <label
           v-for="tag in tags"
           :key="tag.id"
-          class="flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-subtle has-[:disabled]:cursor-default has-[:disabled]:opacity-60"
+          class="flex min-h-11 cursor-pointer items-center gap-3 px-2 py-2 text-sm hover:bg-subtle has-[:disabled]:cursor-default has-[:disabled]:opacity-60"
         >
           <input
             type="checkbox"

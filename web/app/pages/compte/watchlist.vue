@@ -180,6 +180,18 @@ const addTrigger = useTemplateRef('addTrigger')
 const configurationDialog = useTemplateRef('configurationDialog')
 const configurationTrigger = useTemplateRef('configurationTrigger')
 const configurationClose = useTemplateRef('configurationClose')
+const removalDialog = useTemplateRef('removalDialog')
+const removalCancel = useTemplateRef('removalCancel')
+const removalTarget = ref<{
+  slug: string
+  title: string
+  scope: number
+  username: string
+} | null>(null)
+const removing = ref(false)
+const removalAttempted = ref(false)
+let removalOpener: HTMLButtonElement | null = null
+let removalVersion = 0
 const catalogTab = useTemplateRef('catalogTab')
 const externalTab = useTemplateRef('externalTab')
 const resultsScroll = useTemplateRef('resultsScroll')
@@ -229,8 +241,121 @@ function restoreTrigger(trigger: HTMLButtonElement | null, current: number) {
   })
 }
 
+function closeRemoval(restoreFocus = true) {
+  if (!removalTarget.value) return
+  const opener = removalOpener
+  const current = ++interaction
+  removalVersion++
+  // Removing the dialog on privacy/navigation boundaries must not run native focus restoration.
+  if (restoreFocus) removalDialog.value?.close()
+  removalTarget.value = null
+  removalOpener = null
+  removing.value = false
+  removalAttempted.value = false
+  unlockScroll()
+  if (restoreFocus) {
+    void nextTick(() => {
+      const control =
+        opener?.isConnected && !opener.disabled && opener.checkVisibility()
+          ? opener
+          : (document.querySelector<HTMLButtonElement>(
+              '[data-watchlist-remove]:not(:disabled)',
+            ) ?? addTrigger.value)
+      restoreTrigger(control, current)
+    })
+  }
+}
+
+async function openRemoval(
+  movie: { slug: string; title: string },
+  event: Event,
+) {
+  const button = event.currentTarget
+  if (
+    !active ||
+    writesBlocked.value ||
+    !owner.value ||
+    !(button instanceof HTMLButtonElement) ||
+    !items.value.some((item) => item.slug === movie.slug)
+  )
+    return
+  closeRemoval(false)
+  dismiss()
+  closeConfiguration(false)
+  openTagEditor.value = ''
+  tagScope.value++
+  const current = ++interaction
+  const version = ++removalVersion
+  removalOpener = button
+  removalTarget.value = {
+    slug: movie.slug,
+    title: movie.title,
+    scope: watchlist.scopeKey.value,
+    username: owner.value,
+  }
+  removalAttempted.value = false
+  await nextTick()
+  if (
+    !active ||
+    current !== interaction ||
+    version !== removalVersion ||
+    !removalTarget.value
+  )
+    return
+  positionPanel()
+  removalDialog.value?.showModal()
+  lockScroll()
+  removalCancel.value?.focus({ preventScroll: true })
+}
+
+async function confirmRemoval() {
+  const target = removalTarget.value
+  if (
+    !active ||
+    !target ||
+    removing.value ||
+    removalAttempted.value ||
+    writesBlocked.value ||
+    target.scope !== watchlist.scopeKey.value ||
+    target.username !== owner.value ||
+    !items.value.some((item) => item.slug === target.slug)
+  )
+    return
+  const version = removalVersion
+  removing.value = true
+  removalAttempted.value = true
+  const result = await watchlist.save(target.slug, false)
+  if (
+    !active ||
+    version !== removalVersion ||
+    removalTarget.value !== target ||
+    target.scope !== watchlist.scopeKey.value ||
+    target.username !== owner.value
+  )
+    return
+  removing.value = false
+  if (result && !items.value.some((item) => item.slug === target.slug))
+    closeRemoval()
+  else {
+    await nextTick()
+    if (active && version === removalVersion)
+      removalCancel.value?.focus({ preventScroll: true })
+  }
+}
+
+watch(items, () => {
+  if (
+    removalTarget.value &&
+    !removing.value &&
+    !removalAttempted.value &&
+    !items.value.some((item) => item.slug === removalTarget.value?.slug)
+  )
+    closeRemoval()
+})
+
 async function openSearch() {
   if (writesBlocked.value || !owner.value || panelOpen.value) return
+  closeRemoval(false)
   closeConfiguration(false)
   openTagEditor.value = ''
   const current = ++interaction
@@ -246,6 +371,7 @@ async function openSearch() {
 
 async function openConfiguration() {
   if (desktop?.matches || !owner.value || configurationOpen.value) return
+  closeRemoval(false)
   dismiss()
   openTagEditor.value = ''
   const current = ++interaction
@@ -349,6 +475,7 @@ async function addMovie(movie: { slug: string } | { tmdb_id: string }) {
 }
 
 function clearPageSearch() {
+  closeRemoval(false)
   interaction++
   panelOpen.value = false
   configurationOpen.value = false
@@ -414,7 +541,7 @@ onBeforeRouteLeave(clearPageSearch)
     </template>
     <div v-if="owner" class="space-y-6 sm:space-y-10">
       <div
-        v-if="error && !panelOpen && !configurationOpen && !openTagEditor"
+        v-if="error && !panelOpen && !configurationOpen && !removalTarget && !openTagEditor"
         role="alert"
         class="account-alert"
       >
@@ -667,6 +794,75 @@ onBeforeRouteLeave(clearPageSearch)
           </div>
         </div>
       </dialog>
+      <dialog
+        v-if="removalTarget"
+        id="watchlist-remove"
+        ref="removalDialog"
+        aria-labelledby="watchlist-remove-heading"
+        aria-describedby="watchlist-remove-title"
+        class="m-auto flex w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden border-2 border-ink bg-surface p-0 text-ink shadow-lg backdrop:bg-black/60"
+        :style="{ maxHeight: panelHeight ? `${panelHeight - 32}px` : 'calc(100dvh - 2rem)', top: `${panelTop + panelHeight / 2}px`, bottom: 'auto', transform: 'translateY(-50%)' }"
+        @cancel.prevent="closeRemoval()"
+        @click="backdrop($event, closeRemoval)"
+      >
+        <div
+          class="flex shrink-0 items-center justify-between gap-3 border-b border-ink/20 p-4"
+        >
+          <h2 id="watchlist-remove-heading" class="account-heading">
+            Retirer de la watchlist
+          </h2>
+          <button
+            type="button"
+            class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle"
+            aria-label="Fermer la confirmation"
+            @click="closeRemoval()"
+          >
+            <X :size="20" aria-hidden="true" />
+          </button>
+        </div>
+        <div class="min-h-0 overflow-y-auto overscroll-contain p-4">
+          <p
+            id="watchlist-remove-title"
+            class="font-bold [overflow-wrap:anywhere]"
+          >
+            {{ removalTarget.title }}
+          </p>
+          <div v-if="error" role="alert" class="account-alert mt-4">
+            <p>{{ error }}</p>
+            <button
+              type="button"
+              class="account-link mt-2"
+              :disabled="watchlist.saving.value || watchlist.loading.value"
+              @click="watchlist.retry"
+            >
+              Réessayer
+            </button>
+          </div>
+          <p v-if="removalAttempted && !removing" class="mt-4 text-sm">
+            Vérifiez la watchlist avant de confirmer à nouveau. Fermez cette
+            fenêtre pour reprendre.
+          </p>
+          <div class="mt-5 flex flex-wrap justify-end gap-3">
+            <button
+              ref="removalCancel"
+              type="button"
+              class="account-secondary"
+              @click="closeRemoval()"
+            >
+              Annuler
+            </button>
+            <button
+              type="button"
+              class="account-primary"
+              :disabled="writesBlocked || removing || removalAttempted"
+              :aria-busy="removing"
+              @click="confirmRemoval"
+            >
+              Retirer
+            </button>
+          </div>
+        </div>
+      </dialog>
       <section aria-labelledby="saved-heading">
         <div class="flex items-center justify-between gap-2 lg:hidden">
           <h2 id="saved-heading" class="shrink-0 text-xl font-bold">
@@ -853,7 +1049,18 @@ onBeforeRouteLeave(clearPageSearch)
                     @assign="(tagId, assigned, input) => assignTag(movie.slug, tagId, assigned, input)"
                   />
                 </template>
-                <WatchlistButton :slug="movie.slug" :show-error="false" />
+                <button
+                  type="button"
+                  data-watchlist-remove
+                  class="flex size-11 shrink-0 self-center items-center justify-center text-ink hover:bg-subtle focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-50"
+                  :disabled="writesBlocked"
+                  aria-label="Retirer de la watchlist"
+                  aria-haspopup="dialog"
+                  aria-controls="watchlist-remove"
+                  @click="openRemoval(movie, $event)"
+                >
+                  <X :size="20" aria-hidden="true" focusable="false" />
+                </button>
               </WatchlistMovieRow>
             </ul>
           </component>
