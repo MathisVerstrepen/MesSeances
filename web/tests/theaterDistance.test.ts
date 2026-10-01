@@ -351,7 +351,10 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
     'utf8',
   )
 
-  assert.match(page, /const selectedOnly = ref\(false\)/)
+  assert.doesNotMatch(
+    page,
+    /selectedOnly|ListFilter|Sélectionnés uniquement|Afficher tous les cinémas/,
+  )
   assert.match(page, /const draftFavoriteTheaterIds = ref<string\[]>\(\[\]\)/)
   assert.match(
     page,
@@ -361,13 +364,10 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
     page,
     /const searchResults = computed\(\s*\(\) =>\s*directoryTheaters\.value\.filter/,
   )
+  assert.match(page, /const displayedTheaters = searchResults/)
   assert.match(
     page,
-    /const displayedTheaters = computed\(\s*\(\) =>\s*selectedOnly\.value\s*\? searchResults\.value\.filter/,
-  )
-  assert.match(
-    page,
-    /cinemaListSections\(\s*displayedTheaters\.value,\s*selectedIds\.value,\s*\(theater\) => theater\.id,\s*selectedOnly\.value,?\s*\)/,
+    /cinemaListSections\(\s*displayedTheaters\.value,\s*selectedIds\.value,\s*\(theater\) => theater\.id,?\s*\)/,
   )
   assert.match(page, /groupTheatersByCityIdentity\(section\.rows\)/)
   assert.doesNotMatch(page, /selectedFirst|groupSelectedTheatersFirst/)
@@ -389,15 +389,7 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
     page,
     /updateTheaterSelection\(\s*draftFavoriteTheaterIds\.value,\s*displayedTheaters\.value,\s*select,?\s*\)/,
   )
-  assert.match(page, /:aria-pressed="selectedOnly"/)
-  assert.match(page, /<span>Sélectionnés uniquement<\/span>/)
-  assert.match(page, /selectedOnly && visibleTheaterCount === 0/)
-  assert.match(page, />\s*Afficher tous les cinémas\s*<\/button>/)
   assert.match(page, /const theaters = searchResults\.value/)
-  assert.doesNotMatch(
-    page,
-    /selectedOnly[\s\S]{0,100}(?:route|localStorage|sessionStorage)/,
-  )
   assert.doesNotMatch(page, /Conservez au moins un cinéma/)
 })
 
@@ -414,10 +406,6 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   const selectionControlsStart = page.indexOf(
     'class="selection-controls ',
     toolbarStart,
-  )
-  const filterActionStart = page.indexOf(
-    'aria-pressed:bg-highlight',
-    selectionControlsStart,
   )
   const bulkActionsStart = page.indexOf(
     'class="bulk-actions ',
@@ -443,14 +431,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   assert.ok(
     selectionControlsStart > page.indexOf('class="view-switch ', toolbarStart),
   )
-  assert.ok(filterActionStart > selectionControlsStart)
-  assert.ok(bulkActionsStart > filterActionStart)
-  assert.ok(
-    page.indexOf(
-      '<span>Sélectionnés uniquement</span>',
-      selectionControlsStart,
-    ) < toolbarEnd,
-  )
+  assert.ok(bulkActionsStart > selectionControlsStart)
   assert.ok(
     page.indexOf(
       'aria-label="Modifier les cinémas affichés"',
@@ -461,9 +442,6 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   assert.match(page, /class="selection-toolbar flex-wrap /)
   assert.match(page, /<List :size="16" aria-hidden="true" \/>\s+Liste/)
   assert.match(page, /<MapIcon :size="16" aria-hidden="true" \/>\s+Carte/)
-  assert.match(page, /<ListFilter :size="17" aria-hidden="true" \/>/)
-  assert.match(page, /aria-hidden="true"\s*>\s*<Check\s+v-if="selectedOnly"/)
-  assert.match(page, /aria-pressed:shadow-\[4px_4px_0_#27272a\]/)
   assert.match(
     page,
     /class="bulk-actions [^"]*"\s+role="group"\s+aria-label="Modifier les cinémas affichés"/,
@@ -484,10 +462,6 @@ test('cinemas page scopes city and global actions to displayed draft results', a
     /class="bulk-actions (?=[^"]*sm:h-11)[^"]*border-2 border-dashed border-ink/,
   )
   assert.match(page, /class="view-switch [^"]*h-11/)
-  assert.match(
-    page,
-    /aria-pressed:shadow-\[4px_4px_0_#27272a\][^"]*max-sm:w-full/,
-  )
   assert.match(
     page,
     /class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"/,

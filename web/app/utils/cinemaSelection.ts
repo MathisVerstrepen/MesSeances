@@ -10,14 +10,13 @@ export function cinemaListSections<T>(
   rows: readonly T[],
   selectedIds: ReadonlySet<string>,
   id: (row: T) => string,
-  selectedOnly = false,
 ): { key: 'selected' | 'all'; rows: readonly T[] }[] {
   const selected = rows.filter((row) => selectedIds.has(id(row)))
   return [
     ...(selected.length > 0
       ? [{ key: 'selected' as const, rows: selected }]
       : []),
-    ...(!selectedOnly ? [{ key: 'all' as const, rows }] : []),
+    { key: 'all', rows },
   ]
 }
 

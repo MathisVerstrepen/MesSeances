@@ -173,17 +173,19 @@ test('selected summary copies share rows while the complete directory keeps sour
   assert.equal(isBroadTheaterSelection(['a'], rows), false)
 })
 
-test('selected-only has one section, no selection has only all, empty filtered rows never add a summary', () => {
+test('full inventory always remains; hidden or empty selection never adds a summary', () => {
   const rows = [theater('a', 'Paris', 'paris'), theater('b', 'Lille', 'lille')]
   const id = (row: Theater) => row.id
-  assert.deepEqual(
-    cinemaListSections(rows, new Set(['b', 'hidden']), id, true),
-    [{ key: 'selected', rows: [rows[1]] }],
-  )
+  assert.deepEqual(cinemaListSections(rows, new Set(['b', 'hidden']), id), [
+    { key: 'selected', rows: [rows[1]] },
+    { key: 'all', rows },
+  ])
   assert.deepEqual(cinemaListSections(rows, new Set(), id), [
     { key: 'all', rows },
   ])
-  assert.deepEqual(cinemaListSections(rows, new Set(['hidden']), id, true), [])
+  assert.deepEqual(cinemaListSections(rows, new Set(['hidden']), id), [
+    { key: 'all', rows },
+  ])
   assert.deepEqual(cinemaListSections([], new Set(['b']), id), [
     { key: 'all', rows: [] },
   ])

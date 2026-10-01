@@ -70,7 +70,6 @@ function harness(ids = ['b']) {
     sortTheatersByDistance,
     searchResults: ref(catalog),
     draftFavoriteTheaterIds: ref(ids),
-    selectedOnly: ref(false),
     userPosition: ref({ latitude: 48.85, longitude: 2.35 }),
   }
   // SAFETY: Actual page derivations execute with explicit synthetic reactive bindings only.
@@ -121,7 +120,7 @@ test('actual page keeps full city and distance order while summary shares checke
   }
 })
 
-test('search and selected-only constrain both sections without hidden IDs or nearest inflation', () => {
+test('search scopes summary and full inventory without hidden IDs or nearest inflation', () => {
   const { bindings, page } = harness(['b', 'c'])
   bindings.searchResults.value = catalog.slice(0, 2)
   assert.deepEqual(
@@ -129,21 +128,20 @@ test('search and selected-only constrain both sections without hidden IDs or nea
     [['b'], ['a', 'b']],
   )
   assert.equal(page.visibleTheaterCount.value, 2)
-  bindings.selectedOnly.value = true
   assert.deepEqual(
     page.listSections.value.map((s) => s.key),
-    ['selected'],
+    ['selected', 'all'],
   )
   assert.equal(page.listSections.value[0]!.nearbyRows[0]!.isNearest, false)
-  assert.equal(page.visibleTheaterCount.value, 1)
+  assert.equal(page.visibleTheaterCount.value, 2)
   bindings.draftFavoriteTheaterIds.value = ['c']
-  assert.deepEqual(page.listSections.value, [])
-  bindings.selectedOnly.value = false
   assert.deepEqual(
     page.listSections.value.map((s) => s.key),
     ['all'],
   )
   assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['c'])
+  assert.equal(page.visibleTheaterCount.value, 2)
+  assert.equal(page.displayedTheaters.value, bindings.searchResults.value)
 })
 
 test('one keyed renderer preserves section/city/row identity and unique map/count/SEO inputs', () => {
@@ -176,7 +174,7 @@ test('one keyed renderer preserves section/city/row identity and unique map/coun
   assert.match(source, /const theaters = searchResults\.value/)
   assert.doesNotMatch(
     source,
-    /selectedFirst|groupSelectedTheatersFirst|scrollIntoView/,
+    /selectedFirst|groupSelectedTheatersFirst|scrollIntoView|selectedOnly|ListFilter|Sélectionnés uniquement|Afficher tous les cinémas/,
   )
 })
 

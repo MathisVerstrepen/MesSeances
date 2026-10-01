@@ -6,7 +6,6 @@ import {
   Check,
   CheckCheck,
   List,
-  ListFilter,
   LoaderCircle,
   LocateFixed,
   Map as MapIcon,
@@ -91,7 +90,6 @@ const location = createCinemaDirectoryLocation(() =>
 )
 const { locationStatus, locationError, userPosition, locationAccuracyMeters } =
   location
-const selectedOnly = ref(false)
 const draftFavoriteTheaterIds = ref<string[]>([])
 const preferencesReady = ref(false)
 let isUnmounted = false
@@ -195,11 +193,7 @@ const searchResults = computed(() =>
     )
   }),
 )
-const displayedTheaters = computed(() =>
-  selectedOnly.value
-    ? searchResults.value.filter((theater) => selectedIds.value.has(theater.id))
-    : searchResults.value,
-)
+const displayedTheaters = searchResults
 const isNearbyMode = computed(
   () => locationStatus.value === 'active' && userPosition.value !== null,
 )
@@ -216,7 +210,6 @@ const listSections = computed(() =>
     displayedTheaters.value,
     selectedIds.value,
     (theater) => theater.id,
-    selectedOnly.value,
   ).map((section) => {
     const ids = new Set(section.rows.map((theater) => theater.id))
     return {
@@ -659,24 +652,6 @@ useHead(() => ({
             <div
               class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"
             >
-              <button
-                type="button"
-                class="inline-flex h-11 min-h-11 items-center justify-center gap-[0.55rem] border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-highlight aria-pressed:text-ink aria-pressed:shadow-[4px_4px_0_#27272a] max-sm:w-full"
-                :aria-pressed="selectedOnly"
-                @click="selectedOnly = !selectedOnly"
-              >
-                <ListFilter :size="17" aria-hidden="true" />
-                <span>Sélectionnés uniquement</span>
-                <span
-                  class="grid size-5 shrink-0 place-items-center border-2 border-current bg-surface"
-                  aria-hidden="true"
-                  ><Check
-                    v-if="selectedOnly"
-                    :size="14"
-                    stroke-width="3"
-                  /></span
-                >
-              </button>
               <div
                 class="bulk-actions inline-grid max-w-full grid-cols-1 gap-[0.35rem] border-2 border-dashed border-ink bg-[#f1efe8] p-[0.15rem] max-sm:w-full sm:h-11 sm:grid-cols-2"
                 role="group"
@@ -844,25 +819,6 @@ useHead(() => ({
         >
           <template #icon><Search :size="34" aria-hidden="true" /></template>
           <p>Aucun cinéma ne correspond à votre recherche.</p>
-        </EditorialStatePanel>
-
-        <EditorialStatePanel
-          v-else-if="selectedOnly && visibleTheaterCount === 0"
-          size="tall"
-          shadow="large"
-          class="cinema-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10"
-        >
-          <template #icon><Building2 :size="36" aria-hidden="true" /></template>
-          <p>Aucun cinéma sélectionné parmi les résultats affichés.</p>
-          <template #actions
-            ><button
-              type="button"
-              class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-              @click="selectedOnly = false"
-            >
-              Afficher tous les cinémas
-            </button></template
-          >
         </EditorialStatePanel>
 
         <div v-else>

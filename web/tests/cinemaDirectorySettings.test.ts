@@ -237,9 +237,9 @@ test('page exposes named native sheet and zero-result trigger with single reused
     template.indexOf('aria-controls="cinema-settings"') <
       template.indexOf('v-else-if="searchResults.length === 0"'),
   )
-  assert.equal(
-    template.match(/@click="selectedOnly = !selectedOnly"/g)?.length,
-    1,
+  assert.doesNotMatch(
+    template,
+    /selectedOnly|Sélectionnés uniquement|ListFilter/,
   )
   assert.equal(template.match(/@click="useCurrentPosition"/g)?.length, 1)
   assert.equal(
