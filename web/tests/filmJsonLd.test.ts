@@ -37,6 +37,10 @@ function showtime(id: string, start: string): Showtime {
 
 function fixture(): MovieShowtimesResponse {
   return {
+    catalog_revision: 'r1',
+    available_languages: ['VOSTFR'],
+    available_formats: ['2D'],
+    pagination: { page: 1, page_size: 10, total: 3, has_more: false },
     release_status: 'showing',
     movie,
     backdrop_url: 'https://image.tmdb.org/t/p/w780/backdrop.jpg',

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { isBroadTheaterSelection } from '../app/utils/cinemaSelection.ts'
 import ts from 'typescript'
 import { computed, nextTick, ref, watch } from 'vue'
 import type { Ref, WatchStopHandle } from 'vue'
@@ -67,6 +68,7 @@ async function fixture(
   const response: Catalog = { total: 48, items: [{ slug: 'test-film' }] }
   const route = { query: options.query ?? {} }
   const preferences = {
+    theaters: ref([{ id: 'ugc-46' }, { id: 'ugc-45' }, { id: 'other' }]),
     favoriteTheaterIds: ref(options.theaterIds ?? ['ugc-46', 'ugc-45']),
     selectionScopeKey: ref(0),
     isInitialized: ref(!options.initialize),
@@ -77,6 +79,7 @@ async function fixture(
     },
   }
   const bindings = {
+    isBroadTheaterSelection,
     ...dates,
     ...filters,
     ...presentation,
@@ -260,11 +263,20 @@ test('films client navigation preserves explicit all-theater browsing and route 
   assert.equal(client.page.pending.value, false)
 })
 
-test('films client navigation with an empty selection never falls back to nationwide movies', async (t) => {
+test('films client navigation with an empty selection browses nationwide movies', async (t) => {
   const client = await fixture({ theaterIds: [] })
   t.after(client.dispose)
   await client.mount()
-  assert.equal(client.requests.length, 0)
-  assert.equal(client.page.catalog.value, null)
+  assert.equal(client.requests.length, 1)
+  assert.equal(client.requests[0]?.theaters, undefined)
+  assert.deepEqual(client.page.catalog.value, client.response)
   assert.equal(client.page.pending.value, false)
+})
+
+test('films full-catalog selection normalizes to nationwide without huge CSV', async (t) => {
+  const client = await fixture({ theaterIds: ['ugc-46', 'ugc-45', 'other'] })
+  t.after(client.dispose)
+  await client.mount()
+  assert.equal(client.requests.length, 1)
+  assert.equal(client.requests[0]?.theaters, undefined)
 })

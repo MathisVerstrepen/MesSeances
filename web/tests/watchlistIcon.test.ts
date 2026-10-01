@@ -92,14 +92,39 @@ test('button keeps labels, 48px target and busy/pressed semantics across clock s
     { saved: false, ready: true, saving: true, unknown: false },
     { saved: true, ready: true, saving: true, unknown: false },
     { saved: true, ready: false, saving: false, unknown: true },
+    {
+      saved: false,
+      ready: true,
+      saving: false,
+      unknown: false,
+      revalidating: true,
+    },
+    {
+      saved: true,
+      ready: true,
+      saving: false,
+      unknown: false,
+      revalidating: true,
+    },
+    {
+      saved: false,
+      ready: false,
+      saving: false,
+      unknown: false,
+      anonymous: true,
+      revalidating: true,
+    },
   ]) {
     const Button = await component('../app/components/WatchlistButton.vue', {
       useAccountSession: () => ({
-        session: ref({ enabled: true, state: 'complete' }),
+        session: ref(
+          'anonymous' in state ? null : { enabled: true, state: 'complete' },
+        ),
         status: ref('ready'),
+        writesBlocked: ref('revalidating' in state && state.revalidating),
       }),
       useWatchlist: () => ({
-        owner: ref('owner'),
+        owner: ref('anonymous' in state ? '' : 'owner'),
         ready: ref(state.ready),
         slugs: ref(new Set(state.saved ? ['film-1'] : [])),
         saving: ref(state.saving),
@@ -128,11 +153,12 @@ test('button keeps labels, 48px target and busy/pressed semantics across clock s
     assert.ok(
       html.includes(`data-watchlist-icon="${saved ? 'remove' : 'add'}"`),
     )
-    assert.ok(html.includes(`aria-busy="${state.unknown || state.saving}"`))
-    assert.equal(
-      /<button[^>]* disabled(?:\s|=|>)/.test(html),
-      state.unknown || state.saving,
-    )
+    const blocked =
+      state.unknown ||
+      state.saving ||
+      (!('anonymous' in state) && 'revalidating' in state && state.revalidating)
+    assert.ok(html.includes(`aria-busy="${blocked}"`))
+    assert.equal(/<button[^>]* disabled(?:\s|=|>)/.test(html), blocked)
     if (state.unknown) assert.doesNotMatch(html, /aria-pressed/)
     else assert.ok(html.includes(`aria-pressed="${saved}"`))
   }

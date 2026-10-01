@@ -81,6 +81,10 @@ func newMigrationTestPool(t *testing.T, ctx context.Context, schemaPrefix string
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
+	var currentSchema string
+	if err := pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&currentSchema); err != nil || currentSchema != schema {
+		t.Fatal("isolated migration schema assertion failed", err)
+	}
 	return pool, schema
 }
 

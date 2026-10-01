@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isBroadTheaterSelection } from '~/utils/cinemaSelection'
 import {
   AlertTriangle,
   CalendarDays,
@@ -67,20 +68,18 @@ async function loadTimeline() {
     pending.value = true
     return
   }
-  if (preferences.activeTheaterIds.value.length === 0) {
-    timeline.value = null
-    errorMessage.value = ''
-    pending.value = false
-    return
-  }
-
   pending.value = true
   errorMessage.value = ''
   try {
     const response = await api.timeline({
       date: date.value,
       language: language.value,
-      theaters: preferences.activeTheaterIds.value.join(','),
+      theaters: isBroadTheaterSelection(
+        preferences.activeTheaterIds.value,
+        preferences.theaters.value,
+      )
+        ? undefined
+        : preferences.activeTheaterIds.value.join(','),
     })
     if (currentRequest === requestId) timeline.value = response
   } catch (error) {

@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
-import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
+import {
+  type Component,
+  computed,
+  createSSRApp,
+  effectScope,
+  nextTick,
+  reactive,
+  ref,
+  useId,
+  watch,
+} from 'vue'
 import {
   sortWatchlistTags,
   tagNameError,
@@ -11,6 +24,10 @@ import {
   watchlistTagStyle,
 } from '../app/utils/watchlistTags.ts'
 import type { WatchlistTag, WatchlistTagColor } from '../app/types/watchlist.ts'
+
+interface PickerModule {
+  default?: Component
+}
 
 function luminance(hex: string) {
   const channels = [1, 3, 5].map((start) => {
@@ -25,6 +42,22 @@ function luminance(hex: string) {
 function contrast(a: string, b: string) {
   const pair = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return (pair[0]! + 0.05) / (pair[1]! + 0.05)
+}
+
+function hue(hex: string) {
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  const max = Math.max(r, g, b)
+  const range = max - Math.min(r, g, b)
+  assert.ok(range > 0)
+  const sector =
+    max === r
+      ? (g - b) / range
+      : max === g
+        ? (b - r) / range + 2
+        : (r - g) / range + 4
+  return (sector * 60 + 360) % 360
 }
 
 test('fixed palette keys, labels and opaque tokens satisfy text and boundary contrast', () => {
@@ -68,6 +101,35 @@ test('fixed palette keys, labels and opaque tokens satisfy text and boundary con
   assert.ok(contrast('#27272a', '#ffffff') >= 3)
 })
 
+test('red/pink and leaf-green/cyan-teal retain distinct surface, text and border hues', () => {
+  for (const [a, b, min] of [
+    ['red', 'rose', 20],
+    ['green', 'teal', 45],
+  ] as const) {
+    for (const role of ['backgroundColor', 'color', 'borderColor'] as const) {
+      const difference = Math.abs(
+        hue(watchlistTagPalette[a][role]) - hue(watchlistTagPalette[b][role]),
+      )
+      assert.ok(
+        Math.min(difference, 360 - difference) >=
+          (role === 'backgroundColor' ? Math.max(30, min) : min),
+        `${a}/${b} ${role} hue separation`,
+      )
+    }
+  }
+  for (const [key, min, max] of [
+    ['rose', 310, 345],
+    ['green', 80, 125],
+    ['teal', 175, 200],
+  ] as const) {
+    const surfaceHue = hue(watchlistTagPalette[key].backgroundColor)
+    assert.ok(
+      surfaceHue >= min && surfaceHue <= max,
+      `${key} named surface hue`,
+    )
+  }
+})
+
 test('picker preserves native radio keyboard and forced color behavior without private persistence', async () => {
   const source = await readFile(
     new URL('../app/components/WatchlistTagColorPicker.vue', import.meta.url),
@@ -80,11 +142,115 @@ test('picker preserves native radio keyboard and forced color behavior without p
   assert.match(source, /min-h-11/)
   assert.match(source, /focus-visible/)
   assert.match(source, /:name="groupName"/)
-  assert.match(source, /has-\[:checked\]:font-semibold/)
+  assert.match(source, /class="sr-only focus-visible:ring-0"/)
+  assert.match(source, /rounded-none border-2/)
+  assert.match(source, /font-mono text-center text-xs font-bold/)
+  assert.match(source, /grid-cols-\[20px_minmax\(0,1fr\)_20px\]/)
+  assert.match(source, /justify-self-center/)
+  assert.match(source, /has-\[:focus-visible\]:outline-ink/)
+  assert.match(source, /v-if="modelValue === color"/)
+  assert.match(source, /@change="emit\('update:modelValue', color\)"/)
   assert.match(source, /grid-cols-2.*sm:grid-cols-4/)
   assert.doesNotMatch(
     source,
     /appearance-none|forced-color-adjust|keydown|localStorage|sessionStorage|useState|useRoute/,
+  )
+})
+
+test('editorial color tiles retain eight named native radios and one decorative selected check for every color', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistTagColorPicker.vue', import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(source)
+  const pickerModule: PickerModule = {}
+  const require = createRequire(import.meta.url)
+  runInNewContext(
+    ts.transpileModule(
+      compileScript(descriptor, {
+        id: 'WatchlistTagColorPicker',
+        inlineTemplate: true,
+      }).content,
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    {
+      exports: pickerModule,
+      useId,
+      require: (id: string) =>
+        id === '~/utils/watchlistTags'
+          ? { watchlistTagPalette, watchlistTagStyle }
+          : require(id),
+    },
+  )
+  assert.ok(pickerModule.default)
+  // SAFETY: watchlistTagPalette is `satisfies Record<WatchlistTagColor, ...>`, so its own enumerable keys are exactly the WatchlistTagColor union.
+  const colors = Object.keys(watchlistTagPalette) as WatchlistTagColor[]
+  for (const color of colors) {
+    const html = await renderToString(
+      createSSRApp(pickerModule.default, { modelValue: color }),
+    )
+    const labels = html.match(/<label\b[\s\S]*?<\/label>/g) ?? []
+    assert.equal(labels.length, 8)
+    assert.equal((html.match(/<svg\b/g) ?? []).length, 1)
+    const names = new Set<string>()
+    for (const [index, tile] of labels.entries()) {
+      const key = colors[index]!
+      const token = watchlistTagPalette[key]
+      const radio = tile.match(/<input\b[^>]*>/)?.[0]
+      assert.ok(radio)
+      names.add(radio.match(/name="([^"]+)"/)![1]!)
+      assert.match(radio, /type="radio"/)
+      assert.match(radio, /class="sr-only focus-visible:ring-0"/)
+      assert.match(radio, new RegExp(`value="${key}"`))
+      assert.equal(/ checked(?:=""|(?=[\s>]))/.test(radio), key === color)
+      assert.equal(tile.includes('<svg'), key === color)
+      assert.ok(tile.includes(token.label))
+      for (const value of [
+        token.backgroundColor,
+        token.color,
+        token.borderColor,
+      ])
+        assert.ok(tile.includes(value))
+      if (key === color) {
+        assert.match(tile, /aria-hidden="true"/)
+        assert.match(tile, /focusable="false"/)
+      }
+    }
+    assert.equal(names.size, 1)
+  }
+})
+
+test('manager, assigned and assignment-option chips share square editorial typography without changing palette bindings', async () => {
+  const [css, manager, item] = await Promise.all([
+    readFile(new URL('../app/assets/css/main.css', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
+      'utf8',
+    ),
+  ])
+  const chip = css.match(/\.watchlist-tag-chip\s*\{([^}]+)\}/)?.[1]
+  assert.ok(chip)
+  assert.match(chip, /max-w-full min-w-0 rounded-none border-2/)
+  assert.match(chip, /font-mono text-xs font-bold/)
+  assert.match(chip, /\[overflow-wrap:anywhere\]/)
+  assert.equal((manager.match(/class="watchlist-tag-chip"/g) ?? []).length, 1)
+  assert.equal((item.match(/class="watchlist-tag-chip"/g) ?? []).length, 2)
+  assert.equal(
+    (manager.match(/:style="watchlistTagStyle\(tag.color\)"/g) ?? []).length,
+    1,
+  )
+  assert.equal(
+    (item.match(/:style="watchlistTagStyle\(tag.color\)"/g) ?? []).length,
+    2,
   )
 })
 
@@ -148,6 +314,15 @@ interface CheckboxHandlers {
 }
 
 interface Manager {
+  panelHeight: ReturnType<typeof ref<number>>
+  panelTop: ReturnType<typeof ref<number>>
+  positionPanel: () => void
+  backdrop: (event: {
+    currentTarget: unknown
+    target: unknown
+    clientX: number
+    clientY: number
+  }) => void
   open: ReturnType<typeof ref<boolean>>
   creating: ReturnType<typeof ref<boolean>>
   openCreate: () => void
@@ -204,6 +379,16 @@ async function managerFixture() {
   const scope = effectScope()
   const focusCalls: string[] = []
   let shown = false
+  const body = { style: { overflow: 'auto' } }
+  const listeners = new Map<string, () => void>()
+  const viewportListeners = new Map<string, () => void>()
+  const viewport = {
+    height: 844,
+    offsetTop: 0,
+    addEventListener: (name: string, callback: () => void) =>
+      viewportListeners.set(name, callback),
+    removeEventListener: (name: string) => viewportListeners.delete(name),
+  }
   class Button {
     isConnected = true
     disabled = false
@@ -219,16 +404,23 @@ async function managerFixture() {
     }
   }
   const rowAction = new Button('row')
+  class Dialog {
+    showModal() {
+      shown = true
+    }
+    close() {
+      shown = false
+    }
+    querySelector(selector: string) {
+      return new Button(selector)
+    }
+    getBoundingClientRect() {
+      return { left: 16, right: 304, top: 16, bottom: 304 }
+    }
+  }
+  const modal = new Dialog()
   const templateRefs = {
-    dialog: ref({
-      showModal: () => {
-        shown = true
-      },
-      close: () => {
-        shown = false
-      },
-      querySelector: (selector: string) => new Button(selector),
-    }),
+    dialog: ref(modal),
     closeButton: ref(new Button('close')),
     createButton: ref(new Button('create')),
     trigger: ref({
@@ -242,7 +434,7 @@ async function managerFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { name, color, editDraft, editColor, target, pending, create, edit, submitTarget, cancel, open, openModal, closeModal, creating, openCreate, cancelCreate, cancelAndFocus }`,
+        `${script}\nexport { panelHeight, panelTop, positionPanel, backdrop, name, color, editDraft, editColor, target, pending, create, edit, submitTarget, cancel, open, openModal, closeModal, creating, openCreate, cancelCreate, cancelAndFocus }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -253,6 +445,7 @@ async function managerFixture() {
       {
         exports,
         HTMLButtonElement: Button,
+        HTMLDialogElement: Dialog,
         ref,
         computed,
         watch,
@@ -265,12 +458,16 @@ async function managerFixture() {
         },
         onMounted: (callback: () => void) => callback(),
         window: {
-          addEventListener: (_name: string, callback: () => void) => {
-            pagehide = callback
+          innerHeight: 844,
+          visualViewport: viewport,
+          addEventListener: (name: string, callback: () => void) => {
+            listeners.set(name, callback)
+            if (name === 'pagehide') pagehide = callback
           },
-          removeEventListener: () => {},
+          removeEventListener: (name: string) => listeners.delete(name),
         },
         document: {
+          body,
           activeElement: null,
           addEventListener: () => {},
           removeEventListener: () => {},
@@ -299,6 +496,11 @@ async function managerFixture() {
     scopeKey,
     focusCalls,
     rowAction,
+    body,
+    modal: templateRefs.dialog.value,
+    viewport,
+    listeners,
+    viewportListeners,
     shown: () => shown,
     pagehide: () => pagehide(),
     writes,
@@ -317,6 +519,7 @@ test('manager opens native modal with close focus and restores same-scope trigge
   try {
     await f.manager.openModal()
     assert.equal(f.shown(), true)
+    assert.equal(f.body.style.overflow, 'hidden')
     assert.equal(f.manager.creating.value, false)
     assert.equal(f.manager.target.value, null)
     assert.deepEqual(f.focusCalls, ['close'])
@@ -325,6 +528,7 @@ test('manager opens native modal with close focus and restores same-scope trigge
     f.manager.closeModal()
     await nextTick()
     assert.equal(f.shown(), false)
+    assert.equal(f.body.style.overflow, 'auto')
     assert.equal(f.manager.open.value, false)
     assert.equal(f.manager.name.value, 'Brouillon')
     assert.equal(f.manager.color.value, 'blue')
@@ -333,6 +537,105 @@ test('manager opens native modal with close focus and restores same-scope trigge
     f.stop()
   }
 })
+
+test('tag-manager panel matches add-dialog surface, heading, close and scroll styling', async () => {
+  const [manager, page] = await Promise.all([
+    readFile(
+      new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+      'utf8',
+    ),
+  ])
+  const addDialog = page.match(/<dialog\s[^>]*id="watchlist-add"[\s\S]*?>/)?.[0]
+  const tagDialog = manager.match(
+    /<dialog\s[^>]*id="watchlist-tag-manager"[\s\S]*?>/,
+  )?.[0]
+  assert.ok(addDialog)
+  assert.ok(tagDialog)
+  assert.equal(
+    tagDialog.match(/class="([^"]*)"/)?.[1],
+    addDialog.match(/class="([^"]*)"/)?.[1],
+  )
+  assert.match(tagDialog, /panelHeight - 32/)
+  assert.match(tagDialog, /panelTop \+ panelHeight \/ 2/)
+  assert.match(
+    manager,
+    /<header\s+class="flex shrink-0 items-center justify-between gap-3 border-b border-ink\/20 p-4"/,
+  )
+  assert.match(
+    manager,
+    /id="watchlist-tag-manager-title" class="account-heading"/,
+  )
+  assert.match(
+    manager,
+    /class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle"/,
+  )
+  assert.match(manager, /<X :size="20" aria-hidden="true"/)
+  assert.match(
+    manager,
+    /class="min-h-0 overflow-y-auto overscroll-contain p-4"/,
+  )
+  assert.doesNotMatch(
+    manager,
+    /rounded-lg|backdrop:bg-transparent|w-screen|@click\.self/,
+  )
+})
+
+test('manager follows visual viewport, ignores panel clicks and closes true backdrop with scroll restoration', async () => {
+  const f = await managerFixture()
+  try {
+    await f.manager.openModal()
+    assert.equal(f.manager.panelHeight.value, 844)
+    f.viewport.height = 320
+    f.viewport.offsetTop = 60
+    f.viewportListeners.get('resize')?.()
+    assert.equal(f.manager.panelHeight.value, 320)
+    assert.equal(f.manager.panelTop.value, 60)
+    for (const event of [
+      { currentTarget: f.modal, target: f.modal, clientX: 20, clientY: 20 },
+      { currentTarget: f.modal, target: f.rowAction, clientX: 8, clientY: 8 },
+    ]) {
+      f.manager.backdrop(event)
+      assert.equal(f.manager.open.value, true)
+      assert.equal(f.body.style.overflow, 'hidden')
+    }
+    f.manager.backdrop({
+      currentTarget: f.modal,
+      target: f.modal,
+      clientX: 8,
+      clientY: 8,
+    })
+    await nextTick()
+    assert.equal(f.manager.open.value, false)
+    assert.equal(f.body.style.overflow, 'auto')
+    assert.equal(f.focusCalls.at(-1), 'trigger')
+  } finally {
+    f.stop()
+    assert.equal(f.listeners.size, 0)
+    assert.equal(f.viewportListeners.size, 0)
+  }
+})
+
+for (const boundary of ['scope', 'pagehide', 'unmount']) {
+  test(`manager releases modal scroll lock at ${boundary} boundary without restoring focus`, async () => {
+    const f = await managerFixture()
+    try {
+      await f.manager.openModal()
+      if (boundary === 'scope') f.scopeKey.value++
+      else if (boundary === 'pagehide') f.pagehide()
+      else f.stop()
+      await nextTick()
+      assert.equal(f.manager.open.value, false)
+      assert.equal(f.body.style.overflow, 'auto')
+      assert.deepEqual(f.focusCalls, ['close'])
+    } finally {
+      f.stop()
+    }
+  })
+}
 
 test('manager expands one region, focuses it and restores connected openers on cancellation', async () => {
   const f = await managerFixture()
@@ -736,6 +1039,106 @@ async function itemFixture() {
     },
   }
 }
+
+test('compact tag trigger uses 28px minimum height while preserving width, focus and picker semantics', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
+    'utf8',
+  )
+  const trigger = source.match(/<button\s+ref="trigger"[\s\S]*?<\/button>/)?.[0]
+  assert.ok(trigger)
+  assert.match(trigger, /inline-flex min-h-7 min-w-11/)
+  assert.doesNotMatch(trigger, /min-h-11/)
+  assert.match(
+    trigger,
+    /focus-visible:outline-2 focus-visible:outline-offset-2/,
+  )
+  assert.match(trigger, /:aria-label="`Modifier les tags de \$\{title\}`"/)
+  assert.match(trigger, /:disabled="blocked && !open"/)
+  assert.match(trigger, /:aria-expanded="open"/)
+  assert.match(trigger, /:aria-controls="open \? regionId : undefined"/)
+  assert.match(trigger, /@click="emit\('toggle'\)"/)
+  assert.match(trigger, /<Plus :size="16" aria-hidden="true"\s*\/>\s*Tag/)
+})
+
+test('floating picker matches square modal styling without changing anchored group or dismissal semantics', async () => {
+  const f = await itemFixture()
+  try {
+    const panel = f.source.slice(f.source.indexOf('ref="panel"'))
+    assert.match(
+      panel,
+      /fixed z-40 flex flex-col overflow-hidden rounded-none border-2 border-ink bg-surface p-0 text-ink shadow-lg/,
+    )
+    assert.match(panel, /:style="position"/)
+    assert.match(panel, /role="group"/)
+    assert.match(panel, /items-start gap-3 border-b border-ink\/20 p-4/)
+    assert.match(
+      panel,
+      /<h3\s+:id="`\$\{regionId\}-title`"\s+class="min-w-0 flex-1"/,
+    )
+    assert.match(
+      panel,
+      /flex size-11 shrink-0 items-center justify-center hover:bg-subtle focus-visible:outline-2/,
+    )
+    assert.match(panel, /aria-label="Fermer les tags"\s+@click="close\(true\)"/)
+    assert.match(panel, /<X :size="20" aria-hidden="true"/)
+    assert.match(panel, /min-h-0 overflow-y-auto overscroll-contain p-4/)
+    assert.match(
+      panel,
+      /flex min-h-11 cursor-pointer items-center gap-3 px-2 py-2/,
+    )
+    assert.doesNotMatch(panel, /rounded-(?:lg|md)|<dialog|aria-modal|backdrop/)
+    assert.doesNotMatch(f.source, /showModal|lockScroll|body\.style\.overflow/)
+    assert.match(f.source, /document\[method\]\('pointerdown', outside\)/)
+    assert.match(f.source, /document\[method\]\('focusin', outside\)/)
+    assert.match(f.source, /document\[method\]\('keydown', keydown\)/)
+  } finally {
+    f.stop()
+  }
+})
+
+test('floating heading keeps Tags above a smaller single-line original movie title with accessible ellipsis', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
+    'utf8',
+  )
+  const heading = source.match(/<h3\b[\s\S]*?<\/h3>/)?.[0]
+  assert.ok(heading)
+  assert.match(source, /:aria-labelledby="`\$\{regionId\}-title`"/)
+  assert.match(heading, /:id="`\$\{regionId\}-title`"/)
+  assert.match(heading, /class="min-w-0 flex-1"/)
+  assert.match(
+    heading,
+    /<span class="account-heading block">Tags<\/span>\s*<span class="block truncate text-sm font-normal">\{\{ title \}\}<\/span>/,
+  )
+  assert.doesNotMatch(
+    heading,
+    /line-clamp|aria-hidden|aria-label|slice|substring/,
+  )
+})
+
+test('fixed two-line floating header retains 8px above/below gap and 320px cap', async () => {
+  const f = await itemFixture()
+  try {
+    f.props.open = true
+    f.templateRefs.heading.value.offsetHeight = 120
+    f.anchor.top = 100
+    f.anchor.bottom = 128
+    f.handlers.positionPanel()
+    assert.equal(f.handlers.position.value.top, '136px')
+    assert.equal(f.handlers.position.value.maxHeight, '320px')
+    f.anchor.top = 600
+    f.anchor.bottom = 628
+    f.handlers.positionPanel()
+    assert.equal(f.handlers.position.value.top, '272px')
+    f.viewport.height = 250
+    f.handlers.positionPanel()
+    assert.equal(f.handlers.position.value.top, '8px')
+    assert.equal(f.handlers.position.value.maxHeight, '234px')
+  } finally {
+    f.stop()
+  }
+})
 
 test('section context hides only its assigned chip without altering picker membership or list summaries', async () => {
   const f = await itemFixture()

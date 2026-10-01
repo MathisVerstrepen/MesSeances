@@ -102,7 +102,12 @@ test('cinema summary shows an untruncated mobile count and keeps full desktop an
       full: '4 cinémas · 2 villes',
     },
     { count: 1, cities: ['Lille'], mobile: '1 cinéma', full: 'Lille · 1' },
-    { count: 0, cities: [], mobile: '0 cinémas', full: 'Mes cinémas' },
+    {
+      count: 0,
+      cities: [],
+      mobile: 'Tous les cinémas',
+      full: 'Tous les cinémas',
+    },
     {
       count: 0,
       cities: [],
@@ -182,6 +187,29 @@ test('mobile nav uses legible short labels, retaining full search name, destinat
   assert.match(brand, /MesSeances<span/)
   for (const classes of brand.match(/class="[^"]*"/g) ?? [])
     assert.doesNotMatch(classes, /\bhidden\b|truncate/)
+})
+
+test('Films is selected on upcoming releases, catalog and film detail routes only', async () => {
+  for (const path of ['/films', '/films/prochainement', '/film/example']) {
+    const html = await render({ path })
+    const films = link(html, '/films')
+    assert.match(films, /aria-current="page"/, path)
+    assert.match(films, /bg-ink text-white/, path)
+    for (const href of ['/planning', '/recherche', '/connexion', '/cinemas'])
+      assert.doesNotMatch(link(html, href), /aria-current="page"/, path)
+  }
+
+  for (const path of [
+    '/',
+    '/planning',
+    '/recherche',
+    '/films-extra',
+    '/films/prochainement-extra',
+  ]) {
+    const films = link(await render({ path }), '/films')
+    assert.doesNotMatch(films, /aria-current="page"/, path)
+    assert.doesNotMatch(films, /bg-ink text-white/, path)
+  }
 })
 
 test('header keeps account labels and selected links unchanged on account and cinema routes', async () => {

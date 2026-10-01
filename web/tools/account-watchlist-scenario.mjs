@@ -7,11 +7,11 @@ const palette = [
   ['neutral', 'Neutre', '#f4f4f5', '#3f3f46', '#71717a'],
   ['red', 'Rouge', '#fee2e2', '#991b1b', '#dc2626'],
   ['amber', 'Ambre', '#fef3c7', '#92400e', '#b45309'],
-  ['green', 'Vert', '#dcfce7', '#166534', '#15803d'],
-  ['teal', 'Sarcelle', '#ccfbf1', '#115e59', '#0f766e'],
+  ['green', 'Vert', '#e2f3d2', '#315b1c', '#4b7a2a'],
+  ['teal', 'Sarcelle', '#cff5f6', '#155e63', '#0e7490'],
   ['blue', 'Bleu', '#dbeafe', '#1e40af', '#2563eb'],
   ['violet', 'Violet', '#ede9fe', '#5b21b6', '#7c3aed'],
-  ['rose', 'Rose', '#ffe4e6', '#9f1239', '#e11d48'],
+  ['rose', 'Rose', '#fce7f3', '#9d174d', '#be185d'],
 ]
 
 async function checkPalette(page, evaluate, check) {
@@ -24,16 +24,60 @@ async function checkPalette(page, evaluate, check) {
     const rgb = hex => 'rgb(' + [1,3,5].map(i => parseInt(hex.slice(i, i+2), 16)).join(', ') + ')';
     const lum = rgb => { const c = rgb.match(/\\d+/g).map(n => { const x = Number(n)/255; return x <= .04045 ? x/12.92 : ((x+.055)/1.055)**2.4 }); return c[0]*.2126+c[1]*.7152+c[2]*.0722 };
     const contrast = (a,b) => (Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);
-    if (!radios.length) return false;
+    if (!radios.length || radios.filter(r => r.checked).length !== 1) return false;
     const grid = getComputedStyle(radios[0].closest('label').parentElement);
     if (grid.gridTemplateColumns.split(' ').length !== (innerWidth >= 640 ? 4 : 2) || parseFloat(grid.gap) < 8) return false;
     return radios.length === 8 && new Set(radios.map(r => r.name)).size === 1 && radios.every((r,i) => {
-      const label = r.closest('label'), style = getComputedStyle(label), marker = getComputedStyle(label.querySelector('[aria-hidden]')), rect = label.getBoundingClientRect(), token = expected[i];
-      return r.value === token[0] && label.textContent.trim() === token[1] && marker.backgroundColor === rgb(token[2]) && marker.color === rgb(token[3]) && marker.borderColor === rgb(token[4]) && rect.height >= 44 && rect.width >= 44 && contrast(style.color, style.backgroundColor) >= 4.5 && contrast(style.borderColor, style.backgroundColor) >= 3 && contrast(marker.borderColor, marker.backgroundColor) >= 3;
+      const label = r.closest('label'), style = getComputedStyle(label), rect = label.getBoundingClientRect(), token = expected[i], checks = [...label.querySelectorAll('svg')];
+      return r.value === token[0] && label.textContent.trim() === token[1] && r.classList.contains('sr-only') && !r.disabled && style.backgroundColor === rgb(token[2]) && style.color === rgb(token[3]) && style.borderColor === rgb(token[4]) && style.borderWidth === '2px' && style.borderRadius === '0px' && style.fontFamily.includes('monospace') && style.fontSize === '12px' && style.fontWeight === '700' && rect.height >= 44 && rect.width >= 44 && label.scrollWidth <= label.clientWidth && checks.length === (r.checked ? 1 : 0) && checks.every(check => check.getAttribute('aria-hidden') === 'true' && check.getAttribute('focusable') === 'false' && check.getBoundingClientRect().width === 20) && contrast(style.color, style.backgroundColor) >= 4.5 && contrast(style.borderColor, style.backgroundColor) >= 3;
     });
   })()`,
     ),
-    'eight named native radios have compact exact-color markers, accessible tile contrast and touch targets',
+    'eight square mono color tiles retain exact palette contrast, native radio names, one selected check and 44px targets',
+  )
+  const geometry = await evaluate(
+    page,
+    `(() => {
+      const radios = [...document.querySelectorAll('#watchlist-tag-manager form:first-of-type input[type="radio"]')];
+      return { width: innerWidth, tiles: radios.map(radio => {
+        const tile = radio.closest('label'), label = tile.querySelector('span:last-child'), marker = tile.querySelector('span[aria-hidden="true"]');
+        const rect = tile.getBoundingClientRect(), text = label.getBoundingClientRect(), check = marker.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(label); const glyphs = range.getBoundingClientRect();
+        return { color: radio.value, selected: radio.checked, width: rect.width, height: rect.height, centerX: text.left + text.width / 2 - rect.left - rect.width / 2, centerY: text.top + text.height / 2 - rect.top - rect.height / 2, textWidth: glyphs.width, textHeight: text.height, markerGap: text.left - check.right, rightGap: rect.right - text.right, markerWidth: check.width };
+      }) };
+    })()`,
+  )
+  check(
+    geometry.tiles.length === 8 &&
+      geometry.tiles.every(
+        (tile) =>
+          Math.abs(tile.centerX) < 0.5 &&
+          Math.abs(tile.centerY) < 0.5 &&
+          tile.markerGap >= 4 &&
+          tile.markerWidth === 20 &&
+          tile.rightGap >= 24 &&
+          tile.textWidth <= tile.width - 60 &&
+          tile.textHeight <= 20,
+      ),
+    `selected/unselected labels center in whole tiles without marker overlap or wrapping ${JSON.stringify(geometry)}`,
+  )
+}
+
+async function checkChips(page, evaluate, check, context) {
+  check(
+    await evaluate(
+      page,
+      `(() => {
+    const expected = ${JSON.stringify(palette)};
+    const chips = [...document.querySelectorAll('.watchlist-tag-chip')].filter(chip => chip.checkVisibility());
+    const rgb = hex => 'rgb(' + [1,3,5].map(i => parseInt(hex.slice(i, i+2), 16)).join(', ') + ')';
+    return chips.length > 0 && chips.every(chip => {
+      const style = getComputedStyle(chip), rect = chip.getBoundingClientRect(), token = expected.find(token => style.backgroundColor === rgb(token[2]));
+      return token && style.color === rgb(token[3]) && style.borderColor === rgb(token[4]) && style.borderWidth === '2px' && style.borderRadius === '0px' && style.fontFamily.includes('monospace') && style.fontSize === '12px' && style.fontWeight === '700' && style.overflowWrap === 'anywhere' && chip.scrollWidth <= chip.clientWidth && rect.width <= chip.parentElement.clientWidth + .5 && rect.left >= 0 && rect.right <= innerWidth + .5;
+    });
+  })()`,
+    ),
+    `${context} manager, assigned and assignment-option chips share square mono borders, palette and safe long-name wrapping`,
   )
 }
 
@@ -86,6 +130,8 @@ async function exerciseTagColors({
 }
 
 export async function watchlistScenario({
+  origin,
+  apiPort,
   getCDP,
   launch,
   tab,
@@ -126,6 +172,7 @@ export async function watchlistScenario({
   let uncertainSort = false
   let uncertainAssignment = false
   let uncertainPreferences = false
+  let uncertainRemoval = false
   const frenchReleases = new Map([['saved-film', '1998-10-14']])
   let externalStatus = 'ready'
   let emptySearch = false
@@ -137,16 +184,26 @@ export async function watchlistScenario({
   let failRead = false
   let releaseRead
   let release
+  let holdSession = false
+  let releaseSession
+  let holdDetails = false
+  let releaseDetails
+  let failSession = false
+  let failDetails = false
+  let avatarBytes
+  let holdLogoutAll = false
+  let releaseLogoutAll
   const writes = []
   const requests = []
   const date = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Paris',
   }).format(new Date())
+  let externalTitle = 'Film externe'
   const movie = (slug) => ({
     slug,
     title:
       slug === 'external-film'
-        ? 'Film externe'
+        ? externalTitle
         : slug === 'saved-film'
           ? 'Film favori'
           : 'Autre film',
@@ -226,7 +283,41 @@ export async function watchlistScenario({
       res.statusCode = status
       res.end(JSON.stringify(value))
     }
-    if (path === '/api/v1/auth/session') return send(session)
+    if (path === '/api/v1/auth/session') {
+      const value = session
+      if (holdSession)
+        await new Promise((resolve) => {
+          releaseSession = resolve
+        })
+      if (failSession) return send({ error: { code: 'unavailable' } }, 503)
+      return send(value)
+    }
+    if (path === '/api/v1/account') {
+      const value = {
+        ...session.account,
+        avatar_url: '/api/v1/account/avatar/1',
+        allowed_methods: ['password'],
+        pending_email: null,
+        google_email: null,
+      }
+      if (holdDetails)
+        await new Promise((resolve) => {
+          releaseDetails = resolve
+        })
+      if (failDetails) return send({ error: { code: 'unavailable' } }, 503)
+      return send(value)
+    }
+    if (path === '/api/v1/account/avatar/1') {
+      res.setHeader('Content-Type', 'image/webp')
+      return res.end(avatarBytes)
+    }
+    if (path === '/api/v1/auth/logout-all') {
+      if (holdLogoutAll)
+        await new Promise((resolve) => {
+          releaseLogoutAll = resolve
+        })
+      return send({ error: { code: 'recent_auth_required' } }, 403)
+    }
     if (path === '/api/v1/theaters') return send([theater])
     if (path === '/api/v1/account/theaters')
       return send({
@@ -433,6 +524,10 @@ export async function watchlistScenario({
       if (body.saved === 'false') assignments().delete(slug)
       if (path.endsWith('/import') || body.saved === 'true') saved.unshift(slug)
       revision++
+      if (body.saved === 'false' && uncertainRemoval) {
+        uncertainRemoval = false
+        return send({ error: { code: 'watchlist_unavailable' } }, 503)
+      }
       return send(
         path.endsWith('/import')
           ? { watchlist: snapshot(), movie_slug: slug }
@@ -444,7 +539,7 @@ export async function watchlistScenario({
   setServer(server)
   await new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(18089, '127.0.0.1', resolve)
+    server.listen(apiPort, '127.0.0.1', resolve)
   })
   const router = `document.querySelector('#__nuxt').__vue_app__.config.globalProperties.$router`
   async function screenshot(page, name, captureBeyondViewport = true) {
@@ -459,7 +554,48 @@ export async function watchlistScenario({
       Buffer.from(image.data, 'base64'),
     )
   }
+  async function checkTagModalStyle(viewport) {
+    await screenshot(
+      page,
+      `tag-manager-style-${viewport.replaceAll(' ', '-')}`,
+      false,
+    )
+    const presentation = await evaluate(
+      page,
+      `(() => {
+        const dialog = document.querySelector('#watchlist-tag-manager'), rect = dialog.getBoundingClientRect(), style = getComputedStyle(dialog), header = dialog.querySelector('header'), title = dialog.querySelector('h2'), close = dialog.querySelector('button[aria-label="Fermer la gestion des tags"]'), body = dialog.querySelector('.overflow-y-auto');
+        const headerStyle = getComputedStyle(header), closeStyle = getComputedStyle(close), bodyStyle = getComputedStyle(body), closeRect = close.getBoundingClientRect(), icon = close.querySelector('svg').getBoundingClientRect();
+        const viewport = window.visualViewport, height = viewport?.height ?? innerHeight, top = viewport?.offsetTop ?? 0;
+        // Tailwind color-mix may serialize as oklab rather than rgba in Chromium.
+        const reference = document.createElement('span'); reference.className = 'bg-black/60'; document.body.append(reference);
+        const expectedBackdrop = getComputedStyle(reference).backgroundColor; reference.remove();
+        const actualBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+        const matches = dialog.matches(':modal') && Math.abs(rect.width - Math.min(672, innerWidth - 32)) < 1 && Math.abs(rect.left + rect.width / 2 - innerWidth / 2) < 1 && Math.abs(rect.top + rect.height / 2 - top - height / 2) < 1 && rect.top >= top + 15.5 && rect.bottom <= top + height - 15.5 && style.borderWidth === '2px' && style.borderColor === 'rgb(39, 39, 42)' && style.borderRadius === '0px' && style.backgroundColor === 'rgb(255, 255, 255)' && style.padding === '0px' && style.boxShadow !== 'none' && actualBackdrop === expectedBackdrop && headerStyle.padding === '16px' && headerStyle.borderBottomWidth === '1px' && title.classList.contains('account-heading') && closeRect.width === 44 && closeRect.height === 44 && closeStyle.borderRadius === '0px' && icon.width === 20 && icon.height === 20 && bodyStyle.padding === '16px' && bodyStyle.overflowY === 'auto' && body.scrollWidth <= body.clientWidth && document.body.style.overflow === 'hidden';
+        return { matches, geometry: { left: rect.left, top: rect.top, width: rect.width, height: rect.height, viewportHeight: height, viewportTop: top }, style: { border: style.borderWidth, borderColor: style.borderColor, radius: style.borderRadius, background: style.backgroundColor, padding: style.padding, backdrop: actualBackdrop, expectedBackdrop, headerPadding: headerStyle.padding, divider: headerStyle.borderBottomWidth, closeWidth: closeRect.width, closeHeight: closeRect.height, closeRadius: closeStyle.borderRadius, iconWidth: icon.width, iconHeight: icon.height, bodyPadding: bodyStyle.padding, bodyOverflow: bodyStyle.overflowY, scrollWidth: body.scrollWidth, clientWidth: body.clientWidth, lock: document.body.style.overflow } };
+      })()`,
+    )
+    check(
+      presentation.matches,
+      `${viewport} tag modal matches centered square add-dialog style, viewport margins, header/close and locked scroll ${JSON.stringify(presentation)}`,
+    )
+  }
   async function checkClock(page, variant) {
+    if (
+      variant === 'remove' &&
+      (await evaluate(
+        page,
+        `!!document.querySelector('[data-watchlist-remove]')`,
+      ))
+    ) {
+      check(
+        await evaluate(
+          page,
+          `(() => { const buttons = [...document.querySelectorAll('[data-watchlist-remove]')]; return buttons.length > 0 && buttons.every(button => { const style = getComputedStyle(button), rect = button.getBoundingClientRect(), icon = button.querySelector('svg'); return button.getAttribute('aria-label') === 'Retirer de la watchlist' && button.getAttribute('aria-haspopup') === 'dialog' && !button.textContent.trim() && style.borderWidth === '0px' && rect.width >= 44 && rect.height >= 44 && icon?.getAttribute('aria-hidden') === 'true' && icon?.getAttribute('focusable') === 'false' && icon.getBoundingClientRect().width === 20 && icon.querySelectorAll('path').length === 2 && !icon.querySelector('circle') }) })()`,
+        ),
+        'watchlist-only removal uses named borderless decorative X and 44px target; film clock unchanged',
+      )
+      return
+    }
     check(
       await evaluate(
         page,
@@ -497,6 +633,31 @@ export async function watchlistScenario({
       ),
       `${variant} clock has dark 24px plus/minus strokes, white surface with subtle hover, decorative semantics and 48px target`,
     )
+  }
+  async function checkTagRows(viewport) {
+    const rows = await evaluate(
+      page,
+      `(() => {
+      const body = document.querySelector('#watchlist-tag-manager .overflow-y-auto'), list = body.querySelector(':scope > ul'), style = getComputedStyle(list), before = list.previousElementSibling.getBoundingClientRect();
+      const rows = [...list.children].map(li => {
+        const row = li.firstElementChild, tag = row.firstElementChild, badge = tag.firstElementChild, name = badge.textContent.trim(), buttons = [...row.querySelectorAll('button')], rect = row.getBoundingClientRect(), tagRect = tag.getBoundingClientRect();
+        return { name, wrapped: badge.getBoundingClientRect().height > 32, valid: getComputedStyle(row).flexWrap === 'nowrap' && tagRect.width > 0 && tagRect.right <= buttons[0].getBoundingClientRect().left && row.scrollWidth <= row.clientWidth && buttons.length === 2 && buttons.every((button, i) => { const b = button.getBoundingClientRect(), icon = button.querySelector('svg'); return !button.textContent.trim() && button.getAttribute('aria-label') === (i ? 'Supprimer ' : 'Modifier ') + name && icon?.getAttribute('aria-hidden') === 'true' && icon?.getAttribute('focusable') === 'false' && b.width >= 44 && b.height >= 44 && b.left >= rect.left && b.right <= rect.right && Math.abs(b.top + b.height / 2 - rect.top - rect.height / 2) < 1 && (i === 0 || b.left - buttons[0].getBoundingClientRect().right >= 8) }) };
+      });
+      return { rows, divider: style.borderTopWidth === '1px' && style.borderTopStyle === 'solid' && parseFloat(style.paddingTop) >= 8 && list.getBoundingClientRect().top - before.bottom >= 16 && [...list.children].slice(1).every((li, i) => parseFloat(getComputedStyle(li).borderTopWidth) > 0 || parseFloat(getComputedStyle(list.children[i]).borderBottomWidth) > 0), noOverflow: body.scrollWidth <= body.clientWidth };
+    })()`,
+    )
+    check(
+      rows.rows.length > 0 &&
+        rows.rows.every((row) => row.valid) &&
+        rows.divider &&
+        rows.noOverflow,
+      `${viewport} tag names and 44px named icon actions stay inline with creation/list divider and row separators ${JSON.stringify(rows)}`,
+    )
+    if (viewport === '320px')
+      check(
+        rows.rows.some((row) => row.name.length > 30 && row.wrapped),
+        '320px long tag name wraps only inside flexible tag region',
+      )
   }
   async function checkGroupDots(viewport) {
     const expected = tags().map((tag) => ({
@@ -647,7 +808,50 @@ export async function watchlistScenario({
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
   async function click(target, label) {
-    await rawClick(target, label)
+    if (
+      label === 'Gérer les tags' &&
+      (await evaluate(target, `innerWidth < 1024`))
+    )
+      label = 'Tags'
+    const sheetAction =
+      ['Liste', 'Par tag'].includes(label) &&
+      (await evaluate(target, `innerWidth < 1024`))
+    if (
+      sheetAction &&
+      !(await evaluate(
+        target,
+        `!!document.querySelector('#watchlist-configuration')`,
+      ))
+    ) {
+      await click(target, 'Configuration')
+      await until(
+        target,
+        `document.querySelector('#watchlist-configuration')?.matches(':modal')`,
+        'mobile configuration opens',
+      )
+    }
+    if (
+      label === 'Rechercher' &&
+      !(await evaluate(target, `!!document.querySelector('#watchlist-add')`))
+    ) {
+      await rawClick(target, 'Ajouter')
+      await until(
+        target,
+        `document.querySelector('#watchlist-add')?.matches(':modal')`,
+        'add modal opens before search',
+      )
+    }
+    if (sheetAction)
+      await evaluate(
+        target,
+        `(() => { const button = [...document.querySelectorAll('#watchlist-configuration button')].find(button=>button.textContent.trim() === ${JSON.stringify(label)}); button.focus(); button.click() })()`,
+      )
+    else if (label === 'Configuration' || label.startsWith('Fermer'))
+      await evaluate(
+        target,
+        `document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`,
+      )
+    else await rawClick(target, label)
     if (label === 'Voir tous les films')
       await until(
         target,
@@ -660,13 +864,18 @@ export async function watchlistScenario({
         `document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]:not(:disabled)')?.textContent.trim() === ${JSON.stringify(label)}`,
         'display preference committed',
       )
+    if (sheetAction)
+      await evaluate(
+        target,
+        `document.querySelector('button[aria-label="Fermer la configuration"]').click()`,
+      )
   }
   async function checkSegmentedDisplay(viewport, selected, disabled = false) {
     check(
       await evaluate(
         page,
         `(() => {
-          const group = document.querySelector('[role="group"][aria-label="Affichage des films"]');
+           const group = [...document.querySelectorAll('[role="group"][aria-label="Affichage des films"]')].find(node => node.checkVisibility());
           const buttons = [...group.querySelectorAll('button')];
           const outer = group.getBoundingClientRect(), style = getComputedStyle(group);
           const rects = buttons.map(button => button.getBoundingClientRect());
@@ -698,6 +907,22 @@ export async function watchlistScenario({
       `${viewport} segmented display has shared rectangular border, single divider, no gap, decorative icons, 44px targets and selected sage underline`,
     )
   }
+  async function escapeOverlay() {
+    for (const type of ['keyDown', 'keyUp'])
+      await getCDP().send(
+        'Input.dispatchKeyEvent',
+        { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+        page.sessionId,
+      )
+  }
+  async function backdropClick() {
+    for (const type of ['mousePressed', 'mouseReleased'])
+      await getCDP().send(
+        'Input.dispatchMouseEvent',
+        { type, x: 8, y: 8, button: 'left', clickCount: 1 },
+        page.sessionId,
+      )
+  }
   async function checkLoadingLayout(viewport) {
     await until(
       page,
@@ -708,21 +933,21 @@ export async function watchlistScenario({
       await evaluate(
         page,
         `(() => {
-          const input = document.querySelector('#watchlist-query');
-          const form = input.closest('form');
+           const add = document.querySelector('button[aria-controls="watchlist-add"]');
           const section = document.querySelector('section[aria-labelledby="saved-heading"]');
           const heading = section.querySelector('#saved-heading');
           const select = section.querySelector('#watchlist-sort');
           const filter = section.querySelector('#watchlist-tag-filter');
           const status = section.querySelector('[role="status"]');
           const icon = select?.parentElement.querySelector('svg[aria-hidden="true"]');
-          const nodes = [form, heading, icon, select, status];
-          return nodes.every(node => node?.getBoundingClientRect().width > 0)
-            && nodes.every((node, index) => !index || (nodes[index - 1].compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING))
+           const mobile = innerWidth < 1024;
+           const config = document.querySelector('button[aria-controls="watchlist-configuration"]');
+           return add.disabled && add.checkVisibility() && !document.querySelector('#watchlist-query')
+             && (mobile ? config.checkVisibility() && !select.checkVisibility() : select.checkVisibility())
             && document.querySelectorAll('main [role="status"]').length === 1
             && status.textContent.trim() === 'Chargement de la watchlist…'
             && !section.querySelector('li') && !section.textContent.includes('Votre watchlist est vide')
-            && input.disabled && select.disabled && select.value === ''
+             && select.disabled && select.value === ''
             && [...section.querySelectorAll('[aria-label="Affichage des films"] button')].every(button => button.disabled)
             && select.selectedOptions[0].disabled && select.selectedOptions[0].textContent.trim() === 'Trier par'
             && select.labels[0].textContent.trim() === 'Trier par' && select.labels[0].classList.contains('sr-only')
@@ -730,20 +955,20 @@ export async function watchlistScenario({
             && filter.selectedOptions[0].textContent.trim() === 'Filtrer par tag'
             && filter.labels[0].textContent.trim() === 'Filtrer par tag' && filter.labels[0].classList.contains('sr-only')
             && document.documentElement.scrollWidth <= innerWidth
-            && form.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top
-            && select.getBoundingClientRect().bottom <= status.getBoundingClientRect().top;
+             && (mobile || select.getBoundingClientRect().bottom <= status.getBoundingClientRect().top);
         })()`,
       ),
-      `${viewport} loading keeps search then heading/icon/disabled neutral select then one skeleton, without stale rows or empty-state flash`,
+      `${viewport} loading keeps disabled header add, responsive controls and one skeleton, without inline search or false empty state`,
     )
-    await checkSegmentedDisplay(`${viewport} loading`, -1, true)
+    if (viewport === 'desktop')
+      await checkSegmentedDisplay(`${viewport} loading`, -1, true)
   }
   async function checkTagFilterPresentation(viewport) {
     check(
       await evaluate(
         page,
         `(() => {
-          const select = document.querySelector('#watchlist-tag-filter');
+           const select = document.querySelector(innerWidth < 1024 ? '#watchlist-mobile-tag-filter' : '#watchlist-tag-filter');
           const label = select.labels[0], control = select.getBoundingClientRect(), style = getComputedStyle(select);
           const icon = select.parentElement.querySelector('svg[aria-hidden="true"]');
           const bounds = icon?.getBoundingClientRect(), labelBounds = label.getBoundingClientRect();
@@ -762,26 +987,78 @@ export async function watchlistScenario({
     )
   }
   async function checkCompactLayout(width) {
+    const mobile = width < 1024
+    const sortId = mobile ? 'watchlist-mobile-sort' : 'watchlist-sort'
+    if (mobile) {
+      check(
+        await evaluate(
+          page,
+          `!document.querySelector('#watchlist-sort').checkVisibility() && !document.querySelector('#watchlist-tag-filter').checkVisibility() && !document.querySelector('#watchlist-query') && document.querySelector('button[aria-controls="watchlist-configuration"]').checkVisibility() && document.querySelector('button[aria-controls="watchlist-tag-manager"]').checkVisibility()`,
+        ),
+        `${width}px base hides preferences and search, keeps separate tag manager`,
+      )
+      check(
+        await evaluate(
+          page,
+          `(() => {
+        const heading = document.querySelector('#saved-heading'), config = document.querySelector('button[aria-controls="watchlist-configuration"]'), tags = document.querySelector('button[aria-controls="watchlist-tag-manager"]');
+        const h = heading.getBoundingClientRect(), c = config.getBoundingClientRect(), t = tags.getBoundingClientRect();
+        const center = r => r.top + r.height / 2;
+        return heading.textContent.trim() === 'Mes films' && h.height < 30 && config.parentElement.contains(tags)
+          && config.textContent.trim() === '' && config.getAttribute('aria-label') === 'Configuration' && config.querySelector('svg[aria-hidden="true"]')
+          && tags.textContent.trim() === 'Tags' && Math.abs(center(h) - center(c)) < 1 && Math.abs(center(c) - center(t)) < 1
+          && [c,t].every(r => r.width >= 44 && r.height >= 44) && c.left >= h.right + 8 && t.left >= c.right + 8
+          && h.left >= 0 && t.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth;
+      })()`,
+        ),
+        `${width}px Mes films, icon-only accessible Configuration and Tags share one row with 44px targets`,
+      )
+      await evaluate(
+        page,
+        `document.querySelector('button[aria-label="Configuration"]').focus()`,
+      )
+      for (const type of ['keyDown', 'keyUp'])
+        await getCDP().send(
+          'Input.dispatchKeyEvent',
+          { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+          page.sessionId,
+        )
+      check(
+        await evaluate(
+          page,
+          `document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager' && document.activeElement.textContent.trim() === 'Tags'`,
+        ),
+        `${width}px toolbar keyboard order is Configuration then Tags`,
+      )
+      await evaluate(
+        page,
+        'document.activeElement.blur(); window.scrollTo(0, 0)',
+      )
+      await screenshot(page, `toolbar-${width}`, false)
+      await click(page, 'Configuration')
+      await until(
+        page,
+        `document.querySelector('#watchlist-configuration')?.matches(':modal')`,
+        'configuration enters top layer',
+      )
+    }
     check(
       await evaluate(
         page,
         `(() => {
         const section = document.querySelector('section[aria-labelledby="saved-heading"]');
-        const filter = document.querySelector('#watchlist-tag-filter'), sort = document.querySelector('#watchlist-sort');
+         const filter = document.querySelector('${mobile ? '#watchlist-mobile-tag-filter' : '#watchlist-tag-filter'}'), sort = document.querySelector('#${sortId}');
         const manager = document.querySelector('button[aria-controls="watchlist-tag-manager"]');
         const f = filter.getBoundingClientRect(), s = sort.getBoundingClientRect(), m = manager.getBoundingClientRect();
-        const heading = document.querySelector('#saved-heading').getBoundingClientRect(), toggle = document.querySelector('[aria-label="Affichage des films"]').getBoundingClientRect();
+         const toggle = [...document.querySelectorAll('[aria-label="Affichage des films"]')].find(node=>node.checkVisibility()).getBoundingClientRect();
         const close = (a, b) => Math.abs(a - b) < 1;
         const full = r => close(r.left, section.getBoundingClientRect().left) && close(r.right, section.getBoundingClientRect().right);
-        const form = document.querySelector('#watchlist-query').closest('form').getBoundingClientRect();
-        const firstHeading = section.querySelector('h3'), firstFilm = section.querySelector('a[href^="/film/"]').closest('li').getBoundingClientRect();
+         const sheet = document.querySelector('#watchlist-configuration')?.getBoundingClientRect();
         return document.documentElement.scrollWidth <= innerWidth
           && [f,s,m].every(r => r.height >= 44 && r.width >= 44 && r.left >= 0 && r.right <= innerWidth)
-          && manager.textContent.trim() === 'Gérer les tags'
-          && (${width} >= 1024 ? close(f.bottom,s.bottom) && close(s.bottom,m.bottom)
-            : full(f) && f.bottom + 8 <= s.top && (${width} >= 390 ? close(s.top,m.top) && m.left - s.right >= 8 : full(s) && full(m) && m.top - s.bottom >= 8))
-          && (${width} >= 390 ? heading.top >= toggle.top && heading.bottom <= toggle.bottom : toggle.top - heading.bottom >= 8)
-          && (${width} >= 640 || (Math.min(heading.top,toggle.top) - form.bottom <= 32 && firstHeading.getBoundingClientRect().top - Math.max(s.bottom,m.bottom) <= 16 && firstFilm.top - firstHeading.getBoundingClientRect().bottom <= 4));
+           && manager.textContent.trim() === '${mobile ? 'Tags' : 'Gérer les tags'}'
+           && (${width} >= 1024 ? close(f.bottom,s.bottom) && close(s.bottom,m.bottom)
+             : close(sheet.bottom,innerHeight) && sheet.top >= 16 && f.bottom + 8 <= s.top && toggle.bottom <= f.top && document.body.style.overflow === 'hidden' && document.activeElement.getAttribute('aria-label') === 'Fermer la configuration' && !document.querySelector('#watchlist-configuration button[aria-controls="watchlist-tag-manager"]'));
       })()`,
       ),
       `${width}px toolbar keeps readable control geometry, adaptive heading/toggle and compact mobile vertical gaps`,
@@ -799,7 +1076,7 @@ export async function watchlistScenario({
         await evaluate(
           page,
           `(() => {
-          const select = document.querySelector('#watchlist-sort'), option = select.selectedOptions[0], css = getComputedStyle(select);
+           const select = document.querySelector('#${sortId}'), option = select.selectedOptions[0], css = getComputedStyle(select);
           const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
           ctx.font = css.font;
           const available = select.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) - 20;
@@ -821,9 +1098,11 @@ export async function watchlistScenario({
     }
     await evaluate(
       page,
-      `document.querySelector('#watchlist-tag-filter').focus()`,
+      `document.querySelector('${mobile ? '#watchlist-mobile-tag-filter' : '#watchlist-tag-filter'}').focus()`,
     )
-    for (const id of ['watchlist-sort', 'watchlist-tag-manager']) {
+    for (const id of mobile
+      ? [sortId]
+      : ['watchlist-sort', 'watchlist-tag-manager']) {
       for (const type of ['keyDown', 'keyUp'])
         await getCDP().send(
           'Input.dispatchKeyEvent',
@@ -838,6 +1117,17 @@ export async function watchlistScenario({
         `${width}px native tab order reaches ${id} with visible focus`,
       )
     }
+    if (mobile) {
+      await checkSegmentedDisplay(`${width}px sheet`, 1)
+      await checkTagFilterPresentation(`${width}px sheet`)
+      await screenshot(page, `configuration-${width}`, false)
+      await click(page, 'Fermer la configuration')
+      await until(
+        page,
+        `!document.querySelector('#watchlist-configuration') && document.activeElement.getAttribute('aria-controls') === 'watchlist-configuration' && document.body.style.overflow !== 'hidden'`,
+        'configuration close restores opener and scroll',
+      )
+    }
     await evaluate(page, 'document.activeElement.blur(); window.scrollTo(0, 0)')
     await screenshot(page, `compact-grouped-${width}`)
   }
@@ -849,18 +1139,22 @@ export async function watchlistScenario({
     releaseRead = undefined
   }
   async function selectSort(value) {
+    const id = await evaluate(
+      page,
+      `document.querySelector('#watchlist-configuration') ? 'watchlist-mobile-sort' : 'watchlist-sort'`,
+    )
     await until(
       page,
-      `!!document.querySelector('#watchlist-sort:not(:disabled)')`,
+      `!!document.querySelector('#${id}:not(:disabled)')`,
       'sort control available',
     )
     await evaluate(
       page,
-      `(() => { const select = document.querySelector('#watchlist-sort'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
+      `(() => { const select = document.querySelector('#${id}'); select.value = ${JSON.stringify(value)}; select.dispatchEvent(new Event('change', { bubbles: true })); })()`,
     )
     await until(
       page,
-      `document.querySelector('#watchlist-sort:not(:disabled)')?.value === ${JSON.stringify(value)}`,
+      `document.querySelector('#${id}:not(:disabled)')?.value === ${JSON.stringify(value)}`,
       'committed sort selection',
     )
   }
@@ -872,6 +1166,336 @@ export async function watchlistScenario({
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     page.sessionId,
   )
+  if (process.argv.includes('--focus-refresh')) {
+    // Reuse the DB-free watchlist fixture for both account pages. No provider,
+    // storage fallback or synthetic focus event in this bounded regression lane.
+    avatarBytes = Buffer.from(
+      await evaluate(
+        page,
+        `(() => { const canvas = document.createElement('canvas'); canvas.width = canvas.height = 64; const ctx = canvas.getContext('2d'); ctx.fillStyle = '#a8bfa3'; ctx.fillRect(0, 0, 64, 64); return canvas.toDataURL('image/webp').split(',')[1] })()`,
+      ),
+      'base64',
+    )
+    holdRead = false
+    saved = ['saved-film']
+    sorts.set(owner.username, 'title_desc')
+    ownerTags.set(owner.username, [{ id: '1', name: 'Privé', color: 'blue' }])
+    assignments().set('saved-film', ['1'])
+    preferences.set(owner.username, { view_mode: 'tags', filter_tag_id: '1' })
+    const away = await tab(page.browserContextId)
+    const failures = []
+    const stable = async (expression, label) => {
+      const result = await evaluate(page, expression)
+      if (!result)
+        failures.push(
+          `${label}: ${JSON.stringify(await evaluate(page, `window.__focusProof.nodes.map(({node,opacity,rect}) => ({id:node.id, label:node.getAttribute('aria-label'), connected:node.isConnected, disabled:node.disabled, opacity:getComputedStyle(node).opacity, expectedOpacity:opacity, rect:node.getBoundingClientRect().toJSON(), expectedRect:rect}))`))}`,
+        )
+      else check(result, label)
+    }
+    const waitHeld = async (read, label) => {
+      for (let i = 0; !read() && i < 100; i++) await delay(20)
+      check(!!read(), label)
+    }
+    const nativeReturn = async () => {
+      await getCDP().send('Page.bringToFront', {}, away.sessionId)
+      await until(
+        page,
+        `document.visibilityState === 'hidden' && !document.hasFocus()`,
+        'native tab departure',
+      )
+      await getCDP().send('Page.bringToFront', {}, page.sessionId)
+      await until(
+        page,
+        `document.visibilityState === 'visible' && document.hasFocus()`,
+        'native tab return',
+      )
+    }
+    for (const path of ['/compte/watchlist', '/compte/parametres']) {
+      await getCDP().send('Page.bringToFront', {}, page.sessionId)
+      await go(page, path)
+      const settings = path.endsWith('parametres')
+      const root = settings
+        ? '.account-overview-sections'
+        : 'section[aria-labelledby="saved-heading"]'
+      await until(
+        page,
+        settings
+          ? `!!document.querySelector('#trigger-avatar img') && !document.querySelector('#trigger-avatar').disabled`
+          : `!!${savedRow('saved-film')} && !document.querySelector('#watchlist-sort').disabled`,
+        `${path} ready`,
+      )
+      if (settings) {
+        await evaluate(page, `document.querySelector('#trigger-email').click()`)
+        await fill(page, 'new-email', 'draft@example.test')
+        await fill(page, 'email-password', 'private-draft')
+      } else {
+        await evaluate(
+          page,
+          `${savedRow('saved-film')}.querySelector('button[aria-label^="Modifier les tags"]').click()`,
+        )
+        await until(
+          page,
+          `!!document.querySelector('main label input[type="checkbox"]')`,
+          'floating tag picker opens',
+        )
+        await evaluate(
+          page,
+          `window.__tagFocusProof = [...document.querySelectorAll('main label:has(input[type="checkbox"])')].map(node => ({node, opacity:getComputedStyle(node).opacity}))`,
+        )
+      }
+      const selectors = settings
+        ? [
+            '#trigger-avatar',
+            'button[aria-label="Supprimer la photo"]',
+            '#editor-email button[type="submit"]',
+            '.overview-session-actions button',
+          ]
+        : [
+            '#watchlist-sort',
+            '#watchlist-tag-filter',
+            '[aria-label="Affichage des films"] button',
+            '[data-watchlist-remove]',
+            '[aria-controls="watchlist-add"]',
+          ]
+      await evaluate(
+        page,
+        `(() => { window.__focusProof = { root: document.querySelector(${JSON.stringify(root)}), fields:[...document.querySelectorAll('#editor-email input')].map(node=>({node,rect:node.getBoundingClientRect().toJSON(),opacity:getComputedStyle(node).opacity,disabled:node.disabled})), nodes: [...document.querySelectorAll(${JSON.stringify(selectors.join(','))})].map(node => ({node, opacity:getComputedStyle(node).opacity, rect:node.getBoundingClientRect().toJSON()})), row: ${settings ? "document.querySelector('#new-email')" : savedRow('saved-film')}, image: document.querySelector('#trigger-avatar img'), imageSrc: document.querySelector('#trigger-avatar img')?.src, revoked: [] }; const revoke = URL.revokeObjectURL; URL.revokeObjectURL = url => { window.__focusProof.revoked.push(url); revoke.call(URL, url) }; })()`,
+      )
+      const beforeWrites = writes.length
+      const beforeImages = requests.filter((request) =>
+        request.path.startsWith('/api/v1/account/avatar/'),
+      ).length
+      holdSession = true
+      releaseSession = undefined
+      if (settings) {
+        holdDetails = true
+        releaseDetails = undefined
+      } else {
+        holdRead = true
+        releaseRead = undefined
+      }
+      await nativeReturn()
+      await waitHeld(
+        () => releaseSession,
+        'native return starts held auth/session',
+      )
+      const prove = async (phase) => {
+        await stable(
+          `window.__focusProof.root.isConnected && window.__focusProof.row.isConnected && !document.querySelector('main .animate-pulse, main .motion-safe\\\\:animate-pulse')`,
+          `${path} ${phase}: original content stays mounted`,
+        )
+        await stable(
+          `window.__focusProof.nodes.every(({node,opacity,rect}) => node.isConnected && node.disabled && getComputedStyle(node).opacity === opacity && JSON.stringify(node.getBoundingClientRect().toJSON()) === JSON.stringify(rect))`,
+          `${path} ${phase}: disabled controls keep opacity and geometry`,
+        )
+        if (settings) {
+          await stable(
+            `window.__focusProof.fields.length === 2 && window.__focusProof.fields.every(({node,rect,opacity,disabled}) => node.isConnected && node.disabled === disabled && getComputedStyle(node).opacity === opacity && JSON.stringify(node.getBoundingClientRect().toJSON()) === JSON.stringify(rect))`,
+            `${path} ${phase}: original edit fields keep native state and geometry`,
+          )
+          await stable(
+            `document.querySelector('#new-email')?.value === 'draft@example.test' && document.querySelector('#email-password')?.value === 'private-draft' && window.__focusProof.image === document.querySelector('#trigger-avatar img') && window.__focusProof.imageSrc === document.querySelector('#trigger-avatar img')?.src && !window.__focusProof.revoked.length`,
+            `${path} ${phase}: editor drafts and avatar blob unchanged`,
+          )
+          await evaluate(
+            page,
+            `document.querySelector('#editor-email').dispatchEvent(new Event('submit', {bubbles:true,cancelable:true})); document.querySelector('#trigger-avatar').click()`,
+          )
+        } else {
+          await stable(
+            `window.__tagFocusProof.every(({node,opacity}) => node.isConnected && node.querySelector('input').disabled && getComputedStyle(node).opacity === opacity)`,
+            `${path} ${phase}: floating picker stays mounted and undimmed with disabled assignment inputs`,
+          )
+          await stable(
+            `document.querySelector('#watchlist-sort').value === 'title_desc' && document.querySelector('#watchlist-tag-filter').value === '1' && document.querySelector('[aria-label="Affichage des films"] button[aria-pressed="true"]').textContent.trim() === 'Par tag'`,
+            `${path} ${phase}: committed sort/filter/mode retained`,
+          )
+          await evaluate(
+            page,
+            `document.querySelector('#watchlist-sort').dispatchEvent(new Event('change', {bubbles:true})); document.querySelector('[data-watchlist-remove]')?.click()`,
+          )
+        }
+        check(
+          writes.length === beforeWrites,
+          `${path} ${phase}: no mutation dispatched`,
+        )
+      }
+      await prove('auth held')
+      holdSession = false
+      releaseSession()
+      await waitHeld(
+        () => (settings ? releaseDetails : releaseRead),
+        'same-owner private read held',
+      )
+      await prove('private read held')
+      // Capture after geometry assertions: full-page Chrome capture can alter
+      // scrollbar width, which must not contaminate the held-request proof.
+      await screenshot(
+        page,
+        `focus-${settings ? 'settings' : 'watchlist'}-private-held`,
+        false,
+      )
+      check(
+        requests.filter((request) =>
+          request.path.startsWith('/api/v1/account/avatar/'),
+        ).length === beforeImages,
+        `${path}: unchanged avatar not refetched`,
+      )
+      if (settings) {
+        holdDetails = false
+        releaseDetails()
+      } else {
+        holdRead = false
+        releaseRead()
+      }
+      await until(
+        page,
+        `!document.querySelector(${JSON.stringify(selectors[0])}).disabled`,
+        'refresh finishes without replay',
+      )
+      check(
+        writes.length === beforeWrites,
+        `${path}: no write replay after refresh`,
+      )
+      await screenshot(
+        page,
+        `focus-${settings ? 'settings' : 'watchlist'}-settled`,
+        false,
+      )
+      if (settings) {
+        holdLogoutAll = true
+        await click(page, 'Déconnecter tous les appareils')
+        await waitHeld(() => releaseLogoutAll, 'genuine settings mutation held')
+        check(
+          await evaluate(
+            page,
+            `document.querySelector('#trigger-avatar').disabled && getComputedStyle(document.querySelector('#trigger-avatar')).opacity === '0.5' && [...document.querySelectorAll('.overview-session-actions button')].every(button => button.disabled && getComputedStyle(button).opacity === '0.5')`,
+          ),
+          'genuine settings busy remains disabled and dimmed',
+        )
+        holdLogoutAll = false
+        releaseLogoutAll()
+        await until(
+          page,
+          `!document.querySelector('#trigger-avatar').disabled`,
+          'busy failure finishes',
+        )
+      }
+    }
+    check(
+      !failures.length,
+      `focus stability regressions: ${failures.join('; ') || 'none'}`,
+    )
+    // Privacy boundaries remain destructive. Recover with fresh route admission,
+    // never restore drafts or pending intent from a previous owner/lifetime.
+    for (const path of ['/compte/watchlist', '/compte/parametres']) {
+      for (const boundary of [
+        'owner',
+        'state',
+        'signout',
+        'session-error',
+        'private-error',
+        'pagehide',
+      ]) {
+        session = { enabled: true, state: 'complete', account: owner }
+        failSession = failDetails = false
+        await go(page, path)
+        const settings = path.endsWith('parametres')
+        await until(
+          page,
+          settings
+            ? `!!document.querySelector('#trigger-avatar img') && !document.querySelector('#trigger-avatar').disabled`
+            : `!!${savedRow('saved-film')} && !document.querySelector('#watchlist-sort').disabled`,
+          'privacy fixture ready',
+        )
+        if (settings) {
+          await evaluate(
+            page,
+            `window.__privateAvatar = document.querySelector('#trigger-avatar img').src; window.__privateRevoked=[]; const revoke=URL.revokeObjectURL.bind(URL); URL.revokeObjectURL=url=>{window.__privateRevoked.push(url);return revoke(url)}`,
+          )
+          await evaluate(
+            page,
+            `document.querySelector('#trigger-email').click()`,
+          )
+          await fill(page, 'new-email', 'private-draft@example.test')
+        }
+        if (boundary === 'pagehide') {
+          if (settings) holdDetails = true
+          else holdRead = true
+          await nativeReturn()
+          await waitHeld(
+            () => (settings ? releaseDetails : releaseRead),
+            'late private response held before pagehide',
+          )
+        }
+        if (boundary === 'owner')
+          session = {
+            enabled: true,
+            state: 'complete',
+            account: { ...owner, username: 'replacement' },
+          }
+        if (boundary === 'state')
+          session = { enabled: true, state: 'pending_username', account: null }
+        if (boundary === 'signout')
+          session = { enabled: true, state: 'anonymous', account: null }
+        if (boundary === 'session-error') failSession = true
+        if (boundary === 'private-error') {
+          if (settings) failDetails = true
+          else failRead = true
+        }
+        if (boundary === 'pagehide')
+          await evaluate(
+            page,
+            `window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}))`,
+          )
+        else await nativeReturn()
+        await until(
+          page,
+          settings
+            ? `!document.querySelector('#new-email, #trigger-avatar img') && !document.querySelector('.account-overview-sections')`
+            : `!${savedRow('saved-film')}`,
+          `${path} ${boundary} purges private content`,
+        )
+        if (settings)
+          check(
+            await evaluate(
+              page,
+              `window.__privateRevoked.includes(window.__privateAvatar)`,
+            ),
+            `${path} ${boundary}: private avatar URL revoked`,
+          )
+        if (boundary === 'pagehide') {
+          if (settings) {
+            holdDetails = false
+            releaseDetails()
+            releaseDetails = undefined
+          } else {
+            holdRead = false
+            releaseRead()
+            releaseRead = undefined
+          }
+          await delay(250)
+          check(
+            await evaluate(
+              page,
+              settings
+                ? `!document.querySelector('#trigger-avatar img')`
+                : `!${savedRow('saved-film')}`,
+            ),
+            `${path}: late private completion cannot restore pagehide content`,
+          )
+        }
+        check(
+          await evaluate(
+            page,
+            `![localStorage,sessionStorage,window.__NUXT__].some(value => /private-draft|Privé|draft@example.test/.test(JSON.stringify(value)))`,
+          ),
+          `${path} ${boundary}: private drafts/tags absent from persistence`,
+        )
+      }
+    }
+    return
+  }
   await go(page, '/compte/watchlist')
   await checkLoadingLayout('desktop')
   await screenshot(page, 'loading-desktop')
@@ -933,7 +1557,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-query').disabled && document.querySelectorAll('h1').length === 1`,
+      `!document.querySelector('button[aria-controls="watchlist-add"]').disabled && !document.querySelector('#watchlist-query') && document.querySelectorAll('h1').length === 1`,
     ),
     'watchlist form enabled with single heading',
   )
@@ -1000,6 +1624,8 @@ export async function watchlistScenario({
     ),
     'manager uses native modal top layer and initially focuses close control',
   )
+  await checkTagModalStyle('desktop')
+  await screenshot(page, 'tag-manager-desktop', false)
   const modalAccessibility = await getCDP().send(
     'Accessibility.getFullAXTree',
     {},
@@ -1042,6 +1668,7 @@ export async function watchlistScenario({
   )
   await fill(page, 'watchlist-tag-name', '<b>Amis</b>')
   await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-create-desktop', false)
   await click(page, 'Créer')
   await until(
     page,
@@ -1110,6 +1737,31 @@ export async function watchlistScenario({
     { features: [] },
     page.sessionId,
   )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[value="amber"]').focus()`,
+  )
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32 },
+      page.sessionId,
+    )
+  check(
+    await evaluate(
+      page,
+      `(() => { const r = document.activeElement; return r.value === 'amber' && r.checked && r.closest('label').querySelectorAll('svg').length === 1 && document.querySelectorAll('#watchlist-tag-create svg').length === 1 && getComputedStyle(r.closest('label')).outlineWidth === '2px' })()`,
+    ),
+    'native Space selects unchecked color with one non-hue marker and visible keyboard focus',
+  )
+  await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-keyboard-desktop', false)
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+      page.sessionId,
+    )
   await click(page, 'Créer')
   await until(
     page,
@@ -1166,7 +1818,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager' && document.body.style.overflow !== 'hidden'`,
     ),
     'modal close restores original manager trigger',
   )
@@ -1199,10 +1851,30 @@ export async function watchlistScenario({
     ),
     'native modal backdrop click closes and restores trigger',
   )
+  check(
+    await evaluate(page, `document.body.style.overflow !== 'hidden'`),
+    'tag modal backdrop releases background scroll lock',
+  )
+  await click(page, 'Ajouter')
+  await until(
+    page,
+    `document.querySelector('#watchlist-add')?.matches(':modal') && document.activeElement.id === 'watchlist-query' && document.body.style.overflow === 'hidden'`,
+    'header add opens focused search dialog and locks background',
+  )
+  check(
+    await evaluate(
+      page,
+      `(() => { const h = document.querySelector('h1').getBoundingClientRect(), b = document.querySelector('button[aria-controls="watchlist-add"]').getBoundingClientRect(); return b.left > h.right && b.top < h.bottom && b.bottom > h.top })()`,
+    ),
+    'Ajouter sits at end of Watchlist title row',
+  )
   await fill(page, 'watchlist-query', 'private candidate query')
   check(
-    await evaluate(page, `!document.querySelector('#watchlist-results')`),
-    'typing alone never opens or submits search',
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-catalog-panel li')`,
+    ),
+    'typing alone never submits search',
   )
   const documentHeight = await evaluate(
     page,
@@ -1217,9 +1889,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const panel = document.querySelector('#watchlist-results'); const scroll = panel.querySelector('.overflow-y-auto'); const form = document.querySelector('form'); return getComputedStyle(panel).position === 'absolute' && panel.getBoundingClientRect().top >= document.querySelector('#watchlist-query').getBoundingClientRect().bottom && panel.getBoundingClientRect().bottom <= innerHeight && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollHeight === ${documentHeight} && form.contains(panel) && document.activeElement.id === 'watchlist-catalog-tab'; })()`,
+      `(() => { const dialog = document.querySelector('#watchlist-add'), scroll = dialog.querySelector('.overflow-y-auto'), rect = dialog.getBoundingClientRect(); return dialog.matches(':modal') && rect.top >= 16 && rect.bottom <= innerHeight - 16 && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollHeight === ${documentHeight} && document.activeElement.id === 'watchlist-catalog-tab'; })()`,
     ),
-    'results overlay is anchored, viewport bounded and does not expand document',
+    'search modal is viewport bounded, scrollable and does not expand document',
   )
   check(
     await evaluate(
@@ -1231,7 +1903,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const before = scrollY; const scroll = document.querySelector('#watchlist-results .overflow-y-auto'); scroll.scrollTop = 500; return scroll.scrollTop === 500 && scrollY === before; })()`,
+      `(() => { const before = scrollY; const scroll = document.querySelector('#watchlist-add .overflow-y-auto'); scroll.scrollTop = 500; return scroll.scrollTop === 500 && scrollY === before; })()`,
     ),
     'result scrolling leaves document scroll position unchanged',
   )
@@ -1261,8 +1933,11 @@ export async function watchlistScenario({
   )
   await screenshot(page, 'external-tab')
   check(
-    await evaluate(page, `!document.querySelector('a[href*="999"]')`),
-    'external candidate has no fictitious public URL',
+    await evaluate(
+      page,
+      `(() => { const link = document.querySelector('#watchlist-external-panel li a'); return link?.getAttribute('href') === 'https://www.themoviedb.org/movie/999' && link.getAttribute('target') === '_blank' && link.getAttribute('rel') === 'noopener noreferrer' && link.getAttribute('referrerpolicy') === 'no-referrer' && !document.querySelector('#watchlist-external-panel a[href^="/film/"]'); })()`,
+    ),
+    'external title links to fixed TMDB detail in protected new tab, without fictitious public URL',
   )
   await evaluate(
     page,
@@ -1315,9 +1990,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.querySelector('#watchlist-query').value === '' && document.activeElement.id === 'watchlist-query'`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add' && document.body.style.overflow !== 'hidden'`,
     ),
-    'confirmed catalog save closes clears and restores input focus',
+    'confirmed catalog save closes and restores header focus and scroll',
   )
   check(
     await evaluate(
@@ -1326,6 +2001,7 @@ export async function watchlistScenario({
     ),
     'saved catalog movie displays verified full French date, not general release year',
   )
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -1377,7 +2053,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.querySelector('#watchlist-query').value === ''`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add'`,
     ),
     'confirmed external import closes and clears search',
   )
@@ -1387,6 +2063,345 @@ export async function watchlistScenario({
       `(() => { const row = ${savedRow('external-film')}; return !!row && !row.querySelector('time, .text-muted') && !row.textContent.includes('2026'); })()`,
     ),
     'imported movie without French evidence has no date or general-year fallback',
+  )
+  const removalWrites = () =>
+    writes.filter(
+      (write) =>
+        write.path === '/api/v1/account/watchlist' &&
+        write.body.saved === 'false',
+    )
+  const removePanel = `document.querySelector('#watchlist-remove')`
+  async function openRemove(slug = 'external-film') {
+    await until(
+      page,
+      `${savedRow(slug)}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+      'removal opener ready',
+    )
+    await evaluate(
+      page,
+      `${savedRow(slug)}.querySelector('[data-watchlist-remove]').click()`,
+    )
+    await until(
+      page,
+      `${removePanel}?.matches(':modal') && document.activeElement.textContent.trim() === 'Annuler'`,
+      'confirmation opens with safe Cancel focus',
+    )
+  }
+  async function checkRemovalSurface(name) {
+    const geometry = await evaluate(
+      page,
+      `(() => { const dialog = ${removePanel}, rect = dialog.getBoundingClientRect(), style = getComputedStyle(dialog), header = dialog.firstElementChild, title = document.querySelector('#watchlist-remove-title'), close = header.querySelector('button'), body = header.nextElementSibling; return {left: rect.left, top: rect.top, width: rect.width, bottom: rect.bottom, title: title.textContent, valid: dialog.matches(':modal') && style.borderWidth === '2px' && style.borderColor === 'rgb(39, 39, 42)' && style.borderRadius === '0px' && style.backgroundColor === 'rgb(255, 255, 255)' && style.padding === '0px' && style.boxShadow !== 'none' && rect.width === Math.min(672, innerWidth - 32) && rect.top >= 15.5 && rect.bottom <= innerHeight - 15.5 && getComputedStyle(header).padding === '16px' && getComputedStyle(header).borderBottomWidth === '1px' && close.getBoundingClientRect().width === 44 && close.querySelector('svg').getBoundingClientRect().width === 20 && getComputedStyle(body).padding === '16px' && getComputedStyle(body).overflowY === 'auto' && body.scrollWidth <= body.clientWidth && title.scrollWidth <= title.clientWidth && document.body.style.overflow === 'hidden' } })()`,
+    )
+    check(
+      geometry.valid,
+      `${name} confirmation matches square native modal surface, bounded title/internal scroll and fixed close ${JSON.stringify(geometry)}`,
+    )
+    const tree = await getCDP().send(
+      'Accessibility.getFullAXTree',
+      {},
+      page.sessionId,
+    )
+    check(
+      tree.nodes.some(
+        (node) =>
+          node.role?.value === 'dialog' &&
+          node.name?.value === 'Retirer de la watchlist' &&
+          node.description?.value === geometry.title,
+      ),
+      `${name} native confirmation exposes selected movie as full accessible description`,
+    )
+    await screenshot(page, `remove-confirmation-${name}`, false)
+  }
+  await getCDP().send('Page.bringToFront', {}, page.sessionId)
+  await checkClock(page, 'remove')
+  const beforeRemoveCancel = removalWrites().length
+  for (const channel of ['cancel', 'close', 'escape', 'backdrop']) {
+    await openRemove()
+    check(
+      removalWrites().length === beforeRemoveCancel,
+      `opening ${channel} confirmation sends no removal`,
+    )
+    if (channel === 'cancel') {
+      await checkRemovalSurface('desktop')
+      for (let i = 0; i < 4; i++) {
+        for (const type of ['keyDown', 'keyUp'])
+          await getCDP().send(
+            'Input.dispatchKeyEvent',
+            { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+            page.sessionId,
+          )
+        check(
+          await evaluate(
+            page,
+            `${removePanel}.contains(document.activeElement) || document.activeElement === document.body`,
+          ),
+          'confirmation Tab never focuses background control',
+        )
+      }
+      await evaluate(
+        page,
+        `document.querySelector('[aria-controls="watchlist-add"]').focus()`,
+      )
+      check(
+        await evaluate(
+          page,
+          `document.activeElement.getAttribute('aria-controls') !== 'watchlist-add'`,
+        ),
+        'confirmation rejects background programmatic focus',
+      )
+      await evaluate(
+        page,
+        `document.querySelector('#watchlist-remove-heading').click()`,
+      )
+      check(
+        await evaluate(page, `${removePanel}.matches(':modal')`),
+        'inside confirmation header is not backdrop',
+      )
+      // Chromium can cycle Tab through browser chrome, triggering account revalidation.
+      await getCDP().send('Page.bringToFront', {}, page.sessionId)
+      await evaluate(
+        page,
+        `${removePanel}.querySelector('.account-secondary').focus()`,
+      )
+      await until(
+        page,
+        `document.activeElement === ${removePanel}.querySelector('.account-secondary') && !document.querySelector('[aria-controls="watchlist-add"]').disabled && !!${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+        'foreground account snapshot ready before cancellation',
+      )
+      await click(page, 'Annuler')
+    } else if (channel === 'close') await click(page, 'Fermer la confirmation')
+    else if (channel === 'escape') await escapeOverlay()
+    else await backdropClick()
+    try {
+      await until(
+        page,
+        `!${removePanel} && document.body.style.overflow !== 'hidden' && document.activeElement.hasAttribute('data-watchlist-remove')`,
+        `${channel} closes confirmation, restores same opener and scroll`,
+      )
+    } catch (cause) {
+      const focusState = await evaluate(
+        page,
+        `({pageFocused: document.hasFocus(), activeTag: document.activeElement.tagName, activeBody: document.activeElement === document.body, activeRemove: document.activeElement.hasAttribute('data-watchlist-remove'), activeConnected: document.activeElement.isConnected, activeDisabled: !!document.activeElement.disabled, activeControls: document.activeElement.getAttribute('aria-controls'), dialogExists: !!${removePanel}, scrollLocked: document.body.style.overflow === 'hidden', enabledRemovals: document.querySelectorAll('[data-watchlist-remove]:not(:disabled)').length, addDisabled: !!document.querySelector('[aria-controls="watchlist-add"]').disabled})`,
+      )
+      throw new Error(
+        `${channel} cancellation focus diagnostic ${JSON.stringify(focusState)}`,
+        { cause },
+      )
+    }
+    check(
+      removalWrites().length === beforeRemoveCancel &&
+        saved.includes('external-film'),
+      `${channel} never mutates membership`,
+    )
+  }
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+      page.sessionId,
+    )
+  await until(
+    page,
+    `!!document.querySelector('[data-watchlist-remove]:not(:disabled)') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'committed row ready for keyboard focus styling',
+  )
+  // Native dialog dismissal changes the Tab starting point; inspect the current cross.
+  const crossFocus = await evaluate(
+    page,
+    `(() => { const cross = document.querySelector('[data-watchlist-remove]:not(:disabled)'); cross.focus(); const style = getComputedStyle(cross); return {active: document.activeElement === cross, focusVisible: cross.matches(':focus-visible'), width: style.outlineWidth, line: style.outlineStyle, offset: style.outlineOffset} })()`,
+  )
+  check(
+    crossFocus.active &&
+      crossFocus.focusVisible &&
+      crossFocus.width === '3px' &&
+      crossFocus.line === 'solid' &&
+      crossFocus.offset === '3px',
+    `borderless removal cross retains separated keyboard focus outline ${JSON.stringify(crossFocus)}`,
+  )
+  externalTitle =
+    'Un très long titre de cinéma pour identifier clairement le film à retirer sans dépasser la fenêtre de confirmation'
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.textContent.includes(${JSON.stringify(externalTitle)}) && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'long removal title snapshot ready',
+  )
+  await openRemove()
+  await checkRemovalSurface('desktop-long-title')
+  await click(page, 'Annuler')
+  externalTitle = 'Film externe'
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('a').textContent.trim() === 'Film externe' && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'original title restored before conflict',
+  )
+  conflict = true
+  await openRemove()
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  await until(
+    page,
+    `${removePanel}?.querySelector('[role="alert"]') && ${removePanel}.querySelector('.account-primary').disabled && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'removal conflict completes readback with local recovery and consumed intent',
+  )
+  check(
+    removalWrites().length === beforeRemoveCancel + 1 &&
+      saved.includes('external-film'),
+    'conflict dispatches once without false removal',
+  )
+  await click(page, 'Réessayer')
+  await until(
+    page,
+    `!${removePanel}.querySelector('[role="alert"]') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'confirmation retry only refreshes authoritative state',
+  )
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  check(
+    removalWrites().length === beforeRemoveCancel + 1,
+    'readback never replays removal or reuses consumed confirmation',
+  )
+  await click(page, 'Annuler')
+  uncertainRemoval = true
+  await openRemove()
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  await until(
+    page,
+    `${removePanel}?.querySelector('[role="alert"]') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'uncertain committed removal stays open with readback error',
+  )
+  check(
+    !saved.includes('external-film') &&
+      removalWrites().length === beforeRemoveCancel + 2,
+    'uncertain committed removal neither reports success nor replays',
+  )
+  await click(page, 'Réessayer')
+  await until(
+    page,
+    `!${removePanel}.querySelector('[role="alert"]') && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    'removed target readback recovers without a new removal',
+  )
+  check(
+    await evaluate(
+      page,
+      `${removePanel}.querySelector('.account-primary').disabled`,
+    ),
+    'externally absent target cannot be reconfirmed',
+  )
+  await click(page, 'Annuler')
+  await until(
+    page,
+    `!${removePanel} && document.activeElement.hasAttribute('data-watchlist-remove') && document.body.style.overflow !== 'hidden'`,
+    'removed opener falls back to surviving list cross',
+  )
+  // Restore synthetic fixture membership for the existing preference/tag acceptance lane.
+  saved.unshift('external-film')
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'restored fixture snapshot ready',
+  )
+  await openRemove()
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!${removePanel} && !document.querySelector('#watchlist-remove-title') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'pagehide synchronously purges removal target/title and scroll lock',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'pageshow restores membership without removal intent',
+  )
+  check(
+    await evaluate(page, `!${removePanel}`),
+    'pageshow does not restore private confirmation',
+  )
+  await openRemove()
+  session = {
+    enabled: true,
+    state: 'complete',
+    account: { ...owner, username: 'removal_replacement_owner' },
+  }
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `!${removePanel} && document.body.style.overflow !== 'hidden'`,
+    'owner replacement clears confirmation and lock',
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-remove-title') && document.activeElement.getAttribute('aria-controls') !== 'watchlist-remove'`,
+    ),
+    'owner replacement never restores old private title or opener',
+  )
+  session = { enabled: true, state: 'complete', account: owner }
+  await go(page, '/compte/watchlist')
+  await openRemove()
+  hold = true
+  release = undefined
+  const beforeLate = removalWrites().length
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click(); ${removePanel}.querySelector('.account-primary').click()`,
+  )
+  for (let i = 0; !release && i < 100; i++) await delay(20)
+  check(
+    !!release && removalWrites().length === beforeLate + 1,
+    'confirmed held removal dispatches exactly once despite duplicate click',
+  )
+  // Account navigation revalidation waits for the held writer. Start navigation,
+  // observe synchronous page cleanup, then release the write before awaiting arrival.
+  await evaluate(page, `(() => { void ${router}.push('/compte') })()`)
+  await until(
+    page,
+    `!${removePanel} && document.body.style.overflow !== 'hidden' && !document.querySelector('#watchlist-remove-title')`,
+    'navigation purges pending confirmation and private title',
+  )
+  hold = false
+  release()
+  await until(
+    page,
+    `${router}?.currentRoute.value.path === '/compte'`,
+    'departed page remains active',
+  )
+  for (let i = 0; saved.includes('external-film') && i < 100; i++)
+    await delay(20)
+  check(
+    !saved.includes('external-film') &&
+      (await evaluate(
+        page,
+        `!${removePanel} && document.body.style.overflow !== 'hidden'`,
+      )),
+    'late committed removal cannot resurrect overlay or scroll lock after navigation',
+  )
+  saved.unshift('external-film')
+  revision++
+  await go(page, '/compte/watchlist')
+  await until(
+    page,
+    `${savedRow('external-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'existing tag lane restored after late removal',
   )
   async function toggleAssignment(slug, tagName, assigned) {
     await evaluate(
@@ -1629,6 +2644,62 @@ export async function watchlistScenario({
   )
   await filterTag('')
   const picker = `${savedRow('saved-film')}.querySelector('[role="group"]')`
+  const floatingHeaderHeights = new Map()
+  async function checkFloatingStyle(name, placement) {
+    const geometry = await evaluate(
+      page,
+      `(() => {
+      const p = document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]'), r = p.getBoundingClientRect(), s = getComputedStyle(p), header = p.firstElementChild, h = getComputedStyle(header), title = header.querySelector('h3'), label = title.firstElementChild, movie = title.lastElementChild, l = getComputedStyle(label), m = getComputedStyle(movie), lr = label.getBoundingClientRect(), mr = movie.getBoundingClientRect(), close = header.querySelector('button'), c = close.getBoundingClientRect(), body = p.lastElementChild, b = getComputedStyle(body), anchor = p.parentElement.querySelector('button[aria-expanded]').getBoundingClientRect(), original = p.closest('li').querySelector('a').textContent.trim();
+      const square = [p, close, ...body.querySelectorAll('label')].every(node => getComputedStyle(node).borderRadius === '0px');
+      return { left:r.left, right:r.right, top:r.top, bottom:r.bottom, width:r.width, height:r.height, anchorTop:anchor.top, anchorBottom:anchor.bottom, headerHeight:header.getBoundingClientRect().height, movieHeight:mr.height, movieLineHeight:parseFloat(m.lineHeight), titleFont:parseFloat(l.fontSize), movieFont:parseFloat(m.fontSize), titleWidth:movie.clientWidth, titleScrollWidth:movie.scrollWidth, original, surface:s.position === 'fixed' && s.borderTopWidth === '2px' && s.borderColor === 'rgb(39, 39, 42)' && s.backgroundColor === 'rgb(255, 255, 255)' && s.color === 'rgb(39, 39, 42)' && s.padding === '0px' && s.boxShadow !== 'none' && square, header:h.padding === '16px' && h.gap === '12px' && h.borderBottomWidth === '1px' && label.classList.contains('account-heading') && label.textContent === 'Tags' && movie.textContent === original && l.display === 'block' && m.display === 'block' && parseFloat(m.fontSize) < parseFloat(l.fontSize) && m.fontWeight === '400' && m.whiteSpace === 'nowrap' && m.overflowX === 'hidden' && m.textOverflow === 'ellipsis' && Math.abs(mr.height-parseFloat(m.lineHeight)) < 1 && mr.top >= lr.bottom && mr.right <= c.left-12+1 && title.classList.contains('min-w-0') && !title.hasAttribute('aria-hidden'), close:c.width === 44 && c.height === 44 && close.querySelector('svg').getAttribute('width') === '20' && c.right <= r.right && c.top >= r.top && c.bottom <= r.bottom, body:b.padding === '16px' && b.overflowY === 'auto' && b.overscrollBehaviorY === 'contain' && body.clientHeight > 0 && p.scrollWidth <= p.clientWidth, anchored:p.getAttribute('role') === 'group' && !p.hasAttribute('aria-modal') && !document.querySelector('dialog:modal') && document.body.style.overflow !== 'hidden', bound:r.left >= 8 && r.right <= innerWidth-8 && r.top >= 8 && r.bottom <= innerHeight-8 && r.width <= 320 && r.height <= 320 };
+    })()`,
+    )
+    const previousHeight = floatingHeaderHeights.get(geometry.width)
+    check(
+      previousHeight === undefined ||
+        Math.abs(previousHeight - geometry.headerHeight) < 1,
+      `${name} short and long movie titles retain equal header height`,
+    )
+    floatingHeaderHeights.set(geometry.width, geometry.headerHeight)
+    check(
+      geometry.original.length > 60
+        ? geometry.titleScrollWidth > geometry.titleWidth
+        : geometry.titleScrollWidth === geometry.titleWidth,
+      `${name} one-line movie title ${geometry.original.length > 60 ? 'ellipsizes long text' : 'fits short text'}`,
+    )
+    const floatingAX = await getCDP().send(
+      'Accessibility.getFullAXTree',
+      {},
+      page.sessionId,
+    )
+    check(
+      floatingAX.nodes.some(
+        (node) =>
+          node.role?.value === 'group' &&
+          node.name?.value === `Tags ${geometry.original}`,
+      ),
+      `${name} floating group retains full accessible movie title`,
+    )
+    check(
+      geometry.surface &&
+        geometry.header &&
+        geometry.close &&
+        geometry.body &&
+        geometry.anchored &&
+        geometry.bound,
+      `${name} floating picker matches square surface/header/body without modal behavior ${JSON.stringify(geometry)}`,
+    )
+    if (placement)
+      check(
+        Math.abs(
+          placement === 'below'
+            ? geometry.top - geometry.anchorBottom - 8
+            : geometry.anchorTop - geometry.bottom - 8,
+        ) < 1,
+        `${name} floating picker remains ${placement} trigger with 8px gap`,
+      )
+    await screenshot(page, `tag-floating-style-${name}`, false)
+  }
   const rowHeight = await evaluate(
     page,
     `${savedRow('saved-film')}.getBoundingClientRect().height`,
@@ -1645,7 +2716,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const p = ${picker}, r = p.getBoundingClientRect(), button = ${savedRow('saved-film')}.querySelector('button[aria-expanded]'); return getComputedStyle(p).position === 'fixed' && r.width <= 320 && r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && document.activeElement === ${firstCheckbox} && button.textContent.trim() === 'Tag' && button.getBoundingClientRect().height >= 44 && ${savedRow('saved-film')}.getBoundingClientRect().height === ${rowHeight} && document.documentElement.scrollHeight === ${listHeight}; })()`,
+      `(() => { const p = ${picker}, r = p.getBoundingClientRect(), button = ${savedRow('saved-film')}.querySelector('button[aria-expanded]'); return getComputedStyle(p).position === 'fixed' && r.width <= 320 && r.left >= 8 && r.right <= innerWidth - 8 && r.top >= 8 && r.bottom <= innerHeight - 8 && document.activeElement === ${firstCheckbox} && button.textContent.trim() === 'Tag' && button.getBoundingClientRect().height >= 28 && ${savedRow('saved-film')}.getBoundingClientRect().height === ${rowHeight} && document.documentElement.scrollHeight === ${listHeight}; })()`,
     ),
     'compact film-anchored picker focuses first checkbox without expanding row or page',
   )
@@ -1657,12 +2728,13 @@ export async function watchlistScenario({
   check(
     pickerAX.nodes.some(
       (node) =>
-        node.role?.value === 'group' &&
-        node.name?.value === 'Tags de Film favori',
+        node.role?.value === 'group' && node.name?.value === 'Tags Film favori',
     ),
     'picker group exposes film-specific title',
   )
   await screenshot(page, 'tag-picker-desktop', false)
+  await checkFloatingStyle('desktop', 'below')
+  await checkChips(page, evaluate, check, 'desktop assignment picker')
   await evaluate(
     page,
     `document.querySelector('#saved-heading').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}))`,
@@ -1876,6 +2948,8 @@ export async function watchlistScenario({
     'only active edit palette and its single native radio group are mounted',
   )
   await screenshot(page, 'tag-color-edit-desktop', false)
+  await checkPalette(page, evaluate, check)
+  await checkChips(page, evaluate, check, 'desktop editor and saved rows')
   await click(page, 'Enregistrer')
   await until(
     page,
@@ -1956,6 +3030,17 @@ export async function watchlistScenario({
     { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
     page.sessionId,
   )
+  await until(
+    page,
+    `!document.querySelector('#watchlist-tag-manager')`,
+    'breakpoint closes tag manager without stale focus restoration',
+  )
+  await click(page, 'Gérer les tags')
+  await until(
+    page,
+    `document.querySelector('#watchlist-tag-manager')?.matches(':modal')`,
+    'mobile manager remains separately accessible',
+  )
   check(
     await evaluate(
       page,
@@ -1964,14 +3049,74 @@ export async function watchlistScenario({
     '320px modal body stays viewport bounded without horizontal overflow',
   )
   await screenshot(page, 'tag-manager-mobile', false)
+  await checkTagModalStyle('320px')
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await checkTagModalStyle('390px')
+  await screenshot(page, 'tag-manager-390', false)
   await click(page, 'Créer un tag')
   await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-create-390', false)
+  const draftColor390 = await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[type="radio"]:checked').value`,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[value="teal"]').click()`,
+  )
+  await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-selected-teal-390', false)
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[value="${draftColor390}"]').click()`,
+  )
+  await click(page, 'Annuler')
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await click(page, 'Créer un tag')
+  await checkPalette(page, evaluate, check)
+  await checkChips(page, evaluate, check, '320px creation and saved rows')
   await screenshot(page, 'tag-create-mobile', false)
+  await checkTagRows('320px expanded creation')
+  await click(page, 'Annuler')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Modifier À revoir au cinéma avec tous les amis"]').click()`,
+  )
+  await checkPalette(page, evaluate, check)
+  await checkChips(page, evaluate, check, '320px long-name editor')
+  await screenshot(page, 'editorial-palette-edit-320', false)
+  for (const color of ['teal', 'rose']) {
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="${color}"]').click()`,
+    )
+    await checkPalette(page, evaluate, check)
+    await screenshot(page, `editorial-palette-selected-${color}-320`, false)
+  }
+  await click(page, 'Annuler')
+  await click(page, 'Créer un tag')
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
     page.sessionId,
   )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await until(
+    page,
+    `parseFloat(getComputedStyle(document.querySelector('#watchlist-tag-manager')).maxHeight) <= 288`,
+    'short tag modal applies visual viewport bound',
+  )
+  await checkTagModalStyle('320px short-height')
   check(
     await evaluate(
       page,
@@ -1980,6 +3125,13 @@ export async function watchlistScenario({
     'short viewport scrolls modal body while close control remains visible',
   )
   await screenshot(page, 'tag-manager-short-viewport', false)
+  check(
+    await evaluate(
+      page,
+      `(() => { const body = document.querySelector('#watchlist-tag-manager .overflow-y-auto'), close = document.querySelector('button[aria-label="Fermer la gestion des tags"]'), top = close.getBoundingClientRect().top, page = scrollY; body.scrollTop = body.scrollHeight; return body.scrollTop > 0 && close.getBoundingClientRect().top === top && scrollY === page })()`,
+    ),
+    'short tag modal scrolls body without moving close control or background',
+  )
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
@@ -2003,7 +3155,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager' && document.body.style.overflow !== 'hidden'`,
     ),
     'Escape dismisses native modal and restores manager trigger',
   )
@@ -2042,6 +3194,8 @@ export async function watchlistScenario({
     'Escape closes tag checkbox disclosure and restores its trigger focus',
   )
   const ordinaryTags = [...tags()]
+  const longPickerTitle =
+    'Un très long titre de cinéma pour vérifier le panneau flottant et son bouton de fermeture'
   ownerTags.set(owner.username, [
     ...ordinaryTags,
     ...Array.from({ length: 12 }, (_, index) => ({
@@ -2057,18 +3211,29 @@ export async function watchlistScenario({
     `document.querySelector('#watchlist-tag-filter:not(:disabled)')?.options.length === 15`,
     'long picker fixture revalidated',
   )
-  for (const [name, width, height] of [
-    ['mobile', 320, 844],
-    ['short-viewport', 320, 320],
+  for (const [name, width, height, title] of [
+    ['desktop-long', 1440, 900, longPickerTitle],
+    ['desktop-short', 1440, 900, 'Film externe'],
+    ['mobile', 320, 844, longPickerTitle],
+    ['mobile-short', 320, 844, 'Film externe'],
+    ['short-viewport', 320, 320, longPickerTitle],
   ]) {
     await getCDP().send(
       'Emulation.setDeviceMetricsOverride',
       { width, height, deviceScaleFactor: 1, mobile: true },
       page.sessionId,
     )
+    externalTitle = title
+    revision++
+    await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+    await until(
+      page,
+      `${savedRow('external-film')}.querySelector('a')?.textContent.trim() === ${JSON.stringify(title)} && !${savedRow('external-film')}.querySelector('button[aria-expanded]').disabled`,
+      `${name} movie title fixture revalidated`,
+    )
     await evaluate(
       page,
-      `(() => { const button = document.querySelector('button[aria-label="Modifier les tags de Film externe"]'); button.scrollIntoView({block:'end'}); if(button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
+      `(() => { const button = ${savedRow('external-film')}.querySelector('button[aria-expanded]'); button.scrollIntoView({block:'end'}); if(button.getAttribute('aria-expanded') !== 'true') button.click(); })()`,
     )
     await delay(100)
     check(
@@ -2079,11 +3244,36 @@ export async function watchlistScenario({
       `${name} picker clamps all edges, scrolls internally and retains reachable close control`,
     )
     await screenshot(page, `tag-picker-${name}`, false)
+    await checkFloatingStyle(
+      name,
+      name === 'mobile'
+        ? 'above'
+        : name === 'mobile-short'
+          ? 'below'
+          : undefined,
+    )
+    const beforeScroll = await evaluate(
+      page,
+      `({page:scrollY, close:document.querySelector('button[aria-label="Fermer les tags"]').getBoundingClientRect().top})`,
+    )
+    await evaluate(
+      page,
+      `document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"] .overflow-y-auto').scrollTop = 9999`,
+    )
+    check(
+      await evaluate(
+        page,
+        `(() => { const p = document.querySelector('section[aria-labelledby="saved-heading"] li [role="group"]'); return p.querySelector('.overflow-y-auto').scrollTop > 0 && scrollY === ${beforeScroll.page} && p.querySelector('button').getBoundingClientRect().top === ${beforeScroll.close} })()`,
+      ),
+      `${name} floating options scroll without moving close control or document`,
+    )
+    await checkChips(page, evaluate, check, `320px ${name} assignment picker`)
     await evaluate(
       page,
       `document.querySelector('button[aria-label="Fermer les tags"]').click()`,
     )
   }
+  externalTitle = 'Film externe'
   ownerTags.set(owner.username, ordinaryTags)
   revision++
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
@@ -2389,6 +3579,54 @@ export async function watchlistScenario({
     )
     await checkCompactLayout(width)
     await checkGroupDots(`${width}px`)
+    await click(page, 'Gérer les tags')
+    await until(
+      page,
+      `document.querySelector('#watchlist-tag-manager')?.matches(':modal')`,
+      'tag row geometry modal opens',
+    )
+    await checkTagRows(`${width}px`)
+    for (let i = 0; i < 2; i++) {
+      for (const type of ['keyDown', 'keyUp'])
+        await getCDP().send(
+          'Input.dispatchKeyEvent',
+          { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+          page.sessionId,
+        )
+    }
+    check(
+      await evaluate(
+        page,
+        `(() => { const button = document.querySelector('#watchlist-tag-manager ul button'); return document.activeElement === button && button.matches(':focus-visible') && parseFloat(getComputedStyle(button).outlineWidth) >= 2 })()`,
+      ),
+      `${width}px icon edit action is keyboard reachable with visible focus`,
+    )
+    const actionPoint = await evaluate(
+      page,
+      `(() => { const r = document.querySelector('#watchlist-tag-manager ul button').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`,
+    )
+    await getCDP().send(
+      'Input.dispatchMouseEvent',
+      { type: 'mouseMoved', ...actionPoint },
+      page.sessionId,
+    )
+    check(
+      await evaluate(
+        page,
+        `(() => { if (!matchMedia('(hover: hover)').matches) return true; const button = document.querySelector('#watchlist-tag-manager ul button'), reference = document.createElement('span'); reference.className = 'bg-subtle'; document.body.append(reference); const color = getComputedStyle(reference).backgroundColor; reference.remove(); return button.matches(':hover') && getComputedStyle(button).backgroundColor === color })()`,
+      ),
+      `${width}px icon action has visible subtle hover surface on hover-capable devices`,
+    )
+    await screenshot(page, `tag-row-actions-${width}`, false)
+    await evaluate(
+      page,
+      `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+    )
+    await until(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && document.body.style.overflow !== 'hidden'`,
+      'tag row inspection closes and unlocks modal',
+    )
   }
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
@@ -2527,12 +3765,19 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `document.documentElement.scrollWidth <= innerWidth && [...${viewButtons}.querySelectorAll('button')].every(button=>button.getBoundingClientRect().height>=44 && button.getBoundingClientRect().width>=44) && [...document.querySelectorAll('h3[id^="watchlist-group-"]')].every(h=>h.getBoundingClientRect().right <= innerWidth)`,
+      `document.documentElement.scrollWidth <= innerWidth && document.querySelector('button[aria-controls="watchlist-configuration"]').getBoundingClientRect().height >= 44 && [...document.querySelectorAll('h3[id^="watchlist-group-"]')].every(h=>h.getBoundingClientRect().right <= innerWidth)`,
     ),
     '320px grouped toolbar and long headings fit viewport with 44px display controls',
   )
   await screenshot(page, 'grouped-mobile')
+  await click(page, 'Configuration')
   await checkSegmentedDisplay('320px grouped', 1)
+  await escapeOverlay()
+  await until(
+    page,
+    `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden' && document.activeElement.getAttribute('aria-controls') === 'watchlist-configuration'`,
+    'configuration Escape restores opener and scroll',
+  )
   await openGroupPicker(`tag-${secondTag}`, 'saved-film')
   await screenshot(page, 'grouped-picker-mobile', false)
   await click(page, 'Liste')
@@ -2543,8 +3788,15 @@ export async function watchlistScenario({
     ),
     'view change closes duplicate picker and restores unique list rows',
   )
+  await click(page, 'Configuration')
   await checkSegmentedDisplay('320px list', 0)
   await screenshot(page, 'segmented-list-mobile')
+  await backdropClick()
+  await until(
+    page,
+    `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden' && document.activeElement.getAttribute('aria-controls') === 'watchlist-configuration'`,
+    'configuration backdrop restores opener and scroll',
+  )
   await click(page, 'Par tag')
   await go(page, '/compte/watchlist')
   await until(
@@ -2560,9 +3812,23 @@ export async function watchlistScenario({
     'reload restores committed display and account sort',
   )
   await click(page, 'Par tag')
+  const beforeGroupedRemove = removalWrites().length
   await evaluate(
     page,
     `${groupRow(`tag-${secondTag}`, 'saved-film')}.querySelector('button[aria-label="Retirer de la watchlist"]').click()`,
+  )
+  await until(
+    page,
+    `${removePanel}?.matches(':modal')`,
+    'grouped duplicate opens one central confirmation',
+  )
+  check(
+    removalWrites().length === beforeGroupedRemove,
+    'grouped opener preserves every duplicate until confirmation',
+  )
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
   )
   await until(
     page,
@@ -2576,6 +3842,14 @@ export async function watchlistScenario({
     ),
     'one grouped bookmark removal removes every copy and resulting empty section',
   )
+  check(
+    removalWrites().length === beforeGroupedRemove + 1 &&
+      (await evaluate(
+        page,
+        `!${removePanel} && document.body.style.overflow !== 'hidden' && (document.activeElement.hasAttribute('data-watchlist-remove') || document.activeElement.getAttribute('aria-controls') === 'watchlist-add')`,
+      )),
+    'grouped confirmed removal dispatches once and restores surviving focus',
+  )
   await click(page, 'Liste')
   saved = groupingBefore.saved
   ownerTags.set(owner.username, groupingBefore.tags)
@@ -2583,10 +3857,16 @@ export async function watchlistScenario({
   sorts.set(owner.username, groupingBefore.sort)
   addedTimes.delete('external-film')
   revision++
+  await click(page, 'Configuration')
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
     page.sessionId,
+  )
+  await until(
+    page,
+    `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden' && document.activeElement.getAttribute('aria-controls') !== 'watchlist-configuration'`,
+    'desktop breakpoint closes sheet without focusing hidden trigger',
   )
   await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
   await until(
@@ -2595,6 +3875,39 @@ export async function watchlistScenario({
     'original fixture restored after grouping',
   )
   await filterTag(firstTag)
+  const filteredBefore = {
+    saved: [...saved],
+    assignments: new Map(
+      [...assignments()].map(([slug, ids]) => [slug, [...ids]]),
+    ),
+  }
+  const filteredSlug = await evaluate(page, `${savedOrder}[0]`)
+  await openRemove(filteredSlug)
+  await evaluate(
+    page,
+    `${removePanel}.querySelector('.account-primary').click()`,
+  )
+  await until(
+    page,
+    `!${removePanel} && !document.querySelector('#watchlist-tag-filter').disabled`,
+    'filtered removal committed',
+  )
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-filter').value === ${JSON.stringify(firstTag)} && !${savedRow(filteredSlug)} && document.body.style.overflow !== 'hidden'`,
+    ),
+    'filtered removal keeps committed filter and removes target only',
+  )
+  saved = filteredBefore.saved
+  ownerAssignments.set(owner.username, filteredBefore.assignments)
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow(filteredSlug)}?.querySelector('[data-watchlist-remove]:not(:disabled)')`,
+    'filtered fixture restored for tag deletion',
+  )
   await click(page, 'Gérer les tags')
   await evaluate(
     page,
@@ -2875,7 +4188,7 @@ export async function watchlistScenario({
     await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
     await until(
       page,
-      `(() => { const row = ${savedRow('saved-film')}; return !!row && !document.querySelector('#watchlist-query').disabled && ${label ? `row.querySelector('time')?.textContent.trim() === ${JSON.stringify(label)}` : `!row.querySelector('time, .text-muted')`}; })()`,
+      `(() => { const row = ${savedRow('saved-film')}; return !!row && !document.querySelector('button[aria-controls="watchlist-add"]').disabled && ${label ? `row.querySelector('time')?.textContent.trim() === ${JSON.stringify(label)}` : `!row.querySelector('time, .text-muted')`}; })()`,
       'French evidence revalidation at unchanged membership revision',
     )
     check(
@@ -2997,17 +4310,15 @@ export async function watchlistScenario({
   await route(page, '/compte/watchlist')
   await until(
     page,
-    `!!document.querySelector('#watchlist-query:not(:disabled)')`,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
     'watchlist returns',
   )
   check(
-    await evaluate(
-      page,
-      `document.querySelector('#watchlist-query').value === ''`,
-    ),
+    await evaluate(page, `!document.querySelector('#watchlist-query')`),
     'search draft clears on route departure',
   )
   externalStatus = 'unavailable'
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -3044,7 +4355,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.activeElement.id === 'watchlist-query' && document.querySelector('#watchlist-query').value === 'private candidate query'`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add' && document.body.style.overflow !== 'hidden'`,
     ),
     'Escape closes and returns focus without deleting draft',
   )
@@ -3052,22 +4363,27 @@ export async function watchlistScenario({
   await click(page, 'Rechercher')
   for (let i = 0; !releaseSearch && i < 100; i++) await delay(20)
   check(!!releaseSearch, 'pending search reached fixture')
-  await evaluate(
-    page,
-    `document.querySelector('#saved-heading').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`,
-  )
+  await backdropClick()
   holdSearch = false
   releaseSearch()
   await delay(100)
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.querySelector('#watchlist-query').value === 'private candidate query'`,
+      `!document.querySelector('#watchlist-add') && document.body.style.overflow !== 'hidden'`,
     ),
     'outside dismissal fences late search results',
   )
   emptySearch = true
   externalStatus = 'ready'
+  await click(page, 'Ajouter')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-query').value === 'private candidate query'`,
+    ),
+    'dismissal preserves draft for reopening',
+  )
   await click(page, 'Rechercher')
   await until(
     page,
@@ -3092,9 +4408,9 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.activeElement.getAttribute('aria-label') === 'Retirer de la watchlist'`,
+      `document.querySelector('#watchlist-add').matches(':modal') && document.activeElement.getAttribute('aria-label') !== 'Retirer de la watchlist'`,
     ),
-    'keyboard focus can leave non-modal panel without a trap',
+    'native search modal prevents background focus',
   )
   externalStatus = 'disabled'
   await click(page, 'Rechercher')
@@ -3118,6 +4434,13 @@ export async function watchlistScenario({
   externalStatus = 'ready'
   const searchPath = `/recherche?theaters=ugc-1&date=${date}&start_after=10%3A00&finish_before=23%3A00`
   await route(page, searchPath)
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-add') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'navigation removes open search dialog and scroll lock',
+  )
   await until(
     page,
     `document.querySelector('section[aria-label="Ma watchlist"]') && document.querySelector('section[aria-label="Autres films"]')`,
@@ -3216,7 +4539,7 @@ export async function watchlistScenario({
   )
   await until(
     page,
-    `!!document.querySelector('#watchlist-query:not(:disabled)')`,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
     'mobile watchlist route',
   )
   check(
@@ -3229,11 +4552,11 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const control = document.querySelector('#watchlist-sort'); const select = control.getBoundingClientRect(); const style = getComputedStyle(control); const icon = control.parentElement.querySelector('svg').getBoundingClientRect(); const heading = document.querySelector('#saved-heading').getBoundingClientRect(); const filter = document.querySelector('#watchlist-tag-filter').getBoundingClientRect(); const trigger = document.querySelector('button[aria-controls="watchlist-tag-manager"]').getBoundingClientRect(); return select.height >= 44 && select.left >= 0 && icon.left > select.left && icon.right < select.right && icon.top > select.top && icon.bottom < select.bottom && select.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft) >= icon.right + 8 && select.right <= innerWidth && select.top >= heading.bottom && select.top >= filter.bottom + 8 && Math.abs(trigger.top - select.top) < 1 && trigger.left - select.right >= 8 && Math.abs(select.left - filter.left) < 1 && Math.abs(trigger.right - filter.right) < 1 && Math.abs(icon.top + icon.height / 2 - select.top - select.height / 2) < 1; })()`,
+      `!document.querySelector('#watchlist-sort').checkVisibility() && !document.querySelector('#watchlist-tag-filter').checkVisibility() && document.querySelector('button[aria-controls="watchlist-configuration"]').checkVisibility() && !document.querySelector('#watchlist-query')`,
     ),
-    'mobile sort icon keeps text clearance and 44px target beside manager below full-width filter',
+    'mobile base hides display/filter/sort behind Configuration',
   )
-  await checkTagFilterPresentation('mobile')
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', 'private candidate query')
   await click(page, 'Rechercher')
   await until(
@@ -3244,19 +4567,58 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `(() => { const panel = document.querySelector('#watchlist-results').getBoundingClientRect(); const scroll = document.querySelector('#watchlist-results .overflow-y-auto'); return panel.left >= 0 && panel.right <= innerWidth && panel.bottom <= innerHeight && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollWidth <= innerWidth; })()`,
+      `(() => { const panel = document.querySelector('#watchlist-add').getBoundingClientRect(); const scroll = document.querySelector('#watchlist-add .overflow-y-auto'); return panel.left >= 0 && panel.right <= innerWidth && panel.bottom <= innerHeight && scroll.scrollHeight > scroll.clientHeight && document.documentElement.scrollWidth <= innerWidth; })()`,
     ),
     'mobile overlay fits width and scrolls inside available viewport',
   )
   await screenshot(page, 'mobile')
+  await getCDP().send('Page.bringToFront', {}, page.sessionId)
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 320, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  // CDP device metrics can defer resize notification while this tab is backgrounded.
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await until(
+    page,
+    `parseFloat(getComputedStyle(document.querySelector('#watchlist-add')).maxHeight) <= 288`,
+    'short mobile visual viewport applies modal height',
+  )
+  await screenshot(page, 'add-short-viewport', false)
+  const shortGeometry = await evaluate(
+    page,
+    `(() => { const d = document.querySelector('#watchlist-add').getBoundingClientRect(), close = document.querySelector('button[aria-label="Fermer l’ajout de film"]').getBoundingClientRect(), scroll = document.querySelector('#watchlist-add .overflow-y-auto'); return {top:d.top,bottom:d.bottom,height:innerHeight,vh:visualViewport.height,offset:visualViewport.offsetTop,closeTop:close.top,closeBottom:close.bottom,client:scroll.clientHeight,content:scroll.scrollHeight} })()`,
+  )
+  check(
+    shortGeometry.top >= 15.5 &&
+      shortGeometry.bottom <= shortGeometry.height - 15.5 &&
+      shortGeometry.closeTop >= shortGeometry.top &&
+      shortGeometry.closeBottom <= shortGeometry.bottom &&
+      shortGeometry.client > 0 &&
+      shortGeometry.content > shortGeometry.client,
+    `short mobile search keeps close visible and results scrollable ${JSON.stringify(shortGeometry)}`,
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  // Page.bringToFront also revalidates auth. Test normal close restoration only
+  // after its opener is focusable; held-refresh behavior has its own lane.
+  await until(
+    page,
+    `!!document.querySelector('[aria-controls="watchlist-add"]:not(:disabled)')`,
+    'mobile add opener ready for focus restoration',
+  )
   await evaluate(
     page,
-    `document.querySelector('button[aria-label="Fermer les résultats"]').click()`,
+    `document.querySelector('button[aria-label="Fermer l’ajout de film"]').click()`,
   )
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-results') && document.activeElement.id === 'watchlist-query'`,
+      `!document.querySelector('#watchlist-add') && document.activeElement.getAttribute('aria-controls') === 'watchlist-add' && document.body.style.overflow !== 'hidden'`,
     ),
     'close control returns focus',
   )
@@ -3284,6 +4646,130 @@ export async function watchlistScenario({
   )
   await checkClock(page, 'remove')
   await screenshot(page, 'mobile-saved-date')
+  const mobileRemovalSaved = [...saved]
+  saved.unshift('external-film')
+  externalTitle =
+    'Un très long titre de cinéma pour identifier clairement le film à retirer sans dépasser la fenêtre de confirmation'
+  revision++
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('external-film')}?.textContent.includes(${JSON.stringify(externalTitle)}) && !document.querySelector('[aria-controls="watchlist-add"]').disabled`,
+    '320px long removal fixture ready',
+  )
+  await checkClock(page, 'remove')
+  await screenshot(page, 'remove-cross-mobile-320', false)
+  const beforeMobileCancel = removalWrites().length
+  await openRemove()
+  await checkRemovalSurface('mobile-320')
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await until(
+    page,
+    `parseFloat(getComputedStyle(${removePanel}).maxHeight) <= 288`,
+    'short confirmation viewport bounds applied',
+  )
+  await checkRemovalSurface('short-viewport')
+  check(
+    await evaluate(
+      page,
+      `(() => { const body = ${removePanel}.querySelector('.overflow-y-auto'), close = ${removePanel}.querySelector('button[aria-label="Fermer la confirmation"]'), before = scrollY, top = close.getBoundingClientRect().top; body.scrollTop = 9999; return body.scrollTop > 0 && scrollY === before && close.getBoundingClientRect().top === top && close.getBoundingClientRect().bottom <= innerHeight })()`,
+    ),
+    'short confirmation scrolls internally with close fixed and background still',
+  )
+  await escapeOverlay()
+  await until(
+    page,
+    `!${removePanel} && document.body.style.overflow !== 'hidden' && document.activeElement.hasAttribute('data-watchlist-remove')`,
+    'mobile Escape restores cross and scrolling',
+  )
+  check(
+    removalWrites().length === beforeMobileCancel,
+    'mobile/short confirmation inspection never dispatches removal',
+  )
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  saved = mobileRemovalSaved
+  externalTitle = 'Film externe'
+  revision++
+  await evaluate(page, `window.dispatchEvent(new Event('focus'))`)
+  await until(
+    page,
+    `${savedRow('saved-film')}?.querySelector('[data-watchlist-remove]:not(:disabled)') && !${savedRow('external-film')}`,
+    'mobile fixture restored after nonmutating confirmation',
+  )
+  await click(page, 'Configuration')
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-configuration') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'pagehide closes configuration and unlocks scroll',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
+    'pageshow readies add without reopening sheet',
+  )
+  await click(page, 'Ajouter')
+  await fill(page, 'watchlist-query', 'private candidate query')
+  holdSearch = true
+  releaseSearch = undefined
+  await click(page, 'Rechercher')
+  for (let i = 0; !releaseSearch && i < 100; i++) await delay(20)
+  check(!!releaseSearch, 'late search reaches fixture before pagehide')
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }))`,
+  )
+  holdSearch = false
+  releaseSearch()
+  await delay(100)
+  check(
+    await evaluate(
+      page,
+      `!document.querySelector('#watchlist-add') && !document.querySelector('#watchlist-query') && document.body.style.overflow !== 'hidden'`,
+    ),
+    'pagehide fences late search and unlocks modal scroll',
+  )
+  await evaluate(
+    page,
+    `window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))`,
+  )
+  await until(
+    page,
+    `!!document.querySelector('button[aria-controls="watchlist-add"]:not(:disabled)')`,
+    'pageshow revalidates private watchlist',
+  )
+  await click(page, 'Ajouter')
+  check(
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-query').value === ''`,
+    ),
+    'pageshow never restores private modal query',
+  )
+  await escapeOverlay()
   await click(page, 'Gérer les tags')
   await click(page, 'Créer un tag')
   await fill(page, 'watchlist-tag-name', 'pagehide-private-draft')
@@ -3342,9 +4828,7 @@ export async function watchlistScenario({
     ),
     'analytics contains no watchlist membership, identity or private query',
   )
-  const ssr = await (
-    await fetch('http://127.0.0.1:13009/film/external-film')
-  ).text()
+  const ssr = await (await fetch(`${origin}/film/external-film`)).text()
   check(
     !/private_watchlist_owner|added_at|sort_order|view_mode|filter_tag_id|release_asc|private candidate query|1998-10-14|14 octobre 1998/.test(
       ssr,
@@ -3553,6 +5037,7 @@ export async function watchlistBackendScenario({
   const movie = chronological.find(
     (slot) => slot.showtime.movie.slug !== otherMovie.slug,
   ).showtime.movie
+  await click(page, 'Ajouter')
   await fill(page, 'watchlist-query', movie.title)
   await click(page, 'Rechercher')
   await until(
@@ -4132,6 +5617,15 @@ export async function watchlistBackendScenario({
   await evaluate(
     page,
     `document.querySelector('button[aria-label="Retirer de la watchlist"]').click()`,
+  )
+  await until(
+    page,
+    `document.querySelector('#watchlist-remove')?.matches(':modal')`,
+    'real removal confirmation opens',
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-remove .account-primary').click()`,
   )
   await until(
     page,

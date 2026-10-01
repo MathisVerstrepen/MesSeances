@@ -188,7 +188,7 @@ func parseMovies(body []byte) (map[string]movie, error) {
 	return result, nil
 }
 
-func parseSchedule(body []byte, theater cinema, program map[string][]string, movies map[string]movie, location *time.Location, allowMissingDate string) ([]schedule.ShowtimeRecord, error) {
+func parseSchedule(body []byte, theater cinema, program map[string][]string, movies map[string]movie, location *time.Location, allowMissingDate string, unknown ...map[string]bool) ([]schedule.ShowtimeRecord, error) {
 	var response scheduleResponse
 	if err := decodeJSON(body, &response); err != nil {
 		return nil, err
@@ -212,6 +212,9 @@ func parseSchedule(body []byte, theater cinema, program map[string][]string, mov
 			sessions, ok := byDate[date]
 			if !ok || sessions == nil {
 				if date == allowMissingDate {
+					if len(unknown) > 0 && unknown[0] != nil {
+						unknown[0][date] = true
+					}
 					continue
 				}
 				return nil, fmt.Errorf("%w: advertised movie date is missing: theater=%s movie=%s date=%s", errProviderSnapshotChanged, theater.id, movieID, date)

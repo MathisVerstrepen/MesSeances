@@ -62,7 +62,7 @@ useHead({ title: 'Connexion administrateur - MesSeances' })
         </div>
         <h1
           id="admin-login-title"
-          class="max-w-xl text-[clamp(2rem,10vw,4.6rem)] font-black leading-[0.88] tracking-[-0.065em] text-ink"
+          class="max-w-xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(2rem,10vw,4.6rem)] font-black leading-[0.88] tracking-[-0.065em] text-ink"
         >
           Connexion<br>
           <span class="inline-block bg-surface px-1.5 pb-1"

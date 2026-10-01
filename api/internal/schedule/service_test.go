@@ -3,6 +3,8 @@ package schedule
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"testing"
@@ -51,6 +53,7 @@ func TestOriginalLanguageMatchingAndServices(t *testing.T) {
 					record.Movie.Enrichment = &MovieEnrichment{TMDBID: 99, OriginalLanguage: "fr"}
 				} else {
 					data.PublicMovies, data.MovieSources, data.MovieAliases = nil, nil, nil
+					record.Movie.PublicMovieID = 0
 					record.Movie.Enrichment = &MovieEnrichment{TMDBID: 42, OriginalLanguage: original}
 				}
 				if err := ValidateDataset(data, true); err != nil {
@@ -88,6 +91,14 @@ func TestOriginalLanguageMatchingAndServices(t *testing.T) {
 					}
 					if len(timeline.Theaters[0].Showtimes) != wantCount || len(slot) != wantCount {
 						t.Fatalf("canonical=%v stored=%q original=%q query=%s: timeline=%d slot=%d want=%d", canonical, tc.language, original, query.language, len(timeline.Theaters[0].Showtimes), len(slot), wantCount)
+					}
+					film, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: materializeCatalogMovie(service.source.Snapshot(), record.Movie).Slug, Date: record.ServiceDate, Language: query.language})
+					filmWant := query.want
+					if query.language == LanguageVF {
+						filmWant = tc.language == LanguageVF
+					}
+					if err != nil || (len(film.Theaters) > 0) != filmWant {
+						t.Fatalf("film canonical=%v stored=%q original=%q query=%s: result=%+v err=%v", canonical, tc.language, original, query.language, film, err)
 					}
 					if query.want {
 						for _, showing := range []Showtime{timeline.Theaters[0].Showtimes[0].Showtime, slot[0].Showtime} {
@@ -1169,6 +1180,239 @@ func TestMovieShowtimesBackdropUsesValidatedMatchedEnrichment(t *testing.T) {
 
 func stringPointer(value string) *string { return &value }
 
+func movieShowtimesPagingDataset() Dataset {
+	data := testDataset()
+	theater, showing := data.Theaters[0], data.Showtimes[0]
+	data.Theaters, data.Showtimes = nil, nil
+	for i := range 24 {
+		row := theater
+		row.ID = fmt.Sprintf("ugc-%02d", i)
+		row.Slug, row.ProviderID = row.ID, fmt.Sprint(i)
+		row.City = fmt.Sprintf("City %02d", i/8)
+		row.Name = fmt.Sprintf("Cinema %02d", i)
+		data.Theaters = append(data.Theaters, row)
+		if i == 23 { // Catalog includes a cinema where this movie does not play.
+			continue
+		}
+		r := showing
+		r.ID, r.ProviderShowingID, r.TheaterID = fmt.Sprintf("ugc-showing-%02d", i), fmt.Sprint(i), row.ID
+		r.StartTime = showing.StartTime.Add(time.Duration(23-i) * time.Minute)
+		r.EndTime = r.StartTime.Add(100 * time.Minute)
+		if i >= 10 {
+			r.Language, r.Format = LanguageVF, FormatIMAX
+		}
+		data.Showtimes = append(data.Showtimes, r)
+	}
+	// Date evidence exists only at a cinema beyond the first two pages.
+	extra := data.Showtimes[22]
+	extra.ID, extra.ProviderShowingID, extra.ServiceDate = "ugc-showing-1000", "1000", "2026-08-16"
+	extra.StartTime, extra.EndTime = extra.StartTime.AddDate(0, 0, 1), extra.EndTime.AddDate(0, 0, 1)
+	data.Showtimes = append(data.Showtimes, extra)
+	return data
+}
+
+func TestMovieShowtimesFixedPagesAndPartialScope(t *testing.T) {
+	data := movieShowtimesPagingDataset()
+	view := NewSnapshotView(data, SnapshotRevision{ScheduleVersion: 7, EnrichmentVersion: 3})
+	service, err := NewService(testSource{view: view}, ServiceOptions{Now: testServiceNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"}
+	all := make([]string, 0, len(data.Theaters))
+	for _, theater := range data.Theaters {
+		all = append(all, theater.ID)
+	}
+	for _, explicit := range []bool{false, true} {
+		query := base
+		if explicit {
+			query.TheaterIDs = append(append([]string{}, all...), all[0])
+		}
+		for _, page := range []int{0, 1, 2, 3, 4, math.MaxInt} {
+			query.Page = page
+			result, err := service.MovieShowtimes(query)
+			requestedPage := max(page, 1)
+			wantCount := 0
+			if requestedPage <= 3 {
+				wantCount = min(10, 23-(requestedPage-1)*10)
+			}
+			wantPaging := &MovieShowtimesPagination{Page: requestedPage, PageSize: 10, Total: 23, HasMore: requestedPage < 3}
+			if err != nil || len(result.Theaters) != wantCount || !reflect.DeepEqual(result.Pagination, wantPaging) {
+				t.Fatalf("explicit=%v page=%d result=%+v err=%v", explicit, page, result, err)
+			}
+			for i, theater := range result.Theaters {
+				if theater.ID != all[(requestedPage-1)*10+i] {
+					t.Fatalf("page=%d theater[%d]=%s", page, i, theater.ID)
+				}
+			}
+			if result.CatalogRevision != "schedule:7;enrichment:3" || !reflect.DeepEqual(result.AvailableDates, []string{"2026-08-15", "2026-08-16"}) || !reflect.DeepEqual(result.AvailableLanguages, []Language{LanguageVOSTFR, LanguageVF}) || !reflect.DeepEqual(result.AvailableFormats, []Format{Format2D, FormatIMAX}) || !result.CurrentlyScreened || result.ReleaseStatus != "showing" {
+				t.Fatalf("page=%d metadata=%+v", page, result)
+			}
+		}
+	}
+	for _, page := range []int{0, 1, 2, 3} {
+		query := base
+		query.TheaterIDs, query.Page = all[:12], page
+		result, err := service.MovieShowtimes(query)
+		wantCount := 12
+		if page > 0 {
+			wantCount = max(0, min(10, 12-(page-1)*10))
+		}
+		if err != nil || len(result.Theaters) != wantCount || (result.Pagination == nil) != (page == 0) {
+			t.Fatalf("partial page=%d result=%+v err=%v", page, result, err)
+		}
+		if result.Pagination != nil && result.Pagination.Total != 12 {
+			t.Fatalf("partial total=%+v", result.Pagination)
+		}
+	}
+	// Selecting every showing cinema is still partial if another catalog cinema exists.
+	showingOnly := base
+	showingOnly.TheaterIDs = all[:23]
+	result, err := service.MovieShowtimes(showingOnly)
+	if err != nil || result.Pagination != nil || len(result.Theaters) != 23 {
+		t.Fatalf("showing-only selection=%+v err=%v", result, err)
+	}
+	// A city resolving to the entire catalog is also broad.
+	for i := range data.Theaters {
+		data.Theaters[i].City = "Paris"
+	}
+	service, _ = NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	base.City = "Paris"
+	result, err = service.MovieShowtimes(base)
+	if err != nil || len(result.Theaters) != 10 || result.Pagination == nil || result.Pagination.Total != 23 {
+		t.Fatalf("full city result=%+v err=%v", result, err)
+	}
+}
+
+func TestMovieShowtimesFiltersAndOrderBeforePaging(t *testing.T) {
+	data := movieShowtimesPagingDataset()
+	// Earliest matching cinema can have a past start; next must not discard it.
+	data.Showtimes[22].StartTime = testServiceNow().Add(-time.Hour)
+	data.Showtimes[22].EndTime = data.Showtimes[22].StartTime.Add(100 * time.Minute)
+	// Insert tied starts out of ID order to verify per-cinema sorting.
+	extra := data.Showtimes[10]
+	extra.ID = "ugc-showing-10-a"
+	data.Showtimes = append([]ShowtimeRecord{extra}, data.Showtimes...)
+	service, _ := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	base := MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"}
+	for _, tc := range []struct {
+		language Language
+		format   Format
+		sort     MovieShowtimesSort
+		first    string
+		total    int
+	}{
+		{LanguageVF, FormatAll, MovieShowtimesSortCatalog, "ugc-10", 13},
+		{LanguageAll, FormatIMAX, MovieShowtimesSortCatalog, "ugc-10", 13},
+		{LanguageVF, FormatIMAX, MovieShowtimesSortNext, "ugc-22", 13},
+		{LanguageAll, FormatAll, MovieShowtimesSortNext, "ugc-22", 23},
+	} {
+		query := base
+		query.Language, query.Format, query.Sort = tc.language, tc.format, tc.sort
+		result, err := service.MovieShowtimes(query)
+		if err != nil || len(result.Theaters) != 10 || result.Theaters[0].ID != tc.first || result.Pagination.Total != tc.total {
+			t.Fatalf("query=%+v result=%+v err=%v", query, result, err)
+		}
+		if !reflect.DeepEqual(result.AvailableLanguages, []Language{LanguageVOSTFR, LanguageVF}) || !reflect.DeepEqual(result.AvailableFormats, []Format{Format2D, FormatIMAX}) {
+			t.Fatalf("filtered facets=%+v", result)
+		}
+		for _, theater := range result.Theaters {
+			if theater.ID == "ugc-10" && (len(theater.Showtimes) != 2 || theater.Showtimes[0].ID != "ugc-showing-10" || theater.Showtimes[1].ID != extra.ID) {
+				t.Fatalf("showtime order=%+v", theater.Showtimes)
+			}
+		}
+	}
+	base.Format = FormatICE
+	result, err := service.MovieShowtimes(base)
+	if err != nil || result.Theaters == nil || len(result.Theaters) != 0 || result.Pagination == nil || result.Pagination.Total != 0 || result.Pagination.HasMore || !result.CurrentlyScreened || result.ReleaseStatus != "showing" || len(result.AvailableDates) != 2 || len(result.AvailableFormats) != 2 {
+		t.Fatalf("empty filter metadata=%+v err=%v", result, err)
+	}
+	base.Date = "2026-08-17"
+	result, err = service.MovieShowtimes(base)
+	if err != nil || result.AvailableLanguages == nil || len(result.AvailableLanguages) != 0 || result.AvailableFormats == nil || len(result.AvailableFormats) != 0 || len(result.AvailableDates) != 2 {
+		t.Fatalf("empty date facets=%+v err=%v", result, err)
+	}
+	// Ties across cinemas use catalog rank, not input order or map iteration.
+	for i := range data.Showtimes {
+		data.Showtimes[i].StartTime = data.Showtimes[0].StartTime
+	}
+	service, _ = NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	base.Date, base.Format, base.Sort = "2026-08-15", FormatAll, MovieShowtimesSortNext
+	result, err = service.MovieShowtimes(base)
+	if err != nil || len(result.Theaters) != 10 || result.Theaters[0].ID != "ugc-00" || result.Theaters[9].ID != "ugc-09" {
+		t.Fatalf("next ties=%+v err=%v", result, err)
+	}
+}
+
+func TestMovieShowtimesRawFacetsAndValidation(t *testing.T) {
+	data := movieShowtimesPagingDataset()
+	for i := range data.Showtimes {
+		data.Showtimes[i].Language = movieShowtimesLanguages[i%len(movieShowtimesLanguages)]
+		data.Showtimes[i].Format = movieShowtimesFormats[i%len(movieShowtimesFormats)]
+	}
+	data.Showtimes[22].Language = ""
+	service, _ := NewService(newTestSource(data), ServiceOptions{Now: testServiceNow})
+	base := MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15"}
+	for _, format := range movieShowtimesFormats {
+		query := base
+		query.Format = format
+		result, err := service.MovieShowtimes(query)
+		if err != nil || len(result.Theaters) == 0 || !reflect.DeepEqual(result.AvailableLanguages, movieShowtimesLanguages) || !reflect.DeepEqual(result.AvailableFormats, movieShowtimesFormats) {
+			t.Fatalf("format=%s result=%+v err=%v", format, result, err)
+		}
+		for _, theater := range result.Theaters {
+			for _, showing := range theater.Showtimes {
+				if showing.Format != format {
+					t.Fatalf("format=%s showing=%+v", format, showing)
+				}
+			}
+		}
+	}
+	for _, language := range movieShowtimesLanguages {
+		query := base
+		query.Language = language
+		result, err := service.MovieShowtimes(query)
+		if err != nil || len(result.Theaters) == 0 {
+			t.Fatalf("language=%s result=%+v err=%v", language, result, err)
+		}
+		for _, theater := range result.Theaters {
+			for _, showing := range theater.Showtimes {
+				if showing.Language != language {
+					t.Fatalf("language=%s showing=%+v", language, showing)
+				}
+			}
+		}
+	}
+	for _, query := range []MovieShowtimesQuery{
+		{Page: -1}, {Page: math.MinInt}, {Language: "Spanish"}, {Format: "invalid"}, {Sort: "invalid"},
+		{TheaterIDs: []string{""}}, {TheaterIDs: []string{"unknown"}}, {City: "Paris", TheaterIDs: []string{"ugc-00"}},
+	} {
+		query.Slug, query.Date = base.Slug, base.Date
+		_, err := service.MovieShowtimes(query)
+		var validation *ValidationError
+		if !errors.As(err, &validation) {
+			t.Fatalf("query=%+v err=%v", query, err)
+		}
+	}
+}
+
+func TestMovieShowtimesBundleBoundsAndNeutralNationwide(t *testing.T) {
+	data := movieShowtimesPagingDataset()
+	view := NewSnapshotView(data, SnapshotRevision{ScheduleVersion: 7, EnrichmentVersion: 3})
+	clockCalls := 0
+	service, _ := NewService(testSource{view: view}, ServiceOptions{Now: func() time.Time {
+		clockCalls++
+		return testServiceNow()
+	}})
+	for _, city := range []string{"", "City 01"} {
+		scoped, national, err := service.MovieShowtimesBundle(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15", City: city, Language: LanguageVF, Format: FormatIMAX, Sort: MovieShowtimesSortNext, Page: math.MaxInt})
+		if err != nil || clockCalls != 1 || len(scoped.Theaters) > 10 || len(national.Theaters) != 10 || scoped.Pagination == nil || scoped.Pagination.Page != 1 || national.Pagination.Page != 1 || national.Pagination.Total != 23 || national.Theaters[0].ID != "ugc-00" || scoped.CatalogRevision != national.CatalogRevision || scoped.CatalogRevision != "schedule:7;enrichment:3" {
+			t.Fatalf("city=%s scoped=%+v national=%+v err=%v clock=%d", city, scoped, national, err, clockCalls)
+		}
+		clockCalls = 0
+	}
+}
+
 func TestMovieShowtimesScopesKnownEmptyAndUnknown(t *testing.T) {
 	service := testService(t)
 	schedule, err := service.MovieShowtimes(MovieShowtimesQuery{Slug: "ugc-film-200", Date: "2026-08-15", City: "Lille"})
@@ -1259,11 +1503,11 @@ func mustDateDayOffset(t *testing.T, value, base string) int {
 	return int(date.Sub(baseDate).Hours() / 24)
 }
 
-func TestSearchSlotRequiresOneScopeAndValidatesExactTheaters(t *testing.T) {
+func TestSearchSlotNationwideAndValidatesExactTheaters(t *testing.T) {
 	service := testService(t)
 	base := SlotQuery{Date: "2026-08-15", StartAfter: "12:00", FinishBefore: "14:00", Language: LanguageAll}
-	if _, err := service.SearchSlot(base); err == nil {
-		t.Fatal("missing scope accepted")
+	if results, err := service.SearchSlot(base); err != nil || len(results) != 2 || results[0].Theater.City == results[1].Theater.City {
+		t.Fatalf("nationwide results=%+v err=%v", results, err)
 	}
 	base.City = "Lille"
 	base.TheaterIDs = []string{"ugc-25"}
@@ -1344,7 +1588,7 @@ func TestEmptyDefaultCityPreservesDefaultAndExplicitScopeSemantics(t *testing.T)
 		t.Fatal(err)
 	}
 	timeline, err := service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll})
-	if err != nil || len(timeline.Theaters) != 0 {
+	if err != nil || len(timeline.Theaters) != len(data.Theaters) {
 		t.Fatalf("empty default timeline=%+v err=%v", timeline, err)
 	}
 	all, err := service.selectTheaters(service.source.Snapshot(), nil, "", false)
@@ -1358,7 +1602,7 @@ func TestEmptyDefaultCityPreservesDefaultAndExplicitScopeSemantics(t *testing.T)
 		t.Fatal(err)
 	}
 	timeline, err = service.Timeline(TimelineQuery{Date: "2026-08-15", Language: LanguageAll})
-	if err != nil || len(timeline.Theaters) != 2 || timeline.Theaters[0].ID != "ugc-25" || timeline.Theaters[1].ID != "ugc-99" {
+	if err != nil || len(timeline.Theaters) != len(data.Theaters) {
 		t.Fatalf("empty default direct/alias timeline=%+v err=%v", timeline, err)
 	}
 }

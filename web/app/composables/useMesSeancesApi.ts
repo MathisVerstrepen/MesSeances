@@ -1,5 +1,7 @@
 import type {
   AdminAcceptTheaterLocationSuggestionRequest,
+  AdminAccountsQuery,
+  AdminAccountsResponse,
   AdminAddLocalMovieMembersRequest,
   AdminAddLocalMovieMembersResponse,
   AdminCreateLocalMovieGroupRequest,
@@ -52,6 +54,8 @@ import type {
   HistoryOptionsQuery,
   HistoryOptionsResponse,
   Theater,
+  TheaterActivityQuery,
+  TheaterActivityResponse,
   TheaterShowtimesResponse,
   TheaterQuery,
   TimelineQuery,
@@ -179,6 +183,16 @@ export function useMesSeancesApi() {
         },
       )
     },
+    theaterActivity(
+      slug: string,
+      query: TheaterActivityQuery = {},
+      signal?: AbortSignal,
+    ) {
+      return apiFetch<TheaterActivityResponse>(
+        `${apiBase}/api/v1/theaters/${encodeURIComponent(slug)}/activity`,
+        { query: queryValues(query), signal, retry: false },
+      )
+    },
     movies(query: MoviesQuery = {}) {
       return apiFetch<MoviesResponse>(`${apiBase}/api/v1/movies`, {
         query: queryValues(query),
@@ -196,13 +210,17 @@ export function useMesSeancesApi() {
         { query: queryValues(query) },
       )
     },
-    movieShowtimesBundle(slug: string, date: string) {
+    movieShowtimesBundle(
+      slug: string,
+      date: string,
+      filters: Pick<MovieShowtimesQuery, 'language' | 'format' | 'sort'> = {},
+    ) {
       if (!hasInternalApiIdentity)
         throw new Error('Internal API identity unavailable')
       return apiFetch<MovieShowtimesBundleResponse>(
         `${apiBase}/api/v1/internal/movies/${encodeURIComponent(slug)}/showtimes-bundle`,
         {
-          query: { date, city: 'Paris' },
+          query: queryValues({ date, ...filters }),
           retry: false,
         },
       )
@@ -217,6 +235,19 @@ export function useMesSeancesApi() {
       return apiFetch<AdminSessionResponse>(`${apiBase}/api/v1/admin/session`, {
         credentials: 'include',
       })
+    },
+    adminAccounts(query: AdminAccountsQuery, signal?: AbortSignal) {
+      return withAdminRedirect(
+        apiFetch<AdminAccountsResponse>(`${apiBase}/api/v1/admin/accounts`, {
+          credentials: 'include',
+          query: queryValues(query),
+          signal,
+          retry: false,
+          cache: 'no-store',
+          referrerPolicy: 'no-referrer',
+          timeout: 15000,
+        }),
+      )
     },
     adminMovies(query: AdminMoviesQuery, signal?: AbortSignal) {
       return withAdminRedirect(
@@ -646,6 +677,24 @@ export function getFrenchApiError(cause: unknown): string {
   return 'Impossible de joindre le service. Vérifiez que l’API est démarrée, puis réessayez.'
 }
 
+export function getFrenchActivityApiError(cause: unknown): string {
+  const code = getApiErrorCode(cause)
+  const status = getApiErrorStatus(cause)
+  if (code === 'history_query_timeout')
+    return 'La recherche historique prend trop de temps. Réessayez.'
+  if (code === 'history_busy' || status === 429)
+    return 'Le service historique est occupé. Patientez un instant avant de réessayer.'
+  if (code === 'history_unavailable' || status === 503)
+    return 'L’historique est temporairement indisponible. Réessayez plus tard.'
+  if (code === 'not_found' || status === 404)
+    return 'L’historique de ce cinéma n’est plus disponible. Revenez à la liste des cinémas.'
+  if (code === 'invalid_query' || status === 400)
+    return 'Cette page d’activité n’est plus accessible. Actualisez la page pour reprendre depuis le début.'
+  if (status !== undefined && status >= 500)
+    return 'Le service historique a rencontré une erreur. Réessayez plus tard.'
+  return 'Impossible de joindre le service historique. Vérifiez votre connexion, puis réessayez.'
+}
+
 export function getFrenchShortLinkPreparationError(cause: unknown): string {
   if (
     getApiErrorCode(cause) === 'rate_limited' ||
@@ -658,6 +707,8 @@ export function getFrenchShortLinkPreparationError(cause: unknown): string {
 
 export function getFrenchAdminApiError(cause: unknown): string {
   const code = getApiErrorCode(cause)
+  if (code === 'admin_accounts_unavailable')
+    return 'Impossible de charger les comptes : le service est temporairement indisponible. Réessayez plus tard.'
   if (code === 'admin_unavailable')
     return 'L’administration est désactivée sur ce service.'
   if (code === 'invalid_upcoming_review_query')

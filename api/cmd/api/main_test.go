@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"messeances/api/internal/accounts"
 	runtimeconfig "messeances/api/internal/config"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/geocoding"
@@ -42,6 +43,21 @@ type testShortlinkService struct{}
 
 type testHistoryReader struct{}
 
+type testActivityReader struct{}
+
+func (testActivityReader) TheaterActivity(_ context.Context, q schedule.TheaterActivityQuery) (schedule.TheaterActivity, error) {
+	return schedule.TheaterActivity{Limit: q.Limit, Items: []schedule.ActivityEvent{}}, nil
+}
+
+func TestAPIActivityRuntimeInjection(t *testing.T) {
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, testActivityReader{}, httpapi.ReadinessOptions{}, nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/theaters/ugc-25/activity", nil))
+	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatal(response.Code, response.Body.String())
+	}
+}
+
 func (testHistoryReader) HistoryStatistics(context.Context, schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
 	return schedule.HistoryStatistics{Mode: "history"}, nil
 }
@@ -51,7 +67,7 @@ func (testHistoryReader) HistoryOptions(context.Context, schedule.HistoryOptions
 }
 
 func TestAPIHistoryRuntimeInjection(t *testing.T) {
-	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, nil, httpapi.ReadinessOptions{}, nil)
 	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history/options?kind=city"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
@@ -170,9 +186,9 @@ func TestLoadAPIConfigurationIgnoresSyncTimingWhenCapabilityDisabled(t *testing.
 	}
 }
 
-func TestProductionScheduleOptionsDefaultToParisAndRetainLilleMetroAlias(t *testing.T) {
+func TestProductionScheduleOptionsDefaultToNationwideAndRetainLilleMetroAlias(t *testing.T) {
 	options := newProductionScheduleOptions()
-	if options.DefaultCity != "Paris" {
+	if options.DefaultCity != "" {
 		t.Fatalf("default city=%q", options.DefaultCity)
 	}
 	if len(options.CityAliases) != 1 {
@@ -251,7 +267,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 		t.Fatalf("admin options manager=%v err=%v", manager, err)
 	}
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -267,7 +283,7 @@ func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
 	var cfg runtimeconfig.Config
 	cfg.Server.Origin = "http://localhost:3000"
 	cfg.Internal.SharedSecret = secret
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
 	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Paris"
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
@@ -342,6 +358,13 @@ func TestUpcomingRuntimeAvailabilityWithoutProxiesIntegration(t *testing.T) {
 			if runtime.options.UpcomingReviews == nil {
 				t.Fatal("DB-only upcoming review service missing")
 			}
+			if runtime.options.Accounts == nil {
+				t.Fatal("provider-independent admin account service missing")
+			}
+			accountPage, err := runtime.options.Accounts.List(t.Context(), accounts.AdminAccountsQuery{Limit: 50})
+			if err != nil || accountPage.Total != 0 || accountPage.Items == nil {
+				t.Fatalf("empty admin accounts with providers disabled: %+v %v", accountPage, err)
+			}
 			list, err := runtime.options.UpcomingReviews.List(t.Context(), enrichment.UpcomingReviewQuery{Filter: "all", Limit: 50})
 			if err != nil || list.Total != 0 || list.Items == nil {
 				t.Fatalf("empty DB-only review catalog %+v %v", list, err)
@@ -413,7 +436,7 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, nil, httpapi.ReadinessOptions{}, nil)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)

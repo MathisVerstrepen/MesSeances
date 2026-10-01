@@ -282,6 +282,34 @@ export interface AdminSessionResponse {
   authenticated: boolean
 }
 
+export type AdminAccountState =
+  | 'complete'
+  | 'pending_email'
+  | 'pending_username'
+  | 'expired'
+
+export interface AdminAccountItem {
+  email: string
+  username: string | null
+  state: AdminAccountState
+  created_at: string
+  email_verified_at: string | null
+  has_password: boolean
+  google_linked: boolean
+}
+
+export interface AdminAccountsQuery {
+  limit: number
+  offset: number
+}
+
+export interface AdminAccountsResponse {
+  items: AdminAccountItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export const adminMovieFields = [
   'title',
   'runtime_minutes',
@@ -858,6 +886,44 @@ export interface TheaterShowtimesResponse {
   showtimes: TimelineShowtime[]
 }
 
+export interface TheaterActivityQuery {
+  limit?: number
+  cursor?: string
+}
+
+export interface TheaterActivityItem {
+  event_id: string
+  type: 'added_to_program' | 'return_to_program'
+  detected_at: string
+  first_screening_date: string
+  previous_program_end_date: string | null
+  movie: {
+    slug: string
+    title: string
+    poster_url: string | null
+    updated_at: string
+  }
+  has_upcoming_showtimes: boolean
+  next_showtime_date: string | null
+}
+
+export interface TheaterActivityResponse {
+  generated_at: string
+  timezone: 'Europe/Paris'
+  theater: Theater
+  coverage: {
+    history_started_at: string | null
+    last_publication_at: string | null
+    source_generated_at: string | null
+    completeness: 'unknown' | 'partial'
+    bootstrap: 'baseline'
+    return_minimum_break_days: 28
+  }
+  items: TheaterActivityItem[]
+  limit: number
+  next_cursor: string | null
+}
+
 export interface TheaterQuery {
   city?: string
   chain?: string
@@ -891,6 +957,10 @@ export interface MovieShowtimesQuery {
   date: string
   city?: string
   theaters?: string
+  page?: number
+  language?: 'ALL' | 'ORIGINAL' | 'VOF' | Exclude<ShowtimeLanguage, ''>
+  format?: QueryFormat
+  sort?: 'catalog' | 'next'
 }
 
 export interface MovieShowtimesTheater {
@@ -931,6 +1001,15 @@ export interface MovieShowtimesResponse {
   currently_screened: boolean
   available_dates: string[]
   theaters: MovieShowtimesTheater[]
+  catalog_revision: string
+  available_languages: Array<Exclude<Showtime['language'], ''>>
+  available_formats: ShowtimeFormat[]
+  pagination: {
+    page: number
+    page_size: 10
+    total: number
+    has_more: boolean
+  } | null
 }
 
 export interface MovieShowtimesBundleResponse {

@@ -159,7 +159,7 @@ func parseMovies(body []byte) (map[string]schedule.MovieRecord, error) {
 	}
 	return result, nil
 }
-func parseSchedule(body []byte, c cinema, program map[string][]string, movies map[string]schedule.MovieRecord, location *time.Location, allowMissing string) ([]schedule.ShowtimeRecord, error) {
+func parseSchedule(body []byte, c cinema, program map[string][]string, movies map[string]schedule.MovieRecord, location *time.Location, allowMissing string, unknown ...map[string]bool) ([]schedule.ShowtimeRecord, error) {
 	var r scheduleResponse
 	if err := decodeJSON(body, &r); err != nil {
 		return nil, err
@@ -197,6 +197,9 @@ func parseSchedule(body []byte, c cinema, program map[string][]string, movies ma
 			sessions := container.Schedule[id][date]
 			if len(sessions) == 0 {
 				if date == allowMissing {
+					if len(unknown) > 0 && unknown[0] != nil {
+						unknown[0][date] = true
+					}
 					continue
 				}
 				return nil, errSnapshotChanged

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import { isBroadTheaterSelection } from '../app/utils/cinemaSelection.ts'
 import ts from 'typescript'
 import { ref } from 'vue'
 
@@ -39,13 +40,14 @@ function deferred<T>() {
 test('cinema page waits for acknowledgement and does not announce after departure or identity change', async () => {
   const code = await functionsFromPage('../app/pages/cinemas.vue', [
     'applyDraftSelection',
-    'reportSaved',
   ])
   for (const outcome of [
     'saved',
     'failed',
     'departed',
     'switched',
+    'departed-failed',
+    'switched-failed',
     'blocked',
     'empty',
   ]) {
@@ -56,10 +58,11 @@ test('cinema page waits for acknowledgement and does not announce after departur
       isUnmounted: false,
       selectionScopeKey: ref(0),
       statusMessage: ref(''),
-      favoriteTheaterIds: ref(['ugc-2']),
+      favoriteTheaterIds: ref(outcome === 'empty' ? [] : ['ugc-2']),
       draftFavoriteTheaterIds: ref(['ugc-2']),
-      setFavoriteTheaterIds: async () => {
+      setFavoriteTheaterIds: async (ids: string[]) => {
         writes++
+        if (outcome === 'empty') bindings.favoriteTheaterIds.value = ids
         return acknowledgement.promise
       },
     }
@@ -74,33 +77,45 @@ test('cinema page waits for acknowledgement and does not announce after departur
     const pending = page.applyDraftSelection(
       outcome === 'empty' ? [] : ['ugc-1'],
     )
-    assert.doesNotMatch(bindings.statusMessage.value, /1 cinéma enregistré/)
-    if (outcome === 'departed') page.depart()
-    if (outcome === 'switched') bindings.selectionScopeKey.value++
-    acknowledgement.resolve(outcome !== 'failed')
+    assert.equal(bindings.statusMessage.value, '')
+    if (outcome.startsWith('departed')) page.depart()
+    if (outcome.startsWith('switched')) bindings.selectionScopeKey.value++
+    acknowledgement.resolve(!outcome.includes('failed'))
     await pending
-    assert.equal(writes, outcome === 'blocked' || outcome === 'empty' ? 0 : 1)
-    if (outcome === 'saved')
-      assert.equal(bindings.statusMessage.value, '1 cinéma enregistré.')
-    if (outcome === 'departed' || outcome === 'switched')
+    assert.equal(writes, outcome === 'blocked' ? 0 : 1)
+    if (outcome === 'saved') {
       assert.equal(bindings.statusMessage.value, '')
-    if (outcome === 'empty')
-      assert.match(bindings.statusMessage.value, /restent inchangés/)
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['ugc-2'])
+    }
+    if (outcome.startsWith('departed') || outcome.startsWith('switched')) {
+      assert.equal(bindings.statusMessage.value, '')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['ugc-1'])
+    }
+    if (outcome === 'empty') {
+      assert.equal(bindings.statusMessage.value, '')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, [])
+    }
+    if (outcome === 'blocked') {
+      assert.equal(bindings.statusMessage.value, '')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['ugc-2'])
+    }
     if (outcome === 'failed')
       assert.match(bindings.statusMessage.value, /pas pu être enregistrée/)
   }
 })
 
-test('planning clears old result and fences pending request before empty, unresolved and error early returns', async () => {
+test('planning clears old result and fences pending request before unresolved and error early returns', async () => {
   const code = await functionsFromPage('../app/pages/planning.vue', [
     'loadTimeline',
   ])
-  for (const transition of ['empty', 'unresolved', 'error']) {
+  for (const transition of ['unresolved', 'error']) {
     const response = deferred<{ stale: boolean }>()
     const bindings = {
+      isBroadTheaterSelection,
       requestId: 0,
       timeline: ref<{ stale: boolean } | null>({ stale: true }),
       preferences: {
+        theaters: ref([{ id: 'ugc-1' }, { id: 'other' }]),
         error: ref<string | null>(null),
         isInitialized: ref(true),
         activeTheaterIds: ref(['ugc-1']),
@@ -138,11 +153,13 @@ test('movie catalog invalidates personalized requests but still permits explicit
   const response = deferred<{ total: number }>()
   let requests = 0
   const bindings = {
+    isBroadTheaterSelection,
     requestId: 0,
     pending: ref(false),
     errorMessage: ref(''),
     catalog: ref<{ total: number } | null>(null),
     preferences: {
+      theaters: ref([{ id: 'ugc-1' }, { id: 'other' }]),
       error: ref<string | null>(null),
       isInitialized: ref(true),
       favoriteTheaterIds: ref(['ugc-1']),
@@ -179,4 +196,44 @@ test('movie catalog invalidates personalized requests but still permits explicit
   await load()
   assert.equal(requests, 2)
   assert.equal(bindings.catalog.value?.total, 1)
+})
+
+test('resolved empty and full-catalog planning scopes omit theaters while partial IDs stay explicit', async () => {
+  const code = await functionsFromPage('../app/pages/planning.vue', [
+    'loadTimeline',
+  ])
+  for (const ids of [[], ['a', 'b'], ['a']]) {
+    const requests: Array<{ theaters?: string }> = []
+    const bindings = {
+      isBroadTheaterSelection,
+      requestId: 0,
+      timeline: ref(null),
+      pending: ref(false),
+      errorMessage: ref(''),
+      preferences: {
+        activeTheaterIds: ref(ids),
+        theaters: ref([{ id: 'a' }, { id: 'b' }]),
+        isInitialized: ref(true),
+        error: ref(null),
+      },
+      date: ref('2026-09-24'),
+      language: ref('ALL'),
+      api: {
+        timeline: async (query: { theaters?: string }) => {
+          requests.push(query)
+          return { theaters: [] }
+        },
+      },
+      getFrenchApiError: () => 'Erreur',
+    }
+    // SAFETY: Extracted real loader uses these explicit bindings and returns only a Promise<void>.
+    const load = new Function(
+      ...Object.keys(bindings),
+      `${code}\nreturn loadTimeline`,
+    )(...Object.values(bindings)) as () => Promise<void>
+    await load()
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0]?.theaters, ids.length === 1 ? 'a' : undefined)
+    assert.equal(bindings.pending.value, false)
+  }
 })

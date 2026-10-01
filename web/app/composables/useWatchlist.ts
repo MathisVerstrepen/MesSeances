@@ -49,13 +49,12 @@ function createWatchlist() {
   )
   const ready = computed(
     () =>
-      !!owner.value &&
-      !!snapshot.value &&
-      !loading.value &&
-      !uncertain.value &&
-      !account.writesBlocked.value,
+      !!owner.value && !!snapshot.value && !loading.value && !uncertain.value,
   )
-  const writesBlocked = computed(() => !ready.value || saving.value)
+  // Committed display survives same-owner revalidation, never write authority.
+  const writesBlocked = computed(
+    () => account.writesBlocked.value || !ready.value || saving.value,
+  )
   const items = computed(() => snapshot.value?.items ?? [])
   const tags = computed(() => snapshot.value?.tags ?? [])
   const sortOrder = computed(() => snapshot.value?.sort_order)

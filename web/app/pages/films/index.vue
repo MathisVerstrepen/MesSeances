@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isBroadTheaterSelection } from '~/utils/cinemaSelection'
 import {
   AlertTriangle,
   CalendarDays,
@@ -231,19 +232,14 @@ async function loadMovies() {
     catalog.value = null
     return
   }
-  if (
-    !appliedFilters.value.allTheaters &&
-    preferences.favoriteTheaterIds.value.length === 0
-  ) {
-    catalog.value = null
-    pending.value = false
-    await finishAdvancedApplyNavigation()
-    return
-  }
-
-  const theaterIds = appliedFilters.value.allTheaters
-    ? undefined
-    : preferences.favoriteTheaterIds.value.join(',')
+  const theaterIds =
+    appliedFilters.value.allTheaters ||
+    isBroadTheaterSelection(
+      preferences.favoriteTheaterIds.value,
+      preferences.theaters.value,
+    )
+      ? undefined
+      : preferences.favoriteTheaterIds.value.join(',')
   let shouldFinishAdvancedApplyNavigation = false
 
   try {
@@ -1035,18 +1031,6 @@ useHead(() => ({
               Réessayer
             </button></template
           >
-        </EditorialStatePanel>
-
-        <EditorialStatePanel
-          v-else-if="!appliedFilters.allTheaters && preferences.isInitialized.value && preferences.favoriteTheaterIds.value.length === 0"
-          size="tall"
-          shadow="large"
-          class="catalog-state mx-auto mb-4 mt-16 max-w-3xl font-extrabold max-sm:mt-10"
-        >
-          <template #icon><Film :size="36" aria-hidden="true" /></template>
-          <p>
-            Sélectionnez au moins un cinéma pour voir les films disponibles.
-          </p>
         </EditorialStatePanel>
 
         <EditorialStatePanel

@@ -28,19 +28,24 @@ func TestAdminMovieShowtimeCountIntegration(t *testing.T) {
 	if _, err := rand.Read(nonce); err != nil {
 		t.Fatal("generate test schema nonce failed")
 	}
-	schema := pgx.Identifier{"movieflow_admin_showtimes_test_" + hex.EncodeToString(nonce)}.Sanitize()
+	schema := "movieflow_admin_showtimes_test_" + hex.EncodeToString(nonce)
+	identifier := pgx.Identifier{schema}.Sanitize()
 	bootstrap, err := pgx.Connect(ctx, databaseURL)
 	if err != nil {
 		t.Fatal("connect integration bootstrap failed")
 	}
 	t.Cleanup(func() { _ = bootstrap.Close(context.Background()) })
-	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+	if _, err := bootstrap.Exec(ctx, "CREATE SCHEMA "+identifier); err != nil {
 		t.Fatal("create integration schema failed")
 	}
 	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "movieflow_admin_showtimes_test_") || len(schema) != len("movieflow_admin_showtimes_test_")+16 {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+schema+" CASCADE"); err != nil {
+		if _, err := bootstrap.Exec(cleanupCtx, "DROP SCHEMA "+identifier+" CASCADE"); err != nil {
 			t.Error("drop integration schema failed")
 		}
 	})
@@ -48,12 +53,13 @@ func TestAdminMovieShowtimeCountIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal("parse integration pool configuration failed")
 	}
-	config.ConnConfig.RuntimeParams["search_path"] = schema
+	config.ConnConfig.RuntimeParams["search_path"] = identifier
 	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatal("create integration pool failed")
 	}
 	t.Cleanup(pool.Close)
+	assertEnrichmentTestSchema(t, pool, schema)
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal("run integration migrations failed")
 	}

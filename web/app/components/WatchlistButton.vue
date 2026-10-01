@@ -22,8 +22,14 @@ const label = computed(() =>
       ? 'Retirer de la watchlist'
       : 'Ajouter à la watchlist',
 )
+const blocked = computed(
+  () =>
+    unknown.value ||
+    (!!watchlist.owner.value && account.writesBlocked.value) ||
+    watchlist.saving.value,
+)
 async function toggle() {
-  if (unknown.value) return
+  if (blocked.value) return
   if (!watchlist.owner.value) {
     await navigateTo(
       account.session.value
@@ -41,11 +47,11 @@ async function toggle() {
     <button
       type="button"
       class="inline-flex size-12 items-center justify-center border-2 border-ink bg-surface enabled:hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-current disabled:cursor-not-allowed disabled:opacity-60"
-      :disabled="unknown || watchlist.saving.value"
+      :disabled="blocked"
       :aria-pressed="unknown ? undefined : saved"
       :aria-label="label"
       :title="label"
-      :aria-busy="unknown || watchlist.saving.value"
+      :aria-busy="blocked"
       @click="toggle"
     >
       <WatchlistIcon :variant="saved ? 'remove' : 'add'" :size="24" />

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,7 +33,8 @@ func upcomingIntegrationPool(t *testing.T) *pgxpool.Pool {
 	if _, err := rand.Read(nonce); err != nil {
 		t.Fatal(err)
 	}
-	name := pgx.Identifier{"upcoming_test_" + hex.EncodeToString(nonce)}.Sanitize()
+	schema := "upcoming_test_" + hex.EncodeToString(nonce)
+	name := pgx.Identifier{schema}.Sanitize()
 	bootstrap, err := pgx.Connect(ctx, url)
 	if err != nil {
 		t.Fatal("connect disposable database failed")
@@ -42,6 +44,10 @@ func upcomingIntegrationPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		if !strings.HasPrefix(schema, "upcoming_test_") || len(schema) != len("upcoming_test_")+16 {
+			t.Error("unsafe integration schema cleanup rejected")
+			return
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if _, err := bootstrap.Exec(ctx, "DROP SCHEMA "+name+" CASCADE"); err != nil {
@@ -58,10 +64,19 @@ func upcomingIntegrationPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal("create disposable pool failed")
 	}
 	t.Cleanup(pool.Close)
+	assertEnrichmentTestSchema(t, pool, schema)
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
 	return pool
+}
+
+func assertEnrichmentTestSchema(t *testing.T, pool *pgxpool.Pool, schema string) {
+	t.Helper()
+	var current string
+	if err := pool.QueryRow(t.Context(), `SELECT current_schema()`).Scan(&current); err != nil || current != schema || schema == "public" {
+		t.Fatal("isolated enrichment schema assertion failed", err)
+	}
 }
 
 func upcomingProviderDataset(now time.Time) schedule.Dataset {

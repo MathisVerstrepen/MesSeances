@@ -173,6 +173,10 @@ func (cache *showingsParseCache) text(node *html.Node) string {
 }
 
 func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.ShowtimeRecord, error) {
+	return parseShowings(r, cinema, serviceDate, nil)
+}
+
+func parseShowings(r io.Reader, cinema Cinema, serviceDate string, complete *bool) ([]schedule.ShowtimeRecord, error) {
 	root, err := html.Parse(io.LimitReader(r, 8<<20))
 	if err != nil {
 		return nil, newShowingsParseError(ParseReasonDocumentParse, fmt.Errorf("parse showings: %w", err))
@@ -184,6 +188,9 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 	}
 	if err := validateShowingOwnership(root, cache, derivedFilmIDs, identitylessPackages); err != nil {
 		return nil, err
+	}
+	if complete != nil {
+		*complete = len(identitylessPackages) == 0 && !strings.Contains(strings.ToLower(cache.text(root)), "prochaine séance")
 	}
 	location, err := scheduleLocation()
 	if err != nil {
@@ -239,6 +246,9 @@ func ParseShowings(r io.Reader, cinema Cinema, serviceDate string) ([]schedule.S
 		return nil, err
 	}
 	if len(records) == 0 && !hasEmptyScheduleMarker(root) {
+		if complete != nil {
+			*complete = false
+		}
 		if hasOnlyIdentitylessPackageBlocks(root, identitylessPackages) {
 			return records, nil
 		}

@@ -508,8 +508,8 @@ test('page is client-only authenticated, accessible, escaped and preserves revie
   assert.match(page, /aspect-2\/3 w-16/)
   assert.match(page, /fallback-marker="upcoming-review"/)
   assert.match(page, /sm:grid-cols-3/)
-  assert.match(page, /inline-flex h-6 items-center whitespace-nowrap/)
-  assert.match(page, /border border-line bg-surface px-3 py-2/)
+  assert.match(page, /inline-flex min-h-7 items-center whitespace-nowrap/)
+  assert.match(page, /'editorial-button-outline'/)
   assert.doesNotMatch(page, /button-secondary|image\.tmdb\.org/)
   assert.doesNotMatch(
     page,

@@ -63,8 +63,7 @@ const {
 const pageCount = computed(() =>
   Math.max(1, Math.ceil(total.value / UPCOMING_REVIEW_PAGE_SIZE)),
 )
-const secondaryButtonClass =
-  'inline-flex min-h-11 items-center justify-center rounded-md border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink enabled:hover:border-line-hover enabled:hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent'
+const secondaryButtonClass = 'editorial-button-outline'
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let mounted = false
 
@@ -147,18 +146,16 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-    <header class="border-b border-line pb-5">
+  <main class="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+    <header class="border-b-2 border-ink pb-6">
       <NuxtLink
         to="/admin"
-        class="mb-1 inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-muted hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        class="mb-1 inline-flex min-h-11 items-center gap-1 font-mono text-xs font-bold text-ink underline underline-offset-4 hover:text-primary"
       >
         <ArrowLeft :size="16" aria-hidden="true" />
         Administration
       </NuxtLink>
-      <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">
-        Revue des sorties à venir
-      </h1>
+      <h1 class="editorial-title">Revue des sorties à venir</h1>
       <p class="mt-3 text-sm text-muted">
         Les signalements restent visibles jusqu’à leur exclusion.
       </p>
@@ -167,7 +164,7 @@ onBeforeUnmount(() => {
     <div class="mt-5">
       <button
         type="button"
-        class="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:w-auto"
+        class="editorial-button w-full sm:w-auto"
         :disabled="!canStartUpcoming"
         aria-describedby="upcoming-sync-status"
         @click="startUpcomingSync"
@@ -192,7 +189,7 @@ onBeforeUnmount(() => {
       </p>
       <div
         v-if="upcomingError"
-        class="mt-3 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        class="editorial-alert mt-3 flex items-start gap-3 p-4"
         role="alert"
       >
         <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
@@ -220,7 +217,7 @@ onBeforeUnmount(() => {
         <select
           id="review-filter"
           :value="filters.filter"
-          class="min-h-11 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          class="editorial-field"
           @change="changeFilter"
         >
           <option
@@ -243,7 +240,7 @@ onBeforeUnmount(() => {
           v-model="search"
           type="search"
           autocomplete="off"
-          class="min-h-11 w-full rounded-md border border-line bg-surface px-3 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          class="editorial-field"
           @input="changeSearch"
         >
       </div>
@@ -257,11 +254,7 @@ onBeforeUnmount(() => {
     >
       {{ message }}
     </p>
-    <div
-      v-if="error"
-      class="mt-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-      role="alert"
-    >
+    <div v-if="error" class="editorial-alert mt-4 p-4" role="alert">
       <p>{{ error }}</p>
       <button
         type="button"
@@ -286,14 +279,14 @@ onBeforeUnmount(() => {
         <div
           v-for="index in 3"
           :key="index"
-          class="h-32 animate-pulse rounded-md bg-subtle"
+          class="h-32 border-2 border-ink/20 bg-ink/10 motion-safe:animate-pulse"
         />
       </div>
       <template v-if="loaded">
         <p v-if="items.length" class="mb-3 text-sm text-muted">
           {{ total }} {{ total > 1 ? 'sorties' : 'sortie' }}
         </p>
-        <ul class="divide-y divide-line">
+        <ul class="divide-y-2 divide-ink">
           <li
             v-for="movie in items"
             :key="movie.tmdb_id"
@@ -307,7 +300,7 @@ onBeforeUnmount(() => {
                 :src="movie.poster_url"
                 alt=""
                 sizes="(min-width: 640px) 96px, 64px"
-                class="aspect-2/3 w-16 overflow-hidden rounded-md bg-subtle sm:row-span-2 sm:w-24"
+                class="aspect-2/3 w-16 overflow-hidden border-2 border-ink bg-canvas shadow-[3px_3px_0_#27272a] sm:row-span-2 sm:w-24"
                 image-class="size-full object-cover"
                 fallback-class="gap-2 px-1 text-center text-[10px] leading-tight text-muted"
                 fallback-variant="compact"
@@ -320,7 +313,7 @@ onBeforeUnmount(() => {
                 <div class="min-w-0">
                   <h2
                     :id="`review-title-${movie.tmdb_id}`"
-                    class="text-base leading-snug font-semibold wrap-anywhere text-ink sm:text-lg"
+                    class="text-lg leading-snug font-black wrap-anywhere text-ink sm:text-xl"
                   >
                     <NuxtLink
                       :to="`/film/${movie.slug}`"
@@ -360,13 +353,13 @@ onBeforeUnmount(() => {
                   class="flex shrink-0 flex-wrap items-start gap-2 self-start text-xs leading-4"
                 >
                   <span
-                    class="inline-flex h-6 items-center whitespace-nowrap rounded bg-subtle px-2 font-semibold text-ink"
+                    class="inline-flex min-h-7 items-center whitespace-nowrap border-2 border-ink bg-highlight px-2 font-mono font-bold text-ink"
                     >{{
                       upcomingReviewDecisionLabels[movie.decision]
                     }}</span
                   >
                   <span
-                    class="inline-flex h-6 items-center whitespace-nowrap rounded border border-line px-2 text-ink"
+                    class="inline-flex min-h-7 items-center whitespace-nowrap border-2 border-ink bg-surface px-2 font-mono text-ink"
                     >{{
                       upcomingReviewVisibility(movie)
                     }}</span
@@ -410,7 +403,7 @@ onBeforeUnmount(() => {
                   </summary>
                   <ul
                     v-if="movie.french_releases.length"
-                    class="space-y-3 border-l-2 border-line pl-4"
+                    class="space-y-3 border-l-2 border-ink pl-4"
                   >
                     <li
                       v-for="(release, index) in movie.french_releases"
@@ -482,10 +475,12 @@ onBeforeUnmount(() => {
           </li>
         </ul>
 
-        <div
+        <EditorialStatePanel
           v-if="!items.length && !loading && !error"
-          class="py-8"
-          role="status"
+          class="mt-4"
+          semantic="status"
+          size="compact"
+          shadow="small"
         >
           <p class="font-semibold text-ink">
             {{
@@ -511,12 +506,12 @@ onBeforeUnmount(() => {
               En attente d’évaluation
             </button>
           </div>
-        </div>
+        </EditorialStatePanel>
 
         <nav
           v-if="total > UPCOMING_REVIEW_PAGE_SIZE || filters.page > 1"
           aria-label="Pagination des sorties"
-          class="mt-5 grid grid-cols-2 items-center justify-between gap-3 border-t border-line pt-5 sm:flex sm:flex-wrap"
+          class="mt-5 grid grid-cols-2 items-center justify-between gap-3 border-t-2 border-ink pt-5 sm:flex sm:flex-wrap"
         >
           <button
             type="button"

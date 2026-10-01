@@ -3,11 +3,14 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarClock,
-  Film,
+  CalendarDays,
+  FilePenLine,
+  GitCompareArrows,
   LoaderCircle,
   LogOut,
   MapPin,
   RefreshCw,
+  Users,
 } from '@lucide/vue'
 
 definePageMeta({ middleware: 'admin-auth' })
@@ -33,16 +36,14 @@ useHead({ title: 'Administration - MesSeances' })
 </script>
 
 <template>
-  <main class="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
+  <main class="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
     <div
-      class="flex items-center justify-between gap-4 border-b border-line pb-5"
+      class="flex flex-wrap items-center justify-between gap-4 border-b-2 border-ink pb-6"
     >
-      <h1 class="text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">
-        Administration
-      </h1>
+      <h1 class="editorial-title">Administration</h1>
       <button
         type="button"
-        class="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-surface px-4 text-sm font-semibold text-ink transition hover:border-line-hover disabled:cursor-not-allowed disabled:opacity-50"
+        class="editorial-button-outline"
         :disabled="loggingOut"
         @click="logout"
       >
@@ -59,7 +60,7 @@ useHead({ title: 'Administration - MesSeances' })
 
     <div
       v-if="errorMessage"
-      class="mt-6 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+      class="editorial-alert mt-6 flex items-start gap-3 p-4"
       role="alert"
     >
       <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
@@ -68,114 +69,104 @@ useHead({ title: 'Administration - MesSeances' })
 
     <section class="mt-6" aria-labelledby="admin-tools-title">
       <h2 id="admin-tools-title" class="sr-only">Outils d’administration</h2>
-      <div class="grid max-w-xl gap-4">
+      <div class="grid gap-5 sm:grid-cols-2">
         <NuxtLink
           to="/admin/upcoming-movies"
-          class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
         >
           <span
-            class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
           >
-            <Film :size="22" aria-hidden="true" />
+            <CalendarDays :size="22" aria-hidden="true" />
           </span>
-          <span class="min-w-0 flex-1 text-base font-semibold text-ink"
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Revue des sorties à venir</span
           >
-          <ArrowRight
-            :size="20"
-            class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent"
-            aria-hidden="true"
-          />
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           to="/admin/tmdb-matches"
-          class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
         >
           <span
-            class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
           >
-            <Film :size="22" aria-hidden="true" />
+            <GitCompareArrows :size="22" aria-hidden="true" />
           </span>
-          <span class="min-w-0 flex-1 text-base font-semibold text-ink"
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Correspondances TMDB</span
           >
-          <ArrowRight
-            :size="20"
-            class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent"
-            aria-hidden="true"
-          />
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           to="/admin/movies"
-          class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
         >
           <span
-            class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
           >
-            <Film :size="22" aria-hidden="true" />
+            <FilePenLine :size="22" aria-hidden="true" />
           </span>
-          <span class="min-w-0 flex-1 text-base font-semibold text-ink"
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Métadonnées des films</span
           >
-          <ArrowRight
-            :size="20"
-            class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent"
-            aria-hidden="true"
-          />
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           to="/admin/sync"
-          class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
         >
           <span
-            class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
           >
             <RefreshCw :size="22" aria-hidden="true" />
           </span>
-          <span class="min-w-0 flex-1 text-base font-semibold text-ink"
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Synchronisation des séances</span
           >
-          <ArrowRight
-            :size="20"
-            class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent"
-            aria-hidden="true"
-          />
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           to="/admin/sync-schedules"
-          class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
         >
           <span
-            class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
           >
             <CalendarClock :size="22" aria-hidden="true" />
           </span>
-          <span class="min-w-0 flex-1 text-base font-semibold text-ink"
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Planification des synchronisations</span
           >
-          <ArrowRight
-            :size="20"
-            class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent"
-            aria-hidden="true"
-          />
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>
         <NuxtLink
           to="/admin/theater-locations"
-          class="group flex items-center gap-4 rounded-lg border border-line bg-surface p-5 shadow-sm transition hover:border-line-hover"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
         >
           <span
-            class="grid size-11 shrink-0 place-items-center rounded-md bg-subtle text-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
           >
             <MapPin :size="22" aria-hidden="true" />
           </span>
-          <span class="min-w-0 flex-1 text-base font-semibold text-ink"
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
             >Localisations des cinémas</span
           >
-          <ArrowRight
-            :size="20"
-            class="shrink-0 text-muted transition group-hover:translate-x-0.5 group-hover:text-accent"
-            aria-hidden="true"
-          />
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
+        </NuxtLink>
+        <NuxtLink
+          to="/admin/accounts"
+          class="group flex items-center gap-4 border-2 border-ink bg-surface p-5 shadow-[5px_5px_0_#27272a] transition-colors hover:bg-highlight"
+        >
+          <span
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-canvas text-ink"
+          >
+            <Users :size="22" aria-hidden="true" />
+          </span>
+          <span class="min-w-0 flex-1 text-lg font-black leading-tight text-ink"
+            >Comptes</span
+          >
+          <ArrowRight :size="20" class="shrink-0 text-ink" aria-hidden="true" />
         </NuxtLink>
       </div>
     </section>

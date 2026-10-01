@@ -28,7 +28,7 @@ function run(event: MouseEvent, action: (item: AdminMovieItem) => void) {
   <div v-if="item" class="flex h-full items-center gap-1.5">
     <button
       type="button"
-      class="rounded border border-line bg-surface px-2 py-1 text-xs font-semibold text-ink hover:border-line-hover"
+      class="inline-flex min-h-8 items-center border-2 border-ink bg-surface px-2 py-1 font-mono text-xs font-bold text-ink hover:bg-highlight"
       :aria-expanded="params.context.isDetailsOpen(item)"
       :aria-controls="params.context.detailsId(item)"
       @click="run($event, params.context.toggleDetails)"
@@ -37,7 +37,7 @@ function run(event: MouseEvent, action: (item: AdminMovieItem) => void) {
     </button>
     <button
       type="button"
-      class="rounded bg-primary px-2 py-1 text-xs font-semibold text-white disabled:opacity-40"
+      class="inline-flex min-h-8 items-center border-2 border-ink bg-ink px-2 py-1 font-mono text-xs font-bold text-white enabled:hover:bg-primary disabled:cursor-not-allowed disabled:opacity-40"
       :disabled="!params.context.isDirty(item) || params.context.isPending(item)"
       @click="run($event, params.context.saveMovie)"
     >
@@ -45,7 +45,7 @@ function run(event: MouseEvent, action: (item: AdminMovieItem) => void) {
     </button>
     <button
       type="button"
-      class="rounded px-2 py-1 text-xs font-semibold text-muted hover:bg-subtle disabled:opacity-40"
+      class="inline-flex min-h-8 items-center border-2 border-ink bg-surface px-2 py-1 font-mono text-xs font-bold text-ink enabled:hover:bg-highlight disabled:cursor-not-allowed disabled:opacity-40"
       :disabled="!params.context.isDirty(item) || params.context.isPending(item)"
       @click="run($event, params.context.cancelMovie)"
     >
@@ -53,7 +53,7 @@ function run(event: MouseEvent, action: (item: AdminMovieItem) => void) {
     </button>
     <span
       v-if="params.context.rowError(item)"
-      class="text-xs font-bold text-red-700"
+      class="text-xs font-bold text-primary"
       :title="params.context.rowError(item)"
       role="alert"
       >Erreur</span
