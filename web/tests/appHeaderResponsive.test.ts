@@ -184,6 +184,29 @@ test('mobile nav uses legible short labels, retaining full search name, destinat
     assert.doesNotMatch(classes, /\bhidden\b|truncate/)
 })
 
+test('Films is selected on upcoming releases, catalog and film detail routes only', async () => {
+  for (const path of ['/films', '/films/prochainement', '/film/example']) {
+    const html = await render({ path })
+    const films = link(html, '/films')
+    assert.match(films, /aria-current="page"/, path)
+    assert.match(films, /bg-ink text-white/, path)
+    for (const href of ['/planning', '/recherche', '/connexion', '/cinemas'])
+      assert.doesNotMatch(link(html, href), /aria-current="page"/, path)
+  }
+
+  for (const path of [
+    '/',
+    '/planning',
+    '/recherche',
+    '/films-extra',
+    '/films/prochainement-extra',
+  ]) {
+    const films = link(await render({ path }), '/films')
+    assert.doesNotMatch(films, /aria-current="page"/, path)
+    assert.doesNotMatch(films, /bg-ink text-white/, path)
+  }
+})
+
 test('header keeps account labels and selected links unchanged on account and cinema routes', async () => {
   const anonymous = await render({ path: '/inscription' })
   assert.match(link(anonymous, '/connexion'), /aria-current="page"/)

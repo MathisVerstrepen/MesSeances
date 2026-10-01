@@ -70,7 +70,11 @@ const favoriteSummary = computed(() => {
 
 function isActive(to: string) {
   if (to === '/films')
-    return route.path === '/films' || route.path.startsWith('/film/')
+    return (
+      route.path === '/films' ||
+      route.path === '/films/prochainement' ||
+      route.path.startsWith('/film/')
+    )
   if (to === '/compte') return isAccountPage(route.path)
   return route.path === to
 }
