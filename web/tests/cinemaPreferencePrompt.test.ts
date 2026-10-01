@@ -23,6 +23,44 @@ const compiled = ts.transpileModule(
   { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
 ).outputText
 
+type PointerFixture = Pick<
+  PointerEvent,
+  'pointerId' | 'pointerType' | 'isPrimary' | 'clientX' | 'clientY' | 'target'
+>
+type ClickFixture = Pick<
+  MouseEvent,
+  'detail' | 'preventDefault' | 'stopPropagation'
+>
+
+class ElementFixture extends EventTarget {
+  readonly tag: string
+  readonly parent: ElementFixture | null
+  readonly captures = new Set<number>()
+
+  constructor(tag = 'div', parent: ElementFixture | null = null) {
+    super()
+    this.tag = tag
+    this.parent = parent
+  }
+
+  closest(selector: string): ElementFixture | null {
+    if (selector === this.tag) return this
+    return this.parent?.closest(selector) ?? null
+  }
+
+  hasPointerCapture(id: number) {
+    return this.captures.has(id)
+  }
+
+  setPointerCapture(id: number) {
+    this.captures.add(id)
+  }
+
+  releasePointerCapture(id: number) {
+    this.captures.delete(id)
+  }
+}
+
 function harness(
   storage = new Map<string, string>(),
   fails = false,
@@ -42,6 +80,7 @@ function harness(
     computed,
     watch,
     isAccountPage,
+    Element: ElementFixture,
     useRoute: () => route,
     useNuxtApp: () => ({ $appUpdate: { state: update } }),
     useCinemaPreferences: () => preferences,
@@ -61,42 +100,42 @@ function harness(
       },
     },
   }
-  // SAFETY: Actual setup explicitly returns these component refs and methods; only IO is mocked.
+  // SAFETY: The appended return names actual setup refs and handlers. Fixtures cover every
+  // accessed event/element member; the injected Element constructor also validates target identity.
   const page = new Function(
     ...Object.keys(bindings),
     `${compiled}\nreturn { visible, dismiss, popup, dragX, dragY, onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture, onClick }`,
   )(...Object.values(bindings)) as {
     visible: { value: boolean }
     dismiss: () => void
-    popup: { value: HTMLElement | null }
+    popup: { value: ElementFixture | null }
     dragX: { value: number }
     dragY: { value: number }
-    onPointerDown: (event: PointerEvent) => void
-    onPointerMove: (event: PointerEvent) => void
-    onPointerUp: (event: PointerEvent) => void
-    onPointerCancel: (event: PointerEvent) => void
-    onLostPointerCapture: (event: PointerEvent) => void
-    onClick: (event: MouseEvent) => void
+    onPointerDown: (event: PointerFixture) => void
+    onPointerMove: (event: PointerFixture) => void
+    onPointerUp: (event: PointerFixture) => void
+    onPointerCancel: (event: PointerFixture) => void
+    onLostPointerCapture: (event: PointerFixture) => void
+    onClick: (event: ClickFixture) => void
   }
-  const captures = new Set<number>()
-  page.popup.value = {
-    hasPointerCapture: (id: number) => captures.has(id),
-    setPointerCapture: (id: number) => captures.add(id),
-    releasePointerCapture: (id: number) => captures.delete(id),
-  } as unknown as HTMLElement
+  page.popup.value = new ElementFixture()
   return { page, route, preferences, update, mount: () => mount() }
 }
 
-function pointer(x = 0, y = 0, overrides: Partial<PointerEvent> = {}) {
+function pointer(
+  x = 0,
+  y = 0,
+  overrides: Partial<PointerFixture> = {},
+): PointerFixture {
   return {
     pointerId: 1,
     pointerType: 'touch',
     isPrimary: true,
     clientX: x,
     clientY: y,
-    target: { closest: () => null },
+    target: new ElementFixture(),
     ...overrides,
-  } as unknown as PointerEvent
+  }
 }
 
 function readyPrompt(storage = new Map<string, string>(), fails = false) {
@@ -109,16 +148,17 @@ function readyPrompt(storage = new Map<string, string>(), fails = false) {
 function click(detail = 1) {
   let prevented = false
   let stopped = false
+  const event: ClickFixture = {
+    detail,
+    preventDefault: () => {
+      prevented = true
+    },
+    stopPropagation: () => {
+      stopped = true
+    },
+  }
   return {
-    event: {
-      detail,
-      preventDefault: () => {
-        prevented = true
-      },
-      stopPropagation: () => {
-        stopped = true
-      },
-    } as unknown as MouseEvent,
+    event,
     prevented: () => prevented,
     stopped: () => stopped,
   }
@@ -308,7 +348,7 @@ test('mouse, pen, nonprimary and unavailable-coarse input cannot swipe; second t
     { pointerType: 'mouse' },
     { pointerType: 'pen' },
     { isPrimary: false },
-    { target: { closest: () => ({}) } as unknown as Element },
+    { target: new ElementFixture('button') },
   ]) {
     const h = readyPrompt()
     h.page.onPointerDown(pointer(0, 0, overrides))
@@ -332,6 +372,29 @@ test('mouse, pen, nonprimary and unavailable-coarse input cannot swipe; second t
   h.page.onPointerUp(pointer(90, 0))
   assert.equal(h.page.visible.value, true)
   assert.equal(h.page.dragX.value, 0)
+})
+
+test('pointer target guard ignores null, non-elements and button descendants but accepts CTA descendants', () => {
+  for (const target of [
+    null,
+    new EventTarget(),
+    new ElementFixture('svg', new ElementFixture('button')),
+  ]) {
+    const h = readyPrompt()
+    h.page.onPointerDown(pointer(0, 0, { target }))
+    h.page.onPointerMove(pointer(80, 0, { target }))
+    h.page.onPointerUp(pointer(80, 0, { target }))
+    assert.equal(h.page.visible.value, true)
+    assert.equal(h.page.dragX.value, 0)
+    assert.equal(h.page.popup.value!.hasPointerCapture(1), false)
+  }
+  const h = readyPrompt()
+  const target = new ElementFixture('svg', new ElementFixture('a'))
+  h.page.onPointerDown(pointer(0, 0, { target }))
+  h.page.onPointerMove(pointer(-80, 0, { target }))
+  assert.equal(h.page.popup.value!.hasPointerCapture(1), true)
+  h.page.onPointerUp(pointer(-80, 0, { target }))
+  assert.equal(h.page.visible.value, false)
 })
 
 test('visibility changes reset active gestures and release capture before prompt reappears', () => {

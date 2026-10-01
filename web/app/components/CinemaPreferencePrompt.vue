@@ -52,7 +52,8 @@ function onPointerDown(event: PointerEvent) {
     !visible.value ||
     event.pointerType !== 'touch' ||
     !window.matchMedia('(any-pointer: coarse)').matches ||
-    (event.target as Element).closest('button')
+    !(event.target instanceof Element) ||
+    event.target.closest('button')
   ) {
     return
   }
