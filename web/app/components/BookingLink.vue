@@ -65,7 +65,7 @@ const reservation = computed(() => {
     :href="reservation.url"
     target="_blank"
     rel="noopener noreferrer"
-    :class="[unstyled ? '' : 'button-primary', availableClass]"
+    :class="[unstyled ? '' : 'editorial-button', availableClass]"
     :aria-label="`${reservation.kind === 'website' ? reservation.label : ariaLabel || reservation.label}, ouverture dans un nouvel onglet`"
   >
     <slot :available="true" :kind="reservation.kind" :label="reservation.label"

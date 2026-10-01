@@ -70,20 +70,36 @@ const modules = [
 const NARROW_VIEWPORT_QUERY = '(max-width: 767px)'
 
 const gridTheme = themeQuartz.withParams({
-  accentColor: '#1F6F78',
-  backgroundColor: '#FFFFFF',
-  borderColor: '#E4E4E7',
+  accentColor: 'var(--color-ink)',
+  backgroundColor: 'var(--color-surface)',
+  borderColor: 'var(--color-ink)',
   browserColorScheme: 'light',
-  foregroundColor: '#27272A',
-  headerBackgroundColor: '#F4F4F5',
-  headerTextColor: '#27272A',
-  oddRowBackgroundColor: '#FCFAF8',
-  rowHoverColor: '#EFF7F8',
-  selectedRowBackgroundColor: '#FEF2F2',
+  foregroundColor: 'var(--color-ink)',
+  headerBackgroundColor: 'var(--color-highlight)',
+  headerTextColor: 'var(--color-ink)',
+  headerFontFamily: 'ui-monospace, monospace',
+  headerFontWeight: 800,
+  headerRowBorder: { width: 2, color: 'var(--color-ink)' },
+  oddRowBackgroundColor: 'var(--color-canvas)',
+  rowHoverColor: 'color-mix(in srgb, var(--color-highlight) 30%, transparent)',
+  selectedRowBackgroundColor: 'var(--color-highlight)',
+  rowBorder: { color: 'color-mix(in srgb, var(--color-ink) 25%, transparent)' },
   fontFamily: 'ui-sans-serif, system-ui, sans-serif',
   fontSize: 13,
   spacing: 6,
-  wrapperBorderRadius: 8,
+  borderRadius: 0,
+  wrapperBorder: false,
+  wrapperBorderRadius: 0,
+  inputBorder: { width: 2, color: 'var(--color-ink)' },
+  inputBorderRadius: 0,
+  inputFocusBorder: { width: 2, color: 'var(--color-accent)' },
+  buttonBorder: { width: 2, color: 'var(--color-ink)' },
+  buttonBorderRadius: 0,
+  buttonBackgroundColor: 'var(--color-surface)',
+  buttonTextColor: 'var(--color-ink)',
+  buttonFontWeight: 700,
+  buttonHoverBackgroundColor: 'var(--color-highlight)',
+  popupShadow: '4px 4px 0 var(--color-ink)',
 })
 
 const localeText = {
@@ -653,13 +669,13 @@ onBeforeUnmount(() => {
 <template>
   <section aria-label="Éditeur des métadonnées de films">
     <div
-      class="sticky top-0 z-20 mb-3 flex flex-wrap items-end gap-3 border-y border-line bg-canvas/95 py-3 backdrop-blur"
+      class="sticky top-0 z-20 mb-4 flex flex-wrap items-end gap-3 border-b-2 border-ink bg-canvas py-4"
     >
-      <label class="min-w-64 flex-1 text-sm font-semibold text-ink">
+      <label class="min-w-0 basis-64 flex-1 text-sm font-semibold text-ink">
         Rechercher un titre
         <input
           v-model="searchInput"
-          class="field mt-1.5"
+          class="editorial-field mt-1.5"
           type="search"
           autocomplete="off"
           @input="updateSearch"
@@ -669,7 +685,7 @@ onBeforeUnmount(() => {
         État
         <select
           v-model="overrideStatusInput"
-          class="field mt-1.5 min-w-40"
+          class="editorial-field mt-1.5 min-w-40"
           @change="updateOverrides"
         >
           <option value="all">Tous</option>
@@ -681,7 +697,7 @@ onBeforeUnmount(() => {
         Champ modifié
         <select
           v-model="overrideFieldInput"
-          class="field mt-1.5 min-w-48"
+          class="editorial-field mt-1.5 min-w-48"
           :disabled="overrideStatusInput === 'automatic'"
           @change="updateOverrides"
         >
@@ -699,7 +715,7 @@ onBeforeUnmount(() => {
 
     <div
       v-if="conflictMessage"
-      class="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+      class="mb-3 flex items-start gap-2 border-l-4 border-ink bg-highlight/30 p-3 text-sm text-ink"
       role="alert"
     >
       <AlertTriangle :size="18" class="shrink-0" aria-hidden="true" />
@@ -707,7 +723,7 @@ onBeforeUnmount(() => {
     </div>
     <div
       v-if="loadError"
-      class="mb-3 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+      class="editorial-alert mb-3 flex items-start gap-2 p-3"
       role="alert"
     >
       <AlertTriangle :size="18" class="shrink-0" aria-hidden="true" />
@@ -738,7 +754,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div
-      class="h-[620px] min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm"
+      class="h-[620px] min-w-0 border-2 border-ink bg-surface shadow-[5px_5px_0_#27272a]"
     >
       <AgGridVue
         class="size-full"
@@ -770,20 +786,20 @@ onBeforeUnmount(() => {
     <section
       v-if="selectedDetailsItem"
       :id="detailsId(selectedDetailsItem)"
-      class="mt-4 border-y border-line bg-surface py-5"
+      class="mt-6 border-y-2 border-ink bg-surface py-5"
       :aria-labelledby="`${detailsId(selectedDetailsItem)}-title`"
     >
       <div class="flex flex-wrap items-center justify-between gap-3">
         <h2
           :id="`${detailsId(selectedDetailsItem)}-title`"
-          class="text-lg font-semibold text-ink"
+          class="editorial-heading"
         >
           Détails - {{ selectedDetailsItem.values.title }}
         </h2>
         <div class="flex gap-2">
           <button
             type="button"
-            class="button-primary"
+            class="editorial-button"
             :disabled="!isAdminMovieDraftDirty(drafts[selectedDetailsItem.id]) || pendingRows[selectedDetailsItem.id]"
             @click="saveMovie(selectedDetailsItem)"
           >
@@ -793,7 +809,7 @@ onBeforeUnmount(() => {
           </button>
           <button
             type="button"
-            class="h-10 rounded-md border border-line px-4 text-sm font-semibold text-ink disabled:opacity-50"
+            class="editorial-button-outline"
             :disabled="!isAdminMovieDraftDirty(drafts[selectedDetailsItem.id]) || pendingRows[selectedDetailsItem.id]"
             @click="cancelMovie(selectedDetailsItem)"
           >
@@ -803,7 +819,7 @@ onBeforeUnmount(() => {
       </div>
       <p
         v-if="rowErrors[selectedDetailsItem.id]"
-        class="mt-3 text-sm font-semibold text-red-700"
+        class="mt-3 text-sm font-semibold text-primary"
         role="alert"
       >
         {{ rowErrors[selectedDetailsItem.id] }}
@@ -835,10 +851,7 @@ onBeforeUnmount(() => {
             <span
               v-if="isAdminMovieFieldOverridden(selectedDetailsItem, drafts[selectedDetailsItem.id], field)"
               class="inline-flex items-center gap-1 text-xs font-semibold text-primary"
-              ><span
-                class="size-2 rounded-full bg-primary"
-                aria-hidden="true"
-              />
+              ><span class="size-2 bg-primary" aria-hidden="true" />
               Valeur manuelle</span
             >
             <button
@@ -853,7 +866,7 @@ onBeforeUnmount(() => {
           <textarea
             v-if="field === 'genres' || field === 'overview'"
             :id="`${detailsId(selectedDetailsItem)}-${field}`"
-            class="field h-auto min-h-28 py-2"
+            class="editorial-field min-h-28"
             :maxlength="field === 'overview' ? 10000 : undefined"
             :value="detailValue(field)"
             :aria-invalid="selectedDetailsErrors[field] ? 'true' : undefined"
@@ -862,7 +875,7 @@ onBeforeUnmount(() => {
           <input
             v-else
             :id="`${detailsId(selectedDetailsItem)}-${field}`"
-            class="field"
+            class="editorial-field"
             type="text"
             :maxlength="field.includes('youtube') ? 11 : 4096"
             :value="detailValue(field)"
@@ -876,13 +889,13 @@ onBeforeUnmount(() => {
             :src="detailValue('poster_url')"
             :alt="`Affiche de ${selectedDetailsItem.values.title}`"
             sizes="120px"
-            class="mt-3 aspect-[2/3] w-30 rounded-md bg-canvas"
-            image-class="size-full rounded-md object-contain"
+            class="mt-3 aspect-[2/3] w-30 border-2 border-ink bg-canvas"
+            image-class="size-full object-contain"
             fallback-class="p-2 text-center text-xs text-muted"
           />
           <p
             v-if="selectedDetailsErrors[field]"
-            class="mt-1 text-sm font-semibold text-red-700"
+            class="mt-1 text-sm font-semibold text-primary"
             role="alert"
           >
             {{ selectedDetailsErrors[field] }}

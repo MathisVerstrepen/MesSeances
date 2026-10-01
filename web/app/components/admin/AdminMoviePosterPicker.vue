@@ -77,7 +77,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
 <template>
   <button
     type="button"
-    class="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-line px-2 text-xs font-semibold text-accent hover:bg-accent-soft focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:opacity-50"
+    class="editorial-button-outline min-h-8 px-2 py-1 max-sm:min-h-11"
     :disabled="disabled"
     aria-haspopup="dialog"
     :aria-controls="`${titleId}-dialog`"
@@ -103,18 +103,18 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
       @click.self="closeModal()"
     >
       <section
-        class="w-full max-w-4xl rounded-lg bg-surface text-ink shadow-xl"
+        class="w-full max-w-4xl border-2 border-ink bg-surface text-ink shadow-[6px_6px_0_#27272a]"
       >
         <header
-          class="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-t-lg border-b border-line bg-surface px-4 py-3 sm:px-6"
+          class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b-2 border-ink bg-highlight px-4 py-3 sm:px-6"
         >
-          <h2 :id="titleId" class="min-w-0 text-lg font-semibold">
+          <h2 :id="titleId" class="editorial-heading min-w-0">
             Affiches TMDB - {{ movieTitle }}
           </h2>
           <button
             ref="closeButton"
             type="button"
-            class="grid size-11 shrink-0 place-items-center rounded-md border border-line hover:bg-accent-soft focus-visible:ring-2 focus-visible:ring-accent"
+            class="grid size-11 shrink-0 place-items-center border-2 border-ink bg-surface hover:bg-canvas"
             aria-label="Fermer les affiches"
             @click="closeModal()"
           >
@@ -122,10 +122,11 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
           </button>
         </header>
         <div class="p-4 sm:p-6" :aria-busy="status === 'loading'">
-          <p
+          <EditorialStatePanel
             v-if="status === 'loading'"
-            class="flex min-h-32 items-center justify-center gap-2 text-sm text-muted"
-            role="status"
+            semantic="status"
+            size="compact"
+            shadow="small"
           >
             <LoaderCircle
               :size="20"
@@ -133,27 +134,33 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
               aria-hidden="true"
             />
             Chargement des affiches…
-          </p>
-          <div v-else-if="status === 'error'" class="py-8 text-center">
-            <p class="text-sm font-semibold text-red-700" role="alert">
+          </EditorialStatePanel>
+          <EditorialStatePanel
+            v-else-if="status === 'error'"
+            semantic="alert"
+            size="compact"
+            shadow="small"
+          >
+            <p class="text-sm font-semibold text-primary">
               Impossible de charger les affiches TMDB.
             </p>
             <button
               type="button"
-              class="mt-4 inline-flex min-h-11 items-center gap-2 rounded-md border border-line px-4 text-sm font-semibold text-accent focus-visible:ring-2 focus-visible:ring-accent"
+              class="editorial-button-outline mt-4"
               @click="load(movieId)"
             >
               <RefreshCw :size="16" aria-hidden="true" />
               Réessayer
             </button>
-          </div>
-          <p
+          </EditorialStatePanel>
+          <EditorialStatePanel
             v-else-if="status === 'ready' && !posters.length"
-            class="py-8 text-center text-sm text-muted"
-            role="status"
+            semantic="status"
+            size="compact"
+            shadow="small"
           >
             Aucune affiche TMDB disponible pour ce film.
-          </p>
+          </EditorialStatePanel>
           <ul
             v-else
             class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"
@@ -162,8 +169,8 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
             <li v-for="(poster, index) in posters" :key="poster.url">
               <button
                 type="button"
-                class="h-full w-full overflow-hidden rounded-md border-2 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-                :class="safePosterUrl(poster.url) === currentUrl ? 'border-accent bg-accent-soft' : 'border-line hover:border-accent'"
+                class="h-full w-full overflow-hidden border-2 border-ink text-left focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                :class="safePosterUrl(poster.url) === currentUrl ? 'bg-highlight shadow-[4px_4px_0_#27272a]' : 'bg-surface hover:bg-canvas'"
                 :aria-pressed="safePosterUrl(poster.url) === currentUrl"
                 :aria-label="`Choisir l’affiche ${index + 1}, ${poster.language ?? 'sans langue'}, ${poster.width} × ${poster.height}`"
                 @click="selectPoster(poster.url)"
@@ -177,7 +184,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
                   fallback-class="p-2 text-center text-xs text-muted"
                 />
                 <span
-                  class="flex flex-wrap items-center justify-between gap-1 p-2 text-xs text-muted"
+                  class="flex flex-wrap items-center justify-between gap-1 border-t-2 border-ink p-2 font-mono text-xs text-ink"
                 >
                   <span
                     >{{ poster.language?.toUpperCase() ?? 'Sans langue' }}
@@ -185,7 +192,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
                   >
                   <span
                     v-if="safePosterUrl(poster.url) === currentUrl"
-                    class="inline-flex items-center gap-1 font-semibold text-accent"
+                    class="inline-flex items-center gap-1 font-bold text-ink"
                     ><Check :size="14" aria-hidden="true" />
                     Sélectionnée</span
                   >

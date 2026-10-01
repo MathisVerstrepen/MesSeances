@@ -44,7 +44,7 @@ function restore(event: MouseEvent) {
   <div v-if="item" class="flex h-full min-w-0 items-center gap-2">
     <span
       v-if="overridden"
-      class="size-2 shrink-0 rounded-full bg-primary"
+      class="size-2 shrink-0 bg-primary"
       title="Valeur manuelle"
       ><span class="sr-only">Valeur manuelle</span></span
     >
@@ -58,7 +58,7 @@ function restore(event: MouseEvent) {
     <button
       v-if="overridden"
       type="button"
-      class="shrink-0 rounded px-1.5 py-1 text-xs font-semibold text-accent hover:bg-accent-soft"
+      class="min-h-8 shrink-0 border-2 border-ink bg-surface px-1.5 py-1 font-mono text-xs font-bold text-ink hover:bg-highlight"
       :title="`Valeur automatique : ${params.context.formatFieldValue(params.field, item.automatic[params.field]) || 'non renseignée'}`"
       @click="restore"
     >
