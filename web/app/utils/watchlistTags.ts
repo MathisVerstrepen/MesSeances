@@ -21,15 +21,15 @@ export const watchlistTagPalette = {
   },
   green: {
     label: 'Vert',
-    backgroundColor: '#dcfce7',
-    color: '#166534',
-    borderColor: '#15803d',
+    backgroundColor: '#e2f3d2',
+    color: '#315b1c',
+    borderColor: '#4b7a2a',
   },
   teal: {
     label: 'Sarcelle',
-    backgroundColor: '#ccfbf1',
-    color: '#115e59',
-    borderColor: '#0f766e',
+    backgroundColor: '#cff5f6',
+    color: '#155e63',
+    borderColor: '#0e7490',
   },
   blue: {
     label: 'Bleu',
@@ -45,9 +45,9 @@ export const watchlistTagPalette = {
   },
   rose: {
     label: 'Rose',
-    backgroundColor: '#ffe4e6',
-    color: '#9f1239',
-    borderColor: '#e11d48',
+    backgroundColor: '#fce7f3',
+    color: '#9d174d',
+    borderColor: '#be185d',
   },
 } as const satisfies Record<
   WatchlistTagColor,

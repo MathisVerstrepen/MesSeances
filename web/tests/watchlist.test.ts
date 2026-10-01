@@ -39,6 +39,7 @@ import type {
 import * as errors from '../app/utils/accountState.ts'
 import * as dates from '../app/utils/date.ts'
 import * as images from '../app/utils/safeImageUrl.ts'
+import * as externalLinks from '../app/utils/movieExternalLinks.ts'
 import * as upcoming from '../app/utils/upcomingMovies.ts'
 import * as grouping from '../app/utils/watchlistGrouping.ts'
 import * as sorting from '../app/utils/watchlistSort.ts'
@@ -77,6 +78,7 @@ runInNewContext(
     require: (id: string) => {
       if (id === '~/utils/date') return dates
       if (id === '~/utils/safeImageUrl') return images
+      if (id === '~/utils/movieExternalLinks') return externalLinks
       if (id === '~/utils/upcomingMovies') return upcoming
       return require(id)
     },
@@ -86,6 +88,8 @@ assert.ok(rowModule.default)
 const WatchlistMovieRow = rowModule.default
 
 interface RowDateProps {
+  slug?: string
+  tmdbId?: string
   releaseDate?: string | null
   frenchReleaseDate?: string | null
 }
@@ -106,6 +110,173 @@ async function renderRow(props: RowDateProps) {
   return renderToString(app)
 }
 
+test('compact tag trigger shortens only its name; default desktop trigger and dialog title stay unchanged', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(source)
+  const managerModule: RowModule = {}
+  runInNewContext(
+    ts.transpileModule(
+      compileScript(descriptor, {
+        id: 'WatchlistTagManager',
+        inlineTemplate: true,
+      }).content,
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    {
+      exports: managerModule,
+      computed,
+      ref,
+      watch,
+      nextTick,
+      useTemplateRef: () => ref(null),
+      onMounted: () => {},
+      onBeforeUnmount: () => {},
+      useWatchlist: () => ({ scopeKey: ref(0) }),
+      require: (id: string) =>
+        id === '~/utils/watchlistTags' ? tagging : require(id),
+    },
+  )
+  assert.ok(managerModule.default)
+  for (const compact of [undefined, true]) {
+    const app = createSSRApp(managerModule.default, {
+      tags: [],
+      ready: true,
+      blocked: false,
+      compactTrigger: compact,
+    })
+    app.component('WatchlistTagColorPicker', { render: () => null })
+    const html = await renderToString(app)
+    assert.match(
+      html,
+      new RegExp(
+        `</svg>\\s*${compact ? 'Tags' : 'Gérer les tags'}\\s*</button>`,
+      ),
+    )
+    assert.match(html, /aria-haspopup="dialog"/)
+    assert.match(html, /aria-controls="watchlist-tag-manager"/)
+    assert.match(html, /min-h-11/)
+    assert.doesNotMatch(html, /<dialog/)
+  }
+  assert.match(
+    source,
+    /id="watchlist-tag-manager-title"[\s\S]*?>\s*Gérer les tags\s*<\/h2>/,
+  )
+})
+
+test('mobile watchlist toolbar keeps compact Configuration then Tags beside Mes films, desktop manager unchanged', async () => {
+  const source = await readFile(
+    new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+    'utf8',
+  )
+  const toolbar = source.slice(
+    source.indexOf('<section aria-labelledby="saved-heading">'),
+    source.indexOf(
+      '<WatchlistPreferences',
+      source.indexOf('<section aria-labelledby="saved-heading">'),
+    ),
+  )
+  assert.match(toolbar, /flex items-center justify-between gap-2 lg:hidden/)
+  assert.doesNotMatch(toolbar, /flex-wrap|mt-2/)
+  assert.match(toolbar, /id="saved-heading"[\s\S]*?>\s*Mes films\s*<\/h2>/)
+  assert.match(toolbar, /class="account-secondary size-12 p-0!"/)
+  assert.match(toolbar, /aria-label="Configuration"/)
+  assert.match(
+    toolbar,
+    /<Settings2[^>]+aria-hidden="true"\s*\/>(\s*)<\/button>/,
+  )
+  assert.match(
+    toolbar,
+    /ref="configurationTrigger"[\s\S]*?<WatchlistTagManager\s+v-if="!isDesktop"\s+compact-trigger/,
+  )
+  const desktop = source.match(
+    /<WatchlistTagManager\s+v-if="isDesktop"[\s\S]*?\/>/,
+  )?.[0]
+  assert.ok(desktop)
+  assert.doesNotMatch(desktop, /compact-trigger/)
+})
+
+test('tag manager renders inline icon-only named actions and separates creation from existing tags', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(
+    source.replace('const open = ref(false)', 'const open = ref(true)'),
+  )
+  const managerModule: RowModule = {}
+  runInNewContext(
+    ts.transpileModule(
+      compileScript(descriptor, {
+        id: 'WatchlistTagManager',
+        inlineTemplate: true,
+      }).content,
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    {
+      exports: managerModule,
+      computed,
+      ref,
+      watch,
+      nextTick,
+      useTemplateRef: () => ref(null),
+      onMounted: () => {},
+      onBeforeUnmount: () => {},
+      useWatchlist: () => ({ scopeKey: ref(0), error: ref('') }),
+      require: (id: string) =>
+        id === '~/utils/watchlistTags' ? tagging : require(id),
+    },
+  )
+  assert.ok(managerModule.default)
+  const name = 'À revoir au cinéma avec tous les amis'
+  for (const blocked of [false, true]) {
+    const app = createSSRApp(managerModule.default, {
+      tags: [{ id: '1', name, color: 'blue' }],
+      ready: true,
+      blocked,
+    })
+    app.component('WatchlistTagColorPicker', { render: () => null })
+    const html = await renderToString(app)
+    assert.match(
+      html,
+      /<ul class="mt-4 divide-y divide-ink\/20 border-t border-ink\/20 pt-2">/,
+    )
+    assert.match(
+      html,
+      /<div class="flex items-center gap-2"><div class="min-w-0 flex-1">/,
+    )
+    assert.doesNotMatch(html, /basis-full|sm:basis-auto/)
+    for (const label of ['Modifier', 'Supprimer']) {
+      const button = html.match(
+        new RegExp(
+          `<button[^>]*aria-label="${label} ${name}"[^>]*>[\\s\\S]*?<\\/button>`,
+        ),
+      )?.[0]
+      assert.ok(button)
+      assert.match(button, /size-11 shrink-0/)
+      assert.match(button, /hover:bg-subtle/)
+      assert.match(button, /focus-visible:outline-2/)
+      assert.match(button, /aria-expanded="false"/)
+      assert.match(button, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/)
+      assert.match(button, /width="20" height="20"/)
+      assert.doesNotMatch(button.replace(/<[^>]*>/g, ''), /\S/)
+      assert.equal(/ disabled(?:=""|(?=[\s>]))/.test(button), blocked)
+    }
+  }
+})
+
 test('saved movie row renders a full French theatrical date in semantic time, not the general year', async () => {
   const html = await renderRow({
     frenchReleaseDate: '1998-10-14',
@@ -116,6 +287,51 @@ test('saved movie row renders a full French theatrical date in semantic time, no
   assert.match(html, /href="\/film\/film-1"/)
   assert.match(html, /Film sauvegardé/)
   assert.match(html, /aria-hidden="true"/)
+})
+
+test('external title opens validated TMDB detail in a protected new tab; slug links retain priority', async () => {
+  for (const tmdbId of ['1', '999', '9007199254740991']) {
+    const html = await renderRow({ slug: undefined, tmdbId })
+    assert.match(
+      html,
+      new RegExp(`href="https://www.themoviedb.org/movie/${tmdbId}"`),
+    )
+    assert.match(html, /target="_blank"/)
+    assert.match(html, /rel="noopener noreferrer"/)
+    assert.match(html, /referrerpolicy="no-referrer"/)
+    assert.match(html, />Film sauvegardé<\/a>/)
+    assert.doesNotMatch(html, /href="\/film\//)
+  }
+  const local = await renderRow({ tmdbId: '999' })
+  assert.match(local, /href="\/film\/film-1"/)
+  assert.doesNotMatch(local, /themoviedb|target="_blank"|rel="noopener/)
+})
+
+test('invalid or absent external identity renders plain title without a link', async () => {
+  for (const tmdbId of [
+    undefined,
+    '',
+    '0',
+    '-1',
+    '1.5',
+    '01',
+    '+1',
+    '1e3',
+    ' 999',
+    '999 ',
+    '999\n',
+    'NaN',
+    'Infinity',
+    '9007199254740992',
+    '999/other',
+    '999?query=private',
+    'https://example.com',
+    'javascript:alert(1)',
+  ]) {
+    const html = await renderRow({ slug: undefined, tmdbId })
+    assert.match(html, /<p class="break-words font-bold">Film sauvegardé<\/p>/)
+    assert.doesNotMatch(html, /<a\b|target="_blank"/)
+  }
 })
 
 test('saved row omits missing, negative and invalid evidence without date placeholder or inferred year', async () => {
@@ -152,6 +368,8 @@ test('search rows retain general-date years and saved loop receives no fallback 
     (match) => match[0],
   )
   assert.equal(rows.length, 3)
+  assert.match(rows[1]!, /:tmdb-id="movie.tmdb_id"/)
+  for (const row of [rows[0]!, rows[2]!]) assert.doesNotMatch(row, /tmdb-id/)
   for (const row of rows.slice(0, 2)) {
     assert.match(row, /:release-date="movie.release_date"/)
     assert.doesNotMatch(row, /french-release-date/)
@@ -250,6 +468,7 @@ async function fixture(client = true) {
   const scopes: ReturnType<typeof effectScope>[] = []
   let response = value()
   let admitted = session()
+  let sessionRead = async () => admitted
   let gets = 0
   let read = async () => response
   let write = async (input: SaveWatchlist) => {
@@ -310,7 +529,7 @@ async function fixture(client = true) {
     },
     useNuxtApp: () => app,
     useAccountApi: () => ({
-      session: async () => admitted,
+      session: () => sessionRead(),
       watchlist: async () => {
         gets++
         return read()
@@ -389,6 +608,9 @@ async function fixture(client = true) {
     },
     setRead: (fn: typeof read) => {
       read = fn
+    },
+    setSessionRead: (fn: typeof sessionRead) => {
+      sessionRead = fn
     },
     setWrite: (fn: typeof write) => {
       write = fn
@@ -737,6 +959,7 @@ for (const control of ['filter', 'mode'] as const) {
     'interaction',
     'moved-focus',
     'disabled',
+    'hidden',
   ] as const) {
     test(`${control} focus recovery respects ${transition}`, async () => {
       const f = await pageFixture()
@@ -760,6 +983,7 @@ for (const control of ['filter', 'mode'] as const) {
         if (transition === 'interaction') f.page.interactWithTags()
         if (transition === 'moved-focus') f.pageDocument.activeElement = {}
         if (transition === 'disabled') element.disabled = true
+        if (transition === 'hidden') element.visible = false
         pending.resolve({
           ...value('2'),
           view_mode: 'tags',
@@ -1235,6 +1459,63 @@ test('failed reconciliation gates results and writes until explicit retry succee
   }
 })
 
+test('same-owner held session and watchlist reads retain display readiness but reject every write', async () => {
+  const f = await pageFixture()
+  try {
+    const next = {
+      ...value('7', ['film-1'], 'alice', 'title_desc'),
+      view_mode: 'tags' as const,
+      filter_tag_id: '1',
+      tags: [{ id: '1', name: 'Amis', color: 'blue' as const }],
+    }
+    next.items[0]!.tag_ids = ['1']
+    f.setResponse(next)
+    await f.account.revalidate()
+    const rows = f.list.items.value
+    const heldSession = deferred<AccountSession>()
+    const heldRead = deferred<AccountWatchlist>()
+    f.setSessionRead(() => heldSession.promise)
+    f.setRead(() => heldRead.promise)
+    const refresh = f.account.revalidate()
+    const assertHeld = async () => {
+      assert.equal(f.list.ready.value, true)
+      assert.equal(f.list.items.value, rows)
+      assert.equal(f.page.selectedTag.value, '1')
+      assert.equal(f.page.displayMode.value, 'tags')
+      assert.equal(f.list.sortOrder.value, 'title_desc')
+      assert.equal(f.list.writesBlocked.value, true)
+      assert.equal(await f.list.save('film-1', false), false)
+      assert.equal(await f.list.saveSort('added_desc'), false)
+      assert.equal(await f.list.savePreferences('list', null), false)
+      assert.equal(await f.list.createTag('Autre', 'red'), false)
+      assert.equal(await f.list.updateTag('1', 'Autre', 'red'), false)
+      assert.equal(await f.list.deleteTag('1'), false)
+      assert.equal(await f.list.assignTag('film-1', '1', false), false)
+      assert.equal(await f.list.importMovie('12'), false)
+      await f.list.search()
+      assert.equal(
+        f.posts.length +
+          f.sortPosts.length +
+          f.preferencePosts.length +
+          f.tagPosts.length,
+        0,
+      )
+    }
+    await settle()
+    await assertHeld()
+    heldSession.resolve(session())
+    await settle()
+    await assertHeld()
+    heldRead.resolve(next)
+    await refresh
+    assert.equal(f.list.ready.value, true)
+    assert.equal(f.list.writesBlocked.value, false)
+    assert.deepEqual(f.messages, [])
+  } finally {
+    f.stop()
+  }
+})
+
 test('focus revalidation waits for writes and reads committed state under new session revision', async () => {
   const f = await fixture()
   try {
@@ -1245,7 +1526,8 @@ test('focus revalidation waits for writes and reads committed state under new se
     const save = f.list.save('film-2', true)
     const refresh = f.account.revalidate()
     await settle()
-    assert.equal(f.list.ready.value, false)
+    assert.equal(f.list.ready.value, true)
+    assert.equal(f.list.writesBlocked.value, true)
     f.setResponse(value('2', ['film-2']))
     pending.resolve(value('2', ['film-2']))
     await save
@@ -1375,12 +1657,16 @@ class TestSelect {
   value: string
   isConnected = true
   disabled = false
+  visible = true
   focusCalls = 0
   constructor(value: string) {
     this.value = value
   }
   focus() {
     this.focusCalls++
+  }
+  checkVisibility() {
+    return this.visible
   }
 }
 
@@ -1407,18 +1693,38 @@ interface PageInteractions {
   panelOpen: ReturnType<typeof ref<boolean>>
   activeTab: ReturnType<typeof ref<string>>
   panelHeight: ReturnType<typeof ref<number>>
+  panelTop: ReturnType<typeof ref<number>>
+  panelBottom: ReturnType<typeof ref<number>>
+  positionPanel: () => void
   submitSearch: () => Promise<void>
+  openSearch: () => Promise<void>
+  openConfiguration: () => Promise<void>
+  closeConfiguration: (restoreFocus?: boolean) => void
+  configurationOpen: ReturnType<typeof ref<boolean>>
+  isDesktop: ReturnType<typeof ref<boolean>>
+  breakpointChanged: () => void
   selectTab: (tab: string) => void
   tabKeydown: (event: { key: string; preventDefault: () => void }) => void
   addMovie: (movie: { slug: string } | { tmdb_id: string }) => Promise<void>
   dismiss: (restoreFocus?: boolean) => void
   clearPageSearch: () => void
+  removalTarget: ReturnType<typeof ref<{ slug: string; title: string } | null>>
+  removing: ReturnType<typeof ref<boolean>>
+  removalAttempted: ReturnType<typeof ref<boolean>>
+  openRemoval: (
+    movie: { slug: string; title: string },
+    event: { currentTarget: unknown },
+  ) => Promise<void>
+  closeRemoval: (restoreFocus?: boolean) => void
+  confirmRemoval: () => Promise<void>
 }
 
 interface PageDocument {
   activeElement: unknown
-  body: object
+  body: { style: { overflow: string } }
   removeEventListener: () => void
+  addEventListener: () => void
+  querySelector: () => TestSelect | null
 }
 
 // Exercise the page's interaction handlers with the real fenced composable.
@@ -1434,10 +1740,24 @@ async function pageFixture() {
   let focused = ''
   const scope = effectScope()
   const callbacks: (() => void)[] = []
+  const mounted: (() => void)[] = []
+  const viewport = {
+    height: 844,
+    offsetTop: 0,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
+  const media = {
+    matches: true,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }
   const pageDocument: PageDocument = {
     activeElement: null,
-    body: {},
+    body: { style: { overflow: 'auto' } },
     removeEventListener: () => {},
+    addEventListener: () => {},
+    querySelector: () => null,
   }
   // SAFETY: The transpiled page below exports exactly this interaction contract before use.
   const exports = {} as PageInteractions
@@ -1448,7 +1768,7 @@ async function pageFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch }`,
+        `${script}\nexport { selectedTag, displayMode, changeFilter, changeDisplay, clearFilter, interactWithTags, savedSections, openTagEditor, assignTag, sortedItems, changeSort, panelOpen, activeTab, panelHeight, panelTop, panelBottom, positionPanel, openSearch, openConfiguration, closeConfiguration, configurationOpen, isDesktop, breakpointChanged, submitSearch, selectTab, tabKeydown, addMovie, dismiss, clearPageSearch, removalTarget, removing, removalAttempted, openRemoval, closeRemoval, confirmRemoval }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -1476,11 +1796,19 @@ async function pageFixture() {
         useAccountSession: () => f.account,
         useHead: () => {},
         definePageMeta: () => {},
-        onMounted: () => {},
+        onMounted: (fn: () => void) => mounted.push(fn),
         onBeforeUnmount: (fn: () => void) => callbacks.push(fn),
         onBeforeRouteLeave: () => {},
         useTemplateRef: (name: string) => {
           const element = ref({
+            isConnected: true,
+            disabled: false,
+            checkVisibility: () => true,
+            showModal: () => {},
+            close: () => {},
+            focusFilter: () => {
+              focused = 'tagFilter'
+            },
             focus: () => {
               focused = name
             },
@@ -1490,11 +1818,18 @@ async function pageFixture() {
           elements.set(name, element)
           return element
         },
-        window: { innerHeight: 844, removeEventListener: () => {} },
+        window: {
+          innerHeight: 844,
+          visualViewport: viewport,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          matchMedia: () => media,
+        },
         document: pageDocument,
       },
     ),
   )
+  mounted.forEach((fn) => fn())
   return {
     ...f,
     page: exports,
@@ -1503,6 +1838,8 @@ async function pageFixture() {
       return f.gets
     },
     elements,
+    media,
+    viewport,
     get focused() {
       return focused
     },
@@ -1512,6 +1849,177 @@ async function pageFixture() {
       f.stop()
     },
   }
+}
+
+test('watchlist-only cross opens guarded confirmation; cancellation never mutates', async () => {
+  const f = await pageFixture()
+  try {
+    const source = await readFile(
+      new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+      'utf8',
+    )
+    assert.match(
+      source,
+      /<button\s[^>]*data-watchlist-remove[^>]*class="[^"]*size-11[^"]*\bself-center\b[^"]*"[^>]*aria-label="Retirer de la watchlist"[^>]*>\s*<X :size="20"/,
+    )
+    assert.doesNotMatch(source, /<WatchlistButton/)
+    assert.match(source, /@cancel.prevent="closeRemoval\(\)"/)
+    const opener = new TestSelect('')
+    f.page.openTagEditor.value = 'list:film-1'
+    await f.page.openSearch()
+    await f.page.openRemoval(
+      { slug: 'film-1', title: 'Titre privé' },
+      { currentTarget: opener },
+    )
+    assert.equal(f.page.panelOpen.value, false)
+    assert.equal(f.page.openTagEditor.value, '')
+    assert.equal(f.focused, 'removalCancel')
+    assert.equal(f.pageDocument.body.style.overflow, 'hidden')
+    assert.equal(f.posts.length, 0)
+    f.page.closeRemoval()
+    await settle()
+    assert.equal(opener.focusCalls, 1)
+    assert.equal(f.page.removalTarget.value, null)
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+    assert.equal(f.posts.length, 0)
+  } finally {
+    f.stop()
+  }
+})
+
+test('one explicit confirmation dispatches existing removal once and restores surviving focus', async () => {
+  const f = await pageFixture()
+  try {
+    const opener = new TestSelect('')
+    await f.page.openRemoval(
+      { slug: 'film-1', title: 'Titre privé' },
+      { currentTarget: opener },
+    )
+    const pending = deferred<AccountWatchlist>()
+    f.setWrite(() => pending.promise)
+    const save = f.page.confirmRemoval()
+    await f.page.confirmRemoval()
+    assert.equal(f.posts.length, 1)
+    assert.equal(f.posts[0]?.saved, 'false')
+    assert.equal(f.page.removing.value, true)
+    opener.isConnected = false
+    const surviving = new TestSelect('')
+    f.pageDocument.querySelector = () => surviving
+    pending.resolve(value('2', []))
+    await save
+    await settle()
+    assert.equal(f.page.removalTarget.value, null)
+    assert.equal(surviving.focusCalls, 1)
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const committed of [false, true]) {
+  test(`uncertain removal readback ${committed ? 'removed' : 'retained'} target never replays; fresh intent required`, async () => {
+    const f = await pageFixture()
+    try {
+      const opener = new TestSelect('')
+      await f.page.openRemoval(
+        { slug: 'film-1', title: 'Titre privé' },
+        { currentTarget: opener },
+      )
+      f.setWrite(async () => {
+        f.setResponse(value('2', committed ? [] : ['film-1']))
+        throw new errors.AccountApiError()
+      })
+      await f.page.confirmRemoval()
+      assert.ok(f.page.removalTarget.value)
+      assert.ok(f.list.error.value)
+      assert.equal(f.page.removalAttempted.value, true)
+      assert.equal(f.focused, 'removalCancel')
+      await f.page.confirmRemoval()
+      await f.list.retry()
+      await f.page.confirmRemoval()
+      assert.equal(f.posts.length, 1)
+      f.page.closeRemoval()
+      await settle()
+      await f.page.openRemoval(
+        { slug: 'film-1', title: 'Titre privé' },
+        { currentTarget: opener },
+      )
+      if (committed) assert.equal(f.page.removalTarget.value, null)
+      else {
+        assert.equal(f.page.removalAttempted.value, false)
+        f.setWrite(async () => value('3', []))
+        await f.page.confirmRemoval()
+        assert.equal(f.posts.length, 2)
+        await settle()
+        assert.equal(f.page.removalTarget.value, null)
+      }
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('external target disappearance cancels confirmation without dispatch; disconnected opener uses add fallback', async () => {
+  const f = await pageFixture()
+  try {
+    const opener = new TestSelect('')
+    await f.page.openRemoval(
+      { slug: 'film-1', title: 'Titre privé' },
+      { currentTarget: opener },
+    )
+    opener.isConnected = false
+    f.setResponse(value('2', []))
+    await f.account.revalidate()
+    await settle()
+    assert.equal(f.page.removalTarget.value, null)
+    await f.page.confirmRemoval()
+    assert.equal(f.posts.length, 0)
+    assert.equal(f.focused, 'addTrigger')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const boundary of [
+  'owner',
+  'departure',
+  'unmount',
+  'cancel-and-reopen',
+] as const) {
+  test(`late removal completion cannot resurrect/refocus at ${boundary} boundary`, async () => {
+    const f = await pageFixture()
+    const opener = new TestSelect('')
+    try {
+      await f.page.openRemoval(
+        { slug: 'film-1', title: 'Titre privé' },
+        { currentTarget: opener },
+      )
+      const pending = deferred<AccountWatchlist>()
+      f.setWrite(() => pending.promise)
+      const save = f.page.confirmRemoval()
+      if (boundary === 'owner') f.admit('bob')
+      else if (boundary === 'unmount') f.stop()
+      else f.page.clearPageSearch()
+      assert.equal(f.page.removalTarget.value, null)
+      assert.equal(f.pageDocument.body.style.overflow, 'auto')
+      pending.resolve(value('2', []))
+      await save
+      await settle()
+      assert.equal(f.page.removalTarget.value, null)
+      assert.equal(opener.focusCalls, 0)
+      if (boundary === 'cancel-and-reopen') {
+        f.setResponse(value('3', ['film-2']))
+        await f.account.revalidate()
+        await f.page.openRemoval(
+          { slug: 'film-2', title: 'Nouveau titre' },
+          { currentTarget: opener },
+        )
+        assert.equal(f.page.removalTarget.value?.title, 'Nouveau titre')
+      }
+    } finally {
+      if (boundary !== 'unmount') f.stop()
+    }
+  })
 }
 
 test('grouped page keeps one rendered picker identity and closes it on view/filter changes', async () => {
@@ -1632,16 +2140,84 @@ for (const transition of [
   })
 }
 
-test('search panel opens only on submit, bounds height and supports roving tabs', async () => {
+test('configuration is mobile-only, saves immediately, restores trigger and closes on breakpoint', async () => {
+  const f = await pageFixture()
+  try {
+    await f.page.openConfiguration()
+    assert.equal(f.page.configurationOpen.value, false)
+    f.media.matches = false
+    f.page.breakpointChanged()
+    await f.page.openConfiguration()
+    assert.equal(f.page.configurationOpen.value, true)
+    assert.equal(f.focused, 'configurationClose')
+    assert.equal(f.pageDocument.body.style.overflow, 'hidden')
+    await f.page.changeDisplay('tags', { currentTarget: new TestSelect('') })
+    assert.equal(f.page.displayMode.value, 'tags')
+    assert.equal(f.page.configurationOpen.value, true)
+    f.page.closeConfiguration()
+    await nextTick()
+    assert.equal(f.focused, 'configurationTrigger')
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+    await f.page.openConfiguration()
+    f.media.matches = true
+    f.page.breakpointChanged()
+    await nextTick()
+    assert.equal(f.page.configurationOpen.value, false)
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
+    assert.equal(f.focused, 'configurationClose')
+    assert.equal(f.page.displayMode.value, 'tags')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const overlay of ['search', 'configuration'] as const) {
+  for (const boundary of ['owner', 'departure', 'unmount'] as const) {
+    test(`${overlay} opening and focus restoration fenced at ${boundary} boundary`, async () => {
+      const f = await pageFixture()
+      try {
+        f.media.matches = false
+        f.page.breakpointChanged()
+        const opening =
+          overlay === 'search'
+            ? f.page.openSearch()
+            : f.page.openConfiguration()
+        if (boundary === 'owner') f.admit(session('bob'))
+        else if (boundary === 'departure') f.page.clearPageSearch()
+        else f.stop()
+        await opening
+        assert.equal(f.page.panelOpen.value, false)
+        assert.equal(f.page.configurationOpen.value, false)
+        assert.equal(f.pageDocument.body.style.overflow, 'auto')
+        assert.equal(f.focused, '')
+      } finally {
+        if (boundary !== 'unmount') f.stop()
+      }
+    })
+  }
+}
+
+test('header search dialog opens before submit, locks scroll and supports roving tabs', async () => {
   const f = await pageFixture()
   try {
     f.list.query.value = 'External'
     assert.equal(f.page.panelOpen.value, false)
     assert.equal(f.list.searchResults.value, null)
     await f.page.submitSearch()
+    assert.equal(f.page.panelOpen.value, false)
+    await f.page.openSearch()
+    assert.equal(f.focused, 'searchInput')
+    assert.equal(f.pageDocument.body.style.overflow, 'hidden')
+    await f.page.submitSearch()
     assert.equal(f.page.panelOpen.value, true)
     assert.equal(f.focused, 'catalogTab')
-    assert.equal(f.page.panelHeight.value, 328)
+    assert.equal(f.page.panelHeight.value, 844)
+    f.viewport.height = 320
+    f.viewport.offsetTop = 60
+    f.page.positionPanel()
+    assert.equal(f.page.panelHeight.value, 320)
+    assert.equal(f.page.panelTop.value, 60)
+    assert.equal(f.page.panelBottom.value, 464)
     for (const [key, tab] of [
       ['ArrowRight', 'external'],
       ['ArrowRight', 'catalog'],
@@ -1662,8 +2238,10 @@ test('search panel opens only on submit, bounds height and supports roving tabs'
       assert.equal(f.elements.get('resultsScroll')?.value.scrollTop, 0)
     }
     f.page.dismiss(true)
+    await nextTick()
     assert.equal(f.page.panelOpen.value, false)
-    assert.equal(f.focused, 'searchInput')
+    assert.equal(f.focused, 'addTrigger')
+    assert.equal(f.pageDocument.body.style.overflow, 'auto')
     assert.equal(f.list.query.value, 'External')
   } finally {
     f.stop()
@@ -1675,6 +2253,7 @@ for (const imported of [false, true]) {
     const f = await pageFixture()
     try {
       f.list.query.value = 'External'
+      await f.page.openSearch()
       await f.page.submitSearch()
       const candidate = imported ? { tmdb_id: '12' } : { slug: 'film-1' }
       const failed = async () => {
@@ -1697,7 +2276,7 @@ for (const imported of [false, true]) {
       assert.equal(f.page.panelOpen.value, false)
       assert.equal(f.list.query.value, '')
       assert.equal(f.list.searchResults.value, null)
-      assert.equal(f.focused, 'searchInput')
+      assert.equal(f.focused, 'addTrigger')
       if (!imported) assert.ok(f.posts.every((post) => post.saved === 'true'))
     } finally {
       f.stop()
@@ -1709,6 +2288,7 @@ test('late successful add cannot dismiss a newer search; owner invalidation clos
   const f = await pageFixture()
   try {
     f.list.query.value = 'External'
+    await f.page.openSearch()
     await f.page.submitSearch()
     const pending = deferred<AccountWatchlist>()
     f.setWrite(() => pending.promise)
@@ -1719,6 +2299,7 @@ test('late successful add cannot dismiss a newer search; owner invalidation clos
     await add
     assert.equal(f.list.query.value, 'Another search draft')
     assert.equal(f.focused, 'catalogTab')
+    await f.page.openSearch()
     await f.page.submitSearch()
     f.account.clear()
     assert.equal(f.page.panelOpen.value, false)
@@ -1733,6 +2314,7 @@ test('uncertain committed add preserves search despite read-back membership; unm
   const f = await pageFixture()
   try {
     f.list.query.value = 'External'
+    await f.page.openSearch()
     await f.page.submitSearch()
     f.setWrite(async () => {
       f.setResponse(value('2', ['film-2']))

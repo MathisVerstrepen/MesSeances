@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Film } from '@lucide/vue'
 import { isCalendarDate } from '~/utils/date'
+import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
 import { safePosterUrl } from '~/utils/safeImageUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
 const props = defineProps<{
@@ -9,8 +10,16 @@ const props = defineProps<{
   releaseDate?: string | null
   frenchReleaseDate?: string | null
   slug?: string
+  tmdbId?: string
 }>()
 const poster = computed(() => safePosterUrl(props.posterUrl))
+const tmdbLink = computed(() => {
+  const id = Number(props.tmdbId)
+  if (String(id) !== props.tmdbId) return undefined
+  return buildMovieExternalLinks(id, null).find(
+    (link) => link.destination === 'tmdb',
+  )?.url
+})
 const frenchReleaseLabel = computed(() =>
   props.frenchReleaseDate && isCalendarDate(props.frenchReleaseDate)
     ? formatFrenchReleaseDate(props.frenchReleaseDate)
@@ -47,6 +56,17 @@ const frenchReleaseLabel = computed(() =>
         >{{
           title
         }}</NuxtLink
+      >
+      <a
+        v-else-if="tmdbLink"
+        :href="tmdbLink"
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerpolicy="no-referrer"
+        class="break-words font-bold underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4"
+        >{{
+          title
+        }}</a
       >
       <p v-else class="break-words font-bold">{{ title }}</p>
       <time

@@ -44,6 +44,22 @@ const sessionError = ref('')
 const googleError = ref('')
 const deletionError = ref('')
 const notice = ref('')
+// Appearance only: native disabled controls and all write fences stay in place.
+const softRefresh = computed(
+  () =>
+    account.revalidating.value &&
+    account.status.value === 'ready' &&
+    account.session.value?.state === 'complete' &&
+    !!details.value &&
+    !loading.value &&
+    !busy.value &&
+    !detailsError.value &&
+    !passwordError.value &&
+    !emailError.value &&
+    !sessionError.value &&
+    !googleError.value &&
+    !deletionError.value,
+)
 type Editor = 'email' | 'password' | 'google' | 'delete'
 const editor = ref<Editor | null>(null)
 let restoreFocus: Editor | 'avatar' | null = null
@@ -476,6 +492,7 @@ useHead({ title: 'Paramètres - MesSeances' })
     <div
       v-else-if="details"
       class="account-overview-sections space-y-6"
+      :class="{ 'soft-refresh': softRefresh }"
       :aria-busy="!!busy || blocked"
     >
       <section aria-labelledby="account-identity" class="space-y-4">
@@ -897,5 +914,10 @@ useHead({ title: 'Paramètres - MesSeances' })
 }
 .overview-session-actions {
   @apply items-start;
+}
+.soft-refresh button:disabled,
+.soft-refresh
+  :deep([aria-busy="false"]:not(:has([role="alert"])) button:disabled) {
+  @apply opacity-100!;
 }
 </style>
