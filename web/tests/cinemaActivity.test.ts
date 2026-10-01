@@ -5,7 +5,9 @@ import { getFrenchActivityApiError } from '../app/composables/useMesSeancesApi.t
 import type { TheaterActivityItem } from '../app/types/api.ts'
 import {
   activityFullDate,
+  activityHistoryDate,
   activityObservationDay,
+  activityShortDate,
   activityShowtimesTarget,
   activityTypeLabel,
   appendActivityItems,
@@ -71,6 +73,25 @@ test('activity full dates keep year for historic observation and announcement da
   assert.equal(activityFullDate('2026-02-30'), '2026-02-30')
 })
 
+test('activity concise dates retain the year, omit weekdays and use French month names', () => {
+  assert.equal(activityShortDate('2026-10-09'), '9 oct. 2026')
+  assert.equal(activityShortDate('2026-12-16'), '16 déc. 2026')
+  assert.equal(activityShortDate('2027-01-01'), '1 janv. 2027')
+  assert.equal(activityShortDate('2024-02-29'), '29 févr. 2024')
+  assert.equal(activityHistoryDate('2026-09-28'), '28 septembre 2026')
+  assert.equal(activityHistoryDate('2027-01-01'), '1 janvier 2027')
+  for (const date of [
+    '',
+    'invalid',
+    '2026-02-30',
+    '2026-13-01',
+    '2026-10-09T12:00:00Z',
+  ]) {
+    assert.equal(activityShortDate(date), date)
+    assert.equal(activityHistoryDate(date), date)
+  }
+})
+
 test('append merges same-day pages and deduplicates decimal string IDs without numeric conversion', () => {
   const first = [item('9223372036854775807'), item('9007199254740993')]
   const second = [
@@ -108,9 +129,62 @@ test('activity labels and previous programming date distinguish returns from add
     activity,
     /item\.type === 'return_to_program' && item\.previous_program_end_date/,
   )
-  assert.match(activity, /Première séance annoncée le/)
-  assert.match(activity, /Dernière programmation jusqu’au/)
+  assert.match(activity, /Première séance annoncée ·/)
+  assert.match(activity, /Programmation précédente · jusqu’au/)
+  assert.match(activity, /activityShortDate\(item\.first_screening_date\)/)
+  assert.match(activity, /activityShortDate\(item\.previous_program_end_date\)/)
   assert.doesNotMatch(activity, /release_date|french_release_date/)
+})
+
+test('activity uses compact explicit badges, a narrower date column and quiet day separators', () => {
+  assert.match(activity, /inline-flex border px-2 py-px align-top text-xs/)
+  assert.match(
+    activity,
+    /'border-accent\/40 bg-accent-soft text-accent' : 'border-ink\/30 text-ink'/,
+  )
+  assert.match(activity, /lg:grid-cols-\[180px_minmax\(0,1fr\)\]/)
+  assert.match(activity, /border-b border-ink\/15/)
+  assert.match(activity, /<ul class="space-y-6">/)
+  assert.doesNotMatch(activity, /capitalize|border-l border-ink/)
+  assert.match(
+    activity,
+    /class="inline-flex min-h-11 items-center text-sm font-bold underline/,
+  )
+  assert.doesNotMatch(activity, /class="mt-3 inline-flex/)
+})
+
+test('activity date rail omits desktop weekdays while preserving full mobile dates in one time element', () => {
+  assert.equal(activityHistoryDate('2026-10-01'), '1 octobre 2026')
+  assert.equal(activityFullDate('2026-10-01'), 'jeudi 1 octobre 2026')
+  assert.match(
+    activity,
+    /<time :datetime="group\.day">\s*<span class="lg:hidden">{{ activityFullDate\(group\.day\) }}<\/span>\s*<span class="hidden lg:inline">{{\s*activityHistoryDate\(group\.day\)\s*}}<\/span>\s*<\/time>/,
+  )
+  assert.match(activity, /<h3 class="mb-4 text-base font-bold lg:mb-0">/)
+})
+
+test('activity titles align with poster tops while retaining touch targets and long-title wrapping', () => {
+  assert.match(activity, /class="flex items-start gap-4"/)
+  assert.match(activity, /<div class="min-w-0 flex-1">/)
+  assert.match(activity, /<h4 class="editorial-heading break-words">/)
+  assert.match(
+    activity,
+    /class="flex min-h-11 min-w-11 w-fit max-w-full items-start[^"]*"\s*>\s*<span class="min-w-0">{{ item\.movie\.title }}<\/span>/,
+  )
+})
+
+test('history coverage stays available in a native keyboard and touch disclosure', () => {
+  assert.match(activity, /<details v-if="historyStart"/)
+  assert.match(
+    activity,
+    /<summary\s+class="min-h-11 w-fit max-w-full cursor-pointer/,
+  )
+  assert.match(activity, /activityHistoryDate\(historyStart\)/)
+  assert.match(
+    activity,
+    /<p[^>]*>\s*Les programmations antérieures ne sont pas reconstituées\.\s*<\/p>\s*<\/details>/,
+  )
+  assert.doesNotMatch(activity, /role="tooltip"|title="Les programmations/)
 })
 
 test('film targets preserve cinema; session CTA uses current next date and schedule anchor only', () => {

@@ -15,6 +15,18 @@ const fullDateFormatter = new Intl.DateTimeFormat('fr-FR', {
   month: 'long',
   year: 'numeric',
 })
+const shortDateFormatter = new Intl.DateTimeFormat('fr-FR', {
+  timeZone: 'Europe/Paris',
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+})
+const historyDateFormatter = new Intl.DateTimeFormat('fr-FR', {
+  timeZone: 'Europe/Paris',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+})
 
 export function activityObservationDay(timestamp: string): string {
   const date = new Date(timestamp)
@@ -25,10 +37,25 @@ export function activityObservationDay(timestamp: string): string {
   return `${value('year')}-${value('month')}-${value('day')}`
 }
 
-export function activityFullDate(date: string): string {
+function formatActivityDate(
+  date: string,
+  formatter: Intl.DateTimeFormat,
+): string {
   if (!isCalendarDate(date)) return date
   const [year = 0, month = 0, day = 0] = date.split('-').map(Number)
-  return fullDateFormatter.format(new Date(Date.UTC(year, month - 1, day, 12)))
+  return formatter.format(new Date(Date.UTC(year, month - 1, day, 12)))
+}
+
+export function activityFullDate(date: string): string {
+  return formatActivityDate(date, fullDateFormatter)
+}
+
+export function activityShortDate(date: string): string {
+  return formatActivityDate(date, shortDateFormatter)
+}
+
+export function activityHistoryDate(date: string): string {
+  return formatActivityDate(date, historyDateFormatter)
 }
 
 export function activityTypeLabel(type: TheaterActivityItem['type']): string {

@@ -8,7 +8,9 @@ import {
 import type { TheaterActivityResponse } from '~/types/api'
 import {
   activityFullDate,
+  activityHistoryDate,
   activityObservationDay,
+  activityShortDate,
   activityShowtimesTarget,
   activityTypeLabel,
   appendActivityItems,
@@ -181,13 +183,19 @@ async function loadMore() {
       </template>
     </EditorialStatePanel>
     <template v-else>
-      <p v-if="historyStart" class="mb-8 max-w-3xl text-sm leading-6">
-        Historique suivi depuis le
-        <time :datetime="historyStart">{{
-          activityFullDate(historyStart)
-        }}</time
-        >. Les programmations antérieures ne sont pas reconstituées.
-      </p>
+      <details v-if="historyStart" class="mb-6 max-w-3xl text-sm text-muted">
+        <summary
+          class="min-h-11 w-fit max-w-full cursor-pointer content-center py-2 leading-5 hover:text-ink"
+        >
+          Historique suivi depuis le
+          <time :datetime="historyStart">{{
+            activityHistoryDate(historyStart)
+          }}</time>
+        </summary>
+        <p class="max-w-prose pb-2 leading-5">
+          Les programmations antérieures ne sont pas reconstituées.
+        </p>
+      </details>
       <EditorialStatePanel
         v-if="!response.coverage.history_started_at"
         size="compact"
@@ -226,12 +234,17 @@ async function loadMore() {
         <li
           v-for="group in groups"
           :key="group.day"
-          class="border-b border-ink/30 py-6 first:pt-0 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-8"
+          class="border-b border-ink/15 py-6 first:pt-0 lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-6"
         >
-          <h3 class="mb-5 text-base font-bold capitalize lg:mb-0 lg:pt-1">
-            <time :datetime="group.day">{{ activityFullDate(group.day) }}</time>
+          <h3 class="mb-4 text-base font-bold lg:mb-0">
+            <time :datetime="group.day">
+              <span class="lg:hidden">{{ activityFullDate(group.day) }}</span>
+              <span class="hidden lg:inline">{{
+                activityHistoryDate(group.day)
+              }}</span>
+            </time>
           </h3>
-          <ul class="space-y-6 border-l border-ink/30 pl-4 sm:pl-6">
+          <ul class="space-y-6">
             <li
               v-for="item in group.items"
               :key="item.event_id"
@@ -258,33 +271,39 @@ async function loadMore() {
                 <h4 class="editorial-heading break-words">
                   <NuxtLink
                     :to="cinemaMovieTarget(item.movie.slug, response.theater.id)"
-                    class="hover:underline underline-offset-4"
+                    class="flex min-h-11 min-w-11 w-fit max-w-full items-start hover:underline underline-offset-4"
                   >
-                    {{ item.movie.title }}
+                    <span class="min-w-0">{{ item.movie.title }}</span>
                   </NuxtLink>
                 </h4>
-                <p class="mt-2 text-sm font-bold">
-                  {{ activityTypeLabel(item.type) }}
+                <p class="leading-5">
+                  <span
+                    class="inline-flex border px-2 py-px align-top text-xs font-medium leading-4"
+                    :class="item.type === 'return_to_program' ? 'border-accent/40 bg-accent-soft text-accent' : 'border-ink/30 text-ink'"
+                    >{{
+                      activityTypeLabel(item.type)
+                    }}</span
+                  >
                 </p>
-                <p class="mt-1 text-sm leading-6">
-                  Première séance annoncée le
+                <p class="mt-0.5 text-sm leading-5 text-muted">
+                  Première séance annoncée ·
                   <time :datetime="item.first_screening_date">{{
-                    activityFullDate(item.first_screening_date)
+                    activityShortDate(item.first_screening_date)
                   }}</time>
                 </p>
                 <p
                   v-if="item.type === 'return_to_program' && item.previous_program_end_date"
-                  class="text-sm leading-6"
+                  class="text-sm leading-5 text-muted"
                 >
-                  Dernière programmation jusqu’au
+                  Programmation précédente · jusqu’au
                   <time :datetime="item.previous_program_end_date">{{
-                    activityFullDate(item.previous_program_end_date)
+                    activityShortDate(item.previous_program_end_date)
                   }}</time>
                 </p>
                 <NuxtLink
                   v-if="activityShowtimesTarget(item, response.theater.id)"
                   :to="activityShowtimesTarget(item, response.theater.id)!"
-                  class="mt-3 inline-flex min-h-11 items-center text-sm font-bold underline underline-offset-4 hover:text-primary"
+                  class="inline-flex min-h-11 items-center text-sm font-bold underline underline-offset-4 hover:text-primary"
                 >
                   Voir les séances
                 </NuxtLink>
