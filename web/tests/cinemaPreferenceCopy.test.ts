@@ -45,6 +45,15 @@ test('removes user-facing favorite terminology without renaming internal contrac
   assert.match(renderedCopy, /messeances\.favoriteTheaterIds\.v1/)
 })
 
+test('cinema saves keep pending and failure feedback without visible counted success or empty margins', () => {
+  const cinemas = sources[0]!
+  assert.doesNotMatch(cinemas, /enregistré\$|reportSaved|Tous les cinémas'/)
+  assert.match(cinemas, /v-if="isSaving \|\| statusMessage"/)
+  assert.match(cinemas, /isSaving \? 'Enregistrement…' : statusMessage/)
+  assert.match(cinemas, /La sélection n’a pas pu être enregistrée/)
+  assert.match(cinemas, /@click="retrySynchronization"/)
+})
+
 const privacyCopy = sources[7]!.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ')
 
 test('privacy distinguishes local selection from personal account preferences', () => {

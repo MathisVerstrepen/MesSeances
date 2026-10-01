@@ -358,7 +358,7 @@ test('page wires route-derived display, push controls, replace search, mounted a
   )
   assert.match(
     page,
-    /v-if="\s*locationMode === 'nearby' &&\s*\(locationStatus === 'active' \|\| locationStatus === 'failed'\)\s*"[^>]*@click="showByCity"/,
+    /v-if="\s*locationMode === 'nearby' &&\s*\(locationStatus === 'active' \|\| locationStatus === 'failed'\)\s*"[^>]*>\s*<button[^>]*@click="showByCity"/,
   )
   assert.match(
     page,

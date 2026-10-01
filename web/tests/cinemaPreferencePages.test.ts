@@ -40,13 +40,14 @@ function deferred<T>() {
 test('cinema page waits for acknowledgement and does not announce after departure or identity change', async () => {
   const code = await functionsFromPage('../app/pages/cinemas.vue', [
     'applyDraftSelection',
-    'reportSaved',
   ])
   for (const outcome of [
     'saved',
     'failed',
     'departed',
     'switched',
+    'departed-failed',
+    'switched-failed',
     'blocked',
     'empty',
   ]) {
@@ -57,7 +58,7 @@ test('cinema page waits for acknowledgement and does not announce after departur
       isUnmounted: false,
       selectionScopeKey: ref(0),
       statusMessage: ref(''),
-      favoriteTheaterIds: ref(['ugc-2']),
+      favoriteTheaterIds: ref(outcome === 'empty' ? [] : ['ugc-2']),
       draftFavoriteTheaterIds: ref(['ugc-2']),
       setFavoriteTheaterIds: async (ids: string[]) => {
         writes++
@@ -76,18 +77,28 @@ test('cinema page waits for acknowledgement and does not announce after departur
     const pending = page.applyDraftSelection(
       outcome === 'empty' ? [] : ['ugc-1'],
     )
-    assert.doesNotMatch(bindings.statusMessage.value, /1 cinéma enregistré/)
-    if (outcome === 'departed') page.depart()
-    if (outcome === 'switched') bindings.selectionScopeKey.value++
-    acknowledgement.resolve(outcome !== 'failed')
+    assert.equal(bindings.statusMessage.value, '')
+    if (outcome.startsWith('departed')) page.depart()
+    if (outcome.startsWith('switched')) bindings.selectionScopeKey.value++
+    acknowledgement.resolve(!outcome.includes('failed'))
     await pending
     assert.equal(writes, outcome === 'blocked' ? 0 : 1)
-    if (outcome === 'saved')
-      assert.equal(bindings.statusMessage.value, '1 cinéma enregistré.')
-    if (outcome === 'departed' || outcome === 'switched')
+    if (outcome === 'saved') {
       assert.equal(bindings.statusMessage.value, '')
-    if (outcome === 'empty')
-      assert.equal(bindings.statusMessage.value, 'Tous les cinémas')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['ugc-2'])
+    }
+    if (outcome.startsWith('departed') || outcome.startsWith('switched')) {
+      assert.equal(bindings.statusMessage.value, '')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['ugc-1'])
+    }
+    if (outcome === 'empty') {
+      assert.equal(bindings.statusMessage.value, '')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, [])
+    }
+    if (outcome === 'blocked') {
+      assert.equal(bindings.statusMessage.value, '')
+      assert.deepEqual(bindings.draftFavoriteTheaterIds.value, ['ugc-2'])
+    }
     if (outcome === 'failed')
       assert.match(bindings.statusMessage.value, /pas pu être enregistrée/)
   }

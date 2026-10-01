@@ -404,9 +404,9 @@ test('cinemas page scopes city and global actions to displayed draft results', a
     new URL('../app/pages/cinemas.vue', import.meta.url),
     'utf8',
   )
-  const toolbarStart = page.indexOf('class="selection-toolbar mt-7 ')
+  const toolbarStart = page.indexOf('class="selection-toolbar ')
   const toolbarEnd = page.indexOf(
-    '<p class="mt-4 text-sm font-bold" role="status">',
+    '<Teleport to="#cinema-settings-feedback"',
     toolbarStart,
   )
   const selectionControlsStart = page.indexOf(
@@ -456,7 +456,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
     ) < toolbarEnd,
   )
   assert.doesNotMatch(page, /class="view-switch mb-7"/)
-  assert.match(page, /class="selection-toolbar mt-7 flex flex-wrap /)
+  assert.match(page, /class="selection-toolbar flex-wrap /)
   assert.match(page, /<List :size="16" aria-hidden="true" \/>\s+Liste/)
   assert.match(page, /<MapIcon :size="16" aria-hidden="true" \/>\s+Carte/)
   assert.match(page, /<ListFilter :size="17" aria-hidden="true" \/>/)
@@ -479,7 +479,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   )
   assert.match(
     page,
-    /class="bulk-actions [^"]*h-11[^"]*border-2 border-dashed border-ink/,
+    /class="bulk-actions (?=[^"]*sm:h-11)[^"]*border-2 border-dashed border-ink/,
   )
   assert.match(page, /class="view-switch [^"]*h-11/)
   assert.match(

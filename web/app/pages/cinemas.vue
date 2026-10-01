@@ -12,6 +12,7 @@ import {
   Map as MapIcon,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   X,
 } from '@lucide/vue'
 import type { Theater } from '~/types/api'
@@ -94,6 +95,77 @@ const draftFavoriteTheaterIds = ref<string[]>([])
 const preferencesReady = ref(false)
 let isUnmounted = false
 let isMounted = false
+const settingsOpen = ref(false)
+const settingsDialog = ref<HTMLDialogElement | null>(null)
+const settingsCloseButton = ref<HTMLButtonElement | null>(null)
+let settingsTrigger: HTMLElement | null = null
+let desktopMediaQuery: MediaQueryList | null = null
+let bodyOverflowBeforeLock: string | null = null
+
+async function openSettings(event: MouseEvent) {
+  if (desktopMediaQuery?.matches || settingsOpen.value || isUnmounted) return
+  settingsTrigger =
+    event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  settingsOpen.value = true
+  await nextTick()
+  if (!settingsOpen.value || isUnmounted) return
+  settingsDialog.value?.showModal()
+  bodyOverflowBeforeLock = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+  settingsCloseButton.value?.focus({ preventScroll: true })
+}
+
+function closeSettings({ restoreFocus = true } = {}) {
+  if (!settingsOpen.value) return
+  settingsOpen.value = false
+  settingsDialog.value?.close()
+  if (bodyOverflowBeforeLock !== null) {
+    document.body.style.overflow = bodyOverflowBeforeLock
+    bodyOverflowBeforeLock = null
+  }
+  if (restoreFocus && settingsTrigger?.isConnected)
+    nextTick(() => settingsTrigger?.focus({ preventScroll: true }))
+}
+
+function handleSettingsBackdrop(event: MouseEvent) {
+  const dialog = settingsDialog.value
+  if (!dialog || event.target !== dialog) return
+  const bounds = dialog.getBoundingClientRect()
+  if (
+    event.clientX < bounds.left ||
+    event.clientX > bounds.right ||
+    event.clientY < bounds.top ||
+    event.clientY > bounds.bottom
+  )
+    closeSettings()
+}
+
+function handleSettingsViewport(event: MediaQueryListEvent) {
+  if (event.matches) closeSettings({ restoreFocus: false })
+}
+
+function handleSettingsKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Tab' || !settingsOpen.value || !settingsDialog.value)
+    return
+  const focusable = [
+    ...settingsDialog.value.querySelectorAll<HTMLElement>(
+      'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter(
+    (element) =>
+      !element.hasAttribute('disabled') && element.getClientRects().length > 0,
+  )
+  const first = focusable[0]
+  const last = focusable.at(-1)
+  if (!first || !last) return
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 function hydrateRoute() {
   const value = routeState.value.search
@@ -167,15 +239,6 @@ function showByCity() {
   setDisplayMode({ location: 'city' })
 }
 
-function reportSaved() {
-  const count = draftFavoriteTheaterIds.value.length
-  if (count === 0) {
-    statusMessage.value = 'Tous les cinémas'
-    return
-  }
-  statusMessage.value = `${count} cinéma${count > 1 ? 's' : ''} enregistré${count > 1 ? 's' : ''}.`
-}
-
 async function applyDraftSelection(nextIds: string[]) {
   if (writesBlocked.value || isUnmounted) return
   const scope = selectionScopeKey.value
@@ -189,7 +252,6 @@ async function applyDraftSelection(nextIds: string[]) {
   }
 
   draftFavoriteTheaterIds.value = [...favoriteTheaterIds.value]
-  reportSaved()
 }
 
 function toggleTheater(id: string) {
@@ -275,6 +337,8 @@ watch(
 onMounted(async () => {
   isMounted = true
   location.setNearbyMode(locationMode.value === 'nearby')
+  desktopMediaQuery = window.matchMedia('(min-width: 1024px)')
+  desktopMediaQuery.addEventListener('change', handleSettingsViewport)
   const query = hydrateRoute()
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   await loadPreferences()
@@ -284,6 +348,8 @@ onBeforeUnmount(() => {
   isUnmounted = true
   isMounted = false
   location.dispose()
+  closeSettings({ restoreFocus: false })
+  desktopMediaQuery?.removeEventListener('change', handleSettingsViewport)
 })
 
 const config = useRuntimeConfig()
@@ -365,7 +431,7 @@ useHead(() => ({
           Mes<br><span>cinémas</span><span class="text-primary">.</span>
         </h1>
         <div
-          class="absolute right-[15%] bottom-[14%] flex max-w-44 items-center gap-[0.65rem] border-2 border-ink bg-surface px-3 py-[0.65rem] font-mono text-[0.6rem] leading-[1.25] font-black uppercase tracking-[0.08em] shadow-[4px_4px_0_#27272a] max-sm:relative max-sm:right-auto max-sm:bottom-auto max-sm:mt-8 max-sm:max-w-52"
+          class="absolute right-[15%] bottom-[14%] hidden max-w-44 items-center gap-[0.65rem] border-2 border-ink bg-surface px-3 py-[0.65rem] font-mono text-[0.6rem] leading-[1.25] font-black uppercase tracking-[0.08em] shadow-[4px_4px_0_#27272a] lg:flex"
         >
           <strong class="font-sans text-[1.75rem] leading-none">{{
             draftFavoriteTheaterIds.length
@@ -390,208 +456,272 @@ useHead(() => ({
         class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12"
       >
         <div
-          class="search-workspace grid gap-4 border-2 border-ink bg-[#f1efe8] p-4 shadow-[7px_7px_0_#27272a] sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
+          class="search-workspace grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 border-2 border-ink bg-[#f1efe8] p-4 shadow-[7px_7px_0_#27272a] sm:p-6 lg:items-end lg:gap-x-4"
         >
-          <label class="block w-full text-ink">
-            <span
-              class="block font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]"
-              >Rechercher un cinéma ou une ville</span
-            >
-            <span class="mt-2 flex min-w-0">
-              <span
-                class="grid size-[3.25rem] shrink-0 place-items-center border-2 border-r-0 border-ink bg-[#ffcf3f]"
-                aria-hidden="true"
-              >
-                <Search :size="19" stroke-width="2.5" />
-              </span>
-              <input
-                :value="search"
-                type="search"
-                class="h-[3.25rem] min-w-0 flex-1 rounded-none border-2 border-ink bg-surface px-[0.9rem] text-[0.95rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_3px_var(--color-highlight)]"
-                autocomplete="off"
-                placeholder="Nom du cinéma ou ville"
-                @input="updateSearch"
-              >
-            </span>
-          </label>
-          <button
-            v-if="!isNearbyMode"
-            type="button"
-            class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40"
-            :disabled="locationStatus === 'requesting'"
-            :aria-busy="locationStatus === 'requesting'"
-            @click="useCurrentPosition"
+          <label
+            for="cinema-directory-search"
+            class="col-span-full font-mono text-[0.65rem] font-black uppercase tracking-[0.15em] text-ink"
+            >Rechercher un cinéma ou une ville</label
           >
-            <LoaderCircle
-              v-if="locationStatus === 'requesting'"
-              :size="18"
-              class="animate-spin motion-reduce:animate-none"
-              aria-hidden="true"
-            />
-            <LocateFixed v-else :size="18" aria-hidden="true" />
-            {{
-              locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position'
-            }}
-          </button>
-          <button
-            v-if="locationMode === 'nearby' && (locationStatus === 'active' || locationStatus === 'failed')"
-            type="button"
-            class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-            @click="showByCity"
-          >
-            Afficher par ville
-          </button>
-        </div>
-
-        <p
-          v-if="locationStatus === 'requesting'"
-          class="mt-5 font-bold"
-          role="status"
-          aria-live="polite"
-        >
-          Recherche de votre position…
-        </p>
-        <p
-          v-if="isNearbyMode"
-          class="mt-5 text-sm font-semibold leading-relaxed"
-          role="status"
-          aria-live="polite"
-        >
-          <a
-            v-if="userPosition && usedPositionMapUrl"
-            :href="usedPositionMapUrl"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="font-bold underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-            >Position utilisée : latitude
-            {{ formatPositionCoordinate(userPosition.latitude) }}
-            · longitude
-            {{ formatPositionCoordinate(userPosition.longitude) }}
-            <span aria-hidden="true">↗</span
-            ><span class="sr-only">
-              (ouvre OpenStreetMap dans un nouvel onglet)</span
-            ></a
-          >
-          <span> · {{ formatPositionAccuracy(locationAccuracyMeters) }}</span>
-        </p>
-        <p
-          v-if="locationError"
-          class="mt-5 flex items-center gap-[0.65rem] border-2 border-primary bg-primary-soft px-4 py-[0.9rem] text-sm font-extrabold text-primary-hover shadow-[4px_4px_0_#991b1b]"
-          role="alert"
-        >
-          <AlertTriangle :size="19" aria-hidden="true" />
-          {{ locationError }}
-        </p>
-
-        <div
-          v-if="directoryTheaters.length > 0 && !directoryError"
-          class="selection-toolbar mt-7 flex flex-wrap items-center justify-between gap-3 border-y-2 border-ink py-4 max-sm:items-stretch"
-        >
           <div
-            class="view-switch inline-grid h-11 grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface max-sm:w-full"
-            role="group"
-            aria-label="Mode d’affichage des cinémas"
+            class="flex min-w-0"
+            :class="isNearbyMode ? 'col-span-full lg:col-span-1' : ''"
           >
-            <button
-              type="button"
-              class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
-              :aria-pressed="viewMode === 'list'"
-              @click="showList"
+            <span
+              class="grid size-[3.25rem] shrink-0 place-items-center border-2 border-r-0 border-ink bg-[#ffcf3f]"
+              aria-hidden="true"
             >
-              <List :size="16" aria-hidden="true" />
-              Liste
-            </button>
-            <button
-              type="button"
-              class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
-              :aria-pressed="viewMode === 'map'"
-              @click="setDisplayMode({ view: 'map' })"
+              <Search :size="19" stroke-width="2.5" />
+            </span>
+            <input
+              id="cinema-directory-search"
+              :value="search"
+              type="search"
+              class="h-[3.25rem] min-w-0 flex-1 rounded-none border-2 border-ink bg-surface px-[0.9rem] text-[0.95rem] font-bold text-ink outline-none focus:shadow-[inset_0_0_0_3px_var(--color-highlight)]"
+              autocomplete="off"
+              placeholder="Nom du cinéma ou ville"
+              @input="updateSearch"
             >
-              <MapIcon :size="16" aria-hidden="true" />
-              Carte
-            </button>
           </div>
           <div
-            class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"
+            class="items-center gap-3"
+            :class="isNearbyMode ? 'hidden lg:flex' : 'flex'"
           >
             <button
+              v-if="!isNearbyMode"
               type="button"
-              class="inline-flex h-11 min-h-11 items-center justify-center gap-[0.55rem] border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-highlight aria-pressed:text-ink aria-pressed:shadow-[4px_4px_0_#27272a] max-sm:w-full"
-              :aria-pressed="selectedOnly"
-              @click="selectedOnly = !selectedOnly"
+              class="inline-flex min-h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center gap-2 border-2 border-ink bg-ink py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 lg:w-auto lg:px-4"
+              :aria-label="locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position'"
+              :title="locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position'"
+              :disabled="locationStatus === 'requesting'"
+              :aria-busy="locationStatus === 'requesting'"
+              @click="useCurrentPosition"
             >
-              <ListFilter :size="17" aria-hidden="true" />
-              <span>Sélectionnés uniquement</span>
-              <span
-                class="grid size-5 shrink-0 place-items-center border-2 border-current bg-surface"
+              <LoaderCircle
+                v-if="locationStatus === 'requesting'"
+                :size="18"
+                class="animate-spin motion-reduce:animate-none"
                 aria-hidden="true"
-                ><Check v-if="selectedOnly" :size="14" stroke-width="3" /></span
-              >
+              />
+              <LocateFixed v-else :size="18" aria-hidden="true" />
+              <span class="hidden lg:inline">
+                {{
+                  locationStatus === 'requesting' ? 'Localisation…' : 'Utiliser ma position'
+                }}
+              </span>
             </button>
-            <div
-              class="bulk-actions inline-grid h-11 max-w-full grid-cols-2 gap-[0.35rem] border-2 border-dashed border-ink bg-[#f1efe8] p-[0.15rem] max-sm:w-full"
-              role="group"
-              aria-label="Modifier les cinémas affichés"
+            <Teleport to="#cinema-settings-location" :disabled="!settingsOpen">
+              <div
+                v-if="locationMode === 'nearby' && (locationStatus === 'active' || locationStatus === 'failed')"
+                class="gap-3"
+                :class="settingsOpen ? 'grid' : 'hidden lg:flex'"
+              >
+                <button
+                  type="button"
+                  class="inline-flex min-h-[3.25rem] items-center justify-center gap-2 border-2 border-ink bg-surface px-4 py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                  @click="showByCity"
+                >
+                  Afficher par ville
+                </button>
+              </div>
+            </Teleport>
+          </div>
+        </div>
+
+        <Teleport to="#cinema-settings-location" :disabled="!settingsOpen">
+          <p
+            v-if="locationStatus === 'requesting'"
+            class="mt-5 font-bold"
+            role="status"
+            aria-live="polite"
+          >
+            Recherche de votre position…
+          </p>
+          <p
+            v-if="isNearbyMode"
+            class="mt-5 text-sm font-semibold leading-relaxed"
+            role="status"
+            aria-live="polite"
+          >
+            <a
+              v-if="userPosition && usedPositionMapUrl"
+              :href="usedPositionMapUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="font-bold underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+              >Position utilisée : latitude
+              {{ formatPositionCoordinate(userPosition.latitude) }}
+              · longitude
+              {{ formatPositionCoordinate(userPosition.longitude) }}
+              <span aria-hidden="true">↗</span
+              ><span class="sr-only">
+                (ouvre OpenStreetMap dans un nouvel onglet)</span
+              ></a
             >
-              <ClientOnly>
-                <button
-                  type="button"
-                  class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                  :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
-                  @click="updateDisplayedSelection(true)"
+            <span> · {{ formatPositionAccuracy(locationAccuracyMeters) }}</span>
+          </p>
+          <p
+            v-if="locationError"
+            class="mt-5 flex items-center gap-[0.65rem] border-2 border-primary bg-primary-soft px-4 py-[0.9rem] text-sm font-extrabold text-primary-hover shadow-[4px_4px_0_#991b1b]"
+            role="alert"
+          >
+            <AlertTriangle :size="19" aria-hidden="true" />
+            {{ locationError }}
+          </p>
+        </Teleport>
+
+        <Teleport to="#cinema-settings-controls" :disabled="!settingsOpen">
+          <div
+            v-if="directoryTheaters.length > 0 && !directoryError"
+            class="selection-toolbar flex-wrap items-center justify-between gap-3"
+            :class="settingsOpen ? 'flex' : 'mt-7 hidden border-y-2 border-ink py-4 lg:flex'"
+          >
+            <div
+              class="view-switch inline-grid h-11 grid-cols-[repeat(2,minmax(5.5rem,1fr))] border-2 border-ink bg-surface max-sm:w-full"
+              role="group"
+              aria-label="Mode d’affichage des cinémas"
+            >
+              <button
+                type="button"
+                class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
+                :aria-pressed="viewMode === 'list'"
+                @click="showList"
+              >
+                <List :size="16" aria-hidden="true" />
+                Liste
+              </button>
+              <button
+                type="button"
+                class="inline-flex h-full min-h-0 items-center justify-center gap-[0.45rem] border-l-2 border-ink px-[0.9rem] py-[0.55rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-ink aria-pressed:text-white aria-pressed:shadow-[inset_0_-4px_0_var(--color-highlight)]"
+                :aria-pressed="viewMode === 'map'"
+                @click="setDisplayMode({ view: 'map' })"
+              >
+                <MapIcon :size="16" aria-hidden="true" />
+                Carte
+              </button>
+            </div>
+            <div
+              class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"
+            >
+              <button
+                type="button"
+                class="inline-flex h-11 min-h-11 items-center justify-center gap-[0.55rem] border-2 border-ink bg-surface px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink aria-pressed:bg-highlight aria-pressed:text-ink aria-pressed:shadow-[4px_4px_0_#27272a] max-sm:w-full"
+                :aria-pressed="selectedOnly"
+                @click="selectedOnly = !selectedOnly"
+              >
+                <ListFilter :size="17" aria-hidden="true" />
+                <span>Sélectionnés uniquement</span>
+                <span
+                  class="grid size-5 shrink-0 place-items-center border-2 border-current bg-surface"
+                  aria-hidden="true"
+                  ><Check
+                    v-if="selectedOnly"
+                    :size="14"
+                    stroke-width="3"
+                  /></span
                 >
-                  <CheckCheck :size="16" aria-hidden="true" />
-                  Tout sélectionner
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                  :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
-                  @click="updateDisplayedSelection(false)"
-                >
-                  <X :size="16" aria-hidden="true" />
-                  Désélectionner
-                </button>
-                <template #fallback>
+              </button>
+              <div
+                class="bulk-actions inline-grid max-w-full grid-cols-1 gap-[0.35rem] border-2 border-dashed border-ink bg-[#f1efe8] p-[0.15rem] max-sm:w-full sm:h-11 sm:grid-cols-2"
+                role="group"
+                aria-label="Modifier les cinémas affichés"
+              >
+                <ClientOnly>
                   <button
                     type="button"
-                    class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                    disabled
+                    class="inline-flex h-full min-h-11 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2 sm:min-h-0"
+                    :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
+                    @click="updateDisplayedSelection(true)"
                   >
                     <CheckCheck :size="16" aria-hidden="true" />
                     Tout sélectionner
                   </button>
                   <button
                     type="button"
-                    class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                    disabled
+                    class="inline-flex h-full min-h-11 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2 sm:min-h-0"
+                    :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
+                    @click="updateDisplayedSelection(false)"
                   >
                     <X :size="16" aria-hidden="true" />
                     Désélectionner
                   </button>
-                </template>
-              </ClientOnly>
+                  <template #fallback>
+                    <button
+                      type="button"
+                      class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
+                      disabled
+                    >
+                      <CheckCheck :size="16" aria-hidden="true" />
+                      Tout sélectionner
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
+                      disabled
+                    >
+                      <X :size="16" aria-hidden="true" />
+                      Désélectionner
+                    </button>
+                  </template>
+                </ClientOnly>
+              </div>
             </div>
           </div>
-        </div>
+        </Teleport>
 
-        <p class="mt-4 text-sm font-bold" role="status">
-          {{ isSaving ? 'Enregistrement…' : statusMessage }}
-        </p>
+        <Teleport to="#cinema-settings-feedback" :disabled="!settingsOpen">
+          <p
+            v-if="isSaving || statusMessage"
+            class="mt-4 text-sm font-bold"
+            role="status"
+          >
+            {{ isSaving ? 'Enregistrement…' : statusMessage }}
+          </p>
+          <div
+            v-if="error || syncError"
+            class="mt-4 flex flex-wrap items-center gap-3 text-sm font-bold"
+            role="alert"
+          >
+            <AlertTriangle :size="19" aria-hidden="true" />
+            <span>{{ error || syncError }}</span>
+            <button
+              type="button"
+              class="min-h-11 border-2 border-ink px-3 focus-visible:outline-2 focus-visible:outline-offset-3"
+              :disabled="isSaving"
+              @click="retrySynchronization"
+            >
+              Réessayer
+            </button>
+          </div>
+        </Teleport>
+
         <div
-          v-if="error || syncError"
-          class="mt-4 flex flex-wrap items-center gap-3 text-sm font-bold"
-          role="alert"
+          class="mb-7 mt-10 flex items-center justify-between gap-3 border-b-2 border-ink py-4"
         >
-          <AlertTriangle :size="19" aria-hidden="true" />
-          <span>{{ error || syncError }}</span>
+          <div
+            class="min-w-0 flex-1 sm:flex sm:items-end sm:justify-between sm:gap-6"
+          >
+            <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
+              {{ isNearbyMode ? 'Cinémas à proximité' : 'Cinémas disponibles' }}
+            </h2>
+            <p
+              class="mt-2 font-mono text-[0.65rem] font-black uppercase tracking-[0.15em] sm:mt-0"
+            >
+              {{ visibleTheaterCount }} cinéma{{
+                visibleTheaterCount > 1 ? 's' : ''
+              }}
+            </p>
+          </div>
           <button
             type="button"
-            class="min-h-11 border-2 border-ink px-3 focus-visible:outline-2 focus-visible:outline-offset-3"
-            :disabled="isSaving"
-            @click="retrySynchronization"
+            class="editorial-button-outline size-11 shrink-0 p-0 lg:hidden"
+            aria-label="Réglages des cinémas"
+            aria-controls="cinema-settings"
+            aria-haspopup="dialog"
+            :aria-expanded="settingsOpen"
+            @click="openSettings"
           >
-            Réessayer
+            <SlidersHorizontal :size="20" aria-hidden="true" />
           </button>
         </div>
 
@@ -679,22 +809,7 @@ useHead(() => ({
           >
         </EditorialStatePanel>
 
-        <div v-else class="mt-10">
-          <div
-            class="mb-7 flex flex-col gap-2 border-b-2 border-ink py-4 sm:flex-row sm:items-end sm:justify-between sm:gap-6"
-          >
-            <h2 class="text-xl font-black tracking-[-0.035em] sm:text-2xl">
-              {{ isNearbyMode ? 'Cinémas à proximité' : 'Cinémas disponibles' }}
-            </h2>
-            <p
-              class="font-mono text-[0.65rem] font-black uppercase tracking-[0.15em]"
-            >
-              {{ visibleTheaterCount }} cinéma{{
-                visibleTheaterCount > 1 ? 's' : ''
-              }}
-            </p>
-          </div>
-
+        <div v-else>
           <template v-if="viewMode === 'list'">
             <div
               v-if="isNearbyMode"
@@ -924,5 +1039,41 @@ useHead(() => ({
         </div>
       </div>
     </section>
+    <dialog
+      id="cinema-settings"
+      ref="settingsDialog"
+      aria-labelledby="cinema-settings-title"
+      aria-modal="true"
+      class="fixed inset-x-0 bottom-0 top-auto m-0 max-h-[calc(100dvh-1rem)] w-full max-w-none overflow-y-auto overscroll-contain rounded-none border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-ink shadow-[0_-8px_0_#27272a] backdrop:bg-black/60 sm:px-6"
+      @cancel.prevent="closeSettings()"
+      @close="!settingsDialog?.open && closeSettings()"
+      @click="handleSettingsBackdrop"
+      @keydown="handleSettingsKeydown"
+    >
+      <div class="mb-6 flex items-center gap-2.5 border-b-2 border-ink pb-4">
+        <SlidersHorizontal :size="18" aria-hidden="true" />
+        <h2
+          id="cinema-settings-title"
+          class="min-w-0 flex-1 text-xl font-black leading-tight tracking-[-0.035em]"
+        >
+          Réglages des cinémas
+        </h2>
+        <button
+          ref="settingsCloseButton"
+          type="button"
+          class="editorial-button-outline ml-auto size-11 shrink-0 p-0"
+          aria-label="Fermer les réglages"
+          @click="closeSettings()"
+        >
+          <X :size="20" aria-hidden="true" />
+        </button>
+      </div>
+      <div
+        id="cinema-settings-location"
+        :class="locationMode === 'nearby' ? 'mb-5' : ''"
+      ></div>
+      <div id="cinema-settings-controls"></div>
+      <div id="cinema-settings-feedback"></div>
+    </dialog>
   </main>
 </template>
