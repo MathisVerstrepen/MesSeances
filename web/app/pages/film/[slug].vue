@@ -990,15 +990,10 @@ if (
         <div
           class="relative z-10 mx-auto aspect-[2/3] w-40 max-w-[calc(100%_-_7rem)] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[8px_8px_0_#27272a] sm:mx-0 sm:w-[180px] sm:max-w-none lg:w-[220px]"
         >
-          <PosterImage
+          <FilmPoster
             :src="schedule.movie.poster_url"
-            :alt="`Affiche de ${schedule.movie.title}`"
-            sizes="(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px"
+            :movie-title="schedule.movie.title"
             :reset-key="slug"
-            class="h-full w-full"
-            image-class="h-full w-full object-cover"
-            fallback-class="gap-2 px-3 text-center text-xs font-bold text-muted"
-            :fallback-icon-size="32"
           />
         </div>
         <div
