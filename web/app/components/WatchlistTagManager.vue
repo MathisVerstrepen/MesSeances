@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Tags, X } from '@lucide/vue'
+import { Pencil, Plus, Tags, Trash2, X } from '@lucide/vue'
 import type { WatchlistTag, WatchlistTagColor } from '~/types/watchlist'
 import {
   sortWatchlistTags,
@@ -452,10 +452,13 @@ onBeforeUnmount(() => {
           </div>
         </form>
         <p v-if="!tags.length" class="mt-3 text-sm">Aucun tag.</p>
-        <ul v-else class="mt-4 divide-y divide-ink/20">
+        <ul
+          v-else
+          class="mt-4 divide-y divide-ink/20 border-t border-ink/20 pt-2"
+        >
           <li v-for="tag in tags" :key="tag.id" class="py-2">
-            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <div class="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+            <div class="flex items-center gap-2">
+              <div class="min-w-0 flex-1">
                 <span
                   class="inline-block max-w-full rounded-md border px-2 py-0.5 text-sm font-medium [overflow-wrap:anywhere]"
                   :style="watchlistTagStyle(tag.color)"
@@ -466,23 +469,23 @@ onBeforeUnmount(() => {
               </div>
               <button
                 type="button"
-                class="account-link min-h-11"
+                class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-50"
                 :aria-label="`Modifier ${tag.name}`"
                 :disabled="blocked || !!pending"
                 :aria-expanded="target?.id === tag.id && target.action === 'update'"
                 @click="edit(tag, 'update', $event)"
               >
-                Modifier
+                <Pencil :size="20" aria-hidden="true" focusable="false" />
               </button>
               <button
                 type="button"
-                class="account-link min-h-11"
+                class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:opacity-50"
                 :aria-label="`Supprimer ${tag.name}`"
                 :disabled="blocked || !!pending"
                 :aria-expanded="target?.id === tag.id && target.action === 'delete'"
                 @click="edit(tag, 'delete', $event)"
               >
-                Supprimer
+                <Trash2 :size="20" aria-hidden="true" focusable="false" />
               </button>
             </div>
             <form

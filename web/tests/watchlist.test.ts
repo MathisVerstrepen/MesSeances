@@ -203,6 +203,80 @@ test('mobile watchlist toolbar keeps compact Configuration then Tags beside Mes 
   assert.doesNotMatch(desktop, /compact-trigger/)
 })
 
+test('tag manager renders inline icon-only named actions and separates creation from existing tags', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(
+    source.replace('const open = ref(false)', 'const open = ref(true)'),
+  )
+  const managerModule: RowModule = {}
+  runInNewContext(
+    ts.transpileModule(
+      compileScript(descriptor, {
+        id: 'WatchlistTagManager',
+        inlineTemplate: true,
+      }).content,
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    {
+      exports: managerModule,
+      computed,
+      ref,
+      watch,
+      nextTick,
+      useTemplateRef: () => ref(null),
+      onMounted: () => {},
+      onBeforeUnmount: () => {},
+      useWatchlist: () => ({ scopeKey: ref(0), error: ref('') }),
+      require: (id: string) =>
+        id === '~/utils/watchlistTags' ? tagging : require(id),
+    },
+  )
+  assert.ok(managerModule.default)
+  const name = 'À revoir au cinéma avec tous les amis'
+  for (const blocked of [false, true]) {
+    const app = createSSRApp(managerModule.default, {
+      tags: [{ id: '1', name, color: 'blue' }],
+      ready: true,
+      blocked,
+    })
+    app.component('WatchlistTagColorPicker', { render: () => null })
+    const html = await renderToString(app)
+    assert.match(
+      html,
+      /<ul class="mt-4 divide-y divide-ink\/20 border-t border-ink\/20 pt-2">/,
+    )
+    assert.match(
+      html,
+      /<div class="flex items-center gap-2"><div class="min-w-0 flex-1">/,
+    )
+    assert.doesNotMatch(html, /basis-full|sm:basis-auto/)
+    for (const label of ['Modifier', 'Supprimer']) {
+      const button = html.match(
+        new RegExp(
+          `<button[^>]*aria-label="${label} ${name}"[^>]*>[\\s\\S]*?<\\/button>`,
+        ),
+      )?.[0]
+      assert.ok(button)
+      assert.match(button, /size-11 shrink-0/)
+      assert.match(button, /hover:bg-subtle/)
+      assert.match(button, /focus-visible:outline-2/)
+      assert.match(button, /aria-expanded="false"/)
+      assert.match(button, /<svg[^>]*aria-hidden="true"[^>]*focusable="false"/)
+      assert.match(button, /width="20" height="20"/)
+      assert.doesNotMatch(button.replace(/<[^>]*>/g, ''), /\S/)
+      assert.equal(/ disabled(?:=""|(?=[\s>]))/.test(button), blocked)
+    }
+  }
+})
+
 test('saved movie row renders a full French theatrical date in semantic time, not the general year', async () => {
   const html = await renderRow({
     frenchReleaseDate: '1998-10-14',

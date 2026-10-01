@@ -523,6 +523,31 @@ export async function watchlistScenario({
       `${variant} clock has dark 24px plus/minus strokes, white surface with subtle hover, decorative semantics and 48px target`,
     )
   }
+  async function checkTagRows(viewport) {
+    const rows = await evaluate(
+      page,
+      `(() => {
+      const body = document.querySelector('#watchlist-tag-manager .overflow-y-auto'), list = body.querySelector(':scope > ul'), style = getComputedStyle(list), before = list.previousElementSibling.getBoundingClientRect();
+      const rows = [...list.children].map(li => {
+        const row = li.firstElementChild, tag = row.firstElementChild, badge = tag.firstElementChild, name = badge.textContent.trim(), buttons = [...row.querySelectorAll('button')], rect = row.getBoundingClientRect(), tagRect = tag.getBoundingClientRect();
+        return { name, wrapped: badge.getBoundingClientRect().height > 32, valid: getComputedStyle(row).flexWrap === 'nowrap' && tagRect.width > 0 && tagRect.right <= buttons[0].getBoundingClientRect().left && row.scrollWidth <= row.clientWidth && buttons.length === 2 && buttons.every((button, i) => { const b = button.getBoundingClientRect(), icon = button.querySelector('svg'); return !button.textContent.trim() && button.getAttribute('aria-label') === (i ? 'Supprimer ' : 'Modifier ') + name && icon?.getAttribute('aria-hidden') === 'true' && icon?.getAttribute('focusable') === 'false' && b.width >= 44 && b.height >= 44 && b.left >= rect.left && b.right <= rect.right && Math.abs(b.top + b.height / 2 - rect.top - rect.height / 2) < 1 && (i === 0 || b.left - buttons[0].getBoundingClientRect().right >= 8) }) };
+      });
+      return { rows, divider: style.borderTopWidth === '1px' && style.borderTopStyle === 'solid' && parseFloat(style.paddingTop) >= 8 && list.getBoundingClientRect().top - before.bottom >= 16 && [...list.children].slice(1).every((li, i) => parseFloat(getComputedStyle(li).borderTopWidth) > 0 || parseFloat(getComputedStyle(list.children[i]).borderBottomWidth) > 0), noOverflow: body.scrollWidth <= body.clientWidth };
+    })()`,
+    )
+    check(
+      rows.rows.length > 0 &&
+        rows.rows.every((row) => row.valid) &&
+        rows.divider &&
+        rows.noOverflow,
+      `${viewport} tag names and 44px named icon actions stay inline with creation/list divider and row separators ${JSON.stringify(rows)}`,
+    )
+    if (viewport === '320px')
+      check(
+        rows.rows.some((row) => row.name.length > 30 && row.wrapped),
+        '320px long tag name wraps only inside flexible tag region',
+      )
+  }
   async function checkGroupDots(viewport) {
     const expected = tags().map((tag) => ({
       ...tag,
@@ -2177,6 +2202,7 @@ export async function watchlistScenario({
   await click(page, 'Créer un tag')
   await checkPalette(page, evaluate, check)
   await screenshot(page, 'tag-create-mobile', false)
+  await checkTagRows('320px expanded creation')
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
@@ -2613,6 +2639,54 @@ export async function watchlistScenario({
     )
     await checkCompactLayout(width)
     await checkGroupDots(`${width}px`)
+    await click(page, 'Gérer les tags')
+    await until(
+      page,
+      `document.querySelector('#watchlist-tag-manager')?.matches(':modal')`,
+      'tag row geometry modal opens',
+    )
+    await checkTagRows(`${width}px`)
+    for (let i = 0; i < 2; i++) {
+      for (const type of ['keyDown', 'keyUp'])
+        await getCDP().send(
+          'Input.dispatchKeyEvent',
+          { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+          page.sessionId,
+        )
+    }
+    check(
+      await evaluate(
+        page,
+        `(() => { const button = document.querySelector('#watchlist-tag-manager ul button'); return document.activeElement === button && button.matches(':focus-visible') && parseFloat(getComputedStyle(button).outlineWidth) >= 2 })()`,
+      ),
+      `${width}px icon edit action is keyboard reachable with visible focus`,
+    )
+    const actionPoint = await evaluate(
+      page,
+      `(() => { const r = document.querySelector('#watchlist-tag-manager ul button').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 } })()`,
+    )
+    await getCDP().send(
+      'Input.dispatchMouseEvent',
+      { type: 'mouseMoved', ...actionPoint },
+      page.sessionId,
+    )
+    check(
+      await evaluate(
+        page,
+        `(() => { if (!matchMedia('(hover: hover)').matches) return true; const button = document.querySelector('#watchlist-tag-manager ul button'), reference = document.createElement('span'); reference.className = 'bg-subtle'; document.body.append(reference); const color = getComputedStyle(reference).backgroundColor; reference.remove(); return button.matches(':hover') && getComputedStyle(button).backgroundColor === color })()`,
+      ),
+      `${width}px icon action has visible subtle hover surface on hover-capable devices`,
+    )
+    await screenshot(page, `tag-row-actions-${width}`, false)
+    await evaluate(
+      page,
+      `document.querySelector('button[aria-label="Fermer la gestion des tags"]').click()`,
+    )
+    await until(
+      page,
+      `!document.querySelector('#watchlist-tag-manager') && document.body.style.overflow !== 'hidden'`,
+      'tag row inspection closes and unlocks modal',
+    )
   }
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
