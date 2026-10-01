@@ -891,6 +891,10 @@ export interface MovieShowtimesQuery {
   date: string
   city?: string
   theaters?: string
+  page?: number
+  language?: 'ALL' | 'ORIGINAL' | 'VOF' | Exclude<ShowtimeLanguage, ''>
+  format?: QueryFormat
+  sort?: 'catalog' | 'next'
 }
 
 export interface MovieShowtimesTheater {
@@ -931,6 +935,15 @@ export interface MovieShowtimesResponse {
   currently_screened: boolean
   available_dates: string[]
   theaters: MovieShowtimesTheater[]
+  catalog_revision: string
+  available_languages: Array<Exclude<Showtime['language'], ''>>
+  available_formats: ShowtimeFormat[]
+  pagination: {
+    page: number
+    page_size: 10
+    total: number
+    has_more: boolean
+  } | null
 }
 
 export interface MovieShowtimesBundleResponse {

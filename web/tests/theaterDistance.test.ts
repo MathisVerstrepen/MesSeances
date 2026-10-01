@@ -365,7 +365,10 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
     page,
     /const displayedTheaters = computed\(\s*\(\) =>\s*selectedOnly\.value\s*\? searchResults\.value\.filter/,
   )
-  assert.match(page, /groupTheatersByCityIdentity\(displayedTheaters\.value\)/)
+  assert.match(
+    page,
+    /groupSelectedTheatersFirst\(displayedTheaters\.value, selectedIds\.value\)/,
+  )
   assert.match(
     page,
     /sortTheatersByDistance\(displayedTheaters\.value, userPosition\.value\)/,
@@ -374,10 +377,8 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
     page,
     /const visibleTheaterCount = computed\(\(\) => displayedTheaters\.value\.length\)/,
   )
-  assert.match(
-    page,
-    /if \(nextIds\.length === 0\) \{[\s\S]*Vos cinémas enregistrés restent inchangés\.[\s\S]*return[\s\S]*setFavoriteTheaterIds\(nextIds\)/,
-  )
+  assert.doesNotMatch(page, /if \(nextIds\.length === 0\)/)
+  assert.match(page, /setFavoriteTheaterIds\(nextIds\)/)
   assert.match(
     page,
     /draftFavoriteTheaterIds\.value = \[\.\.\.favoriteTheaterIds\.value\]/,
@@ -431,7 +432,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
     page,
     /displayedTheaters\.length === 0 \|\| displayedTheaters\.every\(\(theater\) => selectedIds\.has\(theater\.id\)\)/,
   )
-  assert.match(page, /:key="group\.citySlug"/)
+  assert.match(page, /:key="group\.key"/)
   assert.match(page, /encodeURIComponent\(group\.citySlug\)/)
   assert.match(page, /\{\{\s*draftFavoriteTheaterIds\.length\s*\}\}/)
   assert.ok(toolbarStart >= 0)

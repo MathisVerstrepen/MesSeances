@@ -33,7 +33,7 @@ func (s *Service) selectTheaters(view *SnapshotView, ids []string, city string, 
 		return selected, nil
 	}
 	requestedCity := strings.TrimSpace(city)
-	if useDefault {
+	if useDefault && s.options.DefaultCity != "" {
 		return view.positionsForCities(s.cityLookupValues(s.options.DefaultCity)), nil
 	}
 	if requestedCity == "" {

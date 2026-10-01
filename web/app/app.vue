@@ -50,6 +50,7 @@ useHead(() => ({
     <VitePwaManifest />
     <AppHeader />
     <ClientOnly><AppUpdateNotice /></ClientOnly>
+    <ClientOnly><CinemaPreferencePrompt /></ClientOnly>
     <div class="min-w-0 flex-1">
       <NuxtPage />
     </div>

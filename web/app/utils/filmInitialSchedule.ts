@@ -92,8 +92,7 @@ export async function loadInitialFilmSchedule(
     }
   }
 
-  // Client navigation can wait for the exact selection instead of fetching a
-  // disposable Paris schedule. Only public movie evidence enters this result.
+  // Without a distinct public scope, reuse the bounded nationwide page.
   if (!fetchScoped) {
     let date = requestedDate
     const fetch = () =>
@@ -105,7 +104,7 @@ export async function loadInitialFilmSchedule(
     date = selectedDate(dates, date, today)
     if (date !== requestedDate && dates.length) nationwide = await fetch()
     return {
-      scoped: { ...nationwide, theaters: [] },
+      scoped: nationwide,
       nationwide,
       selectedDate: date,
     }

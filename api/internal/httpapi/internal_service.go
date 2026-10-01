@@ -57,9 +57,11 @@ func (api *API) requireInternalService(next http.Handler) http.Handler {
 
 func (api *API) movieShowtimesBundle(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
-	base := schedule.MovieShowtimesQuery{Slug: chi.URLParam(r, "slug"), Date: query.Get("date")}
-	scopedQuery := base
-	scopedQuery.City = query.Get("city")
+	scopedQuery := schedule.MovieShowtimesQuery{
+		Slug: chi.URLParam(r, "slug"), Date: query.Get("date"), City: query.Get("city"),
+		Language: schedule.Language(query.Get("language")), Format: schedule.Format(query.Get("format")),
+		Sort: schedule.MovieShowtimesSort(query.Get("sort")),
+	}
 	scoped, nationwide, err := api.schedule.MovieShowtimesBundle(scopedQuery)
 	if err != nil {
 		writeServiceError(w, err)

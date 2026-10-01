@@ -261,6 +261,10 @@ test('API composable sends only frozen upcoming query and disables retry', async
 test('catalog-only SSR preserves upcoming and withdrawn states with no invented screenings', async () => {
   for (const status of ['upcoming', 'unavailable'] as const) {
     const response: MovieShowtimesResponse = {
+      catalog_revision: 'r1',
+      available_languages: [],
+      available_formats: [],
+      pagination: { page: 1, page_size: 10, total: 0, has_more: false },
       movie: {
         ...movie('2026-10-07'),
         french_release_date: status === 'upcoming' ? '2026-10-07' : null,

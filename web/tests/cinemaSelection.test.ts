@@ -4,6 +4,9 @@ import test from 'node:test'
 import type { Theater } from '../app/types/api.ts'
 import {
   groupTheatersByCityIdentity,
+  groupSelectedTheatersFirst,
+  selectedFirst,
+  isBroadTheaterSelection,
   updateTheaterSelection,
 } from '../app/utils/cinemaSelection.ts'
 
@@ -78,7 +81,7 @@ test('deselects only target theaters, keeps unmatched IDs, and permits zero', ()
   )
 })
 
-test('frontend defaults and global metadata use Paris', async () => {
+test('frontend selection has no geographic defaults; unrelated metadata stays unchanged', async () => {
   const [preferences, config] = await Promise.all([
     readFile(
       new URL('../app/composables/useCinemaPreferences.ts', import.meta.url),
@@ -87,7 +90,7 @@ test('frontend defaults and global metadata use Paris', async () => {
     readFile(new URL('../nuxt.config.ts', import.meta.url), 'utf8'),
   ])
 
-  assert.match(preferences, /api\.theaters\(\{ city: 'Paris' \}\)/)
+  assert.doesNotMatch(preferences, /api\.theaters\(\{ city: 'Paris' \}\)/)
   assert.doesNotMatch(preferences, /api\.theaters\(\{ city: 'Lille' \}\)/)
   assert.equal(
     config.match(/séances de cinéma de Paris sur une frise horaire/g)?.length,
@@ -115,4 +118,41 @@ test('header groups saved favorite cities by city slug with first label retained
     header,
     /new Set\(favoriteTheaters\.value\.map\(\(theater\) => theater\.city\)\)/,
   )
+})
+
+test('selected cinemas precede every unselected city group with unique keys and precise group actions', () => {
+  const rows = [
+    theater('a', 'Paris', 'paris'),
+    theater('b', 'Paris', 'paris'),
+    theater('c', 'Lille', 'lille'),
+    theater('d', 'Lille', 'lille'),
+  ]
+  const groups = groupSelectedTheatersFirst(rows, new Set(['b', 'd']))
+  assert.deepEqual(
+    groups.flatMap((group) => group.theaters.map((row) => row.id)),
+    ['b', 'd', 'a', 'c'],
+  )
+  assert.equal(new Set(groups.map((group) => group.key)).size, 4)
+  assert.deepEqual(
+    updateTheaterSelection(['b', 'd'], groups[0]!.theaters, false),
+    ['d'],
+  )
+  const distances = rows.map((theater, index) => ({
+    theater,
+    distance: index,
+    nearest: index === 0,
+  }))
+  const ordered = selectedFirst(
+    distances,
+    new Set(['d', 'b']),
+    (row) => row.theater.id,
+  )
+  assert.deepEqual(
+    ordered.map((row) => row.distance),
+    [1, 3, 0, 2],
+  )
+  assert.equal(ordered[2]?.nearest, true)
+  assert.equal(isBroadTheaterSelection([], rows), true)
+  assert.equal(isBroadTheaterSelection(['a', 'b', 'c', 'd'], rows), true)
+  assert.equal(isBroadTheaterSelection(['a'], rows), false)
 })

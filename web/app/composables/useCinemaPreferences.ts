@@ -25,6 +25,7 @@ function createCinemaPreferences() {
   const theaters = useState<Theater[]>('cinema-preferences:theaters', () => [])
   const deviceIds = ref<string[]>([])
   const deviceReady = ref(false)
+  const deviceHasSavedSelection = ref(false)
   const snapshot = ref<AccountTheaterPreferences | null>(null)
   const catalogReady = ref(false)
   const catalogError = ref<string | null>(null)
@@ -34,7 +35,6 @@ function createCinemaPreferences() {
   const selectionScopeKey = ref(0)
   const needsReconciliation = ref(false)
   let initializationPromise: Promise<void> | undefined
-  let deviceInitializationPromise: Promise<void> | undefined
   let savingPromise: Promise<boolean> | undefined
   let memoryFavoriteIds: string[] | null = null
   let importIds: string[] = []
@@ -96,6 +96,16 @@ function createCinemaPreferences() {
       needsReconciliation.value,
   )
   const isLoading = computed(() => !error.value && !isInitialized.value)
+  const hasSavedTheaterSelection = computed<boolean | null>(() => {
+    if (!isInitialized.value || account.status.value !== 'ready') return null
+    if (owner.value) {
+      if (!snapshot.value) return null
+      return snapshot.value.revision === '0'
+        ? deviceHasSavedSelection.value
+        : snapshot.value.theater_ids.length > 0
+    }
+    return deviceHasSavedSelection.value
+  })
 
   function orderCurrentIds(ids: readonly string[]): string[] {
     const selected = new Set(ids)
@@ -134,29 +144,8 @@ function createCinemaPreferences() {
 
   async function initializeDeviceSelection() {
     if (!needsDeviceSelection.value || deviceReady.value) return
-    if (deviceInitializationPromise) return deviceInitializationPromise
-    deviceInitializationPromise = (async () => {
-      let defaultIds: string[] = []
-      try {
-        defaultIds = (await api.theaters({ city: 'Paris' })).map(
-          (theater) => theater.id,
-        )
-      } catch {
-        /* National fallback remains available. */
-      }
-      // This public fallback only prepares device state, even if admission
-      // changes while it loads. It never replaces an account snapshot.
-      deviceIds.value = orderCurrentIds(defaultIds)
-      if (!deviceIds.value.length && theaters.value[0])
-        deviceIds.value = [theaters.value[0].id]
-      deviceReady.value = true
-      // Defaults are provisional, not a stored user choice to import next visit.
-    })()
-    try {
-      await deviceInitializationPromise
-    } finally {
-      deviceInitializationPromise = undefined
-    }
+    // Empty is a resolved nationwide scope, never an invented persisted choice.
+    deviceReady.value = true
   }
 
   function capture() {
@@ -397,7 +386,9 @@ function createCinemaPreferences() {
         theaters.value = initialTheaters
           ? [...initialTheaters]
           : await api.theaters()
-        importIds = orderCurrentIds(storedFavoriteIds())
+        const storedIds = storedFavoriteIds()
+        deviceHasSavedSelection.value = storedIds.length > 0
+        importIds = orderCurrentIds(storedIds)
         deviceIds.value = [...importIds]
         deviceReady.value = importIds.length > 0
         catalogReady.value = true
@@ -414,9 +405,9 @@ function createCinemaPreferences() {
   async function setFavoriteTheaterIds(ids: string[]): Promise<boolean> {
     if (!import.meta.client || writesBlocked.value) return false
     const nextIds = orderCurrentIds(ids)
-    if (theaters.value.length > 0 && nextIds.length === 0) return false
     if (deviceMode.value) {
       deviceIds.value = nextIds
+      deviceHasSavedSelection.value = nextIds.length > 0
       importIds = [...nextIds]
       persist(nextIds)
       return true
@@ -444,6 +435,7 @@ function createCinemaPreferences() {
     theaters: readonly(theaters),
     favoriteTheaterIds,
     favoriteTheaters,
+    hasSavedTheaterSelection,
     catalogReady: readonly(catalogReady),
     isInitialized,
     isLoading,

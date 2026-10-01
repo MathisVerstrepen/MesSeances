@@ -293,6 +293,11 @@ async function selectionWatcher(
     preferences,
     ...preferences,
     preferencesError: preferences.error,
+    draftBroadScope: ref(false),
+    broadPreferenceScope: ref(false),
+    resetPagination: () => {
+      content.value = { loaded: true, currently_screened: true, theaters: [] }
+    },
     watch: (
       sources: Parameters<typeof watch>[0],
       callback: () => void,
@@ -656,37 +661,28 @@ test('fresh device waits for late or already admitted account preferences withou
   }
 })
 
-test('needed anonymous or unset defaults load once and keep selection blocked until resolved', async () => {
+test('fresh anonymous and unset accounts resolve empty without defaults, persistence or account writes', async () => {
   for (const admission of [anonymous, session()]) {
     const f = await fixture()
     try {
-      const paris = deferred<typeof catalog>()
-      f.setTheaters((query) =>
-        query ? paris.promise : Promise.resolve(catalog),
-      )
       f.setResponse(value('0', []))
       await f.preferences.initialize()
       assert.equal(f.parisRequests, 0)
+      assert.equal(f.preferences.hasSavedTheaterSelection.value, null)
       f.admit(admission)
       await settle()
       const initialized = f.preferences.initialize()
       const another = f.another().initialize()
-      assert.equal(f.parisRequests, 1)
-      assert.equal(f.preferences.isInitialized.value, false)
-      assert.equal(f.preferences.isLoading.value, true)
-      assert.equal(f.preferences.writesBlocked.value, true)
-      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
-      assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-3']), false)
-      paris.resolve([catalog[1]!])
       await Promise.all([initialized, another])
       await settle()
-      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-2'])
+      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
       assert.equal(f.preferences.isInitialized.value, true)
+      assert.equal(f.preferences.hasSavedTheaterSelection.value, false)
       assert.equal(f.preferences.writesBlocked.value, false)
       await f.preferences.initialize()
       await f.account.revalidate()
       await settle()
-      assert.equal(f.parisRequests, 1)
+      assert.equal(f.parisRequests, 0)
       assert.equal(f.catalogRequests, 1)
       assert.equal(f.posts.length, 0)
       assert.deepEqual(f.storageWrites, [])
@@ -696,7 +692,7 @@ test('needed anonymous or unset defaults load once and keep selection blocked un
   }
 })
 
-test('logout lazily prepares separate device defaults and does not import them on next login', async () => {
+test('logout restores empty device scope and does not import it on next login', async () => {
   const f = await fixture()
   try {
     f.admit()
@@ -705,27 +701,26 @@ test('logout lazily prepares separate device defaults and does not import them o
     const scope = f.preferences.selectionScopeKey.value
     f.admit(anonymous)
     assert.ok(f.preferences.selectionScopeKey.value > scope)
-    assert.equal(f.preferences.isInitialized.value, false)
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
     await settle()
-    assert.equal(f.parisRequests, 1)
-    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    assert.equal(f.parisRequests, 0)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
     f.setResponse(value('0', [], 'bob'))
     f.admit(session('bob'))
     await settle()
-    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
     assert.equal(f.preferences.writesBlocked.value, false)
     assert.equal(f.posts.length, 0)
     f.admit(anonymous)
     await settle()
-    assert.equal(f.parisRequests, 1)
+    assert.equal(f.parisRequests, 0)
     assert.deepEqual(f.storageWrites, [])
   } finally {
     f.stop()
   }
 })
 
-test('late public fallback cannot replace saved account selection after an owner switch', async () => {
+test('empty device scope cannot replace saved account selection after an owner switch', async () => {
   const f = await fixture()
   try {
     const paris = deferred<typeof catalog>()
@@ -734,7 +729,7 @@ test('late public fallback cannot replace saved account selection after an owner
     f.admit()
     const initialized = f.preferences.initialize()
     await settle()
-    assert.equal(f.parisRequests, 1)
+    assert.equal(f.parisRequests, 0)
     const scope = f.preferences.selectionScopeKey.value
     f.setResponse(value('3', ['ugc-3'], 'bob'))
     f.admit(session('bob'))
@@ -749,14 +744,14 @@ test('late public fallback cannot replace saved account selection after an owner
     assert.equal(f.posts.length, 0)
     assert.deepEqual(f.storageWrites, [])
     f.admit(anonymous)
-    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
-    assert.equal(f.parisRequests, 1)
+    assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
+    assert.equal(f.parisRequests, 0)
   } finally {
     f.stop()
   }
 })
 
-test('failed or empty Paris result uses first national theater once without importing defaults', async () => {
+test('fresh selection never requests geographic defaults or uses the first national cinema', async () => {
   for (const failParis of [false, true]) {
     const f = await fixture()
     try {
@@ -769,12 +764,12 @@ test('failed or empty Paris result uses first national theater once without impo
       f.admit()
       await f.preferences.initialize()
       await settle()
-      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
+      assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
       assert.equal(f.preferences.isInitialized.value, true)
       assert.equal(f.preferences.error.value, null)
       assert.equal(f.preferences.writesBlocked.value, false)
       await f.preferences.initialize()
-      assert.equal(f.parisRequests, 1)
+      assert.equal(f.parisRequests, 0)
       assert.equal(f.posts.length, 0)
       assert.deepEqual(f.storageWrites, [])
     } finally {
@@ -826,14 +821,14 @@ test('unset imports valid stored IDs once, not provisional defaults', async () =
       await settle()
       const imported = stored?.includes('ugc-3') ?? false
       assert.equal(f.posts.length, imported ? 1 : 0)
-      assert.equal(f.parisRequests, imported ? 0 : 1)
+      assert.equal(f.parisRequests, 0)
       if (imported) {
         assert.equal(f.posts[0]?.theater_ids, 'ugc-3')
         assert.equal(f.posts[0]?.expected_revision, '0')
       }
       assert.deepEqual(
         [...f.preferences.favoriteTheaterIds.value],
-        [imported ? 'ugc-3' : 'ugc-1'],
+        imported ? ['ugc-3'] : [],
       )
       assert.deepEqual(f.storageWrites, [])
       if (!imported) {
@@ -854,12 +849,14 @@ test('initialized empty and unavailable IDs stay authoritative; edits retain abs
     await f.preferences.initialize()
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
     assert.equal(f.preferences.isInitialized.value, true)
+    assert.equal(f.preferences.hasSavedTheaterSelection.value, true)
     assert.equal(f.posts.length, 0)
     await f.preferences.setFavoriteTheaterIds(['ugc-3'])
     assert.equal(f.posts[0]?.theater_ids, 'temporarily-absent,ugc-3')
     f.setResponse(value('4', []))
     await f.account.revalidate()
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], [])
+    assert.equal(f.preferences.hasSavedTheaterSelection.value, false)
     assert.equal(f.posts.length, 1)
     assert.equal(f.parisRequests, 0)
   } finally {
@@ -867,7 +864,34 @@ test('initialized empty and unavailable IDs stay authoritative; edits retain abs
   }
 })
 
-test('save waits for acknowledgement, rejects duplicates/empty draft and keeps anonymous storage distinct', async () => {
+test('raw inactive device presence suppresses prompt; deliberate empty account never imports stale device IDs', async () => {
+  const device = await fixture({ stored: '["unavailable"]' })
+  try {
+    device.admit(anonymous)
+    await device.preferences.initialize()
+    assert.deepEqual([...device.preferences.favoriteTheaterIds.value], [])
+    assert.equal(device.preferences.hasSavedTheaterSelection.value, true)
+    assert.deepEqual(device.storageWrites, [])
+    assert.equal(await device.preferences.setFavoriteTheaterIds([]), true)
+    assert.equal(device.preferences.hasSavedTheaterSelection.value, false)
+    assert.deepEqual(device.storageWrites, ['[]'])
+  } finally {
+    device.stop()
+  }
+  const account = await fixture({ stored: '["ugc-1"]' })
+  try {
+    account.setResponse(value('2', []))
+    account.admit()
+    await account.preferences.initialize()
+    assert.deepEqual([...account.preferences.favoriteTheaterIds.value], [])
+    assert.equal(account.preferences.hasSavedTheaterSelection.value, false)
+    assert.equal(account.posts.length, 0)
+  } finally {
+    account.stop()
+  }
+})
+
+test('save waits for acknowledgement, rejects concurrent writes, permits empty and keeps device storage distinct', async () => {
   const f = await fixture({ stored: '["ugc-1"]' })
   try {
     f.admit()
@@ -880,8 +904,11 @@ test('save waits for acknowledgement, rejects duplicates/empty draft and keeps a
     assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-1']), false)
     pending.resolve(value('2', ['ugc-3']))
     assert.equal(await save, true)
-    assert.equal(await f.preferences.setFavoriteTheaterIds([]), false)
-    assert.deepEqual(f.messages, ['theaters-changed'])
+    f.setWrite(async () => value('3', []))
+    assert.equal(await f.preferences.setFavoriteTheaterIds([]), true)
+    assert.equal(f.posts.at(-1)?.theater_ids, '')
+    assert.equal(f.preferences.hasSavedTheaterSelection.value, false)
+    assert.deepEqual(f.messages, ['theaters-changed', 'theaters-changed'])
     assert.deepEqual(f.storageWrites, [])
     f.admit(anonymous)
     assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-1'])
@@ -1024,7 +1051,7 @@ test('pending, disabled and anonymous sessions use device mode; storage failures
     try {
       f.admit(admission)
       await f.preferences.initialize()
-      assert.equal(f.parisRequests, 1)
+      assert.equal(f.parisRequests, 0)
       assert.equal(await f.preferences.setFavoriteTheaterIds(['ugc-3']), true)
       assert.deepEqual([...f.preferences.favoriteTheaterIds.value], ['ugc-3'])
       assert.equal(f.gets, 0)

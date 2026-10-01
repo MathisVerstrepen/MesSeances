@@ -170,9 +170,9 @@ func TestLoadAPIConfigurationIgnoresSyncTimingWhenCapabilityDisabled(t *testing.
 	}
 }
 
-func TestProductionScheduleOptionsDefaultToParisAndRetainLilleMetroAlias(t *testing.T) {
+func TestProductionScheduleOptionsDefaultToNationwideAndRetainLilleMetroAlias(t *testing.T) {
 	options := newProductionScheduleOptions()
-	if options.DefaultCity != "Paris" {
+	if options.DefaultCity != "" {
 		t.Fatalf("default city=%q", options.DefaultCity)
 	}
 	if len(options.CityAliases) != 1 {

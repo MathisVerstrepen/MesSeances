@@ -298,6 +298,10 @@ test('Cinewest film JSON-LD preserves published ends and omits estimated or unkn
     showing('webediamovies', { movie: { ...movie, runtime_minutes: 0 } }),
   ])
   const schedule: MovieShowtimesResponse = {
+    catalog_revision: 'r1',
+    available_languages: ['VF'],
+    available_formats: ['2D'],
+    pagination: null,
     release_status: 'showing',
     movie: {
       ...movie,

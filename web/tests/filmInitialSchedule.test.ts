@@ -15,6 +15,10 @@ function schedule(
   marker: string,
 ): MovieShowtimesResponse {
   return {
+    catalog_revision: 'r1',
+    available_languages: [],
+    available_formats: [],
+    pagination: { page: 1, page_size: 10, total: 0, has_more: false },
     release_status: 'showing',
     movie: {
       slug: 'film-1',
@@ -106,7 +110,7 @@ test('configured SSR makes exactly one bundle request per distinct fallback date
   })
 })
 
-test('blank-secret fallback preserves public Paris and nationwide request behavior', async () => {
+test('public filtered fallback preserves independent scoped and nationwide evidence', async () => {
   const calls: string[] = []
   const initialScoped = schedule(
     REQUESTED_DATE,
@@ -147,7 +151,7 @@ test('blank-secret fallback preserves public Paris and nationwide request behavi
   })
 })
 
-test('blank-secret typical SSR performs one Paris and one nationwide request', async () => {
+test('distinct public filters load scoped and neutral nationwide responses', async () => {
   const calls: string[] = []
   const scoped = schedule(REQUESTED_DATE, [REQUESTED_DATE], 'Paris')
   const nationwide = schedule(REQUESTED_DATE, [REQUESTED_DATE], 'France')

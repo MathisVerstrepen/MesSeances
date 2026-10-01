@@ -17,7 +17,8 @@ import {
 import type { Theater } from '~/types/api'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import {
-  groupTheatersByCityIdentity,
+  groupSelectedTheatersFirst,
+  selectedFirst,
   updateTheaterSelection,
 } from '~/utils/cinemaSelection'
 import { serializeJsonLd } from '~/utils/jsonLd'
@@ -133,12 +134,16 @@ const usedPositionMapUrl = computed(() =>
   userPosition.value ? buildOpenStreetMapPositionUrl(userPosition.value) : null,
 )
 const visibleGroups = computed(() =>
-  groupTheatersByCityIdentity(displayedTheaters.value),
+  groupSelectedTheatersFirst(displayedTheaters.value, selectedIds.value),
 )
 
 const nearbyRows = computed(() =>
   userPosition.value
-    ? sortTheatersByDistance(displayedTheaters.value, userPosition.value)
+    ? selectedFirst(
+        sortTheatersByDistance(displayedTheaters.value, userPosition.value),
+        selectedIds.value,
+        (row) => row.theater.id,
+      )
     : [],
 )
 const visibleTheaterCount = computed(() => displayedTheaters.value.length)
@@ -164,6 +169,10 @@ function showByCity() {
 
 function reportSaved() {
   const count = draftFavoriteTheaterIds.value.length
+  if (count === 0) {
+    statusMessage.value = 'Tous les cinémas'
+    return
+  }
   statusMessage.value = `${count} cinéma${count > 1 ? 's' : ''} enregistré${count > 1 ? 's' : ''}.`
 }
 
@@ -172,12 +181,6 @@ async function applyDraftSelection(nextIds: string[]) {
   const scope = selectionScopeKey.value
   statusMessage.value = ''
   draftFavoriteTheaterIds.value = nextIds
-  if (nextIds.length === 0) {
-    statusMessage.value =
-      'Aucun cinéma sélectionné. Vos cinémas enregistrés restent inchangés.'
-    return
-  }
-
   const saved = await setFavoriteTheaterIds(nextIds)
   if (isUnmounted || scope !== selectionScopeKey.value) return
   if (!saved) {
@@ -769,7 +772,7 @@ useHead(() => ({
             <div v-else class="space-y-8">
               <section
                 v-for="group in visibleGroups"
-                :key="group.citySlug"
+                :key="group.key"
                 class="city-section border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a]"
               >
                 <header

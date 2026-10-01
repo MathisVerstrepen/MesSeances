@@ -48,7 +48,7 @@ export function withSharedTheaterSelection(
   target: string,
   ids: readonly string[],
 ): string | null {
-  if (ids.length === 0 || parseSharedTheaterSelection(ids.join(',')) === null)
+  if (ids.length > 0 && parseSharedTheaterSelection(ids.join(',')) === null)
     return null
 
   const queryIndex = target.indexOf('?')
@@ -68,8 +68,9 @@ export function withSharedTheaterSelection(
     if (key !== SHARED_THEATERS_QUERY_KEY) fields.push(field)
   }
 
-  fields.push(
-    `${SHARED_THEATERS_QUERY_KEY}=${encodeURIComponent(ids.join(','))}`,
-  )
-  return `${path}?${fields.join('&')}`
+  if (ids.length > 0)
+    fields.push(
+      `${SHARED_THEATERS_QUERY_KEY}=${encodeURIComponent(ids.join(','))}`,
+    )
+  return fields.length ? `${path}?${fields.join('&')}` : path
 }
