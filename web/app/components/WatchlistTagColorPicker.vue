@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { Check } from '@lucide/vue'
 import type { WatchlistTagColor } from '~/types/watchlist'
 import { watchlistTagPalette, watchlistTagStyle } from '~/utils/watchlistTags'
 
@@ -14,22 +15,29 @@ const groupName = useId()
       <label
         v-for="(token, color) in watchlistTagPalette"
         :key="color"
-        class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-ink/50 bg-surface px-2 text-sm text-ink has-[:checked]:border-ink has-[:checked]:bg-subtle has-[:checked]:font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[#27272a] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white"
+        class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-none border-2 px-2 py-2 font-mono text-xs font-bold leading-relaxed has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-solid has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white"
+        :style="watchlistTagStyle(color)"
       >
         <input
           type="radio"
-          class="size-4 shrink-0 accent-current"
+          class="sr-only focus-visible:ring-0"
           :name="groupName"
           :value="color"
           :checked="modelValue === color"
           @change="emit('update:modelValue', color)"
         >
         <span
-          class="size-3 shrink-0 rounded-full border"
-          :style="watchlistTagStyle(color)"
+          class="grid size-5 shrink-0 place-items-center"
           aria-hidden="true"
-        />
-        {{ token.label }}
+        >
+          <Check
+            v-if="modelValue === color"
+            :size="20"
+            aria-hidden="true"
+            focusable="false"
+          />
+        </span>
+        <span class="min-w-0 [overflow-wrap:anywhere]">{{ token.label }}</span>
       </label>
     </div>
   </fieldset>

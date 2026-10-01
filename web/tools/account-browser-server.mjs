@@ -4,8 +4,17 @@ import { fileURLToPath } from 'node:url'
 import { buildNuxt, loadNuxt } from '@nuxt/kit'
 import { toNodeListener } from 'h3'
 
-const origin = 'http://127.0.0.1:13009'
-const api = 'http://127.0.0.1:18089'
+const webPort = Number(process.env.ACCOUNT_WATCHLIST_WEB_PORT ?? 13009)
+const apiPort = Number(process.env.ACCOUNT_WATCHLIST_API_PORT ?? 18089)
+if (
+  ![webPort, apiPort].every(
+    (port) => Number.isInteger(port) && port > 0 && port <= 65535,
+  ) ||
+  webPort === apiPort
+)
+  throw new Error('Invalid watchlist fixture ports')
+const origin = `http://127.0.0.1:${webPort}`
+const api = `http://127.0.0.1:${apiPort}`
 const script = process.argv.includes('--no-analytics')
   ? ''
   : 'https://analytics.example.test/script.js'
@@ -24,7 +33,18 @@ const nuxt = await loadNuxt({
   dev: true,
   dotenv: false,
   overrides: {
-    devServer: { host: '127.0.0.1', port: 13009, url: origin },
+    // Concurrent watchlist acceptance must not rewrite another fixture's cache.
+    ...(webPort !== 13009
+      ? {
+          buildDir: fileURLToPath(
+            new URL(
+              `../node_modules/.cache/watchlist-${webPort}`,
+              import.meta.url,
+            ),
+          ),
+        }
+      : {}),
+    devServer: { host: '127.0.0.1', port: webPort, url: origin },
     nitro: {
       devProxy: { '/api': { target: `${api}/api`, changeOrigin: false } },
     },
@@ -44,7 +64,7 @@ await buildNuxt(nuxt)
 const server = createServer(
   nuxt.server.handler || toNodeListener(nuxt.server.app),
 )
-server.listen(13009, '127.0.0.1', () =>
+server.listen(webPort, '127.0.0.1', () =>
   console.log('ACCOUNT_BROWSER_WEB_READY'),
 )
 for (const signal of ['SIGINT', 'SIGTERM']) {

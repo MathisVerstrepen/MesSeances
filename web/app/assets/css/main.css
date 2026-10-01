@@ -98,6 +98,10 @@
   .editorial-alert {
     @apply border-2 border-primary bg-primary-soft text-sm text-primary;
   }
+
+  .watchlist-tag-chip {
+    @apply inline-block max-w-full min-w-0 rounded-none border-2 px-2 py-0.5 font-mono text-xs font-bold leading-relaxed [overflow-wrap:anywhere];
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

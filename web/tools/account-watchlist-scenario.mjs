@@ -24,16 +24,34 @@ async function checkPalette(page, evaluate, check) {
     const rgb = hex => 'rgb(' + [1,3,5].map(i => parseInt(hex.slice(i, i+2), 16)).join(', ') + ')';
     const lum = rgb => { const c = rgb.match(/\\d+/g).map(n => { const x = Number(n)/255; return x <= .04045 ? x/12.92 : ((x+.055)/1.055)**2.4 }); return c[0]*.2126+c[1]*.7152+c[2]*.0722 };
     const contrast = (a,b) => (Math.max(lum(a),lum(b))+.05)/(Math.min(lum(a),lum(b))+.05);
-    if (!radios.length) return false;
+    if (!radios.length || radios.filter(r => r.checked).length !== 1) return false;
     const grid = getComputedStyle(radios[0].closest('label').parentElement);
     if (grid.gridTemplateColumns.split(' ').length !== (innerWidth >= 640 ? 4 : 2) || parseFloat(grid.gap) < 8) return false;
     return radios.length === 8 && new Set(radios.map(r => r.name)).size === 1 && radios.every((r,i) => {
-      const label = r.closest('label'), style = getComputedStyle(label), marker = getComputedStyle(label.querySelector('[aria-hidden]')), rect = label.getBoundingClientRect(), token = expected[i];
-      return r.value === token[0] && label.textContent.trim() === token[1] && marker.backgroundColor === rgb(token[2]) && marker.color === rgb(token[3]) && marker.borderColor === rgb(token[4]) && rect.height >= 44 && rect.width >= 44 && contrast(style.color, style.backgroundColor) >= 4.5 && contrast(style.borderColor, style.backgroundColor) >= 3 && contrast(marker.borderColor, marker.backgroundColor) >= 3;
+      const label = r.closest('label'), style = getComputedStyle(label), rect = label.getBoundingClientRect(), token = expected[i], checks = [...label.querySelectorAll('svg')];
+      return r.value === token[0] && label.textContent.trim() === token[1] && r.classList.contains('sr-only') && !r.disabled && style.backgroundColor === rgb(token[2]) && style.color === rgb(token[3]) && style.borderColor === rgb(token[4]) && style.borderWidth === '2px' && style.borderRadius === '0px' && style.fontFamily.includes('monospace') && style.fontSize === '12px' && style.fontWeight === '700' && rect.height >= 44 && rect.width >= 44 && label.scrollWidth <= label.clientWidth && checks.length === (r.checked ? 1 : 0) && checks.every(check => check.getAttribute('aria-hidden') === 'true' && check.getAttribute('focusable') === 'false' && check.getBoundingClientRect().width === 20) && contrast(style.color, style.backgroundColor) >= 4.5 && contrast(style.borderColor, style.backgroundColor) >= 3;
     });
   })()`,
     ),
-    'eight named native radios have compact exact-color markers, accessible tile contrast and touch targets',
+    'eight square mono color tiles retain exact palette contrast, native radio names, one selected check and 44px targets',
+  )
+}
+
+async function checkChips(page, evaluate, check, context) {
+  check(
+    await evaluate(
+      page,
+      `(() => {
+    const expected = ${JSON.stringify(palette)};
+    const chips = [...document.querySelectorAll('.watchlist-tag-chip')].filter(chip => chip.checkVisibility());
+    const rgb = hex => 'rgb(' + [1,3,5].map(i => parseInt(hex.slice(i, i+2), 16)).join(', ') + ')';
+    return chips.length > 0 && chips.every(chip => {
+      const style = getComputedStyle(chip), rect = chip.getBoundingClientRect(), token = expected.find(token => style.backgroundColor === rgb(token[2]));
+      return token && style.color === rgb(token[3]) && style.borderColor === rgb(token[4]) && style.borderWidth === '2px' && style.borderRadius === '0px' && style.fontFamily.includes('monospace') && style.fontSize === '12px' && style.fontWeight === '700' && style.overflowWrap === 'anywhere' && chip.scrollWidth <= chip.clientWidth && rect.width <= chip.parentElement.clientWidth + .5 && rect.left >= 0 && rect.right <= innerWidth + .5;
+    });
+  })()`,
+    ),
+    `${context} manager, assigned and assignment-option chips share square mono borders, palette and safe long-name wrapping`,
   )
 }
 
@@ -86,6 +104,8 @@ async function exerciseTagColors({
 }
 
 export async function watchlistScenario({
+  origin,
+  apiPort,
   getCDP,
   launch,
   tab,
@@ -444,7 +464,7 @@ export async function watchlistScenario({
   setServer(server)
   await new Promise((resolve, reject) => {
     server.once('error', reject)
-    server.listen(18089, '127.0.0.1', resolve)
+    server.listen(apiPort, '127.0.0.1', resolve)
   })
   const router = `document.querySelector('#__nuxt').__vue_app__.config.globalProperties.$router`
   async function screenshot(page, name, captureBeyondViewport = true) {
@@ -1227,6 +1247,7 @@ export async function watchlistScenario({
   )
   await fill(page, 'watchlist-tag-name', '<b>Amis</b>')
   await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-create-desktop', false)
   await click(page, 'Créer')
   await until(
     page,
@@ -1295,6 +1316,31 @@ export async function watchlistScenario({
     { features: [] },
     page.sessionId,
   )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[value="amber"]').focus()`,
+  )
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32 },
+      page.sessionId,
+    )
+  check(
+    await evaluate(
+      page,
+      `(() => { const r = document.activeElement; return r.value === 'amber' && r.checked && r.closest('label').querySelectorAll('svg').length === 1 && document.querySelectorAll('#watchlist-tag-create svg').length === 1 && getComputedStyle(r.closest('label')).outlineWidth === '2px' })()`,
+    ),
+    'native Space selects unchecked color with one non-hue marker and visible keyboard focus',
+  )
+  await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-keyboard-desktop', false)
+  for (const type of ['keyDown', 'keyUp'])
+    await getCDP().send(
+      'Input.dispatchKeyEvent',
+      { type, key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+      page.sessionId,
+    )
   await click(page, 'Créer')
   await until(
     page,
@@ -1872,6 +1918,7 @@ export async function watchlistScenario({
     'picker group exposes film-specific title',
   )
   await screenshot(page, 'tag-picker-desktop', false)
+  await checkChips(page, evaluate, check, 'desktop assignment picker')
   await evaluate(
     page,
     `document.querySelector('#saved-heading').dispatchEvent(new PointerEvent('pointerdown', {bubbles:true}))`,
@@ -2085,6 +2132,8 @@ export async function watchlistScenario({
     'only active edit palette and its single native radio group are mounted',
   )
   await screenshot(page, 'tag-color-edit-desktop', false)
+  await checkPalette(page, evaluate, check)
+  await checkChips(page, evaluate, check, 'desktop editor and saved rows')
   await click(page, 'Enregistrer')
   await until(
     page,
@@ -2201,8 +2250,19 @@ export async function watchlistScenario({
   await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
   await click(page, 'Créer un tag')
   await checkPalette(page, evaluate, check)
+  await checkChips(page, evaluate, check, '320px creation and saved rows')
   await screenshot(page, 'tag-create-mobile', false)
   await checkTagRows('320px expanded creation')
+  await click(page, 'Annuler')
+  await evaluate(
+    page,
+    `document.querySelector('button[aria-label="Modifier À revoir au cinéma avec tous les amis"]').click()`,
+  )
+  await checkPalette(page, evaluate, check)
+  await checkChips(page, evaluate, check, '320px long-name editor')
+  await screenshot(page, 'editorial-palette-edit-320', false)
+  await click(page, 'Annuler')
+  await click(page, 'Créer un tag')
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
@@ -2329,6 +2389,7 @@ export async function watchlistScenario({
       `${name} picker clamps all edges, scrolls internally and retains reachable close control`,
     )
     await screenshot(page, `tag-picker-${name}`, false)
+    await checkChips(page, evaluate, check, `320px ${name} assignment picker`)
     await evaluate(
       page,
       `document.querySelector('button[aria-label="Fermer les tags"]').click()`,
@@ -3762,9 +3823,7 @@ export async function watchlistScenario({
     ),
     'analytics contains no watchlist membership, identity or private query',
   )
-  const ssr = await (
-    await fetch('http://127.0.0.1:13009/film/external-film')
-  ).text()
+  const ssr = await (await fetch(`${origin}/film/external-film`)).text()
   check(
     !/private_watchlist_owner|added_at|sort_order|view_mode|filter_tag_id|release_asc|private candidate query|1998-10-14|14 octobre 1998/.test(
       ssr,

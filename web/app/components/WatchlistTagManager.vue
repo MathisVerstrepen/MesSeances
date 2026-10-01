@@ -460,7 +460,7 @@ onBeforeUnmount(() => {
             <div class="flex items-center gap-2">
               <div class="min-w-0 flex-1">
                 <span
-                  class="inline-block max-w-full rounded-md border px-2 py-0.5 text-sm font-medium [overflow-wrap:anywhere]"
+                  class="watchlist-tag-chip"
                   :style="watchlistTagStyle(tag.color)"
                   >{{
                     tag.name

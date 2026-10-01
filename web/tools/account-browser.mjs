@@ -15,8 +15,22 @@ import {
   watchlistScenario,
 } from './account-watchlist-scenario.mjs'
 
-const origin = 'http://127.0.0.1:13009'
-const api = 'http://127.0.0.1:18089'
+const webPort = Number(process.env.ACCOUNT_WATCHLIST_WEB_PORT ?? 13009)
+const apiPort = Number(process.env.ACCOUNT_WATCHLIST_API_PORT ?? 18089)
+if (
+  ![webPort, apiPort].every(
+    (port) => Number.isInteger(port) && port > 0 && port <= 65535,
+  ) ||
+  webPort === apiPort
+)
+  throw new Error('Invalid watchlist fixture ports')
+if (
+  (webPort !== 13009 || apiPort !== 18089) &&
+  !process.argv.includes('--watchlist')
+)
+  throw new Error('Custom watchlist fixture ports require --watchlist')
+const origin = `http://127.0.0.1:${webPort}`
+const api = `http://127.0.0.1:${apiPort}`
 const tracker = 'https://analytics.example.test/script.js'
 const password = 'Cinéma🎬42!'
 const replacement = 'Autre🎬42!x'
@@ -2897,6 +2911,8 @@ async function main() {
   if (process.argv.includes('--watchlist')) {
     phase = 'DB-free watchlist contract'
     await watchlistScenario({
+      origin,
+      apiPort,
       getCDP: () => cdp,
       launch,
       tab,

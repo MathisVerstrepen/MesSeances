@@ -142,7 +142,7 @@ onBeforeUnmount(() => {
       <li
         v-for="tag in assignedTags"
         :key="tag.id"
-        class="max-w-full rounded-md border px-2 py-0.5 text-xs font-medium [overflow-wrap:anywhere]"
+        class="watchlist-tag-chip"
         :style="watchlistTagStyle(tag.color)"
       >
         {{ tag.name }}
@@ -151,7 +151,7 @@ onBeforeUnmount(() => {
     <button
       ref="trigger"
       type="button"
-      class="inline-flex min-h-11 min-w-11 items-center gap-1 rounded-md px-2 text-sm font-semibold text-primary hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
+      class="inline-flex min-h-7 min-w-11 items-center gap-1 rounded-md px-2 text-sm font-semibold text-primary hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
       :aria-label="`Modifier les tags de ${title}`"
       :disabled="blocked && !open"
       :aria-expanded="open"
@@ -218,7 +218,7 @@ onBeforeUnmount(() => {
             @change="change($event, tag.id)"
           >
           <span
-            class="min-w-0 rounded-md border px-2 py-0.5 [overflow-wrap:anywhere]"
+            class="watchlist-tag-chip"
             :style="watchlistTagStyle(tag.color)"
             >{{
               tag.name

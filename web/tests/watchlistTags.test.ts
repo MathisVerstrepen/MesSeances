@@ -1,9 +1,22 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import { compileScript, parse } from '@vue/compiler-sfc'
+import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
-import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
+import {
+  type Component,
+  computed,
+  createSSRApp,
+  effectScope,
+  nextTick,
+  reactive,
+  ref,
+  useId,
+  watch,
+} from 'vue'
 import {
   sortWatchlistTags,
   tagNameError,
@@ -80,11 +93,111 @@ test('picker preserves native radio keyboard and forced color behavior without p
   assert.match(source, /min-h-11/)
   assert.match(source, /focus-visible/)
   assert.match(source, /:name="groupName"/)
-  assert.match(source, /has-\[:checked\]:font-semibold/)
+  assert.match(source, /class="sr-only focus-visible:ring-0"/)
+  assert.match(source, /rounded-none border-2/)
+  assert.match(source, /font-mono text-xs font-bold/)
+  assert.match(source, /has-\[:focus-visible\]:outline-ink/)
+  assert.match(source, /v-if="modelValue === color"/)
+  assert.match(source, /@change="emit\('update:modelValue', color\)"/)
   assert.match(source, /grid-cols-2.*sm:grid-cols-4/)
   assert.doesNotMatch(
     source,
     /appearance-none|forced-color-adjust|keydown|localStorage|sessionStorage|useState|useRoute/,
+  )
+})
+
+test('editorial color tiles retain eight named native radios and one decorative selected check for every color', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistTagColorPicker.vue', import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(source)
+  const pickerModule: { default?: Component } = {}
+  const require = createRequire(import.meta.url)
+  runInNewContext(
+    ts.transpileModule(
+      compileScript(descriptor, {
+        id: 'WatchlistTagColorPicker',
+        inlineTemplate: true,
+      }).content,
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    {
+      exports: pickerModule,
+      useId,
+      require: (id: string) =>
+        id === '~/utils/watchlistTags'
+          ? { watchlistTagPalette, watchlistTagStyle }
+          : require(id),
+    },
+  )
+  assert.ok(pickerModule.default)
+  for (const color of Object.keys(watchlistTagPalette) as WatchlistTagColor[]) {
+    const html = await renderToString(
+      createSSRApp(pickerModule.default, { modelValue: color }),
+    )
+    const labels = html.match(/<label\b[\s\S]*?<\/label>/g) ?? []
+    assert.equal(labels.length, 8)
+    assert.equal((html.match(/<svg\b/g) ?? []).length, 1)
+    const names = new Set<string>()
+    for (const [index, tile] of labels.entries()) {
+      const key = Object.keys(watchlistTagPalette)[index] as WatchlistTagColor
+      const token = watchlistTagPalette[key]
+      const radio = tile.match(/<input\b[^>]*>/)?.[0]
+      assert.ok(radio)
+      names.add(radio.match(/name="([^"]+)"/)![1]!)
+      assert.match(radio, /type="radio"/)
+      assert.match(radio, /class="sr-only focus-visible:ring-0"/)
+      assert.match(radio, new RegExp(`value="${key}"`))
+      assert.equal(/ checked(?:=""|(?=[\s>]))/.test(radio), key === color)
+      assert.equal(tile.includes('<svg'), key === color)
+      assert.ok(tile.includes(token.label))
+      for (const value of [
+        token.backgroundColor,
+        token.color,
+        token.borderColor,
+      ])
+        assert.ok(tile.includes(value))
+      if (key === color) {
+        assert.match(tile, /aria-hidden="true"/)
+        assert.match(tile, /focusable="false"/)
+      }
+    }
+    assert.equal(names.size, 1)
+  }
+})
+
+test('manager, assigned and assignment-option chips share square editorial typography without changing palette bindings', async () => {
+  const [css, manager, item] = await Promise.all([
+    readFile(new URL('../app/assets/css/main.css', import.meta.url), 'utf8'),
+    readFile(
+      new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
+      'utf8',
+    ),
+  ])
+  const chip = css.match(/\.watchlist-tag-chip\s*\{([^}]+)\}/)?.[1]
+  assert.ok(chip)
+  assert.match(chip, /max-w-full min-w-0 rounded-none border-2/)
+  assert.match(chip, /font-mono text-xs font-bold/)
+  assert.match(chip, /\[overflow-wrap:anywhere\]/)
+  assert.equal((manager.match(/class="watchlist-tag-chip"/g) ?? []).length, 1)
+  assert.equal((item.match(/class="watchlist-tag-chip"/g) ?? []).length, 2)
+  assert.equal(
+    (manager.match(/:style="watchlistTagStyle\(tag.color\)"/g) ?? []).length,
+    1,
+  )
+  assert.equal(
+    (item.match(/:style="watchlistTagStyle\(tag.color\)"/g) ?? []).length,
+    2,
   )
 })
 
@@ -873,6 +986,27 @@ async function itemFixture() {
     },
   }
 }
+
+test('compact tag trigger uses 28px minimum height while preserving width, focus and picker semantics', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
+    'utf8',
+  )
+  const trigger = source.match(/<button\s+ref="trigger"[\s\S]*?<\/button>/)?.[0]
+  assert.ok(trigger)
+  assert.match(trigger, /inline-flex min-h-7 min-w-11/)
+  assert.doesNotMatch(trigger, /min-h-11/)
+  assert.match(
+    trigger,
+    /focus-visible:outline-2 focus-visible:outline-offset-2/,
+  )
+  assert.match(trigger, /:aria-label="`Modifier les tags de \$\{title\}`"/)
+  assert.match(trigger, /:disabled="blocked && !open"/)
+  assert.match(trigger, /:aria-expanded="open"/)
+  assert.match(trigger, /:aria-controls="open \? regionId : undefined"/)
+  assert.match(trigger, /@click="emit\('toggle'\)"/)
+  assert.match(trigger, /<Plus :size="16" aria-hidden="true"\s*\/>\s*Tag/)
+})
 
 test('section context hides only its assigned chip without altering picker membership or list summaries', async () => {
   const f = await itemFixture()
