@@ -647,6 +647,11 @@ export async function watchlistScenario({
     `document.querySelector('section[aria-labelledby="saved-heading"] a[href="/film/${slug}"]')?.closest('li')`
   const savedOrder = `[...document.querySelectorAll('section[aria-labelledby="saved-heading"] li a')].map(node => node.getAttribute('href').split('/').at(-1))`
   async function click(target, label) {
+    if (
+      label === 'Gérer les tags' &&
+      (await evaluate(target, `innerWidth < 1024`))
+    )
+      label = 'Tags'
     const sheetAction =
       ['Liste', 'Par tag'].includes(label) &&
       (await evaluate(target, `innerWidth < 1024`))
@@ -657,7 +662,7 @@ export async function watchlistScenario({
         `!!document.querySelector('#watchlist-configuration')`,
       ))
     ) {
-      await rawClick(target, 'Configuration')
+      await click(target, 'Configuration')
       await until(
         target,
         `document.querySelector('#watchlist-configuration')?.matches(':modal')`,
@@ -680,7 +685,7 @@ export async function watchlistScenario({
         target,
         `(() => { const button = [...document.querySelectorAll('#watchlist-configuration button')].find(button=>button.textContent.trim() === ${JSON.stringify(label)}); button.focus(); button.click() })()`,
       )
-    else if (label.startsWith('Fermer'))
+    else if (label === 'Configuration' || label.startsWith('Fermer'))
       await evaluate(
         target,
         `document.querySelector('button[aria-label=${JSON.stringify(label)}]').click()`,
@@ -831,6 +836,44 @@ export async function watchlistScenario({
         ),
         `${width}px base hides preferences and search, keeps separate tag manager`,
       )
+      check(
+        await evaluate(
+          page,
+          `(() => {
+        const heading = document.querySelector('#saved-heading'), config = document.querySelector('button[aria-controls="watchlist-configuration"]'), tags = document.querySelector('button[aria-controls="watchlist-tag-manager"]');
+        const h = heading.getBoundingClientRect(), c = config.getBoundingClientRect(), t = tags.getBoundingClientRect();
+        const center = r => r.top + r.height / 2;
+        return heading.textContent.trim() === 'Mes films' && h.height < 30 && config.parentElement.contains(tags)
+          && config.textContent.trim() === '' && config.getAttribute('aria-label') === 'Configuration' && config.querySelector('svg[aria-hidden="true"]')
+          && tags.textContent.trim() === 'Tags' && Math.abs(center(h) - center(c)) < 1 && Math.abs(center(c) - center(t)) < 1
+          && [c,t].every(r => r.width >= 44 && r.height >= 44) && c.left >= h.right + 8 && t.left >= c.right + 8
+          && h.left >= 0 && t.right <= innerWidth && document.documentElement.scrollWidth <= innerWidth;
+      })()`,
+        ),
+        `${width}px Mes films, icon-only accessible Configuration and Tags share one row with 44px targets`,
+      )
+      await evaluate(
+        page,
+        `document.querySelector('button[aria-label="Configuration"]').focus()`,
+      )
+      for (const type of ['keyDown', 'keyUp'])
+        await getCDP().send(
+          'Input.dispatchKeyEvent',
+          { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
+          page.sessionId,
+        )
+      check(
+        await evaluate(
+          page,
+          `document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager' && document.activeElement.textContent.trim() === 'Tags'`,
+        ),
+        `${width}px toolbar keyboard order is Configuration then Tags`,
+      )
+      await evaluate(
+        page,
+        'document.activeElement.blur(); window.scrollTo(0, 0)',
+      )
+      await screenshot(page, `toolbar-${width}`, false)
       await click(page, 'Configuration')
       await until(
         page,
@@ -852,7 +895,7 @@ export async function watchlistScenario({
          const sheet = document.querySelector('#watchlist-configuration')?.getBoundingClientRect();
         return document.documentElement.scrollWidth <= innerWidth
           && [f,s,m].every(r => r.height >= 44 && r.width >= 44 && r.left >= 0 && r.right <= innerWidth)
-          && manager.textContent.trim() === 'Gérer les tags'
+           && manager.textContent.trim() === '${mobile ? 'Tags' : 'Gérer les tags'}'
            && (${width} >= 1024 ? close(f.bottom,s.bottom) && close(s.bottom,m.bottom)
              : close(sheet.bottom,innerHeight) && sheet.top >= 16 && f.bottom + 8 <= s.top && toggle.bottom <= f.top && document.body.style.overflow === 'hidden' && document.activeElement.getAttribute('aria-label') === 'Fermer la configuration' && !document.querySelector('#watchlist-configuration button[aria-controls="watchlist-tag-manager"]'));
       })()`,
@@ -1367,8 +1410,11 @@ export async function watchlistScenario({
   )
   await screenshot(page, 'external-tab')
   check(
-    await evaluate(page, `!document.querySelector('a[href*="999"]')`),
-    'external candidate has no fictitious public URL',
+    await evaluate(
+      page,
+      `(() => { const link = document.querySelector('#watchlist-external-panel li a'); return link?.getAttribute('href') === 'https://www.themoviedb.org/movie/999' && link.getAttribute('target') === '_blank' && link.getAttribute('rel') === 'noopener noreferrer' && link.getAttribute('referrerpolicy') === 'no-referrer' && !document.querySelector('#watchlist-external-panel a[href^="/film/"]'); })()`,
+    ),
+    'external title links to fixed TMDB detail in protected new tab, without fictitious public URL',
   )
   await evaluate(
     page,

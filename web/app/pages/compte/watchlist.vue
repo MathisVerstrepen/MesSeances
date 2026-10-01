@@ -644,6 +644,7 @@ onBeforeRouteLeave(clearPageSearch)
                       <WatchlistMovieRow
                         v-for="movie in searchResults.external"
                         :key="movie.tmdb_id"
+                        :tmdb-id="movie.tmdb_id"
                         :title="movie.title"
                         :poster-url="movie.poster_url"
                         :release-date="movie.release_date"
@@ -667,21 +668,32 @@ onBeforeRouteLeave(clearPageSearch)
         </div>
       </dialog>
       <section aria-labelledby="saved-heading">
-        <div
-          class="flex flex-wrap items-center justify-between gap-2 lg:hidden"
-        >
-          <h2 id="saved-heading" class="text-xl font-bold">Mes films</h2>
-          <button
-            ref="configurationTrigger"
-            type="button"
-            class="account-secondary"
-            aria-haspopup="dialog"
-            aria-controls="watchlist-configuration"
-            :aria-expanded="configurationOpen"
-            @click="openConfiguration"
-          >
-            <Settings2 :size="18" aria-hidden="true" />Configuration
-          </button>
+        <div class="flex items-center justify-between gap-2 lg:hidden">
+          <h2 id="saved-heading" class="shrink-0 text-xl font-bold">
+            Mes films
+          </h2>
+          <div class="flex shrink-0 items-center gap-2">
+            <button
+              ref="configurationTrigger"
+              type="button"
+              class="account-secondary size-12 p-0!"
+              aria-label="Configuration"
+              aria-haspopup="dialog"
+              aria-controls="watchlist-configuration"
+              :aria-expanded="configurationOpen"
+              @click="openConfiguration"
+            >
+              <Settings2 :size="18" aria-hidden="true" />
+            </button>
+            <WatchlistTagManager
+              v-if="!isDesktop"
+              compact-trigger
+              :key="`mobile-${tagScope}`"
+              :tags="tags"
+              :ready="ready"
+              :blocked="writesBlocked"
+            />
+          </div>
         </div>
         <WatchlistPreferences
           ref="preferences"
@@ -710,14 +722,6 @@ onBeforeRouteLeave(clearPageSearch)
             :blocked="writesBlocked"
           />
         </WatchlistPreferences>
-        <WatchlistTagManager
-          v-if="!isDesktop"
-          class="mt-2 lg:hidden"
-          :key="`mobile-${tagScope}`"
-          :tags="tags"
-          :ready="ready"
-          :blocked="writesBlocked"
-        />
         <dialog
           v-if="configurationOpen"
           id="watchlist-configuration"

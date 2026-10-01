@@ -39,6 +39,7 @@ import type {
 import * as errors from '../app/utils/accountState.ts'
 import * as dates from '../app/utils/date.ts'
 import * as images from '../app/utils/safeImageUrl.ts'
+import * as externalLinks from '../app/utils/movieExternalLinks.ts'
 import * as upcoming from '../app/utils/upcomingMovies.ts'
 import * as grouping from '../app/utils/watchlistGrouping.ts'
 import * as sorting from '../app/utils/watchlistSort.ts'
@@ -77,6 +78,7 @@ runInNewContext(
     require: (id: string) => {
       if (id === '~/utils/date') return dates
       if (id === '~/utils/safeImageUrl') return images
+      if (id === '~/utils/movieExternalLinks') return externalLinks
       if (id === '~/utils/upcomingMovies') return upcoming
       return require(id)
     },
@@ -86,6 +88,8 @@ assert.ok(rowModule.default)
 const WatchlistMovieRow = rowModule.default
 
 interface RowDateProps {
+  slug?: string
+  tmdbId?: string
   releaseDate?: string | null
   frenchReleaseDate?: string | null
 }
@@ -106,6 +110,99 @@ async function renderRow(props: RowDateProps) {
   return renderToString(app)
 }
 
+test('compact tag trigger shortens only its name; default desktop trigger and dialog title stay unchanged', async () => {
+  const source = await readFile(
+    new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+    'utf8',
+  )
+  const { descriptor } = parse(source)
+  const managerModule: RowModule = {}
+  runInNewContext(
+    ts.transpileModule(
+      compileScript(descriptor, {
+        id: 'WatchlistTagManager',
+        inlineTemplate: true,
+      }).content,
+      {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      },
+    ).outputText,
+    {
+      exports: managerModule,
+      computed,
+      ref,
+      watch,
+      nextTick,
+      useTemplateRef: () => ref(null),
+      onMounted: () => {},
+      onBeforeUnmount: () => {},
+      useWatchlist: () => ({ scopeKey: ref(0) }),
+      require: (id: string) =>
+        id === '~/utils/watchlistTags' ? tagging : require(id),
+    },
+  )
+  assert.ok(managerModule.default)
+  for (const compact of [undefined, true]) {
+    const app = createSSRApp(managerModule.default, {
+      tags: [],
+      ready: true,
+      blocked: false,
+      compactTrigger: compact,
+    })
+    app.component('WatchlistTagColorPicker', { render: () => null })
+    const html = await renderToString(app)
+    assert.match(
+      html,
+      new RegExp(
+        `</svg>\\s*${compact ? 'Tags' : 'Gérer les tags'}\\s*</button>`,
+      ),
+    )
+    assert.match(html, /aria-haspopup="dialog"/)
+    assert.match(html, /aria-controls="watchlist-tag-manager"/)
+    assert.match(html, /min-h-11/)
+    assert.doesNotMatch(html, /<dialog/)
+  }
+  assert.match(
+    source,
+    /id="watchlist-tag-manager-title"[\s\S]*?>\s*Gérer les tags\s*<\/h2>/,
+  )
+})
+
+test('mobile watchlist toolbar keeps compact Configuration then Tags beside Mes films, desktop manager unchanged', async () => {
+  const source = await readFile(
+    new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+    'utf8',
+  )
+  const toolbar = source.slice(
+    source.indexOf('<section aria-labelledby="saved-heading">'),
+    source.indexOf(
+      '<WatchlistPreferences',
+      source.indexOf('<section aria-labelledby="saved-heading">'),
+    ),
+  )
+  assert.match(toolbar, /flex items-center justify-between gap-2 lg:hidden/)
+  assert.doesNotMatch(toolbar, /flex-wrap|mt-2/)
+  assert.match(toolbar, /id="saved-heading"[\s\S]*?>\s*Mes films\s*<\/h2>/)
+  assert.match(toolbar, /class="account-secondary size-12 p-0!"/)
+  assert.match(toolbar, /aria-label="Configuration"/)
+  assert.match(
+    toolbar,
+    /<Settings2[^>]+aria-hidden="true"\s*\/>(\s*)<\/button>/,
+  )
+  assert.match(
+    toolbar,
+    /ref="configurationTrigger"[\s\S]*?<WatchlistTagManager\s+v-if="!isDesktop"\s+compact-trigger/,
+  )
+  const desktop = source.match(
+    /<WatchlistTagManager\s+v-if="isDesktop"[\s\S]*?\/>/,
+  )?.[0]
+  assert.ok(desktop)
+  assert.doesNotMatch(desktop, /compact-trigger/)
+})
+
 test('saved movie row renders a full French theatrical date in semantic time, not the general year', async () => {
   const html = await renderRow({
     frenchReleaseDate: '1998-10-14',
@@ -116,6 +213,51 @@ test('saved movie row renders a full French theatrical date in semantic time, no
   assert.match(html, /href="\/film\/film-1"/)
   assert.match(html, /Film sauvegardé/)
   assert.match(html, /aria-hidden="true"/)
+})
+
+test('external title opens validated TMDB detail in a protected new tab; slug links retain priority', async () => {
+  for (const tmdbId of ['1', '999', '9007199254740991']) {
+    const html = await renderRow({ slug: undefined, tmdbId })
+    assert.match(
+      html,
+      new RegExp(`href="https://www.themoviedb.org/movie/${tmdbId}"`),
+    )
+    assert.match(html, /target="_blank"/)
+    assert.match(html, /rel="noopener noreferrer"/)
+    assert.match(html, /referrerpolicy="no-referrer"/)
+    assert.match(html, />Film sauvegardé<\/a>/)
+    assert.doesNotMatch(html, /href="\/film\//)
+  }
+  const local = await renderRow({ tmdbId: '999' })
+  assert.match(local, /href="\/film\/film-1"/)
+  assert.doesNotMatch(local, /themoviedb|target="_blank"|rel="noopener/)
+})
+
+test('invalid or absent external identity renders plain title without a link', async () => {
+  for (const tmdbId of [
+    undefined,
+    '',
+    '0',
+    '-1',
+    '1.5',
+    '01',
+    '+1',
+    '1e3',
+    ' 999',
+    '999 ',
+    '999\n',
+    'NaN',
+    'Infinity',
+    '9007199254740992',
+    '999/other',
+    '999?query=private',
+    'https://example.com',
+    'javascript:alert(1)',
+  ]) {
+    const html = await renderRow({ slug: undefined, tmdbId })
+    assert.match(html, /<p class="break-words font-bold">Film sauvegardé<\/p>/)
+    assert.doesNotMatch(html, /<a\b|target="_blank"/)
+  }
 })
 
 test('saved row omits missing, negative and invalid evidence without date placeholder or inferred year', async () => {
@@ -152,6 +294,8 @@ test('search rows retain general-date years and saved loop receives no fallback 
     (match) => match[0],
   )
   assert.equal(rows.length, 3)
+  assert.match(rows[1]!, /:tmdb-id="movie.tmdb_id"/)
+  for (const row of [rows[0]!, rows[2]!]) assert.doesNotMatch(row, /tmdb-id/)
   for (const row of rows.slice(0, 2)) {
     assert.match(row, /:release-date="movie.release_date"/)
     assert.doesNotMatch(row, /french-release-date/)

@@ -11,6 +11,7 @@ const props = defineProps<{
   tags: WatchlistTag[]
   ready: boolean
   blocked: boolean
+  compactTrigger?: boolean
 }>()
 const watchlist = useWatchlist()
 const open = ref(false)
@@ -299,7 +300,7 @@ onBeforeUnmount(() => {
       @click="openModal"
     >
       <Tags :size="18" aria-hidden="true" />
-      Gérer les tags
+      {{ compactTrigger ? 'Tags' : 'Gérer les tags' }}
     </button>
     <dialog
       v-if="open"
