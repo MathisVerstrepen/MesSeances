@@ -148,6 +148,15 @@ interface CheckboxHandlers {
 }
 
 interface Manager {
+  panelHeight: ReturnType<typeof ref<number>>
+  panelTop: ReturnType<typeof ref<number>>
+  positionPanel: () => void
+  backdrop: (event: {
+    currentTarget: unknown
+    target: unknown
+    clientX: number
+    clientY: number
+  }) => void
   open: ReturnType<typeof ref<boolean>>
   creating: ReturnType<typeof ref<boolean>>
   openCreate: () => void
@@ -204,6 +213,16 @@ async function managerFixture() {
   const scope = effectScope()
   const focusCalls: string[] = []
   let shown = false
+  const body = { style: { overflow: 'auto' } }
+  const listeners = new Map<string, () => void>()
+  const viewportListeners = new Map<string, () => void>()
+  const viewport = {
+    height: 844,
+    offsetTop: 0,
+    addEventListener: (name: string, callback: () => void) =>
+      viewportListeners.set(name, callback),
+    removeEventListener: (name: string) => viewportListeners.delete(name),
+  }
   class Button {
     isConnected = true
     disabled = false
@@ -219,16 +238,23 @@ async function managerFixture() {
     }
   }
   const rowAction = new Button('row')
+  class Dialog {
+    showModal() {
+      shown = true
+    }
+    close() {
+      shown = false
+    }
+    querySelector(selector: string) {
+      return new Button(selector)
+    }
+    getBoundingClientRect() {
+      return { left: 16, right: 304, top: 16, bottom: 304 }
+    }
+  }
+  const modal = new Dialog()
   const templateRefs = {
-    dialog: ref({
-      showModal: () => {
-        shown = true
-      },
-      close: () => {
-        shown = false
-      },
-      querySelector: (selector: string) => new Button(selector),
-    }),
+    dialog: ref(modal),
     closeButton: ref(new Button('close')),
     createButton: ref(new Button('create')),
     trigger: ref({
@@ -242,7 +268,7 @@ async function managerFixture() {
   scope.run(() =>
     runInNewContext(
       ts.transpileModule(
-        `${script}\nexport { name, color, editDraft, editColor, target, pending, create, edit, submitTarget, cancel, open, openModal, closeModal, creating, openCreate, cancelCreate, cancelAndFocus }`,
+        `${script}\nexport { panelHeight, panelTop, positionPanel, backdrop, name, color, editDraft, editColor, target, pending, create, edit, submitTarget, cancel, open, openModal, closeModal, creating, openCreate, cancelCreate, cancelAndFocus }`,
         {
           compilerOptions: {
             module: ts.ModuleKind.CommonJS,
@@ -253,6 +279,7 @@ async function managerFixture() {
       {
         exports,
         HTMLButtonElement: Button,
+        HTMLDialogElement: Dialog,
         ref,
         computed,
         watch,
@@ -265,12 +292,16 @@ async function managerFixture() {
         },
         onMounted: (callback: () => void) => callback(),
         window: {
-          addEventListener: (_name: string, callback: () => void) => {
-            pagehide = callback
+          innerHeight: 844,
+          visualViewport: viewport,
+          addEventListener: (name: string, callback: () => void) => {
+            listeners.set(name, callback)
+            if (name === 'pagehide') pagehide = callback
           },
-          removeEventListener: () => {},
+          removeEventListener: (name: string) => listeners.delete(name),
         },
         document: {
+          body,
           activeElement: null,
           addEventListener: () => {},
           removeEventListener: () => {},
@@ -299,6 +330,11 @@ async function managerFixture() {
     scopeKey,
     focusCalls,
     rowAction,
+    body,
+    modal: templateRefs.dialog.value,
+    viewport,
+    listeners,
+    viewportListeners,
     shown: () => shown,
     pagehide: () => pagehide(),
     writes,
@@ -317,6 +353,7 @@ test('manager opens native modal with close focus and restores same-scope trigge
   try {
     await f.manager.openModal()
     assert.equal(f.shown(), true)
+    assert.equal(f.body.style.overflow, 'hidden')
     assert.equal(f.manager.creating.value, false)
     assert.equal(f.manager.target.value, null)
     assert.deepEqual(f.focusCalls, ['close'])
@@ -325,6 +362,7 @@ test('manager opens native modal with close focus and restores same-scope trigge
     f.manager.closeModal()
     await nextTick()
     assert.equal(f.shown(), false)
+    assert.equal(f.body.style.overflow, 'auto')
     assert.equal(f.manager.open.value, false)
     assert.equal(f.manager.name.value, 'Brouillon')
     assert.equal(f.manager.color.value, 'blue')
@@ -333,6 +371,105 @@ test('manager opens native modal with close focus and restores same-scope trigge
     f.stop()
   }
 })
+
+test('tag-manager panel matches add-dialog surface, heading, close and scroll styling', async () => {
+  const [manager, page] = await Promise.all([
+    readFile(
+      new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
+      'utf8',
+    ),
+    readFile(
+      new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+      'utf8',
+    ),
+  ])
+  const addDialog = page.match(/<dialog\s[^>]*id="watchlist-add"[\s\S]*?>/)?.[0]
+  const tagDialog = manager.match(
+    /<dialog\s[^>]*id="watchlist-tag-manager"[\s\S]*?>/,
+  )?.[0]
+  assert.ok(addDialog)
+  assert.ok(tagDialog)
+  assert.equal(
+    tagDialog.match(/class="([^"]*)"/)?.[1],
+    addDialog.match(/class="([^"]*)"/)?.[1],
+  )
+  assert.match(tagDialog, /panelHeight - 32/)
+  assert.match(tagDialog, /panelTop \+ panelHeight \/ 2/)
+  assert.match(
+    manager,
+    /<header\s+class="flex shrink-0 items-center justify-between gap-3 border-b border-ink\/20 p-4"/,
+  )
+  assert.match(
+    manager,
+    /id="watchlist-tag-manager-title" class="account-heading"/,
+  )
+  assert.match(
+    manager,
+    /class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle"/,
+  )
+  assert.match(manager, /<X :size="20" aria-hidden="true"/)
+  assert.match(
+    manager,
+    /class="min-h-0 overflow-y-auto overscroll-contain p-4"/,
+  )
+  assert.doesNotMatch(
+    manager,
+    /rounded-lg|backdrop:bg-transparent|w-screen|@click\.self/,
+  )
+})
+
+test('manager follows visual viewport, ignores panel clicks and closes true backdrop with scroll restoration', async () => {
+  const f = await managerFixture()
+  try {
+    await f.manager.openModal()
+    assert.equal(f.manager.panelHeight.value, 844)
+    f.viewport.height = 320
+    f.viewport.offsetTop = 60
+    f.viewportListeners.get('resize')?.()
+    assert.equal(f.manager.panelHeight.value, 320)
+    assert.equal(f.manager.panelTop.value, 60)
+    for (const event of [
+      { currentTarget: f.modal, target: f.modal, clientX: 20, clientY: 20 },
+      { currentTarget: f.modal, target: f.rowAction, clientX: 8, clientY: 8 },
+    ]) {
+      f.manager.backdrop(event)
+      assert.equal(f.manager.open.value, true)
+      assert.equal(f.body.style.overflow, 'hidden')
+    }
+    f.manager.backdrop({
+      currentTarget: f.modal,
+      target: f.modal,
+      clientX: 8,
+      clientY: 8,
+    })
+    await nextTick()
+    assert.equal(f.manager.open.value, false)
+    assert.equal(f.body.style.overflow, 'auto')
+    assert.equal(f.focusCalls.at(-1), 'trigger')
+  } finally {
+    f.stop()
+    assert.equal(f.listeners.size, 0)
+    assert.equal(f.viewportListeners.size, 0)
+  }
+})
+
+for (const boundary of ['scope', 'pagehide', 'unmount']) {
+  test(`manager releases modal scroll lock at ${boundary} boundary without restoring focus`, async () => {
+    const f = await managerFixture()
+    try {
+      await f.manager.openModal()
+      if (boundary === 'scope') f.scopeKey.value++
+      else if (boundary === 'pagehide') f.pagehide()
+      else f.stop()
+      await nextTick()
+      assert.equal(f.manager.open.value, false)
+      assert.equal(f.body.style.overflow, 'auto')
+      assert.deepEqual(f.focusCalls, ['close'])
+    } finally {
+      f.stop()
+    }
+  })
+}
 
 test('manager expands one region, focuses it and restores connected openers on cancellation', async () => {
   const f = await managerFixture()

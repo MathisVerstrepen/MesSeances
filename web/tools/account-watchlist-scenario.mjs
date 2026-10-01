@@ -459,6 +459,31 @@ export async function watchlistScenario({
       Buffer.from(image.data, 'base64'),
     )
   }
+  async function checkTagModalStyle(viewport) {
+    await screenshot(
+      page,
+      `tag-manager-style-${viewport.replaceAll(' ', '-')}`,
+      false,
+    )
+    const presentation = await evaluate(
+      page,
+      `(() => {
+        const dialog = document.querySelector('#watchlist-tag-manager'), rect = dialog.getBoundingClientRect(), style = getComputedStyle(dialog), header = dialog.querySelector('header'), title = dialog.querySelector('h2'), close = dialog.querySelector('button[aria-label="Fermer la gestion des tags"]'), body = dialog.querySelector('.overflow-y-auto');
+        const headerStyle = getComputedStyle(header), closeStyle = getComputedStyle(close), bodyStyle = getComputedStyle(body), closeRect = close.getBoundingClientRect(), icon = close.querySelector('svg').getBoundingClientRect();
+        const viewport = window.visualViewport, height = viewport?.height ?? innerHeight, top = viewport?.offsetTop ?? 0;
+        // Tailwind color-mix may serialize as oklab rather than rgba in Chromium.
+        const reference = document.createElement('span'); reference.className = 'bg-black/60'; document.body.append(reference);
+        const expectedBackdrop = getComputedStyle(reference).backgroundColor; reference.remove();
+        const actualBackdrop = getComputedStyle(dialog, '::backdrop').backgroundColor;
+        const matches = dialog.matches(':modal') && Math.abs(rect.width - Math.min(672, innerWidth - 32)) < 1 && Math.abs(rect.left + rect.width / 2 - innerWidth / 2) < 1 && Math.abs(rect.top + rect.height / 2 - top - height / 2) < 1 && rect.top >= top + 15.5 && rect.bottom <= top + height - 15.5 && style.borderWidth === '2px' && style.borderColor === 'rgb(39, 39, 42)' && style.borderRadius === '0px' && style.backgroundColor === 'rgb(255, 255, 255)' && style.padding === '0px' && style.boxShadow !== 'none' && actualBackdrop === expectedBackdrop && headerStyle.padding === '16px' && headerStyle.borderBottomWidth === '1px' && title.classList.contains('account-heading') && closeRect.width === 44 && closeRect.height === 44 && closeStyle.borderRadius === '0px' && icon.width === 20 && icon.height === 20 && bodyStyle.padding === '16px' && bodyStyle.overflowY === 'auto' && body.scrollWidth <= body.clientWidth && document.body.style.overflow === 'hidden';
+        return { matches, geometry: { left: rect.left, top: rect.top, width: rect.width, height: rect.height, viewportHeight: height, viewportTop: top }, style: { border: style.borderWidth, borderColor: style.borderColor, radius: style.borderRadius, background: style.backgroundColor, padding: style.padding, backdrop: actualBackdrop, expectedBackdrop, headerPadding: headerStyle.padding, divider: headerStyle.borderBottomWidth, closeWidth: closeRect.width, closeHeight: closeRect.height, closeRadius: closeStyle.borderRadius, iconWidth: icon.width, iconHeight: icon.height, bodyPadding: bodyStyle.padding, bodyOverflow: bodyStyle.overflowY, scrollWidth: body.scrollWidth, clientWidth: body.clientWidth, lock: document.body.style.overflow } };
+      })()`,
+    )
+    check(
+      presentation.matches,
+      `${viewport} tag modal matches centered square add-dialog style, viewport margins, header/close and locked scroll ${JSON.stringify(presentation)}`,
+    )
+  }
   async function checkClock(page, variant) {
     check(
       await evaluate(
@@ -1133,6 +1158,8 @@ export async function watchlistScenario({
     ),
     'manager uses native modal top layer and initially focuses close control',
   )
+  await checkTagModalStyle('desktop')
+  await screenshot(page, 'tag-manager-desktop', false)
   const modalAccessibility = await getCDP().send(
     'Accessibility.getFullAXTree',
     {},
@@ -1299,7 +1326,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager' && document.body.style.overflow !== 'hidden'`,
     ),
     'modal close restores original manager trigger',
   )
@@ -1331,6 +1358,10 @@ export async function watchlistScenario({
       `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
     ),
     'native modal backdrop click closes and restores trigger',
+  )
+  check(
+    await evaluate(page, `document.body.style.overflow !== 'hidden'`),
+    'tag modal backdrop releases background scroll lock',
   )
   await click(page, 'Ajouter')
   await until(
@@ -2128,6 +2159,21 @@ export async function watchlistScenario({
     '320px modal body stays viewport bounded without horizontal overflow',
   )
   await screenshot(page, 'tag-manager-mobile', false)
+  await checkTagModalStyle('320px')
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 390, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await checkTagModalStyle('390px')
+  await screenshot(page, 'tag-manager-390', false)
+  await getCDP().send(
+    'Emulation.setDeviceMetricsOverride',
+    { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
+    page.sessionId,
+  )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
   await click(page, 'Créer un tag')
   await checkPalette(page, evaluate, check)
   await screenshot(page, 'tag-create-mobile', false)
@@ -2136,6 +2182,13 @@ export async function watchlistScenario({
     { width: 320, height: 320, deviceScaleFactor: 1, mobile: true },
     page.sessionId,
   )
+  await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
+  await until(
+    page,
+    `parseFloat(getComputedStyle(document.querySelector('#watchlist-tag-manager')).maxHeight) <= 288`,
+    'short tag modal applies visual viewport bound',
+  )
+  await checkTagModalStyle('320px short-height')
   check(
     await evaluate(
       page,
@@ -2144,6 +2197,13 @@ export async function watchlistScenario({
     'short viewport scrolls modal body while close control remains visible',
   )
   await screenshot(page, 'tag-manager-short-viewport', false)
+  check(
+    await evaluate(
+      page,
+      `(() => { const body = document.querySelector('#watchlist-tag-manager .overflow-y-auto'), close = document.querySelector('button[aria-label="Fermer la gestion des tags"]'), top = close.getBoundingClientRect().top, page = scrollY; body.scrollTop = body.scrollHeight; return body.scrollTop > 0 && close.getBoundingClientRect().top === top && scrollY === page })()`,
+    ),
+    'short tag modal scrolls body without moving close control or background',
+  )
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
@@ -2167,7 +2227,7 @@ export async function watchlistScenario({
   check(
     await evaluate(
       page,
-      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager'`,
+      `!document.querySelector('#watchlist-tag-manager') && document.activeElement.getAttribute('aria-controls') === 'watchlist-tag-manager' && document.body.style.overflow !== 'hidden'`,
     ),
     'Escape dismisses native modal and restores manager trigger',
   )

@@ -30,6 +30,9 @@ const trigger = useTemplateRef('trigger')
 const dialog = useTemplateRef('dialog')
 const closeButton = useTemplateRef('closeButton')
 const createButton = useTemplateRef('createButton')
+const panelHeight = ref(0)
+const panelTop = ref(0)
+let bodyOverflow: string | null = null
 let targetOpener: HTMLButtonElement | null = null
 const tags = computed(() => sortWatchlistTags(props.tags))
 let active = true
@@ -44,13 +47,45 @@ function interact() {
   focusInteraction++
 }
 
+function positionPanel() {
+  panelHeight.value = window.visualViewport?.height ?? window.innerHeight
+  panelTop.value = window.visualViewport?.offsetTop ?? 0
+}
+
+function lockScroll() {
+  if (bodyOverflow !== null) return
+  bodyOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+}
+
+function unlockScroll() {
+  if (bodyOverflow === null) return
+  document.body.style.overflow = bodyOverflow
+  bodyOverflow = null
+}
+
+function backdrop(event: MouseEvent) {
+  const modal = event.currentTarget
+  if (!(modal instanceof HTMLDialogElement) || event.target !== modal) return
+  const rect = modal.getBoundingClientRect()
+  if (
+    event.clientX < rect.left ||
+    event.clientX > rect.right ||
+    event.clientY < rect.top ||
+    event.clientY > rect.bottom
+  )
+    closeModal()
+}
+
 async function openModal() {
   if (!props.ready || open.value) return
   const scope = lifetime
   open.value = true
   await nextTick()
   if (!active || scope !== lifetime || !open.value || !dialog.value) return
+  positionPanel()
   dialog.value.showModal()
+  lockScroll()
   closeButton.value?.focus({ preventScroll: true })
 }
 
@@ -62,6 +97,7 @@ function closeModal() {
   creating.value = false
   cancel()
   dialog.value?.close()
+  unlockScroll()
   void nextTick(() => {
     if (
       active &&
@@ -89,12 +125,17 @@ function clearPrivate() {
   editError.value = ''
   target.value = null
   pending.value = null
+  unlockScroll()
 }
 watch(watchlist.scopeKey, clearPrivate, { flush: 'sync' })
 onMounted(() => {
   window.addEventListener('pagehide', clearPrivate)
   document.addEventListener('pointerdown', interact)
   document.addEventListener('keydown', interact)
+  window.addEventListener('resize', positionPanel)
+  window.addEventListener('scroll', positionPanel, true)
+  window.visualViewport?.addEventListener('resize', positionPanel)
+  window.visualViewport?.addEventListener('scroll', positionPanel)
 })
 
 function focusAfterRender(resolve: () => HTMLElement | null | undefined) {
@@ -284,6 +325,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('pagehide', clearPrivate)
   document.removeEventListener('pointerdown', interact)
   document.removeEventListener('keydown', interact)
+  window.removeEventListener('resize', positionPanel)
+  window.removeEventListener('scroll', positionPanel, true)
+  window.visualViewport?.removeEventListener('resize', positionPanel)
+  window.visualViewport?.removeEventListener('scroll', positionPanel)
 })
 </script>
 
@@ -306,223 +351,213 @@ onBeforeUnmount(() => {
       v-if="open"
       id="watchlist-tag-manager"
       ref="dialog"
-      class="m-0 box-border h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-black/60 p-3 backdrop:bg-transparent sm:p-6"
+      class="m-auto flex w-[calc(100%-2rem)] max-w-2xl flex-col overflow-hidden border-2 border-ink bg-surface p-0 text-ink shadow-lg backdrop:bg-black/60"
+      :style="{ maxHeight: panelHeight ? `${panelHeight - 32}px` : 'calc(100dvh - 2rem)', top: `${panelTop + panelHeight / 2}px`, bottom: 'auto', transform: 'translateY(-50%)' }"
       aria-labelledby="watchlist-tag-manager-title"
       @cancel.prevent="closeModal"
-      @click.self="closeModal"
+      @click="backdrop"
       @close="closeModal"
     >
-      <div
-        class="flex h-full items-center justify-center"
-        @click.self="closeModal"
+      <header
+        class="flex shrink-0 items-center justify-between gap-3 border-b border-ink/20 p-4"
       >
-        <section
-          class="flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-lg bg-surface text-ink shadow-xl"
+        <h2 id="watchlist-tag-manager-title" class="account-heading">
+          Gérer les tags
+        </h2>
+        <button
+          ref="closeButton"
+          type="button"
+          class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle"
+          aria-label="Fermer la gestion des tags"
+          @click="closeModal"
         >
-          <header
-            class="flex shrink-0 items-center justify-between gap-3 border-b border-ink/20 px-4 py-3 sm:px-6"
+          <X :size="20" aria-hidden="true" />
+        </button>
+      </header>
+      <div
+        class="min-h-0 overflow-y-auto overscroll-contain p-4"
+        :aria-busy="!!pending"
+      >
+        <div
+          v-if="watchlist.error.value"
+          role="alert"
+          class="account-alert mb-4"
+        >
+          <p>{{ watchlist.error.value }}</p>
+          <button
+            type="button"
+            class="account-link mt-2 min-h-11"
+            :disabled="!!pending || watchlist.saving.value"
+            @click="watchlist.retry"
           >
-            <h2 id="watchlist-tag-manager-title" class="text-lg font-bold">
-              Gérer les tags
-            </h2>
-            <button
-              ref="closeButton"
-              type="button"
-              class="flex size-11 shrink-0 items-center justify-center rounded-md hover:bg-subtle focus-visible:outline-2 focus-visible:outline-offset-2"
-              aria-label="Fermer la gestion des tags"
-              @click="closeModal"
-            >
-              <X :size="22" aria-hidden="true" />
-            </button>
-          </header>
-          <div
-            class="min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6"
-            :aria-busy="!!pending"
+            Réessayer
+          </button>
+        </div>
+        <button
+          ref="createButton"
+          type="button"
+          class="account-secondary inline-flex min-h-11 items-center gap-2"
+          :disabled="blocked || !!pending"
+          :aria-expanded="creating"
+          aria-controls="watchlist-tag-create"
+          @click="openCreate"
+        >
+          <Plus :size="18" aria-hidden="true" />
+          Créer un tag
+        </button>
+        <form
+          v-if="creating"
+          id="watchlist-tag-create"
+          class="mt-4"
+          @submit.prevent="create"
+        >
+          <label for="watchlist-tag-name" class="account-label"
+            >Nom du tag</label
           >
-            <div
-              v-if="watchlist.error.value"
-              role="alert"
-              class="account-alert mb-4"
+          <div class="flex flex-wrap gap-3">
+            <input
+              id="watchlist-tag-name"
+              v-model="name"
+              class="account-input min-w-0 flex-1"
+              autocomplete="off"
+              :aria-invalid="!!nameError"
+              :aria-describedby="nameError ? 'watchlist-tag-name-error' : undefined"
+              @blur="nameError = name ? tagNameError(name) : ''"
             >
-              <p>{{ watchlist.error.value }}</p>
-              <button
-                type="button"
-                class="account-link mt-2 min-h-11"
-                :disabled="!!pending || watchlist.saving.value"
-                @click="watchlist.retry"
-              >
-                Réessayer
-              </button>
-            </div>
+          </div>
+          <p
+            v-if="nameError"
+            id="watchlist-tag-name-error"
+            role="alert"
+            class="mt-2 text-sm text-primary"
+          >
+            {{ nameError }}
+          </p>
+          <WatchlistTagColorPicker v-model="color" />
+          <div class="mt-3 flex flex-wrap gap-3">
             <button
-              ref="createButton"
-              type="button"
-              class="account-secondary inline-flex min-h-11 items-center gap-2"
+              type="submit"
+              class="account-primary min-h-11"
               :disabled="blocked || !!pending"
-              :aria-expanded="creating"
-              aria-controls="watchlist-tag-create"
-              @click="openCreate"
             >
-              <Plus :size="18" aria-hidden="true" />
-              Créer un tag
+              {{ pending === 'create' ? 'Création…' : 'Créer' }}
             </button>
-            <form
-              v-if="creating"
-              id="watchlist-tag-create"
-              class="mt-4"
-              @submit.prevent="create"
+            <button
+              type="button"
+              class="account-link min-h-11"
+              @click="cancelCreate"
             >
-              <label for="watchlist-tag-name" class="account-label"
-                >Nom du tag</label
-              >
-              <div class="flex flex-wrap gap-3">
-                <input
-                  id="watchlist-tag-name"
-                  v-model="name"
-                  class="account-input min-w-0 flex-1"
-                  autocomplete="off"
-                  :aria-invalid="!!nameError"
-                  :aria-describedby="nameError ? 'watchlist-tag-name-error' : undefined"
-                  @blur="nameError = name ? tagNameError(name) : ''"
+              Annuler
+            </button>
+          </div>
+        </form>
+        <p v-if="!tags.length" class="mt-3 text-sm">Aucun tag.</p>
+        <ul v-else class="mt-4 divide-y divide-ink/20">
+          <li v-for="tag in tags" :key="tag.id" class="py-2">
+            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <div class="min-w-0 basis-full sm:flex-1 sm:basis-auto">
+                <span
+                  class="inline-block max-w-full rounded-md border px-2 py-0.5 text-sm font-medium [overflow-wrap:anywhere]"
+                  :style="watchlistTagStyle(tag.color)"
+                  >{{
+                    tag.name
+                  }}</span
                 >
               </div>
+              <button
+                type="button"
+                class="account-link min-h-11"
+                :aria-label="`Modifier ${tag.name}`"
+                :disabled="blocked || !!pending"
+                :aria-expanded="target?.id === tag.id && target.action === 'update'"
+                @click="edit(tag, 'update', $event)"
+              >
+                Modifier
+              </button>
+              <button
+                type="button"
+                class="account-link min-h-11"
+                :aria-label="`Supprimer ${tag.name}`"
+                :disabled="blocked || !!pending"
+                :aria-expanded="target?.id === tag.id && target.action === 'delete'"
+                @click="edit(tag, 'delete', $event)"
+              >
+                Supprimer
+              </button>
+            </div>
+            <form
+              v-if="target?.id === tag.id && target.action === 'update'"
+              class="mt-2 max-w-lg"
+              @submit.prevent="submitTarget"
+            >
+              <label for="watchlist-tag-edit" class="account-label"
+                >Nom du tag</label
+              >
+              <input
+                id="watchlist-tag-edit"
+                v-model="editDraft"
+                class="account-input w-full"
+                autocomplete="off"
+                :aria-invalid="!!editError"
+                :aria-describedby="editError ? 'watchlist-tag-edit-error' : undefined"
+                @blur="editError = tagNameError(editDraft)"
+              >
               <p
-                v-if="nameError"
-                id="watchlist-tag-name-error"
+                v-if="editError"
+                id="watchlist-tag-edit-error"
                 role="alert"
                 class="mt-2 text-sm text-primary"
               >
-                {{ nameError }}
+                {{ editError }}
               </p>
-              <WatchlistTagColorPicker v-model="color" />
+              <WatchlistTagColorPicker v-model="editColor" />
               <div class="mt-3 flex flex-wrap gap-3">
                 <button
                   type="submit"
                   class="account-primary min-h-11"
                   :disabled="blocked || !!pending"
                 >
-                  {{ pending === 'create' ? 'Création…' : 'Créer' }}
+                  {{ pending === 'update' ? 'Enregistrement…' : 'Enregistrer' }}
                 </button>
                 <button
                   type="button"
                   class="account-link min-h-11"
-                  @click="cancelCreate"
+                  @click="cancelAndFocus"
                 >
                   Annuler
                 </button>
               </div>
             </form>
-            <p v-if="!tags.length" class="mt-3 text-sm">Aucun tag.</p>
-            <ul v-else class="mt-4 divide-y divide-ink/20">
-              <li v-for="tag in tags" :key="tag.id" class="py-2">
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                  <div class="min-w-0 basis-full sm:flex-1 sm:basis-auto">
-                    <span
-                      class="inline-block max-w-full rounded-md border px-2 py-0.5 text-sm font-medium [overflow-wrap:anywhere]"
-                      :style="watchlistTagStyle(tag.color)"
-                      >{{
-                        tag.name
-                      }}</span
-                    >
-                  </div>
-                  <button
-                    type="button"
-                    class="account-link min-h-11"
-                    :aria-label="`Modifier ${tag.name}`"
-                    :disabled="blocked || !!pending"
-                    :aria-expanded="target?.id === tag.id && target.action === 'update'"
-                    @click="edit(tag, 'update', $event)"
-                  >
-                    Modifier
-                  </button>
-                  <button
-                    type="button"
-                    class="account-link min-h-11"
-                    :aria-label="`Supprimer ${tag.name}`"
-                    :disabled="blocked || !!pending"
-                    :aria-expanded="target?.id === tag.id && target.action === 'delete'"
-                    @click="edit(tag, 'delete', $event)"
-                  >
-                    Supprimer
-                  </button>
-                </div>
-                <form
-                  v-if="target?.id === tag.id && target.action === 'update'"
-                  class="mt-2 max-w-lg"
-                  @submit.prevent="submitTarget"
+            <div
+              v-else-if="target?.id === tag.id && target.action === 'delete'"
+              class="mt-2"
+            >
+              <p class="text-sm">
+                Ce tag sera retiré des films. Les films seront conservés.
+              </p>
+              <div class="mt-3 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  class="account-secondary"
+                  :disabled="blocked || !!pending"
+                  @click="submitTarget"
                 >
-                  <label for="watchlist-tag-edit" class="account-label"
-                    >Nom du tag</label
-                  >
-                  <input
-                    id="watchlist-tag-edit"
-                    v-model="editDraft"
-                    class="account-input w-full"
-                    autocomplete="off"
-                    :aria-invalid="!!editError"
-                    :aria-describedby="editError ? 'watchlist-tag-edit-error' : undefined"
-                    @blur="editError = tagNameError(editDraft)"
-                  >
-                  <p
-                    v-if="editError"
-                    id="watchlist-tag-edit-error"
-                    role="alert"
-                    class="mt-2 text-sm text-primary"
-                  >
-                    {{ editError }}
-                  </p>
-                  <WatchlistTagColorPicker v-model="editColor" />
-                  <div class="mt-3 flex flex-wrap gap-3">
-                    <button
-                      type="submit"
-                      class="account-primary min-h-11"
-                      :disabled="blocked || !!pending"
-                    >
-                      {{
-                        pending === 'update' ? 'Enregistrement…' : 'Enregistrer'
-                      }}
-                    </button>
-                    <button
-                      type="button"
-                      class="account-link min-h-11"
-                      @click="cancelAndFocus"
-                    >
-                      Annuler
-                    </button>
-                  </div>
-                </form>
-                <div
-                  v-else-if="target?.id === tag.id && target.action === 'delete'"
-                  class="mt-2"
+                  {{
+                    pending === 'delete' ? 'Suppression…' : 'Supprimer le tag'
+                  }}
+                </button>
+                <button
+                  id="watchlist-tag-delete-cancel"
+                  type="button"
+                  class="account-link min-h-11"
+                  @click="cancelAndFocus"
                 >
-                  <p class="text-sm">
-                    Ce tag sera retiré des films. Les films seront conservés.
-                  </p>
-                  <div class="mt-3 flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      class="account-secondary"
-                      :disabled="blocked || !!pending"
-                      @click="submitTarget"
-                    >
-                      {{
-                        pending === 'delete' ? 'Suppression…' : 'Supprimer le tag'
-                      }}
-                    </button>
-                    <button
-                      id="watchlist-tag-delete-cancel"
-                      type="button"
-                      class="account-link min-h-11"
-                      @click="cancelAndFocus"
-                    >
-                      Annuler
-                    </button>
-                  </div>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </section>
+                  Annuler
+                </button>
+              </div>
+            </div>
+          </li>
+        </ul>
       </div>
     </dialog>
   </div>
