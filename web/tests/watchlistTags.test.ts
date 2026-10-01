@@ -25,6 +25,10 @@ import {
 } from '../app/utils/watchlistTags.ts'
 import type { WatchlistTag, WatchlistTagColor } from '../app/types/watchlist.ts'
 
+interface PickerModule {
+  default?: Component
+}
+
 function luminance(hex: string) {
   const channels = [1, 3, 5].map((start) => {
     const channel = Number.parseInt(hex.slice(start, start + 2), 16) / 255
@@ -159,7 +163,7 @@ test('editorial color tiles retain eight named native radios and one decorative 
     'utf8',
   )
   const { descriptor } = parse(source)
-  const pickerModule: { default?: Component } = {}
+  const pickerModule: PickerModule = {}
   const require = createRequire(import.meta.url)
   runInNewContext(
     ts.transpileModule(
@@ -184,7 +188,9 @@ test('editorial color tiles retain eight named native radios and one decorative 
     },
   )
   assert.ok(pickerModule.default)
-  for (const color of Object.keys(watchlistTagPalette) as WatchlistTagColor[]) {
+  // SAFETY: watchlistTagPalette is `satisfies Record<WatchlistTagColor, ...>`, so its own enumerable keys are exactly the WatchlistTagColor union.
+  const colors = Object.keys(watchlistTagPalette) as WatchlistTagColor[]
+  for (const color of colors) {
     const html = await renderToString(
       createSSRApp(pickerModule.default, { modelValue: color }),
     )
@@ -193,7 +199,7 @@ test('editorial color tiles retain eight named native radios and one decorative 
     assert.equal((html.match(/<svg\b/g) ?? []).length, 1)
     const names = new Set<string>()
     for (const [index, tile] of labels.entries()) {
-      const key = Object.keys(watchlistTagPalette)[index] as WatchlistTagColor
+      const key = colors[index]!
       const token = watchlistTagPalette[key]
       const radio = tile.match(/<input\b[^>]*>/)?.[0]
       assert.ok(radio)

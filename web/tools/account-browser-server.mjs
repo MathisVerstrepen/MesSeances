@@ -28,22 +28,19 @@ Object.assign(process.env, {
   NUXT_PUBLIC_UMAMI_SCRIPT_URL: script,
   NUXT_PUBLIC_UMAMI_WEBSITE_ID: 'browser-synthetic-only',
 })
+// Concurrent watchlist acceptance must not rewrite another fixture's cache.
+const buildCacheOverride = {}
+if (webPort !== 13009) {
+  buildCacheOverride.buildDir = fileURLToPath(
+    new URL(`../node_modules/.cache/watchlist-${webPort}`, import.meta.url),
+  )
+}
 const nuxt = await loadNuxt({
   cwd: fileURLToPath(new URL('..', import.meta.url)),
   dev: true,
   dotenv: false,
   overrides: {
-    // Concurrent watchlist acceptance must not rewrite another fixture's cache.
-    ...(webPort !== 13009
-      ? {
-          buildDir: fileURLToPath(
-            new URL(
-              `../node_modules/.cache/watchlist-${webPort}`,
-              import.meta.url,
-            ),
-          ),
-        }
-      : {}),
+    ...buildCacheOverride,
     devServer: { host: '127.0.0.1', port: webPort, url: origin },
     nitro: {
       devProxy: { '/api': { target: `${api}/api`, changeOrigin: false } },
