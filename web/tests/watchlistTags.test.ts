@@ -40,6 +40,22 @@ function contrast(a: string, b: string) {
   return (pair[0]! + 0.05) / (pair[1]! + 0.05)
 }
 
+function hue(hex: string) {
+  const r = Number.parseInt(hex.slice(1, 3), 16)
+  const g = Number.parseInt(hex.slice(3, 5), 16)
+  const b = Number.parseInt(hex.slice(5, 7), 16)
+  const max = Math.max(r, g, b)
+  const range = max - Math.min(r, g, b)
+  assert.ok(range > 0)
+  const sector =
+    max === r
+      ? (g - b) / range
+      : max === g
+        ? (b - r) / range + 2
+        : (r - g) / range + 4
+  return (sector * 60 + 360) % 360
+}
+
 test('fixed palette keys, labels and opaque tokens satisfy text and boundary contrast', () => {
   assert.deepEqual(Object.keys(watchlistTagPalette), [
     'neutral',
@@ -81,6 +97,35 @@ test('fixed palette keys, labels and opaque tokens satisfy text and boundary con
   assert.ok(contrast('#27272a', '#ffffff') >= 3)
 })
 
+test('red/pink and leaf-green/cyan-teal retain distinct surface, text and border hues', () => {
+  for (const [a, b, min] of [
+    ['red', 'rose', 20],
+    ['green', 'teal', 45],
+  ] as const) {
+    for (const role of ['backgroundColor', 'color', 'borderColor'] as const) {
+      const difference = Math.abs(
+        hue(watchlistTagPalette[a][role]) - hue(watchlistTagPalette[b][role]),
+      )
+      assert.ok(
+        Math.min(difference, 360 - difference) >=
+          (role === 'backgroundColor' ? Math.max(30, min) : min),
+        `${a}/${b} ${role} hue separation`,
+      )
+    }
+  }
+  for (const [key, min, max] of [
+    ['rose', 310, 345],
+    ['green', 80, 125],
+    ['teal', 175, 200],
+  ] as const) {
+    const surfaceHue = hue(watchlistTagPalette[key].backgroundColor)
+    assert.ok(
+      surfaceHue >= min && surfaceHue <= max,
+      `${key} named surface hue`,
+    )
+  }
+})
+
 test('picker preserves native radio keyboard and forced color behavior without private persistence', async () => {
   const source = await readFile(
     new URL('../app/components/WatchlistTagColorPicker.vue', import.meta.url),
@@ -95,7 +140,9 @@ test('picker preserves native radio keyboard and forced color behavior without p
   assert.match(source, /:name="groupName"/)
   assert.match(source, /class="sr-only focus-visible:ring-0"/)
   assert.match(source, /rounded-none border-2/)
-  assert.match(source, /font-mono text-xs font-bold/)
+  assert.match(source, /font-mono text-center text-xs font-bold/)
+  assert.match(source, /grid-cols-\[20px_minmax\(0,1fr\)_20px\]/)
+  assert.match(source, /justify-self-center/)
   assert.match(source, /has-\[:focus-visible\]:outline-ink/)
   assert.match(source, /v-if="modelValue === color"/)
   assert.match(source, /@change="emit\('update:modelValue', color\)"/)

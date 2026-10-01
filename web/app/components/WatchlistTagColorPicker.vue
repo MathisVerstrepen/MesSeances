@@ -15,7 +15,7 @@ const groupName = useId()
       <label
         v-for="(token, color) in watchlistTagPalette"
         :key="color"
-        class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-none border-2 px-2 py-2 font-mono text-xs font-bold leading-relaxed has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-solid has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white"
+        class="grid min-h-11 min-w-0 grid-cols-[20px_minmax(0,1fr)_20px] cursor-pointer items-center gap-1 rounded-none border-2 px-1 py-2 font-mono text-center text-xs font-bold leading-relaxed has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-solid has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-white"
         :style="watchlistTagStyle(color)"
       >
         <input
@@ -37,7 +37,9 @@ const groupName = useId()
             focusable="false"
           />
         </span>
-        <span class="min-w-0 [overflow-wrap:anywhere]">{{ token.label }}</span>
+        <span class="min-w-0 justify-self-center [overflow-wrap:anywhere]">{{
+          token.label
+        }}</span>
       </label>
     </div>
   </fieldset>

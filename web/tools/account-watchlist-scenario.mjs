@@ -7,11 +7,11 @@ const palette = [
   ['neutral', 'Neutre', '#f4f4f5', '#3f3f46', '#71717a'],
   ['red', 'Rouge', '#fee2e2', '#991b1b', '#dc2626'],
   ['amber', 'Ambre', '#fef3c7', '#92400e', '#b45309'],
-  ['green', 'Vert', '#dcfce7', '#166534', '#15803d'],
-  ['teal', 'Sarcelle', '#ccfbf1', '#115e59', '#0f766e'],
+  ['green', 'Vert', '#e2f3d2', '#315b1c', '#4b7a2a'],
+  ['teal', 'Sarcelle', '#cff5f6', '#155e63', '#0e7490'],
   ['blue', 'Bleu', '#dbeafe', '#1e40af', '#2563eb'],
   ['violet', 'Violet', '#ede9fe', '#5b21b6', '#7c3aed'],
-  ['rose', 'Rose', '#ffe4e6', '#9f1239', '#e11d48'],
+  ['rose', 'Rose', '#fce7f3', '#9d174d', '#be185d'],
 ]
 
 async function checkPalette(page, evaluate, check) {
@@ -34,6 +34,32 @@ async function checkPalette(page, evaluate, check) {
   })()`,
     ),
     'eight square mono color tiles retain exact palette contrast, native radio names, one selected check and 44px targets',
+  )
+  const geometry = await evaluate(
+    page,
+    `(() => {
+      const radios = [...document.querySelectorAll('#watchlist-tag-manager form:first-of-type input[type="radio"]')];
+      return { width: innerWidth, tiles: radios.map(radio => {
+        const tile = radio.closest('label'), label = tile.querySelector('span:last-child'), marker = tile.querySelector('span[aria-hidden="true"]');
+        const rect = tile.getBoundingClientRect(), text = label.getBoundingClientRect(), check = marker.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(label); const glyphs = range.getBoundingClientRect();
+        return { color: radio.value, selected: radio.checked, width: rect.width, height: rect.height, centerX: text.left + text.width / 2 - rect.left - rect.width / 2, centerY: text.top + text.height / 2 - rect.top - rect.height / 2, textWidth: glyphs.width, textHeight: text.height, markerGap: text.left - check.right, rightGap: rect.right - text.right, markerWidth: check.width };
+      }) };
+    })()`,
+  )
+  check(
+    geometry.tiles.length === 8 &&
+      geometry.tiles.every(
+        (tile) =>
+          Math.abs(tile.centerX) < 0.5 &&
+          Math.abs(tile.centerY) < 0.5 &&
+          tile.markerGap >= 4 &&
+          tile.markerWidth === 20 &&
+          tile.rightGap >= 24 &&
+          tile.textWidth <= tile.width - 60 &&
+          tile.textHeight <= 20,
+      ),
+    `selected/unselected labels center in whole tiles without marker overlap or wrapping ${JSON.stringify(geometry)}`,
   )
 }
 
@@ -3032,6 +3058,24 @@ export async function watchlistScenario({
   await evaluate(page, `window.dispatchEvent(new Event('resize'))`)
   await checkTagModalStyle('390px')
   await screenshot(page, 'tag-manager-390', false)
+  await click(page, 'Créer un tag')
+  await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-create-390', false)
+  const draftColor390 = await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[type="radio"]:checked').value`,
+  )
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[value="teal"]').click()`,
+  )
+  await checkPalette(page, evaluate, check)
+  await screenshot(page, 'editorial-palette-selected-teal-390', false)
+  await evaluate(
+    page,
+    `document.querySelector('#watchlist-tag-create input[value="${draftColor390}"]').click()`,
+  )
+  await click(page, 'Annuler')
   await getCDP().send(
     'Emulation.setDeviceMetricsOverride',
     { width: 320, height: 844, deviceScaleFactor: 1, mobile: true },
@@ -3051,6 +3095,14 @@ export async function watchlistScenario({
   await checkPalette(page, evaluate, check)
   await checkChips(page, evaluate, check, '320px long-name editor')
   await screenshot(page, 'editorial-palette-edit-320', false)
+  for (const color of ['teal', 'rose']) {
+    await evaluate(
+      page,
+      `document.querySelector('#watchlist-tag-edit').form.querySelector('input[value="${color}"]').click()`,
+    )
+    await checkPalette(page, evaluate, check)
+    await screenshot(page, `editorial-palette-selected-${color}-320`, false)
+  }
   await click(page, 'Annuler')
   await click(page, 'Créer un tag')
   await getCDP().send(
