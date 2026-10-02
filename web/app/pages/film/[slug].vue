@@ -89,11 +89,14 @@ const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
 const appendPending = ref(false)
 const appendError = ref('')
-const broadScope = computed(() =>
-  isBroadTheaterSelection(
-    preferences.activeTheaterIds.value,
-    preferences.theaters.value,
-  ),
+const nationwideOverride = ref(false)
+const broadScope = computed(
+  () =>
+    nationwideOverride.value ||
+    isBroadTheaterSelection(
+      preferences.activeTheaterIds.value,
+      preferences.theaters.value,
+    ),
 )
 let isUnmounted = false
 const isEndedFilm = computed(() => schedule.value?.release_status === 'ended')
@@ -162,7 +165,7 @@ function scheduleKey() {
   const filters = broadScope.value
     ? `|${activeLanguage.value}|${activeTechnology.value}|${sortByNextShowtime.value}`
     : ''
-  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}${filters}`
+  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}|${broadScope.value}${filters}`
 }
 
 const slug = computed(() => {
@@ -185,6 +188,15 @@ const availableDates = computed(() =>
   schedule.value ? nonPastAvailableDates(schedule.value) : [],
 )
 const hasAvailableDates = computed(() => availableDates.value.length > 0)
+const canBroadenSearch = computed(
+  () =>
+    preferences.isInitialized.value &&
+    isPersonalizedSchedule.value &&
+    !broadScope.value &&
+    !pending.value &&
+    !errorMessage.value &&
+    !hasAvailableDates.value,
+)
 const backdropUrl = computed(() =>
   safeBackdropUrl(schedule.value?.backdrop_url),
 )
@@ -590,6 +602,13 @@ async function loadSchedule() {
   }
 }
 
+async function broadenSearch() {
+  if (!canBroadenSearch.value) return
+  nationwideOverride.value = true
+  resetPagination()
+  await loadSchedule()
+}
+
 async function loadMore() {
   const loaded = schedule.value
   if (
@@ -803,7 +822,9 @@ watch(
     preferences.isInitialized,
     preferences.error,
   ],
-  () => {
+  (selection, previous) => {
+    if (selection[0] !== previous[0] || selection[1] !== previous[1])
+      nationwideOverride.value = false
     resetPagination()
   },
   { flush: 'sync' },
@@ -851,6 +872,7 @@ watch(
   },
 )
 watch(slug, () => {
+  nationwideOverride.value = false
   resetPagination()
   schedule.value = null
   isPersonalizedSchedule.value = false
@@ -1598,6 +1620,15 @@ if (
             <p>
               Aucune date de séance disponible pour ce film dans ces cinémas.
             </p>
+            <template v-if="canBroadenSearch" #actions
+              ><button
+                type="button"
+                class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                @click="broadenSearch"
+              >
+                Rechercher dans toute la France
+              </button></template
+            >
           </EditorialStatePanel>
 
           <EditorialStatePanel

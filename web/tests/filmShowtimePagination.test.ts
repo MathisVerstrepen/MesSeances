@@ -122,6 +122,13 @@ function response(
   }
 }
 
+function emptyConfiguredResponse(slug: string, query: MovieShowtimesQuery) {
+  const result = response(slug, query)
+  return query.theaters
+    ? { ...result, available_dates: [], theaters: [] }
+    : result
+}
+
 async function settle() {
   for (let index = 0; index < 20; index++) await nextTick()
 }
@@ -207,17 +214,24 @@ function harness(
   // SAFETY: Actual page setup explicitly returns these refs/methods; synchronous/batched watchers are unchanged.
   const page = new Function(
     ...Object.keys(bindings),
-    `${compiled}\nreturn { schedule, pending, appendPending, appendError, languageOptions, technologyOptions, visibleTheaters, loadMore, applyRoute, refreshFilmDay, start: () => { isReady = true } }`,
+    `${compiled}\nreturn { schedule, pending, errorMessage, appendPending, appendError, languageOptions, technologyOptions, visibleTheaters, broadScope, canBroadenSearch, selectedDate, broadenSearch, loadMore, applyRoute, retryLoad, resetFilters, refreshFilmDay, start: () => { isReady = true } }`,
   )(...Object.values(bindings)) as {
     schedule: { value: MovieShowtimesResponse | null }
     pending: { value: boolean }
+    errorMessage: { value: string }
     appendPending: { value: boolean }
     appendError: { value: string }
     languageOptions: { value: Array<{ value: string }> }
     technologyOptions: { value: Array<{ value: string }> }
     visibleTheaters: { value: Array<{ id: string }> }
+    broadScope: { value: boolean }
+    canBroadenSearch: { value: boolean }
+    selectedDate: { value: string }
+    broadenSearch: () => Promise<void>
     loadMore: () => Promise<void>
     applyRoute: () => Promise<void>
+    retryLoad: () => Promise<void>
+    resetFilters: () => void
     refreshFilmDay: () => Promise<void>
     start: () => void
   }
@@ -270,6 +284,342 @@ test('broad pages append 10, 10, remainder only on click, full facets survive an
     h.page.schedule.value?.theaters.map((row) => row.id),
   )
 })
+
+test('configured no-dates fallback reuses nationwide page 1 then appends 10 without changing selection or shared query', async (t) => {
+  const ids = ['cinema-23', 'cinema-24']
+  const h = harness(ids, async (slug, query) =>
+    emptyConfiguredResponse(slug, query),
+  )
+  t.after(h.close)
+  h.route.query = { shared_theaters: ids.join(',') }
+  await h.page.applyRoute()
+  await settle()
+  assert.equal(h.page.canBroadenSearch.value, true)
+  assert.equal(h.page.broadScope.value, false)
+  assert.deepEqual(h.page.schedule.value?.available_dates, [])
+  const before = h.calls.length
+  const savedSelection = h.preferences.activeTheaterIds.value
+  const savedCatalog = h.preferences.theaters.value
+  await h.page.broadenSearch()
+  assert.equal(h.calls.length, before, 'reuse cached public evidence')
+  assert.equal(h.page.broadScope.value, true)
+  assert.equal(h.page.canBroadenSearch.value, false)
+  assert.equal(h.page.schedule.value?.theaters.length, 10)
+  assert.equal(h.page.schedule.value?.pagination?.page_size, 10)
+  await h.page.loadMore()
+  assert.equal(h.page.schedule.value?.theaters.length, 20)
+  assert.deepEqual(
+    h.calls.slice(before).map(({ query }) => query),
+    [{ date: TODAY, page: 2, language: 'ALL', format: 'ALL', sort: 'catalog' }],
+  )
+  assert.deepEqual(
+    h.page.visibleTheaters.value.map(({ id }) => id),
+    Array.from({ length: 20 }, (_, index) => `cinema-${index + 1}`),
+  )
+  assert.equal(h.preferences.activeTheaterIds.value, savedSelection)
+  assert.deepEqual(h.preferences.activeTheaterIds.value, ids)
+  assert.equal(h.preferences.theaters.value, savedCatalog)
+  assert.equal(h.preferences.selectionScopeKey.value, 0)
+  assert.deepEqual(h.route.query, { shared_theaters: ids.join(',') })
+  await h.page.broadenSearch()
+  await h.page.applyRoute()
+  assert.equal(h.page.schedule.value?.theaters.length, 20)
+  assert.equal(h.calls.length, before + 1)
+})
+
+test('fallback keeps filters and sort, date/filter reloads stay nationwide, reset filters retains override', async (t) => {
+  const h = harness(['cinema-24'], async (slug, query) =>
+    emptyConfiguredResponse(slug, query),
+  )
+  t.after(h.close)
+  h.route.query = {
+    shared_theaters: 'cinema-24',
+    language: 'ORIGINAL',
+    format: 'IMAX',
+    sort: 'next',
+  }
+  await h.page.applyRoute()
+  await settle()
+  const before = h.calls.length
+  await h.page.broadenSearch()
+  assert.deepEqual(h.calls.at(-1)?.query, {
+    date: TODAY,
+    page: 1,
+    language: 'ORIGINAL',
+    format: 'IMAX',
+    sort: 'next',
+  })
+  await h.page.loadMore()
+  h.route.query = { ...h.route.query, date: TOMORROW, language: 'VF' }
+  assert.equal(h.page.schedule.value?.theaters.length, 0)
+  await settle()
+  assert.equal(h.page.broadScope.value, true)
+  assert.equal(h.page.schedule.value?.theaters.length, 10)
+  assert.deepEqual(h.calls.at(-1)?.query, {
+    date: TOMORROW,
+    page: 1,
+    language: 'VF',
+    format: 'IMAX',
+    sort: 'next',
+  })
+  h.page.resetFilters()
+  await settle()
+  assert.equal(h.page.broadScope.value, true)
+  assert.deepEqual(h.calls.at(-1)?.query, {
+    date: TOMORROW,
+    page: 1,
+    language: 'ALL',
+    format: 'ALL',
+    sort: 'next',
+  })
+  assert.ok(h.calls.slice(before).every(({ query }) => !query.theaters))
+  assert.deepEqual(h.preferences.activeTheaterIds.value, ['cinema-24'])
+  assert.equal(h.route.query.shared_theaters, 'cinema-24')
+})
+
+test('fallback resolves first nationwide available date without duplicate canonical reloads', async (t) => {
+  const h = harness(['cinema-24'], async (slug, query) => ({
+    ...emptyConfiguredResponse(slug, query),
+    available_dates: query.theaters ? [] : [TOMORROW],
+    theaters:
+      query.theaters || query.date === TODAY
+        ? []
+        : response(slug, query).theaters,
+  }))
+  t.after(h.close)
+  await h.page.applyRoute()
+  await settle()
+  await h.page.broadenSearch()
+  await settle()
+  assert.equal(h.page.selectedDate.value, TOMORROW)
+  assert.equal(h.page.schedule.value?.date, TOMORROW)
+  assert.equal(h.page.schedule.value?.theaters.length, 10)
+  assert.equal(h.route.query.date, undefined)
+  assert.deepEqual(
+    h.calls.map(({ query }) => query),
+    [
+      { date: TODAY, page: 1 },
+      { date: TODAY, theaters: 'cinema-24' },
+      {
+        date: TOMORROW,
+        page: 1,
+        language: 'ALL',
+        format: 'ALL',
+        sort: 'catalog',
+      },
+    ],
+  )
+})
+
+test('fallback page 1 and append failures stay nationwide and support explicit retry', async (t) => {
+  let failFirst = true
+  let failAppend = true
+  const h = harness(['cinema-24'], async (slug, query) => {
+    if (!query.theaters && query.language === 'ORIGINAL') {
+      if (query.page === 1 && failFirst) throw new Error('offline')
+      if (query.page === 2 && failAppend) throw new Error('offline')
+    }
+    return emptyConfiguredResponse(slug, query)
+  })
+  t.after(h.close)
+  h.route.query = { language: 'ORIGINAL' }
+  await h.page.applyRoute()
+  await settle()
+  const before = h.calls.length
+  await h.page.broadenSearch()
+  assert.equal(h.page.pending.value, false)
+  assert.ok(h.page.errorMessage.value)
+  assert.equal(h.page.canBroadenSearch.value, false)
+  failFirst = false
+  await h.page.retryLoad()
+  assert.equal(h.page.errorMessage.value, '')
+  assert.equal(h.page.schedule.value?.theaters.length, 10)
+  await h.page.loadMore()
+  assert.ok(h.page.appendError.value)
+  assert.equal(h.page.schedule.value?.theaters.length, 10)
+  assert.equal(h.page.schedule.value?.pagination?.page, 1)
+  failAppend = false
+  await h.page.loadMore()
+  assert.equal(h.page.appendError.value, '')
+  assert.equal(h.page.schedule.value?.theaters.length, 20)
+  assert.deepEqual(
+    h.calls.slice(before).map(({ query }) => query.page),
+    [1, 1, 2, 2],
+  )
+  assert.ok(h.calls.slice(before).every(({ query }) => !query.theaters))
+})
+
+test('fallback CTA is limited to loaded configured no-dates state', async (t) => {
+  for (const state of [
+    'dates',
+    'nationwide-empty',
+    'ended',
+    'error',
+    'loading',
+  ]) {
+    const waiting = deferred<MovieShowtimesResponse>()
+    const h = harness(
+      state === 'nationwide-empty' ? [] : ['cinema-24'],
+      async (slug, query) => {
+        if (state === 'error') throw new Error('offline')
+        if (state === 'loading') return waiting.promise
+        const result = response(slug, query)
+        return state === 'dates'
+          ? result
+          : {
+              ...result,
+              available_dates: [],
+              theaters: [],
+              currently_screened: state !== 'ended',
+              release_status: state === 'ended' ? 'ended' : 'showing',
+            }
+      },
+    )
+    t.after(h.close)
+    const loading = h.page.applyRoute()
+    if (state !== 'loading') await loading
+    const before = h.calls.length
+    assert.equal(h.page.canBroadenSearch.value, false, state)
+    await h.page.broadenSearch()
+    assert.equal(h.calls.length, before, state)
+    if (state === 'loading') {
+      h.close()
+      waiting.resolve(response('film-1', { date: TODAY }))
+      await loading
+    }
+  }
+  const panel = source.match(
+    /<EditorialStatePanel\s+v-else-if="!hasAvailableDates"[\s\S]*?<\/EditorialStatePanel>/,
+  )?.[0]
+  assert.ok(panel)
+  assert.match(panel, /<template v-if="canBroadenSearch" #actions/)
+  assert.match(panel, /type="button"/)
+  assert.match(panel, /@click="broadenSearch"/)
+  assert.match(panel, /Rechercher dans toute la France/)
+  assert.match(panel, /min-h-11/)
+  assert.match(panel, /focus-visible:ring-2/)
+})
+
+test('same IDs and preference readiness/error transitions retain override; actual selection or scope changes reset it', async (t) => {
+  for (const transition of ['ids', 'scope', 'movie']) {
+    const h = harness(['cinema-24'], async (slug, query) =>
+      emptyConfiguredResponse(slug, query),
+    )
+    t.after(h.close)
+    await h.page.applyRoute()
+    await h.page.broadenSearch()
+    h.preferences.activeTheaterIds.value = ['cinema-24']
+    await settle()
+    assert.equal(h.page.broadScope.value, true)
+    h.preferences.isInitialized.value = false
+    h.preferences.error.value = 'Synchronisation indisponible'
+    await settle()
+    assert.equal(h.page.broadScope.value, true)
+    h.preferences.error.value = null
+    h.preferences.isInitialized.value = true
+    await settle()
+    assert.equal(h.page.broadScope.value, true)
+    assert.equal(h.page.schedule.value?.theaters.length, 10)
+    if (transition === 'ids')
+      h.preferences.activeTheaterIds.value = ['cinema-23']
+    if (transition === 'scope') h.preferences.selectionScopeKey.value++
+    if (transition === 'movie') h.route.params.slug = 'film-2'
+    await settle()
+    assert.equal(h.page.broadScope.value, false, transition)
+    assert.equal(h.page.canBroadenSearch.value, true, transition)
+    assert.equal(h.page.schedule.value?.pagination, null)
+    assert.equal(
+      h.calls.at(-1)?.query.theaters,
+      transition === 'ids' ? 'cinema-23' : 'cinema-24',
+    )
+    if (transition === 'movie')
+      assert.equal(h.page.schedule.value?.movie.slug, 'film-2')
+  }
+})
+
+for (const transition of [
+  'ids',
+  'scope',
+  'movie',
+  'date',
+  'language',
+  'format',
+  'sort',
+  'unmount',
+]) {
+  for (const outcome of ['success', 'error']) {
+    test(`fallback append ignores stale ${outcome} after ${transition}`, async () => {
+      const next = deferred<MovieShowtimesResponse>()
+      const h = harness(['cinema-24'], async (slug, query) =>
+        query.page === 2 ? next.promise : emptyConfiguredResponse(slug, query),
+      )
+      try {
+        await h.page.applyRoute()
+        await h.page.broadenSearch()
+        const append = h.page.loadMore()
+        if (transition === 'ids')
+          h.preferences.activeTheaterIds.value = ['cinema-23']
+        if (transition === 'scope') h.preferences.selectionScopeKey.value++
+        if (transition === 'movie') h.route.params.slug = 'film-2'
+        if (transition === 'date') h.route.query = { date: TOMORROW }
+        if (transition === 'language') h.route.query = { language: 'ORIGINAL' }
+        if (transition === 'format') h.route.query = { format: 'IMAX' }
+        if (transition === 'sort') h.route.query = { sort: 'next' }
+        if (transition === 'unmount') h.close()
+        await settle()
+        const before = JSON.stringify(h.page.schedule.value)
+        const appendPendingBefore = h.page.appendPending.value
+        if (outcome === 'success')
+          next.resolve(response('film-1', { date: TODAY, page: 2 }))
+        else next.reject(new Error('late'))
+        await append
+        assert.equal(JSON.stringify(h.page.schedule.value), before)
+        assert.equal(h.page.appendError.value, '')
+        assert.equal(h.page.appendPending.value, appendPendingBefore)
+      } finally {
+        h.close()
+      }
+    })
+  }
+}
+
+for (const transition of ['ids', 'scope', 'movie']) {
+  for (const outcome of ['success', 'error']) {
+    test(`fallback page 1 ignores stale ${outcome} after ${transition}`, async () => {
+      const first = deferred<MovieShowtimesResponse>()
+      const h = harness(['cinema-24'], async (slug, query) =>
+        !query.theaters && query.language === 'ORIGINAL'
+          ? first.promise
+          : emptyConfiguredResponse(slug, query),
+      )
+      try {
+        h.route.query = { language: 'ORIGINAL' }
+        await h.page.applyRoute()
+        await settle()
+        const loading = h.page.broadenSearch()
+        await settle()
+        if (transition === 'ids')
+          h.preferences.activeTheaterIds.value = ['cinema-23']
+        if (transition === 'scope') h.preferences.selectionScopeKey.value++
+        if (transition === 'movie') h.route.params.slug = 'film-2'
+        await settle()
+        const before = JSON.stringify(h.page.schedule.value)
+        if (outcome === 'success')
+          first.resolve(
+            response('film-1', { date: TODAY, page: 1, language: 'ORIGINAL' }),
+          )
+        else first.reject(new Error('late'))
+        await loading
+        assert.equal(JSON.stringify(h.page.schedule.value), before)
+        assert.equal(h.page.broadScope.value, false)
+        assert.equal(h.page.errorMessage.value, '')
+        assert.equal(h.page.pending.value, false)
+      } finally {
+        h.close()
+      }
+    })
+  }
+}
 
 test('append single-flight and inline retry retain rows, page number, and no duplicates', async (t) => {
   const next = deferred<MovieShowtimesResponse>()
