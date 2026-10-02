@@ -18,7 +18,7 @@ func TestRuntimeWiresAccountGateWithoutProviders(t *testing.T) {
 	cfg.Server.Origin = "http://localhost:3000"
 	for _, enabled := range []bool{false, true} {
 		cfg.Accounts.Enabled = enabled
-		handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
+		handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/auth/session", nil))
 		want := http.StatusOK
@@ -53,7 +53,7 @@ func TestRuntimeWiresAdminAccountsIndependentlyOfProviders(t *testing.T) {
 	}
 	for _, enabled := range []bool{false, true} {
 		cfg.Accounts.Enabled = enabled
-		handler := newAPIHandler(nil, cfg, options, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
+		handler := newAPIHandler(nil, cfg, options, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
 		login := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"fixture-password"}`))
 		login.Header.Set("Origin", cfg.Server.Origin)
 		login.Header.Set("Content-Type", "application/json")
