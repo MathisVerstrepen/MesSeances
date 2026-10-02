@@ -42,6 +42,7 @@ import (
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
+	"messeances/api/internal/wikidata"
 )
 
 func main() {
@@ -325,8 +326,9 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		if err != nil {
 			return adminRuntime{}, fmt.Errorf("TMDB configuration is invalid")
 		}
-		provider = client
-		upcomingProvider = client
+		decorated := enrichment.NewMetacriticProvider(client, wikidata.NewClient())
+		provider = decorated
+		upcomingProvider = decorated
 		releaseProvider = client
 	}
 	gate := enrichment.NewTMDBRunGate()

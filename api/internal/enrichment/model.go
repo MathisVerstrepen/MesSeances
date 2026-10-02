@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/wikidata"
 )
 
 const (
@@ -60,6 +61,8 @@ type Metadata struct {
 	Provider            string
 	ProviderMovieID     int64
 	IMDBID              string
+	MetacriticID        string
+	MetacriticChecked   bool
 	OriginalLanguage    string
 	Locale              string
 	ProviderTitle       string
@@ -189,6 +192,9 @@ func validateMetadata(metadata Metadata) error {
 	}
 	if metadata.IMDBID != "" && !validIMDBID(metadata.IMDBID) {
 		return fmt.Errorf("invalid metadata IMDb ID")
+	}
+	if metadata.MetacriticID != "" && !wikidata.ValidMetacriticID(metadata.MetacriticID) {
+		return fmt.Errorf("invalid metadata Metacritic ID")
 	}
 	if language := metadata.OriginalLanguage; language != "" && (len(language) != 2 || language[0] < 'a' || language[0] > 'z' || language[1] < 'a' || language[1] > 'z') {
 		return fmt.Errorf("invalid metadata original language")

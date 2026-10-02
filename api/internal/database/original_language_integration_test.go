@@ -125,8 +125,8 @@ func originalLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgx
 	t.Helper()
 	var state string
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
-    (SELECT jsonb_agg(to_jsonb(m)-'original_language' ORDER BY id) FROM public_movies m),
-    (SELECT jsonb_agg(to_jsonb(m)-'original_language' ORDER BY provider_movie_id) FROM movie_metadata_cache m),
+    (SELECT jsonb_agg(to_jsonb(m)-'original_language'-'metacritic_id' ORDER BY id) FROM public_movies m),
+    (SELECT jsonb_agg(to_jsonb(m)-'original_language'-'metacritic_id' ORDER BY provider_movie_id) FROM movie_metadata_cache m),
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM showtimes s),
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM screening_history_showtimes s),
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY source_provider,source_movie_id) FROM public_movie_sources s)

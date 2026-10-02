@@ -11,6 +11,7 @@ import (
 
 	"messeances/api/internal/accounts"
 	runtimeconfig "messeances/api/internal/config"
+	"messeances/api/internal/enrichment"
 	"messeances/api/internal/tmdb"
 )
 
@@ -93,7 +94,8 @@ func TestWatchlistReleaseRuntimeSharedOptionalClientIntegration(t *testing.T) {
 			continue
 		}
 		client, ok := r.watchlistReleaseProvider.(*tmdb.Client)
-		if !ok || r.enrichmentProvider != client || r.upcomingManager != nil {
+		decorated, decoratedOK := r.enrichmentProvider.(*enrichment.MetacriticProvider)
+		if !ok || !decoratedOK || decorated.Client != client || r.upcomingManager != nil {
 			t.Fatal("client pacing not shared or admin gating changed")
 		}
 		// Disabled accounts must not construct a service even with a provider.

@@ -23,6 +23,7 @@ type movieAssignment struct {
 	Genres           []string   `json:"genres"`
 	TMDBID           *int64     `json:"tmdb_id"`
 	IMDBID           *string    `json:"imdb_id"`
+	MetacriticID     *string    `json:"metacritic_id"`
 	OriginalLanguage *string    `json:"original_language"`
 }
 
@@ -36,7 +37,7 @@ func newMovieAssignment(item *component) movieAssignment {
 		ID: item.publicID, Title: m.title, Runtime: m.runtime,
 		Poster: m.poster, Backdrop: m.backdrop, TrailerVF: m.trailerVFYouTubeKey,
 		TrailerVO: m.trailerVOYouTubeKey, Overview: m.overview, ReleaseDate: m.releaseDate,
-		Genres: m.genres, TMDBID: tmdbID, IMDBID: m.imdbID, OriginalLanguage: m.originalLanguage,
+		Genres: m.genres, TMDBID: tmdbID, IMDBID: m.imdbID, MetacriticID: m.metacriticID, OriginalLanguage: m.originalLanguage,
 	}
 }
 
@@ -54,7 +55,7 @@ type idAssignment struct {
 func writeAssignments(ctx context.Context, tx pgx.Tx, clearIDs []int64, movies []movieAssignment, sources, seen []sourceAssignment, catalog, redirects, flattened []idAssignment) error {
 	// Release all changing confirmed IDs before claiming any of them. The
 	// partial unique index is immediate, so combining these phases is unsafe.
-	if _, err := tx.Exec(ctx, `UPDATE public_movies SET confirmed_tmdb_id=NULL, imdb_id=NULL, original_language=NULL,
+	if _, err := tx.Exec(ctx, `UPDATE public_movies SET confirmed_tmdb_id=NULL, imdb_id=NULL, metacritic_id=NULL, original_language=NULL,
     trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL
 WHERE id=ANY($1::bigint[]) AND confirmed_tmdb_id IS NOT NULL`, clearIDs); err != nil {
 		return fmt.Errorf("clear corrected public movie TMDB identity failed")
@@ -65,7 +66,7 @@ WHERE id=ANY($1::bigint[]) AND confirmed_tmdb_id IS NOT NULL`, clearIDs); err !=
     SELECT * FROM jsonb_to_recordset($1::jsonb) AS v(
         id bigint, title varchar, runtime integer, poster varchar, backdrop varchar,
         trailer_vf varchar, trailer_vo varchar, overview varchar, release_date date,
-        genres text[], tmdb_id bigint, imdb_id varchar, original_language varchar)
+        genres text[], tmdb_id bigint, imdb_id varchar, original_language varchar, metacritic_id varchar)
 ), seen AS (
     SELECT v.target, max(source.last_seen_at) AS last_seen_at
     FROM jsonb_to_recordset($2::jsonb) AS v(provider text, source_id text, target bigint)
@@ -75,9 +76,9 @@ WHERE id=ANY($1::bigint[]) AND confirmed_tmdb_id IS NOT NULL`, clearIDs); err !=
     SELECT v.*, GREATEST(movie.last_seen_at, seen.last_seen_at) AS last_seen_at,
         ROW(movie.title, movie.runtime_minutes, movie.poster_url, movie.backdrop_url,
             movie.trailer_vf_youtube_key, movie.trailer_vo_youtube_key, movie.overview,
-            movie.release_date, movie.genres, movie.confirmed_tmdb_id, movie.imdb_id, movie.original_language)
+            movie.release_date, movie.genres, movie.confirmed_tmdb_id, movie.imdb_id, movie.original_language, movie.metacritic_id)
         IS DISTINCT FROM ROW(v.title, v.runtime, v.poster, v.backdrop, v.trailer_vf,
-            v.trailer_vo, v.overview, v.release_date, v.genres, v.tmdb_id, v.imdb_id, v.original_language) AS metadata_changed
+            v.trailer_vo, v.overview, v.release_date, v.genres, v.tmdb_id, v.imdb_id, v.original_language, v.metacritic_id) AS metadata_changed
     FROM desired v JOIN public_movies movie ON movie.id=v.id
     LEFT JOIN seen ON seen.target=v.id
     WHERE movie.redirect_to_id IS NULL
@@ -85,7 +86,7 @@ WHERE id=ANY($1::bigint[]) AND confirmed_tmdb_id IS NOT NULL`, clearIDs); err !=
 UPDATE public_movies movie SET title=v.title, runtime_minutes=v.runtime,
     poster_url=v.poster, backdrop_url=v.backdrop, trailer_vf_youtube_key=v.trailer_vf,
     trailer_vo_youtube_key=v.trailer_vo, overview=v.overview, release_date=v.release_date,
-    genres=v.genres, confirmed_tmdb_id=v.tmdb_id, imdb_id=v.imdb_id, original_language=v.original_language,
+    genres=v.genres, confirmed_tmdb_id=v.tmdb_id, imdb_id=v.imdb_id, metacritic_id=v.metacritic_id, original_language=v.original_language,
     updated_at=CASE WHEN v.metadata_changed THEN CURRENT_TIMESTAMP ELSE movie.updated_at END,
     last_seen_at=v.last_seen_at
 FROM changes v WHERE movie.id=v.id
@@ -109,7 +110,7 @@ WHERE source.source_provider=v.provider AND source.source_movie_id=v.source_id
 		return fmt.Errorf("assign public movie source failed")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE public_movies movie SET redirect_to_id=v.target,
-    confirmed_tmdb_id=NULL, imdb_id=NULL, original_language=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL,
+    confirmed_tmdb_id=NULL, imdb_id=NULL, metacritic_id=NULL, original_language=NULL, trailer_vf_youtube_key=NULL, trailer_vo_youtube_key=NULL,
     updated_at=CURRENT_TIMESTAMP
 FROM jsonb_to_recordset($1::jsonb) AS v(id bigint, target bigint)
 WHERE movie.id=v.id AND movie.redirect_to_id IS NULL`, redirects); err != nil {

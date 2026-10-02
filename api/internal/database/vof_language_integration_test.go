@@ -185,8 +185,8 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
 	// Compare constraints only on the captured baseline relations, not tables added by later migrations.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
-    (SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM public_movies m),
-    (SELECT jsonb_agg(to_jsonb(m) ORDER BY provider,provider_movie_id,locale) FROM movie_metadata_cache m),
+    (SELECT jsonb_agg(to_jsonb(m)-'metacritic_id' ORDER BY id) FROM public_movies m),
+    (SELECT jsonb_agg(to_jsonb(m)-'metacritic_id' ORDER BY provider,provider_movie_id,locale) FROM movie_metadata_cache m),
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY generation_id,id) FROM showtimes s),
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY provider,provider_showing_id,theater_id,service_date) FROM screening_history_showtimes s),
     (SELECT jsonb_agg(to_jsonb(s) ORDER BY source_provider,source_movie_id) FROM public_movie_sources s),
@@ -198,7 +198,8 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
     (SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)
      FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
      AND conrelid = ANY($1::oid[])
-     AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check'))
+      AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check',
+          'public_movies_metacritic_id_check','movie_metadata_cache_metacritic_id_check'))
 )::text`, relations).Scan(&state); err != nil {
 		t.Fatal(err)
 	}

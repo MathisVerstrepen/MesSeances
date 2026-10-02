@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"messeances/api/internal/wikidata"
 )
 
 func normalized(value string) string    { return strings.ToLower(strings.TrimSpace(value)) }
@@ -79,6 +81,10 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 	if record.Enrichment != nil && record.Enrichment.TMDBID > 0 {
 		id := record.Enrichment.TMDBID
 		item.TMDBID = &id
+		if wikidata.ValidMetacriticID(record.Enrichment.MetacriticID) {
+			value := record.Enrichment.MetacriticID
+			item.MetacriticID = &value
+		}
 		if validIMDBID(record.Enrichment.IMDBID) {
 			value := record.Enrichment.IMDBID
 			item.IMDBID = &value
@@ -130,6 +136,10 @@ func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 	if record.TMDBID > 0 {
 		value := record.TMDBID
 		item.TMDBID = &value
+		if wikidata.ValidMetacriticID(record.MetacriticID) {
+			value := record.MetacriticID
+			item.MetacriticID = &value
+		}
 		if validIMDBID(record.IMDBID) {
 			value := record.IMDBID
 			item.IMDBID = &value

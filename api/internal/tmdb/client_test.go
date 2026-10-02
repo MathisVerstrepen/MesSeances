@@ -36,7 +36,11 @@ func TestClientSearchAndDetails(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"results":[{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","poster_path":"/poster.jpg"}]}`))
 		case "/3/movie/42":
-			if r.URL.Query().Get("language") != "fr-FR" || r.URL.Query().Get("append_to_response") != "videos" {
+			appendResponse := "videos,external_ids"
+			if r.URL.Query().Get("include_video_language") == "en" {
+				appendResponse = "videos"
+			}
+			if r.URL.Query().Get("language") != "fr-FR" || r.URL.Query().Get("append_to_response") != appendResponse {
 				t.Error("details query mismatch")
 			}
 			switch r.URL.Query().Get("include_video_language") {
@@ -63,6 +67,57 @@ func TestClientSearchAndDetails(t *testing.T) {
 	}
 	if len(requests) != 4 {
 		t.Fatalf("requests=%v", requests)
+	}
+}
+
+func TestClientMetacriticExternalIDs(t *testing.T) {
+	for _, tc := range []struct{ name, block, want string }{
+		{"missing mapping", ``, ""},
+		{"null mapping", `,"external_ids":null`, ""},
+		{"array mapping", `,"external_ids":[]`, ""},
+		{"string mapping", `,"external_ids":"bad"`, ""},
+		{"empty mapping", `,"external_ids":{}`, ""},
+		{"real appended shape", `,"external_ids":{"imdb_id":"tt7654321","wikidata_id":"Q42","facebook_id":null,"instagram_id":null,"twitter_id":null}`, "Q42"},
+		{"explicit matching ID", `,"external_ids":{"id":42,"wikidata_id":"Q42"}`, "Q42"},
+		{"explicit mismatched ID", `,"external_ids":{"id":43,"wikidata_id":"Q42"}`, ""},
+		{"explicit zero ID", `,"external_ids":{"id":0,"wikidata_id":"Q42"}`, ""},
+		{"explicit negative ID", `,"external_ids":{"id":-42,"wikidata_id":"Q42"}`, ""},
+		{"null optional ID", `,"external_ids":{"id":null,"wikidata_id":"Q42"}`, "Q42"},
+		{"malformed string ID", `,"external_ids":{"id":"42","wikidata_id":"Q42"}`, ""},
+		{"malformed fractional ID", `,"external_ids":{"id":42.5,"wikidata_id":"Q42"}`, ""},
+		{"malformed object ID", `,"external_ids":{"id":{},"wikidata_id":"Q42"}`, ""},
+		{"missing QID", `,"external_ids":{"imdb_id":"tt7654321"}`, ""},
+		{"null QID", `,"external_ids":{"wikidata_id":null}`, ""},
+		{"numeric QID", `,"external_ids":{"wikidata_id":42}`, ""},
+		{"zero QID", `,"external_ids":{"wikidata_id":"Q0"}`, ""},
+		{"lowercase QID", `,"external_ids":{"wikidata_id":"q42"}`, ""},
+		{"newline QID", `,"external_ids":{"wikidata_id":"Q42\n"}`, ""},
+		{"URL QID", `,"external_ids":{"wikidata_id":"https://www.wikidata.org/wiki/Q42"}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"id":42,"imdb_id":"tt1234567","title":"Film","original_title":"Film"` + tc.block + `}`))
+			}, "synthetic")
+			got, err := client.Details(t.Context(), 42)
+			if err != nil || got.ID != 42 || got.Title != "Film" || got.WikidataID != tc.want || got.IMDBID != "tt1234567" || got.MetacriticID != "" || got.MetacriticChecked {
+				t.Fatalf("details=%+v err=%v", got, err)
+			}
+		})
+	}
+}
+
+func TestClientMetacriticExternalIDsRejectsTopLevelMismatch(t *testing.T) {
+	for _, block := range []string{
+		`{"imdb_id":"tt7654321","wikidata_id":"Q42"}`,
+		`{"id":42,"wikidata_id":"Q42"}`,
+	} {
+		client := testClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"id":43,"title":"Film","original_title":"Film","external_ids":` + block + `}`))
+		}, "synthetic")
+		got, err := client.Details(t.Context(), 42)
+		if err == nil || got.WikidataID != "" || got.MetacriticChecked {
+			t.Fatalf("mismatched top-level identity accepted: details=%+v err=%v", got, err)
+		}
 	}
 }
 

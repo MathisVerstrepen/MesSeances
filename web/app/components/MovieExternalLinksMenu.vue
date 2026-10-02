@@ -4,6 +4,7 @@ import boxOfficeMojoLogo from '~/assets/imgs/box_office_mojo.webp?no-inline'
 import imdbLogo from '~/assets/imgs/IMDb_logo.svg?no-inline'
 import letterboxdLogo from '~/assets/imgs/letterboxd_logo.svg?no-inline'
 import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
+import metacriticLogo from '~/assets/imgs/metacritic.svg?no-inline'
 import type { MovieExternalLink } from '~/utils/movieExternalLinks'
 
 const serviceLogos = {
@@ -11,6 +12,7 @@ const serviceLogos = {
   letterboxd: letterboxdLogo,
   imdb: imdbLogo,
   boxofficemojo: boxOfficeMojoLogo,
+  metacritic: metacriticLogo,
 } satisfies Record<MovieExternalLink['destination'], string>
 
 const props = defineProps<{

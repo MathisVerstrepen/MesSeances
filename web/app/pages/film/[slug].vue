@@ -217,6 +217,7 @@ const externalLinks = computed(() =>
   buildMovieExternalLinks(
     schedule.value?.movie.tmdb_id,
     schedule.value?.movie.imdb_id,
+    schedule.value?.movie.metacritic_id,
   ),
 )
 const tmdbUrl = computed(

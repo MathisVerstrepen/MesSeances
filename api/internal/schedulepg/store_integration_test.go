@@ -299,6 +299,7 @@ func TestPostgresStoreIntegration(t *testing.T) {
 		now := time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC)
 		match := enrichment.Match{SourceProvider: enrichment.SourceUGC, SourceMovieID: "200", MetadataProvider: enrichment.ProviderTMDB, Status: enrichment.StatusMatched, MetadataMovieID: 42, Score: 1, NormalizedSourceTitle: "film a", SourceRuntimeMinutes: 100, Candidates: []enrichment.Candidate{{ID: 42, Title: "Film A", Runtime: 100, Score: 1}}, EvaluatedAt: now, RetryAfter: now.Add(30 * 24 * time.Hour)}
 		metadata := enrichment.Metadata{Provider: enrichment.ProviderTMDB, ProviderMovieID: 42, IMDBID: "tt1234567", Locale: enrichment.LocaleFrench, ProviderTitle: "Film A", LocalizedTitle: "Film A", Overview: "Résumé", ReleaseDate: "2026-01-02", PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456", RuntimeMinutes: 100, Genres: []string{"Drame"}, FetchedAt: now, RefreshAfter: now.Add(30 * 24 * time.Hour)}
+		metadata.MetacriticID, metadata.MetacriticChecked = "movie/film-a", true
 		if err := enrichment.NewPostgresStore(pool).Publish(ctx, match, metadata); err != nil {
 			t.Fatal(err)
 		}
@@ -307,6 +308,9 @@ func TestPostgresStoreIntegration(t *testing.T) {
 			t.Fatalf("revision=%+v movie=%+v err=%v", revision, loaded.Showtimes[0].Movie, err)
 		}
 		publicID := loaded.PublicMovies[0].ID
+		if loaded.PublicMovies[0].MetacriticID != metadata.MetacriticID {
+			t.Fatal("Metacritic not loaded")
+		}
 		if _, err := pool.Exec(ctx, `INSERT INTO public_movie_metadata_overrides (
     public_movie_id,title,title_overridden,runtime_minutes,runtime_minutes_overridden,
     release_date,release_date_overridden,genres,genres_overridden,overview,overview_overridden,
