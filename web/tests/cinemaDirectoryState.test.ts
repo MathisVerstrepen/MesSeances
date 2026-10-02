@@ -61,6 +61,7 @@ test('directory query restores all independent mode combinations and omits defau
         view,
         location,
         search: 'Lille',
+        chains: [],
       })
       assert.equal(query.view, view === 'map' ? 'map' : undefined)
       assert.equal(query.location, location === 'nearby' ? 'nearby' : undefined)
@@ -71,6 +72,7 @@ test('directory query restores all independent mode combinations and omits defau
     view: 'list',
     location: 'city',
     search: '',
+    chains: [],
   })
 })
 
@@ -175,6 +177,19 @@ test('memory history restores independent modes, replaces search and does not re
     requests[0]!.failure?.(locationError(1))
     await router.replace({
       query: cinemaDirectoryQuery(router.currentRoute.value.query, {
+        chains: ['ugc', 'cgr'],
+      }),
+    })
+    assert.equal(requests.length, 1)
+    assert.equal(location.locationStatus.value, 'failed')
+    await router.replace({
+      query: cinemaDirectoryQuery(router.currentRoute.value.query, {
+        chains: [],
+      }),
+    })
+    assert.equal(requests.length, 1)
+    await router.replace({
+      query: cinemaDirectoryQuery(router.currentRoute.value.query, {
         search: 'Lille',
       }),
     })
@@ -190,16 +205,23 @@ test('memory history restores independent modes, replaces search and does not re
       view: 'map',
       location: 'nearby',
       search: 'Lille',
+      chains: [],
     })
     assert.equal(requests.length, 1)
     await traverse('back')
-    assert.deepEqual(state.value, { view: 'map', location: 'city', search: '' })
+    assert.deepEqual(state.value, {
+      view: 'map',
+      location: 'city',
+      search: '',
+      chains: [],
+    })
     assert.equal(location.locationStatus.value, 'idle')
     await traverse('back')
     assert.deepEqual(state.value, {
       view: 'list',
       location: 'city',
       search: '',
+      chains: [],
     })
     await traverse('forward')
     await traverse('forward')
@@ -207,6 +229,7 @@ test('memory history restores independent modes, replaces search and does not re
       view: 'map',
       location: 'nearby',
       search: 'Lille',
+      chains: [],
     })
     assert.equal(requests.length, 2)
     requests[1]!.success(position())
