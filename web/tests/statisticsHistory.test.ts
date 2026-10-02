@@ -903,6 +903,15 @@ test('all three actual entity links use loaded IDs, fresh all-history routes and
         /<NuxtLink\b[^>]*aria-label="Statistiques"[^>]*>[\s\S]*?<\/NuxtLink>/g,
       ),
     ]
+    if (loaded === 'response') {
+      assert.equal(links.length, 0, file)
+      assert.doesNotMatch(page, /ChartNoAxesCombined|path: '\/statistiques'/)
+      assert.doesNotMatch(header, /\{\{ pageDescription \}\}/)
+      assert.match(page, /viewQuery\('activity'\)/)
+      assert.match(page, />\s*Activité\s*<\/NuxtLink>/)
+      assert.match(page, /<ShareButton/)
+      continue
+    }
     assert.equal(links.length, 1, file)
     const link = links[0]!
     assert.ok(link.index! > headerStart && link.index! < headerEnd, file)
@@ -952,15 +961,6 @@ test('all three actual entity links use loaded IDs, fresh all-history routes and
       assert.match(
         header,
         /<div class="mt-6 flex flex-wrap items-center gap-3">\s*<NuxtLink[\s\S]*?<\/NuxtLink>\s*<ShareButton class="shrink-0" \/>/,
-      )
-    } else {
-      assert.match(
-        header,
-        /<div\s+class="flex items-center justify-between gap-4[^"]*"\s*>\s*<p[^>]*>\s*\{\{ pageDescription \}\}\s*<\/p>\s*<NuxtLink/,
-      )
-      assert.ok(
-        header.indexOf('{{ pageDescription }}') < header.indexOf(link[0]),
-        file,
       )
     }
   }

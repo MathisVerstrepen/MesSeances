@@ -183,6 +183,18 @@ func run(ctx context.Context) error {
 			}
 		}()
 	}
+	// Cinema media is independently owned and probed before migrations.
+	cinemaMedia, err := openCinemaImages(cfg)
+	if err != nil {
+		return err
+	}
+	if cinemaMedia != nil {
+		defer func() {
+			if cinemaMedia.Close() != nil {
+				logger.Warn("cinema_image_close_failed")
+			}
+		}()
+	}
 	proxies, err := loadSyncProxies(cfg.Proxy.Path, func(path string) (io.ReadCloser, error) { return os.Open(path) })
 	if err != nil {
 		return err
@@ -253,6 +265,14 @@ func run(ctx context.Context) error {
 	}()
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
+	cinemaImages := newCinemaImageService(pool, cinemaMedia, proxies, logger)
+	admin.options.TheaterImages = cinemaImages
+	var publicTheaterImages httpapi.PublicTheaterImageController
+	if cinemaMedia != nil {
+		publicTheaterImages = cinemaImages
+		polling.Add(1)
+		go func() { defer polling.Done(); runCinemaImageCleanup(workerCtx, cinemaImages, logger) }()
+	}
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
 	accountService, err := newAccountService(pool, cfg, avatars, admin.enrichmentProvider, admin.watchlistReleaseProvider, schedules.service.RefreshPublishedMovie)
 	if err != nil {
@@ -276,7 +296,7 @@ func run(ctx context.Context) error {
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
-		}, accountService),
+		}, accountService, publicTheaterImages),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -552,7 +572,7 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, historyCache *httpapi.HistoryCache, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, historyCache *httpapi.HistoryCache, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service, publicTheaterImages httpapi.PublicTheaterImageController) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
 		Accounts:             httpapi.AccountOptions{Enabled: cfg.Accounts.Enabled, Service: accountService, Origin: cfg.Server.Origin},
 		Admin:                adminOptions,
@@ -561,6 +581,7 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 		History:              history,
 		HistoryCache:         historyCache,
 		Activity:             activity,
+		PublicTheaterImages:  publicTheaterImages,
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})

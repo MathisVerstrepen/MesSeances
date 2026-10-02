@@ -25,9 +25,10 @@ const (
 )
 
 type Config struct {
-	Accounts AccountsConfig
-	Database struct{ URL string }
-	Server   struct {
+	CinemaImageDir string
+	Accounts       AccountsConfig
+	Database       struct{ URL string }
+	Server         struct {
 		Port              int
 		Origin            string
 		TrustedProxyCIDRs []netip.Prefix
@@ -90,6 +91,10 @@ func Load(profile Profile, getenv func(string) string) (Config, error) {
 		result.TMDB.Token = strings.TrimSpace(getenv("TMDB_API_READ_ACCESS_TOKEN"))
 		result.Proxy.Path = strings.TrimSpace(getenv("PROXY_FILE"))
 		result.Accounts, err = loadAccounts(origin, getenv)
+		if err != nil {
+			return Config{}, err
+		}
+		result.CinemaImageDir, err = loadCinemaImageDir(getenv("CINEMA_IMAGE_DIR"), result.Accounts)
 		if err != nil {
 			return Config{}, err
 		}

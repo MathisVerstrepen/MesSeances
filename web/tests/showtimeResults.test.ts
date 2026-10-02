@@ -98,6 +98,7 @@ test('adapts theater showtimes without mutation and injects theater while mappin
       city_slug: 'lille',
       postal_code: '59000',
       available_dates: ['2026-08-24'],
+      image: null,
       accepted_passes: [],
     },
     showtimes: [
@@ -175,6 +176,7 @@ test('both result adapters propagate original language without rewriting the con
         city_slug: 'lille',
         postal_code: '59000',
         available_dates: ['2027-06-27'],
+        image: null,
         accepted_passes: [],
       },
       showtimes: [
@@ -243,6 +245,7 @@ test('normalizers preserve explicit estimated provenance including custom zero a
         city_slug: 'laval',
         postal_code: '53000',
         available_dates: ['2026-09-14'],
+        image: null,
         accepted_passes: [],
       },
       showtimes: [
@@ -462,6 +465,7 @@ test('Cinéville theater results retain source fields, missing metadata and zero
         postal_code: '29000',
         address: '',
         available_dates: ['2027-07-01'],
+        image: null,
         accepted_passes: [],
       },
       showtimes: [

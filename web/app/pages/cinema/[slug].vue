@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Building2,
   CalendarDays,
-  ChartNoAxesCombined,
   Film,
   LoaderCircle,
   MapPin,
@@ -15,6 +14,7 @@ import type {
   TheaterShowtimesResponse,
 } from '~/types/api'
 import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
+import { publicCinemaImageUrl } from '~/utils/cinemaImage'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { formatLongDate, todayInParis } from '~/utils/date'
 import { cinemaDescription } from '~/utils/entityDescriptions'
@@ -109,6 +109,16 @@ const availableDates = computed(
       (date) => date >= todayInParis(),
     ) ?? [],
 )
+
+function formatCinemaCity(city: string): string {
+  // Recase only all-uppercase source labels; preserve mixed casing and accents.
+  if (city !== city.toLocaleUpperCase('fr-FR')) return city
+  return city
+    .toLocaleLowerCase('fr-FR')
+    .replace(/(^|[\s'’-])\p{L}/gu, (letter) =>
+      letter.toLocaleUpperCase('fr-FR'),
+    )
+}
 
 function normalizeLocationPart(value: string): string {
   return value
@@ -361,6 +371,45 @@ const movieGroups = computed(() =>
 )
 
 const config = useRuntimeConfig()
+const cinemaImageUrl = computed(() =>
+  publicCinemaImageUrl(
+    response.value?.theater.image ?? null,
+    config.public.apiBase,
+  ),
+)
+const cinemaImage = ref<HTMLImageElement | null>(null)
+const failedCinemaImageUrl = ref('')
+const hasCinemaImage = computed(
+  () =>
+    Boolean(cinemaImageUrl.value) &&
+    failedCinemaImageUrl.value !== cinemaImageUrl.value,
+)
+
+function markCinemaImageFailed(image: HTMLImageElement | null) {
+  if (image?.getAttribute('src') === cinemaImageUrl.value)
+    failedCinemaImageUrl.value = cinemaImageUrl.value
+}
+
+function onCinemaImageError(event: Event) {
+  // SAFETY: This handler is attached only to the hero img element's error event.
+  markCinemaImageFailed(event.target as HTMLImageElement | null)
+}
+
+function checkCinemaImage() {
+  const image = cinemaImage.value
+  if (image?.complete && image.naturalWidth === 0) markCinemaImageFailed(image)
+}
+
+watch(
+  cinemaImageUrl,
+  () => {
+    failedCinemaImageUrl.value = ''
+  },
+  { flush: 'sync' },
+)
+watch(cinemaImage, checkCinemaImage, { flush: 'post' })
+onMounted(checkCinemaImage)
+
 const canonicalUrl = computed(() =>
   absoluteSiteUrl(
     config.public.siteUrl,
@@ -598,28 +647,60 @@ useHead(() => ({
         ]"
       />
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
-        <div class="grid lg:grid-cols-[minmax(0,1.55fr)_minmax(17rem,0.65fr)]">
-          <div class="min-w-0 p-5 sm:p-8 lg:p-10">
-            <p
-              class="flex items-center gap-2 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]"
+        <div class="grid lg:grid-cols-[minmax(0,7fr)_minmax(17rem,3fr)]">
+          <div
+            class="relative flex min-h-[240px] min-w-0 items-end overflow-hidden bg-[#f8f7f2] p-5 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] lg:min-h-[380px] lg:p-8"
+          >
+            <img
+              v-if="hasCinemaImage"
+              :key="cinemaImageUrl"
+              ref="cinemaImage"
+              :src="cinemaImageUrl"
+              :width="response.theater.image?.width"
+              :height="response.theater.image?.height"
+              alt=""
+              aria-hidden="true"
+              loading="eager"
+              fetchpriority="high"
+              decoding="async"
+              referrerpolicy="no-referrer"
+              class="absolute inset-0 h-full w-full object-cover object-[center_40%]"
+              @error="onCinemaImageError"
             >
-              <MapPin :size="16" aria-hidden="true" />
-              {{ response.theater.city }}
-            </p>
-            <h1
-              class="mt-4 break-words text-[clamp(2.5rem,5.5vw,5rem)] font-black uppercase leading-[0.9] tracking-[-0.065em]"
+            <div
+              class="relative w-full min-w-0"
+              :class="hasCinemaImage ? 'text-white' : 'text-ink'"
             >
-              <TheaterName
-                :name="response.theater.name"
-                :provider="response.theater.provider"
+              <div
+                v-if="hasCinemaImage"
+                aria-hidden="true"
+                class="pointer-events-none absolute -inset-x-5 -bottom-5 -top-10 bg-[linear-gradient(to_top,rgba(39,39,42,0.95)_0%,rgba(39,39,42,0.82)_calc(100%_-_4rem),transparent_100%)] lg:-inset-x-8 lg:-bottom-8"
               />
-            </h1>
+              <h1
+                class="relative break-words text-[2.125rem] font-black leading-[1.05] tracking-[-0.05em] [overflow-wrap:anywhere] lg:text-[3.75rem]"
+              >
+                <TheaterName
+                  :name="response.theater.name"
+                  :provider="response.theater.provider"
+                  variant="hero"
+                />
+              </h1>
+              <p
+                v-if="response.theater.city"
+                class="relative mt-2 break-words text-base font-bold [overflow-wrap:anywhere]"
+              >
+                {{ formatCinemaCity(response.theater.city) }}
+              </p>
+            </div>
           </div>
 
           <dl
-            class="grid border-t-2 border-ink sm:grid-cols-2 lg:grid-cols-1 lg:border-l-2 lg:border-t-0"
+            class="flex flex-col gap-3 border-t-2 border-ink p-4 lg:gap-6 lg:border-l-2 lg:border-t-0 lg:p-6"
           >
-            <div class="min-w-0 p-5 sm:p-6">
+            <div
+              v-if="displayLocation.address || displayLocation.locality"
+              class="min-w-0"
+            >
               <dt
                 class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"
               >
@@ -630,7 +711,9 @@ useHead(() => ({
                 />
                 Adresse
               </dt>
-              <dd class="mt-2 break-words pl-8 text-sm font-bold leading-6">
+              <dd
+                class="mt-1 break-words pl-8 text-sm font-bold leading-5 [overflow-wrap:anywhere] lg:mt-2 lg:leading-6"
+              >
                 <span v-if="displayLocation.address" class="block">{{
                   displayLocation.address
                 }}</span>
@@ -640,7 +723,7 @@ useHead(() => ({
               </dd>
             </div>
             <div
-              class="min-w-0 border-t-2 border-ink p-5 sm:border-l-2 sm:border-t-0 sm:p-6 lg:border-l-0 lg:border-t-2"
+              class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 lg:block"
             >
               <dt
                 class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"
@@ -652,7 +735,9 @@ useHead(() => ({
                 />
                 Programmation
               </dt>
-              <dd class="mt-2 pl-8 text-sm font-bold leading-6">
+              <dd
+                class="text-xs font-bold leading-5 lg:mt-2 lg:pl-8 lg:text-sm lg:leading-6"
+              >
                 {{ response.theater.available_dates.length }} date{{
                   response.theater.available_dates.length > 1 ? 's' : ''
                 }} disponible{{
@@ -662,27 +747,12 @@ useHead(() => ({
             </div>
           </dl>
         </div>
-
-        <div
-          class="flex items-center justify-between gap-4 border-t-2 border-ink bg-[#f1efe8] px-5 py-4 sm:px-8 sm:py-5 lg:px-10"
-        >
-          <p
-            class="min-w-0 max-w-4xl break-words text-sm font-semibold leading-6 sm:text-base sm:leading-7"
-          >
-            {{ pageDescription }}
-          </p>
-          <NuxtLink
-            :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
-            aria-label="Statistiques"
-            title="Statistiques"
-            class="inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-          >
-            <ChartNoAxesCombined :size="20" aria-hidden="true" />
-          </NuxtLink>
-        </div>
       </header>
 
-      <section class="mt-12" :aria-labelledby="`cinema-${currentView}-heading`">
+      <section
+        class="mt-8 lg:mt-12"
+        :aria-labelledby="`cinema-${currentView}-heading`"
+      >
         <div
           class="flex flex-col gap-5 border-b-2 border-ink pb-5 sm:flex-row sm:items-end sm:justify-between"
         >
