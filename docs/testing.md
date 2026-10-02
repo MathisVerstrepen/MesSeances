@@ -26,6 +26,15 @@ Independent cheap checks continue after another fails or blocks. Build is blocke
 
 `preflight` accepts the same bounded selection but launches no validation commands. A passed preflight means prerequisites ready, not tests passed. `preflight --browser-accounts` checks only browser prerequisites unless explicit `--check` options add other checks. Script resolves repository root independently of caller cwd.
 
+## Playwright browser checks
+
+`make install-browser` explicitly prepares pinned Chromium after npm setup.
+`make test-browser` runs desktop/mobile frontend scenarios against an owned
+loopback Nuxt fixture and synthetic API. It is separate from `make check` and
+the structured runner; do not select an unsupported `web-browser` check.
+See [browser testing](browser-testing.md) for CLI/skill setup, hydration
+readiness, fixture lifecycle, report locations and coverage limits.
+
 ## Selected prerequisites
 
 | Selection | Required prerequisites |
