@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ExternalLink } from '@lucide/vue'
+import boxOfficeMojoLogo from '~/assets/imgs/box_office_mojo.webp?no-inline'
 import imdbLogo from '~/assets/imgs/IMDb_logo.svg?no-inline'
 import letterboxdLogo from '~/assets/imgs/letterboxd_logo.svg?no-inline'
 import tmdbLogo from '~/assets/imgs/logo_tmdb.svg?no-inline'
@@ -9,6 +10,7 @@ const serviceLogos = {
   tmdb: tmdbLogo,
   letterboxd: letterboxdLogo,
   imdb: imdbLogo,
+  boxofficemojo: boxOfficeMojoLogo,
 } satisfies Record<MovieExternalLink['destination'], string>
 
 const props = defineProps<{

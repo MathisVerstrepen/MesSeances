@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { buildMovieExternalLinks } from '../app/utils/movieExternalLinks.ts'
 
-test('builds exact movie links in TMDB, Letterboxd, IMDb order', () => {
+test('builds exact movie links in TMDB, Letterboxd, IMDb, Box Office Mojo order', () => {
   assert.deepEqual(buildMovieExternalLinks(550, 'tt0137523'), [
     {
       destination: 'tmdb',
@@ -19,6 +19,26 @@ test('builds exact movie links in TMDB, Letterboxd, IMDb order', () => {
       destination: 'imdb',
       label: 'IMDb',
       url: 'https://www.imdb.com/title/tt0137523/',
+    },
+    {
+      destination: 'boxofficemojo',
+      label: 'Box Office',
+      url: 'https://www.boxofficemojo.com/title/tt0137523/?ref_=bo_rl_rl',
+    },
+  ])
+})
+
+test('builds the exact Box Office Mojo URL for the supplied IMDb example', () => {
+  assert.deepEqual(buildMovieExternalLinks(null, 'tt4154796'), [
+    {
+      destination: 'imdb',
+      label: 'IMDb',
+      url: 'https://www.imdb.com/title/tt4154796/',
+    },
+    {
+      destination: 'boxofficemojo',
+      label: 'Box Office',
+      url: 'https://www.boxofficemojo.com/title/tt4154796/?ref_=bo_rl_rl',
     },
   ])
 })
@@ -42,8 +62,18 @@ test('omits unavailable destinations without placeholders', () => {
       label: 'IMDb',
       url: 'https://www.imdb.com/title/tt0137523/',
     },
+    {
+      destination: 'boxofficemojo',
+      label: 'Box Office',
+      url: 'https://www.boxofficemojo.com/title/tt0137523/?ref_=bo_rl_rl',
+    },
   ])
   assert.deepEqual(buildMovieExternalLinks(null, null), [])
+  assert.deepEqual(buildMovieExternalLinks(undefined, undefined), [])
+  assert.deepEqual(
+    buildMovieExternalLinks(550, undefined),
+    buildMovieExternalLinks(550, null),
+  )
 })
 
 test('rejects unsafe TMDB and malformed IMDb identifiers', () => {
@@ -68,8 +98,14 @@ test('rejects unsafe TMDB and malformed IMDb identifiers', () => {
     'tt0137523 ',
     'https://www.imdb.com/title/tt0137523/',
   ]
-  for (const imdbId of invalidImdbIds)
+  for (const imdbId of invalidImdbIds) {
     assert.deepEqual(buildMovieExternalLinks(null, imdbId), [], imdbId)
+    assert.deepEqual(
+      buildMovieExternalLinks(550, imdbId),
+      buildMovieExternalLinks(550, null),
+      imdbId,
+    )
+  }
 })
 
 test('menu exposes safe links and accessible menu-button semantics', async () => {
@@ -102,9 +138,11 @@ test('menu renders every service logo decoratively beside its visible label', as
   assert.match(component, /IMDb_logo\.svg\?no-inline/u)
   assert.match(component, /letterboxd_logo\.svg\?no-inline/u)
   assert.match(component, /logo_tmdb\.svg\?no-inline/u)
+  assert.match(component, /box_office_mojo\.webp\?no-inline/u)
   assert.match(component, /tmdb: tmdbLogo/u)
   assert.match(component, /letterboxd: letterboxdLogo/u)
   assert.match(component, /imdb: imdbLogo/u)
+  assert.match(component, /boxofficemojo: boxOfficeMojoLogo/u)
   assert.match(
     component,
     /aria-hidden="true"\s*>\s*<img\s+:src="serviceLogos\[link\.destination\]"\s+alt=""/u,

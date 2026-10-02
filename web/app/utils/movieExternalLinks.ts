@@ -1,4 +1,8 @@
-export type MovieExternalLinkDestination = 'tmdb' | 'letterboxd' | 'imdb'
+export type MovieExternalLinkDestination =
+  | 'tmdb'
+  | 'letterboxd'
+  | 'imdb'
+  | 'boxofficemojo'
 
 export interface MovieExternalLink {
   destination: MovieExternalLinkDestination
@@ -30,11 +34,18 @@ export function buildMovieExternalLinks(
   }
 
   if (imdbId && CANONICAL_IMDB_ID.test(imdbId)) {
-    links.push({
-      destination: 'imdb',
-      label: 'IMDb',
-      url: `https://www.imdb.com/title/${imdbId}/`,
-    })
+    links.push(
+      {
+        destination: 'imdb',
+        label: 'IMDb',
+        url: `https://www.imdb.com/title/${imdbId}/`,
+      },
+      {
+        destination: 'boxofficemojo',
+        label: 'Box Office',
+        url: `https://www.boxofficemojo.com/title/${imdbId}/?ref_=bo_rl_rl`,
+      },
+    )
   }
 
   return links
