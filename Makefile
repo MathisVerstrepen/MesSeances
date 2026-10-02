@@ -53,7 +53,7 @@ test-race:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-race
 
 test-integration:
-	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-integration
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-integration --disposable-database
 
 lint:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-lint

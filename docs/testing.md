@@ -40,7 +40,8 @@ Independent cheap checks continue after another fails or blocks. Build is blocke
 | Web lint | Node/npm, installed pinned Oxlint |
 | Build | Make, Go graph/cache, Node/npm and installed pinned Nuxt; not test/lint tools |
 | Tooling unit | Existing Python unittest suite, Bash, jq |
-| Integration | Explicit disposable loopback PostgreSQL 18 URI, installed psql, reachable DB and database CREATE privilege |
+| Integration via Make | Reachable local Docker daemon, `postgres:18-alpine` image (pulled only if absent), adequate tmpfs memory; no host psql |
+| Direct manual integration | Explicit disposable loopback PostgreSQL 18 URI, installed psql, reachable DB and database CREATE privilege |
 | Browser preflight | Node/global WebSocket, executable Chrome `--version`, existing default fixture/web services |
 
 Prerequisites are deduplicated within an invocation, never reused from prior reports. Go probes use `go list -mod=readonly -tags=nodynamic -deps -test` for the selected graph, not compilation or test execution. Frontend probes inspect relevant installed package metadata/executables without running install or `nuxt prepare`. A missing prerequisite blocks affected checks only.
@@ -49,14 +50,32 @@ Go execution fixes `GOENV=off`, `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOSUMDB=off
 
 ## Integration and browser boundaries
 
-Configure `TEST_DATABASE_URL` in your environment for an approved disposable loopback PostgreSQL 18 database, then:
+Run canonical integration with an automatically owned disposable database:
+
+```sh
+make test-integration
+# Equivalent explicit lifecycle; never enabled by ordinary preflight/check:
+python3 scripts/validate.py run --check go-integration --disposable-database
+```
+
+The finite `--disposable-database` option is valid only for `run --check go-integration`. Other Go prerequisites must pass before creation. Docker server availability is checked, then the image is inspected; only an absent image triggers explicit `docker pull postgres:18-alpine` dependency setup (up to 300 seconds). Initial image download requires network access. Existing images are not refreshed or deleted. Go/npm execution remains offline. The daemon must publish loopback ports reachable from the runner; remote Docker hosts are not automatically forwarded or repaired.
+
+Each invocation reserves a unique name and run label, creates a stopped container with `--pull=never`, maps `127.0.0.1::5432`, mounts `/var/lib/postgresql` as tmpfs (the PostgreSQL 18 data root), then captures and verifies its full container ID, exact name, label, and image before starting. Concurrent runs share neither container nor host port. No Compose project, persistent volume, existing database, or Docker prune is used. Generated password is supplied to Docker via environment-variable names without values in argv; the owned URL is injected only into the integration test child's private environment, ignoring inherited `TEST_DATABASE_URL` and libpq overrides. Docker administrators can inspect container credentials while it exists; the Docker daemon must be trusted.
+
+Readiness uses the container's `psql` through `docker exec`, password via private environment, read-only server version/CREATE privilege query, and bounded connection/statement/process timeouts. No host psql is required. Create is bounded to 120 seconds, start to 60, readiness to 60 plus a final probe of at most 10, and other Docker operations to 30 each. Readiness retries only connection startup, never tests. Existing fixtures remain authoritative for DDL/migration coverage and schema cleanup. Integration tests need enough memory for their tmpfs database; no filesystem-backed fallback is inferred.
+
+Disposal stops the active test process group first, re-verifies exact ownership, removes only that full container ID with `docker rm --force`, then separately verifies absence. A failed inspect is not proof of absence: a successful exact-name container listing must confirm none. Cleanup runs on success, failed tests, create/start/readiness errors, and SIGINT/SIGTERM. Signals during create are deferred until its bounded completion/ID acquisition to avoid killing the client while Docker creates the container; missing ID is recovered only through verified exact name/label/image. Repeated signals are ignored during bounded cleanup/finalization. Cleanup can take up to five 30-second Docker operations. Cleanup failure makes an otherwise successful run nonzero, while original failed test/signal exit is preserved. Lifecycle argv, timestamps, real exits, private logs, owned identity, and cleanup disposition appear in `database_lifecycle` in the existing report; passwords/URLs and full Docker environment inspection never do.
+
+SIGKILL, host failure, Docker daemon loss, or a create request still unresolved after its timeout cannot guarantee disposal. Inspect `database_lifecycle.name`, `label`, and `container_id` and verify exact ownership before manual removal; never prune resources or delete unrelated containers/volumes. Failed or unverifiable cleanup is reported, not silently treated as success.
+
+Direct manual selection remains separate: configure `TEST_DATABASE_URL` for an approved disposable loopback PostgreSQL 18 database and host psql, then use:
 
 ```sh
 python3 scripts/validate.py preflight --check go-integration
-make test-integration
+python3 scripts/validate.py run --check go-integration
 ```
 
-Supported URI schemes are `postgres`/`postgresql`, with username, nonempty database, loopback host (`localhost` or loopback IP), optional port, and optional `sslmode` only. Unsupported/malformed options block rather than guessing. Credentials are passed through private child libpq environment, never argv or metadata. Probe disables implicit password/service files and conflicting ambient libpq settings; `psql -X -w` reads server version and CREATE privilege with connection/statement/process timeouts and read-only transactions. Preflight never creates schemas, applies migrations, resets fixtures, or starts PostgreSQL. Test fixtures remain authoritative for DDL/migration coverage and cleanup.
+Supported URI schemes are `postgres`/`postgresql`, with username, nonempty database, loopback host (`localhost` or loopback IP), optional port, and optional `sslmode` only. Unsupported/malformed options block rather than guessing. Credentials are passed through private child libpq environment, never argv or metadata. Probe disables implicit password/service files and conflicting ambient libpq settings; `psql -X -w` reads server version and CREATE privilege with bounded read-only queries. This mode never creates/disposes a container or drops the operator's database. Ordinary preflight never creates schemas, applies migrations, resets fixtures, or starts PostgreSQL.
 
 Canonical packages, in existing CI order:
 
@@ -64,7 +83,7 @@ Canonical packages, in existing CI order:
 ./internal/database ./internal/publicmoviepg ./internal/schedulepg ./internal/enrichment ./internal/synccontrol ./internal/syncschedule ./internal/shortlink ./internal/accounts ./internal/accountmail ./cmd/api
 ```
 
-Command retains `-tags=nodynamic -run Integration$ -count=1`. This intentionally matches existing CI, not every integration package in the repository. Existing account-specific commands remain separate. Go CI prepares application dependencies and gotestsum online, then checks runner-provided `psql` with `command -v psql`; missing client fails visibly, never triggers silent package installation. If runner image changes and lacks psql/Python, environment owner must explicitly prepare those prerequisites before checks.
+Command retains `-tags=nodynamic -run Integration$ -count=1`. This intentionally matches existing CI, not every integration package in the repository. Existing account-specific commands remain separate. Go CI prepares application dependencies and gotestsum online, then runs the same self-managed Make target without a fixed-port service, inherited database URL, or host-psql installation. Missing Docker/Python prerequisites fail visibly, never trigger sudo or silent system-package installation.
 
 ```sh
 python3 scripts/validate.py preflight --browser-accounts

@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import secrets
 import shutil
 import signal
 import stat
@@ -47,6 +48,8 @@ CHECK_IDS = (
 )
 DEFAULT_CHECKS = CHECK_IDS[1:8]
 GO_TEST_CHECKS = {"go-unit", "go-race", "go-integration"}
+DATABASE_IMAGE = "postgres:18-alpine"
+DATABASE_LABEL = "fr.messeances.validation.run"
 OFFLINE_GO = {
     "GOENV": "off", "GOTOOLCHAIN": "local", "GOPROXY": "off", "GOSUMDB": "off",
     "GOPRIVATE": "", "GONOPROXY": "none", "GOFLAGS": "-mod=readonly",
@@ -362,16 +365,21 @@ def browser_http_probe():
 class Run:
     """One invocation, one private directory. No report reuse or scheduling."""
 
-    def __init__(self, root, selection, kind="validation", packages=(), go_run=None, browser=False):
+    def __init__(self, root, selection, kind="validation", packages=(), go_run=None, browser=False, disposable=False):
         self.root = root
         self.selection = selection
         self.packages = packages
         self.go_run = go_run
         self.browser = browser
-        self.env = offline_environment("go-integration" in selection)
+        self.disposable = disposable
+        self.env = offline_environment("go-integration" in selection and not disposable)
         self.started = time.monotonic()
         self.child = None
         self.interrupted = None
+        self.spawning = False
+        self.creating = False
+        self.cleaning = False
+        self.cleanup_evidence_failed = False
         self.probes = {}
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid.uuid4().hex
         parent = root / "tmp/validation"
@@ -393,6 +401,14 @@ class Run:
             "selection": {"checks": list(selection), "go_packages": list(packages), "go_run": go_run, "browser_accounts": browser},
             "preflight": [], "checks": [], "report_path": str(self.report_path.relative_to(root)), "artifacts": [],
         }
+        if disposable:
+            self.report["selection"]["disposable_database"] = True
+            self.report["database_lifecycle"] = {
+                "image": DATABASE_IMAGE, "name": "messeances-validation-" + run_id.lower(),
+                "label": DATABASE_LABEL + "=" + run_id, "container_id": None,
+                "creation_attempted": False, "status": "pending", "commands": [],
+                "cleanup": {"status": "not_needed", "reason": "not_created"},
+            }
         for check_id in CHECK_IDS:
             argv, cwd = check_command(root, self.directory, check_id, packages, go_run)
             self.report["checks"].append({
@@ -404,6 +420,15 @@ class Run:
         self.save()
 
     def save(self):
+        try:
+            self.write_report()
+        except OSError:
+            # Evidence failure must not prevent exact owned-resource disposal.
+            if not self.cleaning:
+                raise
+            self.cleanup_evidence_failed = True
+
+    def write_report(self):
         temporary = self.directory / "report.partial"
         with temporary.open("w", encoding="utf-8") as stream:
             os.chmod(temporary, 0o600)
@@ -423,9 +448,16 @@ class Run:
             with paths[0].open("xb") as stdout, paths[1].open("xb") as stderr:
                 for path in paths:
                     os.chmod(path, 0o600)
-                self.child = subprocess.Popen(argv, cwd=cwd, env=env or self.env, stdout=stdout, stderr=stderr, start_new_session=True)
-                record["started_at"] = now()
                 try:
+                    # Handler defers signals until the process group is owned.
+                    self.spawning = True
+                    try:
+                        self.child = subprocess.Popen(argv, cwd=cwd, env=env or self.env, stdout=stdout, stderr=stderr, start_new_session=True)
+                        record["started_at"] = now()
+                    finally:
+                        self.spawning = False
+                    if self.interrupted and not self.creating and not self.cleaning:
+                        raise Interrupted(self.interrupted - 128)
                     record["returncode"] = self.child.wait(timeout=timeout)
                     complete = True
                 except subprocess.TimeoutExpired:
@@ -442,6 +474,8 @@ class Run:
             reason = "command_unavailable"
             record.setdefault("returncode", None)
         finally:
+            if self.child is not None and self.child.poll() is None:
+                self.stop_child()
             self.child = None
             if record.get("started_at") is not None:
                 record.update(finished_at=now(), duration_ms=round((time.monotonic() - started) * 1000))
@@ -578,6 +612,9 @@ class Run:
             output = self.probe_command(record, args, env=env)
         except ValidationError as exc:
             raise ValidationError("database_unavailable") from exc
+        self.database_result(output)
+
+    def database_result(self, output):
         match = re.fullmatch(r"\s*(\d+)\|([tf])\s*", output)
         if not match:
             raise ValidationError("database_unavailable")
@@ -587,6 +624,145 @@ class Run:
             raise ValidationError("database_version_mismatch")
         if match[2] != "t":
             raise ValidationError("database_permission_missing")
+
+    def docker_version(self, record):
+        self.version(record, "docker", ["version", "--format", "{{.Server.Version}}"], r"^(\d+\.\d+\.\d+)\s*$")
+
+    def lifecycle_command(self, name, args, env=None, timeout=30):
+        lifecycle = self.report["database_lifecycle"]
+        record = {"id": f"database-{len(lifecycle['commands']):03d}-{name}", "status": "blocked", "returncode": None, "normalized_exit": None, "started_at": None, "finished_at": None, "duration_ms": None, "artifacts": []}
+        lifecycle["commands"].append(record)
+        try:
+            command_env = env if env is not None else {k: value for k, value in self.env.items() if k != "TEST_DATABASE_URL"}
+            reason = self.process(record, [self.executable("docker"), *args], self.root, command_env, timeout)
+            record["status"] = "passed" if reason == "complete" and record["returncode"] == 0 else "failed"
+        finally:
+            self.save()
+        output = (self.directory / f"{record['id']}.stdout.log").read_text(encoding="utf-8")
+        return record, output
+
+    def owned_identity(self, phase):
+        lifecycle = self.report["database_lifecycle"]
+        # Never capture Docker Config.Env, which contains the ephemeral password.
+        template = '[{{json .Id}},{{json .Name}},{{json (index .Config.Labels "' + DATABASE_LABEL + '")}},{{json .Config.Image}}]'
+        record, text = self.lifecycle_command(phase + "-identity", ["inspect", "--format", template, lifecycle["name"]])
+        if record["status"] != "passed":
+            # A failing inspect alone cannot prove absence (daemon may be down).
+            record, text = self.lifecycle_command(phase + "-absence", ["ps", "-a", "--no-trunc", "--filter", "name=^/" + lifecycle["name"] + "$", "--format", "{{.ID}}"])
+            if record["status"] == "passed" and not text.strip():
+                return None
+            raise ValidationError("database_ownership_unverifiable")
+        try:
+            identity = json.loads(text)
+        except ValueError as exc:
+            raise ValidationError("database_ownership_unverifiable") from exc
+        expected_id = lifecycle["container_id"]
+        if (not isinstance(identity, list) or len(identity) != 4 or not isinstance(identity[0], str) or not re.fullmatch(r"[a-f0-9]{64}", identity[0])
+                or identity[1:] != ["/" + lifecycle["name"], self.report["run_id"], DATABASE_IMAGE]
+                or (expected_id is not None and identity[0] != expected_id)):
+            raise ValidationError("database_ownership_mismatch")
+        # Also recover ownership if interrupted before create returned its ID.
+        lifecycle["container_id"] = identity[0]
+        self.save()
+        return identity[0]
+
+    def start_database(self, record):
+        lifecycle = self.report["database_lifecycle"]
+        try:
+            image, _ = self.lifecycle_command("image", ["image", "inspect", "--format", "{{.Id}}", DATABASE_IMAGE])
+            if image["status"] != "passed":
+                if image["reason"] != "complete":
+                    raise ValidationError("database_image_unavailable")
+                # The only online dependency setup inside this explicit lifecycle.
+                pull, _ = self.lifecycle_command("pull", ["pull", DATABASE_IMAGE], timeout=300)
+                if pull["status"] != "passed":
+                    raise ValidationError("database_image_unavailable")
+            password = secrets.token_hex(32)
+            docker_env = dict(self.env, POSTGRES_USER="validation", POSTGRES_DB="validation", POSTGRES_PASSWORD=password, POSTGRES_HOST_AUTH_METHOD="scram-sha-256")
+            lifecycle.update(creation_attempted=True, status="creating")
+            self.save()
+            # Do not kill create on a signal: Docker may complete the server-side
+            # request after its CLI dies. Wait boundedly and acquire identity first.
+            self.creating = True
+            try:
+                created, text = self.lifecycle_command("create", [
+                    "create", "--pull=never", "--name", lifecycle["name"], "--label", lifecycle["label"],
+                    "--publish", "127.0.0.1::5432", "--tmpfs", "/var/lib/postgresql:rw",
+                    "--env", "POSTGRES_USER", "--env", "POSTGRES_DB", "--env", "POSTGRES_PASSWORD",
+                    "--env", "POSTGRES_HOST_AUTH_METHOD", DATABASE_IMAGE,
+                ], docker_env, timeout=120)
+                if created["status"] != "passed" or not re.fullmatch(r"[a-f0-9]{64}\s*", text):
+                    raise ValidationError("database_creation_failed")
+                lifecycle["container_id"] = text.strip()
+                self.save()
+            finally:
+                self.creating = False
+                if self.interrupted:
+                    raise Interrupted(self.interrupted - 128)
+            container_id = self.owned_identity("startup")
+            if container_id is None:
+                raise ValidationError("database_creation_failed")
+            started, _ = self.lifecycle_command("start", ["start", container_id], timeout=60)
+            if started["status"] != "passed":
+                raise ValidationError("database_start_failed")
+            port_record, port_text = self.lifecycle_command("port", ["inspect", "--format", '{{json (index .NetworkSettings.Ports "5432/tcp")}}', container_id])
+            ports = json.loads(port_text) if port_record["status"] == "passed" else None
+            if (not isinstance(ports, list) or len(ports) != 1 or not isinstance(ports[0], dict) or ports[0].get("HostIp") != "127.0.0.1"
+                    or not re.fullmatch(r"[0-9]{1,5}", ports[0].get("HostPort", ""))
+                    or not 0 < int(ports[0]["HostPort"]) < 65536):
+                raise ValidationError("database_port_unavailable")
+            probe_env = dict(self.env, PGPASSWORD=password, PGCONNECT_TIMEOUT="5", PGOPTIONS="-c statement_timeout=5000 -c default_transaction_read_only=on -c search_path=pg_catalog")
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                probe, output = self.lifecycle_command("ready", [
+                    "exec", "--env", "PGPASSWORD", "--env", "PGCONNECT_TIMEOUT", "--env", "PGOPTIONS", container_id,
+                    "psql", "-h", "127.0.0.1", "-U", "validation", "-d", "validation", "-X", "-w", "-q", "-A", "-t",
+                    "-v", "ON_ERROR_STOP=1", "-c", "SELECT current_setting('server_version_num'), has_database_privilege(current_user, current_database(), 'CREATE');",
+                ], probe_env, timeout=10)
+                if probe["status"] == "passed":
+                    self.database_result(output)
+                    break
+                time.sleep(0.25)
+            else:
+                raise ValidationError("database_readiness_timeout")
+            for key in list(self.env):
+                if key.startswith("PG"):
+                    self.env.pop(key)
+            self.env["TEST_DATABASE_URL"] = f"postgres://validation:{password}@127.0.0.1:{ports[0]['HostPort']}/validation?sslmode=disable"
+            self.report["environment"]["database_configured"] = True
+            lifecycle["status"] = "ready"
+        except (ValidationError, OSError, ValueError, TypeError, AttributeError):
+            lifecycle["status"] = "blocked"
+            raise
+        finally:
+            self.save()
+
+    def cleanup_database(self):
+        lifecycle = self.report.get("database_lifecycle")
+        if lifecycle is None or not lifecycle["creation_attempted"]:
+            return
+        cleanup = lifecycle["cleanup"]
+        self.cleaning = True
+        cleanup.update(status="failed", reason="database_cleanup_failed", started_at=now())
+        started = time.monotonic()
+        try:
+            container_id = self.owned_identity("cleanup")
+            if container_id is not None:
+                record, _ = self.lifecycle_command("remove", ["rm", "--force", container_id])
+                if record["status"] != "passed":
+                    raise ValidationError("database_cleanup_failed")
+                if self.owned_identity("removed") is not None:
+                    raise ValidationError("database_cleanup_failed")
+            cleanup.update(status="passed", reason="owned_container_absent")
+        except (ValidationError, OSError, ValueError, subprocess.SubprocessError) as exc:
+            cleanup["reason"] = str(exc) if isinstance(exc, ValidationError) else "database_cleanup_failed"
+        finally:
+            self.env.pop("TEST_DATABASE_URL", None)
+            cleanup.update(finished_at=now(), duration_ms=round((time.monotonic() - started) * 1000))
+            self.save()
+            if self.cleanup_evidence_failed:
+                cleanup.update(status="failed", reason="database_cleanup_evidence_unavailable")
+            self.cleaning = False
 
     def browser_prerequisites(self):
         node = self.probe("node", lambda r: self.version(r, "node", ["--version"], r"^v(\d+\.\d+\.\d+)\s*$", "22.23.1"))
@@ -632,7 +808,7 @@ class Run:
                 if check_id == "go-race":
                     okay &= need("race", self.race)
             if check_id == "go-integration":
-                okay &= need("database", self.database)
+                okay &= need("docker", self.docker_version) if self.disposable else need("database", self.database)
         if check_id.startswith("web-") or check_id in ("format", "build"):
             okay &= need("node", lambda r: self.version(r, "node", ["--version"], r"^v(\d+\.\d+\.\d+)\s*$", "22.23.1"))
             okay &= need("npm", lambda r: self.version(r, "npm", ["--version"], r"^(\d+\.\d+\.\d+)\s*$", "10.9.8"))
@@ -694,19 +870,26 @@ class Run:
             if changed and status != "failed":
                 status = "blocked"
         actual_failure = next((c["normalized_exit"] for c in selected if c["returncode"] is not None and c["returncode"] != 0), None)
+        if self.report.get("database_lifecycle", {}).get("cleanup", {}).get("status") == "failed":
+            status = "failed"
         code = exit_override if exit_override is not None else actual_failure or (0 if status == "passed" else 1)
         if exit_override is not None:
             status = "blocked" if status != "failed" else status
         self.report.update(status=status, runner_exit_code=code, finished_at=now(), duration_ms=round((time.monotonic() - self.started) * 1000))
-        self.report["artifacts"] = [a for r in self.report["preflight"] + self.report["checks"] for a in r["artifacts"]]
+        records = self.report["preflight"] + self.report["checks"] + self.report.get("database_lifecycle", {}).get("commands", [])
+        self.report["artifacts"] = [a for r in records for a in r["artifacts"]]
         self.save()
         print(f"{self.report['kind']}: {status}; report: {self.report['report_path']}")
         return code
 
     def run(self):
         previous = {}
+        exit_override = None
         def interrupt(signum, frame):
-            raise Interrupted(signum)
+            if self.spawning or self.creating:
+                self.interrupted = self.interrupted or 128 + signum
+            else:
+                raise Interrupted(signum)
         for sig in (signal.SIGINT, signal.SIGTERM):
             previous[sig] = signal.signal(sig, interrupt)
         try:
@@ -727,21 +910,32 @@ class Run:
                     check.update(status="skipped", reason="preflight_only")
                 elif check["id"] == "build" and any(c["selected"] and c["id"] in DEFAULT_CHECKS and c["id"] != "build" and c["status"] != "passed" for c in self.report["checks"]):
                     check.update(status="blocked", reason="cheap_checks_unsuccessful")
+                elif self.disposable and not self.probe("owned-database", self.start_database):
+                    check.update(status="blocked", reason="prerequisite_unavailable")
                 else:
                     self.execute_check(check)
                 self.save()
             if self.browser:
                 self.browser_prerequisites()
-            return self.finish()
         except Interrupted as exc:
             self.interrupted = exc.exit_code
+            exit_override = exc.exit_code
             for check in self.report["checks"]:
                 if check["selected"] and check["status"] == "skipped" and check["reason"] == "not_selected":
                     check.update(status="blocked", reason="interrupted")
-            return self.finish(exc.exit_code)
         finally:
-            for sig, handler in previous.items():
-                signal.signal(sig, handler)
+            # Repeated signals cannot interrupt disposal; every Docker cleanup
+            # command remains bounded. SIGKILL/host loss cannot be recovered here.
+            for sig in previous:
+                signal.signal(sig, signal.SIG_IGN)
+            try:
+                self.stop_child()
+                self.cleanup_database()
+                result = self.finish(exit_override)
+            finally:
+                for sig, handler in previous.items():
+                    signal.signal(sig, handler)
+        return result
 
 
 def install_tools(tools, root=ROOT):
@@ -756,7 +950,10 @@ def install_tools(tools, root=ROOT):
         return run.finish()
     previous = {}
     def interrupt(signum, frame):
-        raise Interrupted(signum)
+        if run.spawning:
+            run.interrupted = run.interrupted or 128 + signum
+        else:
+            raise Interrupted(signum)
     for sig in (signal.SIGINT, signal.SIGTERM):
         previous[sig] = signal.signal(sig, interrupt)
     try:
@@ -798,6 +995,8 @@ def parser():
         sub.add_argument("--go-run", help="Go test name regex; single go-unit or go-race only")
         if name == "preflight":
             sub.add_argument("--browser-accounts", action="store_true", help="Existing default account fixture only; starts nothing")
+        else:
+            sub.add_argument("--disposable-database", action="store_true", help="Own and dispose Docker PostgreSQL 18; single go-integration only")
     return cli
 
 
@@ -810,6 +1009,9 @@ def main(argv=None):
             return install_tools(tuple(dict.fromkeys(args.tool or TOOL_PINS)))
         browser = getattr(args, "browser_accounts", False)
         selection = tuple(c for c in CHECK_IDS if c in (args.check or (() if browser else DEFAULT_CHECKS)))
+        disposable = getattr(args, "disposable_database", False)
+        if disposable and selection != ("go-integration",):
+            cli.error("disposable database scope")
         if args.go_package or args.go_run is not None:
             if len(selection) != 1 or selection[0] not in ("go-unit", "go-race"):
                 cli.error("selector scope")
@@ -818,7 +1020,7 @@ def main(argv=None):
                     cli.error("package")
             if args.go_run is not None and (len(args.go_run) > 512 or any(ord(c) < 32 for c in args.go_run)):
                 cli.error("filter")
-        return Run(ROOT, selection, kind="preflight" if args.command == "preflight" else "validation", packages=tuple(args.go_package or ()), go_run=args.go_run, browser=browser).run()
+        return Run(ROOT, selection, kind="preflight" if args.command == "preflight" else "validation", packages=tuple(args.go_package or ()), go_run=args.go_run, browser=browser, disposable=disposable).run()
     except (ValidationError, OSError, ValueError, subprocess.SubprocessError):
         # Never leak paths/credentials/child output via exception formatting.
         print("validation: blocked; evidence or prerequisite unavailable", file=sys.stderr)

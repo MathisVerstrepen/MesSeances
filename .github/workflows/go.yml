@@ -73,23 +73,7 @@ jobs:
   integration:
     name: Go CI / integration
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_DB: movieflow
-          POSTGRES_USER: movieflow
-          POSTGRES_PASSWORD: movieflow
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U movieflow -d movieflow"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      TEST_DATABASE_URL: postgres://movieflow:movieflow@localhost:5432/movieflow?sslmode=disable
-      GOFLAGS: -tags=nodynamic
+    timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -104,7 +88,5 @@ jobs:
         run: go mod download
       - name: Install pinned test reporter
         run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py install-tools --tool gotestsum
-      - name: Verify PostgreSQL client prerequisite
-        run: command -v psql
       - name: PostgreSQL integration tests
         run: make test-integration

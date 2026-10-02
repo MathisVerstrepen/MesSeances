@@ -43,7 +43,7 @@ make install
 cp deploy/.env.example deploy/.env
 ```
 
-`make install` prepares application dependencies and installs gotestsum v1.13.0 and golangci-lint v2.13.1 into ignored `api/bin/`. This online setup may acquire a Go 1.26+ compiler for the linter; the application module remains Go 1.25.13. `make install-tools` prepares only these tools. Checks never download missing tools or dependencies; rerun setup explicitly when preflight reports a missing prerequisite.
+`make install` prepares application dependencies and installs gotestsum v1.13.0 and golangci-lint v2.13.1 into ignored `api/bin/`. This online setup may acquire a Go 1.26+ compiler for the linter; the application module remains Go 1.25.13. `make install-tools` prepares only these tools. Checks never download missing Go/npm tools or dependencies; rerun setup explicitly when preflight reports a missing prerequisite. Explicit `make test-integration` may pull its disposable `postgres:18-alpine` image if absent and requires a reachable local Docker daemon, not a host PostgreSQL client.
 
 MesSeances can start after migrations without a complete schedule snapshot. In this pending state, `/healthz` returns `200`, `/readyz` returns `503`, and public schedule reads return `503 schedule_unavailable`. Configure `ADMIN_PASSWORD`, an independently generated `ADMIN_SESSION_SECRET`, and `PROXY_FILE`, then trigger the first provider synchronization from the authenticated admin area. Its atomic snapshot publication becomes visible to the running API during the next five-second source poll; no restart is required.
 
@@ -241,13 +241,11 @@ Focused Go feedback and canonical integration are separate:
 ```sh
 python3 scripts/validate.py run --check go-unit --go-package ./internal/config
 make test-race
-# First configure TEST_DATABASE_URL in your environment for an approved disposable
-# loopback PostgreSQL 18 database; install psql separately if unavailable.
-python3 scripts/validate.py preflight --check go-integration
+# Automatically creates and removes its own PostgreSQL 18 Docker container.
 make test-integration
 ```
 
-Integration preserves the existing ten-package CI selection, applies migrations through existing isolated-schema fixtures, and needs a role with database CREATE privilege. Preflight only reads server version/privilege, never starts services or changes schemas. CI checks runner-provided `psql` explicitly rather than silently installing it. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); existing browser setup remains in the [accounts runbook](docs/accounts.md#validation).
+Integration preserves the existing ten-package CI selection and applies migrations through existing isolated-schema fixtures. Make and CI use a uniquely owned `postgres:18-alpine` container with a Docker-assigned loopback port, tmpfs data, and generated private credentials; inherited `TEST_DATABASE_URL` is ignored. Readiness uses `docker exec psql`, with no host client or Compose database. Exact ownership is verified before disposal on success, failure, and SIGINT/SIGTERM. Cleanup failure cannot pass; SIGKILL/host failure cannot guarantee cleanup. Direct runner integration against an operator-provided disposable database remains separate and requires host psql; ordinary preflight remains read-only. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); existing browser setup remains in the [accounts runbook](docs/accounts.md#validation).
 
 For a deliberate proxy-only Megarama full-chain contract smoke, run from `api/` with an operator-supplied proxy file. This opt-in test builds and validates a dataset in memory, logs counts only, and does not publish to a database or call TMDB/IGN. Ordinary tests skip it when the variable is unset:
 
