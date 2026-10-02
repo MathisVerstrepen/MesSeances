@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check format install lint prod screenshot test web-vitals
+.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration web-vitals
 
 SHELL := /bin/bash
 
@@ -22,13 +22,20 @@ prod:
 install:
 	cd api && go mod download
 	npm --prefix web install
+	$(MAKE) install-tools
+
+install-tools:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py install-tools
+
+preflight:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py preflight
 
 format:
 	cd api && gofmt -w .
 	npm --prefix web run format
 
 fmt-check:
-	@cd api && unformatted="$$(gofmt -l .)"; \
+	@cd api && unformatted="$$(gofmt -l .)" || exit $$?; \
 	if [ -n "$$unformatted" ]; then \
 		printf '%s\n' "$$unformatted"; \
 		exit 1; \
@@ -36,19 +43,27 @@ fmt-check:
 	npm --prefix web run format:check
 
 test:
-	cd api && go test -tags=nodynamic ./...
+	$(MAKE) test-go
 	npm --prefix web run test:unit
 
+test-go:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-unit
+
+test-race:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-race
+
+test-integration:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-integration
+
 lint:
-	cd api && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 run
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-lint
 
 build:
 	cd api && go build -tags=nodynamic ./...
 	npm --prefix web run build
 
-check: fmt-check test lint build
-	npm --prefix web run typecheck
-	npm --prefix web run lint
+check:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run
 
 dev:
 	@set -eu; \
