@@ -31,6 +31,7 @@ Account registration and private settings are implemented behind `ACCOUNTS_ENABL
 
 - Go 1.25.13
 - Node.js 22.23.1 and npm 10.9.8 (verified versions)
+- Python 3.12+ and Make for contributor validation
 - Docker with Docker Compose
 - PostgreSQL 18
 - A valid proxy file to enable provider synchronization from the admin area
@@ -38,11 +39,11 @@ Account registration and private settings are implemented behind `ACCOUNTS_ENABL
 Install dependencies from the repository root:
 
 ```sh
-cd api && go mod download
-cd ..
-npm --prefix web install
+make install
 cp deploy/.env.example deploy/.env
 ```
+
+`make install` prepares application dependencies and installs gotestsum v1.13.0 and golangci-lint v2.13.1 into ignored `api/bin/`. This online setup may acquire a Go 1.26+ compiler for the linter; the application module remains Go 1.25.13. `make install-tools` prepares only these tools. Checks never download missing Go/npm tools or dependencies; rerun setup explicitly when preflight reports a missing prerequisite. Explicit `make test-integration` may pull its disposable `postgres:18-alpine` image if absent and requires a reachable local Docker daemon, not a host PostgreSQL client.
 
 MesSeances can start after migrations without a complete schedule snapshot. In this pending state, `/healthz` returns `200`, `/readyz` returns `503`, and public schedule reads return `503 schedule_unavailable`. Configure `ADMIN_PASSWORD`, an independently generated `ADMIN_SESSION_SECRET`, and `PROXY_FILE`, then trigger the first provider synchronization from the authenticated admin area. Its atomic snapshot publication becomes visible to the running API during the next five-second source poll; no restart is required.
 
@@ -223,19 +224,28 @@ See [development and release operation](docs/releasing.md) for exact worktree co
 
 API builds and direct avatar/account test commands require `-tags=nodynamic` to use the pinned CGO-free WebP encoder rather than a host library. Makefile, Air, CI and Docker supply the tag. Stored avatars are WebP-only; old development PNG references are unsupported and rejected by migration 048 without automatic data deletion. See the [accounts runbook](docs/accounts.md#webp-only-storage).
 
-These offline checks do not run UGC, Kinepolis, Pathé, CGR, or Megarama synchronization and do not make real TMDB or IGN calls:
+After `make install`, the ordinary offline gate preserves Go/frontend unit tests, formatting, lint, typecheck, and builds. Cheap checks precede builds, and Nuxt generation is serial. It removes live-provider and account-browser opt-ins and does not run database integration, provider synchronization, or real TMDB/IGN calls:
 
 ```sh
-python -m unittest discover -s scripts/tests
+make preflight
+make check
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check tooling-unit
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
 docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
-cd api && go test -tags=nodynamic ./...
-cd ..
-npm --prefix web run test:unit
-npm --prefix web run typecheck
-npm --prefix web run lint
-npm --prefix web run build
 ```
+
+Each structured invocation prints a unique `tmp/validation/<run-id>/report.json` path. Reports retain exact commands, source/index fingerprints, versions, observed exits, and test counts; complete stdout/stderr, Go JSONL, and JUnit remain private and ignored beside them. Failed, blocked, skipped, and zero-selected coverage are not passes. Make may return its own wrapper exit 2; inspect the report or invoke the CLI directly for the underlying check exit.
+
+Focused Go feedback and canonical integration are separate:
+
+```sh
+python3 scripts/validate.py run --check go-unit --go-package ./internal/config
+make test-race
+# Automatically creates and removes its own PostgreSQL 18 Docker container.
+make test-integration
+```
+
+Integration preserves the existing ten-package CI selection and applies migrations through existing isolated-schema fixtures. Make and CI use a uniquely owned `postgres:18-alpine` container with a Docker-assigned loopback port, tmpfs data, and generated private credentials; inherited `TEST_DATABASE_URL` is ignored. Readiness uses `docker exec psql`, with no host client or Compose database. Exact ownership is verified before disposal on success, failure, and SIGINT/SIGTERM. Cleanup failure cannot pass; SIGKILL/host failure cannot guarantee cleanup. Direct runner integration against an operator-provided disposable database remains separate and requires host psql; ordinary preflight remains read-only. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); existing browser setup remains in the [accounts runbook](docs/accounts.md#validation).
 
 For a deliberate proxy-only Megarama full-chain contract smoke, run from `api/` with an operator-supplied proxy file. This opt-in test builds and validates a dataset in memory, logs counts only, and does not publish to a database or call TMDB/IGN. Ordinary tests skip it when the variable is unset:
 
