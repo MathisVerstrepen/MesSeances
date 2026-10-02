@@ -13,16 +13,30 @@ import (
 )
 
 type fixtureGetter struct {
-	config      string
-	programs    map[string]string
-	poster      string
-	posterErr   error
-	mu          sync.Mutex
-	posterCalls int
+	config       string
+	siteConfigs  map[string]string
+	siteErr      error
+	siteCalls    []string
+	programCalls map[string]string
+	programs     map[string]string
+	poster       string
+	posterErr    error
+	mu           sync.Mutex
+	posterCalls  int
 }
 
 func (g *fixtureGetter) Config(context.Context) ([]byte, error) { return []byte(g.config), nil }
+func (g *fixtureGetter) SiteConfig(_ context.Context, id string) ([]byte, error) {
+	g.siteCalls = append(g.siteCalls, id)
+	return []byte(g.siteConfigs[id]), g.siteErr
+}
 func (g *fixtureGetter) Program(_ context.Context, id, website string) ([]byte, error) {
+	g.mu.Lock()
+	if g.programCalls == nil {
+		g.programCalls = map[string]string{}
+	}
+	g.programCalls[id] = website
+	g.mu.Unlock()
 	if !schedule.ValidMegaramaBookingURL(website, id, "") {
 		return nil, errShape
 	}

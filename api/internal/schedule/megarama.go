@@ -27,6 +27,7 @@ var megaramaWebsiteHosts = map[string]string{
 	"EMS1187": "louviers.megarama.fr", "EMS1188": "gaillon.megarama.fr",
 	"EMS1053": "cine-armentieres.fr", "EMS0592": "lepalacecambrai.com",
 	"EMS1348": "les-ulis.megarama.fr", "EMS1366": "cormeilles.megarama.fr",
+	"EMS1379": "ems1379.ticketingcine.com",
 }
 
 // These cinema-specific aliases were verified in full-chain session URLs.

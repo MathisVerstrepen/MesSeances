@@ -36,6 +36,21 @@ func TestMegaramaURLAndIdentityBoundaries(t *testing.T) {
 	}
 }
 
+func TestMegaramaEMS1379VerifiedRoot(t *testing.T) {
+	const root = "https://ems1379.ticketingcine.com/"
+	if !ValidMegaramaBookingURL(root, "EMS1379", "") || !ValidMegaramaBookingURL(root+"#showsession?id=emsx137900000001", "EMS1379", "emsx137900000001") {
+		t.Fatal("verified EMS1379 host rejected")
+	}
+	for _, raw := range []string{"https://saintmartindheres.megarama.fr/", "https://evil.ticketingcine.com/", root + "?EMS1379", root + "?x=1&x=2", root + "#showsession?id=emsx056500000001"} {
+		if ValidMegaramaBookingURL(raw, "EMS1379", "") {
+			t.Fatal("unverified EMS1379 root accepted")
+		}
+	}
+	if ValidMegaramaBookingURL(root, "EMS0565", "") || ValidMegaramaBookingURL("https://bordeaux.megarama.fr/", "EMS1379", "") {
+		t.Fatal("cinema host binding lost")
+	}
+}
+
 func TestMegaramaEffectiveEndSourceTMDBAndUnknown(t *testing.T) {
 	location, _ := time.LoadLocation(Timezone)
 	start := time.Date(2026, 8, 15, 19, 0, 0, 0, location)

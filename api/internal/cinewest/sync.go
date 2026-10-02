@@ -17,12 +17,13 @@ type SyncOptions struct {
 	Now  time.Time
 }
 type SyncSummary struct {
-	Cinemas, Movies, Jobs, Requests, Showtimes int
-	GeneratedAt                                time.Time
+	Cinemas, Movies, Jobs, Requests, Showtimes, Skipped int
+	GeneratedAt                                         time.Time
 }
 type cinemaProgram struct {
 	theater schedule.TheaterRecord
 	shows   []schedule.ShowtimeRecord
+	skipped int
 }
 
 func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (result schedule.Dataset, summary SyncSummary, resultErr error) {
@@ -73,6 +74,7 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (result sch
 		if err := ctx.Err(); err != nil {
 			return result, summary, err
 		}
+		summary.Skipped += p.skipped
 		dates := map[string]bool{}
 		for _, s := range p.shows {
 			if old, ok := seen[s.ID]; ok {

@@ -52,5 +52,23 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 	if len(dataset.Theaters) == 0 || len(dataset.Showtimes) == 0 {
 		t.Fatal("empty live dataset")
 	}
-	t.Logf("cinemas=%d movies=%d requests=%d showtimes=%d", summary.Cinemas, summary.Movies, summary.Requests, summary.Showtimes)
+	emptyCinemas, recoveredShowtimes := 0, 0
+	foundRecovered := false
+	for _, theater := range dataset.Theaters {
+		if len(theater.AvailableDates) == 0 {
+			emptyCinemas++
+		}
+		if theater.ProviderID == "EMS1379" {
+			foundRecovered = true
+		}
+	}
+	if !foundRecovered {
+		t.Fatal("recovered cinema absent from live dataset")
+	}
+	for _, showing := range dataset.Showtimes {
+		if showing.TheaterID == "megarama-EMS1379" {
+			recoveredShowtimes++
+		}
+	}
+	t.Logf("cinemas=%d movies=%d requests=%d showtimes=%d empty_cinemas=%d EMS1379_showtimes=%d", summary.Cinemas, summary.Movies, summary.Requests, summary.Showtimes, emptyCinemas, recoveredShowtimes)
 }

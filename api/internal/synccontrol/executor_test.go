@@ -860,6 +860,7 @@ func validDataset(t *testing.T, provider schedule.Provider, window Window) sched
 type unusedMegaramaGetter struct{}
 
 func (unusedMegaramaGetter) Config(context.Context) ([]byte, error)                  { return nil, nil }
+func (unusedMegaramaGetter) SiteConfig(context.Context, string) ([]byte, error)      { return nil, nil }
 func (unusedMegaramaGetter) Program(context.Context, string, string) ([]byte, error) { return nil, nil }
 func (unusedMegaramaGetter) Poster(context.Context, string) ([]byte, error)          { return nil, nil }
 func (unusedMegaramaGetter) RequestCount() int                                       { return 3 }
