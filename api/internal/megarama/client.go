@@ -74,6 +74,12 @@ func (c *Client) RequestCount() int { return c.executor.RequestCount() }
 func (c *Client) Config(ctx context.Context) ([]byte, error) {
 	return c.request(ctx, OperationConfig, syncproxy.Request{Method: http.MethodGet, URL: ConfigURL, MediaTypes: []string{"text/javascript", "application/javascript"}, NoRedirect: true})
 }
+func (c *Client) SiteConfig(ctx context.Context, id string) ([]byte, error) {
+	if !cinemaID.MatchString(id) {
+		return nil, &RequestError{Operation: OperationConfig, Kind: syncproxy.FailureInvalidURL}
+	}
+	return c.request(ctx, OperationConfig, syncproxy.Request{Method: http.MethodGet, URL: "https://ws.ticketingcine.com/config.js?site_id=" + id, MediaTypes: []string{"text/javascript", "application/javascript"}, NoRedirect: true})
+}
 func (c *Client) Program(ctx context.Context, id, website string) ([]byte, error) {
 	if !schedule.ValidMegaramaBookingURL(website, id, "") {
 		return nil, &RequestError{Operation: OperationProgram, Kind: syncproxy.FailureInvalidURL}
@@ -130,6 +136,9 @@ func allowedURL(u *url.URL) bool {
 	}
 	if u.String() == ConfigURL || u.String() == ProgramURL {
 		return true
+	}
+	if u.Host == "ws.ticketingcine.com" && u.Path == "/config.js" {
+		return strings.HasPrefix(u.RawQuery, "site_id=") && cinemaID.MatchString(strings.TrimPrefix(u.RawQuery, "site_id="))
 	}
 	return u.Host == "www.ticketingcine.com" && u.RawQuery == "" && strings.HasPrefix(u.Path, "/film/") && strings.HasSuffix(u.Path, ".html") && globalID.MatchString(strings.TrimSuffix(strings.TrimPrefix(u.Path, "/film/"), ".html"))
 }

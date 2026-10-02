@@ -142,9 +142,13 @@ func officeProgram(ctx context.Context, f Fetcher, cinema officeCinema, location
 	}
 	id := "cineoffice-" + cinema.ID
 	result := cinemaProgram{theater: theater(id, cinema.Name, cinema.Address, cinema.City, cinema.Postcode)}
+	type session struct {
+		movieID sourceID
+		row     schedule.ShowtimeRecord
+	}
+	seen := map[sourceID]session{}
 	for _, s := range shows {
-		m, ok := mm[s.Movie.ID]
-		if !ok || !numericID(s.ID) || s.CinemaID != cinema.ID || sm[s.Screen.ID] == "" {
+		if !numericID(s.ID) || !schedule.ValidCinewestIdentity("movie", "cineoffice-"+string(s.Movie.ID)) || s.CinemaID != cinema.ID || sm[s.Screen.ID] == "" {
 			return cinemaProgram{}, fmt.Errorf("cine office showing association: %w", errShape)
 		}
 		start, err := offsetTime(s.Start, location)
@@ -159,9 +163,24 @@ func officeProgram(ctx context.Context, f Fetcher, cinema officeCinema, location
 		if err != nil {
 			return cinemaProgram{}, err
 		}
+		// Missing film metadata is the only tolerated catalog gap. Validate the
+		// session's associations, times and options before counting an omission.
+		m, ok := mm[s.Movie.ID]
 		row, err := showing(id, string(s.ID), m, start, end, language, version, format, sm[s.Screen.ID], "", 0)
 		if err != nil {
 			return cinemaProgram{}, err
+		}
+		current := session{movieID: s.Movie.ID, row: row}
+		if old, exists := seen[s.ID]; exists {
+			if !reflect.DeepEqual(old, current) {
+				return cinemaProgram{}, fmt.Errorf("cine office conflicting showing: %w", errShape)
+			}
+			continue
+		}
+		seen[s.ID] = current
+		if !ok {
+			result.skipped++
+			continue
 		}
 		result.shows = append(result.shows, row)
 	}

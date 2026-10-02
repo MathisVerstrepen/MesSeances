@@ -37,6 +37,7 @@ func (m *minutes) UnmarshalJSON(raw []byte) error {
 
 var (
 	decimal          = regexp.MustCompile(`^[0-9]+$`)
+	cinemaID         = regexp.MustCompile(`^EMS[0-9]{4}$`)
 	globalID         = regexp.MustCompile(`^[A-Z0-9]{5}$`)
 	localID          = regexp.MustCompile(`^emsx[0-9]{4}HC[0-9]+$`)
 	sessionID        = regexp.MustCompile(`^emsx[0-9]{12}$`)
@@ -52,9 +53,10 @@ type cinema struct {
 		City    string `json:"city"`
 		ZipCode string `json:"zip_code"`
 	} `json:"address"`
-	ProgramID string `json:"prog_id"`
-	Timezone  string `json:"time_zone"`
-	Website   string `json:"website_url"`
+	ProgramID   string `json:"prog_id"`
+	Timezone    string `json:"time_zone"`
+	Website     string `json:"website_url"`
+	FullWebsite string `json:"website_full_url"`
 }
 
 type program struct {

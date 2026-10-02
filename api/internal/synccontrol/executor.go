@@ -248,7 +248,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary cinewest.SyncSummary
 		data, summary, err = e.syncCinewest(ctx, client, cinewest.SyncOptions{From: window.From, Now: e.now()})
-		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, Skipped: summary.Skipped, GeneratedAt: summary.GeneratedAt}
 	case TargetGrandEcran:
 		if e.newGrandEcran == nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
