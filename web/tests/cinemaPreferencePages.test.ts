@@ -106,6 +106,7 @@ test('cinema page waits for acknowledgement and does not announce after departur
 
 test('planning clears old result and fences pending request before unresolved and error early returns', async () => {
   const code = await functionsFromPage('../app/pages/planning.vue', [
+    'resetTimeline',
     'loadTimeline',
   ])
   for (const transition of ['unresolved', 'error']) {
@@ -113,6 +114,13 @@ test('planning clears old result and fences pending request before unresolved an
     const bindings = {
       isBroadTheaterSelection,
       requestId: 0,
+      isUnmounted: false,
+      appendPending: ref(false),
+      appendError: ref(''),
+      fallbackTheaterIds: ref<string[]>([]),
+      queriedTheaterCount: ref(0),
+      fallbackScope: ref(false),
+      THEATER_BATCH_SIZE: 10,
       timeline: ref<{ stale: boolean } | null>({ stale: true }),
       preferences: {
         theaters: ref([{ id: 'ugc-1' }, { id: 'other' }]),
@@ -198,8 +206,9 @@ test('movie catalog invalidates personalized requests but still permits explicit
   assert.equal(bindings.catalog.value?.total, 1)
 })
 
-test('resolved empty and full-catalog planning scopes omit theaters while partial IDs stay explicit', async () => {
+test('resolved empty planning scope uses catalog IDs while configured full catalog omits theaters and partial IDs stay explicit', async () => {
   const code = await functionsFromPage('../app/pages/planning.vue', [
+    'resetTimeline',
     'loadTimeline',
   ])
   for (const ids of [[], ['a', 'b'], ['a']]) {
@@ -207,6 +216,13 @@ test('resolved empty and full-catalog planning scopes omit theaters while partia
     const bindings = {
       isBroadTheaterSelection,
       requestId: 0,
+      isUnmounted: false,
+      appendPending: ref(false),
+      appendError: ref(''),
+      fallbackTheaterIds: ref<string[]>([]),
+      queriedTheaterCount: ref(0),
+      fallbackScope: ref(ids.length === 0),
+      THEATER_BATCH_SIZE: 10,
       timeline: ref(null),
       pending: ref(false),
       errorMessage: ref(''),
@@ -233,7 +249,10 @@ test('resolved empty and full-catalog planning scopes omit theaters while partia
     )(...Object.values(bindings)) as () => Promise<void>
     await load()
     assert.equal(requests.length, 1)
-    assert.equal(requests[0]?.theaters, ids.length === 1 ? 'a' : undefined)
+    assert.equal(
+      requests[0]?.theaters,
+      ids.length === 0 ? 'a,b' : ids.length === 1 ? 'a' : undefined,
+    )
     assert.equal(bindings.pending.value, false)
   }
 })
