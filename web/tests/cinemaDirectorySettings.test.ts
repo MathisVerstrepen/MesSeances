@@ -233,6 +233,31 @@ test('page exposes named native sheet and zero-result trigger with single reused
     template,
     /max-h-\[calc\(100dvh-1rem\)\][\s\S]*?overflow-y-auto[\s\S]*?safe-area-inset-bottom/,
   )
+  const sheet = template.slice(template.indexOf('<dialog'))
+  assert.match(sheet, /<header[^>]*sticky top-0[^>]*shrink-0/)
+  assert.match(
+    sheet,
+    /cinema-settings-content min-h-0 overflow-y-auto overscroll-contain/,
+  )
+  assert.match(sheet, /<footer[^>]*sticky bottom-0[^>]*shrink-0/)
+  assert.ok(
+    sheet.indexOf('id="cinema-settings-controls"') <
+      sheet.indexOf('id="cinema-settings-location"'),
+  )
+  assert.match(
+    template,
+    /<h3 v-if="settingsOpen"[^>]*>\s*Cinémas affichés\s*<\/h3>/,
+  )
+  const footer = sheet.match(/<footer[\s\S]*?<\/footer>/)![0]
+  assert.match(footer, /@click="closeSettings\(\)"/)
+  assert.doesNotMatch(
+    footer,
+    /setChains|updateDisplayedSelection|disabled|apply|Appliquer/,
+  )
+  assert.match(
+    footer,
+    /Voir \{\{ visibleTheaterCount \}\}\s*\{\{ visibleTheaterCount === 1 \? 'cinéma' : 'cinémas' \}\}/,
+  )
   assert.ok(
     template.indexOf('aria-controls="cinema-settings"') <
       template.indexOf('v-else-if="searchResults.length === 0"'),
