@@ -24,6 +24,10 @@ import type {
   Provider,
 } from '~/types/api'
 import {
+  loadLocalMovieGroupCatalog,
+  rankLocalMovieGroups,
+} from '~/utils/adminLocalMovieGroups'
+import {
   ADMIN_TMDB_MATCH_SEARCH_DEBOUNCE_MS,
   adminPendingMatchesForFilter,
   adminReplacementTMDBId,
@@ -85,7 +89,17 @@ const matchesError = ref('')
 const rejectedError = ref('')
 const matchedError = ref('')
 const groupsError = ref('')
+const groupCatalog = ref<AdminLocalMovieGroup[]>([])
+const groupCatalogPending = ref(true)
+const groupCatalogError = ref('')
+const groupCatalogLoadedCount = ref(0)
+const selectionSidebarOpen = ref(false)
+const selectionSidebar = ref<HTMLElement | null>(null)
+const selectionSidebarClose = ref<HTMLButtonElement | null>(null)
+const selectionReopen = ref<HTMLButtonElement | null>(null)
+let selectionTrigger: HTMLElement | null = null
 const errorMessage = ref('')
+const groupingError = ref('')
 const rerunError = ref('')
 const rerunSummary = ref<AdminTMDBRerunSummary | null>(null)
 const metadataRefreshError = ref('')
@@ -117,6 +131,7 @@ let matchesRequestId = 0
 let rejectedRequestId = 0
 let matchedRequestId = 0
 let groupsRequestId = 0
+let groupCatalogRequestId = 0
 let isMounted = false
 let scrollAfterLoad = false
 let scrollRejectedAfterLoad = false
@@ -154,6 +169,12 @@ const canGroupsGoNext = computed(
   () => (groupsResult.value?.items.length ?? 0) === PAGE_SIZE,
 )
 const selectedSourceList = computed(() => Object.values(selectedSources.value))
+const rankedGroups = computed(() =>
+  rankLocalMovieGroups(
+    groupCatalog.value,
+    selectedSourceList.value.map((source) => source.source_title),
+  ),
+)
 const canMerge = computed(
   () =>
     selectedSourceList.value.length >= 2 &&
@@ -383,6 +404,36 @@ async function loadGroups() {
   }
 }
 
+async function refreshGroupCatalog() {
+  if (!isMounted) return
+  const currentRequest = ++groupCatalogRequestId
+  const isCurrent = () => isMounted && currentRequest === groupCatalogRequestId
+  // Never offer old groups while a mutation/resource refresh is rebuilding the catalog.
+  groupCatalog.value = []
+  groupCatalogPending.value = true
+  groupCatalogError.value = ''
+  groupCatalogLoadedCount.value = 0
+  try {
+    const groups = await loadLocalMovieGroupCatalog(
+      (limit, offset) => api.adminLocalMovieGroups(limit, offset),
+      isCurrent,
+      (count) => {
+        groupCatalogLoadedCount.value = count
+      },
+    )
+    if (isCurrent() && groups) groupCatalog.value = groups
+  } catch (error) {
+    if (isCurrent()) groupCatalogError.value = getFrenchAdminApiError(error)
+  } finally {
+    if (isCurrent()) groupCatalogPending.value = false
+  }
+}
+
+function refreshLocalGroups() {
+  void refreshGroupCatalog()
+  return loadGroups()
+}
+
 function adminQuery(
   nextPage = page.value,
   nextRejectedPage = rejectedPage.value,
@@ -478,6 +529,7 @@ async function applyRoute() {
 }
 
 async function refreshResources() {
+  void refreshGroupCatalog()
   await Promise.all([
     loadMatches(),
     loadRejectedMatches(),
@@ -524,6 +576,7 @@ async function refreshResources() {
 }
 
 async function refreshAfterDecision() {
+  void refreshGroupCatalog()
   await Promise.all([
     loadMatches(true),
     loadRejectedMatches(true),
@@ -557,6 +610,7 @@ async function refreshAfterDecision() {
 }
 
 async function refreshMatchesAfterRerun() {
+  void refreshGroupCatalog()
   clearMergeSelection()
   offset.value = 0
   lastLoadPage = 1
@@ -624,6 +678,7 @@ function applyTMDBMetadataRefreshStatus(
 
   if (shouldRefreshLists && nextJob) {
     refreshedMetadataRefreshStartedAts.add(nextJob.started_at)
+    void refreshGroupCatalog()
     void Promise.all([
       loadMatches(true),
       loadRejectedMatches(true),
@@ -682,25 +737,67 @@ async function refreshTMDBMetadata() {
 }
 
 function clearMergeSelection() {
+  closeSelectionSidebar()
   selectedSources.value = {}
   primarySourceKey.value = ''
 }
 
-function toggleMergeSelection(match: AdminPendingMatch) {
-  if (match.status === 'matched') return
+function closeSelectionSidebar() {
+  const restoreFocus = selectionSidebar.value?.contains(document.activeElement)
+  selectionSidebarOpen.value = false
+  if (restoreFocus) {
+    nextTick(() => {
+      if (
+        selectionTrigger?.isConnected &&
+        !selectionTrigger.matches(':disabled')
+      ) {
+        selectionTrigger.focus({ preventScroll: true })
+      } else {
+        const target =
+          selectionReopen.value ?? document.getElementById('tmdb-matches-panel')
+        target?.focus({ preventScroll: true })
+      }
+    })
+  }
+}
+
+function reopenSelectionSidebar(event: MouseEvent) {
+  if (event.currentTarget instanceof HTMLElement)
+    selectionTrigger = event.currentTarget
+  selectionSidebarOpen.value = true
+  nextTick(() => selectionSidebarClose.value?.focus({ preventScroll: true }))
+}
+
+function handleSelectionEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape' && selectionSidebarOpen.value) {
+    event.preventDefault()
+    closeSelectionSidebar()
+  }
+}
+
+function toggleMergeSelection(match: AdminPendingMatch, event?: Event) {
+  if (match.status === 'matched' || anyMutation.value) return
   const key = sourceKey(match)
   if (selectedSources.value[key]) {
-    const next = { ...selectedSources.value }
-    delete next[key]
-    selectedSources.value = next
-    if (primarySourceKey.value === key) primarySourceKey.value = ''
+    removeMergeSelection(match)
     return
   }
   selectedSources.value = { ...selectedSources.value, [key]: match }
+  groupingError.value = ''
+  if (event?.currentTarget instanceof HTMLElement)
+    selectionTrigger = event.currentTarget
+  selectionSidebarOpen.value = true
 }
 
 function removeMergeSelection(match: AdminPendingMatch) {
-  if (selectedSources.value[sourceKey(match)]) toggleMergeSelection(match)
+  // Also used after TMDB approval while the mutation lock is still held.
+  const key = sourceKey(match)
+  if (!selectedSources.value[key]) return
+  const next = { ...selectedSources.value }
+  delete next[key]
+  selectedSources.value = next
+  if (primarySourceKey.value === key) primarySourceKey.value = ''
+  if (!Object.keys(next).length) closeSelectionSidebar()
 }
 
 async function handleMutationError(cause: unknown) {
@@ -831,6 +928,7 @@ async function mergeSelectedSources() {
   if (!primary) return
   mergePending.value = true
   errorMessage.value = ''
+  groupingError.value = ''
   try {
     await api.adminCreateLocalMovieGroup({
       members: selectedSourceList.value.map(
@@ -848,15 +946,26 @@ async function mergeSelectedSources() {
     await refreshResources()
   } catch (error) {
     await handleMutationError(error)
+    groupingError.value = errorMessage.value
   } finally {
     mergePending.value = false
   }
 }
 
 async function addSelectedSourcesToGroup(group: AdminLocalMovieGroup) {
-  if (!selectedSourceList.value.length || anyMutation.value) return
+  if (
+    !selectedSourceList.value.length ||
+    anyMutation.value ||
+    groupCatalogPending.value ||
+    groupCatalogError.value ||
+    !groupCatalog.value.some(
+      (item) => item.local_movie_id === group.local_movie_id,
+    )
+  )
+    return
   addMembersPending.value = group.local_movie_id
   errorMessage.value = ''
+  groupingError.value = ''
   try {
     await api.adminAddLocalMovieMembers(group.local_movie_id, {
       members: selectedSourceList.value.map(
@@ -876,6 +985,7 @@ async function addSelectedSourcesToGroup(group: AdminLocalMovieGroup) {
     } else {
       await handleMutationError(error)
     }
+    groupingError.value = errorMessage.value
   } finally {
     addMembersPending.value = ''
   }
@@ -1068,10 +1178,14 @@ watch(
 onMounted(() => {
   isMounted = true
   void applyRoute()
+  void refreshGroupCatalog()
   void loadTMDBMetadataRefreshStatus()
+  window.addEventListener('keydown', handleSelectionEscape)
 })
 onBeforeUnmount(() => {
   isMounted = false
+  groupCatalogRequestId += 1
+  window.removeEventListener('keydown', handleSelectionEscape)
   clearMatchedSearchTimer()
   clearMetadataRefreshPolling()
 })
@@ -1315,79 +1429,23 @@ useHead({ title: 'Identités des films - MesSeances' })
         </template>
 
         <div
-          v-if="selectedSourceList.length"
-          class="mt-4 border-2 border-ink bg-highlight/30 p-4"
-          aria-labelledby="merge-selection-title"
+          v-if="selectedSourceList.length && !selectionSidebarOpen"
+          class="sticky top-2 z-20 mt-4 flex items-center justify-between gap-3 border-2 border-ink bg-surface p-3 shadow-[3px_3px_0_#27272a]"
         >
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <h3 id="merge-selection-title" class="font-semibold text-ink">
-              Sélection pour regroupement ({{ selectedSourceList.length }})
-            </h3>
-            <button
-              type="button"
-              class="text-sm font-semibold text-muted underline"
-              :disabled="anyMutation"
-              @click="clearMergeSelection"
-            >
-              Effacer
-            </button>
-          </div>
-          <fieldset class="mt-3" :disabled="anyMutation">
-            <legend class="sr-only">
-              Choisir la source principale du nouveau regroupement
-            </legend>
-            <ul class="flex flex-wrap gap-2">
-              <li
-                v-for="match in selectedSourceList"
-                :key="sourceKey(match)"
-                class="flex items-center gap-2 border-2 border-ink bg-surface px-3 py-2 text-sm"
-              >
-                <label class="flex cursor-pointer items-center gap-2">
-                  <input
-                    v-model="primarySourceKey"
-                    type="radio"
-                    name="local-primary"
-                    :value="sourceKey(match)"
-                    class="accent-ink"
-                  >
-                  <span
-                    ><span class="font-semibold">{{ match.source_title }}</span>
-                    · {{ providerLabel(match.source_provider) }}</span
-                  >
-                </label>
-                <button
-                  type="button"
-                  class="text-ink hover:text-primary"
-                  :aria-label="`Retirer ${match.source_title}`"
-                  @click="removeMergeSelection(match)"
-                >
-                  <X :size="16" aria-hidden="true" />
-                </button>
-              </li>
-            </ul>
-          </fieldset>
-          <div class="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              class="editorial-button"
-              :disabled="!canMerge || anyMutation"
-              @click="mergeSelectedSources"
-            >
-              <LoaderCircle
-                v-if="mergePending"
-                :size="17"
-                class="animate-spin"
-                aria-hidden="true"
-              /><Layers3 v-else :size="17" aria-hidden="true" />
-              Créer le regroupement
-            </button>
-            <p v-if="selectedSourceList.length < 2" class="text-sm text-muted">
-              Sélectionnez au moins deux films pour créer un regroupement.
-            </p>
-            <p v-else-if="!primarySourceKey" class="text-sm text-muted">
-              Choisissez la source principale du nouveau regroupement.
-            </p>
-          </div>
+          <span class="text-sm font-semibold"
+            >{{ selectedSourceList.length }}
+            film(s) sélectionné(s)</span
+          >
+          <button
+            ref="selectionReopen"
+            type="button"
+            class="editorial-button-outline"
+            aria-controls="local-group-selection-sidebar"
+            :aria-expanded="selectionSidebarOpen"
+            @click="reopenSelectionSidebar"
+          >
+            Voir les regroupements
+          </button>
         </div>
 
         <div
@@ -1452,7 +1510,7 @@ useHead({ title: 'Identités des films - MesSeances' })
               >
                 <label
                   v-if="match.status !== 'matched'"
-                  class="flex cursor-pointer items-center gap-2 text-sm font-semibold text-ink"
+                  class="flex min-h-11 cursor-pointer items-center gap-2 text-sm font-semibold text-ink"
                   :for="`merge-${domKey(match)}`"
                 >
                   <input
@@ -1461,10 +1519,20 @@ useHead({ title: 'Identités des films - MesSeances' })
                     class="size-4 accent-ink"
                     :checked="Boolean(selectedSources[sourceKey(match)])"
                     :disabled="anyMutation"
-                    @change="toggleMergeSelection(match)"
+                    @change="toggleMergeSelection(match, $event)"
                   >
                   Sélectionner pour un regroupement local
                 </label>
+                <button
+                  v-if="selectedSources[sourceKey(match)] && !selectionSidebarOpen"
+                  type="button"
+                  class="min-h-11 text-sm font-semibold text-accent underline underline-offset-2"
+                  aria-controls="local-group-selection-sidebar"
+                  :aria-expanded="selectionSidebarOpen"
+                  @click="reopenSelectionSidebar"
+                >
+                  Voir les regroupements
+                </button>
                 <span
                   class="border-2 border-ink px-2 py-0.5 font-mono text-xs font-bold text-ink"
                   :class="match.status === 'review_required' || match.status === 'matched' ? 'bg-highlight' : 'bg-canvas'"
@@ -1911,7 +1979,7 @@ useHead({ title: 'Identités des films - MesSeances' })
           type="button"
           class="inline-flex items-center gap-2 text-sm font-semibold text-accent disabled:opacity-50"
           :disabled="groupsPending || anyMutation"
-          @click="loadGroups"
+          @click="refreshLocalGroups"
         >
           <RefreshCw
             :size="16"
@@ -1933,7 +2001,7 @@ useHead({ title: 'Identités des films - MesSeances' })
           <button
             type="button"
             class="mt-2 font-semibold underline"
-            @click="loadGroups"
+            @click="refreshLocalGroups"
           >
             Réessayer
           </button>
@@ -1999,23 +2067,6 @@ useHead({ title: 'Identités des films - MesSeances' })
               </p>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-1.5">
-              <button
-                type="button"
-                class="editorial-button min-h-8 px-2.5 py-1 max-sm:min-h-11"
-                :disabled="selectedSourceList.length === 0 || anyMutation"
-                @click="addSelectedSourcesToGroup(group)"
-              >
-                <LoaderCircle
-                  v-if="addMembersPending === group.local_movie_id"
-                  :size="14"
-                  class="animate-spin"
-                  aria-hidden="true"
-                />
-                <Layers3 v-else :size="14" aria-hidden="true" />
-                {{
-                  addMembersPending === group.local_movie_id ? 'Ajout en cours…' : `Ajouter la sélection (${selectedSourceList.length})`
-                }}
-              </button>
               <template v-if="unmergeConfirmation === group.local_movie_id">
                 <span class="text-xs font-semibold text-primary"
                   >Dissocier ?</span
@@ -2136,5 +2187,233 @@ useHead({ title: 'Identités des films - MesSeances' })
         </button>
       </nav>
     </section>
+
+    <aside
+      v-if="selectionSidebarOpen && selectedSourceList.length"
+      id="local-group-selection-sidebar"
+      ref="selectionSidebar"
+      class="fixed inset-y-0 right-0 z-50 w-full overflow-y-auto overscroll-contain border-l-2 border-ink bg-canvas p-4 text-ink shadow-[-8px_0_0_#27272a] sm:max-w-[29rem] sm:p-6"
+      aria-labelledby="merge-selection-title"
+    >
+      <div class="flex items-start justify-between gap-3">
+        <h2 id="merge-selection-title" class="editorial-heading">
+          Sélection pour regroupement ({{ selectedSourceList.length }})
+        </h2>
+        <button
+          ref="selectionSidebarClose"
+          type="button"
+          class="editorial-button-outline size-11 shrink-0 p-0"
+          aria-label="Fermer la sélection pour regroupement"
+          @click="closeSelectionSidebar"
+        >
+          <X :size="20" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div
+        v-if="groupingError"
+        class="editorial-alert mt-4 flex items-start gap-3 p-4"
+        role="alert"
+      >
+        <AlertTriangle :size="20" class="shrink-0" aria-hidden="true" />
+        <p>{{ groupingError }} Vérifiez la sélection puis réessayez.</p>
+      </div>
+
+      <fieldset class="mt-4" :disabled="anyMutation">
+        <legend class="text-sm font-semibold">
+          Source principale du nouveau regroupement
+        </legend>
+        <ul class="mt-2 divide-y divide-ink/30">
+          <li
+            v-for="match in selectedSourceList"
+            :key="sourceKey(match)"
+            class="flex items-center gap-2 py-2 text-sm"
+          >
+            <label
+              class="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center gap-2"
+            >
+              <input
+                v-model="primarySourceKey"
+                type="radio"
+                name="local-primary"
+                :value="sourceKey(match)"
+                class="shrink-0 accent-ink"
+              >
+              <span class="min-w-0 wrap-anywhere"
+                ><span class="font-semibold">{{ match.source_title }}</span>
+                · {{ providerLabel(match.source_provider) }}</span
+              >
+            </label>
+            <button
+              type="button"
+              class="flex size-11 shrink-0 items-center justify-center text-ink hover:text-primary"
+              :aria-label="`Retirer ${match.source_title}`"
+              @click="removeMergeSelection(match)"
+            >
+              <X :size="18" aria-hidden="true" />
+            </button>
+          </li>
+        </ul>
+      </fieldset>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          class="editorial-button"
+          :disabled="!canMerge || anyMutation"
+          @click="mergeSelectedSources"
+        >
+          <LoaderCircle
+            v-if="mergePending"
+            :size="17"
+            class="animate-spin"
+            aria-hidden="true"
+          />
+          <Layers3 v-else :size="17" aria-hidden="true" />
+          Créer le regroupement
+        </button>
+        <button
+          type="button"
+          class="min-h-11 text-sm font-semibold text-muted underline underline-offset-2"
+          :disabled="anyMutation"
+          @click="clearMergeSelection"
+        >
+          Effacer
+        </button>
+      </div>
+      <p v-if="selectedSourceList.length < 2" class="mt-2 text-sm text-muted">
+        Sélectionnez au moins deux films pour créer un regroupement.
+      </p>
+      <p v-else-if="!primarySourceKey" class="mt-2 text-sm text-muted">
+        Choisissez la source principale du nouveau regroupement.
+      </p>
+
+      <section
+        class="mt-6 border-t-2 border-ink pt-5"
+        aria-labelledby="ranked-local-groups-title"
+        :aria-busy="groupCatalogPending"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 id="ranked-local-groups-title" class="font-semibold">
+            Regroupements par similarité
+          </h3>
+          <button
+            type="button"
+            class="min-h-11 text-sm font-semibold text-accent underline underline-offset-2"
+            :disabled="groupCatalogPending || anyMutation"
+            @click="refreshGroupCatalog"
+          >
+            Actualiser
+          </button>
+        </div>
+        <div
+          v-if="groupCatalogError"
+          class="editorial-alert mt-3 p-4"
+          role="alert"
+        >
+          <p class="flex items-start gap-2 font-semibold">
+            <AlertTriangle
+              :size="18"
+              class="shrink-0"
+              aria-hidden="true"
+            />Liste des regroupements incomplète.
+          </p>
+          <p class="mt-2 text-sm">{{ groupCatalogError }}</p>
+          <button
+            type="button"
+            class="mt-2 min-h-11 font-semibold underline"
+            :disabled="anyMutation"
+            @click="refreshGroupCatalog"
+          >
+            Réessayer
+          </button>
+        </div>
+        <div
+          v-else-if="groupCatalogPending"
+          class="mt-3"
+          role="status"
+          aria-live="polite"
+        >
+          <p class="text-sm">
+            Chargement de tous les regroupements…
+            {{ groupCatalogLoadedCount }} chargé(s).
+          </p>
+          <div
+            class="mt-3 space-y-3 motion-safe:animate-pulse"
+            aria-hidden="true"
+          >
+            <div
+              v-for="index in 3"
+              :key="index"
+              class="h-28 border-t border-ink/30 bg-ink/5"
+            />
+          </div>
+        </div>
+        <p v-else-if="!rankedGroups.length" class="mt-3 text-sm text-muted">
+          Aucun regroupement local. Sélectionnez deux films pour en créer un.
+        </p>
+        <template v-else>
+          <p class="mt-1 text-sm text-muted" role="status">
+            {{ rankedGroups.length }} regroupement(s)
+          </p>
+          <ul
+            class="mt-3 divide-y-2 divide-ink"
+            aria-label="Regroupements locaux par similarité"
+          >
+            <li
+              v-for="{ group, title, score } in rankedGroups"
+              :key="group.local_movie_id"
+              class="py-4"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <h4 class="min-w-0 font-semibold wrap-anywhere">{{ title }}</h4>
+                <span class="shrink-0 text-xs text-muted"
+                  >{{ Math.round(score * 100) }}
+                  % similarité</span
+                >
+              </div>
+              <p class="mt-1 break-all text-xs text-muted">
+                {{ group.local_movie_id }}
+              </p>
+              <ul
+                class="mt-2 space-y-1 text-sm"
+                :aria-label="`Membres de ${group.local_movie_id}`"
+              >
+                <li
+                  v-for="member in group.members"
+                  :key="sourceKey(member)"
+                  class="wrap-anywhere"
+                >
+                  <span class="font-semibold">{{
+                    providerLabel(member.source_provider)
+                  }}</span>
+                  : {{ member.source_title ?? member.source_movie_id
+                  }}<span v-if="!member.available" class="text-muted">
+                    (indisponible)</span
+                  >
+                </li>
+              </ul>
+              <button
+                type="button"
+                class="editorial-button-outline mt-3 w-full"
+                :disabled="anyMutation || groupCatalogPending"
+                :aria-label="`Ajouter la sélection à ${title} (${group.local_movie_id})`"
+                @click="addSelectedSourcesToGroup(group)"
+              >
+                <LoaderCircle
+                  v-if="addMembersPending === group.local_movie_id"
+                  :size="17"
+                  class="animate-spin"
+                  aria-hidden="true"
+                />
+                <Layers3 v-else :size="17" aria-hidden="true" />
+                {{
+                  addMembersPending === group.local_movie_id ? 'Ajout en cours…' : `Ajouter la sélection (${selectedSourceList.length})`
+                }}
+              </button>
+            </li>
+          </ul>
+        </template>
+      </section>
+    </aside>
   </main>
 </template>
