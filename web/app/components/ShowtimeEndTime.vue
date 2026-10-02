@@ -88,10 +88,10 @@ onBeforeUnmount(() => {
       {{ formatParisTime(end.time) }}</span
     >
     <span
+      v-show="tooltipVisible"
       :id="tooltipId"
       role="tooltip"
       class="absolute top-full block pt-2 text-center font-sans text-xs font-normal normal-case tracking-normal"
-      :class="tooltipVisible ? 'visible' : 'invisible'"
       :style="{ left: `${tooltipLeft}px`, width: `${tooltipWidth}px` }"
       ><span
         class="block border border-ink bg-ink px-2 py-1 text-white shadow-sm"

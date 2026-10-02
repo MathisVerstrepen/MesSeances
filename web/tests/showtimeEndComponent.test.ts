@@ -34,6 +34,22 @@ test('estimated time has a unique accessible description, actual-value formula a
   assert.doesNotMatch(value, /group-hover|<a\b|<button\b|title=/)
 })
 
+test('closed estimated-time tooltip leaves layout while retaining its accessible description and open-state viewport clamp', async () => {
+  const value = await source('components/ShowtimeEndTime.vue')
+  const tooltip = value.match(/<span\b[^>]*\brole="tooltip"[^>]*>/)?.[0]
+  assert.ok(tooltip)
+  assert.match(tooltip, /v-show="tooltipVisible"/)
+  assert.doesNotMatch(tooltip, /v-if=|\b(?:invisible|visible)\b/)
+  assert.match(tooltip, /:id="tooltipId"/)
+  assert.match(value, /:aria-describedby="tooltipId"/)
+  assert.match(
+    value,
+    /tooltipWidth\.value = Math\.min\(240, window\.innerWidth - 32\)/,
+  )
+  assert.match(value, /window\.innerWidth - tooltipWidth\.value - 16/)
+  assert.match(value, /tooltipLeft\.value = left - bounds\.left/)
+})
+
 test('estimated booking-card triggers are siblings, never nested inside booking links', async () => {
   for (const path of [
     'pages/film/[slug].vue',
