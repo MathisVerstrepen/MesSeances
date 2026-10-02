@@ -15,3 +15,8 @@ tmp/
 api/data
 avatars/
 .local
+# Playwright CLI snapshots and browser artifacts
+.playwright-cli/
+web/.playwright-cli/
+web/playwright-report/
+web/test-results/

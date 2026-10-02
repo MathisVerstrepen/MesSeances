@@ -235,6 +235,9 @@ After `make install`, the ordinary offline gate preserves Go/frontend unit tests
 ```sh
 make preflight
 make check
+# Optional local synthetic browser suite (install Chromium once).
+make install-browser
+make test-browser
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check tooling-unit
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
 docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
@@ -251,7 +254,7 @@ make test-race
 make test-integration
 ```
 
-Integration preserves the existing ten-package CI selection and applies migrations through existing isolated-schema fixtures. Make and CI use a uniquely owned `postgres:18-alpine` container with a Docker-assigned loopback port, tmpfs data, and generated private credentials; inherited `TEST_DATABASE_URL` is ignored. Readiness uses `docker exec psql`, with no host client or Compose database. Exact ownership is verified before disposal on success, failure, and SIGINT/SIGTERM. Cleanup failure cannot pass; SIGKILL/host failure cannot guarantee cleanup. Direct runner integration against an operator-provided disposable database remains separate and requires host psql; ordinary preflight remains read-only. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); existing browser setup remains in the [accounts runbook](docs/accounts.md#validation).
+Integration preserves the existing ten-package CI selection and applies migrations through existing isolated-schema fixtures. Make and CI use a uniquely owned `postgres:18-alpine` container with a Docker-assigned loopback port, tmpfs data, and generated private credentials; inherited `TEST_DATABASE_URL` is ignored. Readiness uses `docker exec psql`, with no host client or Compose database. Exact ownership is verified before disposal on success, failure, and SIGINT/SIGTERM. Cleanup failure cannot pass; SIGKILL/host failure cannot guarantee cleanup. Direct runner integration against an operator-provided disposable database remains separate and requires host psql; ordinary preflight remains read-only. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); use the [Playwright CLI and browser test workflow](docs/browser-testing.md) for synthetic frontend scenarios and the [accounts runbook](docs/accounts.md#validation) for account integration.
 
 For a deliberate proxy-only Megarama full-chain contract smoke, run from `api/` with an operator-supplied proxy file. This opt-in test builds and validates a dataset in memory, logs counts only, and does not publish to a database or call TMDB/IGN. Ordinary tests skip it when the variable is unset:
 

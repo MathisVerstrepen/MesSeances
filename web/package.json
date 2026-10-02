@@ -15,7 +15,11 @@
     "typecheck": "nuxt typecheck",
     "verify:crawlability": "node tools/verify-crawlability.mjs",
     "web-vitals": "lhci autorun --config=./lighthouserc.cjs",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test:browser": "playwright test",
+    "test:browser:install": "playwright install chromium",
+    "test:browser:server": "node tools/playwright-server.mjs",
+    "test:browser:report": "playwright show-report ../tmp/playwright/report"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans": "5.3.0",
@@ -33,6 +37,7 @@
     "@biomejs/biome": "2.5.14",
     "@lhci/cli": "0.15.1",
     "@oxlint/plugins": "1.78.0",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "4.3.3",
     "@vite-pwa/assets-generator": "1.0.2",
     "@vite-pwa/nuxt": "1.1.1",

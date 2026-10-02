@@ -43,3 +43,28 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  browser:
+    name: Frontend CI / browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Set up npm
+        run: npm install --global npm@10.9.8
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium and system dependencies
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Browser acceptance
+        run: npm run test:browser
