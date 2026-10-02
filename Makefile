@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration test-browser install-browser web-vitals
+.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration test-browser install-browser browser-deps web-vitals
 
 SHELL := /bin/bash
 
@@ -117,8 +117,14 @@ web-vitals:
 	npm --prefix web run web-vitals
 
 # Explicit browser setup and opt-in acceptance; ordinary check stays unchanged.
-install-browser:
+browser-deps:
+	@npm --prefix web ls --offline @playwright/test playwright playwright-core --depth=2 >/dev/null 2>&1 || { \
+		printf '%s\n' 'Missing or stale local Playwright dependencies. Run: npm --prefix web ci' >&2; \
+		exit 1; \
+	}
+
+install-browser: browser-deps
 	npm --prefix web run test:browser:install
 
-test-browser:
+test-browser: browser-deps
 	npm --prefix web run test:browser
