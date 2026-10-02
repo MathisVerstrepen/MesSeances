@@ -14,3 +14,4 @@ web/.lighthouseci/
 tmp/
 api/data
 avatars/
+.local
