@@ -286,6 +286,18 @@ FROM public_movie_sources`).Scan(&mergedUGC, &mergedKinepolis); err != nil || me
 	if err := pool.QueryRow(ctx, "SELECT imdb_id FROM public_movies WHERE id=$1", survivor).Scan(&canonicalIMDBID); err != nil || canonicalIMDBID != "tt1234567" {
 		t.Fatalf("canonical IMDb ID=%q err=%v", canonicalIMDBID, err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE movie_metadata_cache SET metacritic_id='movie/original' WHERE provider_movie_id=42`); err != nil {
+		t.Fatal(err)
+	}
+	reconcile()
+	var metacriticID string
+	if err := pool.QueryRow(ctx, `SELECT metacritic_id FROM public_movies WHERE id=$1`, survivor).Scan(&metacriticID); err != nil || metacriticID != "movie/original" {
+		t.Fatal("Metacritic not propagated", err)
+	}
+	var tombstoneClear bool
+	if err := pool.QueryRow(ctx, `SELECT metacritic_id IS NULL FROM public_movies WHERE id=$1`, loser).Scan(&tombstoneClear); err != nil || !tombstoneClear {
+		t.Fatal("Metacritic tombstone", err)
+	}
 	var loserIMDBNull bool
 	if err := pool.QueryRow(ctx, "SELECT imdb_id IS NULL FROM public_movies WHERE id=$1", loser).Scan(&loserIMDBNull); err != nil || !loserIMDBNull {
 		t.Fatalf("redirect tombstone IMDb null=%t err=%v", loserIMDBNull, err)
@@ -306,6 +318,14 @@ FROM public_movie_sources`).Scan(&mergedUGC, &mergedKinepolis); err != nil || me
 		t.Fatalf("IMDb-only canonical update ID=%q updated_at=%v err=%v", canonicalIMDBID, imdbOnlyUpdatedAt, err)
 	}
 	var overviewOverridden bool
+	if _, err := pool.Exec(ctx, `UPDATE public_movies SET updated_at=$2 WHERE id=$1; UPDATE movie_metadata_cache SET metacritic_id='movie/replaced' WHERE provider_movie_id=42`, pgx.QueryExecModeSimpleProtocol, survivor, oldUpdatedAt); err != nil {
+		t.Fatal(err)
+	}
+	reconcile()
+	var metacriticUpdated time.Time
+	if err := pool.QueryRow(ctx, `SELECT metacritic_id,updated_at FROM public_movies WHERE id=$1`, survivor).Scan(&metacriticID, &metacriticUpdated); err != nil || metacriticID != "movie/replaced" || !metacriticUpdated.After(oldUpdatedAt) {
+		t.Fatal("Metacritic-only change", err)
+	}
 	if err := pool.QueryRow(ctx, "SELECT overview_overridden FROM public_movie_metadata_overrides WHERE public_movie_id=$1", survivor).Scan(&overviewOverridden); err != nil || overviewOverridden {
 		t.Fatalf("restored overview reapplied=%t err=%v", overviewOverridden, err)
 	}
@@ -341,6 +361,12 @@ UPDATE movie_matches SET metadata_movie_id=2 WHERE source_provider='kinepolis' A
 	}
 	if err := pool.QueryRow(ctx, "SELECT imdb_id FROM public_movies WHERE id=$1", survivor).Scan(&splitIMDBID); err != nil || splitIMDBID != nil {
 		t.Fatalf("stale anchor IMDb ID not cleared: %v err=%v", splitIMDBID, err)
+	}
+	var splitMetacritic *string
+	for _, id := range []int64{mergedUGC, survivor, loser} {
+		if err := pool.QueryRow(ctx, `SELECT metacritic_id FROM public_movies WHERE id=$1`, id).Scan(&splitMetacritic); err != nil || splitMetacritic != nil {
+			t.Fatal("stale Metacritic transferred after correction/split", err)
+		}
 	}
 	var aliasTarget int64
 	if err := pool.QueryRow(ctx, "SELECT public_movie_id FROM movie_slug_aliases WHERE slug='kinepolis-film-A'").Scan(&aliasTarget); err != nil || aliasTarget != mergedKinepolis {

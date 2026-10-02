@@ -37,6 +37,7 @@ function movie(
     poster_url: 'https://example.test/poster.jpg',
     tmdb_id: null,
     imdb_id: null,
+    metacritic_id: null,
     overview: 'Résumé durable',
     release_date: '2026-08-20',
     french_release_date: null,

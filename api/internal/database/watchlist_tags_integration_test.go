@@ -37,7 +37,7 @@ func TestWatchlistTagColorsMigrationIntegration(t *testing.T) {
  (SELECT jsonb_agg(to_jsonb(t)-'view_mode'-'filter_tag_id' ORDER BY account_id) FROM account_watchlist_state t),
  (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id,public_movie_id) FROM account_watchlist_items t),
  (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM accounts t),
- (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public_movies t))::text`).Scan(&data)
+ (SELECT jsonb_agg(to_jsonb(t)-'metacritic_id' ORDER BY id) FROM public_movies t))::text`).Scan(&data)
 				if err != nil {
 					t.Fatal(err)
 				}

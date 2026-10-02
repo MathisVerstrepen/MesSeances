@@ -16,6 +16,7 @@ function movie(overrides: Partial<CatalogMovie> = {}): CatalogMovie {
     poster_url: ' https://example.test/poster.jpg ',
     tmdb_id: null,
     imdb_id: null,
+    metacritic_id: null,
     overview: ' Une histoire durable. ',
     release_date: '2026-02-28',
     french_release_date: null,

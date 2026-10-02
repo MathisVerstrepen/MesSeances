@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"messeances/api/internal/wikidata"
 )
 
 var ErrDatasetValidation = errors.New("dataset validation failed")
@@ -248,7 +250,7 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 			if invalidTrailerKeys(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.TrailerVFYouTubeKey, showing.Movie.Enrichment.TrailerVOYouTubeKey) {
 				return fmt.Errorf("invalid enrichment trailer YouTube keys")
 			}
-			if invalidIMDBID(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.IMDBID) {
+			if invalidIMDBID(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.IMDBID) || invalidMetacriticID(showing.Movie.Enrichment.TMDBID, showing.Movie.Enrichment.MetacriticID) {
 				return fmt.Errorf("invalid enrichment IMDb ID")
 			}
 		}
@@ -265,6 +267,9 @@ func validatePublicMovieCatalog(data Dataset) error {
 	publicMovies := make(map[int64]PublicMovieRecord, len(data.PublicMovies))
 	activeTMDB := make(map[int64]bool)
 	for _, movie := range data.PublicMovies {
+		if invalidMetacriticID(movie.TMDBID, movie.MetacriticID) {
+			return fmt.Errorf("invalid public movie Metacritic ID")
+		}
 		if invalidOriginalLanguage(movie.TMDBID, movie.OriginalLanguage) {
 			return fmt.Errorf("invalid public movie original language")
 		}
@@ -347,6 +352,10 @@ func invalidOriginalLanguage(tmdbID int64, language string) bool {
 
 func invalidIMDBID(tmdbID int64, imdbID string) bool {
 	return imdbID != "" && (tmdbID <= 0 || !validIMDBID(imdbID))
+}
+
+func invalidMetacriticID(tmdbID int64, id string) bool {
+	return id != "" && (tmdbID <= 0 || !wikidata.ValidMetacriticID(id))
 }
 
 func validIMDBID(value string) bool {

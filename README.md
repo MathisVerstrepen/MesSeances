@@ -61,6 +61,12 @@ When canonical `end_time` equals `start_time` and the response movie has a posit
 
 Megarama session booking links use verified cinema-specific HTTPS hosts and `#showsession?id=<session-id>`. Missing links fall back to the validated official cinema website and are labeled as website links rather than reservations. Poster URLs are limited to verified `images.monnaie-services.com` paths: global `/movie_poster/120/` images are resized to `/600/`, while local `/ems_spectacle/120/` images retain their source size. Missing global posters can use `og:image` from `https://www.ticketingcine.com/film/<CODE>.html`; absent artwork remains absent.
 
+### Metacritic movie links
+
+Movie pages add a Metacritic external link when TMDB provides a valid Wikidata association and that item has one unambiguous, non-deprecated P1712 movie path. Paths are cached with movie metadata; missing mappings remain linkless. Wikidata acquisition uses no extra credentials and never runs during public reads. Failed or unresolved Wikidata observations preserve a previously cached link without blocking successful TMDB metadata; a successful observation with no eligible path clears it.
+
+Ordinary metadata cache reuse remains 30 days. To enrich already published films sooner, use the existing metadata-refresh control on `/admin/tmdb-matches` or an explicitly configured `tmdb_metadata_refresh` schedule. Refresh covers matched, retained upcoming and imported TMDB identities regardless of cache freshness. Migration 057 starts existing links as NULL and neither triggers a refresh nor creates or enables a schedule. Deployment and real refresh remain operator-controlled. After applying 057, rollback requires a compatible corrective binary, not dropping columns or editing migration history.
+
 ### Upcoming French theatrical releases
 
 The configurable scheduler target `tmdb_upcoming_movies` imports first French theatrical releases for `(today in Europe/Paris, the same calendar date next year]`, clamping February 29 to February 28. Eligibility uses the earliest FR type-2/3 release across TMDB's full release history, not nationality or the worldwide primary date. Historical French releases exclude re-releases. Preview screenings remain available without removing an upcoming film.

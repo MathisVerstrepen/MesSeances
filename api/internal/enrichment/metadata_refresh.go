@@ -98,7 +98,11 @@ func (s *MetadataRefreshService) refresh(ctx context.Context) (MetadataRefreshSu
 			return MetadataRefreshSummary{}, fmt.Errorf("read cached TMDB metadata failed: %w", err)
 		}
 		refreshed = append(refreshed, metadata)
-		if found && sameMetadataContent(cached, metadata) {
+		comparison := metadata
+		if !metadata.MetacriticChecked {
+			comparison.MetacriticID = cached.MetacriticID
+		}
+		if found && sameMetadataContent(cached, comparison) {
 			summary.Unchanged++
 		} else {
 			summary.Updated++
@@ -132,7 +136,7 @@ func distinctPositiveIDs(ids []int64) []int64 {
 }
 
 func sameMetadataContent(left, right Metadata) bool {
-	if left.OriginalLanguage != right.OriginalLanguage {
+	if left.OriginalLanguage != right.OriginalLanguage || left.MetacriticID != right.MetacriticID {
 		return false
 	}
 	if left.Provider != right.Provider || left.ProviderMovieID != right.ProviderMovieID || left.IMDBID != right.IMDBID || left.Locale != right.Locale || left.ProviderTitle != right.ProviderTitle || left.LocalizedTitle != right.LocalizedTitle || left.Overview != right.Overview || left.ReleaseDate != right.ReleaseDate || left.PosterURL != right.PosterURL || left.BackdropURL != right.BackdropURL || left.TrailerVFYouTubeKey != right.TrailerVFYouTubeKey || left.TrailerVOYouTubeKey != right.TrailerVOYouTubeKey || left.RuntimeMinutes != right.RuntimeMinutes || len(left.Genres) != len(right.Genres) {

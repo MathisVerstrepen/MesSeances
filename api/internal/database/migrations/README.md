@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [056_cinema_activity.sql](056_cinema_activity.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [057_movie_metacritic_id.sql](057_movie_metacritic_id.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -308,7 +308,7 @@ For `matched`, the check requires a nonnull score and tests `metadata_movie_id >
 
 ### `movie_metadata_cache`
 
-Stores cached French-language TMDB movie metadata, artwork, trailer keys, IMDb IDs, and cache refresh timestamps.
+Stores cached French-language TMDB movie metadata, artwork, trailer keys, IMDb IDs, Wikidata-resolved Metacritic paths, and cache refresh timestamps.
 
 Primary key: `(provider, provider_movie_id, locale)`.
 
@@ -327,11 +327,14 @@ Primary key: `(provider, provider_movie_id, locale)`.
 | `fetched_at`, `refresh_after` | `timestamptz` | Cache timestamps |
 | `trailer_vf_youtube_key`, `trailer_vo_youtube_key` | `varchar(11)` | Nullable; each matches `^[A-Za-z0-9_-]{11}$`; must differ if both present |
 | `imdb_id` | `varchar(32)` | Nullable; matches `^tt[0-9]{7,30}$` |
+| `metacritic_id` | `varchar(255)` | Nullable; exact ASCII `movie/` prefix plus 1-249 lowercase-letter, digit or `!+_()-` slug bytes; total length 7-255 bytes |
 | `original_language` | `varchar(2)` | Nullable; matches `^[a-z]{2}$`; TMDB original audio language, independent of the metadata locale |
 
 Cache backdrops must start with `https://image.tmdb.org/t/p/w780/` and have a nonempty suffix that does not start with `/`. The URL cannot contain `%`, `?`, `#`, a backslash, or `..`. This is not the same check as the public catalog backdrop check. The former single `trailer_youtube_key` column was removed in migration 026.
 
 Existing cache and public movie rows start with unknown (`NULL`) original language. Normal TMDB metadata writes and the existing metadata refresh populate it; a successful refresh with unknown language clears the old value. No title, country, locale, or screening-language inference or data backfill is performed. Ordinary cache users retain the existing freshness policy until refresh succeeds.
+
+Metacritic paths come from the TMDB movie's validated Wikidata association and direct, unambiguous non-deprecated P1712 movie claims. Migration 057 leaves existing cache and public values NULL without network acquisition or backfill. A successful positive observation replaces the cached path; a successful absence clears it. Failed, malformed or ambiguous secondary observations preserve the current cache value while allowing successful TMDB metadata updates. The successful-observation flag is transient, not stored. Cache reads do not count as new observations, and acquisition never occurs during public reads or SQL writes.
 
 ### `movie_enrichment_state` and `theater_location_state`
 
@@ -378,6 +381,7 @@ Primary key: `id`. Public identities survive schedule generations and can redire
 | `created_at`, `updated_at`, `last_seen_at` | `timestamptz` | Each defaults to `CURRENT_TIMESTAMP` |
 | `trailer_vf_youtube_key`, `trailer_vo_youtube_key` | `varchar(11)` | Nullable; YouTube key pattern; must differ if both present; each requires nonnull `confirmed_tmdb_id` |
 | `imdb_id` | `varchar(32)` | Nullable; `^tt[0-9]{7,30}$`; requires nonnull `confirmed_tmdb_id` |
+| `metacritic_id` | `varchar(255)` | Nullable; same exact ASCII movie-path constraint as the cache; requires nonnull `confirmed_tmdb_id`; cleared with removed or changed TMDB identity, including redirect tombstones |
 | `original_language` | `varchar(2)` | Nullable; `^[a-z]{2}$`; requires nonnull `confirmed_tmdb_id`; cleared with removed or changed TMDB identity, including redirect tombstones |
 
 Exactly one anchor shape is required: both provider/source fields nonnull and TMDB anchor null, or both provider/source fields null and a positive nonnull TMDB anchor. Existing provider identity checks remain unchanged. Partial unique indexes enforce unique confirmed TMDB IDs, source anchors, and TMDB anchors among nonredirected rows only. The self-FK prevents dangling redirects and the check prevents direct self-redirection, but neither prevents longer cycles. Timestamp defaults do not automatically update existing rows.

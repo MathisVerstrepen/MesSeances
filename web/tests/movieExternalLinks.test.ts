@@ -43,6 +43,107 @@ test('builds the exact Box Office Mojo URL for the supplied IMDb example', () =>
   ])
 })
 
+test('appends the exact Metacritic link after the existing four destinations', () => {
+  assert.deepEqual(
+    buildMovieExternalLinks(550, 'tt0137523', 'movie/fight-club'),
+    [
+      ...buildMovieExternalLinks(550, 'tt0137523'),
+      {
+        destination: 'metacritic',
+        label: 'Metacritic',
+        url: 'https://www.metacritic.com/movie/fight-club/',
+      },
+    ],
+  )
+})
+
+test('accepts exact ASCII Metacritic paths, punctuation and length boundaries', () => {
+  const validIds = [
+    'movie/a',
+    'movie/0',
+    'movie/abcdefghijklmnopqrstuvwxyz0123456789!+_()-',
+    `movie/${'a'.repeat(249)}`,
+  ]
+  for (const metacriticId of validIds) {
+    assert.deepEqual(buildMovieExternalLinks(550, null, metacriticId), [
+      ...buildMovieExternalLinks(550, null),
+      {
+        destination: 'metacritic',
+        label: 'Metacritic',
+        url: `https://www.metacritic.com/${metacriticId}/`,
+      },
+    ])
+  }
+})
+
+test('omits missing or malformed Metacritic IDs without changing other links', () => {
+  const invalidIds = [
+    null,
+    undefined,
+    '',
+    'movie/',
+    `movie/${'a'.repeat(250)}`,
+    'movie/fight-club\n',
+    'movie/fight-club\r\n',
+    'movie/fight-club\r',
+    'movie/fight-club\u2028',
+    'movie/fight-club\u2029',
+    'movie/fight\nclub',
+    ' movie/fight-club',
+    'movie/fight-club ',
+    'movie/fight club',
+    'movie/fight\tclub',
+    'movie/fight-club\0',
+    'movie/élan',
+    'movie/Ｆight-club',
+    'movie/Fight-club',
+    'Movie/fight-club',
+    'https://www.metacritic.com/movie/fight-club/',
+    'game/fight-club',
+    'movie/../fight-club',
+    'movie/fight.club',
+    'movie/fight%2fclub',
+    'movie/fight%2Fclub',
+    'movie/fight\\club',
+    'movie/fight-club?x=1',
+    'movie/fight-club#reviews',
+    'movie/fight-club/',
+    'movie/fight/club',
+  ]
+  for (const metacriticId of invalidIds) {
+    assert.deepEqual(
+      buildMovieExternalLinks(550, 'tt0137523', metacriticId),
+      buildMovieExternalLinks(550, 'tt0137523'),
+      String(metacriticId),
+    )
+  }
+})
+
+test('requires a positive safe TMDB identity for Metacritic even with valid IMDb', () => {
+  const invalidTmdbIds = [
+    null,
+    undefined,
+    0,
+    -1,
+    1.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]
+  for (const tmdbId of invalidTmdbIds) {
+    assert.deepEqual(
+      buildMovieExternalLinks(tmdbId, 'tt0137523', 'movie/fight-club'),
+      buildMovieExternalLinks(tmdbId, 'tt0137523'),
+      String(tmdbId),
+    )
+    assert.deepEqual(
+      buildMovieExternalLinks(tmdbId, null, 'movie/fight-club'),
+      [],
+      String(tmdbId),
+    )
+  }
+})
+
 test('omits unavailable destinations without placeholders', () => {
   assert.deepEqual(buildMovieExternalLinks(550, null), [
     {
@@ -139,10 +240,12 @@ test('menu renders every service logo decoratively beside its visible label', as
   assert.match(component, /letterboxd_logo\.svg\?no-inline/u)
   assert.match(component, /logo_tmdb\.svg\?no-inline/u)
   assert.match(component, /box_office_mojo\.webp\?no-inline/u)
+  assert.match(component, /metacritic\.svg\?no-inline/u)
   assert.match(component, /tmdb: tmdbLogo/u)
   assert.match(component, /letterboxd: letterboxdLogo/u)
   assert.match(component, /imdb: imdbLogo/u)
   assert.match(component, /boxofficemojo: boxOfficeMojoLogo/u)
+  assert.match(component, /metacritic: metacriticLogo/u)
   assert.match(
     component,
     /aria-hidden="true"\s*>\s*<img\s+:src="serviceLogos\[link\.destination\]"\s+alt=""/u,
@@ -195,7 +298,7 @@ test('movie page integrates menu while passing only TMDB external identity to fi
 
   assert.match(
     page,
-    /buildMovieExternalLinks\(\s*schedule\.value\?\.movie\.tmdb_id,\s*schedule\.value\?\.movie\.imdb_id,?\s*\)/u,
+    /buildMovieExternalLinks\(\s*schedule\.value\?\.movie\.tmdb_id,\s*schedule\.value\?\.movie\.imdb_id,\s*schedule\.value\?\.movie\.metacritic_id,?\s*\)/u,
   )
   assert.match(
     page,
@@ -205,4 +308,44 @@ test('movie page integrates menu while passing only TMDB external identity to fi
   assert.match(page, /tmdbUrl: tmdbUrl\.value \|\| undefined/u)
   assert.doesNotMatch(page, /logo_tmdb/u)
   assert.doesNotMatch(page, /(?:sameAs|tmdbUrl): externalLinks/u)
+})
+
+test('catalog API type requires a nullable Metacritic ID', async () => {
+  const api = await readFile(
+    new URL('../app/types/api.ts', import.meta.url),
+    'utf8',
+  )
+  assert.match(
+    api,
+    /export interface CatalogMovie extends Movie \{[^}]*\n  metacritic_id: string \| null\n/u,
+  )
+})
+
+test('Metacritic asset retains supplied SVG geometry and colors', async () => {
+  const svg = await readFile(
+    new URL('../app/assets/imgs/metacritic.svg', import.meta.url),
+    'utf8',
+  )
+  assert.match(svg, /viewBox="0 0 40 40"/u)
+  assert.deepEqual(
+    [...svg.matchAll(/<path\s+([^>]+)>/gu)].map(([, attributes]) => ({
+      d: attributes?.match(/\bd="([^"]+)"/u)?.[1],
+      fill: attributes?.match(/\bfill="([^"]+)"/u)?.[1] ?? 'black',
+    })),
+    [
+      {
+        d: 'M36.978 19.49a17.49 17.49 0 1 1 0-.021',
+        fill: 'black',
+      },
+      {
+        d: 'm17.209 32.937 3.41-3.41-6.567-6.567c-.276-.276-.576-.622-.737-1.014-.369-.783-.53-2.004.369-2.903 1.106-1.106 2.58-.645 4.009.784l6.313 6.313 3.41-3.41-6.59-6.59c-.276-.276-.599-.691-.76-1.037-.438-.898-.415-2.027.392-2.834 1.129-1.129 2.603-.714 4.24.922l6.128 6.129 3.41-3.41L27.6 9.274c-3.364-3.364-6.52-3.249-8.686-1.083-.83.83-1.337 1.705-1.59 2.696a6.7 6.7 0 0 0-.092 2.81l-.046.047c-1.66-.691-3.549-.277-5 1.175-1.936 1.935-1.866 3.986-1.636 5.184l-.07.07-1.681-1.36-2.95 2.949c1.037.945 2.282 2.097 3.687 3.502z',
+        fill: '#f2f2f2',
+      },
+      {
+        d: 'M19.982 0A20 20 0 1 0 40 20v-.024A20 20 0 0 0 19.982 0m-.091 4.274A15.665 15.665 0 0 1 35.57 19.921v.018A15.665 15.665 0 1 1 19.89 4.274Z',
+        fill: '#ffbd3f',
+      },
+    ],
+  )
+  assert.doesNotMatch(svg, /<(?:script|image|foreignObject)\b|\bon\w+=/u)
 })

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"messeances/api/internal/wikidata"
 )
 
 const (
@@ -36,6 +38,9 @@ type Details struct {
 	Adult               *bool
 	ID                  int64
 	IMDBID              string
+	WikidataID          string
+	MetacriticID        string
+	MetacriticChecked   bool
 	Title               string
 	OriginalTitle       string
 	OriginalLanguage    string
@@ -58,17 +63,18 @@ type video struct {
 }
 
 type movieDetailsResponse struct {
-	Adult            *bool  `json:"adult"`
-	ID               int64  `json:"id"`
-	IMDBID           string `json:"imdb_id"`
-	Title            string `json:"title"`
-	OriginalTitle    string `json:"original_title"`
-	OriginalLanguage string `json:"original_language"`
-	Overview         string `json:"overview"`
-	ReleaseDate      string `json:"release_date"`
-	PosterPath       string `json:"poster_path"`
-	BackdropPath     string `json:"backdrop_path"`
-	Runtime          int    `json:"runtime"`
+	ExternalIDs      json.RawMessage `json:"external_ids"`
+	Adult            *bool           `json:"adult"`
+	ID               int64           `json:"id"`
+	IMDBID           string          `json:"imdb_id"`
+	Title            string          `json:"title"`
+	OriginalTitle    string          `json:"original_title"`
+	OriginalLanguage string          `json:"original_language"`
+	Overview         string          `json:"overview"`
+	ReleaseDate      string          `json:"release_date"`
+	PosterPath       string          `json:"poster_path"`
+	BackdropPath     string          `json:"backdrop_path"`
+	Runtime          int             `json:"runtime"`
 	Genres           []struct {
 		Name string `json:"name"`
 	} `json:"genres"`
@@ -198,7 +204,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	}
 	var response movieDetailsResponse
 	query := url.Values{
-		"append_to_response":     {"videos"},
+		"append_to_response":     {"videos,external_ids"},
 		"include_video_language": {"fr"},
 		"language":               {"fr-FR"},
 	}
@@ -215,6 +221,15 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	}
 	details := Details{ID: response.ID, IMDBID: response.IMDBID, Title: response.Title, OriginalTitle: response.OriginalTitle, OriginalLanguage: response.OriginalLanguage, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerVFYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results, "fr"), Runtime: response.Runtime, Genres: []string{}}
 	details.Adult = response.Adult
+	var externalIDs struct {
+		ID         *int64 `json:"id"`
+		WikidataID string `json:"wikidata_id"`
+	}
+	// Appended external IDs omit their own ID; the validated top-level ID binds
+	// this mapping to the requested movie. Reject any explicit numeric mismatch.
+	if json.Unmarshal(response.ExternalIDs, &externalIDs) == nil && (externalIDs.ID == nil || *externalIDs.ID == id) && wikidata.ValidQID(externalIDs.WikidataID) {
+		details.WikidataID = externalIDs.WikidataID
+	}
 	if response.OriginalLanguage != "" && response.OriginalLanguage != "fr" {
 		var videosResponse struct {
 			ID     int64 `json:"id"`

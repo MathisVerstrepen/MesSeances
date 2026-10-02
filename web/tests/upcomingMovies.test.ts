@@ -32,6 +32,7 @@ function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
     poster_url: null,
     tmdb_id: 42,
     imdb_id: null,
+    metacritic_id: null,
     overview: null,
     genres: ['Drame'],
     release_date: '2000-01-01',

@@ -51,6 +51,7 @@ type PublicMovieRecord struct {
 	TMDBID                 int64
 	TMDBRuntimeMinutes     int
 	IMDBID                 string
+	MetacriticID           string
 	OriginalLanguage       string
 	UpdatedAt              time.Time
 }
@@ -111,6 +112,7 @@ type MovieEnrichment struct {
 	TMDBID              int64
 	OriginalLanguage    string
 	IMDBID              string
+	MetacriticID        string
 	Overview            string
 	ReleaseDate         string
 	Genres              []string

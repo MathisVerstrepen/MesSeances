@@ -71,6 +71,7 @@ function response(
     backdrop_url: null,
     tmdb_id: null,
     imdb_id: null,
+    metacritic_id: null,
     overview: null,
     release_date: null,
     french_release_date: null,
