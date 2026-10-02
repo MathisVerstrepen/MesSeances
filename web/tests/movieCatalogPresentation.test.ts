@@ -5,6 +5,7 @@ import type { CatalogMovie } from '../app/types/api.ts'
 import {
   filterAndSortCatalogMovies,
   movieCatalogSortOptions,
+  movieOriginalTitleSubtitle,
 } from '../app/utils/movieCatalogPresentation.ts'
 
 const [card, controls, pagination, films, city, cinema, film] =
@@ -108,6 +109,118 @@ test('filters titles without case or diacritics and applies deterministic sort t
       ({ slug }) => slug,
     ),
     ['a', 'b', 'z'],
+  )
+})
+
+test('original-title subtitles show distinct trimmed titles only', () => {
+  assert.equal(
+    movieOriginalTitleSubtitle(
+      movie({ title: "L'Invitation", original_title: '  The Invite  ' }),
+    ),
+    'The Invite',
+  )
+  for (const original_title of [
+    undefined,
+    null,
+    '',
+    ' \t\n ',
+    "L'Invitation",
+  ]) {
+    assert.equal(
+      movieOriginalTitleSubtitle(
+        movie({ title: "L'Invitation", original_title }),
+      ),
+      '',
+    )
+  }
+  assert.equal(
+    movieOriginalTitleSubtitle(
+      movie({ title: 'Le Grand Bleu', original_title: '  LE\tgrand  BLEU\n' }),
+    ),
+    '',
+  )
+  assert.equal(
+    movieOriginalTitleSubtitle(movie({ title: 'Été', original_title: 'Ete' })),
+    'Ete',
+  )
+})
+
+test('film detail retains a smaller muted subtitle while catalog cards show only primary titles', () => {
+  const subtitle = film.match(
+    /<\/h1>\s*<p\s+v-if="originalTitleSubtitle"[\s\S]*?<\/p>/,
+  )?.[0]
+  assert.ok(subtitle)
+  assert.match(subtitle, /text-lg/)
+  assert.match(subtitle, /opacity-70/)
+  assert.match(subtitle, /\{\{ originalTitleSubtitle \}\}/)
+  assert.match(film, /const originalTitleSubtitle = computed\(/)
+  assert.match(film, /movieOriginalTitleSubtitle\(schedule\.value\.movie\)/)
+  assert.match(card, /<h3[^>]*>\s*\{\{ movie\.title \}\}\s*<\/h3>/)
+  assert.doesNotMatch(
+    card,
+    /original_title|originalTitleSubtitle|movieOriginalTitleSubtitle/,
+  )
+})
+
+test('local catalog matches French or original titles with case and accent normalization', () => {
+  const movies = [
+    movie({
+      slug: 'invite',
+      title: "L'Invitation",
+      original_title: 'The Invite',
+    }),
+    movie({ slug: 'summer', title: 'Été', original_title: 'Sommerträume' }),
+    movie({ slug: 'missing', title: 'Sans original' }),
+    movie({ slug: 'null', title: 'Titre absent', original_title: null }),
+    movie({ slug: 'blank', title: 'Titre vide', original_title: '  ' }),
+  ]
+  for (const [search, expected] of [
+    [' INVITE ', 'invite'],
+    ["l'invitation", 'invite'],
+    [' SOMMERTRAUME ', 'summer'],
+    ['sömmerträume', 'summer'],
+    [' ETE ', 'summer'],
+    ['ÉTÉ', 'summer'],
+    ['SANS ORIGINAL', 'missing'],
+    ['TITRE ABSENT', 'null'],
+    ['titre vide', 'blank'],
+  ]) {
+    assert.deepEqual(
+      filterAndSortCatalogMovies(movies, search, 'title_asc').map(
+        ({ slug }) => slug,
+      ),
+      [expected],
+    )
+  }
+  assert.deepEqual(
+    filterAndSortCatalogMovies(movies, 'unknown', 'title_asc'),
+    [],
+  )
+})
+
+test('matching either title keeps each movie once and sorting uses French titles', () => {
+  const movies = [
+    movie({ slug: 'z', title: 'Zèbre', original_title: 'Alpha match' }),
+    movie({ slug: 'b', title: 'Alpha match', original_title: 'Zulu match' }),
+    movie({ slug: 'a', title: 'Alpha match', original_title: 'Zulu match' }),
+  ]
+  for (const search of ['match', '  ']) {
+    assert.deepEqual(
+      filterAndSortCatalogMovies(movies, search, 'title_asc').map(
+        ({ slug }) => slug,
+      ),
+      ['a', 'b', 'z'],
+    )
+    assert.deepEqual(
+      filterAndSortCatalogMovies(movies, search, 'title_desc').map(
+        ({ slug }) => slug,
+      ),
+      ['z', 'b', 'a'],
+    )
+  }
+  assert.deepEqual(
+    movies.map(({ slug }) => slug),
+    ['z', 'b', 'a'],
   )
 })
 

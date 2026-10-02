@@ -44,6 +44,7 @@ import {
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
+import { movieOriginalTitleSubtitle } from '~/utils/movieCatalogPresentation'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
@@ -71,6 +72,9 @@ const api = useMesSeancesApi()
 const preferences = usePageCinemaSelection()
 const today = ref(todayInParis())
 const schedule = ref<MovieShowtimesResponse | null>(null)
+const originalTitleSubtitle = computed(() =>
+  schedule.value ? movieOriginalTitleSubtitle(schedule.value.movie) : '',
+)
 const selectedDate = ref('')
 const pending = ref(true)
 const errorMessage = ref('')
@@ -1127,6 +1131,13 @@ if (
           >
             {{ schedule.movie.title }}
           </h1>
+          <p
+            v-if="originalTitleSubtitle"
+            class="mt-3 text-lg leading-snug opacity-70 sm:text-xl [overflow-wrap:anywhere]"
+            :class="backdropAvailable ? 'text-white' : 'text-ink'"
+          >
+            {{ originalTitleSubtitle }}
+          </p>
           <div
             class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]"
             :class="backdropAvailable ? 'text-white' : 'text-ink'"

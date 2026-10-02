@@ -13,6 +13,18 @@ export const movieCatalogSortValues = movieCatalogSortOptions.map(
   (option) => option.value,
 )
 
+export function movieOriginalTitleSubtitle(
+  movie: Pick<CatalogMovie, 'title' | 'original_title'>,
+): string {
+  const originalTitle = movie.original_title?.trim() ?? ''
+  const comparableTitle = (title: string) =>
+    title.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('fr-FR')
+
+  return comparableTitle(originalTitle) === comparableTitle(movie.title)
+    ? ''
+    : originalTitle
+}
+
 function normalizedTitle(value: string): string {
   return value
     .trim()
@@ -35,7 +47,11 @@ export function filterAndSortCatalogMovies(
 ): CatalogMovie[] {
   const query = normalizedTitle(search)
   const filtered = query
-    ? movies.filter((movie) => normalizedTitle(movie.title).includes(query))
+    ? movies.filter(
+        (movie) =>
+          normalizedTitle(movie.title).includes(query) ||
+          normalizedTitle(movie.original_title ?? '').includes(query),
+      )
     : [...movies]
 
   return filtered.sort((left, right) => {
