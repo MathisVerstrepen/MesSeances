@@ -270,6 +270,12 @@ async function selectionWatcher(
         ?.getText(parsed)
         .includes('selectionScopeKey'),
   )
+  const resetFunctions = parsed.statements.filter(
+    (node) =>
+      path === 'planning' &&
+      ts.isFunctionDeclaration(node) &&
+      node.name?.text === 'resetTimeline',
+  )
   assert.equal(
     watchers.length,
     path === 'film/[slug]' ? 2 : 1,
@@ -333,6 +339,10 @@ async function selectionWatcher(
     pending: ref(false),
     notFound: ref(false),
     errorMessage: ref(''),
+    appendPending: ref(false),
+    appendError: ref(''),
+    fallbackTheaterIds: ref<string[]>([]),
+    queriedTheaterCount: ref(0),
     route: { query: {} },
     OWNED_QUERY_KEYS: ['q'],
     draftTheaterIds: draft,
@@ -344,7 +354,9 @@ async function selectionWatcher(
     applyRoute: reload,
   }
   const code = ts.transpileModule(
-    watchers.map((watcher) => watcher.getFullText(parsed)).join('\n'),
+    [...resetFunctions, ...watchers]
+      .map((node) => node.getFullText(parsed))
+      .join('\n'),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
   ).outputText
   const scope = effectScope()
