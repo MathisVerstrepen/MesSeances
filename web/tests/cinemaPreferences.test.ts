@@ -270,6 +270,12 @@ async function selectionWatcher(
         ?.getText(parsed)
         .includes('selectionScopeKey'),
   )
+  const resetFunctions = parsed.statements.filter(
+    (node) =>
+      path === 'planning' &&
+      ts.isFunctionDeclaration(node) &&
+      node.name?.text === 'resetTimeline',
+  )
   assert.equal(
     watchers.length,
     path === 'film/[slug]' ? 2 : 1,
@@ -295,12 +301,13 @@ async function selectionWatcher(
     preferencesError: preferences.error,
     draftBroadScope: ref(false),
     broadPreferenceScope: ref(false),
+    nationwideOverride: ref(false),
     resetPagination: () => {
       content.value = { loaded: true, currently_screened: true, theaters: [] }
     },
     watch: (
       sources: Parameters<typeof watch>[0],
-      callback: () => void,
+      callback: Parameters<typeof watch>[1],
       options: Parameters<typeof watch>[2],
     ) => {
       const index = callbackCounts.length
@@ -308,10 +315,10 @@ async function selectionWatcher(
       flushModes.push(options?.flush ?? 'pre')
       return watch(
         sources,
-        () => {
+        (value, previous, onCleanup) => {
           invalidations++
           callbackCounts[index] = callbackCounts[index]! + 1
-          callback()
+          callback(value, previous, onCleanup)
         },
         options,
       )
@@ -333,6 +340,10 @@ async function selectionWatcher(
     pending: ref(false),
     notFound: ref(false),
     errorMessage: ref(''),
+    appendPending: ref(false),
+    appendError: ref(''),
+    fallbackTheaterIds: ref<string[]>([]),
+    queriedTheaterCount: ref(0),
     route: { query: {} },
     OWNED_QUERY_KEYS: ['q'],
     draftTheaterIds: draft,
@@ -344,7 +355,9 @@ async function selectionWatcher(
     applyRoute: reload,
   }
   const code = ts.transpileModule(
-    watchers.map((watcher) => watcher.getFullText(parsed)).join('\n'),
+    [...resetFunctions, ...watchers]
+      .map((node) => node.getFullText(parsed))
+      .join('\n'),
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
   ).outputText
   const scope = effectScope()

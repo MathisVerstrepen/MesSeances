@@ -190,6 +190,7 @@ export interface HistoryStatisticsResponse
 export interface Movie {
   slug: string
   title: string
+  original_title?: string | null
   original_language: string | null
   runtime_minutes: number
   updated_at: string

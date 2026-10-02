@@ -22,6 +22,10 @@ func (api *API) historyStatistics(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
+	if isAllTimeHistory(query) {
+		api.historyCache.write(w)
+		return
+	}
 	if api.history == nil {
 		writeHistoryError(w, schedule.ErrHistoryUnavailable)
 		return

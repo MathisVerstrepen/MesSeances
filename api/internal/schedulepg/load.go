@@ -282,6 +282,7 @@ func loadPublicMovieCatalog(ctx context.Context, tx pgx.Tx) ([]schedule.PublicMo
 	movies := []schedule.PublicMovieRecord{}
 	rows, err := tx.Query(ctx, `SELECT movie.id, COALESCE(movie.redirect_to_id,0), COALESCE(movie.identity_anchor_provider,''), COALESCE(movie.identity_anchor_source_movie_id,''),
 	       CASE WHEN override.title_overridden THEN override.title ELSE movie.title END,
+	       COALESCE(tmdb.provider_title,''),
 	       CASE WHEN override.runtime_minutes_overridden THEN override.runtime_minutes ELSE movie.runtime_minutes END,
 	       COALESCE(CASE WHEN override.poster_url_overridden THEN override.poster_url ELSE movie.poster_url END,''),
 	       COALESCE(CASE WHEN override.backdrop_url_overridden THEN override.backdrop_url ELSE movie.backdrop_url END,''),
@@ -303,7 +304,7 @@ ORDER BY movie.id`)
 	for rows.Next() {
 		var movie schedule.PublicMovieRecord
 		var provider string
-		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.OriginalLanguage, &movie.MetacriticID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded); err != nil {
+		if err := rows.Scan(&movie.ID, &movie.RedirectToID, &provider, &movie.IdentityAnchorSourceID, &movie.Title, &movie.OriginalTitle, &movie.RuntimeMinutes, &movie.PosterURL, &movie.BackdropURL, &movie.Overview, &movie.ReleaseDate, &movie.Genres, &movie.TMDBID, &movie.IMDBID, &movie.OriginalLanguage, &movie.MetacriticID, &movie.TrailerVFYouTubeKey, &movie.TrailerVOYouTubeKey, &movie.UpdatedAt, &movie.TMDBRuntimeMinutes, &movie.IdentityAnchorTMDBID, &movie.FrenchReleaseDate, &movie.HasUpcomingRelease, &movie.UpcomingActive, &movie.UpcomingExcluded); err != nil {
 			rows.Close()
 			return nil, nil, nil, fmt.Errorf("read public movies failed")
 		}

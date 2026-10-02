@@ -56,7 +56,7 @@ func materializeRecordWithAds(view *SnapshotView, record ShowtimeRecord, adsMinu
 	booking := record.BookingURL
 	provider := recordProvider(record.Provider, record.ID)
 	movie := materializeCatalogMovie(view, record.Movie)
-	showtime := Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt, OriginalLanguage: movie.OriginalLanguage}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
+	showtime := Showtime{Provider: provider, ID: record.ID, Movie: Movie{Slug: movie.Slug, Title: movie.Title, OriginalTitle: movie.OriginalTitle, RuntimeMinutes: movie.RuntimeMinutes, UpdatedAt: movie.UpdatedAt, OriginalLanguage: movie.OriginalLanguage}, StartTime: record.StartTime.UTC(), EndTime: effectiveRecordEnd(view, record).UTC(), Language: record.Language, Format: record.Format, Room: record.Room, BookingURL: &booking}
 	showtime.EstimatedEndTime, showtime.EstimatedEndAdsMinutes = estimateShowtimeEnd(showtime, adsMinutes)
 	return showtime
 }
@@ -114,6 +114,9 @@ func materializeCatalogMovie(view *SnapshotView, record MovieRecord) MovieCatalo
 
 func materializePublicMovie(record PublicMovieRecord) MovieCatalogItem {
 	item := MovieCatalogItem{Slug: publicMovieIDSlug(record.ID), Title: record.Title, RuntimeMinutes: record.RuntimeMinutes, UpdatedAt: record.UpdatedAt, Genres: append([]string{}, record.Genres...)}
+	if title := strings.TrimSpace(record.OriginalTitle); record.TMDBID > 0 && title != "" {
+		item.OriginalTitle = &title
+	}
 	if language := confirmedOriginalLanguage(record.TMDBID, record.OriginalLanguage); language != "" {
 		item.OriginalLanguage = &language
 	}

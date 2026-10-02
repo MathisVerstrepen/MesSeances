@@ -39,6 +39,7 @@ type PublicMovieRecord struct {
 	IdentityAnchorProvider Provider
 	IdentityAnchorSourceID string
 	Title                  string
+	OriginalTitle          string
 	RuntimeMinutes         int
 	PosterURL              string
 	BackdropURL            string

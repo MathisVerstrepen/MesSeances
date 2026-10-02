@@ -56,6 +56,7 @@ func (e *NotFoundError) Error() string {
 }
 
 type Movie struct {
+	OriginalTitle    *string   `json:"original_title"`
 	OriginalLanguage *string   `json:"original_language"`
 	Slug             string    `json:"slug"`
 	Title            string    `json:"title"`
@@ -177,6 +178,7 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
+	OriginalTitle       *string   `json:"original_title"`
 	OriginalLanguage    *string   `json:"original_language"`
 	FrenchReleaseDate   *string   `json:"french_release_date"`
 	Slug                string    `json:"slug"`
