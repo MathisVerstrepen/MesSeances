@@ -15,9 +15,17 @@ import (
 	"messeances/api/internal/schedule"
 )
 
+// HistoryCacheTimeout bounds background all-time aggregation, including pool
+// acquisition. Foreground reads retain their shorter budgets.
+const HistoryCacheTimeout = 2 * time.Minute
+
+func (s *Store) historyRead(ctx context.Context, read func(context.Context, pgx.Tx) error) error {
+	return s.historyReadWithTimeout(ctx, 3*time.Second, "2s", read)
+}
+
 // Every history entry point shares admission and one deadline, including pool
 // acquisition. There is no waiting queue and no independently timed subqueries.
-func (s *Store) historyRead(ctx context.Context, read func(context.Context, pgx.Tx) error) error {
+func (s *Store) historyReadWithTimeout(ctx context.Context, timeout time.Duration, statementTimeout string, read func(context.Context, pgx.Tx) error) error {
 	if s == nil || s.pool == nil {
 		return schedule.ErrHistoryUnavailable
 	}
@@ -31,7 +39,7 @@ func (s *Store) historyRead(ctx context.Context, read func(context.Context, pgx.
 		}
 	}
 	defer s.historyCalls.Add(-1)
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -44,7 +52,7 @@ func (s *Store) historyRead(ctx context.Context, read func(context.Context, pgx.
 	// Filter selectivity varies widely. A cached generic plan can turn these
 	// bounded reads into nested-loop scans after repeated prepared executions.
 	// Replan within this transaction only; do not alter pooled session defaults.
-	if _, err = tx.Exec(ctx, `SET LOCAL statement_timeout='2s'; SET LOCAL timezone='UTC'; SET LOCAL plan_cache_mode='force_custom_plan'`); err == nil {
+	if _, err = tx.Exec(ctx, `SELECT set_config('statement_timeout',$1,true),set_config('timezone','UTC',true),set_config('plan_cache_mode','force_custom_plan',true)`, statementTimeout); err == nil {
 		err = read(ctx, tx)
 	}
 	if err == nil {
@@ -182,12 +190,22 @@ func checkHistoryIntegrity(ctx context.Context, tx pgx.Tx) error {
 }
 
 func (s *Store) HistoryStatistics(ctx context.Context, query schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
+	return s.historyStatistics(ctx, query, 3*time.Second, "2s")
+}
+
+// AllTimeHistoryStatistics uses the same aggregation and admission as live
+// reads, but with a longer bounded budget for the background cache worker.
+func (s *Store) AllTimeHistoryStatistics(ctx context.Context) (schedule.HistoryStatistics, error) {
+	return s.historyStatistics(ctx, schedule.StatisticsQuery{}, HistoryCacheTimeout, "120s")
+}
+
+func (s *Store) historyStatistics(ctx context.Context, query schedule.StatisticsQuery, timeout time.Duration, statementTimeout string) (schedule.HistoryStatistics, error) {
 	query, err := schedule.NormalizeHistoryQuery(query)
 	if err != nil {
 		return schedule.HistoryStatistics{}, err
 	}
 	result := schedule.HistoryStatistics{Mode: "history", Timezone: schedule.Timezone}
-	err = s.historyRead(ctx, func(ctx context.Context, tx pgx.Tx) error {
+	err = s.historyReadWithTimeout(ctx, timeout, statementTimeout, func(ctx context.Context, tx pgx.Tx) error {
 		if err := checkHistoryIntegrity(ctx, tx); err != nil {
 			return err
 		}

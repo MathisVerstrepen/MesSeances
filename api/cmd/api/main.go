@@ -232,7 +232,12 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	polling.Add(3)
+	historyCache := &httpapi.HistoryCache{}
+	polling.Add(4)
+	go func() {
+		defer polling.Done()
+		runHistoryCache(workerCtx, schedules.store, historyCache, logger)
+	}()
 	go func() {
 		defer polling.Done()
 		schedules.source.Run(workerCtx)
@@ -266,7 +271,7 @@ func run(ctx context.Context) error {
 	}
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, schedules.store, httpapi.ReadinessOptions{
+		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, historyCache, schedules.store, httpapi.ReadinessOptions{
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
@@ -545,13 +550,14 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, historyCache *httpapi.HistoryCache, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
 		Accounts:             httpapi.AccountOptions{Enabled: cfg.Accounts.Enabled, Service: accountService, Origin: cfg.Server.Origin},
 		Admin:                adminOptions,
 		Readiness:            readiness,
 		Shortlinks:           shortlinks,
 		History:              history,
+		HistoryCache:         historyCache,
 		Activity:             activity,
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,

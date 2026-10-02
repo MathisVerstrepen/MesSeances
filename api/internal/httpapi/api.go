@@ -21,12 +21,13 @@ import (
 )
 
 type API struct {
-	schedule   *schedule.Service
-	admin      *adminAPI
-	shortlinks ShortlinkService
-	history    HistoryReader
-	activity   ActivityReader
-	origin     string
+	schedule     *schedule.Service
+	admin        *adminAPI
+	shortlinks   ShortlinkService
+	history      HistoryReader
+	historyCache *HistoryCache
+	activity     ActivityReader
+	origin       string
 }
 
 type ShortlinkService interface {
@@ -40,6 +41,7 @@ type HandlerOptions struct {
 	Readiness            ReadinessOptions
 	Shortlinks           ShortlinkService
 	History              HistoryReader
+	HistoryCache         *HistoryCache
 	Activity             ActivityReader
 	TrustedProxyCIDRs    []netip.Prefix
 	InternalSharedSecret string
@@ -124,7 +126,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.RateLimitClock == nil {
 		options.RateLimitClock = time.Now
 	}
-	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, activity: options.Activity, origin: webOrigin}
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, historyCache: options.HistoryCache, activity: options.Activity, origin: webOrigin}
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
 	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
 	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)

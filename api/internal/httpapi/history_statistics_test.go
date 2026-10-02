@@ -61,7 +61,7 @@ func TestHistoryHTTPContract(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	req := httptest.NewRequestWithContext(ctx, "GET", "/api/v1/statistics/history", nil)
+	req := httptest.NewRequestWithContext(ctx, "GET", "/api/v1/statistics/history?date=2026-01-01", nil)
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 	if !errors.Is(f.ctx.Err(), context.Canceled) {
 		t.Fatal("context not propagated")
@@ -82,9 +82,10 @@ func TestHistoryHTTPChainsContract(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeHistoryReader{chains: tc.chains}
-			h := NewHandlerWithOptions(nil, "", HandlerOptions{History: f})
+			cache := warmHistoryCache(t, schedule.HistoryStatistics{Mode: "history", Chains: tc.chains})
+			h := NewHandlerWithOptions(nil, "", HandlerOptions{History: f, HistoryCache: cache})
 			r := performRequest(t, h, "/api/v1/statistics/history")
-			if r.Code != http.StatusOK || r.Header().Get("Cache-Control") != "no-store" || f.calls != 1 {
+			if r.Code != http.StatusOK || r.Header().Get("Cache-Control") != "no-store" || f.calls != 0 {
 				t.Fatal(r.Code, r.Header(), r.Body.String(), f.calls)
 			}
 			var fields map[string]json.RawMessage
@@ -185,7 +186,7 @@ func TestHistoryHTTPInvalidBounds(t *testing.T) {
 }
 
 func TestHistoryHTTPErrorsAndRateLimit(t *testing.T) {
-	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history/options?kind=city"} {
+	for _, path := range []string{"/api/v1/statistics/history?date=2026-01-01", "/api/v1/statistics/history/options?kind=city"} {
 		for _, tc := range []struct {
 			err    error
 			code   string
@@ -208,7 +209,7 @@ func TestHistoryHTTPErrorsAndRateLimit(t *testing.T) {
 		}
 	}
 	now := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
-	h := NewHandlerWithOptions(nil, "", HandlerOptions{History: &fakeHistoryReader{}, RateLimitClock: func() time.Time { return now }})
+	h := NewHandlerWithOptions(nil, "", HandlerOptions{History: &fakeHistoryReader{}, HistoryCache: warmHistoryCache(t, schedule.HistoryStatistics{Mode: "history"}), RateLimitClock: func() time.Time { return now }})
 	for i := 0; i < expensiveReadBurst; i++ {
 		path := "/api/v1/statistics/history"
 		if i%2 == 0 {
