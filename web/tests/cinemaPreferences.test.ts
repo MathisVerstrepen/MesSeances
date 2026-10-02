@@ -301,12 +301,13 @@ async function selectionWatcher(
     preferencesError: preferences.error,
     draftBroadScope: ref(false),
     broadPreferenceScope: ref(false),
+    nationwideOverride: ref(false),
     resetPagination: () => {
       content.value = { loaded: true, currently_screened: true, theaters: [] }
     },
     watch: (
       sources: Parameters<typeof watch>[0],
-      callback: () => void,
+      callback: Parameters<typeof watch>[1],
       options: Parameters<typeof watch>[2],
     ) => {
       const index = callbackCounts.length
@@ -314,10 +315,10 @@ async function selectionWatcher(
       flushModes.push(options?.flush ?? 'pre')
       return watch(
         sources,
-        () => {
+        (value, previous, onCleanup) => {
           invalidations++
           callbackCounts[index] = callbackCounts[index]! + 1
-          callback()
+          callback(value, previous, onCleanup)
         },
         options,
       )
