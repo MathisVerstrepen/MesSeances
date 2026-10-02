@@ -1,9 +1,12 @@
 package synccontrol
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +35,50 @@ func configureCinewestTestExecutor(t *testing.T, e *ProductionExecutor, window W
 		r.Language, r.ProviderVersion, r.Room, r.BookingURL = "", "VERSION_MUET", "Salle 1", schedule.CinewestWebsite(theater)
 		d.Showtimes = []schedule.ShowtimeRecord{r}
 		return d, cinewest.SyncSummary{Cinemas: 1, Movies: 1, Showtimes: 1, Requests: 44, GeneratedAt: d.GeneratedAt}, nil
+	}
+}
+
+func TestCinewestSkippedCountInAdminOutcomeAndLogs(t *testing.T) {
+	window := Window{From: "2026-08-17"}
+	var logs bytes.Buffer
+	e := &ProductionExecutor{now: time.Now, logger: slog.New(slog.NewTextHandler(&logs, nil)), operationTimeout: time.Second, writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
+		return 1, nil
+	})}
+	configureCinewestTestExecutor(t, e, window)
+	syncFixture := e.syncCinewest
+	e.syncCinewest = func(ctx context.Context, f cinewest.Fetcher, opts cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
+		d, summary, err := syncFixture(ctx, f, opts)
+		summary.Skipped = 2
+		return d, summary, err
+	}
+	manager, err := newTestManager(t.Context(), time.Now, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	status := manager.executeProvider(TargetCinewest, window)
+	if status.State != ProviderSucceeded || status.Outcome == nil || status.Outcome.Sync.Skipped != 2 || status.Outcome.Sync.Showtimes != 1 {
+		t.Fatal("skipped count missing from admin provider outcome")
+	}
+	body, err := json.Marshal(status)
+	if err != nil || !bytes.Contains(body, []byte(`"skipped":2`)) {
+		t.Fatal("skipped count missing from admin JSON", err)
+	}
+	if !strings.Contains(logs.String(), "result=succeeded") || !strings.Contains(logs.String(), "skipped=2") {
+		t.Fatal("skipped count missing from operational completion log")
+	}
+	// Existing publication failure logs must retain fetched omission counts too.
+	e.writer = writerFunc(func(context.Context, []schedule.Dataset) (int64, error) {
+		return 0, errors.New("synthetic publication failure")
+	})
+	_, err = e.Run(t.Context(), TargetCinewest, window)
+	var runErr *RunError
+	if !errors.As(err, &runErr) || runErr.Stage != StagePublication {
+		t.Fatal("publication failure not reported", err)
+	}
+	joined := strings.Join(runErr.logs[TargetCinewest], "\n")
+	if !strings.Contains(joined, "event=provider_failed") || !strings.Contains(joined, "skipped=2") {
+		t.Fatal("skipped count missing from admin failure log")
 	}
 }
 

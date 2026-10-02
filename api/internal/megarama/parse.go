@@ -30,13 +30,40 @@ func parseConfig(body []byte) ([]cinema, error) {
 	seen := map[string]bool{}
 	for i := range config.Chain.Sites {
 		c := &config.Chain.Sites[i]
-		if seen[c.ID] || !decimal.MatchString(c.ProgramID) || c.Timezone != schedule.Timezone || !schedule.ValidMegaramaBookingURL(c.Website, c.ID, "") {
+		if seen[c.ID] || !cinemaID.MatchString(c.ID) || !decimal.MatchString(c.ProgramID) || c.Timezone != schedule.Timezone || c.Website != "" && !schedule.ValidMegaramaBookingURL(c.Website, c.ID, "") {
+			return nil, errShape
+		}
+		// A populated portal URL without a root is not absent website data.
+		if c.Website == "" && c.FullWebsite != "" {
 			return nil, errShape
 		}
 		seen[c.ID] = true
 		c.Name = clean(c.Name)
 	}
 	return config.Chain.Sites, nil
+}
+
+// parseSiteWebsite recovers only the root from the matching authoritative site.
+// website_full_url is not a Referer source: it may be a query-based portal URL.
+func parseSiteWebsite(body []byte, c cinema) (string, error) {
+	match := configAssignment.FindIndex(body)
+	if match == nil {
+		return "", errShape
+	}
+	var config struct {
+		Site cinema `json:"site"`
+	}
+	if json.NewDecoder(bytes.NewReader(body[match[1]:])).Decode(&config) != nil || config.Site.ID != c.ID || config.Site.ProgramID != c.ProgramID {
+		return "", errShape
+	}
+	website := config.Site.Website
+	if !strings.Contains(website, "://") {
+		website = "https://" + website
+	}
+	if !schedule.ValidMegaramaBookingURL(website, c.ID, "") {
+		return "", errShape
+	}
+	return strings.TrimSuffix(website, "/") + "/", nil
 }
 
 func parseProgram(body []byte, c cinema) (program, error) {

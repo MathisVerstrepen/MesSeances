@@ -195,7 +195,7 @@ func TestSyncRejectsIncompleteCatalogsAtomically(t *testing.T) {
 		"company only":           func(f *fixtureFetcher) { f.catalogs["synthetic-company/cinemas"] = []byte(`[{"id":"cinewest"}]`) },
 		"wrong token":            func(f *fixtureFetcher) { delete(f.catalogs, "synthetic-royanlelido/media") },
 		"null shows":             func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/shows"] = []byte(`null`) },
-		"orphan movie":           func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/media"] = []byte(`[]`) },
+		"null media":             func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/media"] = []byte(`null`) },
 		"orphan room":            func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/screens"] = []byte(`[]`) },
 		"orphan option":          func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/mediaoptions"] = []byte(`[]`) },
 		"wrong referer response": func(f *fixtureFetcher) { f.programs["EMS1185"] = f.programs["EMS1317"] },
@@ -219,6 +219,212 @@ func TestSyncRejectsIncompleteCatalogsAtomically(t *testing.T) {
 	_, _, err := Sync(ctx, newFixture(), SyncOptions{From: "2026-09-14", Now: time.Now()})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation", err)
+	}
+}
+
+func fixtureOfficeShows(t *testing.T, f *fixtureFetcher, cinema string) []officeShow {
+	t.Helper()
+	var rows []officeShow
+	if err := json.Unmarshal(f.catalogs["synthetic-"+cinema+"/shows"], &rows); err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}
+
+func TestSyncSkipsOnlyAbsentOfficeFilmsAndRestoresSessions(t *testing.T) {
+	f := newFixture()
+	baseline, err := syncFixture(t, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const cinema = "royanlelido"
+	rows := fixtureOfficeShows(t, f, cinema)
+	orphan := rows[0]
+	orphan.ID, orphan.Movie.ID = "2", "4710"
+	orphan.Start, orphan.End = "2026-11-20T20:00:00+0100", "2026-11-20T22:00:00+0100"
+	f.catalogs["synthetic-"+cinema+"/shows"] = jsonFixture(append(rows, orphan))
+	options := SyncOptions{From: "2026-09-14", Now: baseline.GeneratedAt}
+	d, summary, err := Sync(t.Context(), f, options)
+	if err != nil || !reflect.DeepEqual(d, baseline) || summary.Skipped != 1 || summary.Cinemas != 13 || summary.Showtimes != 13 {
+		t.Fatal("orphan changed valid sessions or cinema coverage", summary, err)
+	}
+	loc, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := officeProgram(t.Context(), f, officeCinema{ID: cinema, Token: "synthetic-" + cinema}, loc)
+	if err != nil || p.skipped != 1 || len(p.shows) != 1 {
+		t.Fatal("per-program omission count", err)
+	}
+	// An entirely orphaned cinema must remain present, with no available dates.
+	f.catalogs["synthetic-aurillaclecristal/media"] = []byte(`[]`)
+	d, summary, err = Sync(t.Context(), f, options)
+	if err != nil || summary.Skipped != 2 || summary.Cinemas != 13 || len(d.Showtimes) != 12 {
+		t.Fatal("omissions not aggregated or empty cinema lost", summary, err)
+	}
+	found := false
+	for _, theater := range d.Theaters {
+		if theater.ProviderID == "cineoffice-aurillaclecristal" {
+			found = true
+			if len(theater.AvailableDates) != 0 {
+				t.Fatal("orphan supplied an available date")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("orphan-only cinema missing")
+	}
+	// Source metadata returning automatically restores the exact session identity.
+	f.catalogs["synthetic-aurillaclecristal/media"] = newFixture().catalogs["synthetic-aurillaclecristal/media"]
+	f.catalogs["synthetic-"+cinema+"/media"] = jsonFixture([]officeMovie{
+		{ID: "1", CinemaID: cinema, Title: "Office film", Duration: 5400},
+		{ID: "4710", CinemaID: cinema, Title: "Restored film", Duration: 5280},
+	})
+	d, summary, err = Sync(t.Context(), f, options)
+	if err != nil || summary.Skipped != 0 || summary.Cinemas != 13 || len(d.Showtimes) != 14 || d.Window.Through != "2026-11-20" {
+		t.Fatal("restored metadata not included", summary, err)
+	}
+	expectedID, _ := schedule.CinewestShowingID("cineoffice-"+cinema, "2")
+	found = false
+	for _, show := range d.Showtimes {
+		if show.ProviderShowingID == expectedID {
+			found = true
+			if show.Movie.ProviderID != "cineoffice-4710" || show.Movie.Title != "Restored film" || show.EndTime.Sub(show.StartTime) != 2*time.Hour || show.Language != schedule.LanguageVF {
+				t.Fatal("restored session normalization changed")
+			}
+			continue
+		}
+		matched := false
+		for _, before := range baseline.Showtimes {
+			if before.ID == show.ID {
+				matched = reflect.DeepEqual(before, show)
+			}
+		}
+		if !matched {
+			t.Fatal("valid session changed on metadata restoration")
+		}
+	}
+	if !found {
+		t.Fatal("restored session missing")
+	}
+}
+
+func TestOfficeOrphanSessionsStillRejectMalformedDataAtomically(t *testing.T) {
+	for name, mutate := range map[string]func(*officeShow){
+		"missing show id":        func(s *officeShow) { s.ID = "" },
+		"nonnumeric show id":     func(s *officeShow) { s.ID = "invalid" },
+		"zero show id":           func(s *officeShow) { s.ID = "0" },
+		"oversized show id":      func(s *officeShow) { s.ID = sourceID(strings.Repeat("1", 115)) },
+		"missing film reference": func(s *officeShow) { s.Movie.ID = "" },
+		"nonnumeric film":        func(s *officeShow) { s.Movie.ID = "invalid" },
+		"zero film":              func(s *officeShow) { s.Movie.ID = "0" },
+		"leading zero film":      func(s *officeShow) { s.Movie.ID = "04710" },
+		"oversized film":         func(s *officeShow) { s.Movie.ID = sourceID(strings.Repeat("1", 105)) },
+		"wrong cinema":           func(s *officeShow) { s.CinemaID = "aurillaclecristal" },
+		"missing screen":         func(s *officeShow) { s.Screen.ID = "" },
+		"orphan screen":          func(s *officeShow) { s.Screen.ID = "40" },
+		"missing start":          func(s *officeShow) { s.Start = "" },
+		"invalid start":          func(s *officeShow) { s.Start = "not-a-time" },
+		"start without offset":   func(s *officeShow) { s.Start = "2026-09-14T20:00:00" },
+		"missing end":            func(s *officeShow) { s.End = "" },
+		"invalid end":            func(s *officeShow) { s.End = "not-a-time" },
+		"end without offset":     func(s *officeShow) { s.End = "2026-09-14T23:07:00" },
+		"equal end":              func(s *officeShow) { s.End = s.Start },
+		"end before start":       func(s *officeShow) { s.End = "2026-09-14T19:00:00+0200" },
+		"missing language":       func(s *officeShow) { s.Language = "" },
+		"orphan language":        func(s *officeShow) { s.Language = "154" },
+		"missing format":         func(s *officeShow) { s.Format = "" },
+		"orphan format":          func(s *officeShow) { s.Format = "150" },
+		"orphan extra option": func(s *officeShow) {
+			if err := json.Unmarshal([]byte(`[{"mediaoptionsid":{"id":99}}]`), &s.Options); err != nil {
+				panic(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture()
+			rows := fixtureOfficeShows(t, f, "royanlelido")
+			orphan := rows[0]
+			orphan.ID, orphan.Movie.ID = "2", "4710"
+			mutate(&orphan)
+			f.catalogs["synthetic-royanlelido/shows"] = jsonFixture(append(rows, orphan))
+			d, err := syncFixture(t, f)
+			if err == nil || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
+				t.Fatal("malformed orphan silently skipped or partial snapshot accepted")
+			}
+		})
+	}
+}
+
+func TestOfficeOrphansDoNotHideCatalogCorruption(t *testing.T) {
+	for name, mutate := range map[string]func(*fixtureFetcher){
+		"invalid movie title": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/media"] = []byte(`[{"id":1,"cinemaid":"royanlelido","title":"","duration":5400}]`)
+		},
+		"invalid movie id": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/media"] = []byte(`[{"id":"bad","cinemaid":"royanlelido","title":"Office film","duration":5400}]`)
+		},
+		"invalid movie duration": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/media"] = []byte(`[{"id":1,"cinemaid":"royanlelido","title":"Office film","duration":1}]`)
+		},
+		"wrong movie cinema": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/media"] = []byte(`[{"id":1,"cinemaid":"aurillaclecristal","title":"Office film","duration":5400}]`)
+		},
+		"conflicting movies": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/media"] = jsonFixture([]officeMovie{{ID: "1", CinemaID: "royanlelido", Title: "One"}, {ID: "1", CinemaID: "royanlelido", Title: "Two"}})
+		},
+		"missing screens": func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/screens"] = []byte(`[]`) },
+		"wrong screen cinema": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/screens"] = jsonFixture([]officeScreen{{ID: "1", CinemaID: "aurillaclecristal", Number: 1}})
+		},
+		"missing options": func(f *fixtureFetcher) { f.catalogs["synthetic-royanlelido/mediaoptions"] = []byte(`[]`) },
+		"unknown language": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/mediaoptions"] = jsonFixture([]officeOption{{ID: "1", CinemaID: "royanlelido", Label: "VERSION_UNKNOWN"}, {ID: "2", CinemaID: "royanlelido", Label: "PICTURE_2K"}})
+		},
+		"conflicting language": func(f *fixtureFetcher) {
+			f.catalogs["synthetic-royanlelido/mediaoptions"] = jsonFixture([]officeOption{{ID: "1", CinemaID: "royanlelido", Label: "VERSION_LOCAL"}, {ID: "2", CinemaID: "royanlelido", Label: "VERSION_ORIGINAL"}})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture()
+			rows := fixtureOfficeShows(t, f, "royanlelido")
+			rows[0].Movie.ID = "4710"
+			f.catalogs["synthetic-royanlelido/shows"] = jsonFixture(rows)
+			mutate(f)
+			d, err := syncFixture(t, f)
+			if err == nil || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
+				t.Fatal("corrupt catalog hidden by orphan omission")
+			}
+		})
+	}
+}
+
+func TestOfficeOrphanDuplicatePolicy(t *testing.T) {
+	for _, name := range []string{"identical orphan", "conflicting orphan time", "conflicting orphan film", "conflicting valid session"} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture()
+			rows := fixtureOfficeShows(t, f, "royanlelido")
+			orphan := rows[0]
+			orphan.ID, orphan.Movie.ID = "2", "4710"
+			duplicate := orphan
+			switch name {
+			case "conflicting orphan time":
+				duplicate.End = "2026-09-14T23:08:00.123456+0200"
+			case "conflicting orphan film":
+				duplicate.Movie.ID = "4711"
+			case "conflicting valid session":
+				duplicate.Movie.ID = "1"
+			}
+			f.catalogs["synthetic-royanlelido/shows"] = jsonFixture(append(rows, orphan, duplicate))
+			d, summary, err := Sync(t.Context(), f, SyncOptions{From: "2026-09-14", Now: time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)})
+			if name == "identical orphan" {
+				if err != nil || summary.Skipped != 1 || len(d.Theaters) != 13 || len(d.Showtimes) != 13 {
+					t.Fatal("identical orphan not deduplicated", summary, err)
+				}
+			} else if err == nil || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
+				t.Fatal("conflicting session hidden by omission")
+			}
+		})
 	}
 }
 

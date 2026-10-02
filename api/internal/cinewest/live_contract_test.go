@@ -52,5 +52,5 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 	if len(want) != 0 || len(dataset.Theaters) != 13 {
 		t.Fatal("incomplete cinema manifest")
 	}
-	t.Logf("cinemas=%d movies=%d showtimes=%d requests=%d", summary.Cinemas, summary.Movies, summary.Showtimes, summary.Requests)
+	t.Logf("cinemas=%d movies=%d showtimes=%d skipped=%d requests=%d", summary.Cinemas, summary.Movies, summary.Showtimes, summary.Skipped, summary.Requests)
 }

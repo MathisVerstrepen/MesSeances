@@ -14,6 +14,7 @@ import (
 
 type Getter interface {
 	Config(context.Context) ([]byte, error)
+	SiteConfig(context.Context, string) ([]byte, error)
 	Program(context.Context, string, string) ([]byte, error)
 	Poster(context.Context, string) ([]byte, error)
 	RequestCount() int
@@ -47,6 +48,22 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 		return result, summary, err
 	}
 	summary.Cinemas, summary.Jobs = len(cinemas), len(cinemas)
+	// Recover all missing roots before fetching programs. Invalid populated roots
+	// already failed parseConfig and must never be replaced by a fallback.
+	for i := range cinemas {
+		c := &cinemas[i]
+		if c.Website != "" {
+			continue
+		}
+		body, err := getter.SiteConfig(ctx, c.ID)
+		if err != nil {
+			return result, summary, err
+		}
+		c.Website, err = parseSiteWebsite(body, *c)
+		if err != nil {
+			return result, summary, err
+		}
+	}
 	programs, err := parallel.MapOrdered(ctx, cinemas, parallel.Options{Workers: 2}, func(ctx context.Context, c cinema) (program, error) {
 		body, err := getter.Program(ctx, c.ID, c.Website)
 		if err != nil {
