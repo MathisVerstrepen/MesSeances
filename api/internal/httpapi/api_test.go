@@ -118,6 +118,7 @@ func fixtureDataset(t *testing.T) schedule.Dataset {
 		}
 		if movieID == "200" {
 			record.Movie.Enrichment = &schedule.MovieEnrichment{TMDBID: 42, IMDBID: "tt1234567", Overview: "Résumé", ReleaseDate: "2026-01-02", Genres: []string{"Drame"}, PosterURL: "https://image.tmdb.org/t/p/w500/a.jpg", BackdropURL: "https://image.tmdb.org/t/p/w780/a.jpg", TrailerVFYouTubeKey: "FRoff123456", TrailerVOYouTubeKey: "ENoff123456"}
+			record.Movie.Enrichment.MetacriticID = "movie/film-a"
 		}
 		switch id {
 		case "100":
@@ -281,6 +282,79 @@ func TestOriginalLanguageMovieWireContract(t *testing.T) {
 					if !strings.Contains(response.Body.String(), `"language":"VF"`) {
 						t.Fatalf("canonical language changed: %s", response.Body)
 					}
+				}
+			}
+		}
+	}
+}
+
+func TestMetacriticMovieWireContract(t *testing.T) {
+	for _, canonical := range []bool{false, true} {
+		for _, id := range []string{"", "movie/film-a"} {
+			data := fixtureDataset(t)
+			for i := range data.Showtimes {
+				if data.Showtimes[i].Movie.ProviderID == "200" {
+					data.Showtimes[i].Movie.Enrichment.MetacriticID = id
+					if canonical {
+						data.Showtimes[i].Movie.PublicMovieID = 1
+					}
+				}
+			}
+			slug := "tmdb-film-42"
+			if canonical {
+				slug = "film-1"
+				data.PublicMovies = []schedule.PublicMovieRecord{{ID: 1, IdentityAnchorProvider: schedule.ProviderUGC, IdentityAnchorSourceID: "200", Title: "Film A", RuntimeMinutes: 100, TMDBID: 42, MetacriticID: id, UpdatedAt: data.GeneratedAt}}
+				data.MovieSources = []schedule.PublicMovieSourceRecord{{Provider: schedule.ProviderUGC, SourceMovieID: "200", SourceSlug: "ugc-film-200", PublicMovieID: 1, Title: "Film A", RuntimeMinutes: 100}}
+			}
+			service, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return time.Date(2026, 8, 15, 8, 0, 0, 0, time.UTC) }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			handler := NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{InternalSharedSecret: strings.Repeat("a", 64)})
+			for _, path := range []string{"/api/v1/movies", "/api/v1/movies/" + slug + "/showtimes?date=2026-08-15", "/api/v1/internal/movies/" + slug + "/showtimes-bundle?date=2026-08-15", "/api/v1/internal/movies/" + slug + "/showtimes-bundle?date=2026-08-15&city=Lille"} {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+				req.Header.Set("X-Messeances-Internal-Token", strings.Repeat("a", 64))
+				response := httptest.NewRecorder()
+				handler.ServeHTTP(response, req)
+				if response.Code != 200 {
+					t.Fatalf("%s: %d %s", path, response.Code, response.Body)
+				}
+				var body any
+				if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+					t.Fatal(err)
+				}
+				catalogCount := 0
+				var visit func(any)
+				visit = func(value any) {
+					switch node := value.(type) {
+					case map[string]any:
+						if _, movie := node["runtime_minutes"]; movie {
+							value, present := node["metacritic_id"]
+							if _, catalog := node["tmdb_id"]; catalog {
+								catalogCount++
+								want := any(nil)
+								if node["tmdb_id"] == float64(42) && id != "" {
+									want = id
+								}
+								if !present || value != want {
+									t.Fatalf("wrong Metacritic field: %v", node)
+								}
+							} else if present {
+								t.Fatal("lightweight Movie expanded")
+							}
+						}
+						for _, child := range node {
+							visit(child)
+						}
+					case []any:
+						for _, child := range node {
+							visit(child)
+						}
+					}
+				}
+				visit(body)
+				if catalogCount == 0 {
+					t.Fatal("no catalog movies selected")
 				}
 			}
 		}
@@ -932,7 +1006,7 @@ func TestMoviesTransport(t *testing.T) {
 		t.Fatal("nested movie contract unexpectedly enriched")
 	}
 	all := performRequest(t, handler, "/api/v1/movies?page_size=2")
-	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"imdb_id":null,"trailer_vf_youtube_key":null,"trailer_vo_youtube_key":null,"overview":null,"release_date":null,"genres":[]`) {
+	if !strings.Contains(all.Body.String(), `"tmdb_id":null,"imdb_id":null,"metacritic_id":null,"trailer_vf_youtube_key":null,"trailer_vo_youtube_key":null,"overview":null,"release_date":null,"genres":[]`) {
 		t.Fatalf("unmatched null/empty contract missing: %s", all.Body.String())
 	}
 	if !strings.Contains(all.Body.String(), `"available_genres":["Drame"]`) {

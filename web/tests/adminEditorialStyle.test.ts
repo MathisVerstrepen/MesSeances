@@ -76,7 +76,7 @@ test('admin homepage has one distinct decorative leading icon per tool entry', a
       /<NuxtLink\b[^>]*>([\s\S]*?)<\/NuxtLink>/g,
     ),
   ]
-  assert.equal(entries.length, 7)
+  assert.equal(entries.length, 8)
   const icons = entries.map((entry) => {
     const leadingSpan = entry[1]!.match(/^\s*<span\b[^>]*>([\s\S]*?)<\/span>/)
     assert.ok(leadingSpan, 'each tool entry has a leading icon container')
@@ -98,7 +98,7 @@ test('admin homepage has one distinct decorative leading icon per tool entry', a
     assert.match(icon[2]!, /aria-hidden="true"/)
     return icon[1]
   })
-  assert.equal(new Set(icons).size, 7)
+  assert.equal(new Set(icons).size, 8)
   assert.deepEqual(icons, [
     'CalendarDays',
     'GitCompareArrows',
@@ -106,6 +106,7 @@ test('admin homepage has one distinct decorative leading icon per tool entry', a
     'RefreshCw',
     'CalendarClock',
     'MapPin',
+    'Image',
     'Users',
   ])
 })
@@ -128,7 +129,7 @@ test('legacy style check recognizes class tokens, not Vue field identifiers', ()
 test('every admin page and component uses public editorial primitives, without a secondary soft theme', async () => {
   const pages = await readdir(new URL('pages/admin/', app))
   const components = await readdir(new URL('components/admin/', app))
-  assert.equal(pages.filter((name) => name.endsWith('.vue')).length, 9)
+  assert.equal(pages.filter((name) => name.endsWith('.vue')).length, 10)
   assert.equal(components.filter((name) => name.endsWith('.vue')).length, 4)
   for (const [directory, names] of [
     ['pages/admin/', pages],
@@ -206,6 +207,7 @@ test('admin loading and empty states reuse the public editorial state component'
   for (const name of [
     'movies',
     'accounts',
+    'cinemas',
     'sync',
     'sync-schedules',
     'theater-locations',

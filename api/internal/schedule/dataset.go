@@ -39,6 +39,7 @@ type PublicMovieRecord struct {
 	IdentityAnchorProvider Provider
 	IdentityAnchorSourceID string
 	Title                  string
+	OriginalTitle          string
 	RuntimeMinutes         int
 	PosterURL              string
 	BackdropURL            string
@@ -50,6 +51,7 @@ type PublicMovieRecord struct {
 	TMDBID                 int64
 	TMDBRuntimeMinutes     int
 	IMDBID                 string
+	MetacriticID           string
 	OriginalLanguage       string
 	UpdatedAt              time.Time
 }
@@ -110,6 +112,7 @@ type MovieEnrichment struct {
 	TMDBID              int64
 	OriginalLanguage    string
 	IMDBID              string
+	MetacriticID        string
 	Overview            string
 	ReleaseDate         string
 	Genres              []string

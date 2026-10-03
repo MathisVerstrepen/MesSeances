@@ -5,6 +5,7 @@ import type { Provider } from '~/types/api'
 const props = defineProps<{
   name: string
   provider: Provider
+  variant?: 'inline' | 'hero'
   decorative?: boolean
   logoClass?: string
 }>()
@@ -37,7 +38,25 @@ const nameIncludesProvider = computed(() => {
 </script>
 
 <template>
-  <span :aria-hidden="decorative ? 'true' : undefined"
+  <span
+    v-if="variant === 'hero'"
+    class="block"
+    :aria-hidden="decorative ? 'true' : undefined"
+  >
+    <span
+      class="mb-4 flex h-[52px] w-[130px] max-w-full items-center justify-center border-2 border-ink bg-white p-2 lg:h-14 lg:w-36"
+    >
+      <BrandLogo
+        :brand="providerBrands[provider]"
+        variant="display"
+        :decorative="decorative || nameIncludesProvider"
+        class="h-8 max-w-full object-contain lg:h-9"
+        :class="logoClass"
+      />
+    </span>
+    <span class="block break-words [overflow-wrap:anywhere]">{{ name }}</span>
+  </span>
+  <span v-else :aria-hidden="decorative ? 'true' : undefined"
     ><BrandLogo
       :brand="providerBrands[provider]"
       :decorative="decorative || nameIncludesProvider"

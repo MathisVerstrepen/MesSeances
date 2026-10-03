@@ -15,7 +15,7 @@ import {
   SlidersHorizontal,
   X,
 } from '@lucide/vue'
-import type { Theater } from '~/types/api'
+import type { Provider, Theater } from '~/types/api'
 import { theaterDisplayName } from '~/utils/theaterDisplayName'
 import {
   cinemaListSections,
@@ -30,6 +30,10 @@ import {
   type CinemaDirectoryState,
 } from '~/utils/cinemaDirectoryQuery'
 import { createCinemaDirectoryLocation } from '~/utils/cinemaDirectoryLocation'
+import {
+  cinemaDirectoryChains,
+  filterCinemaDirectory,
+} from '~/utils/cinemaDirectoryChains'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import {
   buildOpenStreetMapPositionUrl,
@@ -85,6 +89,10 @@ const statusMessage = ref('')
 const routeState = computed(() => parseCinemaDirectoryQuery(route.query))
 const viewMode = computed(() => routeState.value.view)
 const locationMode = computed(() => routeState.value.location)
+const selectedChains = computed(() => routeState.value.chains)
+const chainOptions = computed(() =>
+  cinemaDirectoryChains(directoryTheaters.value),
+)
 const location = createCinemaDirectoryLocation(() =>
   import.meta.client ? navigator.geolocation : undefined,
 )
@@ -148,7 +156,7 @@ function handleSettingsKeydown(event: KeyboardEvent) {
     return
   const focusable = [
     ...settingsDialog.value.querySelectorAll<HTMLElement>(
-      'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])',
     ),
   ].filter(
     (element) =>
@@ -180,18 +188,12 @@ function updateSearch(event: Event) {
 }
 
 const selectedIds = computed(() => new Set(draftFavoriteTheaterIds.value))
-const normalizedSearch = computed(() =>
-  search.value.trim().toLocaleLowerCase('fr-FR'),
-)
 const searchResults = computed(() =>
-  directoryTheaters.value.filter((theater) => {
-    const searchable = `${theater.name} ${theater.city}`.toLocaleLowerCase(
-      'fr-FR',
-    )
-    return (
-      !normalizedSearch.value || searchable.includes(normalizedSearch.value)
-    )
-  }),
+  filterCinemaDirectory(
+    directoryTheaters.value,
+    search.value,
+    selectedChains.value,
+  ),
 )
 const displayedTheaters = searchResults
 const isNearbyMode = computed(
@@ -222,13 +224,22 @@ const listSections = computed(() =>
 const visibleTheaterCount = computed(() => displayedTheaters.value.length)
 
 function setDisplayMode(
-  changes: Partial<Pick<CinemaDirectoryState, 'view' | 'location'>>,
+  changes: Partial<Pick<CinemaDirectoryState, 'view' | 'location' | 'chains'>>,
 ) {
   const query = cinemaDirectoryQuery(route.query, {
     search: search.value,
     ...changes,
   })
   if (!queriesEqual(route.query, query)) router.push({ query })
+}
+
+function setChains(chains: Provider[]) {
+  setDisplayMode({ chains })
+}
+
+function resetFilters() {
+  search.value = ''
+  setDisplayMode({ chains: [] })
 }
 
 function useCurrentPosition() {
@@ -651,51 +662,65 @@ useHead(() => ({
             </div>
             <div
               class="selection-controls inline-flex max-w-full flex-wrap items-center justify-end gap-3 max-sm:w-full"
+              :class="settingsOpen ? 'w-full flex-col items-stretch' : ''"
             >
-              <div
-                class="bulk-actions inline-grid max-w-full grid-cols-1 gap-[0.35rem] border-2 border-dashed border-ink bg-[#f1efe8] p-[0.15rem] max-sm:w-full sm:h-11 sm:grid-cols-2"
-                role="group"
-                aria-label="Modifier les cinémas affichés"
+              <CinemaChainFilter
+                :model-value="selectedChains"
+                :options="chainOptions"
+                :in-settings="settingsOpen"
+                @update:model-value="setChains"
+              />
+              <section
+                :class="settingsOpen ? 'mt-3 border-t-2 border-ink pt-4' : ''"
               >
-                <ClientOnly>
-                  <button
-                    type="button"
-                    class="inline-flex h-full min-h-11 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2 sm:min-h-0"
-                    :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
-                    @click="updateDisplayedSelection(true)"
-                  >
-                    <CheckCheck :size="16" aria-hidden="true" />
-                    Tout sélectionner
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-full min-h-11 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2 sm:min-h-0"
-                    :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
-                    @click="updateDisplayedSelection(false)"
-                  >
-                    <X :size="16" aria-hidden="true" />
-                    Désélectionner
-                  </button>
-                  <template #fallback>
+                <h3 v-if="settingsOpen" class="mb-3 text-base font-black">
+                  Cinémas affichés
+                </h3>
+                <div
+                  class="bulk-actions inline-grid max-w-full grid-cols-1 gap-[0.35rem] border-2 border-dashed border-ink bg-[#f1efe8] p-[0.15rem] max-sm:w-full sm:h-11 sm:grid-cols-2"
+                  role="group"
+                  aria-label="Modifier les cinémas affichés"
+                >
+                  <ClientOnly>
                     <button
                       type="button"
-                      class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                      disabled
+                      class="inline-flex h-full min-h-11 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2 sm:min-h-0"
+                      :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => selectedIds.has(theater.id))"
+                      @click="updateDisplayedSelection(true)"
                     >
                       <CheckCheck :size="16" aria-hidden="true" />
                       Tout sélectionner
                     </button>
                     <button
                       type="button"
-                      class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
-                      disabled
+                      class="inline-flex h-full min-h-11 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink enabled:hover:bg-ink enabled:hover:text-white focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2 sm:min-h-0"
+                      :disabled="!preferencesReady || writesBlocked || displayedTheaters.length === 0 || displayedTheaters.every((theater) => !selectedIds.has(theater.id))"
+                      @click="updateDisplayedSelection(false)"
                     >
                       <X :size="16" aria-hidden="true" />
                       Désélectionner
                     </button>
-                  </template>
-                </ClientOnly>
-              </div>
+                    <template #fallback>
+                      <button
+                        type="button"
+                        class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
+                        disabled
+                      >
+                        <CheckCheck :size="16" aria-hidden="true" />
+                        Tout sélectionner
+                      </button>
+                      <button
+                        type="button"
+                        class="inline-flex h-full min-h-0 min-w-0 items-center justify-center gap-2 border-0 bg-transparent px-[0.8rem] py-[0.6rem] font-mono text-[0.62rem] font-black uppercase tracking-[0.08em] text-ink disabled:cursor-not-allowed disabled:opacity-40 max-sm:px-2"
+                        disabled
+                      >
+                        <X :size="16" aria-hidden="true" />
+                        Désélectionner
+                      </button>
+                    </template>
+                  </ClientOnly>
+                </div>
+              </section>
             </div>
           </div>
         </Teleport>
@@ -819,6 +844,15 @@ useHead(() => ({
         >
           <template #icon><Search :size="34" aria-hidden="true" /></template>
           <p>Aucun cinéma ne correspond à votre recherche.</p>
+          <template #actions>
+            <button
+              type="button"
+              class="editorial-button-outline"
+              @click="resetFilters"
+            >
+              Effacer les filtres
+            </button>
+          </template>
         </EditorialStatePanel>
 
         <div v-else>
@@ -1100,36 +1134,56 @@ useHead(() => ({
       ref="settingsDialog"
       aria-labelledby="cinema-settings-title"
       aria-modal="true"
-      class="fixed inset-x-0 bottom-0 top-auto m-0 max-h-[calc(100dvh-1rem)] w-full max-w-none overflow-y-auto overscroll-contain rounded-none border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-ink shadow-[0_-8px_0_#27272a] backdrop:bg-black/60 sm:px-6"
+      class="fixed inset-x-0 bottom-0 top-auto m-0 max-h-[calc(100dvh-1rem)] w-full max-w-none overflow-hidden rounded-none border-2 border-b-0 border-ink bg-[#f8f7f2] text-ink shadow-[0_-8px_0_#27272a] backdrop:bg-black/60"
       @cancel.prevent="closeSettings()"
       @close="!settingsDialog?.open && closeSettings()"
       @click="handleSettingsBackdrop"
       @keydown="handleSettingsKeydown"
     >
-      <div class="mb-6 flex items-center gap-2.5 border-b-2 border-ink pb-4">
-        <SlidersHorizontal :size="18" aria-hidden="true" />
-        <h2
-          id="cinema-settings-title"
-          class="min-w-0 flex-1 text-xl font-black leading-tight tracking-[-0.035em]"
+      <div class="flex max-h-[calc(100dvh-1rem-2px)] flex-col">
+        <header
+          class="sticky top-0 z-10 flex shrink-0 items-center gap-2.5 border-b-2 border-ink bg-[#f8f7f2] p-4 sm:px-6"
         >
-          Réglages des cinémas
-        </h2>
-        <button
-          ref="settingsCloseButton"
-          type="button"
-          class="editorial-button-outline ml-auto size-11 shrink-0 p-0"
-          aria-label="Fermer les réglages"
-          @click="closeSettings()"
+          <SlidersHorizontal :size="18" aria-hidden="true" />
+          <h2
+            id="cinema-settings-title"
+            class="min-w-0 flex-1 text-xl font-black leading-tight tracking-[-0.035em]"
+          >
+            Réglages des cinémas
+          </h2>
+          <button
+            ref="settingsCloseButton"
+            type="button"
+            class="editorial-button-outline ml-auto size-11 shrink-0 p-0"
+            aria-label="Fermer les réglages"
+            @click="closeSettings()"
+          >
+            <X :size="20" aria-hidden="true" />
+          </button>
+        </header>
+        <div
+          class="cinema-settings-content min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
         >
-          <X :size="20" aria-hidden="true" />
-        </button>
+          <div id="cinema-settings-controls"></div>
+          <div
+            id="cinema-settings-location"
+            :class="locationMode === 'nearby' ? 'mt-5' : ''"
+          ></div>
+          <div id="cinema-settings-feedback"></div>
+        </div>
+        <footer
+          class="sticky bottom-0 z-10 shrink-0 border-t-2 border-ink bg-[#f8f7f2] px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+        >
+          <button
+            type="button"
+            class="editorial-button w-full"
+            @click="closeSettings()"
+          >
+            Voir {{ visibleTheaterCount }}
+            {{ visibleTheaterCount === 1 ? 'cinéma' : 'cinémas' }}
+          </button>
+        </footer>
       </div>
-      <div
-        id="cinema-settings-location"
-        :class="locationMode === 'nearby' ? 'mb-5' : ''"
-      ></div>
-      <div id="cinema-settings-controls"></div>
-      <div id="cinema-settings-feedback"></div>
     </dialog>
   </main>
 </template>

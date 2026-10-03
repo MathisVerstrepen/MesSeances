@@ -56,6 +56,7 @@ func (e *NotFoundError) Error() string {
 }
 
 type Movie struct {
+	OriginalTitle    *string   `json:"original_title"`
 	OriginalLanguage *string   `json:"original_language"`
 	Slug             string    `json:"slug"`
 	Title            string    `json:"title"`
@@ -177,6 +178,7 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
+	OriginalTitle       *string   `json:"original_title"`
 	OriginalLanguage    *string   `json:"original_language"`
 	FrenchReleaseDate   *string   `json:"french_release_date"`
 	Slug                string    `json:"slug"`
@@ -187,6 +189,7 @@ type MovieCatalogItem struct {
 	PosterURL           *string   `json:"poster_url"`
 	TMDBID              *int64    `json:"tmdb_id"`
 	IMDBID              *string   `json:"imdb_id"`
+	MetacriticID        *string   `json:"metacritic_id"`
 	TrailerVFYouTubeKey *string   `json:"trailer_vf_youtube_key"`
 	TrailerVOYouTubeKey *string   `json:"trailer_vo_youtube_key"`
 	Overview            *string   `json:"overview"`

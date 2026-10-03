@@ -42,6 +42,7 @@ import (
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
+	"messeances/api/internal/wikidata"
 )
 
 func main() {
@@ -182,6 +183,18 @@ func run(ctx context.Context) error {
 			}
 		}()
 	}
+	// Cinema media is independently owned and probed before migrations.
+	cinemaMedia, err := openCinemaImages(cfg)
+	if err != nil {
+		return err
+	}
+	if cinemaMedia != nil {
+		defer func() {
+			if cinemaMedia.Close() != nil {
+				logger.Warn("cinema_image_close_failed")
+			}
+		}()
+	}
 	proxies, err := loadSyncProxies(cfg.Proxy.Path, func(path string) (io.ReadCloser, error) { return os.Open(path) })
 	if err != nil {
 		return err
@@ -232,7 +245,12 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	polling.Add(3)
+	historyCache := &httpapi.HistoryCache{}
+	polling.Add(4)
+	go func() {
+		defer polling.Done()
+		runHistoryCache(workerCtx, schedules.store, historyCache, logger)
+	}()
 	go func() {
 		defer polling.Done()
 		schedules.source.Run(workerCtx)
@@ -247,6 +265,14 @@ func run(ctx context.Context) error {
 	}()
 	admin.options.Syncs = syncs.controller
 	admin.options.SyncSchedules = syncs.scheduler
+	cinemaImages := newCinemaImageService(pool, cinemaMedia, proxies, logger)
+	admin.options.TheaterImages = cinemaImages
+	var publicTheaterImages httpapi.PublicTheaterImageController
+	if cinemaMedia != nil {
+		publicTheaterImages = cinemaImages
+		polling.Add(1)
+		go func() { defer polling.Done(); runCinemaImageCleanup(workerCtx, cinemaImages, logger) }()
+	}
 	shortlinkService := shortlink.NewService(shortlinkStore, shortlink.ServiceOptions{})
 	accountService, err := newAccountService(pool, cfg, avatars, admin.enrichmentProvider, admin.watchlistReleaseProvider, schedules.service.RefreshPublishedMovie)
 	if err != nil {
@@ -266,11 +292,11 @@ func run(ctx context.Context) error {
 	}
 	server := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Server.Port),
-		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, schedules.store, httpapi.ReadinessOptions{
+		Handler: newAPIHandler(schedules.service, cfg, admin.options, shortlinkService, schedules.store, historyCache, schedules.store, httpapi.ReadinessOptions{
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
-		}, accountService),
+		}, accountService, publicTheaterImages),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -325,8 +351,9 @@ func newAdminRuntime(ctx context.Context, pool *pgxpool.Pool, cfg runtimeconfig.
 		if err != nil {
 			return adminRuntime{}, fmt.Errorf("TMDB configuration is invalid")
 		}
-		provider = client
-		upcomingProvider = client
+		decorated := enrichment.NewMetacriticProvider(client, wikidata.NewClient())
+		provider = decorated
+		upcomingProvider = decorated
 		releaseProvider = client
 	}
 	gate := enrichment.NewTMDBRunGate()
@@ -545,14 +572,16 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, historyCache *httpapi.HistoryCache, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service, publicTheaterImages httpapi.PublicTheaterImageController) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
 		Accounts:             httpapi.AccountOptions{Enabled: cfg.Accounts.Enabled, Service: accountService, Origin: cfg.Server.Origin},
 		Admin:                adminOptions,
 		Readiness:            readiness,
 		Shortlinks:           shortlinks,
 		History:              history,
+		HistoryCache:         historyCache,
 		Activity:             activity,
+		PublicTheaterImages:  publicTheaterImages,
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})

@@ -44,6 +44,7 @@ import {
 import { serializeJsonLd } from '~/utils/jsonLd'
 import { isIndexableMovie } from '~/utils/movieIndexability'
 import { buildMovieExternalLinks } from '~/utils/movieExternalLinks'
+import { movieOriginalTitleSubtitle } from '~/utils/movieCatalogPresentation'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
@@ -71,6 +72,9 @@ const api = useMesSeancesApi()
 const preferences = usePageCinemaSelection()
 const today = ref(todayInParis())
 const schedule = ref<MovieShowtimesResponse | null>(null)
+const originalTitleSubtitle = computed(() =>
+  schedule.value ? movieOriginalTitleSubtitle(schedule.value.movie) : '',
+)
 const selectedDate = ref('')
 const pending = ref(true)
 const errorMessage = ref('')
@@ -89,11 +93,14 @@ const currentTime = ref<number | null>(null)
 const isPersonalizedSchedule = ref(false)
 const appendPending = ref(false)
 const appendError = ref('')
-const broadScope = computed(() =>
-  isBroadTheaterSelection(
-    preferences.activeTheaterIds.value,
-    preferences.theaters.value,
-  ),
+const nationwideOverride = ref(false)
+const broadScope = computed(
+  () =>
+    nationwideOverride.value ||
+    isBroadTheaterSelection(
+      preferences.activeTheaterIds.value,
+      preferences.theaters.value,
+    ),
 )
 let isUnmounted = false
 const isEndedFilm = computed(() => schedule.value?.release_status === 'ended')
@@ -162,7 +169,7 @@ function scheduleKey() {
   const filters = broadScope.value
     ? `|${activeLanguage.value}|${activeTechnology.value}|${sortByNextShowtime.value}`
     : ''
-  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}${filters}`
+  return `${slug.value}|${selectedDate.value}|${preferences.selectionScopeKey.value}|${preferences.activeTheaterIds.value.join(',')}|${broadScope.value}${filters}`
 }
 
 const slug = computed(() => {
@@ -185,6 +192,15 @@ const availableDates = computed(() =>
   schedule.value ? nonPastAvailableDates(schedule.value) : [],
 )
 const hasAvailableDates = computed(() => availableDates.value.length > 0)
+const canBroadenSearch = computed(
+  () =>
+    preferences.isInitialized.value &&
+    isPersonalizedSchedule.value &&
+    !broadScope.value &&
+    !pending.value &&
+    !errorMessage.value &&
+    !hasAvailableDates.value,
+)
 const backdropUrl = computed(() =>
   safeBackdropUrl(schedule.value?.backdrop_url),
 )
@@ -217,6 +233,7 @@ const externalLinks = computed(() =>
   buildMovieExternalLinks(
     schedule.value?.movie.tmdb_id,
     schedule.value?.movie.imdb_id,
+    schedule.value?.movie.metacritic_id,
   ),
 )
 const tmdbUrl = computed(
@@ -590,6 +607,13 @@ async function loadSchedule() {
   }
 }
 
+async function broadenSearch() {
+  if (!canBroadenSearch.value) return
+  nationwideOverride.value = true
+  resetPagination()
+  await loadSchedule()
+}
+
 async function loadMore() {
   const loaded = schedule.value
   if (
@@ -803,7 +827,9 @@ watch(
     preferences.isInitialized,
     preferences.error,
   ],
-  () => {
+  (selection, previous) => {
+    if (selection[0] !== previous[0] || selection[1] !== previous[1])
+      nationwideOverride.value = false
     resetPagination()
   },
   { flush: 'sync' },
@@ -851,6 +877,7 @@ watch(
   },
 )
 watch(slug, () => {
+  nationwideOverride.value = false
   resetPagination()
   schedule.value = null
   isPersonalizedSchedule.value = false
@@ -1127,6 +1154,13 @@ if (
           >
             {{ schedule.movie.title }}
           </h1>
+          <p
+            v-if="originalTitleSubtitle"
+            class="mt-3 text-lg leading-snug opacity-70 sm:text-xl [overflow-wrap:anywhere]"
+            :class="backdropAvailable ? 'text-white' : 'text-ink'"
+          >
+            {{ originalTitleSubtitle }}
+          </p>
           <div
             class="mt-6 flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-[0.1em]"
             :class="backdropAvailable ? 'text-white' : 'text-ink'"
@@ -1598,6 +1632,15 @@ if (
             <p>
               Aucune date de séance disponible pour ce film dans ces cinémas.
             </p>
+            <template v-if="canBroadenSearch" #actions
+              ><button
+                type="button"
+                class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-extrabold tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                @click="broadenSearch"
+              >
+                Rechercher dans toute la France
+              </button></template
+            >
           </EditorialStatePanel>
 
           <EditorialStatePanel

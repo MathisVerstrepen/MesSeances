@@ -44,7 +44,11 @@ const [TheaterName, BrandLogo, BrandedText] = await Promise.all(
 async function render(
   name: string,
   provider: Provider,
-  options: { decorative?: boolean; logoClass?: string } = {},
+  options: {
+    decorative?: boolean
+    logoClass?: string
+    variant?: 'inline' | 'hero'
+  } = {},
 ) {
   const app = createSSRApp(TheaterName!, { name, provider, ...options })
   app.component('BrandLogo', BrandLogo!)
@@ -103,6 +107,39 @@ const providers = {
 
 // SAFETY: providers is a local literal exhaustively checked against Record<Provider, string> above.
 const providerKeys = Object.keys(providers) as Provider[]
+
+test('hero uses one white logo tile and a separate full source name for every provider', async () => {
+  const name = 'Cinéma de la très longue avenue des Lumières '.repeat(6).trim()
+  for (const provider of providerKeys) {
+    const html = await render(name, provider, { variant: 'hero' })
+    assert.equal((html.match(/<img /g) || []).length, 1)
+    assert.match(html, /mb-4 flex h-\[52px\] w-\[130px\] max-w-full/)
+    assert.match(html, /border-2 border-ink bg-white p-2 lg:h-14 lg:w-36/)
+    assert.match(html, /h-8 max-w-full object-contain lg:h-9/)
+    assert.ok(html.includes(`alt="${providers[provider]}"`), html)
+    assert.ok(html.includes(`[overflow-wrap:anywhere]">${name}</span>`), html)
+    assert.doesNotMatch(html, /truncate|line-clamp/)
+    if (provider === 'grandecran') assert.match(html, /<img[^>]*bg-ink/)
+  }
+})
+
+test('hero retains nonduplicated accessible branding and inline remains the default', async () => {
+  for (const provider of providerKeys) {
+    const name = `${providers[provider]} Centre`
+    const hero = await render(name, provider, { variant: 'hero' })
+    assert.match(hero, /alt(?:="")? aria-hidden="true"/)
+    assert.ok(hero.includes(`>${name}</span>`), hero)
+    const decorative = await render(name, provider, {
+      variant: 'hero',
+      decorative: true,
+    })
+    assert.match(decorative, /^<span class="block" aria-hidden="true">/)
+    assert.equal(
+      await render(name, provider),
+      await render(name, provider, { variant: 'inline' }),
+    )
+  }
+})
 
 for (const provider of providerKeys) {
   const asset =

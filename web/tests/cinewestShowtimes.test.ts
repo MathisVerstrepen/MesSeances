@@ -66,6 +66,7 @@ function theaterResponse(showtimes: Showtime[]): TheaterShowtimesResponse {
       postal_code: '84130',
       address: '1 rue du cinéma',
       available_dates: ['2027-06-27'],
+      image: null,
       accepted_passes: [],
     },
     showtimes: showtimes.map((showtime) => ({
@@ -308,6 +309,7 @@ test('Cinewest film JSON-LD preserves published ends and omits estimated or unkn
       poster_url: null,
       tmdb_id: null,
       imdb_id: null,
+      metacritic_id: null,
       overview: null,
       release_date: null,
       french_release_date: null,

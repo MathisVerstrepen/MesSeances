@@ -13,6 +13,7 @@ const movie = {
   poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
   tmdb_id: 42,
   imdb_id: 'tt0000042',
+  metacritic_id: null,
   overview: '  Une histoire de cinéma.  ',
   release_date: '2026-08-20',
   french_release_date: null,

@@ -362,7 +362,7 @@ test('cinemas page keeps a zero-capable draft and filters search results before 
   )
   assert.match(
     page,
-    /const searchResults = computed\(\s*\(\) =>\s*directoryTheaters\.value\.filter/,
+    /const searchResults = computed\(\s*\(\) =>\s*filterCinemaDirectory\(\s*directoryTheaters\.value,\s*search\.value,\s*selectedChains\.value/,
   )
   assert.match(page, /const displayedTheaters = searchResults/)
   assert.match(

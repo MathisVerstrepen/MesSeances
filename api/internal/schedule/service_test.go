@@ -1645,7 +1645,7 @@ func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
 		t.Fatalf("second=%+v err=%v", second, err)
 	}
 	filtered, err := service.Movies(MovieCatalogQuery{Search: " bêta ", Sort: MovieCatalogSortShowtimesDesc, PageSize: 10})
-	if err != nil || filtered.Total != 1 || len(filtered.Items) != 1 || filtered.Items[0].Slug != "tmdb-film-42" || filtered.Items[0].Title != "Bêta" {
+	if err != nil || filtered.Total != 1 || len(filtered.Items) != 1 || filtered.Items[0].Slug != "tmdb-film-42" || filtered.Items[0].Title != "Bêta" || filtered.Items[0].ShowtimeCount != 2 || filtered.Items[0].OriginalTitle != nil {
 		t.Fatalf("filtered=%+v err=%v", filtered, err)
 	}
 	variants := service.source.Snapshot().movieBySlug["tmdb-film-42"].variants

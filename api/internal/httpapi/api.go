@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"messeances/api/internal/cinemaimage"
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/geocoding"
 	"messeances/api/internal/observability"
@@ -21,12 +22,14 @@ import (
 )
 
 type API struct {
-	schedule   *schedule.Service
-	admin      *adminAPI
-	shortlinks ShortlinkService
-	history    HistoryReader
-	activity   ActivityReader
-	origin     string
+	schedule            *schedule.Service
+	admin               *adminAPI
+	shortlinks          ShortlinkService
+	history             HistoryReader
+	historyCache        *HistoryCache
+	activity            ActivityReader
+	publicTheaterImages PublicTheaterImageController
+	origin              string
 }
 
 type ShortlinkService interface {
@@ -40,7 +43,9 @@ type HandlerOptions struct {
 	Readiness            ReadinessOptions
 	Shortlinks           ShortlinkService
 	History              HistoryReader
+	HistoryCache         *HistoryCache
 	Activity             ActivityReader
+	PublicTheaterImages  PublicTheaterImageController
 	TrustedProxyCIDRs    []netip.Prefix
 	InternalSharedSecret string
 	RateLimitClock       func() time.Time
@@ -59,6 +64,7 @@ type AdminOptions struct {
 	SyncSchedules    SyncScheduleController
 	TheaterLocations TheaterLocationController
 	TheaterGeocoding TheaterGeocodingController
+	TheaterImages    TheaterImageController
 	Movies           *enrichment.AdminMovieService
 	Accounts         AdminAccountsLister
 	Now              func() time.Time
@@ -105,6 +111,19 @@ type TheaterGeocodingController interface {
 	Snapshot(context.Context) (*geocoding.RunStatus, error)
 }
 
+type TheaterImageController interface {
+	List(context.Context, cinemaimage.ListQuery) (cinemaimage.Inventory, error)
+	Upload(context.Context, cinemaimage.Identity, func() (int64, []byte, string, error)) (cinemaimage.Result, error)
+	Import(context.Context, cinemaimage.Identity, int64, string) (cinemaimage.Result, error)
+	Remove(context.Context, cinemaimage.Identity, int64) (cinemaimage.Result, error)
+	Read(context.Context, cinemaimage.Identity, int64) ([]byte, error)
+}
+
+type PublicTheaterImageController interface {
+	PublicImage(context.Context, cinemaimage.Identity) (*cinemaimage.PublicImage, error)
+	Read(context.Context, cinemaimage.Identity, int64) ([]byte, error)
+}
+
 func NewHandler(service *schedule.Service, webOrigin string) http.Handler {
 	return NewHandlerWithOptions(service, webOrigin, HandlerOptions{})
 }
@@ -124,7 +143,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.RateLimitClock == nil {
 		options.RateLimitClock = time.Now
 	}
-	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, activity: options.Activity, origin: webOrigin}
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, historyCache: options.HistoryCache, activity: options.Activity, publicTheaterImages: options.PublicTheaterImages, origin: webOrigin}
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
 	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
 	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
@@ -164,7 +183,8 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/statistics/history/options", api.historyOptions)
 	router.With(noStoreHistory, expensiveReads).Get("/api/v1/theaters/{slug}/activity", api.theaterActivity)
 	router.With(api.requireSchedule).Get("/api/v1/theaters", api.theaters)
-	router.With(api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
+	router.With(noStorePublicTheaterImages, api.requireSchedule, expensiveReads).Get("/api/v1/theaters/{slug}/showtimes", api.theaterShowtimes)
+	router.With(noStorePublicTheaterImages, expensiveReads).Get("/api/v1/theaters/{provider}/{providerTheaterID}/image/{revision}", api.publicTheaterImage)
 	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)
 	router.With(api.requireSchedule).Get("/api/v1/cities/{slug}", api.city)
 	router.With(api.requireCatalog, expensiveReads).Get("/api/v1/movies", api.movies)
@@ -181,6 +201,11 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 		router.With(adminAccountsPrivacy, api.admin.authorize).Get("/accounts", api.admin.adminAccounts)
 		router.Group(func(router chi.Router) {
 			router.Use(api.admin.authorize)
+			router.Get("/theaters", api.admin.adminTheaters)
+			router.With(api.admin.requireOrigin).Post("/theaters/{provider}/{providerTheaterID}/image", api.admin.uploadTheaterImage)
+			router.With(api.admin.requireOrigin).Post("/theaters/{provider}/{providerTheaterID}/image/import", api.admin.importTheaterImage)
+			router.With(api.admin.requireOrigin).Delete("/theaters/{provider}/{providerTheaterID}/image", api.admin.removeTheaterImage)
+			router.Get("/theaters/{provider}/{providerTheaterID}/image/{revision}", api.admin.theaterImage)
 			router.With(api.admin.requireOrigin).Post("/logout", api.admin.logout)
 			router.Get("/tmdb-matches", api.admin.pendingMatches)
 			router.With(api.admin.requireOrigin).Post("/tmdb-matches/rerun", api.admin.rerunTMDBMatches)

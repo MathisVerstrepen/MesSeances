@@ -173,7 +173,7 @@ func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilte
 			}
 			item = materializeCatalogMovie(view, view.data.Showtimes[position].Movie)
 		}
-		if search != "" && !strings.Contains(normalized(item.Title), search) {
+		if search != "" && !strings.Contains(normalized(item.Title), search) && (item.OriginalTitle == nil || !strings.Contains(normalized(*item.OriginalTitle), search)) {
 			continue
 		}
 		grouped = append(grouped, catalogGroupedMovie{item: item, showtimeCount: count})

@@ -265,7 +265,7 @@ func TestStatisticsHTTPFilmScalar(t *testing.T) {
 				handler, path := testHandler(t), "/api/v1/statistics"
 				parse := parseStatisticsQuery
 				if history {
-					handler = NewHandlerWithOptions(nil, "", HandlerOptions{History: reader})
+					handler = NewHandlerWithOptions(nil, "", HandlerOptions{History: reader, HistoryCache: warmHistoryCache(t, schedule.HistoryStatistics{Mode: "history"})})
 					path, parse = path+"/history", parseHistoryStatisticsQuery
 				}
 				q, err := parse(tc.raw)
@@ -279,8 +279,14 @@ func TestStatisticsHTTPFilmScalar(t *testing.T) {
 					if !strings.Contains(r.Body.String(), `"code":"invalid_query"`) || reader.calls != 0 {
 						t.Fatal(r.Body.String(), reader.calls)
 					}
-				} else if history && (reader.calls != 1 || reader.stats.Film != tc.film) {
-					t.Fatal("film not forwarded", reader.stats, reader.calls)
+				} else if history {
+					wantCalls := 1
+					if tc.film == "" {
+						wantCalls = 0 // Unfiltered all-time requests are cache-only.
+					}
+					if reader.calls != wantCalls || reader.stats.Film != tc.film {
+						t.Fatal("film not forwarded", reader.stats, reader.calls)
+					}
 				}
 				if r.Code != want || r.Header().Get("Cache-Control") != "no-store" {
 					t.Fatal(history, r.Code, r.Body.String())

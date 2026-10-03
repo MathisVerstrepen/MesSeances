@@ -77,6 +77,10 @@ func lockEnrichmentVersion(ctx context.Context, tx pgx.Tx) (int64, error) {
 
 func writeMetadata(ctx context.Context, tx pgx.Tx, metadata Metadata) error {
 	var imdbID, originalLanguage, overview, releaseDate, poster, backdrop, trailerVFYouTubeKey, trailerVOYouTubeKey any
+	var metacriticID any
+	if metadata.MetacriticChecked && metadata.MetacriticID != "" {
+		metacriticID = metadata.MetacriticID
+	}
 	genres := metadata.Genres
 	if genres == nil {
 		genres = []string{}
@@ -105,9 +109,9 @@ func writeMetadata(ctx context.Context, tx pgx.Tx, metadata Metadata) error {
 	if metadata.TrailerVOYouTubeKey != "" {
 		trailerVOYouTubeKey = metadata.TrailerVOYouTubeKey
 	}
-	_, err := tx.Exec(ctx, `INSERT INTO movie_metadata_cache (provider, provider_movie_id, imdb_id, locale, provider_title, localized_title, overview, release_date, poster_url, backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, runtime_minutes, genres, fetched_at, refresh_after, original_language)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
-ON CONFLICT (provider, provider_movie_id, locale) DO UPDATE SET original_language=EXCLUDED.original_language, imdb_id=EXCLUDED.imdb_id, provider_title=EXCLUDED.provider_title, localized_title=EXCLUDED.localized_title, overview=EXCLUDED.overview, release_date=EXCLUDED.release_date, poster_url=EXCLUDED.poster_url, backdrop_url=EXCLUDED.backdrop_url, trailer_vf_youtube_key=EXCLUDED.trailer_vf_youtube_key, trailer_vo_youtube_key=EXCLUDED.trailer_vo_youtube_key, runtime_minutes=EXCLUDED.runtime_minutes, genres=EXCLUDED.genres, fetched_at=EXCLUDED.fetched_at, refresh_after=EXCLUDED.refresh_after`, metadata.Provider, metadata.ProviderMovieID, imdbID, metadata.Locale, metadata.ProviderTitle, metadata.LocalizedTitle, overview, releaseDate, poster, backdrop, trailerVFYouTubeKey, trailerVOYouTubeKey, metadata.RuntimeMinutes, genres, metadata.FetchedAt, metadata.RefreshAfter, originalLanguage)
+	_, err := tx.Exec(ctx, `INSERT INTO movie_metadata_cache (provider, provider_movie_id, imdb_id, locale, provider_title, localized_title, overview, release_date, poster_url, backdrop_url, trailer_vf_youtube_key, trailer_vo_youtube_key, runtime_minutes, genres, fetched_at, refresh_after, original_language, metacritic_id)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+ON CONFLICT (provider, provider_movie_id, locale) DO UPDATE SET metacritic_id=CASE WHEN $19 THEN EXCLUDED.metacritic_id ELSE movie_metadata_cache.metacritic_id END, original_language=EXCLUDED.original_language, imdb_id=EXCLUDED.imdb_id, provider_title=EXCLUDED.provider_title, localized_title=EXCLUDED.localized_title, overview=EXCLUDED.overview, release_date=EXCLUDED.release_date, poster_url=EXCLUDED.poster_url, backdrop_url=EXCLUDED.backdrop_url, trailer_vf_youtube_key=EXCLUDED.trailer_vf_youtube_key, trailer_vo_youtube_key=EXCLUDED.trailer_vo_youtube_key, runtime_minutes=EXCLUDED.runtime_minutes, genres=EXCLUDED.genres, fetched_at=EXCLUDED.fetched_at, refresh_after=EXCLUDED.refresh_after`, metadata.Provider, metadata.ProviderMovieID, imdbID, metadata.Locale, metadata.ProviderTitle, metadata.LocalizedTitle, overview, releaseDate, poster, backdrop, trailerVFYouTubeKey, trailerVOYouTubeKey, metadata.RuntimeMinutes, genres, metadata.FetchedAt, metadata.RefreshAfter, originalLanguage, metacriticID, metadata.MetacriticChecked)
 	if err != nil {
 		return fmt.Errorf("write movie metadata failed")
 	}

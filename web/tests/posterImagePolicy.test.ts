@@ -13,6 +13,7 @@ const resultBoxSource = await readFile(
   'utf8',
 )
 const filmPagePath = '/pages/film/[slug].vue'
+const cinemaPagePath = '/pages/cinema/[slug].vue'
 const adminTMDBMatchesPagePath = '/pages/admin/tmdb-matches.vue'
 
 async function readVueSources(
@@ -172,22 +173,39 @@ test('raw result-box posters use responsive candidates without changing backdrop
   }
 })
 
-test('posters stay lazy while the measured film backdrop alone receives high fetch priority', () => {
-  assert.doesNotMatch(combinedAppSource, /loading="eager"|:loading=/)
+test('posters stay lazy while only film and cinema heroes receive high fetch priority', () => {
+  assert.doesNotMatch(combinedAppSource, /:loading=/)
   assert.doesNotMatch(posterImageSource, /fetchpriority\s*=\s*["']high["']/i)
   assert.doesNotMatch(resultBoxSource, /fetchpriority\s*=\s*["']high["']/i)
 
-  const highPriorityImages = vueSources.flatMap(({ path, source }) =>
-    [...source.matchAll(/<img\b[^>]*>/g)]
-      .filter((match) => /fetchpriority\s*=\s*["']high["']/i.test(match[0]))
-      .map((match) => ({ path, tag: match[0] })),
+  const images = vueSources.flatMap(({ path, source }) =>
+    [...source.matchAll(/<img\b[^>]*>/g)].map((match) => ({
+      path,
+      tag: match[0],
+    })),
   )
-
-  assert.equal(highPriorityImages.length, 1)
-  const [filmBackdrop] = highPriorityImages
+  const highPriorityImages = images.filter(({ tag }) =>
+    /fetchpriority\s*=\s*["']high["']/i.test(tag),
+  )
+  assert.equal(highPriorityImages.length, 2)
+  const filmBackdrop = highPriorityImages.find(({ path }) =>
+    path.endsWith(filmPagePath),
+  )
   assert.ok(filmBackdrop)
   assert.ok(filmBackdrop.path.endsWith(filmPagePath), filmBackdrop.path)
   assert.match(filmBackdrop.tag, /v-if="backdropAvailable"/)
   assert.match(filmBackdrop.tag, /:src="backdropUrl \?\? undefined"/)
   assert.doesNotMatch(filmBackdrop.tag, /loading=/)
+
+  const cinemaHero = highPriorityImages.find(({ path }) =>
+    path.endsWith(cinemaPagePath),
+  )
+  assert.ok(cinemaHero)
+  assert.match(cinemaHero.tag, /v-if="hasCinemaImage"/)
+  assert.match(cinemaHero.tag, /:src="cinemaImageUrl"/)
+  assert.match(cinemaHero.tag, /loading="eager"/)
+  const eagerImages = images.filter(({ tag }) =>
+    /loading\s*=\s*["']eager["']/i.test(tag),
+  )
+  assert.deepEqual(eagerImages, [cinemaHero])
 })

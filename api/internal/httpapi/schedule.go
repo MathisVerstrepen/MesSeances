@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"messeances/api/internal/cinemaimage"
+	"messeances/api/internal/geocoding"
 	"messeances/api/internal/schedule"
 )
 
@@ -48,6 +52,16 @@ func (api *API) theaters(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
+type publicTheaterShowtimes struct {
+	schedule.TheaterShowtimes
+	Theater publicTheater `json:"theater"`
+}
+
+type publicTheater struct {
+	schedule.Theater
+	Image *cinemaimage.PublicImage `json:"image"`
+}
+
 func (api *API) theaterShowtimes(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	result, err := api.schedule.TheaterShowtimes(schedule.TheaterShowtimesQuery{Slug: chi.URLParam(r, "slug"), Date: query.Get("date"), DateProvided: query.Has("date")})
@@ -55,7 +69,18 @@ func (api *API) theaterShowtimes(w http.ResponseWriter, r *http.Request) {
 		writeServiceError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	out := publicTheaterShowtimes{TheaterShowtimes: result, Theater: publicTheater{Theater: result.Theater}}
+	provider := string(result.Theater.Provider)
+	id, ok := strings.CutPrefix(result.Theater.ID, provider+"-")
+	if api.publicTheaterImages != nil && ok && geocoding.ValidProviderTheaterID(provider, id) {
+		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer cancel()
+		image, err := api.publicTheaterImages.PublicImage(ctx, cinemaimage.Identity{Provider: provider, ProviderTheaterID: id})
+		if err == nil && ctx.Err() == nil {
+			out.Theater.Image = image
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (api *API) cities(w http.ResponseWriter, _ *http.Request) {

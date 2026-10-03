@@ -30,6 +30,7 @@ type TimelineZoom = 15 | 30 | 60
 const OWNED_QUERY_KEYS = ['date', 'language', 'format', 'mode', 'zoom'] as const
 const MODES: readonly TimelineMode[] = ['theater', 'movie']
 const ZOOMS: readonly string[] = ['15', '30', '60']
+const THEATER_BATCH_SIZE = 10
 
 const api = useMesSeancesApi()
 const route = useRoute()
@@ -44,8 +45,21 @@ const zoom = ref<TimelineZoom>(30)
 const timeline = ref<TimelineResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
+const appendPending = ref(false)
+const appendError = ref('')
+const fallbackTheaterIds = ref<string[]>([])
+const queriedTheaterCount = ref(0)
+const fallbackScope = computed(
+  () => preferences.activeTheaterIds.value.length === 0,
+)
+const hasMoreTheaters = computed(
+  () =>
+    fallbackScope.value &&
+    queriedTheaterCount.value < fallbackTheaterIds.value.length,
+)
 let requestId = 0
 let isMounted = false
+let isUnmounted = false
 let isInitializing = false
 let lastTimelineKey = ''
 let dayCheckTimer: number | undefined
@@ -55,9 +69,20 @@ function matchesFormat(format: string) {
   return format.toUpperCase() === formatFilter.value
 }
 
-async function loadTimeline() {
-  const currentRequest = ++requestId
+function resetTimeline() {
+  requestId++
   timeline.value = null
+  appendPending.value = false
+  appendError.value = ''
+  fallbackTheaterIds.value = []
+  queriedTheaterCount.value = 0
+  errorMessage.value = ''
+}
+
+async function loadTimeline() {
+  if (isUnmounted) return
+  resetTimeline()
+  const currentRequest = requestId
   if (preferences.error.value) {
     timeline.value = null
     errorMessage.value = preferences.error.value
@@ -70,18 +95,33 @@ async function loadTimeline() {
   }
   pending.value = true
   errorMessage.value = ''
+  if (fallbackScope.value) {
+    fallbackTheaterIds.value = preferences.theaters.value.map(
+      (theater) => theater.id,
+    )
+    if (fallbackTheaterIds.value.length === 0) {
+      pending.value = false
+      return
+    }
+  }
+  const batch = fallbackTheaterIds.value.slice(0, THEATER_BATCH_SIZE)
   try {
     const response = await api.timeline({
       date: date.value,
       language: language.value,
-      theaters: isBroadTheaterSelection(
-        preferences.activeTheaterIds.value,
-        preferences.theaters.value,
-      )
-        ? undefined
-        : preferences.activeTheaterIds.value.join(','),
+      theaters: fallbackScope.value
+        ? batch.join(',')
+        : isBroadTheaterSelection(
+              preferences.activeTheaterIds.value,
+              preferences.theaters.value,
+            )
+          ? undefined
+          : preferences.activeTheaterIds.value.join(','),
     })
-    if (currentRequest === requestId) timeline.value = response
+    if (currentRequest === requestId) {
+      timeline.value = response
+      queriedTheaterCount.value = batch.length
+    }
   } catch (error) {
     if (currentRequest === requestId) {
       timeline.value = null
@@ -92,7 +132,65 @@ async function loadTimeline() {
   }
 }
 
+async function loadMore() {
+  if (
+    isUnmounted ||
+    pending.value ||
+    appendPending.value ||
+    !preferences.isInitialized.value ||
+    preferences.error.value ||
+    !hasMoreTheaters.value ||
+    !timeline.value
+  )
+    return
+  const currentRequest = requestId
+  const currentTimeline = timeline.value
+  const batch = fallbackTheaterIds.value.slice(
+    queriedTheaterCount.value,
+    queriedTheaterCount.value + THEATER_BATCH_SIZE,
+  )
+  appendPending.value = true
+  appendError.value = ''
+  try {
+    const response = await api.timeline({
+      date: date.value,
+      language: language.value,
+      theaters: batch.join(','),
+    })
+    if (currentRequest !== requestId) return
+    // Offsets are relative to the API's fixed per-date window. Never mix windows.
+    if (
+      response.date !== currentTimeline.date ||
+      response.timezone !== currentTimeline.timezone ||
+      response.window_start_time !== currentTimeline.window_start_time ||
+      response.window_end_time !== currentTimeline.window_end_time
+    )
+      throw new Error('Inconsistent timeline window')
+    const existingIds = new Set(
+      currentTimeline.theaters.map((theater) => theater.id),
+    )
+    timeline.value = {
+      ...currentTimeline,
+      theaters: [
+        ...currentTimeline.theaters,
+        ...response.theaters.filter((theater) => {
+          if (existingIds.has(theater.id)) return false
+          existingIds.add(theater.id)
+          return true
+        }),
+      ],
+    }
+    queriedTheaterCount.value += batch.length
+  } catch (error) {
+    if (currentRequest === requestId)
+      appendError.value = getFrenchApiError(error)
+  } finally {
+    if (currentRequest === requestId) appendPending.value = false
+  }
+}
+
 async function retryTimeline() {
+  if (isUnmounted) return
   pending.value = true
   errorMessage.value = ''
   await preferences.retrySynchronization()
@@ -128,16 +226,18 @@ function hydrateRoute() {
 }
 
 async function applyRoute() {
+  if (isUnmounted) return
   const canonicalQuery = hydrateRoute()
-  if (!queriesEqual(route.query, canonicalQuery)) {
-    await router.replace({ query: canonicalQuery })
-    return
-  }
   const key = `${date.value}|${language.value}|${preferences.activeTheaterIds.value.join(',')}`
+  let loading: Promise<void> | undefined
   if (preferences.isInitialized.value && key !== lastTimelineKey) {
     lastTimelineKey = key
-    await loadTimeline()
+    loading = loadTimeline()
   }
+  if (!queriesEqual(route.query, canonicalQuery)) {
+    await router.replace({ query: canonicalQuery })
+  }
+  await loading
 }
 
 function updateTimelineQuery(
@@ -238,19 +338,23 @@ watch(
   () => {
     if (isMounted) applyRoute()
   },
+  { flush: 'sync' },
 )
 watch(
   [
     preferences.activeTheaterIds,
     preferences.selectionScopeKey,
+    preferences.theaters,
     preferences.isInitialized,
     preferences.error,
   ],
   () => {
-    requestId++
-    timeline.value = null
+    resetTimeline()
     lastTimelineKey = ''
-    if (isMounted && !isInitializing) void loadTimeline()
+    if (isMounted && !isInitializing) {
+      if (preferences.isInitialized.value) void applyRoute()
+      else void loadTimeline()
+    }
   },
   { flush: 'sync' },
 )
@@ -262,8 +366,10 @@ onMounted(async () => {
   const canonicalQuery = hydrateRoute()
   if (!queriesEqual(route.query, canonicalQuery))
     await router.replace({ query: canonicalQuery })
+  if (isUnmounted) return
   isInitializing = true
   await preferences.initialize()
+  if (isUnmounted) return
   isInitializing = false
   if (preferences.isInitialized.value) await applyRoute()
   else await loadTimeline()
@@ -271,6 +377,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   isMounted = false
+  isUnmounted = true
   requestId++
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
@@ -521,6 +628,35 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         :format-filter="formatFilter"
         :zoom="zoom"
       />
+      <div
+        v-if="!pending && !errorMessage && preferences.isInitialized.value && fallbackScope"
+        class="mt-8 flex flex-wrap items-center justify-center gap-3"
+      >
+        <p
+          v-if="appendError"
+          role="alert"
+          class="w-full text-center text-sm font-bold text-primary"
+        >
+          {{ appendError }}
+        </p>
+        <button
+          v-if="hasMoreTheaters"
+          type="button"
+          class="inline-flex min-h-11 items-center justify-center gap-2 border-2 border-ink bg-ink px-4 py-2 text-sm font-bold text-white hover:bg-primary focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60"
+          :disabled="appendPending"
+          :aria-busy="appendPending"
+          @click="loadMore"
+        >
+          {{
+            appendPending ? 'Chargement…' : appendError ? 'Réessayer' : 'Charger plus'
+          }}
+        </button>
+        <NuxtLink
+          to="/cinemas"
+          class="inline-flex min-h-11 items-center justify-center border-2 border-ink px-4 py-2 text-sm font-bold hover:bg-highlight focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+          >Configurer mes cinémas</NuxtLink
+        >
+      </div>
     </section>
   </main>
 </template>

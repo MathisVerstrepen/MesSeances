@@ -61,6 +61,12 @@ When canonical `end_time` equals `start_time` and the response movie has a posit
 
 Megarama session booking links use verified cinema-specific HTTPS hosts and `#showsession?id=<session-id>`. Missing links fall back to the validated official cinema website and are labeled as website links rather than reservations. Poster URLs are limited to verified `images.monnaie-services.com` paths: global `/movie_poster/120/` images are resized to `/600/`, while local `/ems_spectacle/120/` images retain their source size. Missing global posters can use `og:image` from `https://www.ticketingcine.com/film/<CODE>.html`; absent artwork remains absent.
 
+### Metacritic movie links
+
+Movie pages add a Metacritic external link when TMDB provides a valid Wikidata association and that item has one unambiguous, non-deprecated P1712 movie path. Paths are cached with movie metadata; missing mappings remain linkless. Wikidata acquisition uses no extra credentials and never runs during public reads. Failed or unresolved Wikidata observations preserve a previously cached link without blocking successful TMDB metadata; a successful observation with no eligible path clears it.
+
+Ordinary metadata cache reuse remains 30 days. To enrich already published films sooner, use the existing metadata-refresh control on `/admin/tmdb-matches` or an explicitly configured `tmdb_metadata_refresh` schedule. Refresh covers matched, retained upcoming and imported TMDB identities regardless of cache freshness. Migration 057 starts existing links as NULL and neither triggers a refresh nor creates or enables a schedule. Deployment and real refresh remain operator-controlled. After applying 057, rollback requires a compatible corrective binary, not dropping columns or editing migration history.
+
 ### Upcoming French theatrical releases
 
 The configurable scheduler target `tmdb_upcoming_movies` imports first French theatrical releases for `(today in Europe/Paris, the same calendar date next year]`, clamping February 29 to February 28. Eligibility uses the earliest FR type-2/3 release across TMDB's full release history, not nationality or the worldwide primary date. Historical French releases exclude re-releases. Preview screenings remain available without removing an upcoming film.
@@ -90,6 +96,18 @@ List shape is `{ "items": [], "total": 0, "limit": 50, "offset": 0 }`. Each item
 `PATCH /api/v1/admin/tmdb-upcoming-movies/{tmdbID}/decision` accepts exactly `{"decision":"excluded","expected_revision":1}` with `Content-Type: application/json`, a 4,096-byte body limit and no query parameters. TMDB ID is canonical positive decimal; ID and revision must not exceed 9,007,199,254,740,991. Missing/null/wrong-type/unknown/duplicate fields or trailing JSON fail. Success returns the updated item. Mutation compares revision before no-op detection: a current no-op changes neither item nor publication revision; a stale no-op conflicts. Evidence/date/membership or pending-to-assessed changes increment item revision; assessment timestamp-only refresh does not. Sync never writes decisions.
 
 Both review routes require the existing admin cookie and return `Cache-Control: no-store`; PATCH also requires the configured Origin. Errors use the existing JSON envelope: 401 `unauthorized`, 403 `origin_forbidden`, 503 `admin_unavailable`, 400 `invalid_upcoming_review_query` / `invalid_upcoming_review_id` / `invalid_upcoming_review_update`, 404 `upcoming_review_not_found`, 409 `upcoming_review_conflict`, and safe 500 `upcoming_review_list_failed` / `upcoming_review_update_failed`. On conflict reload before choosing again; never automatically replay a decision. Review requests never call TMDB or trigger sync. Existing manual sync routes and lifecycle remain unchanged.
+
+### Admin cinema photos
+
+`/admin/cinemas` manages one photo per current cinema, independent of account avatars. Local uploads and direct HTTPS links accept JPEG, PNG and static WebP up to 5 MiB. The API strips metadata, preserves oriented aspect ratio without enlargement or cropping, and stores lossy WebP with longest edge 1600 pixels and maximum size 1 MiB. Failed edits keep the previous photo; revision conflicts require reloading before another submission. Previews require the admin cookie and are never served publicly. Public cinema pages and schedule projections remain unchanged.
+
+Set optional API-only `CINEMA_IMAGE_DIR` to an existing durable absolute directory outside this repository, owned by the API effective user with permissions 0700. Precreate it with `install -d -m 0700 /your/durable/path/cinema-images` as that user; replace the example with an approved local path. Do not use `/tmp`, repository storage or an ephemeral container path. Directory must not overlap enabled `ACCOUNT_AVATAR_DIR`. Empty configuration disables photo management; invalid configured storage fails startup before migrations. One API process owns the media root via an exclusive lock. Files are private 0600 generated keys, not original filenames.
+
+URL import requires configured `PROXY_FILE`; without proxies, upload still works. Imports use only the first configured proxy, one attempt, numeric public-IP HTTPS CONNECT and separate verified proxy/target TLS identities. Only direct HTTPS URLs are accepted, with no redirects, private/reserved DNS answers or hotlinking. Operator proxies must permit numeric-IP CONNECT. Incoming credentials and source URLs are not forwarded or retained. Processing admits one upload/import at a time and reports temporary busy state instead of queueing image work.
+
+Production Compose mounts API-only named `cinema_images` at fixed `/var/lib/messeances/cinema-images`; Docker image precreates it as uid/gid 10001, mode 0700. Existing PostgreSQL/account-avatar volumes are unchanged. Enablement applies additive migration 058 and requires explicit deployment approval. Earlier binaries reject the newer migration ledger: rollback means a compatible corrective build, not dropping the table or editing history. Confirm operator-managed `/api` routing preserves Origin/cookies and permits multipart bodies of 5 MiB plus 64 KiB. No Nginx changes are supplied here.
+
+Back up and restore PostgreSQL and cinema media as paired quiesced state: stop admissions, drain API and collector, stop the sole API media writer, then capture both DB and media before restarting. Restore the matching pair with correct ownership and private permissions before starting the API. Never run multiple media writers, auto-chown an unknown path or delete a volume to recover from errors. Replacement/removal unlinks predecessors only after confirmed DB commit; reference-checked periodic GC removes old orphans. Missing media does not erase stored ownership.
 
 ### Theater geocoding
 
@@ -229,6 +247,9 @@ After `make install`, the ordinary offline gate preserves Go/frontend unit tests
 ```sh
 make preflight
 make check
+# Optional local synthetic browser suite (install Chromium once).
+make install-browser
+make test-browser
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check tooling-unit
 docker compose --project-directory . --env-file deploy/.env -f deploy/compose.yaml config
 docker compose --project-directory . --env-file deploy/.env.production.example -f deploy/compose.production.yaml config
@@ -245,7 +266,7 @@ make test-race
 make test-integration
 ```
 
-Integration preserves the existing ten-package CI selection and applies migrations through existing isolated-schema fixtures. Make and CI use a uniquely owned `postgres:18-alpine` container with a Docker-assigned loopback port, tmpfs data, and generated private credentials; inherited `TEST_DATABASE_URL` is ignored. Readiness uses `docker exec psql`, with no host client or Compose database. Exact ownership is verified before disposal on success, failure, and SIGINT/SIGTERM. Cleanup failure cannot pass; SIGKILL/host failure cannot guarantee cleanup. Direct runner integration against an operator-provided disposable database remains separate and requires host psql; ordinary preflight remains read-only. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); existing browser setup remains in the [accounts runbook](docs/accounts.md#validation).
+Integration preserves the existing ten-package CI selection and applies migrations through existing isolated-schema fixtures. Make and CI use a uniquely owned `postgres:18-alpine` container with a Docker-assigned loopback port, tmpfs data, and generated private credentials; inherited `TEST_DATABASE_URL` is ignored. Readiness uses `docker exec psql`, with no host client or Compose database. Exact ownership is verified before disposal on success, failure, and SIGINT/SIGTERM. Cleanup failure cannot pass; SIGKILL/host failure cannot guarantee cleanup. Direct runner integration against an operator-provided disposable database remains separate and requires host psql; ordinary preflight remains read-only. Python tooling tests additionally require Bash/jq. Chrome is needed only for optional browser prerequisites. See [validation commands, evidence, privacy, and prerequisites](docs/testing.md); use the [Playwright CLI and browser test workflow](docs/browser-testing.md) for synthetic frontend scenarios and the [accounts runbook](docs/accounts.md#validation) for account integration.
 
 For a deliberate proxy-only Megarama full-chain contract smoke, run from `api/` with an operator-supplied proxy file. This opt-in test builds and validates a dataset in memory, logs counts only, and does not publish to a database or call TMDB/IGN. Ordinary tests skip it when the variable is unset:
 

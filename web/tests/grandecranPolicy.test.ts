@@ -199,6 +199,7 @@ test('Grand Ecran result adapters keep local events and unknown metadata without
         postal_code: '03200',
         address: '1 rue du cinéma',
         available_dates: ['2027-07-01'],
+        image: null,
         accepted_passes: [],
         latitude: 46.1278,
         longitude: 3.4255,

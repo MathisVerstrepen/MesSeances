@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration web-vitals
+.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration test-browser install-browser web-vitals
 
 SHELL := /bin/bash
 
@@ -115,3 +115,10 @@ web-vitals: export RUNS := $(RUNS)
 web-vitals: export CHROME_BIN := $(CHROME_BIN)
 web-vitals:
 	npm --prefix web run web-vitals
+
+# Explicit browser setup and opt-in acceptance; ordinary check stays unchanged.
+install-browser:
+	npm --prefix web run test:browser:install
+
+test-browser:
+	npm --prefix web run test:browser

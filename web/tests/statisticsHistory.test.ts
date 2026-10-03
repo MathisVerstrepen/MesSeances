@@ -903,37 +903,65 @@ test('all three actual entity links use loaded IDs, fresh all-history routes and
         /<NuxtLink\b[^>]*aria-label="Statistiques"[^>]*>[\s\S]*?<\/NuxtLink>/g,
       ),
     ]
-    assert.equal(links.length, 1, file)
-    const link = links[0]!
-    assert.ok(link.index! > headerStart && link.index! < headerEnd, file)
-    assert.ok(
-      link[0].includes(
-        `:to="{ path: '/statistiques', query: { period: 'all', ${identity} } }"`,
-      ),
-      file,
-    )
-    assert.doesNotMatch(
-      link[0],
-      /v-if|v-show|encodeURIComponent|route\.|preferences|@click/,
-    )
-    for (const pattern of [
-      /size-11 shrink-0/,
-      /border-2 border-ink/,
-      /focus-visible:outline-3/,
-      /focus-visible:outline-offset-3/,
-      /title="Statistiques"/,
-    ])
-      assert.match(link[0], pattern)
-    assert.match(
-      link[0],
-      />\s*<ChartNoAxesCombined :size="20" aria-hidden="true" \/>\s*<\/NuxtLink>$/,
-    )
+    assert.equal(links.length, loaded === 'response' ? 2 : 1, file)
+    for (const link of links) {
+      assert.ok(link.index! > headerStart && link.index! < headerEnd, file)
+      assert.ok(
+        link[0].includes(
+          `:to="{ path: '/statistiques', query: { period: 'all', ${identity} } }"`,
+        ),
+        file,
+      )
+      assert.doesNotMatch(
+        link[0],
+        /v-if|v-show|encodeURIComponent|route\.|preferences|@click/,
+      )
+      for (const pattern of [
+        /\bsize-11\b/,
+        /border-2 border-ink/,
+        /focus-visible:outline-3/,
+        /focus-visible:outline-offset-3/,
+        /title="Statistiques"/,
+      ])
+        assert.match(link[0], pattern)
+      if (loaded !== 'response') assert.match(link[0], /size-11 shrink-0/)
+      assert.match(
+        link[0],
+        />\s*<ChartNoAxesCombined :size="20" aria-hidden="true" \/>\s*<\/NuxtLink>$/,
+      )
+    }
     assert.match(
       page,
       /import \{[^}]*ChartNoAxesCombined[^}]*\} from '@lucide\/vue'/,
     )
     assert.match(page, /<ShareButton/)
-    if (loaded === 'schedule') {
+    if (loaded === 'response') {
+      // Complementary breakpoint classes keep exactly one statistics action
+      // visible: desktop hero overlay or the mobile address strip.
+      const desktopLink = links[0]!
+      const mobileLink = links[1]!
+      const mobileStripStart = page.indexOf(
+        'class="flex items-center gap-4 border-t-2 border-ink',
+        headerStart,
+      )
+      assert.ok(mobileStripStart > desktopLink.index!)
+      assert.ok(mobileStripStart < mobileLink.index!)
+      assert.match(
+        desktopLink[0],
+        /absolute bottom-8 right-8 hidden[^"\n]*lg:inline-flex/,
+      )
+      assert.match(
+        page.slice(mobileStripStart, mobileLink.index!),
+        /^class="[^"\n]*lg:hidden"/,
+      )
+      assert.match(mobileLink[0], /ml-auto inline-flex size-11 shrink-0/)
+      const mobileLinkClass = mobileLink[0].match(/\bclass="([^"]*)"/)?.[1]
+      assert.ok(mobileLinkClass)
+      assert.doesNotMatch(mobileLinkClass, /\bhidden\b|lg:/)
+      assert.doesNotMatch(header, /\{\{ pageDescription \}\}/)
+      assert.match(page, /viewQuery\('activity'\)/)
+      assert.match(page, />\s*Activité\s*<\/NuxtLink>/)
+    } else if (loaded === 'schedule') {
       assert.match(
         header,
         /<div\s+class="absolute right-4 top-4 z-20 flex flex-col-reverse items-center gap-3[^"]*sm:flex-row[^"]*"\s*>\s*<NuxtLink[\s\S]*?<\/NuxtLink>\s*<MovieExternalLinksMenu[^>]*\/>\s*<\/div>/,
@@ -952,15 +980,6 @@ test('all three actual entity links use loaded IDs, fresh all-history routes and
       assert.match(
         header,
         /<div class="mt-6 flex flex-wrap items-center gap-3">\s*<NuxtLink[\s\S]*?<\/NuxtLink>\s*<ShareButton class="shrink-0" \/>/,
-      )
-    } else {
-      assert.match(
-        header,
-        /<div\s+class="flex items-center justify-between gap-4[^"]*"\s*>\s*<p[^>]*>\s*\{\{ pageDescription \}\}\s*<\/p>\s*<NuxtLink/,
-      )
-      assert.ok(
-        header.indexOf('{{ pageDescription }}') < header.indexOf(link[0]),
-        file,
       )
     }
   }

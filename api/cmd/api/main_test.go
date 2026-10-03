@@ -50,7 +50,7 @@ func (testActivityReader) TheaterActivity(_ context.Context, q schedule.TheaterA
 }
 
 func TestAPIActivityRuntimeInjection(t *testing.T) {
-	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, testActivityReader{}, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, nil, testActivityReader{}, httpapi.ReadinessOptions{}, nil, nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/theaters/ugc-25/activity", nil))
 	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
@@ -67,12 +67,21 @@ func (testHistoryReader) HistoryOptions(context.Context, schedule.HistoryOptions
 }
 
 func TestAPIHistoryRuntimeInjection(t *testing.T) {
-	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, nil, httpapi.ReadinessOptions{}, nil)
-	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history/options?kind=city"} {
+	cache := &httpapi.HistoryCache{}
+	if err := cache.Refresh(t.Context(), func(context.Context) (schedule.HistoryStatistics, error) {
+		return schedule.HistoryStatistics{Mode: "history", Timezone: schedule.Timezone}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, cache, nil, httpapi.ReadinessOptions{}, nil, nil)
+	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history?date=2026-01-01", "/api/v1/statistics/history/options?kind=city"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("history runtime injection %s: %d %s", path, response.Code, response.Body.String())
+		}
+		if path == "/api/v1/statistics/history" && !strings.Contains(response.Body.String(), `"timezone":"Europe/Paris"`) {
+			t.Fatal("all-time request did not use injected cache")
 		}
 	}
 }
@@ -267,7 +276,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 		t.Fatalf("admin options manager=%v err=%v", manager, err)
 	}
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -283,7 +292,7 @@ func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
 	var cfg runtimeconfig.Config
 	cfg.Server.Origin = "http://localhost:3000"
 	cfg.Internal.SharedSecret = secret
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil)
 	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Paris"
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
@@ -436,7 +445,7 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, nil, httpapi.ReadinessOptions{}, nil)
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
