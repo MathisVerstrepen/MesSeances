@@ -51,7 +51,27 @@ export function cinemaImageURLError(value: string): string {
   }
 }
 
-// Only this cinema's canonical, current admin revision may become a preview.
+function adminCinemaPreviewTarget(value: string, origin: string): URL | null {
+  try {
+    // Reject ambiguous input before WHATWG parsing can normalize it.
+    // oxlint-disable-next-line no-control-regex -- Credentialed preview URLs must not contain stripped controls.
+    if (/[?#\s\\\u0000-\u001f\u007f]/.test(value)) return null
+    const url = new URL(value, origin)
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    )
+      return null
+    return url
+  } catch {
+    return null
+  }
+}
+
+// Only this cinema's canonical, current admin revision on the configured API may become a preview.
 export function cinemaImagePreviewURL(
   base: string,
   path: string,
@@ -66,18 +86,12 @@ export function cinemaImagePreviewURL(
     path !== `${adminCinemaImagePath(provider, id)}/${revision}`
   )
     return ''
-  try {
-    const url = new URL(`${base.replace(/\/$/, '')}${path}`, origin)
-    return url.origin === origin &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash
-      ? url.href
-      : ''
-  } catch {
-    return ''
-  }
+  const api = adminCinemaPreviewTarget(base, origin)
+  const url = adminCinemaPreviewTarget(
+    `${base.replace(/\/$/, '')}${path}`,
+    origin,
+  )
+  return api && url && url.origin === api.origin ? url.href : ''
 }
 
 export function cinemaImageErrorMessage(
@@ -164,14 +178,17 @@ export function selectCinemaImageFile(
 }
 
 export async function fetchAdminCinemaImage(
+  base: string,
   url: string,
   signal: AbortSignal,
 ): Promise<Blob> {
   if (signal.aborted) throw new AdminCinemaImageError()
-  if (new URL(url, window.location.origin).origin !== window.location.origin)
+  const api = adminCinemaPreviewTarget(base, window.location.origin)
+  const target = adminCinemaPreviewTarget(url, window.location.origin)
+  if (!api || !target || target.origin !== api.origin)
     throw new AdminCinemaImageError(404, 'cinema_image_not_found')
   const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(25000)])
-  const response = await fetch(url, {
+  const response = await fetch(target.href, {
     credentials: 'include',
     cache: 'no-store',
     redirect: 'error',

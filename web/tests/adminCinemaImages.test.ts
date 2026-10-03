@@ -65,6 +65,26 @@ const imageResult: AdminTheaterImageResult = {
   image_revision: 1,
   image: { url: `${path}/1`, width: 800, height: 400, size_bytes: 100 },
 }
+const browserOrigin = 'https://messeances.fr'
+const splitApiBase = 'https://api.messeances.fr'
+const unsafeApiBases = [
+  'https://',
+  'https://[broken',
+  'https://api.messeances.fr:invalid',
+  'https://user:password@api.messeances.fr',
+  'http://user@messeances.fr',
+  'ftp://api.messeances.fr',
+  'file:///api',
+  'javascript:alert(1)',
+  'data:text/plain,api',
+  `${splitApiBase}?query=1`,
+  `${splitApiBase}?`,
+  `${splitApiBase}#fragment`,
+  `${splitApiBase}#`,
+  `${splitApiBase}/with space`,
+  'https://api.\nmesseances.fr',
+  'https:\\api.messeances.fr',
+]
 
 test('file validation bounds input before Blob allocation, accepts exact cap and rejects unsupported MIME', () => {
   assert.equal(utility.cinemaImageFileError(file()), '')
@@ -107,7 +127,7 @@ test('URL validation requires bounded direct HTTPS source without browser fetchi
     assert.ok(utility.cinemaImageURLError(invalid), invalid)
 })
 
-test('preview binds canonical safe revision, provider identity and same browser origin', () => {
+test('preview binds canonical safe revision and provider identity to configured API origin', () => {
   const origin = 'https://messeances.fr'
   assert.equal(
     utility.cinemaImagePreviewURL('', `${path}/1`, 'ugc', '42', 1, origin),
@@ -120,17 +140,21 @@ test('preview binds canonical safe revision, provider identity and same browser 
   for (const unsafe of [
     `https://evil.test${path}/1`,
     `//evil.test${path}/1`,
+    `${splitApiBase}${path}/1`,
+    `https://user:password@api.messeances.fr${path}/1`,
     `${path}/01`,
     `${path}/1?x=1`,
     `${path}/1#x`,
     `${path}/2`,
     `${path}/%31`,
     '/api/v1/admin/theaters/pathe/42/image/1',
+    '/api/v1/admin/theaters/ugc/54/image/1',
   ])
-    assert.equal(
-      utility.cinemaImagePreviewURL('', unsafe, 'ugc', '42', 1, origin),
-      '',
-    )
+    for (const base of ['', splitApiBase])
+      assert.equal(
+        utility.cinemaImagePreviewURL(base, unsafe, 'ugc', '42', 1, origin),
+        '',
+      )
   for (const revision of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])
     assert.equal(
       utility.cinemaImagePreviewURL(
@@ -143,17 +167,38 @@ test('preview binds canonical safe revision, provider identity and same browser 
       ),
       '',
     )
+  for (const base of [splitApiBase, `${splitApiBase}/`])
+    assert.equal(
+      utility.cinemaImagePreviewURL(base, `${path}/1`, 'ugc', '42', 1, origin),
+      `${splitApiBase}${path}/1`,
+    )
+  for (const base of ['', '/', origin, `${origin}/`])
+    assert.equal(
+      utility.cinemaImagePreviewURL(base, `${path}/1`, 'ugc', '42', 1, origin),
+      `${origin}${path}/1`,
+    )
+  for (const base of ['/gateway', '/gateway/', 'gateway'])
+    assert.equal(
+      utility.cinemaImagePreviewURL(base, `${path}/1`, 'ugc', '42', 1, origin),
+      `${origin}/gateway${path}/1`,
+    )
   assert.equal(
     utility.cinemaImagePreviewURL(
-      'https://api.other.test',
+      'http://localhost:8080',
       `${path}/1`,
       'ugc',
       '42',
       1,
-      origin,
+      'http://localhost:3000',
     ),
-    '',
+    `http://localhost:8080${path}/1`,
   )
+  for (const base of unsafeApiBases)
+    assert.equal(
+      utility.cinemaImagePreviewURL(base, `${path}/1`, 'ugc', '42', 1, origin),
+      '',
+      base,
+    )
   assert.equal(
     utility.adminCinemaImagePath('ugc', 'a/b?x'),
     '/api/v1/admin/theaters/ugc/a%2Fb%3Fx/image',
@@ -390,6 +435,7 @@ test('stored preview fetch includes cookies, prevents redirects, caps bytes and 
   assert.equal(
     (
       await transport.fetchAdminCinemaImage(
+        '',
         `https://messeances.fr${path}/1`,
         signal,
       )
@@ -397,7 +443,7 @@ test('stored preview fetch includes cookies, prevents redirects, caps bytes and 
     'image/webp',
   )
   await assert.rejects(
-    transport.fetchAdminCinemaImage('https://evil.test/image', signal),
+    transport.fetchAdminCinemaImage('', 'https://evil.test/image', signal),
   )
   assert.equal(calls, 1)
   for (const make of [
@@ -418,7 +464,11 @@ test('stored preview fetch includes cookies, prevents redirects, caps bytes and 
   ]) {
     response = make
     await assert.rejects(
-      transport.fetchAdminCinemaImage(`https://messeances.fr${path}/1`, signal),
+      transport.fetchAdminCinemaImage(
+        '',
+        `https://messeances.fr${path}/1`,
+        signal,
+      ),
       (cause: unknown) => {
         assert.ok(cause instanceof transport.AdminCinemaImageError)
         assert.doesNotMatch(JSON.stringify(cause), /secret/)
@@ -433,10 +483,91 @@ test('stored preview fetch includes cookies, prevents redirects, caps bytes and 
   }
   await assert.rejects(
     transport.fetchAdminCinemaImage(
+      '',
       `https://messeances.fr${path}/1`,
       canceled.signal,
     ),
   )
+})
+
+test('preview fetch trusts only safe configured HTTP(S) API origin before sending credentials', async () => {
+  const calls: { url: string; options: RequestInit }[] = []
+  const transport = await compile<typeof images>(
+    '../app/utils/adminCinemaImages.ts',
+    {
+      window: { location: { origin: browserOrigin } },
+      fetch: async (url: string, options: RequestInit) => {
+        calls.push({ url, options })
+        return new Response('stored-webp', {
+          headers: { 'Content-Type': 'image/webp' },
+        })
+      },
+    },
+  )
+  const signal = new AbortController().signal
+  for (const [base, url] of [
+    [splitApiBase, `${splitApiBase}${path}/1`],
+    [`${splitApiBase}/`, `${splitApiBase}${path}/1`],
+    ['', `${browserOrigin}${path}/1`],
+    ['/', `${path}/1`],
+    ['/gateway', `${browserOrigin}/gateway${path}/1`],
+    ['http://localhost:8080', `http://localhost:8080${path}/1`],
+  ] as const) {
+    const blob = await transport.fetchAdminCinemaImage(base, url, signal)
+    assert.equal(blob.type, 'image/webp')
+    assert.equal(await blob.text(), 'stored-webp')
+    const call = calls.at(-1)!
+    assert.equal(call.url, new URL(url, browserOrigin).href)
+    assert.equal(call.options.credentials, 'include')
+    assert.equal(call.options.cache, 'no-store')
+    assert.equal(call.options.redirect, 'error')
+    assert.equal(call.options.referrerPolicy, 'no-referrer')
+    assert.ok(call.options.signal instanceof AbortSignal)
+  }
+  const count = calls.length
+  for (const [base, url] of [
+    ['', `${splitApiBase}${path}/1`],
+    [splitApiBase, `${browserOrigin}${path}/1`],
+    [splitApiBase, `${path}/1`],
+    [splitApiBase, `https://evil.test${path}/1`],
+    [splitApiBase, `//evil.test${path}/1`],
+    [splitApiBase, `https://user:password@api.messeances.fr${path}/1`],
+    [splitApiBase, `http://api.messeances.fr${path}/1`],
+    [splitApiBase, `${splitApiBase}:444${path}/1`],
+    [splitApiBase, `${splitApiBase}${path}/1?query=1`],
+    [splitApiBase, `${splitApiBase}${path}/1?`],
+    [splitApiBase, `${splitApiBase}${path}/1#fragment`],
+    [splitApiBase, `${splitApiBase}${path}/1#`],
+    [splitApiBase, 'https://'],
+    [splitApiBase, 'https://api.\nmesseances.fr/image'],
+    ['', 'javascript:alert(1)'],
+    ['', 'data:text/plain,image'],
+    ['', 'file:///image'],
+    ...unsafeApiBases.map(
+      (base) => [base, `${splitApiBase}${path}/1`] as const,
+    ),
+  ] as const)
+    await assert.rejects(
+      transport.fetchAdminCinemaImage(base, url, signal),
+      (cause: unknown) => {
+        assert.ok(cause instanceof transport.AdminCinemaImageError)
+        assert.equal(cause.status, 404)
+        assert.equal(cause.code, 'cinema_image_not_found')
+        assert.doesNotMatch(JSON.stringify(cause), /password|evil|fragment/)
+        return true
+      },
+    )
+  const canceled = new AbortController()
+  canceled.abort()
+  await assert.rejects(
+    transport.fetchAdminCinemaImage(
+      splitApiBase,
+      `${splitApiBase}${path}/1`,
+      canceled.signal,
+    ),
+    transport.AdminCinemaImageError,
+  )
+  assert.equal(calls.length, count)
 })
 
 test('client methods use fixed endpoints, credentialed abortable requests, no retry and existing 401 redirect', async () => {
@@ -551,7 +682,16 @@ function theater(): AdminTheater {
   }
 }
 
-async function pageFixture(initialQuery: LocationQuery = {}) {
+async function pageFixture(
+  initialQuery: LocationQuery = {},
+  {
+    apiBase = '',
+    fetchPreview,
+  }: {
+    apiBase?: string
+    fetchPreview?: typeof images.fetchAdminCinemaImage
+  } = {},
+) {
   let mount = () => {}
   let unmount = () => {}
   let leave = () => {}
@@ -593,14 +733,21 @@ async function pageFixture(initialQuery: LocationQuery = {}) {
   const scope = effectScope()
   const pageUtility = {
     ...utility,
-    fetchAdminCinemaImage: async (_url: string, signal: AbortSignal) => {
+    fetchAdminCinemaImage: async (
+      base: string,
+      url: string,
+      signal: AbortSignal,
+    ) => {
+      assert.equal(base, apiBase)
       previewReads++
       previewSignal = signal
       if (deferPreview)
         return new Promise<Blob>((resolve) => {
           resolvePreviews.push(resolve)
         })
-      return new Blob(['stored-webp'], { type: 'image/webp' })
+      return fetchPreview
+        ? fetchPreview(base, url, signal)
+        : new Blob(['stored-webp'], { type: 'image/webp' })
     },
     clearCinemaImageDraft: (draft: images.CinemaImageDraft) => {
       if (draft.candidate) revoked.push(draft.candidate)
@@ -648,7 +795,7 @@ async function pageFixture(initialQuery: LocationQuery = {}) {
       definePageMeta: (meta: { middleware: string }) =>
         assert.equal(meta.middleware, 'admin-auth'),
       useHead: () => {},
-      useRuntimeConfig: () => ({ public: { apiBase: '' } }),
+      useRuntimeConfig: () => ({ public: { apiBase } }),
       onMounted: (fn: () => void) => {
         mount = fn
       },
@@ -837,6 +984,49 @@ async function pageFixture(initialQuery: LocationQuery = {}) {
     },
   }
 }
+
+test('page loads existing uploaded preview through configured production split-origin API', async () => {
+  let requests = 0
+  const transport = await compile<typeof images>(
+    '../app/utils/adminCinemaImages.ts',
+    {
+      window: { location: { origin: browserOrigin } },
+      fetch: async (url: string, options: RequestInit) => {
+        requests++
+        assert.equal(url, `${splitApiBase}${path}/1`)
+        assert.equal(options.credentials, 'include')
+        assert.equal(options.redirect, 'error')
+        return new Response('stored-webp', {
+          headers: { 'Content-Type': 'image/webp' },
+        })
+      },
+    },
+  )
+  const f = await pageFixture(
+    {},
+    {
+      apiBase: splitApiBase,
+      fetchPreview: transport.fetchAdminCinemaImage,
+    },
+  )
+  try {
+    f.image()
+    await f.model.loadInventory(true)
+    await settle()
+    const item = f.model.result.value!.items[0]!
+    const state = f.model.editor(item)
+    assert.equal(requests, 1)
+    assert.equal(state.previewState, 'ready')
+    assert.equal(state.preview, 'blob:stored-1')
+    assert.equal(f.previewCreated(), 1)
+    assert.equal(f.uploads(), 0)
+    assert.equal(f.imports(), 0)
+    assert.equal(f.removals(), 0)
+  } finally {
+    f.stop()
+  }
+  assert.deepEqual(f.revoked, ['blob:stored-1'])
+})
 
 test('page preserves candidate on conflict, refreshes current revision and never automatically replays upload', async () => {
   const f = await pageFixture()
