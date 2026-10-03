@@ -328,6 +328,7 @@ test('Noé results preserve event IDs, VFSTF, source rooms and unknown metadata 
         postal_code: '61300',
         address: '1 rue du cinéma',
         available_dates: ['2027-06-30'],
+        image: null,
         accepted_passes: [],
         latitude: 48.76,
         longitude: 0.63,

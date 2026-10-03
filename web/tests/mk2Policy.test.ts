@@ -208,6 +208,7 @@ test('MK2 silent sessions retain source fields, future local date, empty room an
         postal_code: '75013',
         address: '128 avenue de France',
         available_dates: ['2027-06-28'],
+        image: null,
         accepted_passes: [],
       },
       showtimes: [

@@ -28,6 +28,11 @@ import type {
   AdminTheaterGeocodingResponse,
   AdminTheaterLocationResolutionResponse,
   AdminTheaterLocationsResponse,
+  AdminTheatersQuery,
+  AdminTheatersResponse,
+  AdminTheaterImageResult,
+  AdminImportTheaterImageRequest,
+  AdminRemoveTheaterImageRequest,
   AdminTMDBMetadataRefreshResponse,
   AdminTMDBRerunSummary,
   AdminUnmergeLocalMovieResponse,
@@ -63,6 +68,10 @@ import type {
   UpcomingMoviesQuery,
   UpcomingMoviesResponse,
 } from '~/types/api'
+import {
+  adminCinemaImagePath,
+  uploadAdminCinemaImage,
+} from '../utils/adminCinemaImages.ts'
 
 function queryValues<T extends object>(query: T) {
   return Object.fromEntries(
@@ -497,6 +506,80 @@ export function useMesSeancesApi() {
           {
             method: 'POST',
             credentials: 'include',
+          },
+        ),
+      )
+    },
+    adminTheaters(query: AdminTheatersQuery, signal?: AbortSignal) {
+      return withAdminRedirect(
+        apiFetch<AdminTheatersResponse>(`${apiBase}/api/v1/admin/theaters`, {
+          credentials: 'include',
+          query: queryValues(query),
+          signal,
+          retry: false,
+          cache: 'no-store',
+          timeout: 25000,
+        }),
+      )
+    },
+    adminUploadTheaterImage(
+      provider: Provider,
+      providerTheaterId: string,
+      file: File,
+      expectedRevision: number,
+      signal: AbortSignal,
+      onProgress: (percent: number | null) => void,
+    ) {
+      return withAdminRedirect(
+        uploadAdminCinemaImage(
+          config.public.apiBase,
+          provider,
+          providerTheaterId,
+          file,
+          expectedRevision,
+          signal,
+          onProgress,
+        ),
+      )
+    },
+    adminImportTheaterImage(
+      provider: Provider,
+      providerTheaterId: string,
+      input: AdminImportTheaterImageRequest,
+      signal?: AbortSignal,
+    ) {
+      return withAdminRedirect(
+        apiFetch<AdminTheaterImageResult>(
+          `${apiBase}${adminCinemaImagePath(provider, providerTheaterId)}/import`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            body: input,
+            signal,
+            retry: false,
+            cache: 'no-store',
+            timeout: 25000,
+          },
+        ),
+      )
+    },
+    adminRemoveTheaterImage(
+      provider: Provider,
+      providerTheaterId: string,
+      input: AdminRemoveTheaterImageRequest,
+      signal?: AbortSignal,
+    ) {
+      return withAdminRedirect(
+        apiFetch<AdminTheaterImageResult>(
+          `${apiBase}${adminCinemaImagePath(provider, providerTheaterId)}`,
+          {
+            method: 'DELETE',
+            credentials: 'include',
+            body: input,
+            signal,
+            retry: false,
+            cache: 'no-store',
+            timeout: 25000,
           },
         ),
       )

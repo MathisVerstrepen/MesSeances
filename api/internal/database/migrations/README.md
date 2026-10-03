@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [057_movie_metacritic_id.sql](057_movie_metacritic_id.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [058_theater_images.sql](058_theater_images.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -194,6 +194,14 @@ Primary key: `(generation_id, id)`. Unique: `(generation_id, slug)` and `(genera
 | `address` | `varchar(2048)` | Nonblank except for Kinepolis and Cineville |
 | `city` | `varchar(256)` | Nonblank after trimming |
 | `postal_code` | `varchar(256)` | Nonblank except for Kinepolis |
+
+### `theater_images`
+
+Admin-owned photos persist outside schedule generations. Composite primary key `(provider varchar(32), provider_theater_id varchar(128))` uses the ten-provider allowlist and a nonblank bounded ID. Application validates provider identity and current inventory membership. There is no foreign key to generation-scoped theaters, backfill or publication write.
+
+`image_revision bigint NOT NULL DEFAULT 0` is between 0 and 9,007,199,254,740,991. Nullable `file_key text`, `width integer`, `height integer` and `size_bytes integer` are either all NULL or all present. Presence requires positive revision, a generated `^[a-f0-9]{32}\.webp$` key, dimensions 1-1600 and size 1-1,048,576 bytes. Partial unique index `theater_images_file_key_idx` covers nonnull keys and collector reference lookup. No original filename, URL, source metadata or image bytes are stored.
+
+Revision compare-and-swap and row locking serialize admin mutations; removal retains a tombstone revision. Empty reads/removals create no rows. Publication and temporary inventory absence preserve ownership. Files use a private durable root; metadata and media must be backed up/restored as paired quiesced state. Media writers and collector use transaction-scoped advisory barrier `719423047`, independent of schedule and avatar locks. Filesystem cleanup follows confirmed commits; ambiguous commits leave reference-checked orphans rather than deleting candidates or predecessors.
 
 ### `theater_dates`, `passes`, and `theater_passes`
 

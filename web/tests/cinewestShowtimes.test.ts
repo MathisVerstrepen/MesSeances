@@ -66,6 +66,7 @@ function theaterResponse(showtimes: Showtime[]): TheaterShowtimesResponse {
       postal_code: '84130',
       address: '1 rue du cinéma',
       available_dates: ['2027-06-27'],
+      image: null,
       accepted_passes: [],
     },
     showtimes: showtimes.map((showtime) => ({

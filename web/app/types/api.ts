@@ -397,6 +397,51 @@ export interface AdminMoviePatchRequest {
   restore?: AdminMovieField[]
 }
 
+export interface AdminTheaterImage {
+  url: string
+  width: number
+  height: number
+  size_bytes: number
+}
+
+export interface AdminTheaterImageResult {
+  image_revision: number
+  image: AdminTheaterImage | null
+}
+
+export interface AdminTheater extends AdminTheaterImageResult {
+  provider: Provider
+  provider_theater_id: string
+  theater_id: string
+  slug: string
+  name: string
+  address: string
+  postal_code: string
+  city: string
+}
+
+export interface AdminTheatersQuery {
+  limit: number
+  offset: number
+  q?: string
+  provider?: Provider
+}
+
+export interface AdminTheatersResponse extends AdminTheatersQuery {
+  items: AdminTheater[]
+  total: number
+  imports_enabled: boolean
+}
+
+export interface AdminRemoveTheaterImageRequest {
+  expected_revision: number
+}
+
+export interface AdminImportTheaterImageRequest
+  extends AdminRemoveTheaterImageRequest {
+  url: string
+}
+
 export type AdminTheaterLocationStatus = 'ambiguous' | 'not_found'
 
 export interface AdminTheaterLocationSuggestion {
@@ -880,10 +925,16 @@ export interface CityDetailResponse {
   movies: CatalogMovie[]
 }
 
+export interface PublicTheaterImage {
+  url: string
+  width: number
+  height: number
+}
+
 export interface TheaterShowtimesResponse {
   generated_at: string
   timezone: 'Europe/Paris'
-  theater: Theater
+  theater: Theater & { image: PublicTheaterImage | null }
   date: string | null
   showtimes: TimelineShowtime[]
 }
