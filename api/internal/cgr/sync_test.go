@@ -23,6 +23,7 @@ type fakeGetter struct {
 	requests              []string
 	maxScheduleWindowDays int
 	malformedMovies       bool
+	moviesBody            []byte
 	scheduleUnavailable   bool
 }
 
@@ -105,6 +106,9 @@ func (g *fakeGetter) Get(_ context.Context, operation Operation, rawURL string) 
 	case OperationMovies:
 		if g.malformedMovies {
 			return []byte(`[{"id":"1001","title":"Film","runtime":5400,"poster":null,"genres":42}]`), nil
+		}
+		if g.moviesBody != nil {
+			return g.moviesBody, nil
 		}
 		return readFixture("movies.json")
 	case OperationSchedule:
@@ -201,6 +205,40 @@ func TestSyncBuildsCompleteDeterministicDataset(t *testing.T) {
 	second, _, err := Sync(context.Background(), secondGetter, SyncOptions{From: "2026-08-25", Now: now})
 	if err != nil || !reflect.DeepEqual(data, second) {
 		t.Fatalf("second err=%v equal=%v", err, reflect.DeepEqual(data, second))
+	}
+}
+
+func TestSyncPreservesZeroRuntimeMovieAndShowtimes(t *testing.T) {
+	getter := &fakeGetter{moviesBody: []byte(`[{"id":"1001","title":"Unknown runtime","runtime":0},{"id":"1002","title":"Known runtime","runtime":6600}]`)}
+	now := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	data, summary, err := Sync(context.Background(), getter, SyncOptions{From: "2026-08-25", Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Theaters) != 2 || len(data.Showtimes) != 3 || summary.Cinemas != 2 || summary.Movies != 2 || summary.Jobs != 2 || summary.Showtimes != 3 || summary.Requests != 6 {
+		t.Fatalf("theaters=%d showtimes=%d summary=%+v", len(data.Theaters), len(data.Showtimes), summary)
+	}
+	unknownRuntimeShowtimes := 0
+	for _, record := range data.Showtimes {
+		switch record.Movie.ProviderID {
+		case "1001":
+			unknownRuntimeShowtimes++
+			if record.Movie.Title != "Unknown runtime" || record.Movie.RuntimeMinutes != 0 || !record.EndTime.Equal(record.StartTime) {
+				t.Fatalf("unknown runtime showtime=%+v", record)
+			}
+		case "1002":
+			if record.Movie.RuntimeMinutes != 110 || record.EndTime.Sub(record.StartTime) != 125*time.Minute {
+				t.Fatalf("known runtime showtime=%+v", record)
+			}
+		default:
+			t.Fatalf("unexpected movie=%+v", record.Movie)
+		}
+	}
+	if unknownRuntimeShowtimes != 2 {
+		t.Fatalf("zero-runtime movie retained %d showtimes, want 2", unknownRuntimeShowtimes)
+	}
+	if err := schedule.ValidateDataset(data, true); err != nil {
+		t.Fatalf("zero-runtime dataset is invalid: %v", err)
 	}
 }
 

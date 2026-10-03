@@ -138,6 +138,48 @@ func TestParseSyntheticCGRFixtures(t *testing.T) {
 	}
 }
 
+func TestParseMoviesRuntime(t *testing.T) {
+	tests := []struct {
+		name        string
+		field       string
+		wantRuntime int
+		wantError   bool
+	}{
+		{name: "missing"},
+		{name: "null", field: `,"runtime":null`},
+		{name: "zero", field: `,"runtime":0`},
+		{name: "one minute", field: `,"runtime":60`, wantRuntime: 1},
+		{name: "positive", field: `,"runtime":6600`, wantRuntime: 110},
+		{name: "positive truncated to minutes", field: `,"runtime":6659`, wantRuntime: 110},
+		{name: "negative", field: `,"runtime":-60`, wantError: true},
+		{name: "negative sub-minute", field: `,"runtime":-1`, wantError: true},
+		{name: "one second", field: `,"runtime":1`, wantError: true},
+		{name: "sub-minute boundary", field: `,"runtime":59`, wantError: true},
+		{name: "string", field: `,"runtime":"0"`, wantError: true},
+		{name: "fraction", field: `,"runtime":0.5`, wantError: true},
+		{name: "boolean", field: `,"runtime":false`, wantError: true},
+		{name: "object", field: `,"runtime":{}`, wantError: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			movies, err := parseMovies([]byte(`[{"id":"1001","title":"Synthetic"` + test.field + `}]`))
+			if test.wantError {
+				if err == nil || movies != nil {
+					t.Fatalf("movies=%+v err=%v", movies, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			item, ok := movies["1001"]
+			if !ok || len(movies) != 1 || item.id != "1001" || item.title != "Synthetic" || item.runtime != test.wantRuntime {
+				t.Fatalf("movies=%+v want runtime=%d", movies, test.wantRuntime)
+			}
+		})
+	}
+}
+
 func TestParseMoviesNormalizesDuplicateAndEmptyGenres(t *testing.T) {
 	tests := []struct {
 		genres string
