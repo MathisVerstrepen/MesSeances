@@ -3,10 +3,13 @@ import {
   AlertTriangle,
   Building2,
   CalendarDays,
+  ChartNoAxesCombined,
+  Clapperboard,
   Film,
   LoaderCircle,
   MapPin,
   RefreshCw,
+  Ticket,
 } from '@lucide/vue'
 import type {
   CatalogMovie,
@@ -649,8 +652,25 @@ useHead(() => ({
       <header class="border-2 border-ink bg-surface shadow-[8px_8px_0_#27272a]">
         <div class="grid lg:grid-cols-[minmax(0,7fr)_minmax(17rem,3fr)]">
           <div
-            class="relative flex min-h-[240px] min-w-0 items-end overflow-hidden bg-[#f8f7f2] p-5 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] lg:min-h-[380px] lg:p-8"
+            class="relative flex min-w-0 overflow-hidden p-5 lg:p-8"
+            :class="hasCinemaImage
+              ? 'min-h-[240px] items-end bg-[#f8f7f2] [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] lg:min-h-[380px]'
+              : 'min-h-[200px] items-center bg-[#f1efe8] lg:min-h-[288px]'"
           >
+            <div
+              v-if="!hasCinemaImage"
+              aria-hidden="true"
+              class="pointer-events-none absolute -right-8 top-0 flex h-full w-48 items-center justify-center text-ink/10 sm:right-4 sm:w-64 lg:right-6 lg:w-80"
+            >
+              <Clapperboard
+                :stroke-width="1"
+                class="size-48 -rotate-12 sm:size-64 lg:size-80"
+              />
+              <Ticket
+                :stroke-width="1.5"
+                class="absolute bottom-4 right-6 size-20 rotate-12 fill-highlight/40 text-ink/10 sm:bottom-6 sm:size-24 lg:right-0"
+              />
+            </div>
             <img
               v-if="hasCinemaImage"
               :key="cinemaImageUrl"
@@ -694,58 +714,68 @@ useHead(() => ({
             </div>
           </div>
 
-          <dl
+          <div
             class="flex flex-col gap-3 border-t-2 border-ink p-4 lg:gap-6 lg:border-l-2 lg:border-t-0 lg:p-6"
           >
-            <div
-              v-if="displayLocation.address || displayLocation.locality"
-              class="min-w-0"
+            <dl class="flex flex-col gap-3 lg:gap-6">
+              <div
+                v-if="displayLocation.address || displayLocation.locality"
+                class="min-w-0"
+              >
+                <dt
+                  class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"
+                >
+                  <MapPin
+                    :size="20"
+                    class="shrink-0 text-primary"
+                    aria-hidden="true"
+                  />
+                  Adresse
+                </dt>
+                <dd
+                  class="mt-1 break-words pl-8 text-sm font-bold leading-5 [overflow-wrap:anywhere] lg:mt-2 lg:leading-6"
+                >
+                  <span v-if="displayLocation.address" class="block">{{
+                    displayLocation.address
+                  }}</span>
+                  <span v-if="displayLocation.locality" class="block">{{
+                    displayLocation.locality
+                  }}</span>
+                </dd>
+              </div>
+              <div
+                class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 lg:block"
+              >
+                <dt
+                  class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"
+                >
+                  <CalendarDays
+                    :size="20"
+                    class="shrink-0 text-primary"
+                    aria-hidden="true"
+                  />
+                  Programmation
+                </dt>
+                <dd
+                  class="text-xs font-bold leading-5 lg:mt-2 lg:pl-8 lg:text-sm lg:leading-6"
+                >
+                  {{ response.theater.available_dates.length }} date{{
+                    response.theater.available_dates.length > 1 ? 's' : ''
+                  }} disponible{{
+                    response.theater.available_dates.length > 1 ? 's' : ''
+                  }}
+                </dd>
+              </div>
+            </dl>
+            <NuxtLink
+              :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
+              aria-label="Statistiques"
+              title="Statistiques"
+              class="mt-auto inline-flex size-11 shrink-0 items-center justify-center self-start border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
             >
-              <dt
-                class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"
-              >
-                <MapPin
-                  :size="20"
-                  class="shrink-0 text-primary"
-                  aria-hidden="true"
-                />
-                Adresse
-              </dt>
-              <dd
-                class="mt-1 break-words pl-8 text-sm font-bold leading-5 [overflow-wrap:anywhere] lg:mt-2 lg:leading-6"
-              >
-                <span v-if="displayLocation.address" class="block">{{
-                  displayLocation.address
-                }}</span>
-                <span v-if="displayLocation.locality" class="block">{{
-                  displayLocation.locality
-                }}</span>
-              </dd>
-            </div>
-            <div
-              class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 lg:block"
-            >
-              <dt
-                class="flex items-center gap-3 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-muted"
-              >
-                <CalendarDays
-                  :size="20"
-                  class="shrink-0 text-primary"
-                  aria-hidden="true"
-                />
-                Programmation
-              </dt>
-              <dd
-                class="text-xs font-bold leading-5 lg:mt-2 lg:pl-8 lg:text-sm lg:leading-6"
-              >
-                {{ response.theater.available_dates.length }} date{{
-                  response.theater.available_dates.length > 1 ? 's' : ''
-                }} disponible{{
-                  response.theater.available_dates.length > 1 ? 's' : ''
-                }}
-              </dd>
-            </div>
-          </dl>
+              <ChartNoAxesCombined :size="20" aria-hidden="true" />
+            </NuxtLink>
+          </div>
         </div>
       </header>
 
