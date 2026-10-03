@@ -423,6 +423,8 @@ export interface AdminTheater extends AdminTheaterImageResult {
 export interface AdminTheatersQuery {
   limit: number
   offset: number
+  q?: string
+  provider?: Provider
 }
 
 export interface AdminTheatersResponse extends AdminTheatersQuery {

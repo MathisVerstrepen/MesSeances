@@ -17,11 +17,16 @@ import {
   type CinemaImageDraft,
 } from '~/utils/adminCinemaImages'
 import {
-  mergeOwnedQuery,
-  positiveSafeInteger,
-  queriesEqual,
-  singularQueryValue,
-} from '~/utils/routeQuery'
+  ADMIN_CINEMA_PAGE_SIZE as PAGE_SIZE,
+  ADMIN_CINEMA_SEARCH_DELAY,
+  cinemaApiQuery,
+  cinemaProviderLabels as providerLabels,
+  cinemaRouteQuery,
+  normalizeCinemaSearch,
+  parseCinemaProvider,
+  parseCinemaRoute,
+} from '~/utils/adminCinemaFilters'
+import { queriesEqual } from '~/utils/routeQuery'
 
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -36,7 +41,6 @@ interface Editor extends CinemaImageDraft {
   previewState: 'empty' | 'loading' | 'ready' | 'error'
 }
 
-const PAGE_SIZE = 20
 const api = useMesSeancesApi()
 const config = useRuntimeConfig()
 const route = useRoute()
@@ -47,7 +51,17 @@ const pending = ref(true)
 const refreshing = ref(false)
 const loadError = ref('')
 const successMessage = ref('')
-const page = ref(1)
+const initialFilters = parseCinemaRoute(route.query)
+const page = ref(initialFilters.page)
+const q = ref(initialFilters.q)
+const provider = ref<Provider | ''>(initialFilters.provider)
+const search = ref(initialFilters.q)
+const filters = computed(() => ({
+  page: page.value,
+  q: q.value,
+  provider: provider.value,
+}))
+const hasFilters = computed(() => Boolean(q.value || provider.value))
 const offset = computed(() => (page.value - 1) * PAGE_SIZE)
 const pageCount = computed(() =>
   Math.max(1, Math.ceil((result.value?.total ?? 0) / PAGE_SIZE)),
@@ -58,20 +72,8 @@ const mutations = new Map<string, AbortController>()
 let listRequest: AbortController | null = null
 let mounted = false
 let epoch = 0
-let loadedPage = 0
-
-const providerLabels = {
-  ugc: 'UGC',
-  kinepolis: 'Kinepolis',
-  pathe: 'Pathé',
-  cgr: 'CGR',
-  megarama: 'Megarama',
-  cineville: 'Cinéville',
-  mk2: 'MK2',
-  cinewest: 'Cinewest',
-  grandecran: 'Grand Ecran',
-  noecinemas: 'Noé Cinémas',
-} satisfies Record<Provider, string>
+let loadedIdentity = ''
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 function key(item: AdminTheater): string {
   return `${item.provider}:${item.provider_theater_id}`
@@ -119,6 +121,7 @@ function resetPage() {
   editors.value = {}
   result.value = null
   refreshing.value = false
+  loadError.value = ''
   successMessage.value = ''
 }
 
@@ -195,7 +198,7 @@ async function loadInventory(background = false): Promise<boolean> {
   loadError.value = ''
   try {
     const response = await api.adminTheaters(
-      { limit: PAGE_SIZE, offset: offset.value },
+      cinemaApiQuery(filters.value),
       request.signal,
     )
     if (!active()) return false
@@ -249,29 +252,67 @@ async function loadInventory(background = false): Promise<boolean> {
 }
 
 function pageQuery(nextPage: number) {
-  return mergeOwnedQuery(route.query, ['page'], {
-    page: nextPage === 1 ? undefined : String(nextPage),
-  })
+  return cinemaRouteQuery({ ...filters.value, page: nextPage }, route.query)
 }
 
 async function applyRoute() {
-  const requested =
-    positiveSafeInteger(singularQueryValue(route.query.page)) ?? 1
-  const nextPage = Number.isSafeInteger((requested - 1) * PAGE_SIZE)
-    ? requested
-    : 1
-  if (nextPage !== loadedPage) {
+  cancelSearch()
+  const next = parseCinemaRoute(route.query)
+  search.value = next.q
+  const identity = JSON.stringify(next)
+  if (identity !== loadedIdentity) {
     resetPage()
-    page.value = nextPage
-    loadedPage = nextPage
+    page.value = next.page
+    q.value = next.q
+    provider.value = next.provider
+    loadedIdentity = identity
     pending.value = true
   }
-  const canonical = pageQuery(nextPage)
+  const canonical = cinemaRouteQuery(next, route.query)
   if (!queriesEqual(route.query, canonical)) {
     await router.replace({ query: canonical })
     return
   }
   if (result.value === null) await loadInventory()
+}
+
+function cancelSearch() {
+  if (searchTimer !== undefined) clearTimeout(searchTimer)
+  searchTimer = undefined
+}
+
+async function selectFilters(nextSearch: string, nextProvider: Provider | '') {
+  cancelSearch()
+  const normalized = normalizeCinemaSearch(nextSearch)
+  search.value = normalized
+  const query = cinemaRouteQuery(
+    { q: normalized, provider: nextProvider, page: 1 },
+    route.query,
+  )
+  if (queriesEqual(route.query, query)) {
+    if (result.value === null) await loadInventory()
+  } else await router.replace({ query })
+}
+
+function changeSearch() {
+  cancelSearch()
+  // Invalidate immediately, before debounce: departed editors and late responses
+  // must not remain actionable while a different inventory is being requested.
+  resetPage()
+  pending.value = true
+  searchTimer = setTimeout(() => {
+    searchTimer = undefined
+    if (mounted) void selectFilters(search.value, provider.value)
+  }, ADMIN_CINEMA_SEARCH_DELAY)
+}
+
+function changeProvider(event: Event) {
+  if (!(event.target instanceof HTMLSelectElement)) return
+  void selectFilters(search.value, parseCinemaProvider(event.target.value))
+}
+
+function resetFilters() {
+  void selectFilters('', '')
 }
 
 function switchSource(item: AdminTheater, source: 'file' | 'url') {
@@ -404,6 +445,7 @@ async function mutate(item: AdminTheater, remove = false) {
 
 function changePage(nextPage: number) {
   if (pending.value || nextPage < 1 || nextPage > pageCount.value) return
+  cancelSearch()
   void router.push({ query: pageQuery(nextPage) })
 }
 
@@ -420,10 +462,12 @@ onMounted(() => {
 })
 onBeforeRouteLeave(() => {
   mounted = false
+  cancelSearch()
   resetPage()
 })
 onBeforeUnmount(() => {
   mounted = false
+  cancelSearch()
   resetPage()
 })
 useHead({ title: 'Images des cinémas - MesSeances' })
@@ -441,6 +485,55 @@ useHead({ title: 'Images des cinémas - MesSeances' })
       </NuxtLink>
       <h1 class="editorial-title">Images des cinémas</h1>
     </header>
+
+    <div class="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div class="sm:col-span-2">
+        <label
+          for="cinema-search"
+          class="mb-2 block text-sm font-semibold text-ink"
+          >Rechercher un cinéma</label
+        >
+        <input
+          id="cinema-search"
+          v-model="search"
+          type="search"
+          maxlength="1024"
+          placeholder="Nom ou ville"
+          class="editorial-field min-h-11"
+          @input="changeSearch"
+        >
+      </div>
+      <div>
+        <label
+          for="cinema-provider"
+          class="mb-2 block text-sm font-semibold text-ink"
+          >Enseigne</label
+        >
+        <select
+          id="cinema-provider"
+          :value="provider"
+          class="editorial-field min-h-11"
+          @change="changeProvider"
+        >
+          <option value="">Toutes les enseignes</option>
+          <option
+            v-for="(label, value) in providerLabels"
+            :key="value"
+            :value="value"
+          >
+            {{ label }}
+          </option>
+        </select>
+      </div>
+    </div>
+    <button
+      v-if="hasFilters && (pending || !result || result.items.length)"
+      type="button"
+      class="editorial-button-outline mt-4"
+      @click="resetFilters"
+    >
+      Réinitialiser les filtres
+    </button>
 
     <p
       v-if="successMessage"
@@ -495,8 +588,9 @@ useHead({ title: 'Images des cinémas - MesSeances' })
 
     <template v-else-if="result">
       <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <p class="text-sm text-muted">
+        <p class="text-sm text-muted" role="status" aria-live="polite">
           {{ result.total }} cinéma{{ result.total > 1 ? 's' : '' }}
+          {{ hasFilters ? (result.total > 1 ? 'trouvés' : 'trouvé') : '' }}
         </p>
         <button
           type="button"
@@ -519,7 +613,19 @@ useHead({ title: 'Images des cinémas - MesSeances' })
         shadow="small"
       >
         <Image :size="30" aria-hidden="true" />
-        <p>Aucun cinéma disponible.</p>
+        <p>
+          {{
+            hasFilters ? 'Aucun cinéma ne correspond aux filtres.' : 'Aucun cinéma disponible.'
+          }}
+        </p>
+        <button
+          v-if="hasFilters"
+          type="button"
+          class="editorial-button-outline"
+          @click="resetFilters"
+        >
+          Réinitialiser les filtres
+        </button>
       </EditorialStatePanel>
       <ul v-else class="mt-5 space-y-5" aria-label="Images des cinémas">
         <li

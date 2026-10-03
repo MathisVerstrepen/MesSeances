@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -18,18 +19,18 @@ import (
 )
 
 type theaterImageFake struct {
-	calls         int
-	err           error
-	revision      int64
-	bytes         []byte
-	media         string
-	limit, offset int
+	calls    int
+	err      error
+	revision int64
+	bytes    []byte
+	media    string
+	query    cinemaimage.ListQuery
 }
 
-func (f *theaterImageFake) List(_ context.Context, limit, offset int) (cinemaimage.Inventory, error) {
+func (f *theaterImageFake) List(_ context.Context, q cinemaimage.ListQuery) (cinemaimage.Inventory, error) {
 	f.calls++
-	f.limit, f.offset = limit, offset
-	return cinemaimage.Inventory{Items: []cinemaimage.Theater{}, Limit: limit, Offset: offset}, f.err
+	f.query = q
+	return cinemaimage.Inventory{Items: []cinemaimage.Theater{}, Limit: q.Limit, Offset: q.Offset}, f.err
 }
 func (f *theaterImageFake) Upload(_ context.Context, _ cinemaimage.Identity, read func() (int64, []byte, string, error)) (cinemaimage.Result, error) {
 	f.calls++
@@ -96,10 +97,13 @@ func TestAdminTheaterImagesAuthOriginBeforeAnyIO(t *testing.T) {
 			}
 		}
 	}
-	for _, path := range []string{"/api/v1/admin/theaters", cinemaTarget + "/1"} {
+	for _, path := range []string{"/api/v1/admin/theaters", "/api/v1/admin/theaters?q=lille&provider=ugc", "/api/v1/admin/theaters?q=%00&provider=unknown", cinemaTarget + "/1"} {
 		if response := adminRequest(handler, http.MethodGet, path, "", "", nil); response.Code != 401 {
 			t.Fatal(response.Code)
 		}
+	}
+	if f.calls != 0 {
+		t.Fatal("unauthorized inventory performed IO", f.calls)
 	}
 }
 func TestAdminTheaterImagesPaginationAndAvailability(t *testing.T) {
@@ -107,7 +111,7 @@ func TestAdminTheaterImagesPaginationAndAvailability(t *testing.T) {
 	h := cinemaAdminHandler(t, f)
 	cookie := loginAdmin(t, h, "password")
 	w := adminRequest(h, http.MethodGet, "/api/v1/admin/theaters", "", "", cookie)
-	if w.Code != 200 || f.limit != 20 || f.offset != 0 || strings.TrimSpace(w.Body.String()) != `{"items":[],"limit":20,"offset":0,"total":0,"imports_enabled":false}` {
+	if w.Code != 200 || f.query != (cinemaimage.ListQuery{Limit: 20}) || strings.TrimSpace(w.Body.String()) != `{"items":[],"limit":20,"offset":0,"total":0,"imports_enabled":false}` {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	for _, query := range []string{"?limit=0", "?limit=101", "?offset=-1", "?offset=+1", "?limit=1&limit=2", "?offset=", "?unknown=1", "?offset=1;limit=2", "?offset=%zz"} {
@@ -119,6 +123,65 @@ func TestAdminTheaterImagesPaginationAndAvailability(t *testing.T) {
 	cookie = loginAdmin(t, h, "password")
 	if w := adminRequest(h, http.MethodGet, "/api/v1/admin/theaters", "", "", cookie); w.Code != 503 {
 		t.Fatal(w.Code)
+	}
+}
+
+func TestAdminTheaterImagesListFilters(t *testing.T) {
+	f := &theaterImageFake{}
+	h := cinemaAdminHandler(t, f)
+	cookie := loginAdmin(t, h, "password")
+	for _, tc := range []struct {
+		name, query string
+		want        cinemaimage.ListQuery
+	}{
+		{"search", "q=%20LiLLe%20", cinemaimage.ListQuery{Limit: 20, Search: "LiLLe"}},
+		{"provider", "provider=ugc", cinemaimage.ListQuery{Limit: 20, Provider: "ugc"}},
+		{"combined", "q=lille&provider=kinepolis&limit=1&offset=20", cinemaimage.ListQuery{Limit: 1, Offset: 20, Search: "lille", Provider: "kinepolis"}},
+		{"literal", "q=" + url.QueryEscape(`100%_\ O'Neil`), cinemaimage.ListQuery{Limit: 20, Search: `100%_\ O'Neil`}},
+		{"empty", "q=%20%20&provider=%20", cinemaimage.ListQuery{Limit: 20}},
+		{"unicode", "q=" + url.QueryEscape(" Cinéma "), cinemaimage.ListQuery{Limit: 20, Search: "Cinéma"}},
+		{"max_unicode", "q=" + url.QueryEscape(strings.Repeat("é", 1024)), cinemaimage.ListQuery{Limit: 20, Search: strings.Repeat("é", 1024)}},
+		{"trimmed_provider", "provider=%20pathe%20", cinemaimage.ListQuery{Limit: 20, Provider: "pathe"}},
+		{"pagination_bounds", "limit=100&offset=0001", cinemaimage.ListQuery{Limit: 100, Offset: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := f.calls
+			w := adminRequest(h, http.MethodGet, "/api/v1/admin/theaters?"+tc.query, "", "", cookie)
+			if w.Code != 200 || f.calls != before+1 || f.query != tc.want || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d calls=%d query=%+v", w.Code, f.calls, f.query)
+			}
+		})
+	}
+	for _, provider := range []string{"ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas"} {
+		t.Run(provider, func(t *testing.T) {
+			w := adminRequest(h, http.MethodGet, "/api/v1/admin/theaters?provider="+provider, "", "", cookie)
+			if w.Code != 200 || f.query.Provider != provider {
+				t.Fatal(w.Code, f.query)
+			}
+		})
+	}
+}
+
+func TestAdminTheaterImagesListRejectsInvalidFiltersBeforeIO(t *testing.T) {
+	f := &theaterImageFake{}
+	h := cinemaAdminHandler(t, f)
+	cookie := loginAdmin(t, h, "password")
+	for _, tc := range []struct{ name, query string }{
+		{"duplicate_search", "q=lille&q=paris"}, {"duplicate_empty_search", "q=&q="},
+		{"duplicate_provider", "provider=ugc&provider=kinepolis"}, {"duplicate_offset", "offset=1&offset=2"},
+		{"unknown", "q=lille&search=lille"}, {"unsupported", "provider=other"}, {"combined_provider", "provider=combined"}, {"provider_case", "provider=UGC"},
+		{"oversized", "q=" + strings.Repeat("a", 1025)}, {"oversized_unicode", "q=" + url.QueryEscape(strings.Repeat("é", 1025))},
+		{"nul", "q=%00"}, {"newline", "q=%0Alille"}, {"tab", "q=lille%09"}, {"c1_control", "q=%C2%85"},
+		{"invalid_utf8", "q=%FF"}, {"truncated_utf8", "q=%C3"}, {"invalid_provider_utf8", "provider=%FF"}, {"provider_control", "provider=ugc%0A"},
+		{"malformed_escape", "q=%zz"}, {"semicolon", "q=lille;provider=ugc"},
+		{"overflow", "offset=999999999999999999999999999999999999"}, {"signed_offset", "offset=%2B1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := adminRequest(h, http.MethodGet, "/api/v1/admin/theaters?"+tc.query, "", "", cookie)
+			if w.Code != 400 || f.calls != 0 || !strings.Contains(w.Body.String(), `"code":"invalid_request"`) {
+				t.Fatal(w.Code, f.calls, w.Body.String())
+			}
+		})
 	}
 }
 func cinemaMultipart(t *testing.T, fields []string, imageSize int) ([]byte, string) {

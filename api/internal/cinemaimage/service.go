@@ -7,7 +7,10 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"messeances/api/internal/geocoding"
 )
@@ -47,10 +50,27 @@ type Inventory struct {
 	ImportsEnabled bool      `json:"imports_enabled"`
 }
 
+type ListQuery struct {
+	Limit, Offset    int
+	Search, Provider string
+}
+
+func (q ListQuery) Valid() bool {
+	if q.Limit < 1 || q.Limit > 100 || q.Offset < 0 || !utf8.ValidString(q.Search) || utf8.RuneCountInString(q.Search) > 1024 || strings.TrimSpace(q.Search) != q.Search || strings.ContainsFunc(q.Search, unicode.IsControl) {
+		return false
+	}
+	switch q.Provider {
+	case "", "ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas":
+		return true
+	default:
+		return false
+	}
+}
+
 // Repository commits metadata only. Save and Remove recheck membership and CAS
 // under the media barrier and row lock; no transaction spans decoding or storage.
 type Repository interface {
-	List(context.Context, int, int) ([]Theater, int, error)
+	List(context.Context, ListQuery) ([]Theater, int, error)
 	Current(context.Context, Identity) (Record, error)
 	Save(context.Context, Identity, int64, Record) (Record, string, error)
 	Remove(context.Context, Identity, int64) (Record, string, error)
@@ -84,18 +104,21 @@ func validIdentity(id Identity) bool {
 	return geocoding.ValidProviderTheaterID(id.Provider, id.ProviderTheaterID)
 }
 func (s *Service) available() bool { return s != nil && s.repo != nil && s.media != nil }
-func (s *Service) List(ctx context.Context, limit, offset int) (Inventory, error) {
+func (s *Service) List(ctx context.Context, q ListQuery) (Inventory, error) {
+	if !q.Valid() {
+		return Inventory{}, ErrRequest
+	}
 	if !s.available() {
 		return Inventory{}, ErrStorage
 	}
-	items, total, err := s.repo.List(ctx, limit, offset)
+	items, total, err := s.repo.List(ctx, q)
 	if err != nil {
 		return Inventory{}, err
 	}
 	if items == nil {
 		items = []Theater{}
 	}
-	return Inventory{Items: items, Limit: limit, Offset: offset, Total: total, ImportsEnabled: s.importer != nil}, nil
+	return Inventory{Items: items, Limit: q.Limit, Offset: q.Offset, Total: total, ImportsEnabled: s.importer != nil}, nil
 }
 func (s *Service) check(ctx context.Context, id Identity, expected int64) error {
 	if !validIdentity(id) || expected < 0 || expected > MaxRevision {

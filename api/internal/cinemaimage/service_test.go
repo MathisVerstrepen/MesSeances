@@ -16,7 +16,7 @@ type memoryRepository struct {
 	ambiguous bool
 }
 
-func (r *memoryRepository) List(context.Context, int, int) ([]Theater, int, error) {
+func (r *memoryRepository) List(context.Context, ListQuery) ([]Theater, int, error) {
 	return []Theater{}, 0, nil
 }
 func (r *memoryRepository) Current(_ context.Context, id Identity) (Record, error) {
@@ -227,7 +227,7 @@ func TestServiceImportUsesSameNormalization(t *testing.T) {
 		t.Fatal(e)
 	}
 	r.present[id] = false
-	if _, e = s.List(context.Background(), 20, 0); e != nil {
+	if _, e = s.List(context.Background(), ListQuery{Limit: 20}); e != nil {
 		t.Fatal(e)
 	}
 	called := false

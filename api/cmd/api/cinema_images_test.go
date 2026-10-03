@@ -49,7 +49,7 @@ func TestCinemaImageRuntimeIndependentOfAccounts(t *testing.T) {
 		t.Fatal("close")
 	}
 	service := newCinemaImageService(nil, nil, nil, slog.New(slog.DiscardHandler))
-	if _, e := service.List(t.Context(), 20, 0); !errors.Is(e, cinemaimage.ErrStorage) {
+	if _, e := service.List(t.Context(), cinemaimage.ListQuery{Limit: 20}); !errors.Is(e, cinemaimage.ErrStorage) {
 		t.Fatal("disabled media", e)
 	}
 }

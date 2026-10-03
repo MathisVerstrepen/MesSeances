@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
@@ -18,7 +20,7 @@ import (
 )
 
 func (a *adminAPI) adminTheaters(w http.ResponseWriter, r *http.Request) {
-	limit, offset, ok := cinemaPagination(r)
+	query, ok := cinemaListQuery(r)
 	if !ok {
 		a.writeCinemaImageError(w, cinemaimage.ErrRequest)
 		return
@@ -27,34 +29,51 @@ func (a *adminAPI) adminTheaters(w http.ResponseWriter, r *http.Request) {
 		a.writeCinemaImageError(w, cinemaimage.ErrStorage)
 		return
 	}
-	list, err := a.theaterImages.List(r.Context(), limit, offset)
+	list, err := a.theaterImages.List(r.Context(), query)
 	if err != nil {
 		a.writeCinemaImageError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
 }
-func cinemaPagination(r *http.Request) (int, int, bool) {
+func cinemaListQuery(r *http.Request) (cinemaimage.ListQuery, bool) {
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
-		return 0, 0, false
+		return cinemaimage.ListQuery{}, false
 	}
-	limit, offset := 20, 0
+	query := cinemaimage.ListQuery{Limit: 20}
 	for k, vs := range q {
-		if len(vs) != 1 || (k != "limit" && k != "offset") || !decimalCinema(vs[0]) {
-			return 0, 0, false
+		if len(vs) != 1 {
+			return cinemaimage.ListQuery{}, false
 		}
-		n, e := strconv.Atoi(vs[0])
-		if e != nil {
-			return 0, 0, false
-		}
-		if k == "limit" {
-			limit = n
-		} else {
-			offset = n
+		switch k {
+		case "limit", "offset":
+			if !decimalCinema(vs[0]) {
+				return cinemaimage.ListQuery{}, false
+			}
+			n, e := strconv.Atoi(vs[0])
+			if e != nil {
+				return cinemaimage.ListQuery{}, false
+			}
+			if k == "limit" {
+				query.Limit = n
+			} else {
+				query.Offset = n
+			}
+		case "q", "provider":
+			if !utf8.ValidString(vs[0]) || strings.ContainsFunc(vs[0], unicode.IsControl) {
+				return cinemaimage.ListQuery{}, false
+			}
+			if k == "q" {
+				query.Search = strings.TrimSpace(vs[0])
+			} else {
+				query.Provider = strings.TrimSpace(vs[0])
+			}
+		default:
+			return cinemaimage.ListQuery{}, false
 		}
 	}
-	return limit, offset, limit >= 1 && limit <= 100 && offset >= 0
+	return query, query.Valid()
 }
 func decimalCinema(raw string) bool {
 	if len(raw) == 0 {

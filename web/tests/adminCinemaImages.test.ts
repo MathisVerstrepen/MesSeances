@@ -6,11 +6,14 @@ import ts from 'typescript'
 import { computed, ref, watch, effectScope, nextTick, type Ref } from 'vue'
 import * as queryUtils from '../app/utils/routeQuery.ts'
 import * as images from '../app/utils/adminCinemaImages.ts'
+import * as cinemaFilters from '../app/utils/adminCinemaFilters.ts'
+import type { LocationQuery } from 'vue-router'
 import type { useMesSeancesApi } from '../app/composables/useMesSeancesApi.ts'
 import type {
   AdminTheater,
   AdminTheatersResponse,
   AdminTheaterImageResult,
+  AdminTheatersQuery,
 } from '../app/types/api.ts'
 
 async function compile<T>(
@@ -440,7 +443,7 @@ test('client methods use fixed endpoints, credentialed abortable requests, no re
   const calls: {
     url: string
     options: RequestInit & {
-      query?: { limit: number; offset: number }
+      query?: AdminTheatersQuery
       retry?: boolean
     }
   }[] = []
@@ -470,7 +473,10 @@ test('client methods use fixed endpoints, credentialed abortable requests, no re
   )
   const api = compiled.useMesSeancesApi()
   const signal = new AbortController().signal
-  await api.adminTheaters({ limit: 20, offset: 40 }, signal)
+  await api.adminTheaters(
+    { limit: 20, offset: 40, q: 'Lille', provider: 'ugc' },
+    signal,
+  )
   await api.adminImportTheaterImage(
     'ugc',
     'a/b',
@@ -485,6 +491,8 @@ test('client methods use fixed endpoints, credentialed abortable requests, no re
   )
   assert.equal(calls[0]!.url, '/api/v1/admin/theaters')
   assert.equal(calls[0]!.options.query?.offset, 40)
+  assert.equal(calls[0]!.options.query?.q, 'Lille')
+  assert.equal(calls[0]!.options.query?.provider, 'ugc')
   assert.equal(calls[1]!.url, '/api/v1/admin/theaters/ugc/a%2Fb/image/import')
   assert.equal(calls[1]!.options.method, 'POST')
   assert.equal(calls[2]!.options.method, 'DELETE')
@@ -505,6 +513,9 @@ test('client methods use fixed endpoints, credentialed abortable requests, no re
 interface PageModel {
   result: Ref<AdminTheatersResponse | null>
   page: Ref<number>
+  search: Ref<string>
+  provider: Ref<string>
+  hasFilters: Ref<boolean>
   pending: Ref<boolean>
   loadError: Ref<string>
   successMessage: Ref<string>
@@ -519,6 +530,10 @@ interface PageModel {
   mutate: (item: AdminTheater, remove?: boolean) => Promise<void>
   loadInventory: (background?: boolean) => Promise<boolean>
   applyRoute: () => Promise<void>
+  changeSearch: () => void
+  changeProvider: (event: Event) => void
+  resetFilters: () => void
+  changePage: (page: number) => void
 }
 
 function theater(): AdminTheater {
@@ -536,7 +551,7 @@ function theater(): AdminTheater {
   }
 }
 
-async function pageFixture() {
+async function pageFixture(initialQuery: LocationQuery = {}) {
   let mount = () => {}
   let unmount = () => {}
   let leave = () => {}
@@ -563,7 +578,18 @@ async function pageFixture() {
   let deferList = false
   let resolveList: ((value: AdminTheatersResponse) => void) | null = null
   const revoked: string[] = []
-  const query = ref<Record<string, string>>({})
+  const query = ref<LocationQuery>(initialQuery)
+  const listCalls: { query: AdminTheatersQuery; signal: AbortSignal }[] = []
+  const navigations: { method: string; query: LocationQuery }[] = []
+  let clock = 0
+  let timerID = 0
+  const timers = new Map<number, { at: number; callback: () => void }>()
+  class SelectElement {
+    value: string
+    constructor(value: string) {
+      this.value = value
+    }
+  }
   const scope = effectScope()
   const pageUtility = {
     ...utility,
@@ -589,11 +615,19 @@ async function pageFixture() {
       require: (name: string) =>
         name.includes('adminCinemaImages')
           ? pageUtility
-          : name.includes('routeQuery')
-            ? queryUtils
-            : {},
+          : name.includes('adminCinemaFilters')
+            ? cinemaFilters
+            : name.includes('routeQuery')
+              ? queryUtils
+              : {},
       ref,
       computed,
+      HTMLSelectElement: SelectElement,
+      setTimeout: (callback: () => void, delay: number) => {
+        timers.set(++timerID, { at: clock + delay, callback })
+        return timerID
+      },
+      clearTimeout: (id: number) => timers.delete(id),
       watch: (...args: Parameters<typeof watch>) =>
         scope.run(() => watch(...args)),
       useRoute: () => ({
@@ -602,10 +636,12 @@ async function pageFixture() {
         },
       }),
       useRouter: () => ({
-        replace: async ({ query: next }: { query: Record<string, string> }) => {
+        replace: async ({ query: next }: { query: LocationQuery }) => {
+          navigations.push({ method: 'replace', query: next })
           query.value = next
         },
-        push: async ({ query: next }: { query: Record<string, string> }) => {
+        push: async ({ query: next }: { query: LocationQuery }) => {
+          navigations.push({ method: 'push', query: next })
           query.value = next
         },
       }),
@@ -631,8 +667,12 @@ async function pageFixture() {
       getApiErrorCode: (cause: { data?: { error?: { code?: string } } }) =>
         cause.data?.error?.code,
       useMesSeancesApi: () => ({
-        adminTheaters: async () => {
+        adminTheaters: async (
+          query: AdminTheatersQuery,
+          signal: AbortSignal,
+        ) => {
           reads++
+          listCalls.push({ query: { ...query }, signal })
           if (listFailure) throw { status: 503 }
           if (deferList) {
             deferList = false
@@ -710,7 +750,7 @@ async function pageFixture() {
         },
       }),
     },
-    '\nexports.model = { result, editor, switchSource, mutate, loadInventory, applyRoute, page, pending, loadError, successMessage };',
+    '\nexports.model = { result, editor, switchSource, mutate, loadInventory, applyRoute, page, search, provider, hasFilters, changeSearch, changeProvider, resetFilters, changePage, pending, loadError, successMessage };',
   )
   mount()
   await nextTick()
@@ -719,6 +759,25 @@ async function pageFixture() {
   return {
     model,
     query,
+    listCalls,
+    navigations,
+    selectProvider: (value: string) => {
+      const event = new Event('change')
+      Object.defineProperty(event, 'target', {
+        value: new SelectElement(value),
+      })
+      model.changeProvider(event)
+    },
+    advance: async (ms: number) => {
+      clock += ms
+      for (const [id, timer] of timers) {
+        if (timer.at > clock) continue
+        timers.delete(id)
+        timer.callback()
+      }
+      await settle()
+    },
+    timerCount: () => timers.size,
     revoked,
     reads: () => reads,
     uploads: () => uploads,
@@ -935,8 +994,8 @@ test('imports unavailable disables only URL source; list errors preserve invento
   }
 })
 
-test('pending preview reads abort on page/unmount and cannot allocate late stored Blobs', async () => {
-  for (const reason of ['page', 'unmount'] as const) {
+test('pending preview reads abort on page/filter/unmount and cannot allocate late stored Blobs', async () => {
+  for (const reason of ['page', 'q', 'provider', 'unmount'] as const) {
     const f = await pageFixture()
     try {
       f.image()
@@ -946,15 +1005,20 @@ test('pending preview reads abort on page/unmount and cannot allocate late store
       const state = f.model.editor(item)
       assert.equal(state.previewState, 'loading')
       const signal = f.previewSignal()
-      if (reason === 'page') {
-        f.query.value = { page: '2' }
+      if (reason !== 'unmount') {
+        f.query.value =
+          reason === 'page'
+            ? { page: '2' }
+            : reason === 'q'
+              ? { q: 'Lille' }
+              : { provider: 'ugc' }
         await settle()
       } else f.stop()
       assert.equal(signal?.aborted, true)
       f.finishPreview()
       await settle()
       assert.equal(state.preview, '')
-      assert.equal(f.previewCreated(), reason === 'page' ? 1 : 0)
+      assert.equal(f.previewCreated(), reason !== 'unmount' ? 1 : 0)
       assert.deepEqual(f.revoked, [])
     } finally {
       f.stop()
@@ -989,8 +1053,8 @@ test('background inventory cannot roll back a newer successful row edit or overw
   }
 })
 
-test('page source switch clears stale candidate; route paging and unmount abort writes and ignore late results', async () => {
-  for (const reason of ['page', 'leave', 'unmount'] as const) {
+test('page source switch clears stale candidate; route paging/filters and unmount abort writes and ignore late results', async () => {
+  for (const reason of ['page', 'q', 'provider', 'leave', 'unmount'] as const) {
     const f = await pageFixture()
     try {
       const item = f.model.result.value!.items[0]!
@@ -1006,11 +1070,16 @@ test('page source switch clears stale candidate; route paging and unmount abort 
       draft.candidate = 'blob:second'
       f.defer()
       const saving = f.model.mutate(item)
-      if (reason === 'page') {
-        f.query.value = { page: '2' }
+      if (reason === 'page' || reason === 'q' || reason === 'provider') {
+        f.query.value =
+          reason === 'page'
+            ? { page: '2' }
+            : reason === 'q'
+              ? { q: 'Lille' }
+              : { provider: 'ugc' }
         await nextTick()
         await nextTick()
-        assert.equal(f.model.page.value, 2)
+        assert.equal(f.model.page.value, reason === 'page' ? 2 : 1)
       } else if (reason === 'leave') f.leave()
       else f.stop()
       assert.equal(f.signal()?.aborted, true)
@@ -1023,6 +1092,299 @@ test('page source switch clears stale candidate; route paging and unmount abort 
       f.stop()
     }
   }
+})
+
+test('cinema route filters normalize bounded Unicode, reject repeated/unsupported values and preserve unrelated query keys', () => {
+  assert.equal(
+    cinemaFilters.normalizeCinemaSearch('  Lille\n\u0000\u0085\ud800  '),
+    'Lille',
+  )
+  assert.equal(
+    Array.from(cinemaFilters.normalizeCinemaSearch('🎬'.repeat(1025))).length,
+    1024,
+  )
+  const state = cinemaFilters.parseCinemaRoute({
+    page: '0002',
+    q: '  Lille  ',
+    provider: 'ugc',
+  })
+  assert.deepEqual(state, { page: 2, q: 'Lille', provider: 'ugc' })
+  assert.deepEqual(cinemaFilters.cinemaApiQuery(state), {
+    limit: 20,
+    offset: 20,
+    q: 'Lille',
+    provider: 'ugc',
+  })
+  assert.deepEqual(
+    cinemaFilters.cinemaRouteQuery(state, { keep: ['one', 'two'], q: 'old' }),
+    {
+      keep: ['one', 'two'],
+      page: '2',
+      q: 'Lille',
+      provider: 'ugc',
+    },
+  )
+  for (const page of [
+    '0',
+    '-1',
+    '1.5',
+    '107374184',
+    String(Number.MAX_SAFE_INTEGER),
+  ]) {
+    assert.equal(cinemaFilters.parseCinemaRoute({ page }).page, 1)
+  }
+  assert.equal(
+    cinemaFilters.parseCinemaRoute({ page: '107374183' }).page,
+    107374183,
+  )
+  assert.deepEqual(
+    cinemaFilters.parseCinemaRoute({
+      page: ['1', '2'],
+      q: ['Lille', 'Paris'],
+      provider: ['ugc', 'cgr'],
+    }),
+    { page: 1, q: '', provider: '' },
+  )
+  assert.equal(
+    cinemaFilters.parseCinemaRoute({ provider: 'unknown' }).provider,
+    '',
+  )
+  assert.equal(
+    cinemaFilters.parseCinemaRoute({ provider: 'toString' }).provider,
+    '',
+  )
+  for (const provider of Object.keys(cinemaFilters.cinemaProviderLabels)) {
+    assert.equal(cinemaFilters.parseCinemaProvider(provider), provider)
+  }
+  assert.deepEqual(
+    cinemaFilters.cinemaApiQuery({ page: 1, q: '', provider: '' }),
+    {
+      limit: 20,
+      offset: 0,
+    },
+  )
+})
+
+test('page transmits combined route filters, debounces 350ms, resets pagination and applies provider with pending search', async () => {
+  const f = await pageFixture({
+    page: '2',
+    q: 'Paris',
+    provider: 'ugc',
+    keep: 'yes',
+  })
+  try {
+    assert.deepEqual(f.listCalls[0]!.query, {
+      limit: 20,
+      offset: 20,
+      q: 'Paris',
+      provider: 'ugc',
+    })
+    assert.equal(f.model.search.value, 'Paris')
+    assert.equal(f.model.provider.value, 'ugc')
+    f.model.search.value = 'Li'
+    f.model.changeSearch()
+    await f.advance(200)
+    f.model.search.value = '  Lille  '
+    f.model.changeSearch()
+    await f.advance(349)
+    assert.equal(f.reads(), 1)
+    assert.equal(f.model.pending.value, true)
+    await f.advance(1)
+    assert.equal(f.reads(), 2)
+    assert.deepEqual(
+      { ...f.query.value },
+      { keep: 'yes', q: 'Lille', provider: 'ugc' },
+    )
+    assert.equal(f.model.page.value, 1)
+    assert.deepEqual(f.listCalls.at(-1)!.query, {
+      limit: 20,
+      offset: 0,
+      q: 'Lille',
+      provider: 'ugc',
+    })
+    f.model.search.value = ' Lyon '
+    f.model.changeSearch()
+    f.selectProvider('pathe')
+    await settle()
+    assert.equal(f.timerCount(), 0)
+    assert.deepEqual(f.listCalls.at(-1)!.query, {
+      limit: 20,
+      offset: 0,
+      q: 'Lyon',
+      provider: 'pathe',
+    })
+    const reads = f.reads()
+    await f.advance(350)
+    assert.equal(f.reads(), reads)
+    f.model.resetFilters()
+    await settle()
+    assert.deepEqual({ ...f.query.value }, { keep: 'yes' })
+    assert.equal(f.model.search.value, '')
+    assert.equal(f.model.provider.value, '')
+    assert.deepEqual(f.listCalls.at(-1)!.query, { limit: 20, offset: 0 })
+  } finally {
+    f.stop()
+  }
+})
+
+test('page preserves filters in paging history, restores route changes and cancels pending debounce on back/forward', async () => {
+  const f = await pageFixture({ q: 'Lille', provider: 'ugc', keep: 'yes' })
+  try {
+    const first = { ...f.query.value }
+    f.model.changePage(2)
+    await settle()
+    const second = { ...f.query.value }
+    assert.equal(f.navigations.at(-1)!.method, 'push')
+    assert.deepEqual(second, {
+      keep: 'yes',
+      page: '2',
+      q: 'Lille',
+      provider: 'ugc',
+    })
+    f.model.search.value = 'draft'
+    f.model.changeSearch()
+    f.query.value = first // Browser back restores URL-owned state.
+    await settle()
+    assert.equal(f.timerCount(), 0)
+    assert.equal(f.model.search.value, 'Lille')
+    assert.equal(f.model.page.value, 1)
+    f.query.value = second // Browser forward.
+    await settle()
+    assert.equal(f.model.page.value, 2)
+    assert.deepEqual(f.listCalls.at(-1)!.query, {
+      limit: 20,
+      offset: 20,
+      q: 'Lille',
+      provider: 'ugc',
+    })
+    const result = f.model.result.value
+    const reads = f.reads()
+    f.query.value = { ...second, keep: 'changed' }
+    await settle()
+    assert.equal(f.reads(), reads)
+    assert.equal(f.model.result.value, result)
+    await f.advance(350)
+    assert.equal(f.model.search.value, 'Lille')
+  } finally {
+    f.stop()
+  }
+})
+
+test('page canonicalizes malformed filters and clamps out-of-range pages against filtered total', async () => {
+  const f = await pageFixture({
+    page: '0009',
+    q: '  Lille  ',
+    provider: 'ugc',
+    keep: 'yes',
+  })
+  try {
+    await settle()
+    assert.deepEqual(
+      { ...f.query.value },
+      { keep: 'yes', page: '3', q: 'Lille', provider: 'ugc' },
+    )
+    assert.equal(f.model.page.value, 3)
+    assert.deepEqual(f.listCalls.at(-1)!.query, {
+      limit: 20,
+      offset: 40,
+      q: 'Lille',
+      provider: 'ugc',
+    })
+    f.query.value = {
+      page: '107374184',
+      provider: 'bad',
+      q: ['one', 'two'],
+      keep: 'yes',
+    }
+    await settle()
+    assert.deepEqual({ ...f.query.value }, { keep: 'yes' })
+    assert.deepEqual(f.listCalls.at(-1)!.query, { limit: 20, offset: 0 })
+  } finally {
+    f.stop()
+  }
+})
+
+test('same-page filters and search draft abort stale inventory and clean stored previews before late responses', async () => {
+  for (const reason of ['q', 'provider', 'draft'] as const) {
+    const f = await pageFixture()
+    try {
+      f.image()
+      await f.model.loadInventory(true)
+      await settle()
+      const item = f.model.result.value!.items[0]!
+      const state = f.model.editor(item)
+      state.file = file()
+      state.candidate = 'blob:candidate'
+      state.url = 'https://photos.example.test/cinema.png'
+      state.confirmation = true
+      f.deferList()
+      const staleRead = f.model.loadInventory(true)
+      const signal = f.listCalls.at(-1)!.signal
+      if (reason === 'draft') {
+        f.model.search.value = 'Lille'
+        f.model.changeSearch()
+      } else
+        f.query.value = reason === 'q' ? { q: 'Lille' } : { provider: 'ugc' }
+      await settle()
+      assert.equal(signal.aborted, true)
+      assert.equal(state.file, null)
+      assert.equal(state.url, '')
+      assert.equal(state.preview, '')
+      assert.deepEqual(f.revoked, ['blob:candidate', 'blob:stored-1'])
+      const current = f.model.result.value
+      f.finishList()
+      assert.equal(await staleRead, false)
+      assert.equal(f.model.result.value, current)
+      if (reason === 'draft') await f.advance(350)
+      assert.equal(f.model.page.value, 1)
+      assert.equal(
+        f.model.editor(f.model.result.value!.items[0]!).confirmation,
+        false,
+      )
+    } finally {
+      f.stop()
+    }
+  }
+})
+
+test('filtered empty state preserves filters and exposes reset; errors retry same combined query; leave cancels debounce', async () => {
+  const f = await pageFixture({ q: 'missing', provider: 'cgr', keep: 'yes' })
+  try {
+    f.empty()
+    await f.model.loadInventory(true)
+    assert.equal(f.model.result.value!.items.length, 0)
+    assert.equal(f.model.result.value!.total, 0)
+    assert.equal(f.model.hasFilters.value, true)
+    assert.equal(f.model.pending.value, false)
+    f.listFail()
+    await f.model.loadInventory(true)
+    assert.ok(f.model.loadError.value)
+    assert.deepEqual(f.listCalls.at(-1)!.query, {
+      limit: 20,
+      offset: 0,
+      q: 'missing',
+      provider: 'cgr',
+    })
+    f.model.search.value = 'draft'
+    f.model.changeSearch()
+    const reads = f.reads()
+    f.leave()
+    await f.advance(350)
+    assert.equal(f.timerCount(), 0)
+    assert.equal(f.reads(), reads)
+  } finally {
+    f.stop()
+  }
+  const source = await readFile(
+    new URL('../app/pages/admin/cinemas.vue', import.meta.url),
+    'utf8',
+  )
+  assert.match(source, /for="cinema-search"/)
+  assert.match(source, /for="cinema-provider"/)
+  assert.match(source, /maxlength="1024"/)
+  assert.match(source, /Aucun cinéma ne correspond aux filtres/)
+  assert.match(source, /Aucun cinéma disponible/)
+  assert.match(source, /@click="resetFilters"/)
 })
 
 test('page/dashboard expose auth, uncropped previews, progress, confirmation, mobile targets and no hotlink or persistence', async () => {

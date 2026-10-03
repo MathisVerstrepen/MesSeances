@@ -112,7 +112,7 @@ type TheaterGeocodingController interface {
 }
 
 type TheaterImageController interface {
-	List(context.Context, int, int) (cinemaimage.Inventory, error)
+	List(context.Context, cinemaimage.ListQuery) (cinemaimage.Inventory, error)
 	Upload(context.Context, cinemaimage.Identity, func() (int64, []byte, string, error)) (cinemaimage.Result, error)
 	Import(context.Context, cinemaimage.Identity, int64, string) (cinemaimage.Result, error)
 	Remove(context.Context, cinemaimage.Identity, int64) (cinemaimage.Result, error)

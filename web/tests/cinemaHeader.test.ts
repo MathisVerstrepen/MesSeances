@@ -250,19 +250,24 @@ test('a replaced element already complete with zero width also enters fallback',
   assert.equal(state.failedCinemaImageUrl.value, next)
 })
 
-test('header source guards attached photo/fallback, decorative media, retained SEO and unchanged programme controls', () => {
+test('header source guards full-width photo/illustrated fallback, responsive address/statistics actions, SEO and programme controls', () => {
   const headerMarkup = page.slice(
     page.indexOf('<header'),
     page.indexOf('</header>'),
   )
   assert.match(
     headerMarkup,
-    /lg:grid-cols-\[minmax\(0,7fr\)_minmax\(17rem,3fr\)\]/,
+    /<div\s+class="relative flex min-w-0 overflow-hidden p-5 lg:p-8"/,
   )
   for (const value of [
     'min-h-[240px]',
     'lg:min-h-[380px]',
     'items-end',
+    'min-h-[200px] items-center',
+    'lg:min-h-[288px]',
+    'v-if="!hasCinemaImage"',
+    '<Clapperboard',
+    '<Ticket',
     'shadow-[8px_8px_0_#27272a]',
     'variant="hero"',
     "hasCinemaImage ? 'text-white' : 'text-ink'",
@@ -274,12 +279,65 @@ test('header source guards attached photo/fallback, decorative media, retained S
     'overflow-wrap:anywhere',
   ])
     assert.ok(headerMarkup.includes(value), value)
-  assert.doesNotMatch(headerMarkup, /bg-ink\/60|sm:grid-cols-2/)
+  assert.doesNotMatch(
+    headerMarkup,
+    /bg-ink\/60|sm:grid-cols-2|lg:grid-cols-|border-l-2/,
+  )
+  const desktopAddress = headerMarkup.match(
+    /<p\s+v-if="displayLocation.address \|\| response.theater.city"[\s\S]*?<\/p>/,
+  )?.[0]
+  assert.ok(desktopAddress)
+  assert.match(desktopAddress, /hidden[^"\n]*lg:block/)
+  assert.match(
+    desktopAddress,
+    /displayLocation.address\s*\? \[displayLocation.address, displayLocation.locality\]/,
+  )
+  assert.match(desktopAddress, /: formatCinemaCity\(response.theater.city\)/)
+  assert.match(
+    headerMarkup,
+    /<p\s+v-if="response.theater.city"[^>]*class="[^"\n]*lg:hidden"[\s\S]*?formatCinemaCity\(response.theater.city\)/,
+  )
+  const mobileStripStart = headerMarkup.indexOf(
+    'class="flex items-center gap-4 border-t-2 border-ink',
+  )
+  assert.ok(mobileStripStart > 0)
+  const mobileStrip = headerMarkup.slice(mobileStripStart)
+  assert.match(mobileStrip, /class="[^"\n]*lg:hidden"/)
   const details = headerMarkup.slice(headerMarkup.indexOf('<dl'))
-  assert.match(details, /flex flex-col gap-3[^"]*lg:gap-6/)
-  assert.equal((details.match(/border-t-2/g) || []).length, 1)
-  assert.equal((details.match(/border-l-2/g) || []).length, 1)
-  assert.match(page, /<section\s+class="mt-8 lg:mt-12"/)
+  assert.match(details, /class="min-w-0 flex-1"/)
+  assert.match(details, /<span class="sr-only">Adresse<\/span>/)
+  assert.match(
+    details,
+    /\[displayLocation.address, displayLocation.locality\]\.filter\(Boolean\)\.join\(' '\)/,
+  )
+  assert.equal((headerMarkup.match(/border-t-2/g) || []).length, 1)
+  const statisticsLinks = [
+    ...headerMarkup.matchAll(
+      /<NuxtLink\b[^>]*aria-label="Statistiques"[^>]*>[\s\S]*?<\/NuxtLink>/g,
+    ),
+  ]
+  assert.equal(statisticsLinks.length, 2)
+  assert.ok(statisticsLinks[0]!.index! < mobileStripStart)
+  assert.match(
+    statisticsLinks[0]![0],
+    /absolute bottom-8 right-8 hidden[^"\n]*lg:inline-flex/,
+  )
+  assert.ok(statisticsLinks[1]!.index! > mobileStripStart)
+  assert.match(statisticsLinks[1]![0], /ml-auto inline-flex size-11 shrink-0/)
+  for (const link of statisticsLinks) {
+    assert.ok(
+      link[0].includes(
+        ":to=\"{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }\"",
+      ),
+    )
+    assert.match(link[0], /title="Statistiques"/)
+    assert.match(link[0], /focus-visible:outline-3/)
+    assert.match(
+      link[0],
+      /<ChartNoAxesCombined :size="20" aria-hidden="true" \/>/,
+    )
+  }
+  assert.match(page, /<section\s+class="mt-6 lg:mt-8"/)
   assert.match(headerMarkup, /<img\s+v-if="hasCinemaImage"/)
   for (const value of [
     ':key="cinemaImageUrl"',
@@ -299,10 +357,14 @@ test('header source guards attached photo/fallback, decorative media, retained S
     headerMarkup,
     /v-if="displayLocation.address \|\| displayLocation.locality"/,
   )
-  assert.match(headerMarkup, /response.theater.available_dates.length/)
+  // Date availability still feeds SEO, without recreating the removed programme box.
+  assert.match(
+    page,
+    /availableDateCount: response.value.theater.available_dates.length/,
+  )
   assert.doesNotMatch(
     headerMarkup,
-    /pageDescription|Statistiques|itinéraire|indisponible|rounded-|truncate|line-clamp/,
+    /pageDescription|Programmation|available_dates\.length|itinéraire|indisponible|rounded-|truncate|line-clamp/,
   )
   assert.match(page, /description: pageDescription.value/)
   assert.match(page, /description: pageDescription,/)

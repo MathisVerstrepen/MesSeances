@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -77,13 +78,15 @@ func TestTheaterImagesPublicationIntegration(t *testing.T) {
 	// Rebuild schedule names, addresses and generation, retaining cinema identity.
 	data.Theaters[0].Name = "Renamed Cinema"
 	data.Theaters[0].Address = "New Address"
+	data.Theaters[1].Name = `UGC 100%_\ Cinema`
+	data.Theaters[2].City = `Literal%_\Town`
 	historyPublish(t, scheduleStore, data)
 	// Both application and schema require slug == ID == provider + provider ID.
 	// Keep that invariant rather than mutating the public schema for this fixture.
 	if got, e := repo.Current(ctx, id); e != nil || got != record {
 		t.Fatal("publication changed photo", e)
 	}
-	list, e := service.List(ctx, 100, 0)
+	list, e := service.List(ctx, cinemaimage.ListQuery{Limit: 100})
 	if e != nil || list.Total != 3 {
 		t.Fatal(e)
 	}
@@ -104,7 +107,7 @@ func TestTheaterImagesPublicationIntegration(t *testing.T) {
 	missing.Theaters = append([]TheaterRecord(nil), data.Theaters[1:]...)
 	missing.Showtimes = nil
 	historyPublish(t, scheduleStore, missing)
-	list, e = service.List(ctx, 100, 0)
+	list, e = service.List(ctx, cinemaimage.ListQuery{Limit: 100})
 	if e != nil || list.Total != 2 {
 		t.Fatal("showtime filter or absent identity", e)
 	}
@@ -176,6 +179,46 @@ func TestTheaterImagesPublicationIntegration(t *testing.T) {
 	kinepolis.Showtimes[0].TheaterID = "kinepolis-25"
 	kinepolis.Showtimes[0].BookingURL = "https://kinepolis.fr/direct-vista-redirect/VS1/0/25/0"
 	historyPublish(t, scheduleStore, data, kinepolis)
+	// Inventory filters apply to all current cinemas before pagination, including
+	// cinemas without showtimes. Count and rows use the same literal predicates.
+	for _, tc := range []struct {
+		name  string
+		query cinemaimage.ListQuery
+		total int
+		ids   []string
+	}{
+		{"all", cinemaimage.ListQuery{Limit: 100}, 4, []string{"kinepolis-25", "ugc-25", "ugc-26", "ugc-99"}},
+		{"provider_only", cinemaimage.ListQuery{Limit: 100, Provider: "ugc"}, 3, []string{"ugc-25", "ugc-26", "ugc-99"}},
+		{"other_provider", cinemaimage.ListQuery{Limit: 100, Provider: "kinepolis"}, 1, []string{"kinepolis-25"}},
+		{"search_name_case", cinemaimage.ListQuery{Limit: 100, Search: "cInEmA"}, 2, []string{"ugc-25", "ugc-26"}},
+		{"search_city_case", cinemaimage.ListQuery{Limit: 100, Search: "LiLlE"}, 1, []string{"ugc-25"}},
+		{"combined", cinemaimage.ListQuery{Limit: 100, Search: "lOm", Provider: "kinepolis"}, 1, []string{"kinepolis-25"}},
+		{"provider_no_match", cinemaimage.ListQuery{Limit: 100, Provider: "pathe"}, 0, []string{}},
+		{"search_no_match", cinemaimage.ListQuery{Limit: 100, Search: "absent"}, 0, []string{}},
+		{"combined_no_match", cinemaimage.ListQuery{Limit: 100, Search: "lomme", Provider: "ugc"}, 0, []string{}},
+		{"first_filtered_page", cinemaimage.ListQuery{Limit: 1, Search: "cinema", Provider: "ugc"}, 2, []string{"ugc-25"}},
+		{"second_filtered_page", cinemaimage.ListQuery{Limit: 1, Offset: 1, Search: "cinema", Provider: "ugc"}, 2, []string{"ugc-26"}},
+		{"past_filtered_page", cinemaimage.ListQuery{Limit: 1, Offset: 2, Search: "cinema", Provider: "ugc"}, 2, []string{}},
+		{"provider_filtered_page", cinemaimage.ListQuery{Limit: 1, Offset: 1, Provider: "ugc"}, 3, []string{"ugc-26"}},
+		{"city_not_on_first_page", cinemaimage.ListQuery{Limit: 1, Search: "town"}, 1, []string{"ugc-99"}},
+		{"literal_percent", cinemaimage.ListQuery{Limit: 100, Search: "%"}, 2, []string{"ugc-26", "ugc-99"}},
+		{"literal_underscore", cinemaimage.ListQuery{Limit: 100, Search: "_"}, 2, []string{"ugc-26", "ugc-99"}},
+		{"literal_backslash", cinemaimage.ListQuery{Limit: 100, Search: `\`}, 2, []string{"ugc-26", "ugc-99"}},
+		{"literal_combined", cinemaimage.ListQuery{Limit: 100, Search: `%_\`}, 2, []string{"ugc-26", "ugc-99"}},
+		{"literal_no_match", cinemaimage.ListQuery{Limit: 100, Search: "%%"}, 0, []string{}},
+		{"bound_quote", cinemaimage.ListQuery{Limit: 100, Search: "' OR 1=1 --"}, 0, []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := service.List(ctx, tc.query)
+			ids := make([]string, 0, len(got.Items))
+			for _, cinema := range got.Items {
+				ids = append(ids, cinema.TheaterID)
+			}
+			if err != nil || got.Total != tc.total || got.Limit != tc.query.Limit || got.Offset != tc.query.Offset || !reflect.DeepEqual(ids, tc.ids) {
+				t.Fatalf("inventory ids=%v total=%d query=%+v err=%v", ids, got.Total, tc.query, err)
+			}
+		})
+	}
 	if got, e := repo.Current(ctx, cinemaimage.Identity{Provider: "kinepolis", ProviderTheaterID: "25"}); e != nil || got.Revision != 0 || got.Key != "" {
 		t.Fatal("provider identity collision", e)
 	}

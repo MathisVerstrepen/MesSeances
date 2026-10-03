@@ -3,6 +3,7 @@ package cinemaimage
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,14 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 
 const currentJoin = ` FROM theaters t JOIN schedule_snapshot s ON s.version=t.generation_id LEFT JOIN theater_images i ON i.provider=t.provider AND i.provider_theater_id=t.provider_id `
 const recordColumns = `COALESCE(i.image_revision,0), COALESCE(i.file_key,''),COALESCE(i.width,0),COALESCE(i.height,0),COALESCE(i.size_bytes,0)`
+const inventoryWhere = `WHERE ($1::text = '' OR t.provider = $1) AND ($2::text = '' OR t.name ILIKE $2 ESCAPE '\' OR t.city ILIKE $2 ESCAPE '\') `
+
+func inventorySearchPattern(search string) string {
+	if search == "" {
+		return ""
+	}
+	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(search) + "%"
+}
 
 func rollbackImageTx(tx pgx.Tx) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -35,7 +44,11 @@ func (p *PostgresRepository) Current(ctx context.Context, id Identity) (Record, 
 	}
 	return r, nil
 }
-func (p *PostgresRepository) List(ctx context.Context, limit, offset int) ([]Theater, int, error) {
+func (p *PostgresRepository) List(ctx context.Context, q ListQuery) ([]Theater, int, error) {
+	if !q.Valid() {
+		return nil, 0, ErrRequest
+	}
+	pattern := inventorySearchPattern(q.Search)
 	items := make([]Theater, 0)
 	total := 0
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
@@ -43,10 +56,10 @@ func (p *PostgresRepository) List(ctx context.Context, limit, offset int) ([]The
 		return nil, 0, ErrStorage
 	}
 	defer rollbackImageTx(tx)
-	if tx.QueryRow(ctx, `SELECT count(*)`+currentJoin).Scan(&total) != nil {
+	if tx.QueryRow(ctx, `SELECT count(*)`+currentJoin+inventoryWhere, q.Provider, pattern).Scan(&total) != nil {
 		return nil, 0, ErrStorage
 	}
-	rows, err := tx.Query(ctx, `SELECT t.provider,t.provider_id,t.id,t.slug,t.name,t.address,t.postal_code,t.city,`+recordColumns+currentJoin+`ORDER BY lower(t.name),t.provider,t.provider_id LIMIT $1 OFFSET $2`, limit, offset)
+	rows, err := tx.Query(ctx, `SELECT t.provider,t.provider_id,t.id,t.slug,t.name,t.address,t.postal_code,t.city,`+recordColumns+currentJoin+inventoryWhere+`ORDER BY lower(t.name),t.provider,t.provider_id LIMIT $3 OFFSET $4`, q.Provider, pattern, q.Limit, q.Offset)
 	if err != nil {
 		return nil, 0, ErrStorage
 	}
