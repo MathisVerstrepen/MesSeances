@@ -30,6 +30,16 @@ async function expectHeaderLayout(
   )
   const hero = await heroElement.boundingBox()
   const button = await statistics.boundingBox()
+  const follow = header.getByRole('button', {
+    name: 'Suivre ce cinéma',
+    exact: true,
+  })
+  const followBox = (await follow.count()) ? await follow.boundingBox() : null
+  if (followBox) {
+    expect(followBox.width).toBeGreaterThanOrEqual(44)
+    expect(followBox.height).toBeGreaterThanOrEqual(44)
+    expect(button!.x - followBox.x - followBox.width).toBeCloseTo(8, 0)
+  }
   expect(hero).not.toBeNull()
   expect(button).not.toBeNull()
   expect(button!.width).toBeGreaterThanOrEqual(44)
@@ -55,7 +65,7 @@ async function expectHeaderLayout(
       heroElement.locator('p:visible'),
     ]) {
       const box = await text.boundingBox()
-      expect(box!.x + box!.width).toBeLessThanOrEqual(button!.x)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(followBox?.x ?? button!.x)
     }
   } else {
     await expect(stripElement).toBeVisible()
@@ -66,7 +76,9 @@ async function expectHeaderLayout(
     const address = await stripElement.locator('dd').boundingBox()
     expect(strip!.width).toBeCloseTo(hero!.width, 0)
     expect(strip!.y).toBeCloseTo(hero!.y + hero!.height, 0)
-    expect(address!.x + address!.width).toBeLessThanOrEqual(button!.x)
+    expect(address!.x + address!.width).toBeLessThanOrEqual(
+      followBox?.x ?? button!.x,
+    )
     expect(strip!.x + strip!.width - button!.x - button!.width).toBeCloseTo(
       16,
       0,
@@ -121,7 +133,11 @@ test('cinema is usable without horizontal overflow', async ({
 for (const imageState of ['photo', 'missing', 'failed']) {
   test(`cinema ${imageState} hero preserves long identity`, async ({
     page,
+    request,
   }, testInfo) => {
+    await request.post('/__playwright/scenario', {
+      data: { enabled: true, state: 'complete' },
+    })
     await openPage(page, path)
     const imageLoads = imageState === 'photo'
     const longName =
@@ -195,7 +211,11 @@ for (const imageState of ['photo', 'missing', 'failed']) {
 
 test('cinema without an address keeps city identity', async ({
   page,
+  request,
 }, testInfo) => {
+  await request.post('/__playwright/scenario', {
+    data: { enabled: true, state: 'complete' },
+  })
   await openPage(page, path)
   await page.route(`**/api/v1/theaters/${theater.slug}/showtimes*`, (route) => {
     const payload = showtimes()

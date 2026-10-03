@@ -64,3 +64,35 @@ export function showtimes(selectedDate = date) {
         : [],
   }
 }
+
+export const secondTheater = {
+  ...theater,
+  id: 'fixture-second',
+  slug: 'cinema-second',
+  name: 'Cinéma Seconde Salle',
+  city: 'Roubaix',
+}
+export function accountActivityItem(id, cinema = theater) {
+  return {
+    event_id: String(id),
+    type: id === 103 ? 'return_to_program' : 'added_to_program',
+    detected_at: `${date}T08:00:00.${String(id).padStart(6, '0')}Z`,
+    first_screening_date: date,
+    previous_program_end_date: id === 103 ? '2026-08-01' : null,
+    movie: {
+      slug: movie.slug,
+      title: movie.title,
+      poster_url: null,
+      updated_at: generatedAt,
+    },
+    has_upcoming_showtimes: true,
+    next_showtime_date: date,
+    theater: {
+      id: cinema.id,
+      slug: cinema.slug,
+      name: cinema.name,
+      city: cinema.city,
+      provider: cinema.provider,
+    },
+  }
+}

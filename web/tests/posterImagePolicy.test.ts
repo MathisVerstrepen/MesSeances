@@ -95,7 +95,7 @@ test('every PosterImage consumer supplies an explicit layout size', () => {
       tag: match[0],
     })),
   )
-  assert.equal(tags.length, 15)
+  assert.equal(tags.length, 16)
   for (const { path, tag } of tags) assert.match(tag, /\s:?sizes=/, path)
 
   const adminTMDBMatchPosters = tags.filter(({ path }) =>

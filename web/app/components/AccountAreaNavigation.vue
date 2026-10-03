@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Settings, Users } from '@lucide/vue'
+import { Activity, Settings, Users } from '@lucide/vue'
 
 const route = useRoute()
 const settingsActive = computed(
@@ -9,6 +9,9 @@ const watchlistActive = computed(
   () => route.path.toLowerCase().replace(/\/+$/, '') === '/compte/watchlist',
 )
 const upcomingEntries = [{ label: 'Amis', icon: Users }]
+const activityActive = computed(
+  () => route.path.toLowerCase().replace(/\/+$/, '') === '/compte/activite',
+)
 </script>
 
 <template>
@@ -40,6 +43,17 @@ const upcomingEntries = [{ label: 'Amis', icon: Users }]
           class="flex min-h-12 items-center gap-2 border-l-4 px-3 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           <WatchlistIcon :size="18" class="shrink-0" />Watchlist
+        </NuxtLink>
+      </li>
+      <li>
+        <NuxtLink
+          to="/compte/activite"
+          :prefetch="false"
+          :aria-current="activityActive ? 'page' : undefined"
+          :class="activityActive ? 'border-ink bg-ink text-white' : 'border-transparent hover:bg-ink/10'"
+          class="flex min-h-12 items-center gap-2 border-l-4 px-3 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2"
+        >
+          <Activity :size="18" class="shrink-0" aria-hidden="true" />Activité
         </NuxtLink>
       </li>
       <li v-for="entry in upcomingEntries" :key="entry.label">

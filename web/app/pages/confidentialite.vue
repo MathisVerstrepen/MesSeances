@@ -72,6 +72,22 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         enregistrée applicable, les cinémas par défaut sont proposés à nouveau.
       </p>
 
+      <h3>Cinémas suivis et activité privée</h3>
+      <p>
+        Les identifiants des cinémas que vous suivez sont associés à votre
+        compte sur le serveur, séparément des cinémas sélectionnés pour filtrer
+        les séances. Leur activité regroupe les événements publics déjà
+        conservés, sans reconstituer les programmations antérieures ni envoyer
+        de notifications. Cette liste et ce regroupement restent privés, sans
+        stockage local ou de session, sans partage dans les liens et sans mesure
+        d’audience. Ils sont actualisés au retour sur le site et lors des
+        changements signalés par les autres onglets, sans synchronisation
+        instantanée entre appareils. La déconnexion retire ces données de la
+        mémoire du navigateur ; la suppression du compte efface les suivis sur
+        le serveur, sans supprimer le journal public des cinémas. Les
+        sauvegardes restent soumises à leur politique de conservation.
+      </p>
+
       <h3>Watchlist privée et fiches de films publiques</h3>
       <p>
         Les films de votre watchlist, leur date d’ajout, vos tags et leurs

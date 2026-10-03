@@ -66,6 +66,7 @@ type Service struct {
 	watchlistProvider           WatchlistProvider
 	watchlistRefresh            func(context.Context, string) error
 	watchlistGate               chan struct{}
+	followedActivityGate        chan struct{}
 	watchlistReleaseProvider    WatchlistReleaseProvider
 	watchlistReleaseMu          sync.Mutex // guards sweep admission and process-local pause
 	watchlistReleasePausedUntil time.Time
@@ -81,7 +82,7 @@ func NewService(store *PostgresStore, options ServiceOptions) (*Service, error) 
 	if options.GooglePictures == nil && options.Avatars != nil {
 		options.GooglePictures = options.Avatars
 	}
-	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures, watchlistProvider: options.WatchlistProvider, watchlistReleaseProvider: options.WatchlistReleaseProvider, watchlistRefresh: options.WatchlistRefresh, watchlistGate: make(chan struct{}, 2)}, nil
+	return &Service{store: store, now: options.Now, random: options.Random, hasher: options.Hasher, mail: options.Mail, origin: options.Origin, hmacKey: append([]byte(nil), options.AddressHMACKey...), google: options.Google, flowCipher: options.FlowCipher, avatars: options.Avatars, pictures: options.GooglePictures, watchlistProvider: options.WatchlistProvider, watchlistReleaseProvider: options.WatchlistReleaseProvider, watchlistRefresh: options.WatchlistRefresh, watchlistGate: make(chan struct{}, 2), followedActivityGate: make(chan struct{}, 2)}, nil
 }
 
 func (s *Service) newToken() (string, Digest, error) {

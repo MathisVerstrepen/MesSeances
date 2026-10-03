@@ -12,6 +12,11 @@ import type {
 import { AccountApiError } from '~/utils/accountState'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
+  AccountTheaterFollows,
+  SaveAccountTheaterFollow,
+  AccountActivityResponse,
+} from '~/types/cinemaFollows'
+import type {
   AccountWatchlist,
   SaveWatchlist,
   SaveWatchlistSort,
@@ -86,6 +91,8 @@ export function useAccountApi() {
         'last_login_method',
         'avatar_changed',
         'theater_selection_changed',
+        'theater_follows_changed',
+        'theater_follow_limit_reached',
         'avatar_too_large',
         'avatar_unsupported',
         'avatar_invalid',
@@ -130,6 +137,30 @@ export function useAccountApi() {
     logout: () => request<void>('/auth/logout', {}),
     logoutAll: () => request<void>('/auth/logout-all', {}),
     details: () => request<AccountDetails>('/account'),
+    theaterFollows: (signal?: AbortSignal) =>
+      request<AccountTheaterFollows>(
+        '/account/theater-follows',
+        undefined,
+        'GET',
+        signal,
+      ),
+    saveTheaterFollow: (
+      input: SaveAccountTheaterFollow,
+      signal?: AbortSignal,
+    ) =>
+      request<AccountTheaterFollows>(
+        '/account/theater-follows',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    accountActivity: (cursor?: string, signal?: AbortSignal) =>
+      request<AccountActivityResponse>(
+        `/account/activity?limit=20${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+        undefined,
+        'GET',
+        signal,
+      ),
     watchlist: (signal?: AbortSignal) =>
       request<AccountWatchlist>('/account/watchlist', undefined, 'GET', signal),
     saveWatchlist: (input: SaveWatchlist, signal?: AbortSignal) =>
