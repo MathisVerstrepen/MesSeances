@@ -44,7 +44,7 @@ function evaluate(source: string, globals: Context) {
   return exports
 }
 
-test('home renders settings and watchlist without initializing settings data or secrets', async () => {
+test('home renders settings, watchlist and activity in sidebar order without initializing settings data or secrets', async () => {
   const session = ref<AccountSession | null>({
     enabled: true,
     state: 'complete',
@@ -79,16 +79,50 @@ test('home renders settings and watchlist without initializing settings data or 
       props: ['to', 'prefetch'],
       template: '<a :href="to"><slot /></a>',
     })
-    for (const icon of ['WatchlistIcon', 'Settings', 'ChevronRight'])
+    for (const icon of [
+      'Activity',
+      'WatchlistIcon',
+      'Settings',
+      'ChevronRight',
+    ])
       app.component(icon, { template: '<svg />' })
     return renderToString(app)
   }
   const html = await render()
   assert.equal(title, 'Mon compte - MesSeances')
   assert.match(html, /<h1>Mon compte<\/h1>/)
-  assert.equal([...html.matchAll(/<li>/g)].length, 2)
+  assert.equal([...html.matchAll(/<li>/g)].length, 3)
+  assert.match(html, /href="\/compte\/activite"/)
   assert.match(html, /href="\/compte\/watchlist"/)
   assert.match(html, /href="\/compte\/parametres"/)
+  const homeHrefs = [...html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)].map(
+    (match) => match[1],
+  )
+  assert.deepEqual(homeHrefs, [
+    '/compte/parametres',
+    '/compte/watchlist',
+    '/compte/activite',
+  ])
+  const sidebar = createSSRApp({
+    render: compile(parse(navigation).descriptor.template!.content),
+    setup: () => ({
+      settingsActive: false,
+      watchlistActive: false,
+      activityActive: false,
+      upcomingEntries: [],
+    }),
+  })
+  sidebar.component('NuxtLink', {
+    props: ['to', 'prefetch'],
+    template: '<a :href="to"><slot /></a>',
+  })
+  for (const icon of ['Settings', 'WatchlistIcon', 'Activity'])
+    sidebar.component(icon, { template: '<svg />' })
+  const sidebarHtml = await renderToString(sidebar)
+  const sidebarHrefs = [
+    ...sidebarHtml.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g),
+  ].map((match) => match[1])
+  assert.deepEqual(homeHrefs, sidebarHrefs)
   assert.match(home, /:prefetch="false"/)
   assert.match(home, /min-h-12/)
   assert.doesNotMatch(
@@ -136,6 +170,7 @@ test('desktop settings selection follows exact normalized route, not account hom
       setup: () => ({
         settingsActive: active,
         watchlistActive: false,
+        activityActive: false,
         upcomingEntries: [],
       }),
     })
@@ -144,6 +179,7 @@ test('desktop settings selection follows exact normalized route, not account hom
       template: '<a :href="to"><slot /></a>',
     })
     app.component('Settings', { template: '<svg />' })
+    app.component('Activity', { template: '<svg />' })
     app.component('WatchlistIcon', { template: '<svg />' })
     const html = await renderToString(app)
     assert.equal(html.includes('aria-current="page"'), active.value)
@@ -191,6 +227,8 @@ test('home and settings require complete sessions while confirmation routes stay
     '/COMPTE/PARAMETRES/',
     '/compte/confirmer-email',
     '/compte/confirmer-identite',
+    '/compte/activite',
+    '/COMPTE/ACTIVITE/',
   ]) {
     for (const [state, destination] of [
       ['anonymous', '/connexion'],

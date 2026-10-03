@@ -64,10 +64,10 @@ export function activityTypeLabel(type: TheaterActivityItem['type']): string {
     : 'Ajout à la programmation'
 }
 
-export function appendActivityItems(
-  current: readonly TheaterActivityItem[],
-  next: readonly TheaterActivityItem[],
-): TheaterActivityItem[] {
+export function appendActivityItems<T extends TheaterActivityItem>(
+  current: readonly T[],
+  next: readonly T[],
+): T[] {
   const seen = new Set<string>()
   return [...current, ...next].filter((item) => {
     if (seen.has(item.event_id)) return false
@@ -76,8 +76,10 @@ export function appendActivityItems(
   })
 }
 
-export function groupActivityItems(items: readonly TheaterActivityItem[]) {
-  const groups: { day: string; items: TheaterActivityItem[] }[] = []
+export function groupActivityItems<T extends TheaterActivityItem>(
+  items: readonly T[],
+) {
+  const groups: { day: string; items: T[] }[] = []
   for (const item of items) {
     const day = activityObservationDay(item.detected_at)
     const last = groups.at(-1)

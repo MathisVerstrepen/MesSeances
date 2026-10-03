@@ -947,14 +947,15 @@ test('all three actual entity links use loaded IDs, fresh all-history routes and
       assert.ok(mobileStripStart > desktopLink.index!)
       assert.ok(mobileStripStart < mobileLink.index!)
       assert.match(
-        desktopLink[0],
-        /absolute bottom-8 right-8 hidden[^"\n]*lg:inline-flex/,
+        header,
+        /absolute bottom-8 right-8 hidden items-center gap-2 lg:flex/,
       )
       assert.match(
         page.slice(mobileStripStart, mobileLink.index!),
         /^class="[^"\n]*lg:hidden"/,
       )
-      assert.match(mobileLink[0], /ml-auto inline-flex size-11 shrink-0/)
+      assert.match(mobileLink[0], /inline-flex size-11 shrink-0/)
+      assert.match(header, /ml-auto flex shrink-0 items-center gap-2/)
       const mobileLinkClass = mobileLink[0].match(/\bclass="([^"]*)"/)?.[1]
       assert.ok(mobileLinkClass)
       assert.doesNotMatch(mobileLinkClass, /\bhidden\b|lg:/)

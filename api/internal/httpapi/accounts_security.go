@@ -30,6 +30,7 @@ type accountHTTP struct {
 	secure                                               bool
 	login, send, step                                    *tokenBucketLimiter
 	theaters                                             *tokenBucketLimiter
+	activityReads                                        *tokenBucketLimiter
 	watchlistWrites, watchlistSearches, watchlistImports *tokenBucketLimiter
 }
 
@@ -47,6 +48,7 @@ func newAccountHTTP(options AccountOptions) (*accountHTTP, error) {
 		name = accountDevCookieName
 	}
 	return &accountHTTP{service: options.Service, origin: options.Origin, cookieName: name, secure: secure,
+		activityReads:     newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, time.Now),
 		watchlistWrites:   newTokenBucketLimiter(120, 120.0/60, time.Minute, maxRateLimitClients, time.Now),
 		watchlistSearches: newTokenBucketLimiter(60, 60.0/60, time.Minute, maxRateLimitClients, time.Now),
 		watchlistImports:  newTokenBucketLimiter(10, 10.0/900, 15*time.Minute, maxRateLimitClients, time.Now),
@@ -73,6 +75,10 @@ func accountError(w http.ResponseWriter, err error) {
 		status, code, message = 409, "avatar_changed", "La photo a changé. Vérifiez son état."
 	case errors.Is(err, accounts.ErrTheaterSelectionChanged):
 		status, code, message = 409, "theater_selection_changed", "Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer."
+	case errors.Is(err, accounts.ErrTheaterFollowsChanged):
+		status, code, message = 409, "theater_follows_changed", "Vos cinémas suivis ont changé. Vérifiez leur état avant de recommencer."
+	case errors.Is(err, accounts.ErrTheaterFollowLimit):
+		status, code, message = 409, "theater_follow_limit_reached", "Vous suivez déjà le nombre maximal de cinémas. Arrêtez de suivre un cinéma avant de réessayer."
 	case errors.Is(err, accounts.ErrAvatarNotFound):
 		status, code, message = 404, "avatar_not_found", "Photo indisponible."
 	case errors.As(err, &rate):

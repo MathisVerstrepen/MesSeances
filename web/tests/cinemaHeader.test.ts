@@ -319,11 +319,14 @@ test('header source guards full-width photo/illustrated fallback, responsive add
   assert.equal(statisticsLinks.length, 2)
   assert.ok(statisticsLinks[0]!.index! < mobileStripStart)
   assert.match(
-    statisticsLinks[0]![0],
-    /absolute bottom-8 right-8 hidden[^"\n]*lg:inline-flex/,
+    headerMarkup,
+    /absolute bottom-8 right-8 hidden items-center gap-2 lg:flex/,
   )
   assert.ok(statisticsLinks[1]!.index! > mobileStripStart)
-  assert.match(statisticsLinks[1]![0], /ml-auto inline-flex size-11 shrink-0/)
+  assert.match(statisticsLinks[1]![0], /inline-flex size-11 shrink-0/)
+  assert.match(headerMarkup, /ml-auto flex shrink-0 items-center gap-2/)
+  assert.equal((headerMarkup.match(/<CinemaFollowButton/g) || []).length, 2)
+  assert.match(headerMarkup, /lg:pr-28/)
   for (const link of statisticsLinks) {
     assert.ok(
       link[0].includes(

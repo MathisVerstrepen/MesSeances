@@ -570,7 +570,8 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
-  assert.equal([...navigation.matchAll(/to=/g)].length, 2)
+  assert.equal([...navigation.matchAll(/to=/g)].length, 3)
+  assert.match(navigation, /to="\/compte\/activite"/)
   assert.doesNotMatch(navigation, /@click|tabindex|href=/)
   for (const page of [
     'connexion',
@@ -595,7 +596,10 @@ test('account navigation pairs each label with a decorative icon without changin
     new URL('../app/components/AccountAreaNavigation.vue', import.meta.url),
     'utf8',
   )
-  assert.match(navigation, /import \{ Settings, Users \} from '@lucide\/vue'/)
+  assert.match(
+    navigation,
+    /import \{ Activity, Settings, Users \} from '@lucide\/vue'/,
+  )
   assert.match(
     navigation,
     /<WatchlistIcon :size="18" class="shrink-0" \/>Watchlist/,
