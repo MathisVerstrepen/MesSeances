@@ -169,7 +169,11 @@ async function loadPreview(item: AdminTheater, retry = false) {
     !request.signal.aborted &&
     previewRequests.get(itemKey) === request
   try {
-    const blob = await fetchAdminCinemaImage(url, request.signal)
+    const blob = await fetchAdminCinemaImage(
+      config.public.apiBase,
+      url,
+      request.signal,
+    )
     if (!active()) return
     state.preview = URL.createObjectURL(blob)
     state.previewState = 'ready'
