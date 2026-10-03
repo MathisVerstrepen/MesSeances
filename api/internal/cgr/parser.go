@@ -164,8 +164,8 @@ func parseMovies(body []byte) (map[string]movie, error) {
 			return nil, fmt.Errorf("movie metadata is invalid")
 		}
 		runtime := 0
-		if item.Runtime != nil {
-			if *item.Runtime <= 0 {
+		if item.Runtime != nil && *item.Runtime != 0 {
+			if *item.Runtime < 0 {
 				return nil, fmt.Errorf("movie runtime is invalid")
 			}
 			runtime = *item.Runtime / 60
