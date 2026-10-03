@@ -26,7 +26,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // page offers ordinary login, then asks the user to reopen their email.
   const path = to.path.toLowerCase().replace(/\/+$/, '')
   if (
-    ['/compte', '/compte/parametres', '/compte/watchlist'].includes(path) &&
+    [
+      '/compte',
+      '/compte/parametres',
+      '/compte/watchlist',
+      '/compte/activite',
+    ].includes(path) &&
     session.value.state !== 'complete'
   ) {
     return navigateTo(accountDestination(session.value))

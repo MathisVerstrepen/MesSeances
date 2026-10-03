@@ -227,6 +227,7 @@ async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
     useAccountSession: () => f.account,
     useCinemaPreferences: () => f.preferences,
     useWatchlist: () => ({ startSynchronization() {} }),
+    useCinemaFollows: () => ({ startSynchronization() {} }),
     defineNuxtPlugin: (
       plugin: (app: {
         hook: (name: string, callback: () => void) => void
@@ -1167,6 +1168,7 @@ test('account plugin revalidates theater notifications and revisit events withou
         },
       }),
       useWatchlist: () => ({ startSynchronization() {} }),
+      useCinemaFollows: () => ({ startSynchronization() {} }),
       useAccountSession: () => ({
         status: ref('ready'),
         refresh: () => {

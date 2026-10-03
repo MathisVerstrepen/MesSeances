@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, Settings } from '@lucide/vue'
+import { Activity, ChevronRight, Settings } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
 
 definePageMeta({ middleware: 'account-auth' })
@@ -12,6 +12,21 @@ useHead({ title: 'Mon compte - MesSeances' })
   <AccountShell title="Mon compte" hide-explore hide-logout account-area>
     <nav v-if="complete" aria-label="Rubriques du compte">
       <ul>
+        <li>
+          <NuxtLink
+            to="/compte/parametres"
+            :prefetch="false"
+            class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary"
+          >
+            <Settings :size="20" class="shrink-0" aria-hidden="true" />
+            Paramètres
+            <ChevronRight
+              :size="20"
+              class="ml-auto shrink-0"
+              aria-hidden="true"
+            />
+          </NuxtLink>
+        </li>
         <li>
           <NuxtLink
             to="/compte/watchlist"
@@ -28,12 +43,11 @@ useHead({ title: 'Mon compte - MesSeances' })
         </li>
         <li>
           <NuxtLink
-            to="/compte/parametres"
+            to="/compte/activite"
             :prefetch="false"
-            class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary"
+            class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
           >
-            <Settings :size="20" class="shrink-0" aria-hidden="true" />
-            Paramètres
+            <Activity :size="20" class="shrink-0" aria-hidden="true" />Activité
             <ChevronRight
               :size="20"
               class="ml-auto shrink-0"

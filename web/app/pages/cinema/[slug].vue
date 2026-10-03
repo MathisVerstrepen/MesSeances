@@ -46,6 +46,19 @@ import {
 const route = useRoute()
 const router = useRouter()
 const api = useMesSeancesApi()
+const followAccount = useAccountSession()
+const follows = useCinemaFollows()
+const followFeedback = ref('')
+useAccountLifetime(() => {
+  followFeedback.value = ''
+})
+const followNotice = computed(() =>
+  followAccount.session.value?.enabled === false
+    ? ''
+    : followAccount.errorMessage.value ||
+      follows.error.value ||
+      followFeedback.value,
+)
 const response = ref<TheaterShowtimesResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
@@ -65,6 +78,17 @@ const slug = computed(() => {
   const value = route.params.slug
   return Array.isArray(value) ? (value[0] ?? '') : (value ?? '')
 })
+watch(
+  [slug, follows.owner, followAccount.revision],
+  () => {
+    followFeedback.value = ''
+  },
+  { flush: 'sync' },
+)
+async function retryFollow() {
+  followFeedback.value = ''
+  await follows.retry()
+}
 const requestedDate = computed(() =>
   calendarDate(singularQueryValue(route.query.date)),
 )
@@ -687,7 +711,7 @@ useHead(() => ({
             @error="onCinemaImageError"
           >
           <div
-            class="relative w-full min-w-0 lg:pr-16"
+            class="relative w-full min-w-0 lg:pr-28"
             :class="hasCinemaImage ? 'text-white' : 'text-ink'"
           >
             <div
@@ -721,14 +745,22 @@ useHead(() => ({
               }}
             </p>
           </div>
-          <NuxtLink
-            :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
-            aria-label="Statistiques"
-            title="Statistiques"
-            class="absolute bottom-8 right-8 hidden size-11 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:ring-3 focus-visible:ring-surface focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-ink lg:inline-flex"
+          <div
+            class="absolute bottom-8 right-8 hidden items-center gap-2 lg:flex"
           >
-            <ChartNoAxesCombined :size="20" aria-hidden="true" />
-          </NuxtLink>
+            <CinemaFollowButton
+              :theater-id="response.theater.id"
+              @feedback="followFeedback = $event"
+            />
+            <NuxtLink
+              :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
+              aria-label="Statistiques"
+              title="Statistiques"
+              class="inline-flex size-11 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:ring-3 focus-visible:ring-surface focus-visible:outline-3 focus-visible:outline-solid focus-visible:outline-offset-3 focus-visible:outline-ink"
+            >
+              <ChartNoAxesCombined :size="20" aria-hidden="true" />
+            </NuxtLink>
+          </div>
         </div>
 
         <div
@@ -756,16 +788,38 @@ useHead(() => ({
               </dd>
             </div>
           </dl>
-          <NuxtLink
-            :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
-            aria-label="Statistiques"
-            title="Statistiques"
-            class="ml-auto inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-          >
-            <ChartNoAxesCombined :size="20" aria-hidden="true" />
-          </NuxtLink>
+          <div class="ml-auto flex shrink-0 items-center gap-2">
+            <CinemaFollowButton
+              :theater-id="response.theater.id"
+              @feedback="followFeedback = $event"
+            />
+            <NuxtLink
+              :to="{ path: '/statistiques', query: { period: 'all', theater: [response.theater.id] } }"
+              aria-label="Statistiques"
+              title="Statistiques"
+              class="inline-flex size-11 shrink-0 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+            >
+              <ChartNoAxesCombined :size="20" aria-hidden="true" />
+            </NuxtLink>
+          </div>
         </div>
       </header>
+
+      <div
+        v-if="followNotice"
+        class="mt-4 max-w-3xl border-l-2 border-primary pl-4 text-sm text-primary"
+        role="alert"
+      >
+        <p>{{ followNotice }}</p>
+        <button
+          type="button"
+          class="min-h-11 font-semibold underline focus-visible:outline-2 focus-visible:outline-offset-2"
+          :disabled="follows.saving.value || followAccount.revalidating.value"
+          @click="retryFollow"
+        >
+          Réessayer
+        </button>
+      </div>
 
       <section
         class="mt-6 lg:mt-8"

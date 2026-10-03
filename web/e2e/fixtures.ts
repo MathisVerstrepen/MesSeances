@@ -1,6 +1,22 @@
 import { test as base, expect, type Page } from '@playwright/test'
 
-export const test = base.extend({
+export const test = base.extend<{ scenario: void }>({
+  // Auto fixtures run for every importing spec, unlike module-level hooks,
+  // which are registered only on the first file to import a cached module.
+  scenario: [
+    async ({ request }, use) => {
+      const ready = await request.post('/__playwright/scenario', { data: {} })
+      expect(ready.ok()).toBeTruthy()
+      await use()
+      const response = await request.get('/__playwright/state')
+      expect(response.ok()).toBeTruthy()
+      expect(
+        (await response.json()).unexpected,
+        'Unmocked API requests',
+      ).toEqual([])
+    },
+    { auto: true },
+  ],
   page: async ({ page }, use) => {
     const errors: string[] = []
     const external: string[] = []
@@ -16,14 +32,6 @@ export const test = base.extend({
     expect(errors, 'Uncaught browser errors').toEqual([])
     expect(external, 'Attempted external requests').toEqual([])
   },
-})
-
-test.afterEach(async ({ request }) => {
-  const response = await request.get('/__playwright/state')
-  expect(response.ok()).toBeTruthy()
-  expect((await response.json()).unexpected, 'Unmocked API requests').toEqual(
-    [],
-  )
 })
 
 export { expect }
