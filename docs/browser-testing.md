@@ -25,6 +25,20 @@ checks do not install dependencies automatically. The ordinary `make check`
 gate remains separate; `Frontend CI / browser` runs this opt-in suite on PRs
 to `dev` and `main`. No branch protection settings are changed here.
 
+Browser package scripts invoke the repository's local Playwright CLI directly.
+The Makefile checks that Playwright Test, Playwright and Playwright Core match
+the pinned version before installing browsers or running scenarios. Missing or
+stale dependencies require the explicit npm setup above; browser commands do
+not fetch missing npm packages or fall back to a system-wide executable.
+
+If `make install-browser` fails with `TypeError: onExit is not a function`,
+check whether `web/node_modules/.bin/playwright` exists. An older dependency
+tree can leave this entry missing while a system `playwright` still exists on
+PATH. Refresh this workspace with `npm --prefix web ci`, then retry
+`make install-browser`. Stop workspace dev/watch processes before a clean npm
+reinstall; it replaces `node_modules` and runs Nuxt preparation. Do not upgrade
+the system Playwright package to repair a missing project dependency.
+
 The suite starts and stops its own loopback Nuxt fixture on port 13400, with
 a synthetic API on a random loopback port. `PLAYWRIGHT_PORT=13401 make
 test-browser` selects another port; an occupied port fails rather than
