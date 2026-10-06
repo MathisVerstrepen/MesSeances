@@ -161,8 +161,8 @@ func TestSyncRejectsOtherMovieConflictsDespiteSynopsisDifference(t *testing.T) {
 		"genres":                    func(f *film) { f.Genres[0].Name = "Comedy" },
 	} {
 		for _, source := range []string{"catalog", "embedded duplicate", "catalog versus embedded"} {
-			if source == "catalog versus embedded" && (strings.HasPrefix(name, "title") || name == "runtime") {
-				continue // Cross-source titles and runtimes have catalog precedence tests.
+			if source == "catalog versus embedded" && (strings.HasPrefix(name, "title") || name == "runtime" || name == "release date") {
+				continue // Cross-source titles, runtimes and release dates have catalog precedence tests.
 			}
 			t.Run(name+"/"+source, func(t *testing.T) {
 				f, p, options := fixture(t)
@@ -298,6 +298,55 @@ func TestSyncCatalogRuntimePrecedenceAndUnknownEnd(t *testing.T) {
 	}
 }
 
+func TestSyncCatalogReleaseDatePrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name, catalog, embedded, want string
+		missingCatalogFilm            bool
+	}{
+		{name: "live HO00006676 disagreement", catalog: "2026-10-11T00:00:00+02:00", embedded: "2026-10-06T00:00:00+02:00", want: "2026-10-11"},
+		{name: "missing catalog date", embedded: "2026-10-06T00:00:00+02:00", want: "2026-10-06"},
+		{name: "missing embedded date", catalog: "2026-10-11T00:00:00+02:00", want: "2026-10-11"},
+		{name: "both missing"},
+		{name: "embedded only", missingCatalogFilm: true, embedded: "2026-10-06T00:00:00+02:00", want: "2026-10-06"},
+		{name: "malformed catalog date", catalog: "2026-02-30T00:00:00Z", embedded: "2026-10-06T00:00:00+02:00", want: "2026-10-06"},
+		{name: "malformed embedded date", catalog: "2026-10-11T00:00:00+02:00", embedded: "bad", want: "2026-10-11"},
+		{name: "both malformed", catalog: "bad", embedded: "2026-02-30T00:00:00Z"},
+		{name: "malformed embedded only", missingCatalogFilm: true, embedded: "bad"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, p, options := fixture(t)
+			g := &p.Types[0].Groups[0]
+			g.Film.ID = "HO00006676"
+			g.Film.Poster = schedule.MK2PosterPrefix + g.Film.ID
+			g.Sessions[0].FilmID = g.Film.ID
+			g.Sessions[0].ScheduledFilmID = g.Cinema.ID + "-" + g.Film.ID
+			canonical := g.Film
+			canonical.OpeningDate = tc.catalog
+			catalog := []film{canonical}
+			if tc.missingCatalogFilm {
+				catalog = []film{}
+			}
+			g.Film.OpeningDate = tc.embedded
+			// Equal embedded duplicates remain valid despite catalog drift.
+			p.Types = append(p.Types, p.Types[0])
+			f.films = encode(t, map[string]any{"data": catalog})
+			f.pages[p.Slug] = encode(t, p)
+			d, summary, err := Sync(t.Context(), f, options)
+			if err != nil || summary.Movies != 1 || summary.Showtimes != 1 || summary.Requests != 3 || len(d.Showtimes) != 1 {
+				t.Fatalf("summary=%+v err=%v", summary, err)
+			}
+			want, err := parseMovie(canonical)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want.ReleaseDate = tc.want
+			if !reflect.DeepEqual(d.Showtimes[0].Movie, want) {
+				t.Fatalf("movie=%+v want=%+v", d.Showtimes[0].Movie, want)
+			}
+		})
+	}
+}
+
 func TestSyncCatalogAndEmbeddedComplementMissingMovieMetadata(t *testing.T) {
 	for _, source := range []string{"catalog", "embedded"} {
 		for _, missingTitle := range []bool{false, true} {
@@ -387,6 +436,7 @@ func TestSyncAdmitsMissingCatalogFilmAndValidatesEveryEmbeddedOccurrence(t *test
 		{"title conflict", func(f *film) { f.Title = "Other" }, false},
 		{"whitespace conflict", func(f *film) { f.Title = "Ev ent" }, false},
 		{"runtime conflict", func(f *film) { runtime := 109; f.Runtime = &runtime }, false},
+		{"release date conflict", func(f *film) { f.OpeningDate = "2026-10-06T00:00:00+02:00" }, false},
 		{"identity conflict", func(f *film) { f.ID = "HO2" }, false},
 		{"invalid identity", func(f *film) { f.ID = "invalid" }, false},
 		{"invalid runtime", func(f *film) { runtime := -1; f.Runtime = &runtime }, false},
@@ -450,10 +500,14 @@ func TestSyncRejectsPartialOrConflictingData(t *testing.T) {
 		"missing catalog member": func(_ *fixtureFetcher, p *complex) { p.Cinemas = p.Cinemas[:1] },
 		"orphan cinema":          func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.ID = "9" },
 		"orphan film":            func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Film.ID = "HO9" },
-		"conflicting film":       func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Film.OpeningDate = "2026-01-07T00:00:00Z" },
-		"conflicting cinema":     func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.Address = "Other" },
-		"wrong showing cinema":   func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].CinemaID = "0005" },
-		"wrong showing film":     func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].FilmID = "HO9" },
+		"conflicting film": func(_ *fixtureFetcher, p *complex) {
+			duplicate := p.Types[0].Groups[0]
+			duplicate.Film.OpeningDate = "2026-01-07T00:00:00Z"
+			p.Types[0].Groups = append(p.Types[0].Groups, duplicate)
+		},
+		"conflicting cinema":   func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Cinema.Address = "Other" },
+		"wrong showing cinema": func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].CinemaID = "0005" },
+		"wrong showing film":   func(_ *fixtureFetcher, p *complex) { p.Types[0].Groups[0].Sessions[0].FilmID = "HO9" },
 		"wrong scheduled film": func(_ *fixtureFetcher, p *complex) {
 			p.Types[0].Groups[0].Sessions[0].ScheduledFilmID = "0005-HO00006568"
 		},
