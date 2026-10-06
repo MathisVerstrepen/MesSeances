@@ -42,6 +42,10 @@ INTEGRATION_PACKAGES = (
     "./internal/enrichment", "./internal/synccontrol", "./internal/syncschedule",
     "./internal/shortlink", "./internal/accounts", "./internal/accountmail", "./cmd/api",
 )
+INTEGRATION_FAILURE_TEST_LIMIT = 20
+INTEGRATION_FAILURE_NAME_LIMIT = 128
+INTEGRATION_FAILURE_LINE_LIMIT = 1024 * 1024
+INTEGRATION_FAILURE_SCAN_LIMIT = 64 * 1024 * 1024
 CHECK_IDS = (
     "tooling-unit", "format", "go-unit", "web-unit", "go-lint", "web-typecheck",
     "web-lint", "build", "go-race", "go-integration",
@@ -197,7 +201,7 @@ def parse_go(json_path, junit_path):
             raise ValueError("incomplete")
         if ET.parse(junit_path).getroot().tag not in ("testsuites", "testsuite"):
             raise ValueError("junit")
-    except (OSError, ValueError, TypeError, ET.ParseError) as exc:
+    except (OSError, ValueError, TypeError, RecursionError, ET.ParseError) as exc:
         raise ValidationError("go_evidence_incomplete") from exc
     counts = {"kind": "go-test2json", "top_level": {}, "subtests": {}, "packages": {}}
     for category in ("top_level", "subtests", "packages"):
@@ -224,6 +228,57 @@ def parse_go(json_path, junit_path):
     if top["skipped"] == top["total"]:
         return "skipped", "all_tests_skipped", counts
     return "passed", "complete", counts
+
+
+def integration_failure_summary(root, json_path):
+    """Console-only identifiers from JSONL; never export output or subtest names."""
+    unavailable = ["go-integration: failure identifiers unavailable"]
+    packages, tests = set(), set()
+    capped = False
+    try:
+        module = re.search(
+            r"^module ([A-Za-z0-9][A-Za-z0-9._/\-]{0,127})$",
+            (root / "api/go.mod").read_text(encoding="utf-8"), re.MULTILINE,
+        )
+        if module is None:
+            return unavailable
+        # Print only repository-owned relative names, not JSONL package strings.
+        allowed = {module[1] + package[1:]: package for package in INTEGRATION_PACKAGES}
+        scanned = 0
+        with json_path.open("rb") as stream:
+            while line := stream.readline(INTEGRATION_FAILURE_LINE_LIMIT + 1):
+                scanned += len(line)
+                if (len(line) > INTEGRATION_FAILURE_LINE_LIMIT
+                        or scanned > INTEGRATION_FAILURE_SCAN_LIMIT or not line.endswith(b"\n")):
+                    return unavailable
+                event = json.loads(line.decode("utf-8"))
+                if not isinstance(event, dict):
+                    return unavailable
+                if event.get("Action") != "fail":
+                    continue
+                package = event.get("Package")
+                if not isinstance(package, str) or package not in allowed:
+                    continue
+                canonical = allowed[package]
+                packages.add(canonical)
+                test = event.get("Test")
+                # Reject subtests entirely, rather than inferring a parent from
+                # dynamic text. Go's top-level failure event names the function.
+                if (not isinstance(test, str) or len(test) > INTEGRATION_FAILURE_NAME_LIMIT
+                        or not re.fullmatch(r"Test(?:[A-Z0-9_][A-Za-z0-9_]*)?", test)):
+                    continue
+                tests.add((canonical, test))
+                if len(tests) > INTEGRATION_FAILURE_TEST_LIMIT:
+                    tests.remove(max(tests))
+                    capped = True
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        # Diagnostics must not alter check status, evidence or actual child exit.
+        return unavailable
+    lines = [f"go-integration: failing package {package}" for package in sorted(packages)]
+    lines.extend(f"go-integration: failing test {package} {test}" for package, test in sorted(tests))
+    if capped:
+        lines.append("go-integration: failing test identifiers capped")
+    return lines or ["go-integration: no validated failure identifiers"]
 
 
 def parse_tap(text):
@@ -849,6 +904,9 @@ class Run:
                 check["artifacts"].extend(artifact(self.root, self.directory / f"{check['id']}.{suffix}", complete) for suffix in ("jsonl", "junit.xml"))
         self.save()
         print(f"{check['id']}: {check['status']} (exit {rc if rc is not None else 'not launched'})")
+        if check["id"] == "go-integration" and check["status"] == "failed" and rc is not None:
+            for line in integration_failure_summary(self.root, self.directory / "go-integration.jsonl"):
+                print(line)
 
     def finish(self, exit_override=None):
         try:
