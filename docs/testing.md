@@ -106,6 +106,8 @@ Every invocation creates unique `tmp/validation/<UTC timestamp>-<UUID>/`. Run di
 
 Metadata includes only safe allowlisted runtime/environment facts. It excludes database URI/identity, credentials, credential hashes, arbitrary environment dumps, captured output, raw exception messages, dynamic subtest names/reasons, and HTTP bodies/cookies. Complete child output stays in private stdout/stderr logs; treat raw evidence as potentially sensitive even when metadata is safe. Do not upload raw logs or traces without explicit inspection and authorization. Console gives status and exact report path, not child output.
 
+Failed, launched `go-integration` checks additionally print sanitized failing package and top-level test identifiers from existing JSONL. Packages must exactly match the canonical integration selection; console uses repository-owned relative paths. Test names must be ASCII Go `Test` identifiers no longer than 128 characters; subtest names and raw output are never printed. Identifiers are deduplicated and sorted, with at most 20 tests and a fixed cap marker. Scanning is limited to 1 MiB per line and 64 MiB total. Partial JSONL can identify failures without complete JUnit evidence; malformed, missing, unreadable or oversized JSONL produces a fixed safe fallback. Diagnostics do not change check status, actual exit codes, report schema, private evidence, or database cleanup.
+
 | Status | Meaning |
 |---|---|
 | `passed` | Command exit zero, required complete evidence, meaningful selected test coverage (or successful non-test check) |

@@ -78,7 +78,7 @@ class ParserTests(unittest.TestCase):
                 self.go(sequence)
 
     def test_malformed_truncated_json(self):
-        for text in ("{", "[]\n", "null\n", json.dumps(event("pass")), '{"Action":"oops","Package":"x"}\n'):
+        for text in ("{", "[]\n", "null\n", json.dumps(event("pass")), '{"Action":"oops","Package":"x"}\n', "[" * 2000 + "\n"):
             self.json.write_text(text)
             with self.subTest(text=text), self.assertRaises(v.ValidationError):
                 v.parse_go(self.json, self.junit)
@@ -119,6 +119,148 @@ class ParserTests(unittest.TestCase):
             self.assertEqual(v.parse_unittest(f"Ran {count} tests in 0.005s\n\n{disposition}\n")[0], expected)
         with self.assertRaises(v.ValidationError):
             v.parse_unittest("OK")
+
+
+class IntegrationFailureSummaryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        (self.root / "api").mkdir()
+        (self.root / "api/go.mod").write_text("module messeances/api\n\ngo 1.25.13\n")
+        self.json = self.root / "go.jsonl"
+        self.package = "messeances/api/internal/accounts"
+
+    def summary(self, events):
+        self.json.write_text("".join(json.dumps(item) + "\n" for item in events))
+        return v.integration_failure_summary(self.root, self.json)
+
+    def test_failure_events_only_deduplicated_sorted_no_output_or_subtests(self):
+        events = [
+            event("fail", "TestZIntegration", self.package),
+            event("fail", "TestAIntegration", self.package),
+            event("fail", "TestZIntegration", self.package),
+            event("fail", "TestAIntegration/" + CANARY, self.package),
+            event("fail", package=self.package),
+            {**event("output", "TestOutputIntegration", self.package), "Output": CANARY},
+            {**event("fail", "TestAIntegration", self.package), "Output": CANARY},
+            event("pass", "TestPassIntegration", self.package),
+            event("skip", "TestSkipIntegration", self.package),
+        ]
+        expected = [
+            "go-integration: failing package ./internal/accounts",
+            "go-integration: failing test ./internal/accounts TestAIntegration",
+            "go-integration: failing test ./internal/accounts TestZIntegration",
+        ]
+        self.assertEqual(self.summary(events), expected)
+        self.assertEqual(self.summary(list(reversed(events))), expected)
+        self.assertNotIn(CANARY, "\n".join(expected))
+
+    def test_package_only_failure_and_every_canonical_package(self):
+        events = [event("fail", package="messeances/api" + package[1:]) for package in v.INTEGRATION_PACKAGES]
+        self.assertEqual(self.summary(events), [
+            "go-integration: failing package " + package for package in sorted(v.INTEGRATION_PACKAGES)
+        ])
+
+    def test_unselected_foreign_and_unsafe_packages_not_exported(self):
+        packages = (
+            "other/api/internal/accounts", "messeances/api/internal/ugc",
+            self.package + "/child", self.package + "\n" + CANARY,
+            self.package + "?token=" + CANARY, "https://" + self.package,
+            "messeances/api/internal/../internal/accounts", self.package + "\x1b[31m",
+            [self.package], {"private": CANARY}, None,
+        )
+        for package in packages:
+            with self.subTest(package=package):
+                self.assertEqual(self.summary([event("fail", "TestOneIntegration", package)]), [
+                    "go-integration: no validated failure identifiers"
+                ])
+
+    def test_unsafe_non_test_and_subtest_identifiers_not_exported(self):
+        names = (
+            "TestParent/" + CANARY, "TestParent//child", "TestParent\\child",
+            "Test\n" + CANARY, "Test\x1b[31m", "Testé", "TestＡ", "Test\u202eSecret",
+            "Testhttps://user:password@private.test", "TestBad-name", "Testlowercase",
+            "Test..", "ExampleOne", "FuzzOne", "BenchmarkOne", "", 42, [], {},
+            "Test" + "A" * v.INTEGRATION_FAILURE_NAME_LIMIT,
+        )
+        for name in names:
+            with self.subTest(name=name):
+                self.assertEqual(self.summary([event("fail", name, self.package)]), [
+                    "go-integration: failing package ./internal/accounts"
+                ])
+
+    def test_safe_ascii_go_test_function_names_and_length_boundary(self):
+        names = ("Test", "Test_Integration", "Test9Integration", "TestAZ_09", "Test" + "A" * 123 + "Z")
+        lines = self.summary([event("fail", name, self.package) for name in names])
+        self.assertEqual(lines[1:], [
+            "go-integration: failing test ./internal/accounts " + name for name in sorted(names)
+        ])
+
+    def test_test_count_capped_deterministic_across_duplicates_and_order(self):
+        names = [f"TestCase{index:03d}Integration" for index in range(100)]
+        events = [event("fail", name, self.package) for name in names]
+        lines = self.summary(events + events)
+        self.assertEqual(lines, self.summary(list(reversed(events))))
+        self.assertEqual(len(lines), v.INTEGRATION_FAILURE_TEST_LIMIT + 2)
+        self.assertEqual(lines[-1], "go-integration: failing test identifiers capped")
+        self.assertEqual(lines[1:-1], [
+            "go-integration: failing test ./internal/accounts " + name
+            for name in names[:v.INTEGRATION_FAILURE_TEST_LIMIT]
+        ])
+        self.assertLess(len("\n".join(lines)), 6000)
+
+    def test_malformed_missing_truncated_and_unreadable_jsonl_safe(self):
+        valid = json.dumps(event("fail", "TestOneIntegration", self.package)) + "\n"
+        for text in ("{", "[]\n", "null\n", valid.rstrip(), valid + "bad\n", "[" * 2000 + "\n"):
+            self.json.write_text(text)
+            with self.subTest(text=text[:20]):
+                self.assertEqual(v.integration_failure_summary(self.root, self.json), [
+                    "go-integration: failure identifiers unavailable"
+                ])
+        self.json.write_bytes(b"\xff\n")
+        self.assertEqual(v.integration_failure_summary(self.root, self.json), [
+            "go-integration: failure identifiers unavailable"
+        ])
+        self.json.unlink()
+        self.assertEqual(v.integration_failure_summary(self.root, self.json), [
+            "go-integration: failure identifiers unavailable"
+        ])
+        with patch.object(Path, "open", side_effect=OSError(CANARY)):
+            self.assertEqual(v.integration_failure_summary(self.root, self.json), [
+                "go-integration: failure identifiers unavailable"
+            ])
+
+    def test_diagnostic_input_limits_fail_closed(self):
+        events = [event("fail", "TestOneIntegration", self.package)]
+        for limit in ("INTEGRATION_FAILURE_LINE_LIMIT", "INTEGRATION_FAILURE_SCAN_LIMIT"):
+            with self.subTest(limit=limit), patch.object(v, limit, 16):
+                self.assertEqual(self.summary(events), ["go-integration: failure identifiers unavailable"])
+
+    def test_application_module_required_and_used_for_exact_allowlist(self):
+        module = self.root / "api/go.mod"
+        module.write_text("module fixture/api\n")
+        self.assertEqual(self.summary([event("fail", package="fixture/api/cmd/api")]), [
+            "go-integration: failing package ./cmd/api"
+        ])
+        self.assertEqual(self.summary([event("fail", package=self.package)]), [
+            "go-integration: no validated failure identifiers"
+        ])
+        for text in ("", "module https://private.test/" + CANARY, "module fixture/api " + CANARY):
+            module.write_text(text)
+            self.assertEqual(self.summary([event("fail", package=self.package)]), [
+                "go-integration: failure identifiers unavailable"
+            ])
+        module.unlink()
+        self.assertEqual(self.summary([event("fail", package=self.package)]), [
+            "go-integration: failure identifiers unavailable"
+        ])
+
+    def test_successful_empty_or_no_failure_events_have_no_identifiers(self):
+        for events in ([], [event("pass", "TestOneIntegration", self.package)], [
+            event("output", "TestOneIntegration", self.package), event("skip", package=self.package)
+        ]):
+            self.assertEqual(self.summary(events), ["go-integration: no validated failure identifiers"])
 
 
 class RepositoryCase(unittest.TestCase):
@@ -611,6 +753,119 @@ class RunnerTests(FakeRunnerCase):
         self.assertEqual(code, 1)
         self.assertEqual(run.probes["chrome"]["reason"], "tool_missing")
         self.assertEqual(run.probes["node-websocket"]["status"], "blocked")
+
+
+class IntegrationSummaryRunnerTests(FakeRunnerCase):
+    def execute_with_evidence(self, events=None, raw=None, check_id="go-integration", child_exit="7"):
+        original = v.Run.process
+        def process(run, record, *args, **kwargs):
+            reason = original(run, record, *args, **kwargs)
+            if record["id"] == check_id:
+                path = run.directory / f"{check_id}.jsonl"
+                if raw is not None:
+                    path.write_text(raw)
+                elif events is not None:
+                    path.write_text("".join(json.dumps(item) + "\n" for item in events))
+                else:
+                    path.unlink()
+            return reason
+        # Match main()'s private child artifact creation, without mutating it.
+        previous_umask = os.umask(0o077)
+        try:
+            with patch.object(v.Run, "process", process), patch.dict(os.environ, {
+                "TEST_DATABASE_URL": "postgres://fixture@localhost/fixture", "CHILD_EXIT": child_exit,
+            }), contextlib.redirect_stdout(io.StringIO()) as stdout:
+                run = v.Run(self.root, (check_id,))
+                code = run.run()
+        finally:
+            os.umask(previous_umask)
+        return run, code, stdout.getvalue()
+
+    def test_failure_console_identifiers_preserve_exit_counts_schema_hashes_permissions(self):
+        package = "example/internal/accounts"
+        events = [
+            event("run", "TestFixtureIntegration", package),
+            event("fail", "TestFixtureIntegration", package),
+            event("fail", package=package),
+        ]
+        run, code, stdout = self.execute_with_evidence(events)
+        check = self.selected(run, "go-integration")
+        self.assertEqual(code, 7)
+        self.assertEqual((check["status"], check["returncode"], check["normalized_exit"]), ("failed", 7, 7))
+        self.assertEqual(run.report["schema_version"], 1)
+        self.assertEqual(check["test_counts"]["top_level"]["failed"], 1)
+        self.assertEqual(check["test_counts"]["packages"]["failed"], 1)
+        self.assertIn("go-integration: failed (exit 7)\n", stdout)
+        self.assertIn("go-integration: failing package ./internal/accounts\n", stdout)
+        self.assertIn("go-integration: failing test ./internal/accounts TestFixtureIntegration\n", stdout)
+        self.assertNotIn(CANARY, stdout)
+        self.assertEqual(run.report_path.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(run.directory.stat().st_mode & 0o777, 0o700)
+        self.assertFalse(run.report["repository"]["source_changed"])
+        for artifact in check["artifacts"]:
+            path = self.root / artifact["path"]
+            self.assertTrue(artifact["complete"])
+            self.assertEqual(artifact["size_bytes"], path.stat().st_size)
+            self.assertEqual(artifact["sha256"], v.digest_file(path))
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        # Console diagnostics add no report fields or artifacts.
+        self.assertEqual(len(check["artifacts"]), 4)
+        self.assertNotIn("failure_summary", check)
+
+    def test_partial_failure_jsonl_without_terminal_package_still_names_test(self):
+        run, code, stdout = self.execute_with_evidence([
+            event("fail", "TestFixtureIntegration", "example/internal/accounts")
+        ])
+        self.assertEqual(code, 7)
+        self.assertEqual(self.selected(run, "go-integration")["reason"], "go_evidence_incomplete")
+        self.assertIn("failing test ./internal/accounts TestFixtureIntegration", stdout)
+
+    def test_malformed_or_missing_evidence_never_masks_original_failure(self):
+        for raw in (None, "bad\n", "[]\n", '{"Output":"' + CANARY + '"', "[" * 2000 + "\n"):
+            with self.subTest(raw=raw):
+                run, code, stdout = self.execute_with_evidence(raw=raw)
+                check = self.selected(run, "go-integration")
+                self.assertEqual(code, 7)
+                self.assertEqual(check["returncode"], 7)
+                self.assertEqual(check["status"], "failed")
+                self.assertEqual(check["reason"], "go_evidence_incomplete")
+                self.assertIsNone(check["test_counts"])
+                self.assertFalse(check["artifacts"][-2]["complete"])
+                self.assertIn("failure identifiers unavailable", stdout)
+                self.assertNotIn(CANARY, stdout)
+
+    def test_nonfailure_events_on_failed_child_do_not_invent_identifiers(self):
+        run, code, stdout = self.execute_with_evidence([event("pass", package="example/internal/accounts")])
+        self.assertEqual(code, 7)
+        self.assertIn("no validated failure identifiers", stdout)
+        self.assertNotIn("failing package", stdout)
+
+    def test_no_diagnostics_for_success_zero_skipped_or_nonintegration(self):
+        package = "example/internal/accounts"
+        sequences = (
+            [event("pass", "TestOneIntegration", package), event("pass", package=package)],
+            [event("skip", "TestOneIntegration", package), event("pass", package=package)],
+            [event("pass", package=package)],
+        )
+        for events, status, code in zip(sequences, ("passed", "skipped", "zero-selected"), (0, 1, 1)):
+            with self.subTest(status=status), patch.object(v, "integration_failure_summary") as summary:
+                run, actual, stdout = self.execute_with_evidence(events, child_exit="0")
+                self.assertEqual(actual, code)
+                self.assertEqual(self.selected(run, "go-integration")["status"], status)
+                summary.assert_not_called()
+                self.assertNotIn("identifiers", stdout)
+        with patch.object(v, "integration_failure_summary") as summary:
+            _, code, _ = self.execute_with_evidence([event("fail", package=package)], check_id="go-unit")
+            self.assertEqual(code, 7)
+            summary.assert_not_called()
+
+    def test_failed_evidence_with_actual_zero_stays_failed_exit_zero(self):
+        run, code, stdout = self.execute_with_evidence(raw="bad\n", child_exit="0")
+        self.assertEqual(code, 1)
+        check = self.selected(run, "go-integration")
+        self.assertEqual((check["status"], check["returncode"]), ("failed", 0))
+        self.assertIn("go-integration: failed (exit 0)", stdout)
+        self.assertIn("failure identifiers unavailable", stdout)
 
 
 class EnvironmentTests(unittest.TestCase):
