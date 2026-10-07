@@ -8,6 +8,7 @@ import {
   date,
   generatedAt,
   movie,
+  publicActivityPage,
   secondTheater,
   showtimes,
   theater,
@@ -138,6 +139,21 @@ const mock = createServer((request, response) => {
         generated_at: generatedAt,
         items: [{ name: 'Lille', slug: 'lille', theaters: [theater] }],
       })
+    if (
+      path === `/api/v1/theaters/${theater.slug}/activity` ||
+      path === `/api/v1/theaters/${secondTheater.slug}/activity`
+    ) {
+      if (scenario.publicFeed === 'error')
+        return json(response, { error: { code: 'history_unavailable' } }, 503)
+      return json(
+        response,
+        publicActivityPage(
+          url.searchParams.get('cursor'),
+          path.includes(secondTheater.slug) ? secondTheater : theater,
+          scenario.publicFeed || 'populated',
+        ),
+      )
+    }
     if (path === `/api/v1/theaters/${theater.slug}/showtimes`)
       return json(response, showtimes(url.searchParams.get('date') || date))
     if (path === `/api/v1/theaters/${secondTheater.slug}/showtimes`)

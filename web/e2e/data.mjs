@@ -96,3 +96,65 @@ export function accountActivityItem(id, cinema = theater) {
     },
   }
 }
+
+export const publicActivityItems = [
+  {
+    ...accountActivityItem(203),
+    theater: undefined,
+    type: 'return_to_program',
+    detected_at: '2026-10-01T22:30:00Z',
+    first_screening_date: '2026-10-09',
+    previous_program_end_date: '2026-08-01',
+    movie: {
+      ...accountActivityItem(203).movie,
+      title: 'Les lumières reviennent',
+    },
+  },
+  {
+    ...accountActivityItem(202),
+    theater: undefined,
+    detected_at: '2026-10-01T22:00:00Z',
+    first_screening_date: '2026-10-16',
+    movie: {
+      ...accountActivityItem(202).movie,
+      title: 'Une nouvelle histoire',
+    },
+    has_upcoming_showtimes: false,
+    next_showtime_date: null,
+  },
+  {
+    ...accountActivityItem(201),
+    theater: undefined,
+    detected_at: '2026-10-01T21:59:59Z',
+    first_screening_date: '2026-10-23',
+    movie: {
+      ...accountActivityItem(201).movie,
+      title: `Un voyage à travers les salles et les histoires du cinéma ${'International'.repeat(8)}`,
+    },
+  },
+]
+
+export function publicActivityPage(
+  cursor,
+  cinema = theater,
+  mode = 'populated',
+) {
+  const visible = mode === 'populated' ? publicActivityItems : []
+  return {
+    generated_at: generatedAt,
+    timezone: 'Europe/Paris',
+    theater: cinema,
+    coverage: {
+      history_started_at:
+        mode === 'initializing' ? null : '2026-09-28T08:00:00Z',
+      last_publication_at: generatedAt,
+      source_generated_at: generatedAt,
+      completeness: mode === 'initializing' ? 'unknown' : 'partial',
+      bootstrap: 'baseline',
+      return_minimum_break_days: 28,
+    },
+    items: cursor ? visible.slice(1) : visible.slice(0, 2),
+    limit: 20,
+    next_cursor: !cursor && visible.length > 2 ? 'public-page-2' : null,
+  }
+}

@@ -28,6 +28,17 @@ const historyDateFormatter = new Intl.DateTimeFormat('fr-FR', {
   year: 'numeric',
 })
 
+export function activityDateParts(date: string) {
+  if (!isCalendarDate(date)) return { day: date, month: '', year: '' }
+  const [year = 0, month = 0, day = 0] = date.split('-').map(Number)
+  const parts = historyDateFormatter.formatToParts(
+    new Date(Date.UTC(year, month - 1, day, 12)),
+  )
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? ''
+  return { day: value('day'), month: value('month'), year: value('year') }
+}
+
 export function activityObservationDay(timestamp: string): string {
   const date = new Date(timestamp)
   if (!Number.isFinite(date.getTime())) return ''

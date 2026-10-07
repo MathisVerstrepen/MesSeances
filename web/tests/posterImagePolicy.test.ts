@@ -95,8 +95,17 @@ test('every PosterImage consumer supplies an explicit layout size', () => {
       tag: match[0],
     })),
   )
-  assert.equal(tags.length, 16)
+  assert.equal(tags.length, 15)
   for (const { path, tag } of tags) assert.match(tag, /\s:?sizes=/, path)
+
+  const activityPosters = tags.filter(({ path }) =>
+    path.endsWith('/components/ActivityTimeline.vue'),
+  )
+  assert.equal(activityPosters.length, 1)
+  assert.match(
+    activityPosters[0]!.tag,
+    /sizes="\(min-width: 1024px\) 112px, \(min-width: 640px\) 96px, 72px"/,
+  )
 
   const adminTMDBMatchPosters = tags.filter(({ path }) =>
     path.endsWith(adminTMDBMatchesPagePath),
@@ -114,7 +123,7 @@ test('every PosterImage consumer supplies an explicit layout size', () => {
     '(min-width: 640px) 120px, 96px',
     '(min-width: 640px) 72px, 64px',
     '(min-width: 640px) 52px, 48px',
-    '(min-width: 640px) 64px, 48px',
+    '(min-width: 1024px) 112px, (min-width: 640px) 96px, 72px',
     'sizes="108px"',
     '(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px',
     'sizes="32px"',
