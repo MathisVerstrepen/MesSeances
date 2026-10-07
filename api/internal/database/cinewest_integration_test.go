@@ -57,7 +57,7 @@ func TestCinewestMigrationIntegration(t *testing.T) {
 			}{
 				{"cineoffice-royanlelido", "cineoffice-1", "1", "2026-09-14T21:07:00.123456Z", "", "VERSION_MUET", 0},
 				{"ticketingcine-EMS0042", "ticketingcine-ABCDE", "emsx004200000001", "2026-09-14T18:00:00.123456Z", "VF", "VF", 15},
-				{"webediamovies-W8400", "webediamovies-1", "1", "2026-09-14T18:00:00.123456Z", "VF", "VF", 0},
+				{"ticketingcine-EMS1378", "ticketingcine-EMS1378-emsx1378HC1", "emsx137800000001", "2026-09-14T18:00:00.123456Z", "VF", "VF", 0},
 			} {
 				id, _ := schedule.CinewestShowingID(v.theater, v.raw)
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO theaters(generation_id,id,provider,provider_id,slug,name,address,city,postal_code) VALUES(1,'cinewest-'||$1::text,'cinewest',$1,'cinewest-'||$1::text,'Cinema','1 Rue','Royan','17200')`, v.theater)
@@ -67,7 +67,7 @@ func TestCinewestMigrationIntegration(t *testing.T) {
 			}
 			for _, sql := range []string{
 				`UPDATE showtimes SET end_time=start_time WHERE provider_showing_id LIKE 'cineoffice-%'`,
-				`UPDATE showtimes SET end_time=start_time+interval '1 minute' WHERE provider_showing_id LIKE 'webediamovies-%'`,
+				`UPDATE theaters SET id='cinewest-webediamovies-W8400',slug='cinewest-webediamovies-W8400',provider_id='webediamovies-W8400' WHERE provider_id='ticketingcine-EMS1378'`,
 				`UPDATE showtimes SET end_time=start_time-interval '1 minute' WHERE provider='cinewest'`,
 				`UPDATE showtimes SET first_part_duration_minutes=1 WHERE provider_showing_id LIKE 'cineoffice-%'`,
 				`UPDATE showtimes SET first_part_duration_minutes=-1 WHERE provider='cinewest'`,

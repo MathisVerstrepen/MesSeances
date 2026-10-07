@@ -184,6 +184,7 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
 	var state string
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
 	// Compare constraints only on the captured baseline relations, not tables added by later migrations.
+	// Migration 060 deliberately changes the Cinewest historical shape exception.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
     (SELECT jsonb_agg(to_jsonb(m)-'metacritic_id' ORDER BY id) FROM public_movies m),
     (SELECT jsonb_agg(to_jsonb(m)-'metacritic_id' ORDER BY provider,provider_movie_id,locale) FROM movie_metadata_cache m),
@@ -199,7 +200,7 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
      FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
      AND conrelid = ANY($1::oid[])
       AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check',
-          'public_movies_metacritic_id_check','movie_metadata_cache_metacritic_id_check'))
+           'public_movies_metacritic_id_check','movie_metadata_cache_metacritic_id_check','showtimes_cinewest_shape_check'))
 )::text`, relations).Scan(&state); err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import {
 import { buildCompleteSearchShareTarget } from '../app/utils/searchShareTarget.ts'
 import { withSharedTheaterSelection } from '../app/utils/sharedTheaterSelection.ts'
 import { isValidShortLinkTarget } from '../app/utils/shortLinkTarget.ts'
+import { CINEWEST_THEATER_HOSTS } from '../app/utils/cinewest.ts'
 
 const platforms = ['cineoffice', 'ticketingcine', 'webediamovies']
 const hash = 'a'.repeat(64)
@@ -47,12 +48,12 @@ test('Cinewest selection tokens preserve all platform namespaces and canonical S
   assert.equal(showtimeSelectionQueryValues(keys, true).selected_only, '1')
 })
 
-test('complete Cinewest shared search round-trips theaters and selected-only sessions across all platforms', () => {
-  const theaterIds = [
-    'cinewest-cineoffice-royanlelido',
-    'cinewest-ticketingcine-EMS0042',
-    'cinewest-webediamovies-W8400',
-  ]
+test('complete Cinewest shared search round-trips current theaters and retained selected-only sessions across all platforms', () => {
+  const theaterIds = Object.keys(CINEWEST_THEATER_HOSTS).map(
+    (id) => `cinewest-${id}`,
+  )
+  assert.ok(theaterIds.includes('cinewest-ticketingcine-EMS1378'))
+  assert.equal(theaterIds.includes('cinewest-webediamovies-W8400'), false)
   const target = buildCompleteSearchShareTarget({
     theaterIds,
     date: '2027-06-27',

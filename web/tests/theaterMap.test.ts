@@ -57,7 +57,7 @@ test('defines an exhaustive provider palette', () => {
 })
 
 test('Cinewest partners keep their provider and namespaced map identity', () => {
-  const id = 'cinewest-webediamovies-W8400'
+  const id = 'cinewest-ticketingcine-EMS1378'
   const collection = buildTheaterFeatureCollection(
     [theater({ id, provider: 'cinewest', name: 'Capitole Studios' })],
     new Set([id]),

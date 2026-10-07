@@ -3,7 +3,7 @@ package enrichment
 import "testing"
 
 func TestCinewestSourcePolicy(t *testing.T) {
-	for _, id := range []string{"cineoffice-1", "ticketingcine-ABCDE", "ticketingcine-EMS0042-emsx0042HC123", "webediamovies-1"} {
+	for _, id := range []string{"cineoffice-1", "ticketingcine-ABCDE", "ticketingcine-EMS0042-emsx0042HC123", "ticketingcine-EMS1378-emsx1378HC123", "webediamovies-1"} {
 		if !validSourceIdentity(SourceCinewest, id) {
 			t.Fatal("namespaced source rejected")
 		}

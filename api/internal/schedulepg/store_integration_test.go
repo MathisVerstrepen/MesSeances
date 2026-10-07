@@ -1356,8 +1356,11 @@ func cinewestTestDataset() Dataset {
 	d.Provider = schedule.ProviderCinewest
 	base := d.Showtimes[0]
 	d.Theaters, d.Showtimes = nil, nil
-	for _, item := range []struct{ theater, movie string }{{"cineoffice-royanlelido", "cineoffice-1"}, {"ticketingcine-EMS1185", "ticketingcine-ABCDE"}, {"webediamovies-W8400", "webediamovies-1"}} {
+	for _, item := range []struct{ theater, movie string }{{"cineoffice-royanlelido", "cineoffice-1"}, {"ticketingcine-EMS1185", "ticketingcine-ABCDE"}, {"ticketingcine-EMS1378", "webediamovies-1"}} {
 		id, _ := schedule.CinewestShowingID(item.theater, "1")
+		if item.movie == "webediamovies-1" {
+			id = "webediamovies-" + strings.Repeat("a", 64)
+		}
 		c := TheaterRecord{Provider: schedule.ProviderCinewest, ID: "cinewest-" + item.theater, ProviderID: item.theater, Slug: "cinewest-" + item.theater, Name: "Cinewest Cinema", Address: "1 Rue", City: "Royan", PostalCode: "17200", AvailableDates: []string{"2026-08-15"}, AcceptedPasses: []string{}}
 		r := base
 		r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderCinewest, "cinewest-showing-"+id, id, c.ID
@@ -1368,7 +1371,7 @@ func cinewestTestDataset() Dataset {
 		if strings.HasPrefix(item.theater, "cineoffice-") {
 			r.EndTime = r.StartTime.Add(187 * time.Minute)
 			r.Language, r.ProviderVersion = "", "VERSION_MUET"
-		} else if strings.HasPrefix(item.theater, "ticketingcine-") {
+		} else if strings.HasPrefix(id, "ticketingcine-") {
 			r.FirstPartDurationMinutes = 15
 			r.EndTime = r.StartTime.Add(105 * time.Minute)
 		}
