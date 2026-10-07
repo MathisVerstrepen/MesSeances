@@ -17,7 +17,7 @@ import (
 
 type unusedCinewestFetcher struct{ cinewest.Fetcher }
 
-func (unusedCinewestFetcher) RequestCount() int { return 44 }
+func (unusedCinewestFetcher) RequestCount() int { return 42 }
 
 func configureCinewestTestExecutor(t *testing.T, e *ProductionExecutor, window Window) {
 	t.Helper()
@@ -25,16 +25,17 @@ func configureCinewestTestExecutor(t *testing.T, e *ProductionExecutor, window W
 	e.syncCinewest = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {
 		d := validDataset(t, schedule.ProviderUGC, window)
 		d.Provider = schedule.ProviderCinewest
-		const theater = "cineoffice-royanlelido"
+		const theater = "ticketingcine-EMS1378"
 		d.Theaters = []schedule.TheaterRecord{{Provider: schedule.ProviderCinewest, ID: "cinewest-" + theater, ProviderID: theater, Slug: "cinewest-" + theater, Name: "LE LIDO", Address: "Place de la Gare", City: "Royan", PostalCode: "17200", AvailableDates: []string{window.From}, AcceptedPasses: []string{}}}
 		r := d.Showtimes[0]
 		id, _ := schedule.CinewestShowingID(theater, "1")
 		r.Provider, r.ID, r.ProviderShowingID, r.TheaterID = schedule.ProviderCinewest, "cinewest-showing-"+id, id, "cinewest-"+theater
-		r.Movie = schedule.MovieRecord{Provider: schedule.ProviderCinewest, ProviderID: "cineoffice-1", Slug: "cinewest-film-cineoffice-1", Title: "Published event"}
-		r.EndTime = r.StartTime.Add(137 * time.Minute)
-		r.Language, r.ProviderVersion, r.Room, r.BookingURL = "", "VERSION_MUET", "Salle 1", schedule.CinewestWebsite(theater)
+		r.Movie = schedule.MovieRecord{Provider: schedule.ProviderCinewest, ProviderID: "ticketingcine-ABCDE", Slug: "cinewest-film-ticketingcine-ABCDE", Title: "Published event", RuntimeMinutes: 90}
+		r.FirstPartDurationMinutes = 15
+		r.EndTime = r.StartTime.Add(105 * time.Minute)
+		r.Language, r.ProviderVersion, r.Room, r.BookingURL = schedule.LanguageVF, "VF", "Salle 1", schedule.CinewestWebsite(theater)
 		d.Showtimes = []schedule.ShowtimeRecord{r}
-		return d, cinewest.SyncSummary{Cinemas: 1, Movies: 1, Showtimes: 1, Requests: 44, GeneratedAt: d.GeneratedAt}, nil
+		return d, cinewest.SyncSummary{Cinemas: 1, Movies: 1, Showtimes: 1, Requests: 42, GeneratedAt: d.GeneratedAt}, nil
 	}
 }
 
@@ -94,7 +95,7 @@ func TestCinewestExecutorAndScheduledStatus(t *testing.T) {
 	})}
 	configureCinewestTestExecutor(t, e, window)
 	out, err := e.Run(t.Context(), TargetCinewest, window)
-	if err != nil || writes != 1 || out[TargetCinewest].Sync.Requests != 44 {
+	if err != nil || writes != 1 || out[TargetCinewest].Sync.Requests != 42 {
 		t.Fatal("Cinewest execution", err)
 	}
 	e.syncCinewest = func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error) {

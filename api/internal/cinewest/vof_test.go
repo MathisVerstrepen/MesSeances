@@ -2,49 +2,10 @@ package cinewest
 
 import (
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"messeances/api/internal/schedule"
 )
-
-func TestSyncWebVOF(t *testing.T) {
-	for _, tc := range []struct {
-		tags []string
-		want schedule.Language
-	}{
-		{[]string{"Localization.Language.VOF"}, schedule.LanguageVO},
-		{[]string{"Localization.Language.French", "Localization.Language.VOF"}, schedule.LanguageVO},
-		{[]string{"Localization.Version.Original", "Localization.Language.VOF"}, schedule.LanguageVO},
-		{[]string{"Localization.Language.VOF", "Showtime.Accessibility.Subtitled"}, schedule.LanguageVOSTFR},
-		{[]string{"Localization.Language.French", "Localization.Language.VOF", "Showtime.Accessibility.Subtitled"}, schedule.LanguageVOSTFR},
-	} {
-		t.Run(strings.Join(tc.tags, "+"), func(t *testing.T) {
-			f := newFixture()
-			tags := jsonFixture(append(tc.tags, "Format.Projection.3d", "Auditorium.Experience.InfinityVision"))
-			f.calendar = []byte(strings.Replace(string(f.calendar), `["Localization.Language.French"]`, string(tags), 1))
-			d, err := syncFixture(t, f)
-			if err != nil {
-				t.Fatal(err)
-			}
-			found := false
-			for _, r := range d.Showtimes {
-				if strings.HasPrefix(r.ProviderShowingID, "webediamovies-") {
-					found = true
-					if r.Language != tc.want || r.ProviderVersion != "Localization.Language.VOF" || r.Format != schedule.FormatInfinityVision {
-						t.Fatalf("record=%+v", r)
-					}
-				}
-			}
-			if !found {
-				t.Fatal("missing Webedia showing")
-			}
-		})
-	}
-	if _, _, _, err := webAttributes([]string{"Localization.Language.vof"}); err == nil {
-		t.Fatal("incorrect tag case accepted")
-	}
-}
 
 func TestSyncTicketVOF(t *testing.T) {
 	for _, tc := range []struct {
@@ -65,20 +26,20 @@ func TestSyncTicketVOF(t *testing.T) {
 					Schedule ticketProgram `json:"schedule"`
 				} `json:"result"`
 			}
-			if err := json.Unmarshal(f.programs["EMS1185"], &envelope); err != nil {
+			if err := json.Unmarshal(f.programs["EMS1378"], &envelope); err != nil {
 				t.Fatal(err)
 			}
 			p := envelope.Result.Schedule
 			s := &p.Events[0].Sessions[0]
 			s.Version, s.Formats, s.Features = "VOF", tc.formats, append(tc.features, "video_imax", "video_3d")
-			f.programs["EMS1185"] = jsonFixture(map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"schedule": p}})
+			f.programs["EMS1378"] = jsonFixture(map[string]any{"jsonrpc": "2.0", "id": 1, "result": map[string]any{"schedule": p}})
 			d, err := syncFixture(t, f)
 			if err != nil {
 				t.Fatal(err)
 			}
 			found := false
 			for _, r := range d.Showtimes {
-				if r.TheaterID == "cinewest-ticketingcine-EMS1185" {
+				if r.TheaterID == "cinewest-ticketingcine-EMS1378" {
 					found = true
 					if r.Language != tc.want || r.ProviderVersion != "VOF" || r.Format != schedule.FormatIMAX {
 						t.Fatalf("record=%+v", r)

@@ -61,7 +61,7 @@ func Sync(ctx context.Context, fetcher Fetcher, options SyncOptions) (result sch
 		case strings.HasPrefix(id, "ticketingcine-"):
 			return loadTicketProgram(ctx, fetcher, strings.TrimPrefix(id, "ticketingcine-"), location)
 		default:
-			return webProgram(ctx, fetcher, from, location)
+			return cinemaProgram{}, errShape
 		}
 	})
 	if err != nil {

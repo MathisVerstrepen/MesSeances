@@ -8,6 +8,8 @@ import type {
 } from '../app/types/api.ts'
 import { buildFilmJsonLd } from '../app/utils/filmJsonLd.ts'
 import { resolveShowtimeEnd } from '../app/utils/showtimeEnd.ts'
+import { safeBookingUrl } from '../app/utils/bookingUrl.ts'
+import { cinewestTicketShowingId } from '../app/utils/cinewest.ts'
 import {
   availableFormatOptions,
   availableLanguageOptions,
@@ -58,8 +60,8 @@ function theaterResponse(showtimes: Showtime[]): TheaterShowtimesResponse {
     date: '2027-06-27',
     theater: {
       provider: 'cinewest',
-      id: 'cinewest-webediamovies-W8400',
-      slug: 'cinewest-webediamovies-W8400',
+      id: 'cinewest-ticketingcine-EMS1378',
+      slug: 'cinewest-ticketingcine-EMS1378',
       name: 'Capitole Studios',
       city: 'Le Pontet',
       city_slug: 'le-pontet',
@@ -137,26 +139,53 @@ test('Cine Office published end survives display normalization regardless of sou
   }
 })
 
-test('ticketingcine computed ends, Capitole response estimates and unknown ends retain distinct provenance', () => {
+test('current Capitole ticketingcine computed ends and retained Webedia estimates or unknown ends retain distinct provenance', () => {
   const ticketing = showing('ticketingcine', {
+    id: cinewestTicketShowingId('ticketingcine-EMS1378', 'emsx137800000001'),
+    movie: { ...movie, slug: 'cinewest-film-ticketingcine-42' },
+    booking_url:
+      'https://www.capitolestudios.com/#showsession?id=emsx137800000001',
     end_time: runtimeEnd,
     language: 'VFSTF',
     format: '4DX',
   })
   const estimated = showing('webediamovies', {
+    movie: { ...movie, slug: 'cinewest-film-webediamovies-42' },
+    booking_url:
+      'https://www.capitolestudios-reserver.cotecine.fr/reserver/r/244471',
     estimated_end_time: runtimeEnd,
     estimated_end_ads_minutes: 15,
     format: 'DOLBY',
   })
   const unknown = showing('webediamovies', {
     id: `cinewest-showing-webediamovies-${'b'.repeat(64)}`,
-    movie: { ...movie, runtime_minutes: 0 },
+    movie: {
+      ...movie,
+      slug: 'cinewest-film-webediamovies-42',
+      runtime_minutes: 0,
+    },
     language: 'VO',
     format: 'ICE',
   })
   const response = theaterResponse([ticketing, estimated, unknown])
   const before = structuredClone(response)
   const results = toTheaterShowtimeResults(response)
+  for (const result of results) {
+    assert.equal(result.theaterId, 'cinewest-ticketingcine-EMS1378')
+    assert.equal(result.key, `cinewest:${result.showtimeId}`)
+    if (result.bookingUrl)
+      assert.deepEqual(
+        safeBookingUrl(
+          result.bookingUrl,
+          result.provider,
+          result.showtimeId,
+          result.theaterId,
+        ),
+        { provider: 'cinewest', url: result.bookingUrl, kind: 'booking' },
+      )
+  }
+  assert.equal(results[0]!.movieSlug, 'cinewest-film-ticketingcine-42')
+  assert.equal(results[1]!.movieSlug, 'cinewest-film-webediamovies-42')
   assert.deepEqual(
     results.map((result) => result.end),
     [
@@ -343,12 +372,13 @@ test('Cinewest film JSON-LD preserves published ends and omits estimated or unkn
 
 test('Infinity Vision and ICE sessions of the same movie retain distinct formats in timeline and slot results', () => {
   const showtimes = [
-    showing('webediamovies', {
+    showing('ticketingcine', {
+      id: cinewestTicketShowingId('ticketingcine-EMS1378', 'emsx137800000001'),
       format: 'INFINITY_VISION',
       end_time: publishedEnd,
     }),
-    showing('webediamovies', {
-      id: `cinewest-showing-webediamovies-${'b'.repeat(64)}`,
+    showing('ticketingcine', {
+      id: cinewestTicketShowingId('ticketingcine-EMS1378', 'emsx137800000002'),
       format: 'ICE',
       end_time: publishedEnd,
     }),

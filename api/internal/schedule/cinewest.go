@@ -23,7 +23,7 @@ func CinewestWebsite(theaterID string) string {
 		"ticketingcine-EMS1185":            "www.etoilecinemas-bethune.fr",
 		"ticketingcine-EMS1317":            "www.cinema-liberte.fr",
 		"ticketingcine-EMS0042":            "www.toilesdumoun.fr",
-		"webediamovies-W8400":              "www.capitolestudios.com",
+		"ticketingcine-EMS1378":            "www.capitolestudios.com",
 	}
 	if host := hosts[theaterID]; host != "" {
 		return "https://" + host + "/"
@@ -82,6 +82,9 @@ func ValidCinewestBookingURL(raw, theaterID, showingID string) bool {
 	// Admin source links do not always carry cinema context. Resolve only an
 	// exact approved host, never a suffix or the shared ticketing host.
 	if theaterID == "" {
+		if u.Host == "www.capitolestudios-reserver.cotecine.fr" {
+			return false
+		}
 		for _, id := range CinewestTheaterIDs() {
 			if ValidCinewestBookingURL(raw, id, showingID) {
 				return true
@@ -104,11 +107,11 @@ func ValidCinewestBookingURL(raw, theaterID, showingID string) bool {
 		id, _ := CinewestShowingID(theaterID, source)
 		return showingID == "" || showingID == id
 	}
-	return theaterID == "webediamovies-W8400" && u.Host == "www.capitolestudios-reserver.cotecine.fr" && u.Fragment == "" && cinewestCapitoleBooking.MatchString(u.Path)
+	return theaterID == "ticketingcine-EMS1378" && ValidCinewestIdentity("showing", showingID) && strings.HasPrefix(showingID, "webediamovies-") && u.Host == "www.capitolestudios-reserver.cotecine.fr" && u.Fragment == "" && cinewestCapitoleBooking.MatchString(u.Path)
 }
 
 func CinewestTheaterIDs() []string {
-	return []string{"cineoffice-cognaclegalaxy", "cineoffice-neverscinemazarin", "cineoffice-mouanssartouxlastrada", "cineoffice-vitreaurore", "cineoffice-mouginslesbalcons", "cineoffice-royanlelido", "cineoffice-ploermelcinelac", "cineoffice-saintesatlanticcine", "cineoffice-aurillaclecristal", "ticketingcine-EMS1185", "ticketingcine-EMS1317", "ticketingcine-EMS0042", "webediamovies-W8400"}
+	return []string{"cineoffice-cognaclegalaxy", "cineoffice-neverscinemazarin", "cineoffice-mouanssartouxlastrada", "cineoffice-vitreaurore", "cineoffice-mouginslesbalcons", "cineoffice-royanlelido", "cineoffice-ploermelcinelac", "cineoffice-saintesatlanticcine", "cineoffice-aurillaclecristal", "ticketingcine-EMS1185", "ticketingcine-EMS1317", "ticketingcine-EMS0042", "ticketingcine-EMS1378"}
 }
 
 func ValidCinewestPosterURL(raw string) bool {

@@ -15,17 +15,11 @@ import (
 
 const MaxResponseBytes = 16 << 20
 const officeURL = "https://cinewest.cineoffice.fr/vad/"
-const capitoleURL = "https://www.capitolestudios.com"
-const theaterPath = "/page-data/sq/d/2506275789.json"
-const apiPath = "/api/gatsby-source-boxofficeapi/"
 
 type Fetcher interface {
 	Bootstrap(context.Context) ([]byte, error)
 	Catalog(context.Context, string, string) ([]byte, error)
 	Program(context.Context, string) ([]byte, error)
-	Theater(context.Context) ([]byte, error)
-	Schedule(context.Context, string, string) ([]byte, error)
-	Movies(context.Context, []string) ([]byte, error)
 	RequestCount() int
 }
 
@@ -94,20 +88,6 @@ func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 	}
 	return c.request(ctx, "program", syncproxy.Request{Method: http.MethodPost, URL: "https://ws.ticketingcine.com/site", Body: body, Headers: http.Header{"Content-Type": {"application/json"}, "Referer": {root}}, NoRedirect: true})
 }
-func (c *Client) Theater(ctx context.Context) ([]byte, error) {
-	return c.request(ctx, "cinemas", syncproxy.Request{Method: http.MethodGet, URL: capitoleURL + theaterPath, NoRedirect: true})
-}
-func (c *Client) Schedule(ctx context.Context, from, to string) ([]byte, error) {
-	q := url.Values{"from": {from}, "to": {to}, "theaters": {`{"id":"W8400","timeZone":"Europe/Paris"}`}}
-	return c.request(ctx, "showtimes", syncproxy.Request{Method: http.MethodGet, URL: capitoleURL + apiPath + "schedule?" + q.Encode(), NoRedirect: true})
-}
-func (c *Client) Movies(ctx context.Context, ids []string) ([]byte, error) {
-	if len(ids) == 0 || len(ids) > 50 {
-		return nil, &RequestError{Kind: syncproxy.FailureInvalidURL}
-	}
-	q := url.Values{"basic": {"false"}, "castingLimit": {"3"}, "ids": ids}
-	return c.request(ctx, "movies", syncproxy.Request{Method: http.MethodGet, URL: capitoleURL + apiPath + "movies?" + q.Encode(), NoRedirect: true})
-}
 func (c *Client) request(ctx context.Context, operation string, request syncproxy.Request) ([]byte, error) {
 	body, failure := c.executor.Do(ctx, request, syncproxy.ResponsePolicy{
 		BeforeRead: func(status int) (*syncproxy.Failure, bool) {
@@ -145,7 +125,7 @@ func allowedURL(u *url.URL) bool {
 	if u == nil || u.Scheme != "https" || u.User != nil || u.Opaque != "" || u.RawPath != "" || u.Fragment != "" || u.ForceQuery {
 		return false
 	}
-	if u.String() == "https://www.cine-royan.com/" || u.String() == "https://ws.ticketingcine.com/site" || u.String() == capitoleURL+theaterPath {
+	if u.String() == "https://www.cine-royan.com/" || u.String() == "https://ws.ticketingcine.com/site" {
 		return true
 	}
 	q, err := url.ParseQuery(u.RawQuery)
@@ -155,21 +135,5 @@ func allowedURL(u *url.URL) bool {
 	if u.Host == "cinewest.cineoffice.fr" && strings.HasPrefix(u.Path, "/vad/") && validCatalog(strings.TrimPrefix(u.Path, "/vad/")) {
 		return len(q) == 1 && len(q["api_token"]) == 1 && q.Get("api_token") != "" && len(q.Get("api_token")) <= 1024 && !strings.ContainsAny(q.Get("api_token"), "\r\n\x00")
 	}
-	if u.Host != "www.capitolestudios.com" {
-		return false
-	}
-	if u.Path == apiPath+"schedule" {
-		from, e1 := time.Parse("2006-01-02", q.Get("from"))
-		to, e2 := time.Parse("2006-01-02", q.Get("to"))
-		return len(q) == 3 && len(q["from"]) == 1 && len(q["to"]) == 1 && len(q["theaters"]) == 1 && e1 == nil && e2 == nil && to.Equal(from.AddDate(1, 0, 0)) && q.Get("theaters") == `{"id":"W8400","timeZone":"Europe/Paris"}`
-	}
-	if u.Path != apiPath+"movies" || len(q) != 3 || len(q["basic"]) != 1 || q.Get("basic") != "false" || len(q["castingLimit"]) != 1 || q.Get("castingLimit") != "3" || len(q["ids"]) == 0 || len(q["ids"]) > 50 {
-		return false
-	}
-	for _, id := range q["ids"] {
-		if !schedule.ValidCinewestIdentity("movie", "webediamovies-"+id) {
-			return false
-		}
-	}
-	return true
+	return false
 }

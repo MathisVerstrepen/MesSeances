@@ -14,7 +14,7 @@ export const CINEWEST_THEATER_HOSTS = {
   'ticketingcine-EMS1185': 'www.etoilecinemas-bethune.fr',
   'ticketingcine-EMS1317': 'www.cinema-liberte.fr',
   'ticketingcine-EMS0042': 'www.toilesdumoun.fr',
-  'webediamovies-W8400': 'www.capitolestudios.com',
+  'ticketingcine-EMS1378': 'www.capitolestudios.com',
 } as const
 
 export function cinewestTicketShowingId(
@@ -58,7 +58,15 @@ export function safeCinewestBooking(
       return null
     return { url: raw, kind: 'booking' }
   }
-  if (providerTheaterId && providerTheaterId !== 'webediamovies-W8400')
+  // Retained Webedia sessions only; never infer historical checkout from host alone.
+  const legacyShowing = /^cinewest-showing-webediamovies-[a-f0-9]{64}$/.exec(
+    showtimeId ?? '',
+  )
+  if (
+    providerTheaterId !== 'ticketingcine-EMS1378' ||
+    !legacyShowing ||
+    legacyShowing[0] !== showtimeId
+  )
     return null
   const capitole =
     /^https:\/\/www\.capitolestudios-reserver\.cotecine\.fr\/reserver\/r\/[1-9][0-9]*$/.exec(
