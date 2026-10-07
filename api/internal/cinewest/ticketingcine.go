@@ -30,8 +30,8 @@ func loadTicketProgram(ctx context.Context, f Fetcher, site string, location *ti
 		return cinemaProgram{}, errShape
 	}
 	p := response.Result.Schedule
-	programIDs := map[string]string{"EMS1185": "5053122", "EMS1317": "7075033", "EMS0042": "4411540"}
-	if p.ID != programIDs[site] || p.EMS.ID != strings.TrimPrefix(site, "EMS") || p.Events == nil {
+	programIDs := map[string]string{"EMS1185": "5053122", "EMS1317": "7075033", "EMS0042": "4411540", "EMS1378": "7721200"}
+	if programIDs[site] == "" || p.ID != programIDs[site] || p.EMS.ID != strings.TrimPrefix(site, "EMS") || p.Events == nil {
 		return cinemaProgram{}, errShape
 	}
 	id := "ticketingcine-" + site
@@ -114,6 +114,8 @@ func ticketAttributes(s ticketSession) (schedule.Language, schedule.Format, erro
 	}
 	format := schedule.Format2D
 	switch {
+	case flags["infinity_vision"]:
+		format = schedule.FormatInfinityVision
 	case flags["video_imax"]:
 		format = schedule.FormatIMAX
 	case flags["video_motion"]:

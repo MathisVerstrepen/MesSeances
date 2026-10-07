@@ -43,7 +43,7 @@ test('public photo URLs use only the browser API base and normalized public meta
   ]) {
     for (const id of [
       '0004',
-      'webediamovies-W8400',
+      'ticketingcine-EMS1378',
       'ABC_25',
       'x'.repeat(128),
     ]) {

@@ -11,6 +11,23 @@ import { posterImageSources, safePosterUrl } from '../app/utils/safeImageUrl.ts'
 
 test('all thirteen frozen Cinewest roots support website fallback and reject foreign cinema context', () => {
   assert.equal(Object.keys(CINEWEST_THEATER_HOSTS).length, 13)
+  assert.equal(
+    Object.keys(CINEWEST_THEATER_HOSTS).filter((id) =>
+      id.startsWith('cineoffice-'),
+    ).length,
+    9,
+  )
+  assert.deepEqual(
+    Object.keys(CINEWEST_THEATER_HOSTS).filter((id) =>
+      id.startsWith('ticketingcine-'),
+    ),
+    [
+      'ticketingcine-EMS1185',
+      'ticketingcine-EMS1317',
+      'ticketingcine-EMS0042',
+      'ticketingcine-EMS1378',
+    ],
+  )
   for (const [theater, host] of Object.entries(CINEWEST_THEATER_HOSTS)) {
     for (const url of [`https://${host}`, `https://${host}/`]) {
       const expected = { provider: 'cinewest', url, kind: 'website' }
@@ -25,6 +42,10 @@ test('all thirteen frozen Cinewest roots support website fallback and reject for
       )
       assert.equal(safeBookingUrl(url, 'cgr'), null)
       assert.equal(safeBookingUrl(url, 'megarama'), null)
+      assert.equal(
+        safeBookingUrl(url, 'cinewest', null, 'cinewest-webediamovies-W8400'),
+        null,
+      )
     }
     for (const url of [
       `https://${host}/?api_token=x`,
@@ -76,9 +97,36 @@ test('ticketingcine links retain Cinewest and bind exact source session to cinem
         null,
       )
       assert.equal(safeBookingUrl(url, 'megarama', id), null)
+      for (const other of Object.keys(CINEWEST_THEATER_HOSTS)) {
+        if (other !== theater)
+          assert.equal(
+            safeBookingUrl(url, 'cinewest', id, `cinewest-${other}`),
+            null,
+          )
+      }
+      for (const badId of [
+        id + '\n',
+        id.replace('ticketingcine', 'webediamovies'),
+        id.replace('cinewest-', 'megarama-'),
+        cinewestTicketShowingId('ticketingcine-EMS9999', source),
+        cinewestTicketShowingId(theater, source.slice(0, -1) + '2'),
+      ])
+        assert.equal(
+          safeBookingUrl(url, 'cinewest', badId, `cinewest-${theater}`),
+          null,
+          badId,
+        )
       for (const bad of [
         url + '&token=x',
         url + '\n',
+        url + '\r',
+        url + '\t',
+        url.replace('https://', 'https://user:password@'),
+        url.replace(host, `${host}:443`),
+        url.replace(host, `${host}.evil.test`),
+        url.replace(source, source.toUpperCase()),
+        url.replace(source, source.slice(0, -1)),
+        url.replace(source, source + '0'),
         url.replace(source, 'emsx999900000001'),
         url.replace('showsession', '%73howsession'),
         url.replace('#', '?q=x#'),
@@ -92,16 +140,55 @@ test('ticketingcine links retain Cinewest and bind exact source session to cinem
   }
 })
 
-test('Capitole accepts only verified positive session route and correct theater context', () => {
+test('migrated Capitole accepts historical checkout only with full legacy showing identity and current cinema context', () => {
   const url =
     'https://www.capitolestudios-reserver.cotecine.fr/reserver/r/244471'
-  assert.deepEqual(
-    safeBookingUrl(url, 'cinewest', null, 'cinewest-webediamovies-W8400'),
-    { provider: 'cinewest', url, kind: 'booking' },
-  )
-  assert.equal(safeBookingUrl(url, 'cinewest')?.kind, 'booking')
+  const id = `cinewest-showing-webediamovies-${'a'.repeat(64)}`
+  const theater = 'cinewest-ticketingcine-EMS1378'
+  assert.deepEqual(safeBookingUrl(url, 'cinewest', id, theater), {
+    provider: 'cinewest',
+    url,
+    kind: 'booking',
+  })
+  assert.deepEqual(safeBookingUrl(url, undefined, id, theater), {
+    provider: 'cinewest',
+    url,
+    kind: 'booking',
+  })
+  assert.equal(safeBookingUrl(url), null)
+  assert.equal(safeBookingUrl(url, 'cinewest'), null)
+  assert.equal(safeBookingUrl(url, 'megarama', id, theater), null)
+  for (const context of [undefined, null, '', 'cinewest-webediamovies-W8400'])
+    assert.equal(safeBookingUrl(url, 'cinewest', id, context), null)
+  for (const currentTheater of Object.keys(CINEWEST_THEATER_HOSTS)) {
+    if (currentTheater !== 'ticketingcine-EMS1378')
+      assert.equal(
+        safeBookingUrl(url, 'cinewest', id, `cinewest-${currentTheater}`),
+        null,
+      )
+  }
+  for (const showing of [
+    undefined,
+    null,
+    '',
+    id + '\n',
+    id + '\r',
+    id + '\t',
+    id.slice(0, -1),
+    id + 'a',
+    id.toUpperCase(),
+    id.replace('cinewest-', 'megarama-'),
+    id.replace('webediamovies', 'cineoffice'),
+    cinewestTicketShowingId('ticketingcine-EMS1378', 'emsx137800000001'),
+  ])
+    assert.equal(safeBookingUrl(url, 'cinewest', showing, theater), null)
   assert.equal(
-    safeBookingUrl(url, 'cinewest', null, 'cinewest-cineoffice-royanlelido'),
+    safeBookingUrl(
+      'https://www.capitolestudios.com/#showsession?id=emsx137800000001',
+      'cinewest',
+      id,
+      theater,
+    ),
     null,
   )
   for (const bad of [
@@ -109,6 +196,8 @@ test('Capitole accepts only verified positive session route and correct theater 
     url + '#',
     url + '?api_token=x',
     url + '\n',
+    url + '\r',
+    url + '\t',
     url + '/',
     url.replace('244471', '0'),
     url.replace('244471', '0244471'),
@@ -116,11 +205,12 @@ test('Capitole accepts only verified positive session route and correct theater 
     url.replace('.fr/', '.fr:443/'),
     url.replace('https:', 'http:'),
     url.replace('www.', 'user@www.'),
+    url.replace('.fr/', '.fr.evil.test/'),
     url + '1'.repeat(4096),
     'https://ws.ticketingcine.com/site',
     'https://cinewest.cineoffice.fr/vad/shows?api_token=x',
   ]) {
-    assert.equal(safeBookingUrl(bad, 'cinewest'), null, bad)
+    assert.equal(safeBookingUrl(bad, 'cinewest', id, theater), null, bad)
   }
   assert.equal(
     safeBookingUrl('https://nice.megarama.fr/', 'megarama')?.kind,

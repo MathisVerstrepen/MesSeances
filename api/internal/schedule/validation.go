@@ -166,8 +166,9 @@ func validateDataset(data Dataset, requireComplete, allowEmptyPublication bool) 
 		}
 		validEnd := showing.EndTime.After(showing.StartTime) || unknownRuntime && showing.EndTime.Equal(showing.StartTime)
 		if provider == ProviderCinewest {
-			platform, _, _ := strings.Cut(theater.ProviderID, "-")
-			if !strings.HasPrefix(showing.ProviderShowingID, platform+"-") || !strings.HasPrefix(showing.Movie.ProviderID, platform+"-") || strings.TrimSpace(showing.Room) == "" {
+			platform, _, _ := strings.Cut(showing.ProviderShowingID, "-")
+			legacy := theater.ProviderID == "ticketingcine-EMS1378" && platform == "webediamovies"
+			if (!strings.HasPrefix(theater.ProviderID, platform+"-") && !legacy) || !strings.HasPrefix(showing.Movie.ProviderID, platform+"-") || strings.TrimSpace(showing.Room) == "" {
 				return fmt.Errorf("invalid Cinewest cinema or room")
 			}
 			switch platform {

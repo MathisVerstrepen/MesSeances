@@ -42,27 +42,27 @@ func TestClientProxyOnlyAndRequestContracts(t *testing.T) {
 		switch r.URL.Host {
 		case "ws.ticketingcine.com":
 			var body struct {
-				Method string
-				Params map[string]string
+				JSONRPC string
+				Method  string
+				Params  map[string]string
+				ID      int
 			}
-			if json.NewDecoder(r.Body).Decode(&body) != nil || body.Method != "get_prog" || r.Method != "POST" || r.Referer() != schedule.CinewestWebsite("ticketingcine-"+body.Params["site_id"]) {
+			if json.NewDecoder(r.Body).Decode(&body) != nil || body.JSONRPC != "2.0" || body.ID != 1 || body.Method != "get_prog" || len(body.Params) != 1 || r.URL.String() != "https://ws.ticketingcine.com/site" || r.Header.Get("Content-Type") != "application/json" || r.Method != "POST" || r.Referer() != schedule.CinewestWebsite("ticketingcine-"+body.Params["site_id"]) {
 				t.Fatal("wrong RPC or referer")
 			}
 		case "cinewest.cineoffice.fr":
 			if r.URL.Query().Get("api_token") != "synthetic-cinema" || r.Referer() != "" {
 				t.Fatal("wrong token scope")
 			}
-		case "www.capitolestudios.com":
-			if r.URL.Path == apiPath+"schedule" && r.URL.Query().Get("theaters") != `{"id":"W8400","timeZone":"Europe/Paris"}` {
-				t.Fatal("noncompact theaters")
-			}
+		default:
+			t.Fatal("obsolete acquisition")
 		}
 		return response(200, `[]`), nil
 	})}}, noSleep)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, site := range []string{"EMS1185", "EMS1317", "EMS0042"} {
+	for _, site := range []string{"EMS1185", "EMS1317", "EMS0042", "EMS1378"} {
 		if _, err := c.Program(t.Context(), site); err != nil {
 			t.Fatal(err)
 		}
@@ -70,16 +70,10 @@ func TestClientProxyOnlyAndRequestContracts(t *testing.T) {
 	if _, err := c.Catalog(t.Context(), "shows", "synthetic-cinema"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Schedule(t.Context(), "2026-09-14", "2027-09-14"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.Movies(t.Context(), []string{"1", "1000000001"}); err != nil {
-		t.Fatal(err)
-	}
-	if calls != 6 || c.RequestCount() != 6 {
+	if calls != 5 || c.RequestCount() != 5 {
 		t.Fatal("request count")
 	}
-	for _, raw := range []string{officeURL + "shows?api_token=x&next=evil", officeURL + "shows?api_token=x&api_token=y", officeURL + "shows?api_token=", officeURL + "../shows?api_token=x", "http://cinewest.cineoffice.fr/vad/shows?api_token=x", "https://user@cinewest.cineoffice.fr/vad/shows?api_token=x", "https://cinewest.cineoffice.fr:443/vad/shows?api_token=x", capitoleURL + "/api/other", capitoleURL + apiPath + "movies?ids=1&basic=false&castingLimit=3&next=x"} {
+	for _, raw := range []string{officeURL + "shows?api_token=x&next=evil", officeURL + "shows?api_token=x&api_token=y", officeURL + "shows?api_token=", officeURL + "../shows?api_token=x", "http://cinewest.cineoffice.fr/vad/shows?api_token=x", "https://user@cinewest.cineoffice.fr/vad/shows?api_token=x", "https://cinewest.cineoffice.fr:443/vad/shows?api_token=x", "https://www.capitolestudios.com/", "https://www.capitolestudios.com/page-data/sq/d/2506275789.json", "https://www.capitolestudios.com/api/gatsby-source-boxofficeapi/schedule", "https://www.capitolestudios.com/api/gatsby-source-boxofficeapi/movies?ids=1&basic=false&castingLimit=3"} {
 		u, _ := url.Parse(raw)
 		if allowedURL(u) {
 			t.Fatal("unsafe acquisition")

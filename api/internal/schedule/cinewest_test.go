@@ -14,10 +14,14 @@ func cinewestValidationDataset(platform string) Dataset {
 		id, movieID, raw = "ticketingcine-EMS1185", "ticketingcine-ABCDE", "emsx118500000001"
 	}
 	if platform == "webediamovies" {
-		id, movieID = "webediamovies-W8400", "webediamovies-1"
+		id, movieID = "ticketingcine-EMS1378", "webediamovies-1"
 	}
 	r := &d.Showtimes[0]
 	r.ProviderShowingID, _ = CinewestShowingID(id, raw)
+	if platform == "webediamovies" {
+		// Retained identity predates acquisition retirement. Never rehash it.
+		r.ProviderShowingID = "webediamovies-" + strings.Repeat("a", 64)
+	}
 	r.ID, r.Provider, r.TheaterID = "cinewest-showing-"+r.ProviderShowingID, ProviderCinewest, "cinewest-"+id
 	r.StartTime = time.Date(2026, 9, 14, 20, 0, 0, 123456000, time.FixedZone("CEST", 7200))
 	r.EndTime = r.StartTime
@@ -81,7 +85,7 @@ func TestCinewestIdentitiesAndURLParity(t *testing.T) {
 			t.Fatal("manifest")
 		}
 	}
-	for _, id := range []string{"cineoffice-1", "webediamovies-1", "ticketingcine-ABCDE", "ticketingcine-EMS0042-emsx0042HC12", "cineoffice-" + strings.Repeat("1", 103)} {
+	for _, id := range []string{"cineoffice-1", "webediamovies-1", "ticketingcine-ABCDE", "ticketingcine-EMS0042-emsx0042HC12", "ticketingcine-EMS1378-emsx1378HC12", "cineoffice-" + strings.Repeat("1", 103)} {
 		if !ValidCinewestIdentity("movie", id) {
 			t.Fatal("movie identity", id)
 		}
@@ -103,7 +107,7 @@ func TestCinewestIdentitiesAndURLParity(t *testing.T) {
 	}
 	ticket := "https://www.etoilecinemas-bethune.fr/#showsession?id=emsx118500000001"
 	id, _ := CinewestShowingID("ticketingcine-EMS1185", "emsx118500000001")
-	if !ValidCinewestBookingURL(ticket, "ticketingcine-EMS1185", id) || !ValidCinewestBookingURL("https://www.capitolestudios-reserver.cotecine.fr/reserver/r/244471", "webediamovies-W8400", "") {
+	if !ValidCinewestBookingURL(ticket, "ticketingcine-EMS1185", id) || !ValidCinewestBookingURL("https://www.capitolestudios-reserver.cotecine.fr/reserver/r/244471", "ticketingcine-EMS1378", "webediamovies-"+strings.Repeat("a", 64)) {
 		t.Fatal("booking")
 	}
 	for _, raw := range []string{ticket + "&token=x", strings.Replace(ticket, "1185", "1317", 1), strings.Replace(ticket, "https:", "http:", 1), strings.Replace(ticket, ".fr/", ".fr:443/", 1), strings.Replace(ticket, "www.", "user@www.", 1), "https://ws.ticketingcine.com/site", "https://www.cine-royan.com/?api_token=x", "https://www.cine-royan.com/#"} {
@@ -119,6 +123,40 @@ func TestCinewestIdentitiesAndURLParity(t *testing.T) {
 			if ValidCinewestPosterURL(bad) {
 				t.Fatal("unsafe poster")
 			}
+		}
+	}
+}
+
+func TestCinewestLegacyContextRestriction(t *testing.T) {
+	if ValidCinewestIdentity("theater", "webediamovies-W8400") {
+		t.Fatal("retired current theater")
+	}
+	legacy := "webediamovies-" + strings.Repeat("a", 64)
+	checkout := "https://www.capitolestudios-reserver.cotecine.fr/reserver/r/123"
+	for _, tc := range []struct{ theater, showing string }{{"", legacy}, {"webediamovies-W8400", legacy}, {"ticketingcine-EMS1185", legacy}, {"ticketingcine-EMS1378", ""}, {"ticketingcine-EMS1378", "webediamovies-a"}, {"ticketingcine-EMS1378", "ticketingcine-" + strings.Repeat("a", 64)}} {
+		if ValidCinewestBookingURL(checkout, tc.theater, tc.showing) {
+			t.Fatal("legacy context widened")
+		}
+	}
+	for _, mutate := range []func(*Dataset){
+		func(d *Dataset) {
+			d.Theaters[0].ProviderID = "ticketingcine-EMS1185"
+			d.Theaters[0].ID = "cinewest-ticketingcine-EMS1185"
+			d.Theaters[0].Slug = d.Theaters[0].ID
+			d.Showtimes[0].TheaterID = d.Theaters[0].ID
+		},
+		func(d *Dataset) { d.Showtimes[0].EndTime = d.Showtimes[0].StartTime.Add(time.Minute) },
+		func(d *Dataset) { d.Showtimes[0].FirstPartDurationMinutes = 1 },
+		func(d *Dataset) { d.Showtimes[0].Room = "" },
+		func(d *Dataset) {
+			d.Showtimes[0].Movie.ProviderID = "ticketingcine-ABCDE"
+			d.Showtimes[0].Movie.Slug = "cinewest-film-ticketingcine-ABCDE"
+		},
+	} {
+		d := cinewestValidationDataset("webediamovies")
+		mutate(&d)
+		if ValidateDataset(d, true) == nil {
+			t.Fatal("invalid historical mix accepted")
 		}
 	}
 }

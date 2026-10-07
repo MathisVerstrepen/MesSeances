@@ -133,34 +133,3 @@ type ticketSession struct {
 	FirstPart minutes  `json:"first_part_duration"`
 	Booking   string   `json:"booking_url"`
 }
-type webTheater struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Timezone      string `json:"timeZone"`
-	PracticalInfo struct {
-		Location struct {
-			Address string `json:"address"`
-			City    string `json:"city"`
-			Zip     string `json:"zip"`
-		} `json:"location"`
-	} `json:"practicalInfo"`
-}
-type webShow struct {
-	ID     string   `json:"id"`
-	Start  string   `json:"startsAt"`
-	Tags   []string `json:"tags"`
-	Screen *struct {
-		Name string `json:"name"`
-	} `json:"screen"`
-	Data struct {
-		Ticketing []struct {
-			URLs []string `json:"urls"`
-		} `json:"ticketing"`
-	} `json:"data"`
-}
-type webMovie struct {
-	ID      sourceID `json:"id"`
-	Title   string   `json:"title"`
-	Runtime minutes  `json:"runtime"`
-	Poster  string   `json:"poster"`
-}
