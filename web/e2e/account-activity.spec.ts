@@ -132,6 +132,29 @@ test('account home activity entry admits private stream with attribution, scoped
   ).toBeVisible()
   const rows = page.locator('[data-event-id]')
   await expect(rows).toHaveCount(2)
+  const timeline = page.getByRole('list', {
+    name: 'Activité des cinémas suivis',
+  })
+  await expect(timeline.locator('[data-activity-day]')).toHaveCount(1)
+  await expect(timeline.getByRole('heading', { level: 2 })).toHaveCount(1)
+  await expect(timeline.locator('h2 time')).toHaveAttribute('datetime', date)
+  const dayGeometry = await timeline
+    .locator('[data-activity-day]')
+    .evaluate((element) => {
+      const heading = element.querySelector('h2')!.getBoundingClientRect()
+      const row = element
+        .querySelector('[data-event-id]')!
+        .getBoundingClientRect()
+      return {
+        dateRight: heading.right,
+        dateBottom: heading.bottom,
+        rowLeft: row.left,
+        rowTop: row.top,
+      }
+    })
+  if (testInfo.project.name === 'desktop')
+    expect(dayGeometry.dateRight).toBeLessThan(dayGeometry.rowLeft)
+  else expect(dayGeometry.dateBottom).toBeLessThan(dayGeometry.rowTop)
   await expect(page.locator('main details, main summary')).toHaveCount(0)
   await expect(
     page.getByText('Historique partiel', { exact: true }),
@@ -161,6 +184,12 @@ test('account home activity entry admits private stream with attribution, scoped
       /ugc_logo_small/,
     )
     await expectTopAlignedCinema(row, cinema.name)
+    expect(
+      (await row
+        .getByRole('link', { name: 'Film Playwright', exact: true })
+        .first()
+        .boundingBox())!.width,
+    ).toBe(testInfo.project.name === 'desktop' ? 112 : 72)
     expect(await expectCompactTitleStack(row)).toBe(1)
     const badge = row.getByText(
       id === '103' ? 'Retour à l’affiche' : 'Ajout à la programmation',
@@ -168,8 +197,8 @@ test('account home activity entry admits private stream with attribution, scoped
     )
     await expect(badge).toHaveClass(
       id === '103'
-        ? 'inline-flex border px-2 py-px align-top text-xs font-medium leading-4 border-accent/40 bg-accent-soft text-accent'
-        : 'inline-flex border px-2 py-px align-top text-xs font-medium leading-4 border-ink/30 text-ink',
+        ? 'inline-block border-l-2 pl-2 align-top text-xs font-bold leading-4 border-accent text-accent'
+        : 'inline-block border-l-2 pl-2 align-top text-xs font-bold leading-4 border-ink text-ink',
     )
     await expect(
       row.getByRole('link', { name: 'Voir les séances', exact: true }),

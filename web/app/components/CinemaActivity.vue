@@ -7,16 +7,11 @@ import {
 } from '@lucide/vue'
 import type { TheaterActivityResponse } from '~/types/api'
 import {
-  activityFullDate,
   activityHistoryDate,
   activityObservationDay,
-  activityShortDate,
-  activityShowtimesTarget,
-  activityTypeLabel,
   appendActivityItems,
   groupActivityItems,
 } from '~/utils/cinemaActivity'
-import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 
 const props = defineProps<{ slug: string }>()
 const api = useMesSeancesApi()
@@ -134,24 +129,11 @@ async function loadMore() {
 
 <template>
   <div class="mt-8" :aria-busy="firstPending || morePending">
-    <div v-if="firstPending" class="max-w-4xl">
+    <div v-if="firstPending">
       <p role="status" aria-live="polite" class="sr-only">
         Chargement de l’activité…
       </p>
-      <div aria-hidden="true" class="space-y-6 motion-safe:animate-pulse">
-        <div class="h-5 w-52 bg-ink/10" />
-        <div
-          v-for="row in 3"
-          :key="row"
-          class="flex gap-4 border-b border-ink/20 pb-6"
-        >
-          <div class="h-18 w-12 shrink-0 bg-ink/10" />
-          <div class="min-w-0 flex-1 space-y-3 pt-1">
-            <div class="h-5 w-3/4 max-w-96 bg-ink/10" />
-            <div class="h-4 w-1/2 max-w-64 bg-ink/10" />
-          </div>
-        </div>
-      </div>
+      <ActivityTimelineSkeleton />
     </div>
     <EditorialStatePanel
       v-else-if="firstError || !response"
@@ -230,88 +212,13 @@ async function loadMore() {
           </h3></template
         >
       </EditorialStatePanel>
-      <ol v-else class="max-w-5xl" aria-label="Historique de la programmation">
-        <li
-          v-for="group in groups"
-          :key="group.day"
-          class="border-b border-ink/15 py-6 first:pt-0 lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-6"
-        >
-          <h3 class="mb-4 text-base font-bold lg:mb-0">
-            <time :datetime="group.day">
-              <span class="lg:hidden">{{ activityFullDate(group.day) }}</span>
-              <span class="hidden lg:inline">{{
-                activityHistoryDate(group.day)
-              }}</span>
-            </time>
-          </h3>
-          <ul class="space-y-6">
-            <li
-              v-for="item in group.items"
-              :key="item.event_id"
-              class="flex items-start gap-4"
-            >
-              <NuxtLink
-                :to="cinemaMovieTarget(item.movie.slug, response.theater.id)"
-                :aria-label="item.movie.title"
-                class="block w-12 shrink-0 sm:w-16"
-              >
-                <PosterImage
-                  :src="item.movie.poster_url"
-                  alt=""
-                  sizes="(min-width: 640px) 64px, 48px"
-                  :reset-key="item.event_id"
-                  fallback-variant="icon-only"
-                  :fallback-icon-size="24"
-                  class="aspect-[2/3] bg-subtle"
-                  image-class="size-full object-cover"
-                  fallback-class="text-muted"
-                />
-              </NuxtLink>
-              <div class="min-w-0 flex-1">
-                <h4 class="editorial-heading break-words">
-                  <NuxtLink
-                    :to="cinemaMovieTarget(item.movie.slug, response.theater.id)"
-                    class="flex min-h-11 min-w-11 w-fit max-w-full items-start hover:underline underline-offset-4"
-                  >
-                    <span class="min-w-0">{{ item.movie.title }}</span>
-                  </NuxtLink>
-                </h4>
-                <p class="leading-5">
-                  <span
-                    class="inline-flex border px-2 py-px align-top text-xs font-medium leading-4"
-                    :class="item.type === 'return_to_program' ? 'border-accent/40 bg-accent-soft text-accent' : 'border-ink/30 text-ink'"
-                    >{{
-                      activityTypeLabel(item.type)
-                    }}</span
-                  >
-                </p>
-                <p class="mt-0.5 text-sm leading-5 text-muted">
-                  Première séance annoncée ·
-                  <time :datetime="item.first_screening_date">{{
-                    activityShortDate(item.first_screening_date)
-                  }}</time>
-                </p>
-                <p
-                  v-if="item.type === 'return_to_program' && item.previous_program_end_date"
-                  class="text-sm leading-5 text-muted"
-                >
-                  Programmation précédente · jusqu’au
-                  <time :datetime="item.previous_program_end_date">{{
-                    activityShortDate(item.previous_program_end_date)
-                  }}</time>
-                </p>
-                <NuxtLink
-                  v-if="activityShowtimesTarget(item, response.theater.id)"
-                  :to="activityShowtimesTarget(item, response.theater.id)!"
-                  class="inline-flex min-h-11 items-center text-sm font-bold underline underline-offset-4 hover:text-primary"
-                >
-                  Voir les séances
-                </NuxtLink>
-              </div>
-            </li>
-          </ul>
-        </li>
-      </ol>
+      <ActivityTimeline
+        v-else
+        :groups="groups"
+        :theater-id="response.theater.id"
+        :date-heading-level="3"
+        label="Historique de la programmation"
+      />
       <div
         v-if="response.next_cursor"
         class="mt-8 flex flex-col items-start gap-4"

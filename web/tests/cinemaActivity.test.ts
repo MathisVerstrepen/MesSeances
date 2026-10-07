@@ -4,6 +4,7 @@ import test from 'node:test'
 import { getFrenchActivityApiError } from '../app/composables/useMesSeancesApi.ts'
 import type { TheaterActivityItem } from '../app/types/api.ts'
 import {
+  activityDateParts,
   activityFullDate,
   activityHistoryDate,
   activityObservationDay,
@@ -16,7 +17,7 @@ import {
 import { cinemaMovieTarget } from '../app/utils/cinemaMovieTarget.ts'
 import { mergeOwnedQuery } from '../app/utils/routeQuery.ts'
 
-const [cinema, activity, api, types] = await Promise.all([
+const [cinema, activity, api, types, timeline, skeleton] = await Promise.all([
   readFile(new URL('../app/pages/cinema/[slug].vue', import.meta.url), 'utf8'),
   readFile(
     new URL('../app/components/CinemaActivity.vue', import.meta.url),
@@ -27,6 +28,14 @@ const [cinema, activity, api, types] = await Promise.all([
     'utf8',
   ),
   readFile(new URL('../app/types/api.ts', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../app/components/ActivityTimeline.vue', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../app/components/ActivityTimelineSkeleton.vue', import.meta.url),
+    'utf8',
+  ),
 ])
 
 function item(
@@ -92,6 +101,24 @@ test('activity concise dates retain the year, omit weekdays and use French month
   }
 })
 
+test('editorial date parts preserve French month and year, including calendar boundaries', () => {
+  assert.deepEqual(activityDateParts('2027-01-01'), {
+    day: '1',
+    month: 'janvier',
+    year: '2027',
+  })
+  assert.deepEqual(activityDateParts('2024-02-29'), {
+    day: '29',
+    month: 'février',
+    year: '2024',
+  })
+  assert.deepEqual(activityDateParts('2026-02-30'), {
+    day: '2026-02-30',
+    month: '',
+    year: '',
+  })
+})
+
 test('append merges same-day pages and deduplicates decimal string IDs without numeric conversion', () => {
   const first = [item('9223372036854775807'), item('9007199254740993')]
   const second = [
@@ -126,50 +153,69 @@ test('activity labels and previous programming date distinguish returns from add
   )
   assert.equal(activityTypeLabel('return_to_program'), 'Retour à l’affiche')
   assert.match(
-    activity,
+    timeline,
     /item\.type === 'return_to_program' && item\.previous_program_end_date/,
   )
-  assert.match(activity, /Première séance annoncée ·/)
-  assert.match(activity, /Programmation précédente · jusqu’au/)
-  assert.match(activity, /activityShortDate\(item\.first_screening_date\)/)
-  assert.match(activity, /activityShortDate\(item\.previous_program_end_date\)/)
-  assert.doesNotMatch(activity, /release_date|french_release_date/)
+  assert.match(timeline, /Première séance annoncée ·/)
+  assert.match(timeline, /Programmation précédente · jusqu’au/)
+  assert.match(timeline, /activityShortDate\(item\.first_screening_date\)/)
+  assert.match(timeline, /activityShortDate\(item\.previous_program_end_date\)/)
+  assert.doesNotMatch(timeline, /release_date|french_release_date/)
 })
 
-test('activity uses compact explicit badges, a narrower date column and quiet day separators', () => {
-  assert.match(activity, /inline-flex border px-2 py-px align-top text-xs/)
+test('shared timeline uses unboxed editorial labels and decorative continuous rail with newest-day accent', () => {
   assert.match(
-    activity,
-    /'border-accent\/40 bg-accent-soft text-accent' : 'border-ink\/30 text-ink'/,
+    timeline,
+    /inline-block border-l-2 pl-2 align-top text-xs font-bold/,
   )
-  assert.match(activity, /lg:grid-cols-\[180px_minmax\(0,1fr\)\]/)
-  assert.match(activity, /border-b border-ink\/15/)
-  assert.match(activity, /<ul class="space-y-6">/)
-  assert.doesNotMatch(activity, /capitalize|border-l border-ink/)
+  assert.match(timeline, /'border-accent text-accent' : 'border-ink text-ink'/)
+  assert.match(timeline, /lg:grid-cols-\[168px_minmax\(0,1fr\)\]/)
   assert.match(
-    activity,
+    timeline,
+    /aria-hidden="true"\s+class="pointer-events-none absolute bottom-0[^\"]+w-0\.5 bg-ink/,
+  )
+  assert.match(timeline, /index === 0 \? 'bg-\[#facc15\]' : 'bg-canvas'/)
+  assert.match(timeline, /<ul class="min-w-0 space-y-7 sm:space-y-8">/)
+  assert.doesNotMatch(
+    timeline,
+    /capitalize|rounded-|Date\.now|Aujourd’hui|[Nn]on lu/,
+  )
+  assert.match(
+    timeline,
     /class="inline-flex min-h-11 items-center text-sm font-bold underline/,
   )
-  assert.doesNotMatch(activity, /class="mt-3 inline-flex/)
 })
 
 test('activity date rail omits desktop weekdays while preserving full mobile dates in one time element', () => {
   assert.equal(activityHistoryDate('2026-10-01'), '1 octobre 2026')
   assert.equal(activityFullDate('2026-10-01'), 'jeudi 1 octobre 2026')
+  assert.match(timeline, /<time :datetime="group\.day">/)
   assert.match(
-    activity,
-    /<time :datetime="group\.day">\s*<span class="lg:hidden">{{ activityFullDate\(group\.day\) }}<\/span>\s*<span class="hidden lg:inline">{{\s*activityHistoryDate\(group\.day\)\s*}}<\/span>\s*<\/time>/,
+    timeline,
+    /<span class="lg:hidden">{{ activityFullDate\(group\.day\) }}<\/span>/,
   )
-  assert.match(activity, /<h3 class="mb-4 text-base font-bold lg:mb-0">/)
+  assert.match(
+    timeline,
+    /<span class="sr-only">{{ activityHistoryDate\(group\.day\) }}<\/span>/,
+  )
+  assert.match(timeline, /activityDateParts\(group\.day\)\.year/)
+  assert.match(timeline, /:is="`h\$\{dateHeadingLevel\}`"/)
+  assert.match(activity, /:date-heading-level="3"/)
 })
 
-test('activity titles align with poster tops while retaining touch targets and long-title wrapping', () => {
-  assert.match(activity, /class="flex items-start gap-4"/)
-  assert.match(activity, /<div class="min-w-0 flex-1">/)
-  assert.match(activity, /<h4 class="editorial-heading break-words">/)
+test('shared activity titles and larger posters align at top with long-title wrapping and visible focus', () => {
+  assert.match(timeline, /class="flex min-w-0 items-start gap-4/)
+  assert.match(timeline, /<div class="min-w-0 flex-1">/)
+  assert.match(timeline, /:is="`h\$\{dateHeadingLevel \+ 1\}`"/)
+  assert.match(timeline, /\[overflow-wrap:anywhere\]/)
+  assert.match(timeline, /w-18 shrink-0[^\"]+sm:w-24 lg:w-28/)
   assert.match(
-    activity,
-    /class="flex min-h-11 min-w-11 w-fit max-w-full items-start[^"]*"\s*>\s*<span class="min-w-0">{{ item\.movie\.title }}<\/span>/,
+    timeline,
+    /sizes="\(min-width: 1024px\) 112px, \(min-width: 640px\) 96px, 72px"/,
+  )
+  assert.match(
+    timeline,
+    /focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink/,
   )
 })
 
@@ -232,9 +278,10 @@ test('film targets preserve cinema; session CTA uses current next date and sched
     false,
   )
   assert.match(
-    activity,
-    /v-if="activityShowtimesTarget\(item, response\.theater\.id\)"/,
+    timeline,
+    /v-if="activityShowtimesTarget\(item, eventTheaterId\(item\)\)"/,
   )
+  assert.match(activity, /:theater-id="response\.theater\.id"/)
   assert.doesNotMatch(activity, /selectedDate|route\.query|Date\.now/)
 })
 
@@ -361,7 +408,8 @@ test('activity handles four states, baseline notice and safe pagination with ret
   assert.match(activity, /:aria-busy="firstPending \|\| morePending"/)
   assert.match(activity, /v-if="firstPending"/)
   assert.match(activity, /Chargement de l’activité…/)
-  assert.match(activity, /motion-safe:animate-pulse/)
+  assert.match(activity, /<ActivityTimelineSkeleton/)
+  assert.match(skeleton, /motion-safe:animate-pulse/)
   assert.match(activity, /v-else-if="firstError \|\| !response"/)
   assert.match(activity, /Impossible de charger l’activité/)
   assert.match(activity, /@click="retryInitial"/)
@@ -373,8 +421,8 @@ test('activity handles four states, baseline notice and safe pagination with ret
   assert.match(activity, /v-if="!response\.coverage\.history_started_at"/)
   assert.match(activity, /Historique en cours d’initialisation/)
   assert.match(activity, /Aucune nouvelle programmation détectée/)
-  assert.match(activity, /:key="item\.event_id"/)
-  assert.match(activity, /<PosterImage/)
+  assert.match(timeline, /:key="item\.event_id"/)
+  assert.match(timeline, /<PosterImage/)
   assert.match(activity, /v-if="response\.next_cursor"/)
   assert.match(activity, /:disabled="morePending"/)
   assert.match(activity, /'Réessayer' : 'Afficher plus'/)

@@ -16,6 +16,15 @@ import {
   snapshot,
 } from './helpers/cinemaFollowsHarness.ts'
 
+const timeline = await readFile(
+  new URL('../app/components/ActivityTimeline.vue', import.meta.url),
+  'utf8',
+)
+const skeleton = await readFile(
+  new URL('../app/components/ActivityTimelineSkeleton.vue', import.meta.url),
+  'utf8',
+)
+
 test('generic activity helpers preserve attribution and server order, deduplicate only event identity', () => {
   const items = feed('1', ['100', '99']).items
   const all = appendActivityItems(items, [
@@ -196,10 +205,9 @@ test('page preserves empty, retry and originating-theater links without partial-
     'Aucune nouvelle programmation détectée.',
     'Afficher plus',
     'Réessayer',
-    'motion-safe:animate-pulse',
+    'ActivityTimelineSkeleton',
     'role="alert"',
-    'item.theater.id',
-    '?view=activity',
+    'ActivityTimeline',
   ])
     assert.ok(source.includes(text), text)
   assert.doesNotMatch(
@@ -207,6 +215,11 @@ test('page preserves empty, retry and originating-theater links without partial-
     /<details|<summary|Historique partiel|point de départ silencieux|programmations antérieures/,
   )
   assert.match(source, /<AccountShell[^>]*hide-explore[^>]*hide-logout/)
+  assert.match(source, /:date-heading-level="2"/)
+  assert.match(timeline, /item.theater.id/)
+  assert.match(timeline, /\?view=activity/)
+  assert.match(skeleton, /motion-safe:animate-pulse/)
+  assert.match(timeline, /:data-event-id="item.event_id"/)
   const admission = await readFile(
     new URL('../app/middleware/account-auth.ts', import.meta.url),
     'utf8',
@@ -214,7 +227,7 @@ test('page preserves empty, retry and originating-theater links without partial-
   assert.match(admission, /'\/compte\/activite'/)
 })
 
-test('cinema attribution is top aligned with decorative existing provider logo and exact public activity badges', async () => {
+test('cinema attribution remains top aligned and decorative in shared public/account presentation', async () => {
   const source = await readFile(
     new URL('../app/pages/compte/activite.vue', import.meta.url),
     'utf8',
@@ -223,10 +236,13 @@ test('cinema attribution is top aligned with decorative existing provider logo a
     new URL('../app/components/CinemaActivity.vue', import.meta.url),
     'utf8',
   )
-  const cinemaLink = source.match(
-    /<NuxtLink\s+:to="`\/cinema\/[\s\S]*?<\/NuxtLink>/,
+  assert.match(source, /<ActivityTimeline\s+v-else\s+:groups="groups"/)
+  assert.match(publicActivity, /<ActivityTimeline\s+v-else\s+:groups="groups"/)
+  const cinemaLink = timeline.match(
+    /<NuxtLink\s+v-if="'theater' in item"\s+:to="`\/cinema\/[\s\S]*?<\/NuxtLink>/,
   )?.[0]
   assert.ok(cinemaLink)
+  assert.match(cinemaLink, /v-if="'theater' in item"/)
   assert.match(cinemaLink, /:aria-label="item.theater.name"/)
   assert.match(cinemaLink, /items-start[^"\n]*leading-5/)
   assert.doesNotMatch(cinemaLink, /items-center/)
@@ -235,20 +251,14 @@ test('cinema attribution is top aligned with decorative existing provider logo a
     /<TheaterName\s+:name="item.theater.name"\s+:provider="item.theater.provider"\s+decorative/,
   )
   assert.match(cinemaLink, /min-w-0 break-words \[overflow-wrap:anywhere\]/)
-  assert.doesNotMatch(source, /<BrandLogo|providerBrands|\.webp|\.svg/)
-  const badge = /<span\s+class="([^"]+)"\s+:class="([^"]+)"/
-  const privateBadge = source.match(badge)
-  const publicBadge = publicActivity.match(badge)
-  assert.ok(privateBadge)
-  assert.ok(publicBadge)
-  assert.deepEqual(privateBadge.slice(1), publicBadge.slice(1))
-  assert.equal(
-    privateBadge[1],
-    'inline-flex border px-2 py-px align-top text-xs font-medium leading-4',
+  assert.doesNotMatch(timeline, /<BrandLogo|providerBrands|\.webp|\.svg/)
+  assert.match(
+    timeline,
+    /inline-block border-l-2 pl-2 align-top text-xs font-bold leading-4/,
   )
-  assert.equal(
-    privateBadge[2],
-    "item.type === 'return_to_program' ? 'border-accent/40 bg-accent-soft text-accent' : 'border-ink/30 text-ink'",
+  assert.match(
+    timeline,
+    /item.type === 'return_to_program' \? 'border-accent text-accent' : 'border-ink text-ink'/,
   )
 })
 
@@ -272,15 +282,11 @@ test('newer follows arriving before first page cannot leave blank stale walk', a
 })
 
 test('movie title has small heading margins while links retain compact natural heights', async () => {
-  const source = await readFile(
-    new URL('../app/pages/compte/activite.vue', import.meta.url),
-    'utf8',
-  )
-  const cinemaLink = source.match(
-    /<NuxtLink\s+:to="`\/cinema\/[\s\S]*?<\/NuxtLink>/,
+  const cinemaLink = timeline.match(
+    /<NuxtLink\s+v-if="'theater' in item"\s+:to="`\/cinema\/[\s\S]*?<\/NuxtLink>/,
   )?.[0]
-  const title = source.match(
-    /<h3 class="editorial-heading my-1 break-words">[\s\S]*?<\/h3>/,
+  const title = timeline.match(
+    /<component\s+:is="`h\$\{dateHeadingLevel \+ 1\}`"[\s\S]*?<\/component>/,
   )?.[0]
   assert.ok(cinemaLink)
   assert.ok(title)
@@ -292,12 +298,16 @@ test('movie title has small heading margins while links retain compact natural h
   )
   assert.match(
     title,
-    /class="block w-fit max-w-full hover:underline underline-offset-4"/,
+    /class="block w-fit max-w-full hover:underline underline-offset-4/,
   )
   for (const link of [cinemaLink, titleLink])
     assert.doesNotMatch(
       link,
       /\b(?:min-h-|h-\d|py-|pt-|pb-|my-|mt-|mb-|inline-flex)/,
     )
-  assert.match(title, /cinemaMovieTarget\(item.movie.slug, item.theater.id\)/)
+  assert.match(
+    title,
+    /cinemaMovieTarget\(item.movie.slug, eventTheaterId\(item\)\)/,
+  )
+  assert.match(title, /'theater' in item \? 'my-1' : 'mb-1'/)
 })
