@@ -9,9 +9,11 @@ import {
   generatedAt,
   movie,
   publicActivityPage,
+  screeningCatalog,
   secondTheater,
   showtimes,
   theater,
+  syntheticWatchlist,
 } from '../e2e/data.mjs'
 
 const port = Number(process.env.PLAYWRIGHT_PORT || 13400)
@@ -29,6 +31,13 @@ let follows = { username: scenario.username, revision: '0', theater_ids: [] }
 let followPosts = 0
 let followGets = 0
 let activityGets = 0
+let selected = {
+  username: scenario.username,
+  revision: '1',
+  theater_ids: [secondTheater.id],
+}
+let watchlist = syntheticWatchlist(scenario.username)
+const screeningQueries = []
 function syntheticSession() {
   return {
     enabled: scenario.enabled,
@@ -113,23 +122,12 @@ const mock = createServer((request, response) => {
         )
       return json(response, activityPage(cursor))
     }
-    if (path === '/api/v1/account/theaters')
-      return json(response, {
-        username: scenario.username,
-        revision: '1',
-        theater_ids: [secondTheater.id],
-      })
-    if (path === '/api/v1/account/watchlist')
-      return json(response, {
-        username: scenario.username,
-        revision: '0',
-        sort_order: 'added_desc',
-        view_mode: 'list',
-        filter_tag_id: null,
-        tags: [],
-        items: [],
-        external_search_available: false,
-      })
+    if (path === '/api/v1/account/theaters') {
+      if (scenario.selectionError)
+        return json(response, { error: { code: 'accounts_unavailable' } }, 503)
+      return json(response, selected)
+    }
+    if (path === '/api/v1/account/watchlist') return json(response, watchlist)
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
     if (path === '/api/v1/theaters')
@@ -167,6 +165,25 @@ const mock = createServer((request, response) => {
         { error: { code: 'not_found', message: 'Cinéma introuvable' } },
         404,
       )
+    if (
+      path === '/api/v1/movies' &&
+      url.searchParams.get('screening_summary') === 'true'
+    ) {
+      screeningQueries.push(Object.fromEntries(url.searchParams))
+      const mode = scenario.screenings
+      if (mode === 'error')
+        return json(response, { error: { code: 'schedule_unavailable' } }, 503)
+      const value = screeningCatalog(url.searchParams)
+      if (mode === 'partial') delete value.items[0]?.next_7_days_showtime_count
+      if (mode === 'delay') {
+        // Bounded transport delay only for a loading-state scenario.
+        setTimeout(() => {
+          if (!response.destroyed) json(response, value)
+        }, 1500)
+        return
+      }
+      return json(response, value)
+    }
     if (path === '/api/v1/movies')
       return json(response, {
         items: [movie],
@@ -177,6 +194,47 @@ const mock = createServer((request, response) => {
         generated_at: generatedAt,
         catalog_revision: 'fixture-1',
       })
+  }
+  if (
+    request.method === 'POST' &&
+    [
+      '/api/v1/account/watchlist',
+      '/api/v1/account/watchlist/preferences',
+      '/api/v1/account/watchlist/search',
+    ].includes(path)
+  ) {
+    let body = ''
+    request.on('data', (chunk) => {
+      body += chunk
+    })
+    request.on('end', () => {
+      const input = JSON.parse(body)
+      if (path.endsWith('/search'))
+        return json(response, {
+          username: scenario.username,
+          catalog: [movie],
+          external: [
+            {
+              tmdb_id: '42',
+              title: 'Autre film recherché',
+              release_date: date,
+            },
+          ],
+          external_status: 'ready',
+          catalog_has_more: false,
+        })
+      if (path.endsWith('/preferences')) {
+        watchlist.view_mode = input.view_mode
+        watchlist.filter_tag_id = input.filter_tag_id || null
+      } else {
+        watchlist.items = watchlist.items.filter(
+          (item) => item.slug !== input.movie_slug,
+        )
+      }
+      watchlist.revision = String(BigInt(watchlist.revision) + 1n)
+      json(response, watchlist)
+    })
+    return
   }
   if (request.method === 'POST' && path === '/api/v1/account/theater-follows') {
     let body = ''
@@ -320,6 +378,8 @@ try {
         followPosts,
         followGets,
         activityGets,
+        screeningQueries,
+        selected,
       })
     if (request.url === '/__playwright/scenario' && request.method === 'POST') {
       let body = ''
@@ -340,10 +400,40 @@ try {
           revision: input.revision || '0',
           theater_ids: input.theater_ids || [],
         }
+        selected = {
+          username: scenario.username,
+          revision: '1',
+          theater_ids: input.selected_ids ?? [secondTheater.id],
+        }
+        watchlist = syntheticWatchlist(scenario.username, !!input.watchlist)
+        screeningQueries.length = 0
         followPosts = 0
         followGets = 0
         activityGets = 0
         unexpected.length = 0
+        json(response, { ready: true })
+      })
+      return
+    }
+    if (
+      request.url === '/__playwright/screenings' &&
+      request.method === 'POST'
+    ) {
+      let body = ''
+      request.on('data', (chunk) => {
+        body += chunk
+      })
+      request.on('end', () => {
+        const input = JSON.parse(body)
+        if (input.mode) scenario.screenings = input.mode
+        if ('selectionError' in input)
+          scenario.selectionError = input.selectionError
+        if (input.selected_ids)
+          selected = {
+            ...selected,
+            revision: String(BigInt(selected.revision) + 1n),
+            theater_ids: input.selected_ids,
+          }
         json(response, { ready: true })
       })
       return

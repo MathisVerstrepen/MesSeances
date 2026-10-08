@@ -72,6 +72,115 @@ export const secondTheater = {
   name: 'Cinéma Seconde Salle',
   city: 'Roubaix',
 }
+
+export const watchlistMovies = [
+  {
+    ...movie,
+    title:
+      'Un voyage au cinéma avec les histoires et les lumières de toutes les salles du quartier',
+    tag_ids: ['1', '2'],
+  },
+  {
+    ...movie,
+    slug: 'film-imported',
+    title: 'Film importé sans séances',
+    tag_ids: ['1'],
+  },
+  {
+    ...movie,
+    slug: 'film-grace',
+    title: 'La séance vient de commencer',
+    tag_ids: [],
+  },
+  {
+    ...movie,
+    slug: 'film-distant',
+    title: 'Une séance dans deux mois',
+    tag_ids: [],
+  },
+  {
+    ...movie,
+    slug: 'film-after-tuesday',
+    title: 'Une séance après mardi, dans les sept jours',
+    tag_ids: [],
+  },
+]
+
+export function syntheticWatchlist(username, populated = false) {
+  return {
+    username,
+    revision: populated ? '1' : '0',
+    sort_order: 'added_desc',
+    view_mode: 'list',
+    filter_tag_id: null,
+    tags: populated
+      ? [
+          { id: '1', name: 'À voir', color: 'blue' },
+          { id: '2', name: 'En famille', color: 'green' },
+        ]
+      : [],
+    items: populated
+      ? watchlistMovies.map((item, index) => ({
+          ...item,
+          added_at: `${date}T08:00:${String(watchlistMovies.length - index).padStart(2, '0')}Z`,
+        }))
+      : [],
+    external_search_available: populated,
+  }
+}
+
+export function screeningCatalog(query) {
+  const from = new Date(`${date}T00:00:00Z`)
+  const dayCount = ((2 - from.getUTCDay() + 7) % 7) + 1
+  const through = new Date(from)
+  through.setUTCDate(through.getUTCDate() + dayCount - 1)
+  const secondOnly = query.get('theaters') === secondTheater.id
+  const items = secondOnly
+    ? []
+    : [
+        {
+          ...watchlistMovies[0],
+          showtime_count: 30,
+          remaining_showtime_count: dayCount * 2 + 1,
+          next_7_days_showtime_count: dayCount * 2 + 2,
+        },
+        {
+          ...watchlistMovies[2],
+          showtime_count: 1,
+          remaining_showtime_count: 0,
+          next_7_days_showtime_count: 0,
+        },
+        {
+          ...watchlistMovies[3],
+          showtime_count: 4,
+          remaining_showtime_count: 0,
+          next_7_days_showtime_count: 0,
+        },
+        {
+          ...watchlistMovies[4],
+          showtime_count: 1,
+          remaining_showtime_count: 0,
+          next_7_days_showtime_count: 1,
+        },
+      ]
+  const page = Number(query.get('page') || 1)
+  return {
+    items: items.slice((page - 1) * 100, page * 100),
+    available_genres: [],
+    page,
+    page_size: 100,
+    total: items.length,
+    generated_at: generatedAt,
+    catalog_revision: 'screenings-fixture-1',
+    screening_window: {
+      as_of: `${date}T10:00:00+02:00`,
+      timezone: 'Europe/Paris',
+      from: date,
+      through: through.toISOString().slice(0, 10),
+      day_count: dayCount,
+    },
+  }
+}
 export function accountActivityItem(id, cinema = theater) {
   return {
     event_id: String(id),

@@ -1793,6 +1793,7 @@ async function pageFixture() {
         watch,
         nextTick,
         useWatchlist: () => f.list,
+        useWatchlistScreenings: () => ({}),
         useAccountSession: () => f.account,
         useHead: () => {},
         definePageMeta: () => {},
