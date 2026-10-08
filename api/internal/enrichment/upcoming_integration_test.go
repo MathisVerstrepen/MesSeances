@@ -324,7 +324,31 @@ func TestUpcomingPublicationRollbackAndLeaseIntegration(t *testing.T) {
 	if err := lease.Release(dead); err == nil {
 		t.Fatal("canceled unlock accepted")
 	}
-	lease, err = locker.Acquire(ctx)
+	// PostgreSQL releases the discarded session's advisory lock asynchronously.
+	lease, err = func() (UpcomingLease, error) {
+		acquireCtx, cancelAcquire := context.WithTimeout(ctx, 5*time.Second)
+		defer cancelAcquire()
+		retryTicker := time.NewTicker(10 * time.Millisecond)
+		defer retryTicker.Stop()
+		for {
+			lease, acquireErr := locker.Acquire(acquireCtx)
+			if acquireErr == nil {
+				return lease, nil
+			}
+			if !errors.Is(acquireErr, syncschedule.ErrInProgress) {
+				return nil, acquireErr
+			}
+			select {
+			case <-acquireCtx.Done():
+				return nil, errors.Join(
+					errors.New("timed out waiting for PostgreSQL to release advisory lock"),
+					acquireCtx.Err(),
+					acquireErr,
+				)
+			case <-retryTicker.C:
+			}
+		}
+	}()
 	if err != nil {
 		t.Fatalf("discarded session leaked lock: %v", err)
 	}
