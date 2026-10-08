@@ -9,8 +9,16 @@ import (
 const movieCatalogWarningWindow = 20 * time.Minute
 
 type catalogGroupedMovie struct {
-	item          MovieCatalogItem
-	showtimeCount int
+	item                   MovieCatalogItem
+	showtimeCount          int
+	remainingShowtimeCount int
+	next7DaysShowtimeCount int
+}
+
+type catalogShowtimeCounts struct {
+	current   int
+	remaining int
+	next7Days int
 }
 
 type catalogDateWindow struct {
@@ -34,6 +42,9 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		return MovieCatalog{}, invalid("Le paramètre page_size doit être un entier compris entre 1 et 100.")
 	}
 	view := s.source.Snapshot()
+	if view == nil || query.ScreeningSummary && view.catalogOnly {
+		return MovieCatalog{}, ErrNoCompleteSnapshot
+	}
 	result := MovieCatalog{GeneratedAt: view.data.GeneratedAt, CatalogRevision: view.catalogRevision, Items: []MovieCatalogItem{}, AvailableGenres: []string{}, Page: page, PageSize: pageSize}
 	selectedGenres, err := validateMovieCatalogGenres(query.Genres)
 	if err != nil {
@@ -44,6 +55,15 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	}
 	now := s.now()
 	result.CatalogRevision = catalogRevisionAt(view, now, s.location)
+	if query.ScreeningSummary && (query.Date != nil || query.DateTo != nil) {
+		return MovieCatalog{}, invalid("Le paramètre screening_summary est incompatible avec date ou date_to.")
+	}
+	var screeningEnd *time.Time
+	if query.ScreeningSummary {
+		window, end := s.movieScreeningWindow(now)
+		result.ScreeningWindow = &window
+		screeningEnd = &end
+	}
 	if query.IncludeEnded && (query.Date != nil || query.DateTo != nil) {
 		return MovieCatalog{}, invalid("Le paramètre include_ended est incompatible avec date ou date_to.")
 	}
@@ -65,7 +85,7 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		return result, nil
 	}
 	search := normalized(strings.TrimSpace(query.Search))
-	grouped := groupCatalogMovies(view, selectedTheaters, query.TheaterIDs != nil, search, now, query.IncludeEnded, dateWindow)
+	grouped := groupCatalogMovies(view, selectedTheaters, query.TheaterIDs != nil, search, now, query.IncludeEnded, dateWindow, screeningEnd)
 	result.AvailableGenres = availableMovieCatalogGenres(grouped)
 	grouped = filterCatalogMovies(grouped, selectedGenres, query.Duration)
 	sortMode := normalizeMovieCatalogSort(query.Sort)
@@ -109,21 +129,49 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		if movie.showtimeCount > 0 {
 			item.ShowtimeCount = movie.showtimeCount
 		}
+		if query.ScreeningSummary {
+			item.RemainingShowtimeCount = &movie.remainingShowtimeCount
+			item.Next7DaysShowtimeCount = &movie.next7DaysShowtimeCount
+		}
 		result.Items = append(result.Items, item)
 	}
 	return result, nil
 }
 
-func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilterProvided bool, search string, now time.Time, includeEnded bool, dateWindow *catalogDateWindow) []catalogGroupedMovie {
-	counts := make(map[string]int)
-	variantCounts := make(map[string]int)
+func (s *Service) movieScreeningWindow(now time.Time) (MovieScreeningWindow, time.Time) {
+	local := now.In(s.location)
+	today := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, s.location)
+	daysUntilTuesday := (int(time.Tuesday) - int(today.Weekday()) + 7) % 7
+	through := today.AddDate(0, 0, daysUntilTuesday)
+	return MovieScreeningWindow{AsOf: now, Timezone: Timezone, From: today.Format(dateLayout), Through: through.Format(dateLayout), DayCount: daysUntilTuesday + 1}, through.AddDate(0, 0, 1)
+}
+
+func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilterProvided bool, search string, now time.Time, includeEnded bool, dateWindow *catalogDateWindow, screeningEnd *time.Time) []catalogGroupedMovie {
+	counts := make(map[string]catalogShowtimeCounts)
+	variantCounts := make(map[string]catalogShowtimeCounts)
+	next7DaysEnd := now.Add(7 * 24 * time.Hour)
 	add := func(record ShowtimeRecord) {
 		if dateWindow != nil && (record.ServiceDate < dateWindow.from || record.ServiceDate > dateWindow.through) {
 			return
 		}
 		slug := view.publicMovieSlug(record.Movie)
-		counts[slug]++
-		variantCounts[slug+"\x00"+normalized(record.Movie.Title)]++
+		count := counts[slug]
+		variantKey := slug + "\x00" + normalized(record.Movie.Title)
+		variantCount := variantCounts[variantKey]
+		count.current++
+		variantCount.current++
+		if screeningEnd != nil && !record.StartTime.Before(now) {
+			if record.StartTime.Before(*screeningEnd) {
+				count.remaining++
+				variantCount.remaining++
+			}
+			if record.StartTime.Before(next7DaysEnd) {
+				count.next7Days++
+				variantCount.next7Days++
+			}
+		}
+		counts[slug] = count
+		variantCounts[variantKey] = variantCount
 	}
 	if theaterFilterProvided {
 		for _, theaterPosition := range selectedTheaters {
@@ -148,7 +196,7 @@ func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilte
 	grouped := make([]catalogGroupedMovie, 0, len(order))
 	for _, slug := range order {
 		count := counts[slug]
-		if !includeEnded && count == 0 {
+		if !includeEnded && count.current == 0 {
 			continue
 		}
 		index := view.movieBySlug[slug]
@@ -176,7 +224,7 @@ func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilte
 		if search != "" && !strings.Contains(normalized(item.Title), search) && (item.OriginalTitle == nil || !strings.Contains(normalized(*item.OriginalTitle), search)) {
 			continue
 		}
-		grouped = append(grouped, catalogGroupedMovie{item: item, showtimeCount: count})
+		grouped = append(grouped, catalogGroupedMovie{item: item, showtimeCount: count.current, remainingShowtimeCount: count.remaining, next7DaysShowtimeCount: count.next7Days})
 	}
 	return grouped
 }

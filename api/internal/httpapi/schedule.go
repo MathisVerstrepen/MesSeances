@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -98,6 +99,15 @@ func (api *API) city(w http.ResponseWriter, r *http.Request) {
 
 func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	screeningSummary := false
+	if query.Has("screening_summary") {
+		rawValue := query.Get("screening_summary")
+		if !strings.EqualFold(rawValue, "true") && !strings.EqualFold(rawValue, "false") {
+			writeError(w, http.StatusBadRequest, "invalid_query", "Le paramètre screening_summary doit être true ou false.")
+			return
+		}
+		screeningSummary = strings.EqualFold(rawValue, "true")
+	}
 	includeEnded := false
 	if query.Has("include_ended") {
 		rawValue := query.Get("include_ended")
@@ -144,6 +154,7 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 
 	result, err := api.schedule.Movies(schedule.MovieCatalogQuery{
 		CurrentlyScreened: currentlyScreened,
+		ScreeningSummary:  screeningSummary,
 		IncludeEnded:      includeEnded,
 		Search:            query.Get("search"),
 		Sort:              schedule.MovieCatalogSort(query.Get("sort")),
@@ -155,6 +166,11 @@ func (api *API) movies(w http.ResponseWriter, r *http.Request) {
 		Page:              page,
 		PageSize:          pageSize,
 	})
+	if errors.Is(err, schedule.ErrNoCompleteSnapshot) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeError(w, http.StatusServiceUnavailable, "schedule_unavailable", "Les horaires ne sont pas encore disponibles.")
+		return
+	}
 	if err != nil {
 		writeServiceError(w, err)
 		return

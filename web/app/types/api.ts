@@ -197,6 +197,8 @@ export interface Movie {
 }
 
 export interface CatalogMovie extends Movie {
+  remaining_showtime_count?: number
+  next_7_days_showtime_count?: number
   poster_url: string | null
   tmdb_id: number | null
   imdb_id: string | null
@@ -984,6 +986,7 @@ export interface TheaterQuery {
 
 export interface MoviesQuery {
   currently_screened?: boolean
+  screening_summary?: boolean
   include_ended?: boolean
   theaters?: string
   search?: string
@@ -1004,6 +1007,15 @@ export interface MoviesResponse {
   total: number
   generated_at: string
   catalog_revision: string
+  screening_window?: ScreeningWindow
+}
+
+export interface ScreeningWindow {
+  as_of: string
+  timezone: 'Europe/Paris'
+  from: string
+  through: string
+  day_count: number
 }
 
 export interface MovieShowtimesQuery {

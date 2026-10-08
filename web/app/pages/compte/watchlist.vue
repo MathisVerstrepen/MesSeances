@@ -10,6 +10,7 @@ definePageMeta({ middleware: 'account-auth' })
 useHead({ title: 'Watchlist - MesSeances' })
 const account = useAccountSession()
 const watchlist = useWatchlist()
+const screenings = useWatchlistScreenings()
 const {
   query,
   searchResults,
@@ -977,6 +978,19 @@ onBeforeRouteLeave(clearPageSearch)
             </button>
           </div>
         </dialog>
+        <p v-if="screenings.loading.value" role="status" class="sr-only">
+          Chargement des séances…
+        </p>
+        <div v-if="screenings.error.value" role="status" class="mt-3 text-sm">
+          <p>Séances indisponibles.</p>
+          <button
+            type="button"
+            class="account-link min-h-11"
+            @click="screenings.retry"
+          >
+            Réessayer les séances
+          </button>
+        </div>
         <div
           v-if="!ready && !error && !openTagEditor"
           role="status"
@@ -1044,6 +1058,23 @@ onBeforeRouteLeave(clearPageSearch)
                 :french-release-date="movie.french_release_date"
               >
                 <template #content>
+                  <div
+                    v-if="screenings.forMovie(movie.slug)?.inTheaters"
+                    data-watchlist-screenings
+                    class="mt-2 flex flex-wrap gap-2"
+                  >
+                    <span
+                      class="watchlist-tag-chip border-accent bg-accent-soft text-accent"
+                      >En salle</span
+                    >
+                    <span
+                      class="watchlist-tag-chip border-ink/20 bg-subtle text-ink"
+                      :aria-label="screenings.forMovie(movie.slug)?.average.label"
+                      >{{
+                        screenings.forMovie(movie.slug)?.average.text
+                      }}</span
+                    >
+                  </div>
                   <WatchlistItemTags
                     :title="movie.title"
                     :tags="sortedTags"

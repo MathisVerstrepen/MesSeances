@@ -178,33 +178,44 @@ type TheaterShowtimes struct {
 }
 
 type MovieCatalogItem struct {
-	OriginalTitle       *string   `json:"original_title"`
-	OriginalLanguage    *string   `json:"original_language"`
-	FrenchReleaseDate   *string   `json:"french_release_date"`
-	Slug                string    `json:"slug"`
-	Title               string    `json:"title"`
-	RuntimeMinutes      int       `json:"runtime_minutes"`
-	UpdatedAt           time.Time `json:"updated_at"`
-	ShowtimeCount       int       `json:"showtime_count,omitempty"`
-	PosterURL           *string   `json:"poster_url"`
-	TMDBID              *int64    `json:"tmdb_id"`
-	IMDBID              *string   `json:"imdb_id"`
-	MetacriticID        *string   `json:"metacritic_id"`
-	TrailerVFYouTubeKey *string   `json:"trailer_vf_youtube_key"`
-	TrailerVOYouTubeKey *string   `json:"trailer_vo_youtube_key"`
-	Overview            *string   `json:"overview"`
-	ReleaseDate         *string   `json:"release_date"`
-	Genres              []string  `json:"genres"`
+	OriginalTitle          *string   `json:"original_title"`
+	OriginalLanguage       *string   `json:"original_language"`
+	FrenchReleaseDate      *string   `json:"french_release_date"`
+	Slug                   string    `json:"slug"`
+	Title                  string    `json:"title"`
+	RuntimeMinutes         int       `json:"runtime_minutes"`
+	UpdatedAt              time.Time `json:"updated_at"`
+	ShowtimeCount          int       `json:"showtime_count,omitempty"`
+	RemainingShowtimeCount *int      `json:"remaining_showtime_count,omitempty"`
+	Next7DaysShowtimeCount *int      `json:"next_7_days_showtime_count,omitempty"`
+	PosterURL              *string   `json:"poster_url"`
+	TMDBID                 *int64    `json:"tmdb_id"`
+	IMDBID                 *string   `json:"imdb_id"`
+	MetacriticID           *string   `json:"metacritic_id"`
+	TrailerVFYouTubeKey    *string   `json:"trailer_vf_youtube_key"`
+	TrailerVOYouTubeKey    *string   `json:"trailer_vo_youtube_key"`
+	Overview               *string   `json:"overview"`
+	ReleaseDate            *string   `json:"release_date"`
+	Genres                 []string  `json:"genres"`
 }
 
 type MovieCatalog struct {
-	GeneratedAt     time.Time          `json:"generated_at"`
-	CatalogRevision string             `json:"catalog_revision"`
-	Items           []MovieCatalogItem `json:"items"`
-	AvailableGenres []string           `json:"available_genres"`
-	Page            int                `json:"page"`
-	PageSize        int                `json:"page_size"`
-	Total           int                `json:"total"`
+	GeneratedAt     time.Time             `json:"generated_at"`
+	CatalogRevision string                `json:"catalog_revision"`
+	Items           []MovieCatalogItem    `json:"items"`
+	AvailableGenres []string              `json:"available_genres"`
+	Page            int                   `json:"page"`
+	PageSize        int                   `json:"page_size"`
+	Total           int                   `json:"total"`
+	ScreeningWindow *MovieScreeningWindow `json:"screening_window,omitempty"`
+}
+
+type MovieScreeningWindow struct {
+	AsOf     time.Time `json:"as_of"`
+	Timezone string    `json:"timezone"`
+	From     string    `json:"from"`
+	Through  string    `json:"through"`
+	DayCount int       `json:"day_count"`
 }
 
 type MovieTheaterShowtimes struct {
@@ -270,6 +281,7 @@ type TheaterCatalogQuery struct {
 
 type MovieCatalogQuery struct {
 	CurrentlyScreened *bool
+	ScreeningSummary  bool
 	IncludeEnded      bool
 	Search            string
 	Sort              MovieCatalogSort
