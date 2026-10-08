@@ -62,7 +62,7 @@ func alternateVADBoundaryCases(t *testing.T) []alternateVADBoundaryCase {
 	}
 	for _, key := range []string{"dates", "showtimes"} {
 		for _, value := range []string{"omitted", `null`, `{}`, `"invalid"`, `[null]`, `[1]`} {
-			decodeError := value == `{}` || value == `"invalid"` || value == `[1]` || (key == "showtimes" && value == `null`)
+			decodeError := value == `{}` || value == `"invalid"` || value == `[1]` || value == `null`
 			add(key+"="+value, decodeError, func(f, d, _ map[string]any) {
 				target := f
 				if key == "showtimes" {
@@ -184,6 +184,40 @@ func invalidShowtimesValues() []string {
 		`{"result":false,"message":[]}`,
 		`{"result":false,"message":{}}`,
 		`{}`, `null`, `false`, `42`, `"synthetic-private-body"`, `[1]`,
+	}
+}
+
+func TestFilmDatesSentinel(t *testing.T) {
+	for _, raw := range []string{
+		`{"result":false,"message":"synthetic-private-body"}`,
+		`{ "message": "", "result": false }`,
+		`[]`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			f := fixtureFilm("73")
+			body := []byte(`{"visa":73,"dates":` + raw + `}`)
+			if err := json.Unmarshal(body, &f); err != nil || f.Visa != "73" || f.Dates == nil || len(f.Dates) != 0 || f.alternateVAD {
+				t.Fatalf("empty film decode: dates=%d nil=%t err=%v", len(f.Dates), f.Dates == nil, err)
+			}
+			standard := fixtureFilm("-73")
+			if err := json.Unmarshal(jsonBytes(t, standard), &f); err != nil || !reflect.DeepEqual(f, standard) {
+				t.Fatalf("standard array changed after reuse: err=%v", err)
+			}
+			if err := json.Unmarshal([]byte(`{"visa":73}`), &f); err != nil || f.Dates != nil {
+				t.Fatalf("missing dates became explicit empty: err=%v", err)
+			}
+		})
+	}
+}
+
+func TestFilmRejectsInvalidDates(t *testing.T) {
+	for _, raw := range invalidShowtimesValues() {
+		t.Run(raw, func(t *testing.T) {
+			f := fixtureFilm("73")
+			if err := json.Unmarshal([]byte(`{"visa":73,"dates":`+raw+`}`), &f); err == nil || f.Dates != nil {
+				t.Fatalf("invalid dates accepted or stale dates retained: err=%v", err)
+			}
+		})
 	}
 }
 
