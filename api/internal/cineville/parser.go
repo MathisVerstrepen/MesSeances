@@ -48,7 +48,7 @@ type film struct {
 	Visa         scalar          `json:"visa"`
 	Title        string          `json:"titre_cotecine"`
 	Metadata     json.RawMessage `json:"movie_data"`
-	Dates        []programDate   `json:"dates"`
+	Dates        dateList        `json:"dates"`
 	alternateVAD bool
 }
 
@@ -108,6 +108,38 @@ func isAlternateVADFilm(b []byte) bool {
 		}
 	}
 	return hasSessions
+}
+
+type dateList []programDate
+
+func (d *dateList) UnmarshalJSON(b []byte) error {
+	*d = nil
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 {
+		return errPayload
+	}
+	if b[0] == '[' {
+		var dates []programDate
+		if err := json.Unmarshal(b, &dates); err != nil {
+			return err
+		}
+		*d = dates
+		return nil
+	}
+	if b[0] != '{' {
+		return errPayload
+	}
+	var sentinel map[string]json.RawMessage
+	if json.Unmarshal(b, &sentinel) != nil || len(sentinel) != 2 || !bytes.Equal(bytes.TrimSpace(sentinel["result"]), []byte("false")) {
+		return errPayload
+	}
+	var message *string
+	if json.Unmarshal(sentinel["message"], &message) != nil || message == nil {
+		return errPayload
+	}
+	// An unavailable film is empty, not missing; never retain the provider message.
+	*d = dateList{}
+	return nil
 }
 
 type programDate struct {
