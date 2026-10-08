@@ -202,9 +202,10 @@ export function useMesSeancesApi() {
         { query: queryValues(query), signal, retry: false },
       )
     },
-    movies(query: MoviesQuery = {}) {
+    movies(query: MoviesQuery = {}, signal?: AbortSignal) {
       return apiFetch<MoviesResponse>(`${apiBase}/api/v1/movies`, {
         query: queryValues(query),
+        signal,
       })
     },
     upcomingMovies(query: UpcomingMoviesQuery = {}) {
