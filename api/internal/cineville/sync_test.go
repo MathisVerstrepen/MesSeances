@@ -284,6 +284,112 @@ func TestSyncRejectsInvalidShowtimesSentinels(t *testing.T) {
 	}
 }
 
+func filmWithDates(t *testing.T, raw string) json.RawMessage {
+	t.Helper()
+	f := fixtureFilm("-73")
+	value := map[string]any{"visa": f.Visa, "titre_cotecine": f.Title, "movie_data": f.Metadata}
+	if raw != "omitted" {
+		value["dates"] = json.RawMessage(raw)
+	}
+	return jsonBytes(t, value)
+}
+
+func TestSyncDatesSentinelPreservesNormalFilms(t *testing.T) {
+	c := fixtureCinema()
+	c2 := c
+	c2.ID, c2.Route = "707", "laval"
+	catalog := []cinema{c, c2}
+	standard := json.RawMessage(jsonBytes(t, fixtureFilm("167934")))
+	event := fixtureFilm("-693091020261")
+	event.Dates[0].Date = "20270701"
+	event.Dates[0].Showtimes[0].ID = "2"
+	normal := json.RawMessage(jsonBytes(t, event))
+	empty := []json.RawMessage{}
+	baselinePages := map[string][]byte{
+		c.Route:  wireProgramPage(t, c, []json.RawMessage{standard}, []json.RawMessage{normal}),
+		c2.Route: wireProgramPage(t, c2, empty, empty),
+	}
+	baseline, wantSummary, err := Sync(t.Context(), wireProgramClient(t, catalog, baselinePages), fixtureOptions())
+	if err != nil || wantSummary.Cinemas != 2 || wantSummary.Movies != 2 || wantSummary.Showtimes != 2 || wantSummary.Requests != 3 {
+		t.Fatalf("baseline summary=%+v err=%v", wantSummary, err)
+	}
+	for _, placement := range []string{"program", "events", "both"} {
+		t.Run(placement, func(t *testing.T) {
+			unavailable := filmWithDates(t, `{"result":false,"message":"synthetic-private-body"}`)
+			program, events := []json.RawMessage{standard}, []json.RawMessage{normal}
+			if placement != "events" {
+				program = append(program, unavailable)
+			}
+			if placement != "program" {
+				events = append(events, unavailable)
+			}
+			pages := map[string][]byte{
+				c.Route:  wireProgramPage(t, c, program, events),
+				c2.Route: wireProgramPage(t, c2, []json.RawMessage{unavailable}, []json.RawMessage{unavailable}),
+			}
+			client := wireProgramClient(t, catalog, pages)
+			data, summary, err := Sync(t.Context(), client, fixtureOptions())
+			if err != nil || !reflect.DeepEqual(data, baseline) || summary != wantSummary || client.RequestCount() != 3 {
+				t.Fatalf("unavailable film changed normal dataset: summary=%+v requests=%d err=%v", summary, client.RequestCount(), err)
+			}
+			if err := schedule.ValidateDataset(data, true); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestSyncRejectsAllUnavailableDates(t *testing.T) {
+	c := fixtureCinema()
+	unavailable := filmWithDates(t, `{"result":false,"message":"synthetic-private-body"}`)
+	page := wireProgramPage(t, c, []json.RawMessage{unavailable}, []json.RawMessage{unavailable})
+	client := wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page})
+	data, summary, err := Sync(t.Context(), client, fixtureOptions())
+	if !errors.Is(err, schedule.ErrDatasetValidation) || !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) || client.RequestCount() != 2 {
+		t.Fatalf("all-unavailable dataset: summary=%+v requests=%d err=%v", summary, client.RequestCount(), err)
+	}
+}
+
+func TestSyncRejectsInvalidDatesSentinels(t *testing.T) {
+	for _, raw := range append(invalidShowtimesValues(), "omitted", `[null]`) {
+		for _, placement := range []string{"program", "events"} {
+			t.Run(placement+"/"+raw, func(t *testing.T) {
+				c := fixtureCinema()
+				c2 := c
+				c2.ID, c2.Route = "707", "laval"
+				standard := json.RawMessage(jsonBytes(t, fixtureFilm("167934")))
+				invalid := filmWithDates(t, raw)
+				program, events := []json.RawMessage{}, []json.RawMessage{}
+				if placement == "program" {
+					program = append(program, invalid)
+				} else {
+					events = append(events, invalid)
+				}
+				pages := map[string][]byte{
+					c.Route:  wireProgramPage(t, c, []json.RawMessage{standard}, []json.RawMessage{}),
+					c2.Route: wireProgramPage(t, c2, program, events),
+				}
+				client := wireProgramClient(t, []cinema{c, c2}, pages)
+				data, summary, err := Sync(t.Context(), client, fixtureOptions())
+				var re *RequestError
+				if !errors.As(err, &re) || re.Operation != OperationCinema || re.Kind != syncproxy.FailureInvalidJSON || re.StatusCode != 0 {
+					t.Fatalf("invalid dates classification: %v", err)
+				}
+				wantRequests := 6
+				if raw == "omitted" || raw == `[null]` {
+					wantRequests = 3
+				}
+				if !reflect.DeepEqual(data, schedule.Dataset{}) || summary != (SyncSummary{}) || client.RequestCount() != wantRequests {
+					t.Fatalf("partial dataset or unexpected retry: requests=%d want=%d", client.RequestCount(), wantRequests)
+				}
+				if strings.Contains(err.Error(), "synthetic-private-body") || errors.Unwrap(err) != nil {
+					t.Fatal("payload error retained sentinel message")
+				}
+			})
+		}
+	}
+}
+
 func TestSyncInfinityVisionSessionIsolation(t *testing.T) {
 	p := fixturePage(fixtureCinema())
 	p.Attributes = []json.RawMessage{json.RawMessage(`{"id_attribut":10008,"nom":"Infinity Vision"}`)}
@@ -659,7 +765,7 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 			fetcher := singleFetcher(t, p)
 			wantRequests := 2
 			switch name {
-			case "wrong page cinema", "missing catalog", "wrong catalog identity", "missing program", "missing events", "missing attributes", "missing sessions":
+			case "wrong page cinema", "missing catalog", "wrong catalog identity", "missing program", "missing events", "missing attributes", "missing dates", "missing sessions":
 				fetcher.builds = append(fetcher.builds, "build-1")
 				wantRequests = 4
 			}
