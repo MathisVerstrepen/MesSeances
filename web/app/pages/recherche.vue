@@ -125,6 +125,7 @@ const theaterValidationMessage = ref('')
 const appliedSearch = ref<AppliedSearch | null>(null)
 const isFilterSheetOpen = ref(false)
 const isTheaterListOpen = ref(false)
+const isAdvancedOptionsOpen = ref(false)
 const draftTheaterIds = ref<string[]>([])
 const draftBroadScope = ref(false)
 const broadPreferenceScope = computed(() =>
@@ -530,7 +531,8 @@ function focusableElementsWithin(container: HTMLElement) {
   ].filter(
     (element) =>
       !element.hasAttribute('disabled') &&
-      element.getAttribute('aria-hidden') !== 'true',
+      element.getAttribute('aria-hidden') !== 'true' &&
+      element.getClientRects().length > 0,
   )
 }
 
@@ -984,262 +986,302 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       <form
         id="search-filters"
         ref="filterForm"
-        class="filter-form min-w-0 scroll-mt-28 lg:sticky lg:top-24 lg:block lg:max-h-none lg:overflow-visible lg:overscroll-auto lg:border-2 lg:border-ink lg:bg-[#f1efe8] lg:p-6 lg:shadow-[7px_7px_0_#27272a]"
+        class="filter-form min-w-0 scroll-mt-28 lg:sticky lg:top-24 lg:flex lg:max-h-[calc(100dvh-8rem)] lg:flex-col lg:border-2 lg:border-ink lg:bg-[#f1efe8] lg:p-6 lg:shadow-[7px_7px_0_#27272a]"
         :class="[
           (appliedSearch || isResolvingInitialSearch) && !isFilterSheetOpen ? 'hidden' : '',
-          isFilterSheetOpen ? 'fixed inset-x-0 bottom-0 z-50 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_0_#27272a] sm:px-6' : ''
+          isFilterSheetOpen ? 'fixed inset-x-0 bottom-0 z-50 flex max-h-[calc(100dvh-1rem)] flex-col border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 shadow-[0_-8px_0_#27272a] sm:px-6' : 'pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6'
         ]"
         :role="isFilterSheetOpen ? 'dialog' : undefined"
         :aria-modal="isFilterSheetOpen ? 'true' : undefined"
         :aria-labelledby="isFilterSheetOpen ? 'search-filter-sheet-title' : undefined"
         @submit.prevent="submitSearch"
       >
-        <div class="mb-6 flex items-center gap-2.5 border-b-2 border-ink pb-4">
-          <SlidersHorizontal :size="18" aria-hidden="true" />
-          <h2
-            id="search-filter-sheet-title"
-            class="text-xl font-black tracking-[-0.035em] text-ink"
+        <div
+          id="search-filter-settings"
+          class="-mx-1 min-h-0 px-1 py-1 lg:overflow-y-auto lg:overscroll-contain"
+          :class="isFilterSheetOpen ? 'overflow-y-auto overscroll-contain' : ''"
+        >
+          <div
+            class="mb-6 flex items-center gap-2.5 border-b-2 border-ink pb-4"
           >
-            {{
-              isFilterSheetOpen ? 'Modifier la recherche' : 'Votre disponibilité'
-            }}
-          </h2>
-          <button
-            v-if="isFilterSheetOpen"
-            ref="sheetCloseButton"
-            type="button"
-            class="ml-auto inline-flex size-10 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-[#e8e6de] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 lg:hidden"
-            aria-label="Fermer les filtres"
-            @click="closeFilterSheet()"
-          >
-            <X :size="20" aria-hidden="true" />
-          </button>
-        </div>
+            <SlidersHorizontal :size="18" aria-hidden="true" />
+            <h2
+              id="search-filter-sheet-title"
+              class="text-xl font-black tracking-[-0.035em] text-ink"
+            >
+              {{
+                isFilterSheetOpen ? 'Modifier la recherche' : 'Votre disponibilité'
+              }}
+            </h2>
+            <button
+              v-if="isFilterSheetOpen"
+              ref="sheetCloseButton"
+              type="button"
+              class="ml-auto inline-flex size-10 items-center justify-center border-2 border-ink bg-surface text-ink hover:bg-[#e8e6de] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 lg:hidden"
+              aria-label="Fermer les filtres"
+              @click="closeFilterSheet()"
+            >
+              <X :size="20" aria-hidden="true" />
+            </button>
+          </div>
 
-        <div class="space-y-5">
-          <fieldset
-            :aria-invalid="theaterValidationMessage || preferencesError ? 'true' : undefined"
-            :aria-describedby="theaterValidationMessage || preferencesError ? 'theater-selection-message' : undefined"
-          >
-            <legend
-              class="float-left mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+          <div class="space-y-5">
+            <fieldset
+              :aria-invalid="theaterValidationMessage || preferencesError ? 'true' : undefined"
+              :aria-describedby="theaterValidationMessage || preferencesError ? 'theater-selection-message' : undefined"
             >
-              Cinémas
-            </legend>
-            <NuxtLink
-              to="/cinemas"
-              class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
-              >Gérer mes cinémas</NuxtLink
-            >
-            <div
-              v-if="preferencesError && !isInitialized"
-              id="theater-selection-message"
-              class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-              role="alert"
-            >
-              <p>{{ preferencesError }}</p>
-              <button
-                type="button"
-                class="mt-3 font-semibold underline underline-offset-4"
-                @click="initializePreferences"
+              <legend
+                class="float-left mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
               >
-                Réessayer
-              </button>
-            </div>
-            <div
-              v-else-if="isLoading || !isInitialized"
-              class="clear-both flex min-h-11 items-center gap-2 border-2 border-ink bg-surface px-3 text-sm text-muted"
-            >
-              <LoaderCircle
-                :size="16"
-                class="animate-spin"
-                aria-hidden="true"
+                Cinémas
+              </legend>
+              <NuxtLink
+                to="/cinemas"
+                class="float-right mb-2 border-b-2 border-ink font-mono text-[10px] font-bold uppercase tracking-[0.08em] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2"
+                >Gérer mes cinémas</NuxtLink
+              >
+              <div
+                v-if="preferencesError && !isInitialized"
+                id="theater-selection-message"
+                class="clear-both rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                role="alert"
+              >
+                <p>{{ preferencesError }}</p>
+                <button
+                  type="button"
+                  class="mt-3 font-semibold underline underline-offset-4"
+                  @click="initializePreferences"
+                >
+                  Réessayer
+                </button>
+              </div>
+              <div
+                v-else-if="isLoading || !isInitialized"
+                class="clear-both flex min-h-11 items-center gap-2 border-2 border-ink bg-surface px-3 text-sm text-muted"
+              >
+                <LoaderCircle
+                  :size="16"
+                  class="animate-spin"
+                  aria-hidden="true"
+                />
+                Chargement des cinémas…
+              </div>
+              <div
+                v-else-if="!draftBroadScope && searchScopeTheaters.length"
+                class="clear-both"
+              >
+                <button
+                  type="button"
+                  class="flex min-h-12 w-full items-center justify-between gap-3 border-2 border-ink bg-surface px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                  :aria-expanded="isTheaterListOpen"
+                  aria-controls="search-theater-list"
+                  @click="isTheaterListOpen = !isTheaterListOpen"
+                >
+                  <span>{{ favoriteSummary }}</span>
+                  <ChevronDown
+                    :size="18"
+                    class="shrink-0 transition-transform motion-reduce:transition-none"
+                    :class="isTheaterListOpen ? 'rotate-180' : ''"
+                    aria-hidden="true"
+                  />
+                </button>
+                <div
+                  v-show="isTheaterListOpen"
+                  id="search-theater-list"
+                  class="border-2 border-t-0 border-ink bg-surface"
+                >
+                  <label
+                    v-for="theater in searchScopeTheaters"
+                    :key="theater.id"
+                    class="flex min-h-12 cursor-pointer items-center gap-3 border-b border-ink/25 px-3 py-2.5 text-sm last:border-b-0 hover:bg-[#e8e6de]"
+                  >
+                    <input
+                      type="checkbox"
+                      class="peer sr-only"
+                      :checked="draftTheaterIdSet.has(theater.id)"
+                      :aria-label="`Inclure ${theaterDisplayName(theater)}`"
+                      @change="toggleSearchTheater(theater.id)"
+                    >
+                    <span
+                      class="grid size-5 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-checked:bg-ink peer-checked:text-white"
+                      aria-hidden="true"
+                    >
+                      <Check
+                        v-if="draftTheaterIdSet.has(theater.id)"
+                        :size="14"
+                        stroke-width="3"
+                      />
+                    </span>
+                    <TheaterName
+                      :name="theaterDisplayName(theater)"
+                      :provider="theater.provider"
+                      class="min-w-0 font-bold leading-tight"
+                    />
+                  </label>
+                </div>
+              </div>
+              <p
+                v-else
+                class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary"
+              >
+                Tous les cinémas
+              </p>
+              <p
+                v-if="theaterValidationMessage"
+                id="theater-selection-message"
+                class="mt-1.5 text-sm text-red-700"
+                role="alert"
+              >
+                {{ theaterValidationMessage }}
+              </p>
+            </fieldset>
+
+            <fieldset class="min-w-0">
+              <legend
+                class="mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+              >
+                Date de la séance
+              </legend>
+              <ShowtimeDateBar
+                :key="isCenteredCalendar ? 'centered' : 'anchored'"
+                ref="dateBar"
+                :selected-date="form.date"
+                :available-dates="availableDateOptions"
+                :today="todayDate"
+                :disabled="!hasAvailableDates"
+                :centered="isCenteredCalendar"
+                desktop-tabs="today-tomorrow"
+                calendar-position="end"
+                stretch-tabs
+                @select="form.date = $event"
+                @picker-open="isCalendarOpen = true"
+                @picker-closed="isCalendarOpen = false"
+                @menu-mounted="handleCalendarMounted"
+                @menu-unmounted="handleCalendarUnmounted"
               />
-              Chargement des cinémas…
-            </div>
-            <div
-              v-else-if="!draftBroadScope && searchScopeTheaters.length"
-              class="clear-both"
-            >
+              <p
+                v-if="isInitialized && !hasAvailableDates"
+                class="mt-2 text-sm font-semibold text-ink"
+                role="status"
+              >
+                Aucune date de séance disponible pour ces cinémas.
+              </p>
+            </fieldset>
+
+            <TimeRangeSlider
+              v-model:start="form.startAfter"
+              v-model:end="form.finishBefore"
+              :options="timeOptions"
+            />
+
+            <label class="block">
+              <span
+                class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+                >Langue</span
+              >
+              <select
+                v-model="form.language"
+                class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+              >
+                <option
+                  v-for="option in queryLanguageOptions"
+                  :key="option.value"
+                  :value="option.value"
+                >
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+
+            <div>
               <button
                 type="button"
-                class="flex min-h-12 w-full items-center justify-between gap-3 border-2 border-ink bg-surface px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-[#e8e6de] focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-                :aria-expanded="isTheaterListOpen"
-                aria-controls="search-theater-list"
-                @click="isTheaterListOpen = !isTheaterListOpen"
+                class="flex w-full cursor-pointer items-center gap-3 text-left text-sm font-bold text-ink hover:text-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                :aria-expanded="isAdvancedOptionsOpen"
+                aria-controls="search-advanced-options"
+                @click="isAdvancedOptionsOpen = !isAdvancedOptionsOpen"
               >
-                <span>{{ favoriteSummary }}</span>
+                <span class="shrink-0">Options avancées</span>
+                <span class="h-px min-w-0 flex-1 bg-ink" aria-hidden="true" />
                 <ChevronDown
                   :size="18"
                   class="shrink-0 transition-transform motion-reduce:transition-none"
-                  :class="isTheaterListOpen ? 'rotate-180' : ''"
+                  :class="isAdvancedOptionsOpen ? 'rotate-180' : ''"
                   aria-hidden="true"
                 />
               </button>
               <div
-                v-show="isTheaterListOpen"
-                id="search-theater-list"
-                class="border-2 border-t-0 border-ink bg-surface"
+                v-show="isAdvancedOptionsOpen"
+                id="search-advanced-options"
+                class="space-y-5 pt-5"
               >
+                <label class="block">
+                  <span
+                    class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+                    >Format</span
+                  >
+                  <select
+                    v-model="form.format"
+                    class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                  >
+                    <option
+                      v-for="option in queryFormatOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
                 <label
-                  v-for="theater in searchScopeTheaters"
-                  :key="theater.id"
-                  class="flex min-h-12 cursor-pointer items-center gap-3 border-b border-ink/25 px-3 py-2.5 text-sm last:border-b-0 hover:bg-[#e8e6de]"
+                  class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
                 >
                   <input
+                    v-model="form.includeAds"
                     type="checkbox"
-                    class="peer sr-only"
-                    :checked="draftTheaterIdSet.has(theater.id)"
-                    :aria-label="`Inclure ${theaterDisplayName(theater)}`"
-                    @change="toggleSearchTheater(theater.id)"
+                    class="mt-0.5 size-4 accent-primary"
                   >
                   <span
-                    class="grid size-5 shrink-0 place-items-center border-2 border-ink bg-surface peer-focus-visible:outline-3 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ink peer-checked:bg-ink peer-checked:text-white"
-                    aria-hidden="true"
+                    >Inclure les publicités (+{{ ADS_BUFFER_MINUTES }}
+                    min)</span
                   >
-                    <Check
-                      v-if="draftTheaterIdSet.has(theater.id)"
-                      :size="14"
-                      stroke-width="3"
-                    />
-                  </span>
-                  <TheaterName
-                    :name="theaterDisplayName(theater)"
-                    :provider="theater.provider"
-                    class="min-w-0 font-bold leading-tight"
-                  />
+                </label>
+
+                <label
+                  v-if="watchlist.owner.value"
+                  class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
+                >
+                  <input
+                    v-model="watchlistOnly"
+                    type="checkbox"
+                    class="size-4 accent-primary"
+                    :disabled="!watchlist.ready.value"
+                  >
+                  <span>Ma watchlist uniquement</span>
                 </label>
               </div>
             </div>
-            <p
-              v-else
-              class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary"
-            >
-              Tous les cinémas
-            </p>
-            <p
-              v-if="theaterValidationMessage"
-              id="theater-selection-message"
-              class="mt-1.5 text-sm text-red-700"
-              role="alert"
-            >
-              {{ theaterValidationMessage }}
-            </p>
-          </fieldset>
 
-          <fieldset class="min-w-0">
-            <legend
-              class="mb-2 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+            <label
+              v-if="selectedCount"
+              class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
             >
-              Date de la séance
-            </legend>
-            <ShowtimeDateBar
-              :key="isCenteredCalendar ? 'centered' : 'anchored'"
-              ref="dateBar"
-              :selected-date="form.date"
-              :available-dates="availableDateOptions"
-              :today="todayDate"
-              :disabled="!hasAvailableDates"
-              :centered="isCenteredCalendar"
-              desktop-tabs="today-tomorrow"
-              calendar-position="end"
-              stretch-tabs
-              @select="form.date = $event"
-              @picker-open="isCalendarOpen = true"
-              @picker-closed="isCalendarOpen = false"
-              @menu-mounted="handleCalendarMounted"
-              @menu-unmounted="handleCalendarUnmounted"
-            />
-            <p
-              v-if="isInitialized && !hasAvailableDates"
-              class="mt-2 text-sm font-semibold text-ink"
-              role="status"
-            >
-              Aucune date de séance disponible pour ces cinémas.
-            </p>
-          </fieldset>
-
-          <label class="block">
-            <span
-              class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-              >Format</span
-            >
-            <select
-              v-model="form.format"
-              class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-            >
-              <option
-                v-for="option in queryFormatOptions"
-                :key="option.value"
-                :value="option.value"
+              <input
+                :checked="selectedOnly"
+                type="checkbox"
+                class="mt-0.5 size-4 accent-primary"
+                @change="setSelectedOnly"
               >
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
+              <span>Afficher uniquement les séances sélectionnées</span>
+            </label>
+          </div>
+        </div>
 
-          <TimeRangeSlider
-            v-model:start="form.startAfter"
-            v-model:end="form.finishBefore"
-            :options="timeOptions"
-          />
-
-          <label class="block">
-            <span
-              class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-              >Langue</span
-            >
-            <select
-              v-model="form.language"
-              class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-            >
-              <option
-                v-for="option in queryLanguageOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
-
-          <label
-            class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
-          >
-            <input
-              v-model="form.includeAds"
-              type="checkbox"
-              class="mt-0.5 size-4 accent-primary"
-            >
-            <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
-          </label>
-
-          <label
-            v-if="watchlist.owner.value"
-            class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
-          >
-            <input
-              v-model="watchlistOnly"
-              type="checkbox"
-              class="size-4 accent-primary"
-              :disabled="!watchlist.ready.value"
-            >
-            <span>Ma watchlist uniquement</span>
-          </label>
-
-          <label
-            v-if="selectedCount"
-            class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
-          >
-            <input
-              :checked="selectedOnly"
-              type="checkbox"
-              class="mt-0.5 size-4 accent-primary"
-              @change="setSelectedOnly"
-            >
-            <span>Afficher uniquement les séances sélectionnées</span>
-          </label>
-
+        <div
+          class="shrink-0 lg:static lg:border-t-0 lg:bg-transparent lg:px-0 lg:pt-5 lg:pb-0"
+          :class="isFilterSheetOpen ? 'pt-5 pb-[max(1rem,env(safe-area-inset-bottom))]' : 'fixed inset-x-0 bottom-0 z-30 border-t-2 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6'"
+        >
           <button
             type="submit"
             class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55"
