@@ -267,3 +267,94 @@ export function publicActivityPage(
     next_cursor: !cursor && visible.length > 2 ? 'public-page-2' : null,
   }
 }
+
+// Fixed release calendar intentionally ends in 2025, not the browser's current year.
+// Sparse weeks, multi-film boundary weeks, two retained years and more than one page.
+function releaseMovie(id, title, frenchDate) {
+  return {
+    ...movie,
+    slug: `film-${id}`,
+    title,
+    release_date: '2000-01-01',
+    french_release_date: frenchDate,
+    showtime_count: 0,
+  }
+}
+export const releaseHistory = [
+  releaseMovie(201, 'Le premier novembre', '2025-11-01'),
+  releaseMovie(202, 'La dernière nuit d’octobre', '2025-10-31'),
+  releaseMovie(203, 'Les lumières du mercredi', '2025-10-29'),
+  releaseMovie(204, 'Le mercredi des histoires', '2025-10-22'),
+  releaseMovie(205, 'Les salles du quartier', '2025-10-15'),
+  releaseMovie(206, 'Un écran en automne', '2025-10-08'),
+  releaseMovie(207, 'Le début d’octobre', '2025-10-01'),
+  releaseMovie(208, 'La dernière séance de septembre', '2025-09-30'),
+  releaseMovie(209, 'Un mercredi de septembre', '2025-09-17'),
+  releaseMovie(210, 'Le premier jour de 2025', '2025-01-01'),
+  releaseMovie(211, 'Le dernier jour de 2024', '2024-12-31'),
+  releaseMovie(212, 'Le premier jour de 2024', '2024-01-01'),
+]
+export const upcomingReleases = [
+  releaseMovie(301, 'Le prochain mercredi', '2026-10-14'),
+  releaseMovie(302, 'Une autre sortie à venir', '2026-10-28'),
+  releaseMovie(303, 'Les films de novembre', '2026-11-11'),
+  releaseMovie(304, 'Les films de décembre', '2026-12-02'),
+  releaseMovie(305, 'Une sortie plus lointaine', '2026-12-16'),
+]
+function releaseWeek(value) {
+  const day = new Date(`${value}T12:00:00Z`)
+  day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 4) % 7))
+  return day.toISOString().slice(0, 10)
+}
+export function releaseCatalog(query, mode = 'populated') {
+  const history = query.get('view') === 'history'
+  const eligible = mode === 'empty' ? [] : releaseHistory
+  const availableYears = [
+    ...new Set(
+      eligible.map((item) => Number(item.french_release_date.slice(0, 4))),
+    ),
+  ].sort((left, right) => right - left)
+  const year = history
+    ? Number(query.get('year')) || availableYears[0] || null
+    : null
+  const month = history && year ? Number(query.get('month')) || null : null
+  const inYear = eligible.filter(
+    (item) => Number(item.french_release_date.slice(0, 4)) === year,
+  )
+  const availableMonths = [
+    ...new Set(
+      inYear.map((item) => Number(item.french_release_date.slice(5, 7))),
+    ),
+  ].sort((left, right) => left - right)
+  const items = history
+    ? inYear.filter(
+        (item) =>
+          !month || Number(item.french_release_date.slice(5, 7)) === month,
+      )
+    : mode === 'empty'
+      ? []
+      : upcomingReleases
+  const weeks = [
+    ...new Set(items.map((item) => releaseWeek(item.french_release_date))),
+  ]
+  const page = Number(query.get('page') || 1)
+  const pageWeeks = new Set(weeks.slice((page - 1) * 4, page * 4))
+  return {
+    generated_at: '2026-10-09T08:00:00Z',
+    catalog_revision: 'release-fixture-1',
+    timezone: 'Europe/Paris',
+    view: history ? 'history' : 'upcoming',
+    year,
+    month,
+    available_years: history ? availableYears : [],
+    available_months: history ? availableMonths : [],
+    window: history ? null : { from: '2026-10-14', through: '2027-10-09' },
+    items: items.filter((item) =>
+      pageWeeks.has(releaseWeek(item.french_release_date)),
+    ),
+    page,
+    total: items.length,
+    total_weeks: weeks.length,
+    total_pages: Math.ceil(weeks.length / 4),
+  }
+}

@@ -16,6 +16,7 @@ import {
   formatReleaseWeek,
   groupUpcomingMovies,
   parseUpcomingRoute,
+  resolvedUpcomingRoute,
   releaseWeekStart,
   upcomingApiQuery,
   upcomingRouteQuery,
@@ -49,7 +50,12 @@ test('keeps only page and strips obsolete filters, page size and unknown route k
     theaters: 'ugc-1',
     unknown: 'value',
   })
-  assert.deepEqual(state, { page: 2 })
+  assert.deepEqual(state, {
+    view: 'upcoming',
+    year: null,
+    month: null,
+    page: 2,
+  })
   assert.deepEqual(upcomingRouteQuery(state), { page: '2' })
   assert.deepEqual(upcomingApiQuery(state), { page: 2 })
   assert.deepEqual(
@@ -61,7 +67,7 @@ test('keeps only page and strips obsolete filters, page size and unknown route k
     ),
     {},
   )
-  assert.deepEqual(upcomingRouteQuery({ page: 1 }), {})
+  assert.deepEqual(upcomingRouteQuery(parseUpcomingRoute({})), {})
 })
 
 test('normalizes malformed, duplicate and unsafe pages without a compatibility fallback', () => {
@@ -76,13 +82,133 @@ test('normalizes malformed, duplicate and unsafe pages without a compatibility f
     null,
     undefined,
   ]) {
-    assert.deepEqual(parseUpcomingRoute({ page }), { page: 1 })
+    assert.deepEqual(parseUpcomingRoute({ page }), {
+      view: 'upcoming',
+      year: null,
+      month: null,
+      page: 1,
+    })
   }
   assert.deepEqual(parseUpcomingRoute({ page: '9007199254740991' }), {
+    view: 'upcoming',
+    year: null,
+    month: null,
     page: Number.MAX_SAFE_INTEGER,
   })
   for (const page of [1, 2, 3, 99])
-    assert.deepEqual(parseUpcomingRoute(upcomingRouteQuery({ page })), { page })
+    assert.deepEqual(
+      parseUpcomingRoute(
+        upcomingRouteQuery({ view: 'upcoming', year: null, month: null, page }),
+      ),
+      { view: 'upcoming', year: null, month: null, page },
+    )
+})
+
+test('history uses French singular bounded URL state and English API filters only', () => {
+  const state = parseUpcomingRoute({
+    vue: 'historique',
+    annee: '02026',
+    mois: '010',
+    page: '02',
+    view: 'history',
+    year: '2025',
+    unknown: 'x',
+  })
+  assert.deepEqual(state, { view: 'history', year: 2026, month: 10, page: 2 })
+  assert.deepEqual(upcomingRouteQuery(state), {
+    vue: 'historique',
+    annee: '2026',
+    mois: '10',
+    page: '2',
+  })
+  assert.deepEqual(parseUpcomingRoute(upcomingRouteQuery(state)), state)
+  assert.deepEqual(upcomingApiQuery(state), {
+    view: 'history',
+    year: 2026,
+    month: 10,
+    page: 2,
+  })
+  assert.deepEqual(
+    upcomingApiQuery(parseUpcomingRoute({ vue: 'historique', mois: '1' })),
+    { view: 'history', month: 1, page: 1 },
+  )
+  for (const vue of [
+    'history',
+    '',
+    'upcoming',
+    ['historique', 'historique'],
+    null,
+  ]) {
+    assert.deepEqual(
+      upcomingRouteQuery(
+        parseUpcomingRoute({ vue, annee: '2026', mois: '10' }),
+      ),
+      {},
+    )
+  }
+  for (const value of [
+    '',
+    '0',
+    '-1',
+    '+1',
+    ' 1',
+    '1.5',
+    '1e2',
+    '9007199254740992',
+    ['1', '2'],
+    null,
+  ]) {
+    const parsed = parseUpcomingRoute({
+      vue: 'historique',
+      annee: value,
+      mois: value,
+    })
+    assert.equal(parsed.year, null)
+    assert.equal(parsed.month, null)
+  }
+  assert.equal(
+    parseUpcomingRoute({ vue: 'historique', annee: '10000', mois: '13' }).year,
+    null,
+  )
+  assert.equal(
+    parseUpcomingRoute({ vue: 'historique', annee: '10000', mois: '13' }).month,
+    null,
+  )
+  assert.equal(
+    parseUpcomingRoute({ vue: 'historique', annee: '9999', mois: '12' }).year,
+    9999,
+  )
+  assert.equal(
+    parseUpcomingRoute({ vue: 'historique', annee: '1', mois: '1' }).month,
+    1,
+  )
+})
+
+test('response resolution keeps explicit empty periods and nullable no-history defaults', () => {
+  const base = {
+    generated_at: '',
+    catalog_revision: '',
+    timezone: 'Europe/Paris' as const,
+    view: 'history' as const,
+    window: null,
+    items: [],
+    page: 1,
+    total: 0,
+    total_weeks: 0,
+    total_pages: 0,
+    available_years: [2025],
+    available_months: [],
+  }
+  assert.deepEqual(resolvedUpcomingRoute({ ...base, year: 2024, month: 12 }), {
+    view: 'history',
+    year: 2024,
+    month: 12,
+    page: 1,
+  })
+  assert.deepEqual(
+    resolvedUpcomingRoute({ ...base, year: null, month: null }),
+    { view: 'history', year: null, month: null, page: 1 },
+  )
 })
 
 test('assigns every weekday to its prior-or-same Wednesday, with Tuesday closing the week', () => {
@@ -125,6 +251,16 @@ test('groups chronologically without inventing empty weeks or changing within-we
   assert.equal(groups[0]?.movies[0], films[1])
   assert.deepEqual(films, original)
   assert.deepEqual(groupUpcomingMovies([]), [])
+  assert.deepEqual(
+    groupUpcomingMovies(films, 'history').map((group) => [
+      group.weekStart,
+      group.movies.map((item) => item.slug),
+    ]),
+    [
+      ['2027-01-13', ['film-2']],
+      ['2026-12-30', ['film-3', 'film-1', 'film-4']],
+    ],
+  )
 })
 
 test('weeks cross month, year, leap day and DST boundaries without timezone drift', () => {
@@ -251,6 +387,20 @@ test('API composable sends only frozen upcoming query and disables retry', async
       options: { query: { page: 1 }, retry: false },
     },
   ])
+  await useMesSeancesApi().upcomingMovies(
+    upcomingApiQuery(
+      parseUpcomingRoute({
+        vue: 'historique',
+        annee: '2025',
+        mois: '12',
+        page: '2',
+      }),
+    ),
+  )
+  assert.deepEqual(calls[1]?.options, {
+    query: { view: 'history', year: 2025, month: 12, page: 2 },
+    retry: false,
+  })
   assert.match(
     getFrenchApiError({
       data: { error: { code: 'upcoming_unavailable', message: 'unavailable' } },
@@ -332,8 +482,12 @@ test('SSR page and detail use exact states, shared cards and no catalog-only pre
   assert.match(page, /Aucune sortie annoncée/)
   assert.doesNotMatch(
     page,
-    /Mois de sortie|Genres|Effacer les filtres|Aucun film ne correspond aux filtres|<form|available_months|available_genres|page_size|\/ 24/,
+    /Mois de sortie|Genres|Effacer les filtres|Aucun film ne correspond aux filtres|<form|available_genres|page_size|\/ 24/,
   )
+  assert.match(page, /<template v-if="isHistory">/)
+  assert.match(page, /catalog\.view === 'upcoming'/)
+  assert.match(page, /aria-label="Période des sorties"/)
+  assert.doesNotMatch(page, /role="tab/)
   assert.match(page, /catalog\.value\?\.total_pages/)
   assert.match(page, /Math\.max\(1, response\.total_pages\)/)
   assert.match(
