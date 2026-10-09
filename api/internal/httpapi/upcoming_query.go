@@ -12,7 +12,7 @@ func parseUpcomingQuery(r *http.Request) (url.Values, error) {
 		return nil, fmt.Errorf("invalid upcoming query")
 	}
 	for key, values := range query {
-		if key != "page" || len(values) != 1 || values[0] == "" {
+		if (key != "page" && key != "view" && key != "year" && key != "month") || len(values) != 1 || values[0] == "" {
 			return nil, fmt.Errorf("invalid upcoming query")
 		}
 	}

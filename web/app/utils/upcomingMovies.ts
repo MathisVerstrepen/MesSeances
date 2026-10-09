@@ -1,20 +1,39 @@
 import type { LocationQuery } from 'vue-router'
-import type { UpcomingCatalogMovie, UpcomingMoviesQuery } from '../types/api.ts'
+import type {
+  UpcomingCatalogMovie,
+  UpcomingMoviesQuery,
+  UpcomingMoviesResponse,
+} from '../types/api.ts'
 import { isCalendarDate } from './date.ts'
 import { positiveSafeInteger, singularQueryValue } from './routeQuery.ts'
 
 export interface UpcomingRouteState {
+  view: 'upcoming' | 'history'
+  year: number | null
+  month: number | null
   page: number
 }
 
 export function parseUpcomingRoute(query: LocationQuery): UpcomingRouteState {
+  const view =
+    singularQueryValue(query.vue) === 'historique' ? 'history' : 'upcoming'
+  const year = positiveSafeInteger(singularQueryValue(query.annee))
+  const month = positiveSafeInteger(singularQueryValue(query.mois))
   return {
+    view,
+    year: view === 'history' && year && year <= 9999 ? year : null,
+    month: view === 'history' && month && month <= 12 ? month : null,
     page: positiveSafeInteger(singularQueryValue(query.page)) ?? 1,
   }
 }
 
 export function upcomingRouteQuery(state: UpcomingRouteState): LocationQuery {
   const query: LocationQuery = {}
+  if (state.view === 'history') {
+    query.vue = 'historique'
+    if (state.year !== null) query.annee = String(state.year)
+    if (state.month !== null) query.mois = String(state.month)
+  }
   if (state.page > 1) query.page = String(state.page)
   return query
 }
@@ -22,7 +41,31 @@ export function upcomingRouteQuery(state: UpcomingRouteState): LocationQuery {
 export function upcomingApiQuery(
   state: UpcomingRouteState,
 ): UpcomingMoviesQuery {
-  return { page: state.page }
+  const query: UpcomingMoviesQuery = { page: state.page }
+  if (state.view === 'history') {
+    query.view = 'history'
+    if (state.year !== null) query.year = state.year
+    if (state.month !== null) query.month = state.month
+  }
+  return query
+}
+
+export function resolvedUpcomingRoute(
+  response: UpcomingMoviesResponse,
+): UpcomingRouteState {
+  return {
+    view: response.view,
+    year: response.year,
+    month: response.month,
+    page: response.page,
+  }
+}
+
+export function formatReleaseMonth(month: number): string {
+  return new Intl.DateTimeFormat('fr-FR', {
+    month: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(2000, month - 1, 1)))
 }
 
 export function releaseWeekStart(value: string): string {
@@ -35,6 +78,7 @@ export function releaseWeekStart(value: string): string {
 
 export function groupUpcomingMovies(
   items: UpcomingCatalogMovie[],
+  view: UpcomingRouteState['view'] = 'upcoming',
 ): Array<{ weekStart: string; movies: UpcomingCatalogMovie[] }> {
   const groups = new Map<string, UpcomingCatalogMovie[]>()
   for (const movie of items) {
@@ -44,7 +88,11 @@ export function groupUpcomingMovies(
     groups.set(weekStart, movies)
   }
   return [...groups]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) =>
+      view === 'history'
+        ? right.localeCompare(left)
+        : left.localeCompare(right),
+    )
     .map(([weekStart, movies]) => ({ weekStart, movies }))
 }
 

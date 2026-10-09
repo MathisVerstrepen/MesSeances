@@ -40,6 +40,26 @@ func TestValidateDatasetOriginalLanguage(t *testing.T) {
 	}
 }
 
+func TestValidateSnapshotRetainedFrenchReleaseDates(t *testing.T) {
+	for _, date := range []string{"2026-02-30", "2025-02-29", "2026-13-01", "2026-00-01", "2026-1-01", "2026-01-1", " 2026-01-01", "2026-01-01T00:00:00Z", "not-a-date"} {
+		data := upcomingCatalogFixture()
+		data.PublicMovies[0].UpcomingActive = false
+		data.PublicMovies[0].FrenchReleaseDate = date
+		data.PublicMovies[0].ReleaseDate = "2026-01-01"
+		if err := ValidateSnapshotDataset(data, SnapshotRevision{EnrichmentVersion: 1}); err == nil {
+			t.Fatalf("invalid retained date accepted or general date used: %q", date)
+		}
+	}
+	for _, date := range []string{"", "2024-02-29", "2025-12-31", "0001-01-01", "9999-12-31"} {
+		data := upcomingCatalogFixture()
+		data.PublicMovies[0].UpcomingActive = false
+		data.PublicMovies[0].FrenchReleaseDate = date
+		if err := ValidateSnapshotDataset(data, SnapshotRevision{EnrichmentVersion: 1}); err != nil {
+			t.Fatalf("valid retained date rejected: %q err=%v", date, err)
+		}
+	}
+}
+
 func TestValidateDatasetCoordinatesAndClonePointers(t *testing.T) {
 	validLatitude, validLongitude := 50.6321, 3.0612
 	data := testDataset()

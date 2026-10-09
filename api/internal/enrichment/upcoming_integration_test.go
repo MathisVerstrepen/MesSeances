@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -512,5 +514,94 @@ func TestUpcomingExistingOwnerAndLocalGroupsIntegration(t *testing.T) {
 		if item.Revision != 2 || item.Decision != map[int64]string{42: "excluded", 99: "approved"}[item.TMDBID] {
 			t.Fatalf("correction/rejection/merge/unmerge altered decision %+v", item)
 		}
+	}
+}
+
+func TestUpcomingRetainedHistoryIntegration(t *testing.T) {
+	pool := upcomingIntegrationPool(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	store, reader := NewPostgresStore(pool), schedulepg.NewStore(pool)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	publication := UpcomingPublication{CompletedAt: now, Window: schedule.UpcomingWindow(now)}
+	for i, date := range []string{"2026-10-07", "2026-11-04", "2026-12-02"} {
+		id := int64(42 + i)
+		publication.Metadata = append(publication.Metadata, metadataFromDetails(tmdb.Details{ID: id, Title: "Retained film", OriginalTitle: "Retained film", ReleaseDate: "2000-01-01"}, 0, now))
+		publication.Releases = append(publication.Releases, upcomingTestRelease(id, date, true))
+	}
+	if err := store.PublishUpcoming(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetUpcomingDecision(ctx, 43, UpcomingDecisionUpdate{Decision: "excluded", ExpectedRevision: 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	initial, _, err := reader.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[int64]int64{}
+	for _, movie := range initial.PublicMovies {
+		ids[movie.TMDBID] = movie.ID
+		if !movie.UpcomingActive || !movie.HasUpcomingRelease || movie.RedirectToID != 0 {
+			t.Fatalf("initial identity=%+v", movie)
+		}
+	}
+	loadService := func() *schedule.Service {
+		t.Helper()
+		source, err := schedule.NewPostgresSource(ctx, reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service, err := schedule.NewService(source, schedule.ServiceOptions{Now: func() time.Time { return now }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !service.HasCatalog() || service.HasSnapshot() {
+			t.Fatal("retained history must not require provider schedules")
+		}
+		return service
+	}
+	before, err := loadService().UpcomingMovies(schedule.UpcomingMoviesQuery{View: "history"})
+	if err != nil || before.Year != nil || before.Total != 0 || before.Items == nil || len(before.Items) != 0 {
+		t.Fatalf("successful empty history=%+v err=%v", before, err)
+	}
+	now = time.Date(2027, 1, 7, 12, 0, 0, 0, time.UTC)
+	publication.CompletedAt = now
+	publication.Window = schedule.UpcomingWindow(now)
+	publication.Metadata = nil
+	publication.Releases = []UpcomingRelease{upcomingTestRelease(42, "2026-10-07", false), upcomingTestRelease(43, "2026-11-04", false), upcomingTestRelease(44, "", false)}
+	if err := store.PublishUpcoming(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	retained, revision, err := reader.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.ScheduleVersion != 0 || len(retained.PublicMovies) != 3 {
+		t.Fatalf("catalog-only retained rows=%+v revision=%+v", retained, revision)
+	}
+	for _, movie := range retained.PublicMovies {
+		if ids[movie.TMDBID] != movie.ID || movie.RedirectToID != 0 || movie.UpcomingActive || !movie.HasUpcomingRelease {
+			t.Fatalf("retained identity=%+v", movie)
+		}
+		if movie.TMDBID == 43 && !movie.UpcomingExcluded || movie.TMDBID == 44 && (movie.FrenchReleaseDate != "" || movie.ReleaseDate != "2000-01-01") {
+			t.Fatalf("excluded/withdrawn state=%+v", movie)
+		}
+	}
+	service := loadService()
+	history, err := service.UpcomingMovies(schedule.UpcomingMoviesQuery{View: "history"})
+	if err != nil || history.View != "history" || history.Window != nil || history.Year == nil || *history.Year != 2026 || history.Month != nil || !slices.Equal(history.AvailableYears, []int{2026}) || !slices.Equal(history.AvailableMonths, []int{10}) || history.Total != 1 || history.TotalWeeks != 1 || history.TotalPages != 1 || len(history.Items) != 1 || history.Items[0].Slug != "film-"+strconv.FormatInt(ids[42], 10) || history.Items[0].FrenchReleaseDate == nil || *history.Items[0].FrenchReleaseDate != "2026-10-07" || !history.GeneratedAt.Equal(now) {
+		t.Fatalf("retained history=%+v err=%v", history, err)
+	}
+	upcoming, err := service.UpcomingMovies(schedule.UpcomingMoviesQuery{})
+	if err != nil || upcoming.Total != 0 {
+		t.Fatalf("inactive row exposed as upcoming=%+v err=%v", upcoming, err)
+	}
+	if _, err := store.SetUpcomingDecision(ctx, 42, UpcomingDecisionUpdate{Decision: "excluded", ExpectedRevision: 2}, now); err != nil {
+		t.Fatal(err)
+	}
+	empty, err := loadService().UpcomingMovies(schedule.UpcomingMoviesQuery{View: "history"})
+	if err != nil || empty.Year != nil || empty.Month != nil || empty.Total != 0 || empty.TotalWeeks != 0 || empty.TotalPages != 0 || empty.Items == nil || len(empty.Items) != 0 || empty.AvailableYears == nil || len(empty.AvailableYears) != 0 || empty.AvailableMonths == nil || len(empty.AvailableMonths) != 0 {
+		t.Fatalf("excluded retained history=%+v err=%v", empty, err)
 	}
 }
