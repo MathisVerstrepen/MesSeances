@@ -9,6 +9,7 @@ import {
   generatedAt,
   movie,
   publicActivityPage,
+  releaseCatalog,
   screeningCatalog,
   secondTheater,
   showtimes,
@@ -38,6 +39,7 @@ let selected = {
 }
 let watchlist = syntheticWatchlist(scenario.username)
 const screeningQueries = []
+const upcomingQueries = []
 function syntheticSession() {
   return {
     enabled: scenario.enabled,
@@ -165,6 +167,31 @@ const mock = createServer((request, response) => {
         { error: { code: 'not_found', message: 'Cinéma introuvable' } },
         404,
       )
+    if (path === '/api/v1/movies/upcoming') {
+      upcomingQueries.push(Object.fromEntries(url.searchParams))
+      const mode = scenario.upcoming || 'populated'
+      if (mode === 'error' || mode === 'generic-error')
+        return json(
+          response,
+          {
+            error: {
+              code:
+                mode === 'error'
+                  ? 'upcoming_unavailable'
+                  : 'schedule_unavailable',
+            },
+          },
+          503,
+        )
+      const value = releaseCatalog(url.searchParams, mode)
+      if (mode === 'delay') {
+        setTimeout(() => {
+          if (!response.destroyed) json(response, value)
+        }, 1500)
+        return
+      }
+      return json(response, value)
+    }
     if (
       path === '/api/v1/movies' &&
       url.searchParams.get('screening_summary') === 'true'
@@ -379,6 +406,7 @@ try {
         followGets,
         activityGets,
         screeningQueries,
+        upcomingQueries,
         selected,
       })
     if (request.url === '/__playwright/scenario' && request.method === 'POST') {
@@ -407,10 +435,23 @@ try {
         }
         watchlist = syntheticWatchlist(scenario.username, !!input.watchlist)
         screeningQueries.length = 0
+        upcomingQueries.length = 0
         followPosts = 0
         followGets = 0
         activityGets = 0
         unexpected.length = 0
+        json(response, { ready: true })
+      })
+      return
+    }
+    if (request.url === '/__playwright/upcoming' && request.method === 'POST') {
+      let body = ''
+      request.on('data', (chunk) => {
+        body += chunk
+      })
+      request.on('end', () => {
+        const input = JSON.parse(body)
+        scenario.upcoming = input.mode || 'populated'
         json(response, { ready: true })
       })
       return

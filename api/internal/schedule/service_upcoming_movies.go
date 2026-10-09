@@ -3,6 +3,7 @@ package schedule
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -10,14 +11,22 @@ import (
 var ErrUpcomingUnavailable = errors.New("upcoming publication unavailable")
 
 type UpcomingMoviesQuery struct {
-	Page int
+	View  string
+	Year  int
+	Month int
+	Page  int
 }
 
 type UpcomingMoviesResponse struct {
 	GeneratedAt     time.Time          `json:"generated_at"`
 	CatalogRevision string             `json:"catalog_revision"`
 	Timezone        string             `json:"timezone"`
-	Window          Window             `json:"window"`
+	Window          *Window            `json:"window"`
+	View            string             `json:"view"`
+	Year            *int               `json:"year"`
+	Month           *int               `json:"month"`
+	AvailableYears  []int              `json:"available_years"`
+	AvailableMonths []int              `json:"available_months"`
 	Items           []MovieCatalogItem `json:"items"`
 	Page            int                `json:"page"`
 	Total           int                `json:"total"`
@@ -28,6 +37,15 @@ type UpcomingMoviesResponse struct {
 const upcomingWeeksPerPage = 4
 
 func (s *Service) UpcomingMovies(query UpcomingMoviesQuery) (UpcomingMoviesResponse, error) {
+	if query.View == "" {
+		query.View = "upcoming"
+	}
+	if query.View != "upcoming" && query.View != "history" {
+		return UpcomingMoviesResponse{}, invalid("Vue invalide.")
+	}
+	if query.Year < 0 || query.Year > 9999 || query.Month < 0 || query.Month > 12 || query.View == "upcoming" && (query.Year != 0 || query.Month != 0) {
+		return UpcomingMoviesResponse{}, invalid("Période invalide.")
+	}
 	if query.Page == 0 {
 		query.Page = 1
 	}
@@ -38,17 +56,26 @@ func (s *Service) UpcomingMovies(query UpcomingMoviesQuery) (UpcomingMoviesRespo
 	if view == nil || view.data.UpcomingCompletedAt.IsZero() {
 		return UpcomingMoviesResponse{}, ErrUpcomingUnavailable
 	}
-	result := UpcomingMoviesResponse{GeneratedAt: view.data.UpcomingCompletedAt, CatalogRevision: catalogRevisionAt(view, now, s.location), Timezone: Timezone, Window: UpcomingDisplayWindow(now), Items: []MovieCatalogItem{}, Page: query.Page}
+	result := UpcomingMoviesResponse{GeneratedAt: view.data.UpcomingCompletedAt, CatalogRevision: catalogRevisionAt(view, now, s.location), Timezone: Timezone, View: query.View, AvailableYears: []int{}, AvailableMonths: []int{}, Items: []MovieCatalogItem{}, Page: query.Page}
 	filtered := []PublicMovieRecord{}
-	for _, movie := range view.data.PublicMovies {
-		if movie.RedirectToID != 0 || !movie.UpcomingActive || movie.UpcomingExcluded || movie.FrenchReleaseDate < result.Window.From || movie.FrenchReleaseDate > result.Window.Through {
-			continue
+	if query.View == "history" {
+		filtered = retainedReleaseHistory(view, now.In(s.location).Format(time.DateOnly), query, &result)
+	} else {
+		window := UpcomingDisplayWindow(now)
+		result.Window = &window
+		for _, movie := range view.data.PublicMovies {
+			if movie.RedirectToID != 0 || !movie.UpcomingActive || movie.UpcomingExcluded || movie.FrenchReleaseDate < window.From || movie.FrenchReleaseDate > window.Through {
+				continue
+			}
+			filtered = append(filtered, movie)
 		}
-		filtered = append(filtered, movie)
 	}
 	sort.Slice(filtered, func(i, j int) bool {
 		left, right := filtered[i], filtered[j]
 		if left.FrenchReleaseDate != right.FrenchReleaseDate {
+			if query.View == "history" {
+				return left.FrenchReleaseDate > right.FrenchReleaseDate
+			}
 			return left.FrenchReleaseDate < right.FrenchReleaseDate
 		}
 		if comparison := compareNormalized(left.Title, right.Title); comparison != 0 {
@@ -85,6 +112,54 @@ func (s *Service) UpcomingMovies(query UpcomingMoviesQuery) (UpcomingMoviesRespo
 		result.Items = append(result.Items, materializePublicMovie(movie))
 	}
 	return result, nil
+}
+
+// retainedReleaseHistory reads current stored knowledge, including inactive rows.
+// Dates are validated by the snapshot boundary; never substitute general dates.
+func retainedReleaseHistory(view *SnapshotView, today string, query UpcomingMoviesQuery, result *UpcomingMoviesResponse) []PublicMovieRecord {
+	eligible := []PublicMovieRecord{}
+	years := map[int]bool{}
+	for _, movie := range view.data.PublicMovies {
+		if movie.RedirectToID != 0 || !movie.HasUpcomingRelease || movie.UpcomingExcluded || movie.FrenchReleaseDate == "" || movie.FrenchReleaseDate > today {
+			continue
+		}
+		eligible = append(eligible, movie)
+		year, _ := strconv.Atoi(movie.FrenchReleaseDate[:4])
+		years[year] = true
+	}
+	for year := range years {
+		result.AvailableYears = append(result.AvailableYears, year)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(result.AvailableYears)))
+	year := query.Year
+	if year == 0 && len(result.AvailableYears) > 0 {
+		year = result.AvailableYears[0]
+	}
+	filtered := []PublicMovieRecord{}
+	if year == 0 {
+		return filtered
+	}
+	result.Year = &year
+	if query.Month != 0 {
+		result.Month = &query.Month
+	}
+	months := map[int]bool{}
+	for _, movie := range eligible {
+		releaseYear, _ := strconv.Atoi(movie.FrenchReleaseDate[:4])
+		if releaseYear != year {
+			continue
+		}
+		month, _ := strconv.Atoi(movie.FrenchReleaseDate[5:7])
+		months[month] = true
+		if query.Month == 0 || month == query.Month {
+			filtered = append(filtered, movie)
+		}
+	}
+	for month := range months {
+		result.AvailableMonths = append(result.AvailableMonths, month)
+	}
+	sort.Ints(result.AvailableMonths)
+	return filtered
 }
 
 func catalogRevisionAt(view *SnapshotView, now time.Time, location *time.Location) string {

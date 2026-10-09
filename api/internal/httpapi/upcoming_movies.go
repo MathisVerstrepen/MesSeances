@@ -29,7 +29,15 @@ func (api *API) upcomingMovies(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	result, err := api.schedule.UpcomingMovies(schedule.UpcomingMoviesQuery{Page: page})
+	year, ok := parsePositiveInteger(w, query, "year", "Année invalide.")
+	if !ok {
+		return
+	}
+	month, ok := parsePositiveInteger(w, query, "month", "Mois invalide.")
+	if !ok {
+		return
+	}
+	result, err := api.schedule.UpcomingMovies(schedule.UpcomingMoviesQuery{View: query.Get("view"), Year: year, Month: month, Page: page})
 	if errors.Is(err, schedule.ErrUpcomingUnavailable) {
 		w.Header().Set("Cache-Control", "no-store")
 		writeError(w, http.StatusServiceUnavailable, "upcoming_unavailable", "Les prochaines sorties ne sont pas encore disponibles.")

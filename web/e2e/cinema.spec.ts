@@ -283,3 +283,141 @@ test('missing cinema returns an SSR 404 and useful page', async ({ page }) => {
     page.getByRole('heading', { name: 'Cinéma introuvable', exact: true }),
   ).toBeVisible()
 })
+
+test('ICE showtime logo loads without duplicate labels or overflow', async ({
+  page,
+}, info) => {
+  await openPage(page, path)
+  await page.route(`**/api/v1/theaters/${theater.slug}/showtimes*`, (route) => {
+    const payload = showtimes()
+    return route.fulfill({
+      json: {
+        ...payload,
+        date: new URL(route.request().url()).searchParams.get('date'),
+        showtimes: payload.showtimes.map((showtime) => ({
+          ...showtime,
+          format: 'ICE',
+        })),
+      },
+    })
+  })
+  // Trigger a client fetch, reusing the synthetic SSR fixture for page identity.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+  await page.setViewportSize(info.project.use.viewport!)
+  const logo = page.locator('main img[src*="ice_logo_small"]:visible')
+  await expect(logo).toHaveCount(1)
+  await expect(logo).toHaveAttribute('alt', '')
+  await expect(logo).toHaveAttribute('aria-hidden', 'true')
+  await expect(logo.locator('..').locator('.sr-only')).toHaveText('ICE')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
+  const box = await logo.boundingBox()
+  expect(box!.height).toBeGreaterThanOrEqual(18)
+  expect(box!.width / box!.height).toBeCloseTo(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+    2,
+  )
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('ice-showtime.png'),
+    fullPage: true,
+  })
+})
+
+test('ICE planning filter preserves selected inversion and canonical value', async ({
+  page,
+}, info) => {
+  await page.route('**/api/v1/timeline?**', (route) =>
+    route.fulfill({
+      json: {
+        date,
+        timezone: 'Europe/Paris',
+        window_start_time: `${date}T06:00:00+02:00`,
+        window_end_time: `${date}T23:59:00+02:00`,
+        theaters: [],
+      },
+    }),
+  )
+  await openPage(page, '/planning')
+  const button = page.getByRole('button', { name: 'ICE', exact: true })
+  const logo = button.locator('img')
+  await expect(button).toHaveCount(1)
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(logo).toHaveAttribute('src', /ice_logo_small/)
+  await expect(logo).toHaveAttribute('alt', '')
+  await expect(logo).toHaveAttribute('aria-hidden', 'true')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
+  await expect(logo).not.toHaveClass(/invert/)
+  await button.scrollIntoViewIfNeeded()
+  await button.screenshot({ path: info.outputPath('ice-filter-default.png') })
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(page).toHaveURL(/format=ICE/)
+  await expect(logo).toHaveClass(/brightness-0 invert/)
+  expect(await logo.evaluate((image) => getComputedStyle(image).filter)).toBe(
+    'brightness(0) invert(1)',
+  )
+  const box = await logo.boundingBox()
+  expect(box!.height).toBeCloseTo(24, 0)
+  expect(box!.width / box!.height).toBeCloseTo(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+    2,
+  )
+  await button.screenshot({ path: info.outputPath('ice-filter-selected.png') })
+  await page
+    .getByRole('button', { name: 'Tous les formats', exact: true })
+    .click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(logo).not.toHaveClass(/invert/)
+  await expect(page).not.toHaveURL(/format=ICE/)
+})
+
+test('ICE technology credit uses supplied display logo and official attribution', async ({
+  page,
+}, info) => {
+  await openPage(page, '/credits')
+  const credit = page.locator('section[aria-labelledby="credit-ICE"]')
+  const link = credit.getByRole('link', {
+    name: 'Site officiel ICE, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(link).toHaveAttribute('href', 'https://www.icetheaters.com/')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  const logo = link.locator('img')
+  await expect(logo).toHaveAttribute('src', /ice_logo_large/)
+  await expect(logo).toHaveAttribute('alt', '')
+  await expect(logo).toHaveAttribute('aria-hidden', 'true')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate((image: HTMLImageElement) => image.naturalWidth),
+  ).toBeGreaterThan(0)
+  const box = await logo.boundingBox()
+  expect(box!.height).toBeCloseTo(64, 0)
+  expect(box!.width / box!.height).toBeCloseTo(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+    2,
+  )
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true)
+  await credit.screenshot({ path: info.outputPath('ice-credit.png') })
+})

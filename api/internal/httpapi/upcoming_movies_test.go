@@ -45,7 +45,7 @@ func TestUpcomingCatalogOnlyWireContract(t *testing.T) {
 	if result.Page != 1 || result.Total != 1 || result.TotalWeeks != 1 || result.TotalPages != 1 || len(result.Items) != 1 || result.Items[0].FrenchReleaseDate == nil || *result.Items[0].FrenchReleaseDate != "2026-10-07" || result.Items[0].ReleaseDate == nil || *result.Items[0].ReleaseDate != "2000-01-01" {
 		t.Fatalf("list=%+v", result)
 	}
-	if result.Window != (schedule.Window{From: "2026-09-16", Through: "2027-09-13"}) {
+	if result.Window == nil || *result.Window != (schedule.Window{From: "2026-09-16", Through: "2027-09-13"}) {
 		t.Fatalf("display window=%+v", result.Window)
 	}
 	t.Logf("UPCOMING_WIRE %s", strings.TrimSpace(list.Body.String()))
@@ -53,7 +53,7 @@ func TestUpcomingCatalogOnlyWireContract(t *testing.T) {
 	if err := json.Unmarshal(list.Body.Bytes(), &wire); err != nil {
 		t.Fatal(err)
 	}
-	wantKeys := []string{"generated_at", "catalog_revision", "timezone", "window", "items", "page", "total", "total_weeks", "total_pages"}
+	wantKeys := []string{"generated_at", "catalog_revision", "timezone", "window", "items", "page", "total", "total_weeks", "total_pages", "view", "year", "month", "available_years", "available_months"}
 	if len(wire) != len(wantKeys) {
 		t.Fatalf("unexpected response fields: %s", list.Body)
 	}
@@ -61,6 +61,9 @@ func TestUpcomingCatalogOnlyWireContract(t *testing.T) {
 		if _, ok := wire[key]; !ok {
 			t.Fatalf("missing %s", key)
 		}
+	}
+	if string(wire["view"]) != `"upcoming"` || string(wire["year"]) != "null" || string(wire["month"]) != "null" || string(wire["available_years"]) != "[]" || string(wire["available_months"]) != "[]" {
+		t.Fatalf("upcoming defaults=%s", list.Body)
 	}
 	for _, page := range []int{2, int(^uint(0) >> 1)} {
 		w := request("/api/v1/movies/upcoming?page=" + strconv.Itoa(page))
@@ -166,7 +169,7 @@ func TestUpcomingDisplayWindowHTTPMidnight(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Window != (schedule.Window{From: test.from, Through: test.through}) || result.Total != test.total || result.TotalWeeks != test.total || result.TotalPages != 1 || len(result.Items) != test.total || result.Items[0].Slug != test.slug || !result.GeneratedAt.Equal(data.UpcomingCompletedAt) || result.CatalogRevision == previousRevision {
+		if result.Window == nil || *result.Window != (schedule.Window{From: test.from, Through: test.through}) || result.Total != test.total || result.TotalWeeks != test.total || result.TotalPages != 1 || len(result.Items) != test.total || result.Items[0].Slug != test.slug || !result.GeneratedAt.Equal(data.UpcomingCompletedAt) || result.CatalogRevision == previousRevision {
 			t.Fatalf("display response=%+v", result)
 		}
 		previousRevision = result.CatalogRevision
@@ -224,5 +227,153 @@ func TestUpcomingHTTPCompleteWeeksWithoutFilmCap(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("page %d: got=%v want=%v", page+1, got, want)
 		}
+	}
+}
+
+func TestUpcomingHistoryHTTPContract(t *testing.T) {
+	now := time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
+	data := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Timezone: schedule.Timezone, GeneratedAt: now, UpcomingCompletedAt: now}
+	wantPages := [][]string{{}, {}}
+	for week := range 5 {
+		count := 1
+		if week == 0 {
+			count = 126
+		}
+		for range count {
+			id := int64(len(data.PublicMovies) + 1)
+			date := time.Date(2026, 10, 28-week*7, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+			data.PublicMovies = append(data.PublicMovies, schedule.PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: "Film", HasUpcomingRelease: true, FrenchReleaseDate: date, UpdatedAt: now})
+			wantPages[week/4] = append(wantPages[week/4], "film-"+strconv.FormatInt(id, 10))
+		}
+	}
+	for i, date := range []string{"2025-12-31", "2024-11-01", "2027-01-01", ""} {
+		id := int64(1000 + i)
+		movie := schedule.PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: "Other", HasUpcomingRelease: true, FrenchReleaseDate: date, ReleaseDate: "2000-01-01", UpdatedAt: now}
+		if i == 1 {
+			movie.UpcomingExcluded = true
+		}
+		data.PublicMovies = append(data.PublicMovies, movie)
+	}
+	if err := schedule.ValidateCatalogOnlyDataset(data); err != nil {
+		t.Fatal(err)
+	}
+	source := &mutableFixtureSource{view: schedule.NewSnapshotView(data, schedule.SnapshotRevision{EnrichmentVersion: 1})}
+	service, err := schedule.NewService(source, schedule.ServiceOptions{Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	limiterNow := now
+	handler := NewHandlerWithOptions(service, "http://localhost:3000", HandlerOptions{RateLimitClock: func() time.Time { return limiterNow }})
+	request := func(query string) *httptest.ResponseRecorder {
+		t.Helper()
+		limiterNow = limiterNow.Add(time.Second)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/movies/upcoming?"+query, nil))
+		return w
+	}
+	for _, query := range []string{
+		"view=history", "view=history&year=2026&month=10", "view=history&month=10",
+		"view=history&year=0002026&month=010&page=01", "view=history&year=%2B2026&month=%2B10&page=%2B1",
+	} {
+		w := request(query)
+		var result schedule.UpcomingMoviesResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		wantWeeks, wantTotal, wantTotalPages := 5, 130, 2
+		if strings.Contains(query, "month=") {
+			wantWeeks, wantTotal, wantTotalPages = 4, 129, 1
+		}
+		if w.Code != 200 || result.View != "history" || result.Window != nil || result.Year == nil || *result.Year != 2026 || !slices.Equal(result.AvailableYears, []int{2026, 2025}) || !slices.Equal(result.AvailableMonths, []int{9, 10}) || result.Total != wantTotal || result.TotalWeeks != wantWeeks || result.TotalPages != wantTotalPages || len(result.Items) != 129 || !result.GeneratedAt.Equal(data.UpcomingCompletedAt) || result.Timezone != schedule.Timezone {
+			t.Fatalf("%s: %d %s", query, w.Code, w.Body)
+		}
+		if strings.Contains(query, "month=") {
+			if result.Month == nil || *result.Month != 10 || result.Total != 129 || result.Items[len(result.Items)-1].Slug != "film-129" {
+				t.Fatalf("month filter=%+v", result)
+			}
+		} else if result.Month != nil || result.Total != 130 {
+			t.Fatalf("unfiltered=%+v", result)
+		}
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(w.Body.Bytes(), &wire); err != nil {
+			t.Fatal(err)
+		}
+		if len(wire) != 14 || string(wire["window"]) != "null" || string(wire["view"]) != `"history"` || string(wire["year"]) != "2026" {
+			t.Fatalf("wire=%s", w.Body)
+		}
+		for _, private := range []string{"decision", "french_releases", "reason_codes", "assessment_status", "review_revision", "upcoming_active", "upcoming_excluded"} {
+			if strings.Contains(w.Body.String(), private) {
+				t.Fatalf("private field %s", private)
+			}
+		}
+	}
+	for _, page := range []int{1, 2, 3, int(^uint(0) >> 1)} {
+		w := request("view=history&year=2026&page=" + strconv.Itoa(page))
+		var result schedule.UpcomingMoviesResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		got := []string{}
+		for _, item := range result.Items {
+			got = append(got, item.Slug)
+		}
+		want := []string{}
+		if page <= 2 {
+			want = wantPages[page-1]
+		}
+		if w.Code != 200 || result.Page != page || result.Total != 130 || result.TotalWeeks != 5 || result.TotalPages != 2 || !slices.Equal(got, want) || result.Items == nil || !slices.Equal(result.AvailableYears, []int{2026, 2025}) || !slices.Equal(result.AvailableMonths, []int{9, 10}) {
+			t.Fatalf("history page=%d: %d %s", page, w.Code, w.Body)
+		}
+	}
+	for _, query := range []string{"view=history&year=2023", "view=history&year=2026&month=1", "view=history&year=1&month=1", "view=history&year=9999&month=12"} {
+		w := request(query)
+		var result schedule.UpcomingMoviesResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || result.Year == nil || result.Total != 0 || result.TotalWeeks != 0 || result.TotalPages != 0 || result.Items == nil || len(result.Items) != 0 || !slices.Equal(result.AvailableYears, []int{2026, 2025}) {
+			t.Fatalf("empty explicit period=%d %s", w.Code, w.Body)
+		}
+	}
+	for _, query := range []string{
+		"view=other", "view=History", "view=", "view=history&view=history", "view=history&%76iew=history", "view=%ZZ",
+		"year=2026", "month=1", "view=upcoming&year=2026", "view=upcoming&month=1",
+		"view=history&year=0", "view=history&year=-1", "view=history&year=10000", "view=history&year=1.5",
+		"view=history&year=%202026", "view=history&year=2026%20", "view=history&year=+2026", "view=history&year=one",
+		"view=history&year=99999999999999999999999", "view=history&year=", "view=history&year", "view=history&year=%ZZ",
+		"view=history&year=2026&year=2026", "view=history&year=2026&%79ear=2025",
+		"view=history&month=0", "view=history&month=-1", "view=history&month=13", "view=history&month=1.5",
+		"view=history&month=%201", "view=history&month=one", "view=history&month=", "view=history&month",
+		"view=history&month=99999999999999999999999", "view=history&month=%ZZ", "view=history&month=1&month=1", "view=history&month=1&%6Donth=2",
+		"view=history&page=0", "view=history&page=1&page=2", "view=history&unknown=1", "view=history&page_size=4", "view=history&year=2026;month=10",
+	} {
+		w := request(query)
+		if w.Code != 400 || !strings.Contains(w.Body.String(), `"code":"invalid_query"`) {
+			t.Errorf("%s: %d %s", query, w.Code, w.Body)
+		}
+	}
+	if w := request("view=upcoming&page=%2B01"); w.Code != 200 || !strings.Contains(w.Body.String(), `"view":"upcoming"`) {
+		t.Fatalf("explicit upcoming=%d %s", w.Code, w.Body)
+	}
+	data.PublicMovies = nil
+	source.view = schedule.NewSnapshotView(data, schedule.SnapshotRevision{EnrichmentVersion: 2})
+	for _, query := range []string{"view=history", "view=history&month=10"} {
+		w := request(query)
+		var wire map[string]json.RawMessage
+		if err := json.Unmarshal(w.Body.Bytes(), &wire); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || string(wire["year"]) != "null" || string(wire["month"]) != "null" || string(wire["available_years"]) != "[]" || string(wire["available_months"]) != "[]" || string(wire["items"]) != "[]" || string(wire["total_pages"]) != "0" {
+			t.Fatalf("empty history=%d %s", w.Code, w.Body)
+		}
+	}
+	data.UpcomingCompletedAt = time.Time{}
+	source.view = schedule.NewSnapshotView(data)
+	if w := request("view=history"); w.Code != 503 || w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), `"upcoming_unavailable"`) {
+		t.Fatalf("unpublished history=%d %s", w.Code, w.Body)
+	}
+	source.view = nil
+	if w := request("view=history"); w.Code != 503 || w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), `"schedule_unavailable"`) {
+		t.Fatalf("missing catalog=%d %s", w.Code, w.Body)
 	}
 }

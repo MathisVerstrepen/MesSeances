@@ -10,6 +10,8 @@ import noeCinemasLogoSmall from '~/assets/imgs/noe_cinema_logo_small.webp?no-inl
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
+import iceLogoLarge from '~/assets/imgs/ice_logo_large.webp?no-inline'
+import iceLogoSmall from '~/assets/imgs/ice_logo_small.webp?no-inline'
 import infinityVisionLogoLarge from '~/assets/imgs/infinity_vision_logo_large.png?no-inline'
 import infinityVisionLogoSmall from '~/assets/imgs/infinity_vision_logo_small.png?no-inline'
 import kinepolisLogoLarge from '~/assets/imgs/kinepolis_logo_large.webp?no-inline'
@@ -44,6 +46,7 @@ type Brand =
   | 'SCREENX'
   | 'LASER_ULTRA'
   | '4DX'
+  | 'ICE'
   | 'INFINITY_VISION'
 
 const props = withDefaults(
@@ -74,6 +77,7 @@ const sources = {
   SCREENX: { inline: screenXLogoSmall, display: screenXLogoLarge },
   LASER_ULTRA: { inline: laserUltraLogoSmall, display: laserUltraLogoLarge },
   '4DX': { inline: logo4DXSmall, display: logo4DXLarge },
+  ICE: { inline: iceLogoSmall, display: iceLogoLarge },
   INFINITY_VISION: {
     inline: infinityVisionLogoSmall,
     display: infinityVisionLogoLarge,
@@ -100,6 +104,7 @@ const accessibleNames = {
   SCREENX: 'ScreenX',
   LASER_ULTRA: 'Laser ULTRA by Kinepolis',
   '4DX': '4DX',
+  ICE: 'ICE',
   INFINITY_VISION: 'Infinity Vision',
 } satisfies Record<Brand, string>
 </script>
@@ -114,7 +119,9 @@ const accessibleNames = {
     :alt="decorative ? '' : accessibleNames[brand]"
     :aria-hidden="decorative ? 'true' : undefined"
     class="inline-block max-w-full shrink-0 select-none object-contain"
-    :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', variant === 'display'
+    :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'ICE'
+      ? (variant === 'display' ? 'h-16 w-auto sm:h-20' : 'h-[2em] w-auto align-middle')
+      : variant === 'display'
       ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
       : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')]"
   >

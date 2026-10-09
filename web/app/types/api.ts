@@ -1039,6 +1039,9 @@ export interface MovieShowtimesTheater {
 }
 
 export interface UpcomingMoviesQuery {
+  view?: 'upcoming' | 'history'
+  year?: number
+  month?: number
   page?: number
 }
 
@@ -1046,17 +1049,34 @@ export type UpcomingCatalogMovie = CatalogMovie & {
   french_release_date: string
 }
 
-export interface UpcomingMoviesResponse {
+interface UpcomingMoviesResponseBase {
   generated_at: string
   catalog_revision: string
   timezone: 'Europe/Paris'
-  window: { from: string; through: string }
+  available_years: number[]
+  available_months: number[]
   items: UpcomingCatalogMovie[]
   page: number
   total: number
   total_weeks: number
   total_pages: number
 }
+
+export type UpcomingMoviesResponse = UpcomingMoviesResponseBase &
+  (
+    | {
+        view: 'upcoming'
+        window: { from: string; through: string }
+        year: null
+        month: null
+      }
+    | {
+        view: 'history'
+        window: null
+        year: number | null
+        month: number | null
+      }
+  )
 
 export interface MovieShowtimesResponse {
   release_status: 'upcoming' | 'showing' | 'ended' | 'unavailable'

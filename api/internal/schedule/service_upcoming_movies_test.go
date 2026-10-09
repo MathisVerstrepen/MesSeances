@@ -290,7 +290,7 @@ func TestUpcomingDisplayEligibilityBeforeWeeksAndPages(t *testing.T) {
 			}
 			for page := 1; page <= 3; page++ {
 				result, err := s.UpcomingMovies(UpcomingMoviesQuery{Page: page})
-				if err != nil || result.Total != 2 || result.TotalWeeks != 2 || result.TotalPages != 1 || result.Window != (Window{From: test.from, Through: test.through}) {
+				if err != nil || result.Total != 2 || result.TotalWeeks != 2 || result.TotalPages != 1 || result.Window == nil || *result.Window != (Window{From: test.from, Through: test.through}) {
 					t.Fatalf("page %d=%+v err=%v", page, result, err)
 				}
 				if page == 1 {
@@ -354,5 +354,287 @@ func TestUpcomingExclusionOnlyAffectsUpcomingList(t *testing.T) {
 	inventory, err := s.Movies(MovieCatalogQuery{})
 	if err != nil || len(inventory.Items) != 1 {
 		t.Fatalf("inventory %+v %v", inventory, err)
+	}
+}
+
+func historyMovie(id int64, title, date string) PublicMovieRecord {
+	return PublicMovieRecord{ID: id, IdentityAnchorTMDBID: id, TMDBID: id, Title: title, FrenchReleaseDate: date, HasUpcomingRelease: true, UpdatedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
+}
+
+func historyService(t *testing.T, data Dataset, now func() time.Time) (*Service, *SnapshotView) {
+	t.Helper()
+	revision := SnapshotRevision{EnrichmentVersion: 1}
+	if err := ValidateSnapshotDataset(data, revision); err != nil {
+		t.Fatal(err)
+	}
+	view := NewSnapshotView(data, revision)
+	service, err := NewService(testSource{view}, ServiceOptions{Now: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service, view
+}
+
+func historySlugs(result UpcomingMoviesResponse) []string {
+	slugs := []string{}
+	for _, item := range result.Items {
+		slugs = append(slugs, item.Slug)
+	}
+	return slugs
+}
+
+func TestUpcomingHistoryEligibilityFacetsAndOrder(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now}
+	data.PublicMovies = []PublicMovieRecord{
+		historyMovie(10, " Alpha ", "2026-09-13"), historyMovie(2, "alpha", "2026-09-13"),
+		historyMovie(3, "Beta", "2026-09-13"), historyMovie(1, "Today active", "2026-09-13"),
+		historyMovie(4, "Current Wednesday", "2026-09-09"), historyMovie(5, "Tomorrow", "2026-09-14"),
+		historyMovie(6, "Other month", "2026-01-01"), historyMovie(7, "Previous year", "2025-12-31"),
+		historyMovie(8, "Old", "2024-02-29"), historyMovie(9, "Excluded", "2023-06-01"),
+		historyMovie(11, "Withdrawn", ""), historyMovie(12, "General date only", ""),
+	}
+	data.PublicMovies[3].UpcomingActive = true
+	data.PublicMovies[4].UpcomingActive = true
+	data.PublicMovies[9].UpcomingExcluded = true
+	data.PublicMovies[11].HasUpcomingRelease = false
+	data.PublicMovies[11].ReleaseDate = "2022-07-01"
+	s, view := historyService(t, data, func() time.Time { return now })
+	if !s.HasCatalog() || s.HasSnapshot() {
+		t.Fatal("history fixture must be catalog-only")
+	}
+	for _, test := range []struct {
+		query  UpcomingMoviesQuery
+		year   int
+		month  int
+		months []int
+		slugs  []string
+		weeks  int
+	}{
+		{UpcomingMoviesQuery{View: "history"}, 2026, 0, []int{1, 9}, []string{"film-2", "film-10", "film-3", "film-1", "film-4", "film-6"}, 2},
+		{UpcomingMoviesQuery{View: "history", Month: 9}, 2026, 9, []int{1, 9}, []string{"film-2", "film-10", "film-3", "film-1", "film-4"}, 1},
+		{UpcomingMoviesQuery{View: "history", Year: 2025}, 2025, 0, []int{12}, []string{"film-7"}, 1},
+		{UpcomingMoviesQuery{View: "history", Year: 2024, Month: 2}, 2024, 2, []int{2}, []string{"film-8"}, 1},
+		{UpcomingMoviesQuery{View: "history", Year: 2026, Month: 2}, 2026, 2, []int{1, 9}, []string{}, 0},
+		{UpcomingMoviesQuery{View: "history", Year: 2022, Month: 7}, 2022, 7, []int{}, []string{}, 0},
+	} {
+		got, err := s.UpcomingMovies(test.query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.View != "history" || got.Window != nil || got.Year == nil || *got.Year != test.year || (test.month == 0 && got.Month != nil) || (test.month != 0 && (got.Month == nil || *got.Month != test.month)) || !slices.Equal(got.AvailableYears, []int{2026, 2025, 2024}) || !slices.Equal(got.AvailableMonths, test.months) || !slices.Equal(historySlugs(got), test.slugs) || got.Total != len(test.slugs) || got.TotalWeeks != test.weeks || got.TotalPages != min(test.weeks, 1) || got.Page != 1 || !got.GeneratedAt.Equal(data.UpcomingCompletedAt) || got.Timezone != Timezone {
+			t.Fatalf("query=%+v result=%+v slugs=%v", test.query, got, historySlugs(got))
+		}
+		for _, item := range got.Items {
+			if item.FrenchReleaseDate == nil || *item.FrenchReleaseDate == "" {
+				t.Fatal("missing French date")
+			}
+		}
+		encoded, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, private := range []string{"UpcomingExcluded", "upcoming_active", "decision", "french_releases", "reason_codes", "assessed_at", "assessment_status", "review_revision"} {
+			if strings.Contains(string(encoded), private) {
+				t.Fatalf("private field %s", private)
+			}
+		}
+	}
+	if !reflect.DeepEqual(view.data.PublicMovies, data.PublicMovies) {
+		t.Fatal("history mutated snapshot")
+	}
+	// Redirects with upcoming evidence cannot pass snapshot validation. Inject one
+	// only to exercise the service's defensive canonical-identity check.
+	view.data.PublicMovies[0].RedirectToID = 2
+	got, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history"})
+	if err != nil || slices.Contains(historySlugs(got), "film-10") || got.Total != 5 {
+		t.Fatalf("redirect exposed=%+v err=%v", got, err)
+	}
+}
+
+func TestUpcomingHistoryDefaultAndEmpty(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	for _, movies := range [][]PublicMovieRecord{
+		{historyMovie(1, "Older", "2024-12-31"), historyMovie(2, "Latest eligible", "2025-04-01"), historyMovie(3, "Future", "2027-01-01")},
+		{}, {historyMovie(1, "Future only", "2027-01-01")},
+	} {
+		data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now, PublicMovies: movies}
+		s, _ := historyService(t, data, func() time.Time { return now })
+		got, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history", Month: 4})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(movies) == 3 {
+			if got.Year == nil || *got.Year != 2025 || got.Month == nil || *got.Month != 4 || !slices.Equal(historySlugs(got), []string{"film-2"}) {
+				t.Fatalf("default selected clock year=%+v", got)
+			}
+		} else if got.Year != nil || got.Month != nil || got.AvailableYears == nil || len(got.AvailableYears) != 0 || got.AvailableMonths == nil || len(got.AvailableMonths) != 0 || got.Items == nil || len(got.Items) != 0 || got.Total != 0 || got.TotalWeeks != 0 || got.TotalPages != 0 {
+			t.Fatalf("empty=%+v", got)
+		}
+	}
+}
+
+func TestUpcomingHistoryActualDatePeriodBoundaries(t *testing.T) {
+	now := time.Date(2027, 2, 2, 12, 0, 0, 0, time.UTC)
+	data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now, PublicMovies: []PublicMovieRecord{
+		historyMovie(1, "December", "2026-12-31"), historyMovie(2, "January", "2027-01-01"),
+		historyMovie(3, "January end", "2027-01-31"), historyMovie(4, "February", "2027-02-01"),
+	}}
+	s, _ := historyService(t, data, func() time.Time { return now })
+	for _, test := range []struct {
+		year, month int
+		slugs       []string
+		weeks       int
+	}{
+		{2026, 12, []string{"film-1"}, 1}, {2027, 1, []string{"film-3", "film-2"}, 2},
+		{2027, 2, []string{"film-4"}, 1}, {2027, 0, []string{"film-4", "film-3", "film-2"}, 2},
+	} {
+		got, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history", Year: test.year, Month: test.month})
+		if err != nil || !slices.Equal(historySlugs(got), test.slugs) || got.TotalWeeks != test.weeks {
+			t.Fatalf("period=%+v result=%+v err=%v", test, got, err)
+		}
+	}
+}
+
+func TestUpcomingHistoryFourNonemptyWeeksLossless(t *testing.T) {
+	for _, weeks := range []int{0, 4, 5, 8, 9} {
+		t.Run(fmt.Sprint(weeks), func(t *testing.T) {
+			now := time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
+			latestWednesday := time.Date(2026, 12, 16, 0, 0, 0, 0, time.UTC)
+			data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now}
+			wantPages := [][]string{}
+			for week := range weeks {
+				if week%4 == 0 {
+					wantPages = append(wantPages, []string{})
+				}
+				for day := 6; day >= 0; day-- {
+					count := 1
+					if week == 0 {
+						count = 18
+					}
+					for range count {
+						id := int64(len(data.PublicMovies) + 1)
+						date := latestWednesday.AddDate(0, 0, -week*14+day).Format(time.DateOnly)
+						data.PublicMovies = append(data.PublicMovies, historyMovie(id, "Film", date))
+						wantPages[week/4] = append(wantPages[week/4], fmt.Sprintf("film-%d", id))
+					}
+				}
+			}
+			wantTotal := len(data.PublicMovies)
+			wantYears := []int{2025}
+			if weeks > 0 {
+				wantYears = []int{2026, 2025}
+			}
+			for i, date := range []string{"2027-01-01", "2026-12-09", "2026-11-25", "2025-12-31"} {
+				movie := historyMovie(int64(1000+i), "Hidden", date)
+				if i == 1 {
+					movie.UpcomingExcluded = true
+				}
+				if i == 2 {
+					movie.FrenchReleaseDate = ""
+					movie.ReleaseDate = date
+				}
+				data.PublicMovies = append(data.PublicMovies, movie)
+			}
+			slices.Reverse(data.PublicMovies)
+			clockCalls := 0
+			s, view := historyService(t, data, func() time.Time { clockCalls++; return now })
+			seen := map[string]bool{}
+			for page := 1; page <= len(wantPages)+1; page++ {
+				before := clockCalls
+				got, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history", Year: 2026, Page: page})
+				if err != nil || got.Page != page || got.Total != wantTotal || got.TotalWeeks != weeks || got.TotalPages != len(wantPages) || got.Items == nil || clockCalls != before+1 || !slices.Equal(got.AvailableYears, wantYears) {
+					t.Fatalf("page=%d got=%+v err=%v clock=%d", page, got, err, clockCalls-before)
+				}
+				want := []string{}
+				if page <= len(wantPages) {
+					want = wantPages[page-1]
+				}
+				if !slices.Equal(historySlugs(got), want) {
+					t.Fatalf("page=%d slugs=%v want=%v", page, historySlugs(got), want)
+				}
+				for _, slug := range historySlugs(got) {
+					if seen[slug] {
+						t.Fatalf("duplicate=%s", slug)
+					}
+					seen[slug] = true
+				}
+				repeated, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history", Year: 2026, Page: page})
+				if err != nil || !reflect.DeepEqual(repeated, got) {
+					t.Fatal("nondeterministic history")
+				}
+			}
+			if len(seen) != wantTotal || !reflect.DeepEqual(view.data.PublicMovies, data.PublicMovies) {
+				t.Fatal("lost history or mutated snapshot")
+			}
+			huge, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history", Year: 2026, Page: int(^uint(0) >> 1)})
+			if err != nil || huge.Items == nil || len(huge.Items) != 0 || huge.Total != wantTotal || huge.TotalWeeks != weeks || huge.TotalPages != len(wantPages) {
+				t.Fatalf("huge=%+v err=%v", huge, err)
+			}
+		})
+	}
+}
+
+func TestUpcomingHistoryParisTodayAndRevision(t *testing.T) {
+	for _, instant := range []string{
+		"2026-09-13T21:59:59Z", "2026-03-28T22:59:59Z", "2026-03-29T21:59:59Z",
+		"2026-10-24T21:59:59Z", "2026-10-25T22:59:59Z",
+		"2028-02-28T22:59:59Z", "2028-02-29T22:59:59Z", "2026-12-31T22:59:59Z",
+	} {
+		t.Run(instant, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, instant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			location, err := time.LoadLocation(Timezone)
+			if err != nil {
+				t.Fatal(err)
+			}
+			today := now.In(location).Format(time.DateOnly)
+			tomorrow := now.Add(time.Second).In(location).Format(time.DateOnly)
+			data := Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: now, UpcomingCompletedAt: now, PublicMovies: []PublicMovieRecord{historyMovie(1, "Today", today), historyMovie(2, "Tomorrow", tomorrow)}}
+			s, view := historyService(t, data, func() time.Time { return now })
+			before, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history"})
+			if err != nil || !slices.Equal(historySlugs(before), []string{"film-1"}) {
+				t.Fatalf("before=%+v err=%v", before, err)
+			}
+			now = now.Add(time.Second)
+			after, err := s.UpcomingMovies(UpcomingMoviesQuery{View: "history"})
+			want := []string{"film-2", "film-1"}
+			if today[:4] != tomorrow[:4] {
+				want = []string{"film-2"}
+			}
+			if err != nil || !slices.Equal(historySlugs(after), want) || before.CatalogRevision == after.CatalogRevision || !before.GeneratedAt.Equal(after.GeneratedAt) || !reflect.DeepEqual(view.data.PublicMovies, data.PublicMovies) {
+				t.Fatalf("after=%+v err=%v", after, err)
+			}
+		})
+	}
+}
+
+func TestUpcomingHistoryServiceQueryValidationAndAvailability(t *testing.T) {
+	data := upcomingCatalogFixture()
+	s, _ := historyService(t, data, func() time.Time { return data.GeneratedAt })
+	for _, query := range []UpcomingMoviesQuery{
+		{View: "unsupported"}, {Year: 2026}, {View: "upcoming", Month: 1},
+		{View: "history", Year: -1}, {View: "history", Year: 10000},
+		{View: "history", Month: -1}, {View: "history", Month: 13}, {View: "history", Page: -1},
+	} {
+		if _, err := s.UpcomingMovies(query); err == nil {
+			t.Fatalf("accepted=%+v", query)
+		}
+	}
+	for _, query := range []UpcomingMoviesQuery{{View: "history", Year: 1, Month: 1}, {View: "history", Year: 9999, Month: 12}, {View: "upcoming"}} {
+		if _, err := s.UpcomingMovies(query); err != nil {
+			t.Fatalf("rejected=%+v err=%v", query, err)
+		}
+	}
+	for _, source := range []Source{testSource{}, newTestSource(Dataset{SchemaVersion: SchemaVersion, Timezone: Timezone, GeneratedAt: data.GeneratedAt})} {
+		unpublished, err := NewService(source, ServiceOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := unpublished.UpcomingMovies(UpcomingMoviesQuery{View: "history"}); !errors.Is(err, ErrUpcomingUnavailable) {
+			t.Fatalf("unpublished history=%v", err)
+		}
 	}
 }
