@@ -54,6 +54,12 @@ jobs:
         working-directory: .
         run: make test-race
 
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9.3.0
+        with:
+          version: v2.13.1
+          working-directory: api
+
       - name: Vulnerability check
         uses: golang/govulncheck-action@v1
         with:
@@ -63,12 +69,6 @@ jobs:
           cache-dependency-path: api/go.sum
           work-dir: api
           go-package: ./...
-
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9.3.0
-        with:
-          version: v2.13.1
-          working-directory: api
 
   integration:
     name: Go CI / integration

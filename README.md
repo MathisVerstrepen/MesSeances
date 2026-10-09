@@ -29,7 +29,7 @@ Account registration and private settings are implemented behind `ACCOUNTS_ENABL
 
 ### Requirements
 
-- Go 1.25.13
+- Go 1.26.0
 - Node.js 22.23.1 and npm 10.9.8 (verified versions)
 - Python 3.12+ and Make for contributor validation
 - Docker with Docker Compose
@@ -43,7 +43,7 @@ make install
 cp deploy/.env.example deploy/.env
 ```
 
-`make install` prepares application dependencies and installs gotestsum v1.13.0 and golangci-lint v2.13.1 into ignored `api/bin/`. This online setup may acquire a Go 1.26+ compiler for the linter; the application module remains Go 1.25.13. `make install-tools` prepares only these tools. Checks never download missing Go/npm tools or dependencies; rerun setup explicitly when preflight reports a missing prerequisite. Explicit `make test-integration` may pull its disposable `postgres:18-alpine` image if absent and requires a reachable local Docker daemon, not a host PostgreSQL client.
+`make install` prepares application dependencies and installs gotestsum v1.13.0 and golangci-lint v2.13.1 into ignored `api/bin/`. This online setup may acquire a Go 1.26+ compiler for the linter; the application module remains Go 1.26.0. `make install-tools` prepares only these tools. Checks never download missing Go/npm tools or dependencies; rerun setup explicitly when preflight reports a missing prerequisite. Explicit `make test-integration` may pull its disposable `postgres:18-alpine` image if absent and requires a reachable local Docker daemon, not a host PostgreSQL client.
 
 MesSeances can start after migrations without a complete schedule snapshot. In this pending state, `/healthz` returns `200`, `/readyz` returns `503`, and public schedule reads return `503 schedule_unavailable`. Configure `ADMIN_PASSWORD`, an independently generated `ADMIN_SESSION_SECRET`, and `PROXY_FILE`, then trigger the first provider synchronization from the authenticated admin area. Its atomic snapshot publication becomes visible to the running API during the next five-second source poll; no restart is required.
 
