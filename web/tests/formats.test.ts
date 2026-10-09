@@ -9,14 +9,16 @@ import {
   isShowtimeFormat,
 } from '../app/utils/formats.ts'
 
-test('exposes ICE as a text-only showtime and query format', () => {
+test('exposes ICE as a branded canonical showtime and query format', () => {
   assert.deepEqual(
     formatOptions.find((option) => option.value === 'ICE'),
-    { value: 'ICE', label: 'ICE' },
+    { value: 'ICE', label: 'ICE', brand: 'ICE' },
   )
   assert.equal(formatLabel('ice'), 'ICE')
-  assert.equal(formatBrand('ICE'), undefined)
+  assert.equal(formatBrand('ICE'), 'ICE')
+  assert.equal(formatBrand('ice'), 'ICE')
   assert.equal(isShowtimeFormat('ICE'), true)
+  assert.equal(isShowtimeFormat('ice'), false)
 })
 
 test('labels the unfiltered format option explicitly', () => {

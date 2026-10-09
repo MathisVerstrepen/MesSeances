@@ -7,6 +7,7 @@ export type FormatBrand =
   | 'SCREENX'
   | 'LASER_ULTRA'
   | '4DX'
+  | 'ICE'
   | 'INFINITY_VISION'
 
 export const formatOptions: ReadonlyArray<{
@@ -26,7 +27,7 @@ export const formatOptions: ReadonlyArray<{
     brand: 'LASER_ULTRA',
   },
   { value: '4DX', label: '4DX', brand: '4DX' },
-  { value: 'ICE', label: 'ICE' },
+  { value: 'ICE', label: 'ICE', brand: 'ICE' },
   {
     value: 'INFINITY_VISION',
     label: 'Infinity Vision',

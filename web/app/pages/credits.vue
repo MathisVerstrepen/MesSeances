@@ -17,6 +17,7 @@ type CreditBrand =
   | 'SCREENX'
   | 'LASER_ULTRA'
   | '4DX'
+  | 'ICE'
   | 'INFINITY_VISION'
 
 interface Credit {
@@ -81,6 +82,7 @@ const creditSections: Array<{
         url: 'https://kinepolis.fr/laser-ultra/',
       },
       { brand: '4DX', name: '4DX', url: 'https://kinepolis.fr/4dx/' },
+      { brand: 'ICE', name: 'ICE', url: 'https://www.icetheaters.com/' },
       {
         brand: 'INFINITY_VISION',
         name: 'Infinity Vision',
