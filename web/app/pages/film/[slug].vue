@@ -48,6 +48,7 @@ import { movieOriginalTitleSubtitle } from '~/utils/movieCatalogPresentation'
 import { safeBackdropUrl, safePosterUrl } from '~/utils/safeImageUrl'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { formatFrenchReleaseDate } from '~/utils/upcomingMovies'
+import { formatShowtimeCount } from '~/utils/formats'
 import {
   availableFormatOptions,
   availableFilmLanguageOptions,
@@ -1269,7 +1270,40 @@ if (
         >
       </section>
       <section
-        v-else
+        v-if="schedule.discovery.window && schedule.discovery.cities.length"
+        class="mt-8 border-t-2 border-ink pt-6 sm:mt-12"
+        aria-labelledby="film-discovery-heading"
+      >
+        <h2
+          id="film-discovery-heading"
+          class="text-2xl font-black tracking-tight sm:text-3xl"
+        >
+          Où voir ce film du
+          {{ formatLongDate(schedule.discovery.window.from) }} au
+          {{ formatLongDate(schedule.discovery.window.through) }}
+        </h2>
+        <ul class="mt-5 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+          <li
+            v-for="city in schedule.discovery.cities"
+            :key="city.slug"
+            class="border-b-2 border-ink"
+          >
+            <NuxtLink
+              :to="`/ville/${encodeURIComponent(city.slug)}/cinemas`"
+              class="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3 font-bold hover:text-primary"
+            >
+              <span class="break-words">{{ city.name }}</span>
+              <span class="text-sm"
+                >{{ city.theater_count }}
+                cinéma{{ city.theater_count > 1 ? 's' : '' }}
+                · {{ formatShowtimeCount(city.showtime_count) }}</span
+              >
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
+      <section
+        v-if="!hasNoSessions"
         class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10"
         aria-labelledby="schedule-heading"
       >

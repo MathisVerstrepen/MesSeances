@@ -10,7 +10,7 @@ const handlerFixtures = [
   {
     route: 'films',
     url: new URL('../server/routes/sitemaps/films.xml.ts', import.meta.url),
-    retryDeclarations: 3,
+    retryDeclarations: 1,
   },
   {
     route: 'cinemas',
@@ -73,6 +73,19 @@ test('all sitemap API reads explicitly disable automatic GET retries', () => {
     (fixture, index) => [fixture, handlerSources[index]] as const,
   )) {
     assert.equal(source.match(/retry:\s*false/gu)?.length, retryDeclarations)
+  }
+})
+
+test('each child consumes exactly one coherent sitemap-data response without catalogue/global fallback', () => {
+  for (const source of handlerSources) {
+    assert.equal(source.match(/\$fetch</gu)?.length, 1)
+    assert.match(source, /\/api\/v1\/sitemap-data/u)
+    assert.match(source, /\$fetch<unknown>/u)
+    assert.match(source, /parseSitemapData\(payload\)/u)
+    assert.doesNotMatch(
+      source,
+      /\/api\/v1\/(?:movies|cities)\b|generated_at|updated_at|latestTimestamp/u,
+    )
   }
 })
 

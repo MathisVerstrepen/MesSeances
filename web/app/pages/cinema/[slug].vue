@@ -20,6 +20,7 @@ import type { ResultGrouping, ResultLayout } from '~/types/showtimeResults'
 import { publicCinemaImageUrl } from '~/utils/cinemaImage'
 import { cinemaMovieTarget } from '~/utils/cinemaMovieTarget'
 import { formatLongDate, todayInParis } from '~/utils/date'
+import { formatShowtimeCount } from '~/utils/formats'
 import { cinemaDescription } from '~/utils/entityDescriptions'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import {
@@ -217,7 +218,7 @@ async function loadCinema() {
   notFound.value = false
   const state = await fetchCinema()
   if (currentRequest !== requestId) return
-  response.value = state.response
+  if (state.kind !== 'upstream-error') response.value = state.response
   notFound.value = state.kind === 'not-found'
   errorMessage.value = state.errorMessage
   pending.value = false
@@ -372,6 +373,7 @@ if (currentView.value === 'films' && response.value) {
 
 watch([slug, selectedDate], ([nextSlug], [previousSlug]) => {
   if (nextSlug !== previousSlug) {
+    response.value = null
     moviesRequestId++
     cinemaMovies.value = []
     moviesErrorMessage.value = ''
@@ -894,6 +896,39 @@ useHead(() => ({
         </div>
 
         <template v-if="currentView === 'showtimes'">
+          <section
+            v-if="response.discovery.window && response.discovery.movies.length"
+            class="mt-6"
+            aria-labelledby="cinema-discovery-films-heading"
+          >
+            <h3
+              id="cinema-discovery-films-heading"
+              class="text-2xl font-black tracking-tight"
+            >
+              Films du {{ formatLongDate(response.discovery.window.from) }} au
+              {{ formatLongDate(response.discovery.window.through) }}
+            </h3>
+            <ul
+              class="mt-5 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-6"
+            >
+              <li
+                v-for="movie in response.discovery.movies"
+                :key="movie.slug"
+                class="min-w-0"
+              >
+                <MovieCatalogCard
+                  :movie="movie"
+                  :to="cinemaMovieTarget(movie.slug, response.theater.id)"
+                >
+                  <template v-if="movie.runtime_minutes <= 0" #release>
+                    <p class="text-xs font-bold">
+                      {{ formatShowtimeCount(movie.showtime_count!) }}
+                    </p>
+                  </template>
+                </MovieCatalogCard>
+              </li>
+            </ul>
+          </section>
           <div
             class="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"
           >
@@ -1018,6 +1053,39 @@ useHead(() => ({
             :layout="resultLayout"
             scope="single-theater"
           />
+          <section
+            v-if="response.discovery.window && response.discovery.other_theaters.length"
+            class="mt-10 border-t-2 border-ink pt-6"
+            aria-labelledby="cinema-discovery-alternatives-heading"
+          >
+            <h3
+              id="cinema-discovery-alternatives-heading"
+              class="text-2xl font-black tracking-tight"
+            >
+              Autres cinémas à {{ formatCinemaCity(response.theater.city) }} du
+              {{ formatLongDate(response.discovery.window.from) }} au
+              {{ formatLongDate(response.discovery.window.through) }}
+            </h3>
+            <ul class="mt-5 grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
+              <li
+                v-for="other in response.discovery.other_theaters"
+                :key="other.id"
+                class="border-b-2 border-ink"
+              >
+                <NuxtLink
+                  :to="`/cinema/${encodeURIComponent(other.slug)}`"
+                  class="flex min-h-11 flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3 font-bold hover:text-primary"
+                >
+                  <TheaterName :name="other.name" :provider="other.provider" />
+                  <span class="text-sm"
+                    >{{ other.movie_count }}
+                    film{{ other.movie_count > 1 ? 's' : '' }}
+                    · {{ formatShowtimeCount(other.showtime_count) }}</span
+                  >
+                </NuxtLink>
+              </li>
+            </ul>
+          </section>
         </template>
 
         <CinemaActivity

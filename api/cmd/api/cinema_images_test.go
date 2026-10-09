@@ -164,7 +164,7 @@ func TestCinemaImagePublicRuntimeIndependentOfAdminAndAccounts(t *testing.T) {
 			if tc.public {
 				public = f
 			}
-			handler := newAPIHandler(nil, cfg, tc.admin, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, public)
+			handler := newAPIHandler(nil, cfg, tc.admin, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, public, nil)
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/theaters/ugc/25/image/1", nil))
 			wantStatus, wantCalls := 404, 0

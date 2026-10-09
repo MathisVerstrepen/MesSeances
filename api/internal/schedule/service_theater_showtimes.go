@@ -18,6 +18,7 @@ func (s *Service) TheaterShowtimes(query TheaterShowtimesQuery) (TheaterShowtime
 	}
 	theater := view.data.Theaters[position]
 	result := TheaterShowtimes{GeneratedAt: view.data.GeneratedAt, Timezone: Timezone, Theater: materializeTheater(view, position), Showtimes: []TimelineShowtime{}}
+	result.Discovery = aggregateProgramme(view, s.now()).theater(view, position)
 	date := query.Date
 	if date == "" && len(theater.AvailableDates) > 0 {
 		date = theater.AvailableDates[0]

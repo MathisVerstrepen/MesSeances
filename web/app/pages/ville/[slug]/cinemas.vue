@@ -10,6 +10,8 @@ import {
 } from '@lucide/vue'
 import type { CityDetailResponse, MoviesResponse, MovieSort } from '~/types/api'
 import { cityDescription } from '~/utils/entityDescriptions'
+import { formatLongDate } from '~/utils/date'
+import { formatShowtimeCount } from '~/utils/formats'
 import { serializeJsonLd, type JsonLdNode } from '~/utils/jsonLd'
 import { movieCatalogSortValues } from '~/utils/movieCatalogPresentation'
 import {
@@ -148,6 +150,12 @@ if (import.meta.server && initialState?.city.kind !== 'success') {
 const totalPages = computed(() =>
   Math.max(1, Math.ceil((catalog.value?.total ?? 0) / PAGE_SIZE)),
 )
+const theaterSummaries = computed(
+  () =>
+    new Map(
+      detail.value?.discovery.theaters.map((item) => [item.id, item]) ?? [],
+    ),
+)
 
 async function loadCatalog() {
   const currentDetail = detail.value
@@ -184,7 +192,7 @@ async function loadCity() {
   const state = await fetchCity()
   if (currentRequest !== cityRequestId) return
   if (state.kind === 'success') posterVersion.value += 1
-  detail.value = state.detail
+  if (state.kind !== 'upstream-error') detail.value = state.detail
   notFound.value = state.kind === 'not-found'
   errorMessage.value = state.errorMessage
   pending.value = false
@@ -228,7 +236,11 @@ function followPageLink(event: MouseEvent, nextPage: number) {
     event.preventDefault()
 }
 
-watch(slug, () => void loadCity())
+watch(slug, () => {
+  detail.value = null
+  catalog.value = null
+  void loadCity()
+})
 watch(
   () => route.query,
   () => {
@@ -525,7 +537,10 @@ useHead(() => ({
             id="city-cinemas-heading"
             class="text-4xl font-black tracking-[-0.05em] sm:text-5xl"
           >
-            Cinémas
+            Cinémas<template v-if="detail.discovery.window">
+              du {{ formatLongDate(detail.discovery.window.from) }} au
+              {{ formatLongDate(detail.discovery.window.through) }}</template
+            >
           </h2>
         </div>
         <EditorialStatePanel
@@ -559,6 +574,17 @@ useHead(() => ({
                 /></NuxtLink
               >
             </h3>
+            <p
+              v-if="detail.discovery.window && theaterSummaries.has(theater.id)"
+              class="mt-3 text-sm font-bold"
+            >
+              {{ theaterSummaries.get(theater.id)!.movie_count }} film{{
+                theaterSummaries.get(theater.id)!.movie_count > 1 ? 's' : ''
+              }} ·
+              {{
+                formatShowtimeCount(theaterSummaries.get(theater.id)!.showtime_count)
+              }}
+            </p>
             <p
               v-if="theater.address || theater.postal_code"
               class="mt-3 break-words text-sm font-semibold leading-6"

@@ -6,6 +6,12 @@ import { toNodeListener } from 'h3'
 import {
   accountActivityItem,
   date,
+  cinemaDiscovery,
+  cityDetail,
+  discoveryMovies,
+  movieSchedule,
+  publicCities,
+  sitemapData,
   generatedAt,
   movie,
   publicActivityPage,
@@ -137,8 +143,38 @@ const mock = createServer((request, response) => {
     if (path === '/api/v1/cities')
       return json(response, {
         generated_at: generatedAt,
-        items: [{ name: 'Lille', slug: 'lille', theaters: [theater] }],
+        items: publicCities,
       })
+    if (path === '/api/v1/sitemap-data') return json(response, sitemapData())
+    const cityRoute = /^\/api\/v1\/cities\/([^/]+)$/.exec(path)
+    if (cityRoute) {
+      const detail = cityDetail(
+        decodeURIComponent(cityRoute[1]),
+        scenario.discovery,
+      )
+      if (scenario.discovery === 'error')
+        return json(response, { error: { code: 'schedule_unavailable' } }, 503)
+      return json(
+        response,
+        detail ?? { error: { code: 'not_found' } },
+        detail ? 200 : 404,
+      )
+    }
+    const filmRoute = /^\/api\/v1\/movies\/([^/]+)\/showtimes$/.exec(path)
+    if (filmRoute) {
+      if (scenario.discovery === 'error')
+        return json(response, { error: { code: 'schedule_unavailable' } }, 503)
+      const detail = movieSchedule(
+        decodeURIComponent(filmRoute[1]),
+        url.searchParams,
+        scenario.discovery,
+      )
+      return json(
+        response,
+        detail ?? { error: { code: 'not_found' } },
+        detail ? 200 : 404,
+      )
+    }
     if (
       path === `/api/v1/theaters/${theater.slug}/activity` ||
       path === `/api/v1/theaters/${secondTheater.slug}/activity`
@@ -154,13 +190,20 @@ const mock = createServer((request, response) => {
         ),
       )
     }
-    if (path === `/api/v1/theaters/${theater.slug}/showtimes`)
-      return json(response, showtimes(url.searchParams.get('date') || date))
-    if (path === `/api/v1/theaters/${secondTheater.slug}/showtimes`)
+    const cinemaRoute = /^\/api\/v1\/theaters\/([^/]+)\/showtimes$/.exec(path)
+    if (cinemaRoute && cinemaRoute[1] !== 'missing') {
+      const venue = publicCities
+        .flatMap((city) => city.theaters)
+        .find((item) => item.slug === decodeURIComponent(cinemaRoute[1]))
+      if (!venue) return json(response, { error: { code: 'not_found' } }, 404)
+      if (scenario.discovery === 'error')
+        return json(response, { error: { code: 'schedule_unavailable' } }, 503)
       return json(response, {
         ...showtimes(url.searchParams.get('date') || date),
-        theater: secondTheater,
+        theater: venue,
+        discovery: cinemaDiscovery(scenario.discovery, venue),
       })
+    }
     if (path === '/api/v1/theaters/missing/showtimes')
       return json(
         response,
@@ -213,11 +256,11 @@ const mock = createServer((request, response) => {
     }
     if (path === '/api/v1/movies')
       return json(response, {
-        items: [movie],
+        items: scenario.discovery ? discoveryMovies : [movie],
         available_genres: [],
         page: 1,
         page_size: 100,
-        total: 1,
+        total: scenario.discovery ? discoveryMovies.length : 1,
         generated_at: generatedAt,
         catalog_revision: 'fixture-1',
       })
@@ -379,6 +422,8 @@ try {
         },
       },
       nitro: {
+        // Keep SWR behavior, but never reuse another synthetic server run's XML.
+        devStorage: { cache: { driver: 'memory' } },
         devProxy: { '/api': { target: `${api}/api`, changeOrigin: false } },
       },
       runtimeConfig: {

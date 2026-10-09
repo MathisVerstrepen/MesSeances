@@ -6,6 +6,13 @@ export const date = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 }).format(new Date())
 export const generatedAt = `${date}T08:00:00Z`
+const windowEnd = new Date(`${date}T12:00:00Z`)
+windowEnd.setUTCDate(windowEnd.getUTCDate() + 6)
+export const discoveryWindow = {
+  from: date,
+  through: windowEnd.toISOString().slice(0, 10),
+  timezone: 'Europe/Paris',
+}
 export const theater = {
   provider: 'ugc',
   id: 'fixture-cinema',
@@ -39,6 +46,7 @@ export function showtimes(selectedDate = date) {
     generated_at: generatedAt,
     timezone: 'Europe/Paris',
     theater,
+    discovery: cinemaDiscovery(),
     date: selectedDate,
     showtimes:
       selectedDate === date
@@ -71,6 +79,224 @@ export const secondTheater = {
   slug: 'cinema-second',
   name: 'Cinéma Seconde Salle',
   city: 'Roubaix',
+  city_slug: 'roubaix',
+}
+
+export const alternativeTheater = {
+  ...theater,
+  id: 'fixture-alternative',
+  slug: 'cinéma & lumière',
+  name: 'Cinéma des Lumières et des Rencontres Internationales',
+  address: '8 rue des Lumières',
+}
+export const quietTheater = {
+  ...theater,
+  id: 'fixture-quiet',
+  slug: 'cinema-sans-seances',
+  name: 'Cinéma sans séances',
+}
+export const discoveryMovies = [
+  { ...movie, showtime_count: 12 },
+  {
+    ...movie,
+    slug: 'film & inconnu',
+    title: 'Les histoires de toutes les salles et les lumières du quartier',
+    runtime_minutes: 0,
+    showtime_count: 9,
+  },
+  ...['Alpha', 'Écho', 'Écho bis', 'Zèbre'].map((title, index) => ({
+    ...movie,
+    slug: `film-${index}`,
+    title,
+    showtime_count: 2,
+  })),
+]
+export const discoveryCities = [
+  { name: 'Lille', slug: 'lille', theater_count: 2, showtime_count: 20 },
+  { name: 'Roubaix', slug: 'roubaix', theater_count: 1, showtime_count: 4 },
+  ...['Amiens', 'Arras', 'Paris & proche', 'Tourcoing'].map((name) => ({
+    name,
+    slug: name.toLowerCase(),
+    theater_count: 1,
+    showtime_count: 2,
+  })),
+]
+export const publicCities = discoveryCities.map((city) => ({
+  name: city.name,
+  slug: city.slug,
+  theaters:
+    city.slug === 'lille'
+      ? [theater, alternativeTheater, quietTheater]
+      : city.slug === 'roubaix'
+        ? [secondTheater]
+        : [
+            {
+              ...theater,
+              id: `fixture-${city.slug}`,
+              slug: `cinema-${city.slug}`,
+              name: `Cinéma ${city.name}`,
+              city: city.name,
+              city_slug: city.slug,
+            },
+          ],
+}))
+export function cinemaDiscovery(mode = 'populated', venue = theater) {
+  if (mode === 'null-window')
+    return { window: null, movies: [], other_theaters: [] }
+  const empty = mode === 'empty' || venue.id === quietTheater.id
+  const others =
+    mode === 'single-cinema' || empty
+      ? []
+      : (publicCities
+          .find((city) => city.slug === venue.city_slug)
+          ?.theaters.filter(
+            (item) => item.id !== venue.id && item.id !== quietTheater.id,
+          ) ?? [])
+  return {
+    window: discoveryWindow,
+    movies: empty ? [] : discoveryMovies,
+    other_theaters: others.map((item) => ({
+      provider: item.provider,
+      id: item.id,
+      slug: item.slug,
+      name: item.name,
+      city: item.city,
+      city_slug: item.city_slug,
+      movie_count: 3,
+      showtime_count: 8,
+    })),
+  }
+}
+export function cityDetail(slug, mode = 'populated') {
+  const city = publicCities.find((item) => item.slug === slug)
+  if (!city) return null
+  const venues =
+    mode === 'single-cinema' ? city.theaters.slice(0, 1) : city.theaters
+  return {
+    generated_at: generatedAt,
+    city: { ...city, theaters: venues },
+    theaters: venues,
+    movies: [movie],
+    discovery: {
+      window: mode === 'null-window' ? null : discoveryWindow,
+      theaters: venues.map((venue) => ({
+        id: venue.id,
+        movie_count:
+          mode === 'empty' || venue.id === quietTheater.id
+            ? 0
+            : venue.id === theater.id
+              ? 6
+              : 3,
+        showtime_count:
+          mode === 'empty' || venue.id === quietTheater.id
+            ? 0
+            : venue.id === theater.id
+              ? 29
+              : 8,
+      })),
+    },
+  }
+}
+export function movieSchedule(slug, query, mode = 'populated') {
+  const canonicalSlug = slug === 'merged-film' ? movie.slug : slug
+  const entry =
+    discoveryMovies.find((item) => item.slug === canonicalSlug) ??
+    (['film-ended', 'film-upcoming'].includes(slug)
+      ? {
+          ...movie,
+          slug,
+          title: slug === 'film-ended' ? 'Film terminé' : 'Film à venir',
+          french_release_date: slug === 'film-upcoming' ? '2099-01-01' : date,
+        }
+      : null)
+  if (!entry) return null
+  const inactive = ['film-ended', 'film-upcoming'].includes(slug)
+  const selectedDate = query.get('date') || date
+  const venues = [theater, alternativeTheater, secondTheater]
+  const selected = query.get('theaters')?.split(',')
+  const empty =
+    inactive ||
+    mode === 'empty' ||
+    selectedDate !== date ||
+    query.get('language') === 'VOF'
+  return {
+    release_status: inactive
+      ? slug === 'film-ended'
+        ? 'ended'
+        : 'upcoming'
+      : 'showing',
+    movie: entry,
+    backdrop_url: null,
+    date: selectedDate,
+    currently_screened: !inactive,
+    available_dates: inactive ? [] : [date],
+    theaters: empty
+      ? []
+      : venues
+          .filter((venue) => !selected || selected.includes(venue.id))
+          .map((venue) => ({
+            ...venue,
+            showtimes: showtimes().showtimes.map((session) => ({
+              ...session,
+              id: `${session.id}-${venue.id}`,
+              movie: entry,
+            })),
+          })),
+    catalog_revision: 'fixture-1',
+    available_languages: inactive ? [] : ['VF'],
+    available_formats: inactive ? [] : ['2D'],
+    pagination: {
+      page: Number(query.get('page') || 1),
+      page_size: 10,
+      total: empty ? 0 : venues.length,
+      has_more: false,
+    },
+    discovery: {
+      window: mode === 'null-window' ? null : discoveryWindow,
+      cities:
+        inactive || mode === 'empty' || mode === 'null-window'
+          ? []
+          : discoveryCities,
+    },
+  }
+}
+export function sitemapData() {
+  const movies = [
+    ...discoveryMovies,
+    {
+      ...movie,
+      slug: 'film-ended',
+      showtime_count: 0,
+      imdb_id: 'tt1234567',
+      genres: ['Drame'],
+    },
+    { ...movie, slug: 'film-thin', showtime_count: 0, overview: null },
+  ]
+  // Existing legacy browser identities are synthetic aliases, never sitemap candidates.
+  const candidates = movies.map((entry, index) => ({
+    ...entry,
+    slug: `film-${100 + index}`,
+  }))
+  const paths = [
+    ...candidates.map((item) => `/film/${encodeURIComponent(item.slug)}`),
+    ...publicCities.map(
+      (city) => `/ville/${encodeURIComponent(city.slug)}/cinemas`,
+    ),
+    ...publicCities.flatMap((city) =>
+      city.theaters.map((venue) => `/cinema/${encodeURIComponent(venue.slug)}`),
+    ),
+  ]
+  return {
+    as_of: generatedAt,
+    revision: 'schedule:9007199254740993;enrichment:2;location:1',
+    movies: candidates,
+    movie_total: movies.length,
+    cities: { generated_at: generatedAt, items: publicCities },
+    upcoming_available: true,
+    lastmod_by_path: Object.fromEntries(
+      paths.map((path, index) => [path, index % 2 ? generatedAt : null]),
+    ),
+  }
 }
 
 export const watchlistMovies = [
