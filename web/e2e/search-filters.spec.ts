@@ -240,3 +240,206 @@ test('advanced watchlist control remains disabled until owner snapshot is ready'
     release()
   }
 })
+
+for (const mode of ['initial', 'edit'] as const) {
+  test(`short viewport keeps ${mode} filter action reachable through settings scroll`, async ({
+    page,
+    request,
+  }, info) => {
+    const mobile = info.project.name === 'mobile'
+    await page.setViewportSize({ width: mobile ? 390 : 1440, height: 460 })
+    await request.post('/__playwright/scenario', { data: account })
+    const searches = await mockSlotSearch(page)
+    await openPage(
+      page,
+      mode === 'initial' ? '/recherche' : `/recherche?${query}`,
+    )
+    const form =
+      mode === 'initial'
+        ? page.locator('#search-filters')
+        : await openFilters(page)
+    const settings = form.locator('#search-filter-settings')
+    const submit = form.getByRole('button', { name: 'Trouver une séance' })
+    const disclosure = form.getByRole('button', { name: 'Options avancées' })
+
+    // Check layering before result selection scrolls the document. Scrolled calendar
+    // positioning is a pre-existing datepicker issue, separate from the action footer.
+    const calendar = form.getByRole('button', {
+      name: /^Choisir une autre date/,
+    })
+    await calendar.click()
+    const menu = page.locator('.dp--menu.editorial-calendar-menu')
+    await expect(menu).toBeInViewport({ ratio: 1 })
+    expect(
+      await menu.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        const hit = document.elementFromPoint(
+          rect.x + rect.width / 2,
+          rect.y + rect.height / 2,
+        )
+        return Boolean(hit && element.contains(hit))
+      }),
+    ).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    if (mode === 'edit') {
+      if (mobile) {
+        await expect(form).toHaveAttribute('aria-modal', 'true')
+        await page.getByRole('button', { name: 'Fermer les filtres' }).click()
+        await expect(
+          page.getByRole('button', { name: /^Modifier les filtres/ }),
+        ).toBeFocused()
+      }
+      await page
+        .getByRole('button', { name: /^Ajouter la séance de Film Playwright/ })
+        .click()
+      await expect(page).toHaveURL(/selected=/)
+      await openFilters(page)
+    }
+    await disclosure.click()
+    await form
+      .getByRole('combobox', { name: 'Format', exact: true })
+      .selectOption('2D')
+    await form.getByLabel('Inclure les publicités (+15 min)').uncheck()
+    const watchlist = form.getByLabel('Ma watchlist uniquement')
+    await watchlist.check()
+    const finalSetting =
+      mode === 'edit'
+        ? form.getByLabel('Afficher uniquement les séances sélectionnées')
+        : watchlist
+    await form
+      .getByRole('combobox', { name: 'À partir de' })
+      .selectOption('12:00')
+    await form
+      .getByRole('combobox', { name: 'Terminé avant' })
+      .selectOption('18:00')
+
+    const scrollSettings = async (fraction: number) => {
+      await settings.evaluate((element, value) => {
+        if (getComputedStyle(element).overflowY === 'auto') {
+          element.scrollTop =
+            value * (element.scrollHeight - element.clientHeight)
+        } else {
+          const footer = document.querySelector(
+            '#search-filters button[type="submit"]',
+          )!.parentElement!
+          const end =
+            element.getBoundingClientRect().bottom +
+            window.scrollY -
+            window.innerHeight +
+            footer.getBoundingClientRect().height +
+            16
+          window.scrollTo(0, value * end)
+        }
+      }, fraction)
+    }
+
+    const expectActionInViewport = async () => {
+      await expect(submit).toHaveCount(1)
+      await expect(submit).toBeEnabled()
+      await expect(submit).toBeInViewport({ ratio: 1 })
+      expect(
+        await submit.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          const hit = document.elementFromPoint(
+            rect.x + rect.width / 2,
+            rect.y + rect.height / 2,
+          )
+          return (
+            rect.top >= 0 &&
+            rect.bottom <= window.innerHeight &&
+            rect.left >= 0 &&
+            rect.right <= window.innerWidth &&
+            Boolean(hit && element.contains(hit))
+          )
+        }),
+      ).toBe(true)
+      await submit.click({ trial: true })
+    }
+
+    for (const [position, fraction] of [
+      ['top', 0],
+      ['middle', 0.5],
+      ['end', 1],
+    ] as const) {
+      await scrollSettings(fraction)
+      await expectActionInViewport()
+      await page.screenshot({
+        path: info.outputPath(`short-${mode}-${position}.png`),
+      })
+    }
+    // Last setting must fit above the action, not merely remain mounted underneath it.
+    await expect(finalSetting).toBeInViewport({ ratio: 1 })
+    const lastControl = await finalSetting.locator('..').boundingBox()
+    const action = await submit.locator('..').boundingBox()
+    expect(lastControl).not.toBeNull()
+    expect(action).not.toBeNull()
+    expect(lastControl!.y + lastControl!.height).toBeLessThanOrEqual(action!.y)
+    await finalSetting.focus()
+    await page.keyboard.press('Tab')
+    await expect(submit).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(finalSetting).toBeFocused()
+
+    if (mode === 'edit' && mobile) {
+      await submit.focus()
+      await page.keyboard.press('Tab')
+      await expect(
+        page.getByRole('button', { name: 'Fermer les filtres' }),
+      ).toBeFocused()
+      await page.keyboard.press('Shift+Tab')
+      await expect(submit).toBeFocused()
+    }
+
+    await page.setViewportSize({ width: mobile ? 390 : 1440, height: 320 })
+    await scrollSettings(1)
+    await expectActionInViewport()
+    await expect(finalSetting).toBeInViewport({ ratio: 1 })
+    expect(
+      await finalSetting.locator('..').evaluate((element) => {
+        const footer = document.querySelector(
+          '#search-filters button[type="submit"]',
+        )!.parentElement!
+        return (
+          element.getBoundingClientRect().bottom <=
+          footer.getBoundingClientRect().top
+        )
+      }),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`short-${mode}-320-end.png`),
+    })
+
+    await scrollSettings(0.5)
+    await expectActionInViewport()
+    await submit.click()
+    await expect(page).toHaveURL(/format=2D/)
+    await expect(page).toHaveURL(/include_ads=0/)
+    await expect.poll(() => searches.length).toBe(mode === 'initial' ? 1 : 2)
+    expect(searches.at(-1)).toMatchObject({
+      start_after: '12:00',
+      finish_before: '18:00',
+      format: '2D',
+      include_ads: 'false',
+    })
+    await expect(
+      page.getByRole('heading', { name: 'Ma watchlist', exact: true }),
+    ).toBeVisible()
+    if (mobile) {
+      await expect(form).toBeHidden()
+      await expect(submit).toBeHidden()
+      await expect(
+        page.getByRole('region', { name: 'Résultats de recherche' }),
+      ).toBeFocused()
+    }
+    await openFilters(page)
+    await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+    await expect(
+      form.getByRole('combobox', { name: 'Format', exact: true }),
+    ).toHaveValue('2D')
+    await expect(
+      form.getByLabel('Inclure les publicités (+15 min)'),
+    ).not.toBeChecked()
+    await expect(watchlist).toBeChecked()
+  })
+}
