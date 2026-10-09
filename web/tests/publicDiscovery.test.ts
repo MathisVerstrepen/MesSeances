@@ -12,16 +12,21 @@ import {
 
 const source = (path: string) =>
   readFileSync(new URL(`../app/pages/${path}`, import.meta.url), 'utf8')
+const filmDiscovery = readFileSync(
+  new URL('../app/components/FilmCityDiscovery.vue', import.meta.url),
+  'utf8',
+)
 
 test('pages consume bounded server discoveries without client ranking, dedupe, slicing or date construction', () => {
   const film = source('film/[slug].vue')
   const cinema = source('cinema/[slug].vue')
   const city = source('ville/[slug]/cinemas.vue')
-  assert.match(film, /v-for="city in schedule\.discovery\.cities"/u)
+  assert.match(film, /:discovery="schedule\.discovery"/u)
+  assert.match(filmDiscovery, /v-for="city in discovery\.cities"/u)
   assert.match(cinema, /v-for="movie in response\.discovery\.movies"/u)
   assert.match(cinema, /v-for="other in response\.discovery\.other_theaters"/u)
   assert.match(city, /detail\.value\?\.discovery\.theaters\.map/u)
-  for (const page of [film, cinema, city]) {
+  for (const page of [filmDiscovery, cinema, city]) {
     assert.doesNotMatch(
       page,
       /discovery\.(?:movies|cities|theaters|other_theaters)\.(?:sort|slice|filter)/u,
@@ -50,8 +55,8 @@ test('runtime-unknown teaser counts use release slot and scoped canonical film t
 
 test('optional sections guard both window and nonempty arrays; same-entity errors retain data and route changes clear it', () => {
   assert.match(
-    source('film/[slug].vue'),
-    /v-if="schedule\.discovery\.window && schedule\.discovery\.cities\.length"/u,
+    filmDiscovery,
+    /v-if="discovery\.window && discovery\.cities\.length"/u,
   )
   const cinema = source('cinema/[slug].vue')
   assert.match(
@@ -76,6 +81,33 @@ test('optional sections guard both window and nonempty arrays; same-entity error
     /state\.kind !== 'upstream-error'\) detail\.value = state\.detail/u,
   )
   assert.match(city, /watch\(slug, \(\) => \{\s*detail\.value = null/u)
+})
+
+test('film discovery reuses one native disclosure list below scoped sessions and expanded above broad sessions', () => {
+  const film = source('film/[slug].vue')
+  const scheduleStart = film.indexOf('class="schedule-section')
+  const broadDiscovery = film.indexOf('<FilmCityDiscovery')
+  const scopedDiscovery = film.lastIndexOf('<FilmCityDiscovery')
+  assert(broadDiscovery < scheduleStart && scopedDiscovery > scheduleStart)
+  assert.match(film.slice(broadDiscovery, scheduleStart), /v-if="broadScope"/u)
+  assert.match(film.slice(scopedDiscovery), /v-if="!broadScope"/u)
+  for (const key of [
+    'slug',
+    'selectionScopeKey',
+    'hasSharedSelection',
+    'activeTheaterIds',
+  ])
+    assert(film.slice(scopedDiscovery).includes(key))
+  assert.match(filmDiscovery, /collapsible \? 'details' : 'div'/u)
+  assert.match(filmDiscovery, /collapsible \? 'summary' : 'div'/u)
+  assert.equal(
+    filmDiscovery.match(/v-for="city in discovery\.cities"/gu)?.length,
+    1,
+  )
+  assert.doesNotMatch(
+    filmDiscovery,
+    /\bopen=|\b(?:fetch|useMesSeancesApi|watch|onMounted)\b/u,
+  )
 })
 
 test('synthetic acceptance has bounded canonical tied/sorted data, zero counts and empty/ended/upcoming cases', () => {
@@ -116,5 +148,21 @@ test('synthetic acceptance has bounded canonical tied/sorted data, zero counts a
       new URLSearchParams('theaters=unrelated&language=VOF&page=8'),
     ).discovery.cities,
     discoveryCities,
+  )
+  const scopedEmpty = movieSchedule(
+    'film-playwright',
+    new URLSearchParams('theaters=fixture-second'),
+    'no-local-programme',
+  )
+  assert.deepEqual(scopedEmpty.available_dates, [])
+  assert.deepEqual(scopedEmpty.theaters, [])
+  assert.deepEqual(scopedEmpty.discovery.cities, discoveryCities)
+  assert.equal(
+    movieSchedule(
+      'film-playwright',
+      new URLSearchParams(),
+      'no-local-programme',
+    ).theaters.length,
+    2,
   )
 })

@@ -212,8 +212,14 @@ export function movieSchedule(slug, query, mode = 'populated') {
   if (!entry) return null
   const inactive = ['film-ended', 'film-upcoming'].includes(slug)
   const selectedDate = query.get('date') || date
-  const venues = [theater, alternativeTheater, secondTheater]
+  const venues =
+    mode === 'no-local-programme'
+      ? [theater, alternativeTheater]
+      : [theater, alternativeTheater, secondTheater]
   const selected = query.get('theaters')?.split(',')
+  const scopedVenues = venues.filter(
+    (venue) => !selected || selected.includes(venue.id),
+  )
   const empty =
     inactive ||
     mode === 'empty' ||
@@ -229,26 +235,24 @@ export function movieSchedule(slug, query, mode = 'populated') {
     backdrop_url: null,
     date: selectedDate,
     currently_screened: !inactive,
-    available_dates: inactive ? [] : [date],
+    available_dates: inactive || scopedVenues.length === 0 ? [] : [date],
     theaters: empty
       ? []
-      : venues
-          .filter((venue) => !selected || selected.includes(venue.id))
-          .map((venue) => ({
-            ...venue,
-            showtimes: showtimes().showtimes.map((session) => ({
-              ...session,
-              id: `${session.id}-${venue.id}`,
-              movie: entry,
-            })),
+      : scopedVenues.map((venue) => ({
+          ...venue,
+          showtimes: showtimes().showtimes.map((session) => ({
+            ...session,
+            id: `${session.id}-${venue.id}`,
+            movie: entry,
           })),
+        })),
     catalog_revision: 'fixture-1',
     available_languages: inactive ? [] : ['VF'],
     available_formats: inactive ? [] : ['2D'],
     pagination: {
       page: Number(query.get('page') || 1),
       page_size: 10,
-      total: empty ? 0 : venues.length,
+      total: empty ? 0 : scopedVenues.length,
       has_more: false,
     },
     discovery: {

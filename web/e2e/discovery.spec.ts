@@ -6,6 +6,7 @@ import {
   discoveryMovies,
   discoveryWindow,
   movie,
+  secondTheater,
   theater,
 } from './data.mjs'
 
@@ -50,6 +51,48 @@ async function keyboardFocus(
   expect(indicator.visible).toBeTruthy()
   // Existing public focus treatment: 2px teal ring with 2px canvas offset.
   expect(indicator.shadow).toContain('rgb(31, 111, 120) 0px 0px 0px 4px')
+}
+
+async function localFilmScope(
+  page: import('@playwright/test').Page,
+  ids: string[],
+) {
+  await page.addInitScript((selected) => {
+    localStorage.setItem(
+      'messeances.favoriteTheaterIds.v1',
+      JSON.stringify(selected),
+    )
+  }, ids)
+}
+
+async function closedFilmDiscovery(page: import('@playwright/test').Page) {
+  const section = page.getByRole('region', { name: headings.film })
+  await expect(section.locator('details')).toHaveJSProperty('open', false)
+  await expect(section.getByRole('link')).toHaveCount(0)
+  await expect(section.getByRole('link', { includeHidden: true })).toHaveCount(
+    6,
+  )
+  await expect(page.locator('#film-discovery-heading')).toHaveCount(1)
+  await expect(section.locator('ul')).toHaveCount(1)
+  expect(
+    await section.evaluate((element) =>
+      element.previousElementSibling?.matches('.schedule-section'),
+    ),
+  ).toBeTruthy()
+  return section
+}
+
+async function expandedFilmDiscovery(page: import('@playwright/test').Page) {
+  const section = page.getByRole('region', { name: headings.film })
+  await expect(section.getByRole('link')).toHaveCount(6)
+  await expect(section.locator('details')).toHaveCount(0)
+  await expect(page.locator('#film-discovery-heading')).toHaveCount(1)
+  expect(
+    await section.evaluate((element) =>
+      element.nextElementSibling?.matches('.schedule-section'),
+    ),
+  ).toBeTruthy()
+  return section
 }
 
 test('SSR emits bounded canonical contextual anchors, period labels and scoped counts before hydration', async ({
@@ -110,7 +153,8 @@ test('film geography remains server ordered through hydration, preferences, filt
     )
   })
   await openPage(page, `${filmPath}&shared_theaters=fixture-second`)
-  const section = page.getByRole('region', { name: headings.film })
+  const section = await closedFilmDiscovery(page)
+  await section.locator('summary').click()
   await expect(section.getByRole('link')).toHaveCount(6)
   for (const [index, city] of discoveryCities.entries()) {
     const link = section.getByRole('link').nth(index)
@@ -139,9 +183,135 @@ test('film geography remains server ordered through hydration, preferences, filt
   expect(redirected.status()).toBe(308)
   expect(redirected.headers().location).toContain(`/film/${movie.slug}`)
   await openPage(page, `${filmPath}&language=VOF&page=2`)
+  await (await closedFilmDiscovery(page)).locator('summary').click()
   await expect(
     page.getByRole('region', { name: headings.film }).getByRole('link'),
   ).toHaveCount(6)
+})
+
+test('saved film cinemas show sessions first and open nationwide links without fetching', async ({
+  page,
+}, testInfo) => {
+  await localFilmScope(page, [theater.id])
+  let scheduleReads = 0
+  page.on('request', (request) => {
+    if (
+      /\/api\/v1\/movies\/[^/]+\/showtimes/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      scheduleReads++
+  })
+  await openPage(page, filmPath)
+  await expect(page.locator('.theater-section')).toHaveCount(1)
+  await expect(
+    page.locator('.theater-section').getByRole('heading', { level: 3 }),
+  ).toContainText(theater.name)
+  const section = await closedFilmDiscovery(page)
+  await noOverflow(page)
+  await page.screenshot({
+    path: testInfo.outputPath('film-scoped-closed.png'),
+    fullPage: true,
+  })
+  const beforeOpen = scheduleReads
+  await keyboardFocus(page, section.locator('summary'))
+  await page.keyboard.press('Enter')
+  await expect(section.getByRole('link')).toHaveCount(6)
+  await expect(section).toContainText('2 cinémas · 20 séances')
+  expect(scheduleReads).toBe(beforeOpen)
+  await noOverflow(page)
+  await page.screenshot({
+    path: testInfo.outputPath('film-scoped-open.png'),
+    fullPage: true,
+  })
+  await section.locator('summary').click()
+  await closedFilmDiscovery(page)
+  await section.locator('summary').click()
+  await keyboardFocus(page, section.getByRole('link').nth(4))
+  await section.getByRole('link').nth(4).click()
+  await expect(page).toHaveURL(/\/ville\/paris%20%26%20proche\/cinemas/)
+})
+
+test('shared film cinemas restore saved scope with disclosure closed again', async ({
+  page,
+}) => {
+  await localFilmScope(page, [theater.id])
+  await openPage(page, `${filmPath}&shared_theaters=${secondTheater.id}`)
+  await expect(page.locator('.theater-section')).toHaveCount(1)
+  await expect(
+    page.locator('.theater-section').getByRole('heading', { level: 3 }),
+  ).toContainText(secondTheater.name)
+  const section = await closedFilmDiscovery(page)
+  await section.locator('summary').click()
+  await expect(section.getByRole('link')).toHaveCount(6)
+  await page
+    .locator('.schedule-section')
+    .getByRole('button', { name: 'Utiliser mes cinémas', exact: true })
+    .click()
+  await expect(page).not.toHaveURL(/shared_theaters/)
+  await expect(
+    page.locator('.theater-section').getByRole('heading', { level: 3 }),
+  ).toContainText(theater.name)
+  await closedFilmDiscovery(page)
+  await noOverflow(page)
+})
+
+test('shared film scope switches to all cinemas with expanded discovery above sessions', async ({
+  page,
+}) => {
+  await localFilmScope(page, [])
+  await openPage(page, `${filmPath}&shared_theaters=${secondTheater.id}`)
+  const section = await closedFilmDiscovery(page)
+  await section.locator('summary').click()
+  await page
+    .locator('.schedule-section')
+    .getByRole('button', { name: 'Utiliser mes cinémas', exact: true })
+    .click()
+  await expect(page).not.toHaveURL(/shared_theaters/)
+  await expandedFilmDiscovery(page)
+  await expect(page.locator('.theater-section')).toHaveCount(3)
+  await noOverflow(page)
+})
+
+test('film empty local programme broadens explicitly without hiding nationwide discovery', async ({
+  page,
+  request,
+}, testInfo) => {
+  await request.post('/__playwright/scenario', {
+    data: { discovery: 'no-local-programme' },
+  })
+  await localFilmScope(page, [secondTheater.id])
+  await openPage(page, filmPath)
+  const broaden = page.getByRole('button', {
+    name: 'Rechercher dans toute la France',
+    exact: true,
+  })
+  await expect(broaden).toBeVisible()
+  await expect(page.locator('.theater-section')).toHaveCount(0)
+  await closedFilmDiscovery(page)
+  await broaden.click()
+  await expandedFilmDiscovery(page)
+  await expect(page.locator('.theater-section')).toHaveCount(2)
+  await noOverflow(page)
+  await page.screenshot({
+    path: testInfo.outputPath('film-broadened.png'),
+    fullPage: true,
+  })
+})
+
+test('scoped film omits both disclosure and links when server discovery is missing', async ({
+  page,
+  request,
+}) => {
+  await localFilmScope(page, [theater.id])
+  for (const mode of ['empty', 'null-window']) {
+    await request.post('/__playwright/scenario', { data: { discovery: mode } })
+    await openPage(page, filmPath)
+    await expect(page.locator('.schedule-section')).toBeVisible()
+    await expect(page.locator('#film-discovery-heading')).toHaveCount(0)
+    await expect(page.locator('main details')).toHaveCount(0)
+    await noOverflow(page)
+  }
 })
 
 test('cinema teaser exposes unknown-runtime counts, canonical scoped targets and only same-city alternatives', async ({
