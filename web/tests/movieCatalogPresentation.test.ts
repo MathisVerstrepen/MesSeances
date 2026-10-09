@@ -8,31 +8,68 @@ import {
   movieOriginalTitleSubtitle,
 } from '../app/utils/movieCatalogPresentation.ts'
 
-const [card, controls, pagination, films, city, cinema, film] =
-  await Promise.all([
-    readFile(
-      new URL('../app/components/MovieCatalogCard.vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(
-      new URL('../app/components/MovieCatalogControls.vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(
-      new URL('../app/components/MovieCatalogPagination.vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(new URL('../app/pages/films/index.vue', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../app/pages/ville/[slug]/cinemas.vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(
-      new URL('../app/pages/cinema/[slug].vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8'),
-  ])
+const [
+  card,
+  controls,
+  pagination,
+  films,
+  city,
+  cinema,
+  film,
+  watchlistPage,
+  watchlist,
+  accountApi,
+  publicApi,
+] = await Promise.all([
+  readFile(
+    new URL('../app/components/MovieCatalogCard.vue', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../app/components/MovieCatalogControls.vue', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../app/components/MovieCatalogPagination.vue', import.meta.url),
+    'utf8',
+  ),
+  readFile(new URL('../app/pages/films/index.vue', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../app/pages/ville/[slug]/cinemas.vue', import.meta.url),
+    'utf8',
+  ),
+  readFile(new URL('../app/pages/cinema/[slug].vue', import.meta.url), 'utf8'),
+  readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../app/pages/compte/watchlist.vue', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../app/composables/useWatchlist.ts', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../app/composables/useAccountApi.ts', import.meta.url),
+    'utf8',
+  ),
+  readFile(
+    new URL('../app/composables/useMesSeancesApi.ts', import.meta.url),
+    'utf8',
+  ),
+])
+
+const corpus: {
+  name: string
+  query: string
+  title: string
+  original_title: string | null
+  expected: boolean
+}[] = JSON.parse(
+  await readFile(
+    new URL('./fixtures/movie-title-search.json', import.meta.url),
+    'utf8',
+  ),
+)
 
 function movie(overrides: Partial<CatalogMovie>): CatalogMovie {
   return {
@@ -199,6 +236,108 @@ test('local catalog matches French or original titles with case and accent norma
   )
 })
 
+test('cinema-local filtering matches the shared Go corpus', async (t) => {
+  for (const fixture of corpus) {
+    await t.test(fixture.name, () => {
+      const candidate = movie({
+        title: fixture.title,
+        original_title: fixture.original_title,
+      })
+      assert.deepEqual(
+        filterAndSortCatalogMovies([candidate], fixture.query, 'title_asc'),
+        fixture.expected ? [candidate] : [],
+      )
+    })
+  }
+})
+
+test('local filtering never borrows search words across movies or title fields', () => {
+  const movies = [
+    movie({ slug: 'split', title: 'Spider', original_title: 'Man' }),
+    movie({ slug: 'spider', title: 'Spider' }),
+    movie({ slug: 'man', title: 'Man' }),
+    movie({ slug: 'primary', title: 'Spider-Man' }),
+    movie({ slug: 'both', title: 'Spider-Man', original_title: 'Spider-Man' }),
+    movie({ slug: 'original', title: 'Un film', original_title: 'Spider-Man' }),
+  ]
+  assert.deepEqual(
+    filterAndSortCatalogMovies(movies, 'man spid', 'title_asc').map(
+      ({ slug }) => slug,
+    ),
+    ['both', 'primary', 'original'],
+  )
+  assert.deepEqual(filterAndSortCatalogMovies(movies, '%_', 'title_asc'), [])
+})
+
+test('all sort modes preserve ordering, tie-breakers and nonmutating catalog copies', () => {
+  const movies = Object.freeze([
+    Object.freeze(
+      movie({
+        slug: 'z',
+        title: 'Zèbre match',
+        runtime_minutes: 120,
+        showtime_count: 1,
+        release_date: '2026-10-01',
+      }),
+    ),
+    Object.freeze(
+      movie({
+        slug: 'b',
+        title: 'Alpha match',
+        runtime_minutes: 90,
+        showtime_count: 3,
+        release_date: '2025-10-01',
+      }),
+    ),
+    Object.freeze(
+      movie({
+        slug: 'a',
+        title: 'Alpha match',
+        runtime_minutes: 90,
+        showtime_count: 3,
+        release_date: '2025-10-01',
+      }),
+    ),
+    Object.freeze(
+      movie({ slug: 'm', title: 'Milieu match', runtime_minutes: 0 }),
+    ),
+  ])
+  const before = structuredClone(movies)
+  const expected = {
+    title_asc: ['a', 'b', 'm', 'z'],
+    title_desc: ['z', 'm', 'b', 'a'],
+    release_date_desc: ['z', 'a', 'b', 'm'],
+    runtime_asc: ['m', 'a', 'b', 'z'],
+    runtime_desc: ['z', 'a', 'b', 'm'],
+    showtimes_desc: ['a', 'b', 'z', 'm'],
+  }
+  for (const { value: sort } of movieCatalogSortOptions) {
+    for (const search of ['', ' \t ', 'match']) {
+      const result = filterAndSortCatalogMovies(movies, search, sort)
+      assert.notEqual(result, movies)
+      assert.deepEqual(
+        result.map(({ slug }) => slug),
+        expected[sort],
+      )
+      assert.ok(result.every((candidate) => movies.includes(candidate)))
+      assert.deepEqual(movies, before)
+    }
+  }
+})
+
+test('search normalization leaves displayed titles and subtitle comparisons unchanged', () => {
+  const candidate = Object.freeze(
+    movie({ title: 'Spider-Man', original_title: '  Spider Man  ' }),
+  )
+  assert.deepEqual(
+    filterAndSortCatalogMovies([candidate], 'man spider', 'title_asc'),
+    [candidate],
+  )
+  assert.equal(candidate.title, 'Spider-Man')
+  assert.equal(candidate.original_title, '  Spider Man  ')
+  assert.equal(movieOriginalTitleSubtitle(candidate), 'Spider Man')
+})
+
 test('matching either title keeps each movie once and sorting uses French titles', () => {
   const movies = [
     movie({ slug: 'z', title: 'Zèbre', original_title: 'Alpha match' }),
@@ -274,7 +413,106 @@ test('films and city render shared catalog primitives', () => {
   )
 })
 
+test('server-backed catalogs preserve raw trimmed route queries and server pagination', () => {
+  for (const source of [films, city]) {
+    assert.match(source, /search: appliedSearch\.value \|\| undefined/)
+    assert.match(
+      source,
+      /sort: sort\.value,\s*page: page\.value,\s*page_size: PAGE_SIZE/,
+    )
+    assert.doesNotMatch(
+      source,
+      /compileMovieTitleSearch|filterAndSortCatalogMovies/,
+    )
+  }
+  assert.match(
+    films,
+    /const rawSearch = singularQueryValue\(route\.query\.q\)\s*const nextSearch = rawSearch\?\.trim\(\) \?\? ''/,
+  )
+  assert.match(films, /appliedSearch\.value = nextSearch/)
+  assert.match(films, /q: state\.search \|\| undefined/)
+  assert.match(films, /theaters: theaterIds/)
+  assert.match(films, /Aucun film ne correspond à cette recherche/)
+  assert.match(
+    city,
+    /const search = singularQueryValue\(route\.query\.q\)\?\.trim\(\) \?\? ''/,
+  )
+  assert.match(city, /appliedSearch\.value = search/)
+  assert.match(city, /q: search \|\| undefined/)
+  assert.match(city, /Aucun film ne correspond/)
+  assert.match(
+    publicApi,
+    /movies\(query: MoviesQuery = \{\}, signal\?: AbortSignal\) \{\s*return apiFetch<MoviesResponse>\(`\$\{apiBase\}\/api\/v1\/movies`, \{\s*query: queryValues\(query\)/,
+  )
+})
+
+test('watchlist catalog submits raw trimmed text with existing validation and owner scope', () => {
+  assert.match(watchlistPage, /v-model="query"/)
+  assert.match(
+    watchlistPage,
+    /activeTab\.value = 'catalog'\s*void watchlist\.search\(\)/,
+  )
+  assert.match(watchlistPage, /v-for="movie in searchResults\.catalog"/)
+  assert.match(watchlistPage, /v-if="searchResults\.catalog_has_more"/)
+  assert.match(
+    watchlistPage,
+    /Aucun film du catalogue\. Essayez un autre titre/,
+  )
+  assert.match(watchlist, /const text = query\.value\.trim\(\)/)
+  assert.match(
+    watchlist,
+    /\[\.\.\.text\]\.length < 2 \|\| \[\.\.\.text\]\.length > 200/,
+  )
+  assert.match(
+    watchlist,
+    /await api\.searchWatchlist\(\s*\{ expected_username: token\.expectedOwner, query: text \},\s*searchController\.signal/,
+  )
+  assert.match(
+    watchlist,
+    /if \(!token\.valid\(\) \|\| current !== searchGeneration\) return/,
+  )
+  assert.match(
+    watchlist,
+    /checkOwner\(value, token\.expectedOwner\)\s*searchResults\.value = value/,
+  )
+  assert.match(
+    accountApi,
+    /request<WatchlistSearch>\(\s*'\/account\/watchlist\/search',\s*\{ \.\.\.input \},\s*'POST',\s*signal/,
+  )
+  for (const source of [watchlistPage, watchlist, accountApi]) {
+    assert.doesNotMatch(
+      source,
+      /compileMovieTitleSearch|filterAndSortCatalogMovies/,
+    )
+  }
+})
+
 test('cinema Films keeps aggregation and derives compact filtered shared cards', () => {
+  const fetchMovies = cinema.match(
+    /async function fetchMovies\(theaterId: string\)[\s\S]*?(?=async function fetchMoviesState)/,
+  )?.[0]
+  assert.ok(fetchMovies)
+  assert.match(fetchMovies, /currently_screened: true,\s*theaters: theaterId/)
+  assert.match(fetchMovies, /page_size: CATALOG_PAGE_SIZE/)
+  assert.match(fetchMovies, /api\.movies\(\{ \.\.\.query, page: 1 \}\)/)
+  assert.match(
+    fetchMovies,
+    /Math\.ceil\(firstPage\.total \/ CATALOG_PAGE_SIZE\)/,
+  )
+  assert.match(fetchMovies, /page: index \+ 2/)
+  assert.match(
+    fetchMovies,
+    /return \[firstPage, \.\.\.remainingPages\]\.flatMap\(\(page\) => page\.items\)/,
+  )
+  assert.doesNotMatch(
+    fetchMovies,
+    /search:|filmSearch|compileMovieTitleSearch|filterAndSortCatalogMovies/,
+  )
+  assert.match(
+    cinema,
+    /singularQueryValue\(route\.query\.q\)\?\.trim\(\) \?\? ''/,
+  )
+  assert.match(cinema, /q: search \|\| undefined/)
   assert.match(cinema, /const remainingPages = await Promise\.all/)
   assert.match(
     cinema,

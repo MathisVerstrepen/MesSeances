@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"messeances/api/internal/moviesearch"
 )
 
 const movieCatalogWarningWindow = 20 * time.Minute
@@ -84,7 +86,7 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	if query.CurrentlyScreened != nil && !*query.CurrentlyScreened && !query.IncludeEnded {
 		return result, nil
 	}
-	search := normalized(strings.TrimSpace(query.Search))
+	search := moviesearch.Compile(query.Search)
 	grouped := groupCatalogMovies(view, selectedTheaters, query.TheaterIDs != nil, search, now, query.IncludeEnded, dateWindow, screeningEnd)
 	result.AvailableGenres = availableMovieCatalogGenres(grouped)
 	grouped = filterCatalogMovies(grouped, selectedGenres, query.Duration)
@@ -146,7 +148,7 @@ func (s *Service) movieScreeningWindow(now time.Time) (MovieScreeningWindow, tim
 	return MovieScreeningWindow{AsOf: now, Timezone: Timezone, From: today.Format(dateLayout), Through: through.Format(dateLayout), DayCount: daysUntilTuesday + 1}, through.AddDate(0, 0, 1)
 }
 
-func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilterProvided bool, search string, now time.Time, includeEnded bool, dateWindow *catalogDateWindow, screeningEnd *time.Time) []catalogGroupedMovie {
+func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilterProvided bool, search moviesearch.Query, now time.Time, includeEnded bool, dateWindow *catalogDateWindow, screeningEnd *time.Time) []catalogGroupedMovie {
 	counts := make(map[string]catalogShowtimeCounts)
 	variantCounts := make(map[string]catalogShowtimeCounts)
 	next7DaysEnd := now.Add(7 * 24 * time.Hour)
@@ -203,12 +205,24 @@ func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilte
 		var item MovieCatalogItem
 		if len(view.data.PublicMovies) > 0 {
 			item = materializePublicMovie(view.data.PublicMovies[index.publicMovie])
+			original := ""
+			if item.OriginalTitle != nil {
+				original = *item.OriginalTitle
+			}
+			if !search.Matches(item.Title, original) {
+				continue
+			}
 		} else {
 			position := index.firstShowtime
-			if search != "" {
+			if !search.Blank() {
 				matched := false
 				for _, variant := range index.variants {
-					if strings.Contains(variant.title, search) {
+					candidate := materializeCatalogMovie(view, view.data.Showtimes[variant.firstShowtime].Movie)
+					original := ""
+					if candidate.OriginalTitle != nil {
+						original = *candidate.OriginalTitle
+					}
+					if search.Matches(candidate.Title, original) {
 						position = variant.firstShowtime
 						count = variantCounts[slug+"\x00"+variant.title]
 						matched = true
@@ -220,9 +234,6 @@ func groupCatalogMovies(view *SnapshotView, selectedTheaters []int, theaterFilte
 				}
 			}
 			item = materializeCatalogMovie(view, view.data.Showtimes[position].Movie)
-		}
-		if search != "" && !strings.Contains(normalized(item.Title), search) && (item.OriginalTitle == nil || !strings.Contains(normalized(*item.OriginalTitle), search)) {
-			continue
 		}
 		grouped = append(grouped, catalogGroupedMovie{item: item, showtimeCount: count.current, remainingShowtimeCount: count.remaining, next7DaysShowtimeCount: count.next7Days})
 	}

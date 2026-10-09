@@ -1,4 +1,5 @@
 import type { CatalogMovie, MovieSort } from '~/types/api'
+import { compileMovieTitleSearch } from './movieTitleSearch.ts'
 
 export const movieCatalogSortOptions = [
   { value: 'title_asc', label: 'Titre A–Z' },
@@ -25,14 +26,6 @@ export function movieOriginalTitleSubtitle(
     : originalTitle
 }
 
-function normalizedTitle(value: string): string {
-  return value
-    .trim()
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLocaleLowerCase('fr-FR')
-}
-
 function compareTitles(left: CatalogMovie, right: CatalogMovie): number {
   return (
     left.title.localeCompare(right.title, 'fr-FR', { sensitivity: 'base' }) ||
@@ -45,14 +38,10 @@ export function filterAndSortCatalogMovies(
   search: string,
   sort: MovieSort,
 ): CatalogMovie[] {
-  const query = normalizedTitle(search)
-  const filtered = query
-    ? movies.filter(
-        (movie) =>
-          normalizedTitle(movie.title).includes(query) ||
-          normalizedTitle(movie.original_title ?? '').includes(query),
-      )
-    : [...movies]
+  const query = compileMovieTitleSearch(search)
+  const filtered = query.blank()
+    ? [...movies]
+    : movies.filter((movie) => query.matches(movie.title, movie.original_title))
 
   return filtered.sort((left, right) => {
     if (sort === 'title_desc') return -compareTitles(left, right)

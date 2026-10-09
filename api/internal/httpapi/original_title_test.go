@@ -72,21 +72,28 @@ func TestMoviesOriginalTitleSearchTransport(t *testing.T) {
 		{" THE INVITE ", 1},
 		{"invitation", 1},
 		{"Invite", 1},
+		{"invité - THE", 1},
+		{"invítation l", 1},
+		{"invitation invite", 0},
+		{"the invite missing", 0},
+		{"%_", 0},
 		{"missing", 0},
 	} {
 		t.Run(tc.search, func(t *testing.T) {
-			response := performRequest(t, originalTitleHandler(t, "The Invite", true), "/api/v1/movies?search="+url.QueryEscape(tc.search)+"&page_size=1")
-			var catalog schedule.MovieCatalog
-			if response.Code != http.StatusOK {
-				t.Fatalf("%d %s", response.Code, response.Body)
+			for _, scope := range []string{"", "&theaters=ugc-25&currently_screened=true"} {
+				response := performRequest(t, originalTitleHandler(t, "The Invite", true), "/api/v1/movies?search="+url.QueryEscape(tc.search)+"&page_size=1"+scope)
+				var catalog schedule.MovieCatalog
+				if response.Code != http.StatusOK {
+					t.Fatalf("%d %s", response.Code, response.Body)
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
+					t.Fatal(err)
+				}
+				if catalog.Total != tc.total || len(catalog.Items) != tc.total || catalog.Page != 1 || catalog.PageSize != 1 {
+					t.Fatalf("catalog=%+v", catalog)
+				}
+				assertOriginalTitleWire(t, response.Body.Bytes(), "L'Invitation", "The Invite", tc.total)
 			}
-			if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil {
-				t.Fatal(err)
-			}
-			if catalog.Total != tc.total || len(catalog.Items) != tc.total || catalog.Page != 1 || catalog.PageSize != 1 {
-				t.Fatalf("catalog=%+v", catalog)
-			}
-			assertOriginalTitleWire(t, response.Body.Bytes(), "L'Invitation", "The Invite", tc.total)
 		})
 	}
 }
