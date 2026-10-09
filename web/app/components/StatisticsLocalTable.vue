@@ -122,9 +122,14 @@ const buttonClass =
             class="border-b border-ink/20"
           >
             <th scope="row" class="max-w-96 px-3 py-4 font-bold">
-              {{
-                'theater_count' in row ? statisticsCityName(row.name) : row.name
-              }}
+              <NuxtLink
+                :to="'theater_count' in row ? `/ville/${encodeURIComponent(row.slug)}/cinemas` : `/cinema/${encodeURIComponent(row.slug)}`"
+                class="underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+              >
+                {{
+                  'theater_count' in row ? statisticsCityName(row.name) : row.name
+                }}
+              </NuxtLink>
             </th>
             <td v-if="showMovieCount" class="px-3 py-4 font-mono tabular-nums">
               {{ statisticsCount(row.movie_count) }}

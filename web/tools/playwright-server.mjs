@@ -162,6 +162,13 @@ const mock = createServer((request, response) => {
         generated_at: generatedAt,
         items: [{ name: 'Lille', slug: 'lille', theaters: [theater] }],
       })
+    if (path === '/api/v1/cities/lille')
+      return json(response, {
+        generated_at: generatedAt,
+        city: { name: 'Lille', slug: 'lille' },
+        theaters: [theater],
+        movies: [movie],
+      })
     if (
       path === `/api/v1/theaters/${theater.slug}/activity` ||
       path === `/api/v1/theaters/${secondTheater.slug}/activity`

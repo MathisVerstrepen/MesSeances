@@ -2,6 +2,8 @@ import type { Locator, Page } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
 import {
   movie,
+  theater,
+  secondTheater,
   statisticsFrom,
   statisticsThrough,
   statisticsWednesday,
@@ -296,5 +298,151 @@ test('circuit names align across logo widths and link to filtered cinemas with e
         page.getByRole('link', { name: /^Voir les séances :/ }),
       ).toHaveCount(0)
     }
+  }
+})
+
+test('local names link to city and canonical cinema pages without changing row geometry or sorting', async ({
+  page,
+}, info) => {
+  for (const film of [movie.slug, '']) {
+    await openPage(page, route(film))
+    const section = page.locator('section[aria-labelledby="statistics-local"]')
+    const table = section.getByRole('table')
+    for (const mode of ['Villes', 'Cinémas']) {
+      await section.getByRole('radio', { name: mode, exact: true }).check()
+      await expect(
+        section.getByRole('radio', { name: mode, exact: true }),
+      ).toBeChecked()
+      await expect(table.getByRole('columnheader')).toHaveText(
+        (mode === 'Villes'
+          ? ['Ville', ...(film ? [] : ['Films']), 'Séances', 'Cinémas']
+          : ['Cinéma', ...(film ? [] : ['Films']), 'Séances', 'Ville']
+        ).map((name) => new RegExp(`^${name} [↕↓]$`)),
+      )
+      const names =
+        mode === 'Villes'
+          ? ['Lille', 'Roubaix']
+          : [theater.name, secondTheater.name]
+      const paths =
+        mode === 'Villes'
+          ? ['/ville/lille/cinemas', '/ville/roubaix/cinemas']
+          : [`/cinema/${theater.slug}`, `/cinema/${secondTheater.slug}`]
+      await expect(table.getByRole('rowheader')).toHaveText(names)
+      await expect(table.getByRole('link')).toHaveCount(2)
+      for (const [index, name] of names.entries()) {
+        await expect(
+          table.getByRole('link', { name, exact: true }),
+        ).toHaveAttribute('href', paths[index]!)
+      }
+      await expect(table.getByRole('row').nth(1).getByRole('cell')).toHaveText(
+        mode === 'Villes'
+          ? [...(film ? [] : ['1']), '12', '1']
+          : [...(film ? [] : ['1']), '12', 'Lille'],
+      )
+      // Same rendered table, same width and CSS, only anchors replaced with their text.
+      // Detached duplicate lives offscreen for synchronous measurement, then is removed.
+      const geometry = await table.evaluate((element) => {
+        const baseline = element.cloneNode(true)
+        if (!(baseline instanceof HTMLTableElement))
+          throw new Error('Expected a table baseline')
+        baseline.style.cssText = `position:fixed;left:-10000px;top:0;width:${element.getBoundingClientRect().width}px`
+        for (const link of baseline.querySelectorAll('a'))
+          link.replaceWith(document.createTextNode(link.textContent!))
+        element.parentElement!.append(baseline)
+        const measure = (target: Element) =>
+          [...target.querySelectorAll('tbody tr')].map((row) => ({
+            height: row.getBoundingClientRect().height,
+            lineHeight: getComputedStyle(row).lineHeight,
+            cells: [...row.children].map((cell) => {
+              const style = getComputedStyle(cell)
+              return {
+                height: cell.getBoundingClientRect().height,
+                lineHeight: style.lineHeight,
+                padding: style.padding,
+              }
+            }),
+          }))
+        const result = { linked: measure(element), unlinked: measure(baseline) }
+        baseline.remove()
+        return result
+      })
+      expect(geometry.linked).toEqual(geometry.unlinked)
+      expect(geometry.linked.map((row) => row.height)).toEqual([52.5, 53])
+      for (const row of geometry.linked) {
+        expect(row.lineHeight).toBe('20px')
+        for (const cell of row.cells) {
+          expect(cell.lineHeight).toBe('20px')
+          expect(cell.padding).toBe('16px 12px')
+        }
+      }
+      await info.attach(
+        `local-row-geometry-${film ? 'film' : 'general'}-${mode}`,
+        {
+          body: JSON.stringify(geometry, null, 2),
+          contentType: 'application/json',
+        },
+      )
+      const link = table.getByRole('link', { name: names[0]!, exact: true })
+      await section.getByRole('region').focus()
+      for (const button of await table.getByRole('button').all()) {
+        await page.keyboard.press('Tab')
+        await expect(button).toBeFocused()
+      }
+      await page.keyboard.press('Tab')
+      await expect(link).toBeFocused()
+      expect(
+        await link.evaluate((element) => {
+          const style = getComputedStyle(element)
+          return {
+            display: style.display,
+            lineHeight: style.lineHeight,
+            padding: style.padding,
+            outline: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+          }
+        }),
+      ).toEqual({
+        display: 'inline',
+        lineHeight: '20px',
+        padding: '0px',
+        outline: 'solid',
+        outlineWidth: '3px',
+      })
+      const sortHeader = table.getByRole('columnheader').first()
+      await sortHeader.getByRole('button').click()
+      await expect(sortHeader).toHaveAttribute('aria-sort', 'ascending')
+      await expect(table.getByRole('rowheader')).toHaveText(names)
+      await sortHeader.getByRole('button').click()
+      await expect(sortHeader).toHaveAttribute('aria-sort', 'descending')
+      await expect(table.getByRole('rowheader')).toHaveText(
+        [...names].reverse(),
+      )
+      await section.screenshot({
+        path: info.outputPath(
+          `statistics-local-${film ? 'film' : 'general'}-${mode}.png`,
+        ),
+      })
+    }
+    await table.getByRole('link', { name: theater.name, exact: true }).click()
+    await expect(page).toHaveURL(new RegExp(`/cinema/${theater.slug}$`))
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(
+      theater.name,
+    )
+    await openPage(page, route(film))
+    await page
+      .locator('section[aria-labelledby="statistics-local"]')
+      .getByRole('link', { name: 'Lille', exact: true })
+      .click()
+    await expect(page).toHaveURL(/\/ville\/lille\/cinemas$/)
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Lille')
+    const cinemaListing = page
+      .locator('section[aria-labelledby="city-cinemas-heading"]')
+      .getByRole('link')
+    await expect(cinemaListing).toHaveCount(1)
+    await expect(cinemaListing).toHaveAttribute(
+      'href',
+      `/cinema/${theater.slug}`,
+    )
+    await expect(cinemaListing).toContainText(theater.name)
   }
 })

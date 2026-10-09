@@ -109,7 +109,34 @@ export function historyStatistics(query) {
         theater_count: 1,
       },
     ],
-    local: { cities: [], theaters: [] },
+    local: {
+      cities: [
+        {
+          slug: 'lille',
+          name: 'LILLE',
+          movie_count: 1,
+          showtime_count: 12,
+          theater_count: 1,
+        },
+        {
+          slug: 'roubaix',
+          name: 'ROUBAIX',
+          movie_count: 1,
+          showtime_count: 8,
+          theater_count: 1,
+        },
+      ],
+      theaters: [theater, secondTheater].map((item, index) => ({
+        id: item.id,
+        slug: item.slug,
+        name: item.name,
+        city: item.city,
+        city_slug: index === 0 ? 'lille' : 'roubaix',
+        chain: item.provider,
+        movie_count: 1,
+        showtime_count: index === 0 ? 12 : 8,
+      })),
+    },
     concentration: {
       top_movie_count: 1,
       top_showtime_count: count,
