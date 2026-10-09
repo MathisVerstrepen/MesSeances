@@ -53,6 +53,30 @@ test('runtime-unknown teaser counts use release slot and scoped canonical film t
   )
 })
 
+test('cinema discovery keeps one SSR card list with native narrow-screen snapping and desktop grid', () => {
+  const cinema = source('cinema/[slug].vue')
+  const teaser = cinema.slice(
+    cinema.indexOf('aria-labelledby="cinema-discovery-films-heading"'),
+    cinema.indexOf('<ShowtimeDateBar'),
+  )
+  assert.equal(teaser.match(/<ul\b/gu)?.length, 1)
+  assert.equal(teaser.match(/<MovieCatalogCard\b/gu)?.length, 1)
+  assert.match(teaser, /flex snap-x snap-mandatory scroll-p-2/u)
+  assert.match(teaser, /overflow-x-auto/u)
+  assert.match(teaser, /focus-within:snap-none/u)
+  assert.match(teaser, /@focusin=/u)
+  assert.match(
+    teaser,
+    /scrollIntoView\(\{\s*block: 'nearest',\s*inline: 'nearest'/u,
+  )
+  assert.match(
+    teaser,
+    /lg:grid lg:snap-none lg:grid-cols-6 lg:overflow-visible/u,
+  )
+  assert.match(teaser, /shrink-0 snap-start sm:w-48 lg:w-auto/u)
+  assert.doesNotMatch(teaser, /grid-cols-[23]|ClientOnly|tabindex="-1"/u)
+})
+
 test('optional sections guard both window and nonempty arrays; same-entity errors retain data and route changes clear it', () => {
   assert.match(
     filmDiscovery,

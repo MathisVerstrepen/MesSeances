@@ -909,12 +909,18 @@ useHead(() => ({
               {{ formatLongDate(response.discovery.window.through) }}
             </h3>
             <ul
-              class="mt-5 grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-6"
+              class="-mx-2 mt-5 flex snap-x snap-mandatory scroll-p-2 gap-4 overflow-x-auto p-2 focus-within:snap-none sm:gap-6 lg:mx-0 lg:grid lg:snap-none lg:grid-cols-6 lg:overflow-visible lg:p-0"
             >
               <li
                 v-for="movie in response.discovery.movies"
                 :key="movie.slug"
-                class="min-w-0"
+                class="w-40 min-w-0 shrink-0 snap-start sm:w-48 lg:w-auto"
+                @focusin="
+                  ($event.currentTarget as HTMLElement).scrollIntoView({
+                    block: 'nearest',
+                    inline: 'nearest',
+                  })
+                "
               >
                 <MovieCatalogCard
                   :movie="movie"

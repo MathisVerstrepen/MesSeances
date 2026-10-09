@@ -358,6 +358,120 @@ test('cinema teaser exposes unknown-runtime counts, canonical scoped targets and
   )
 })
 
+test('cinema discovery scrolls one poster row on mobile and tablet, reveals keyboard focus and retains desktop grid', async ({
+  page,
+}, testInfo) => {
+  await openPage(page, cinemaPath)
+  const teaser = page.getByRole('region', { name: headings.cinema })
+  const list = teaser.getByRole('list')
+  const links = list.getByRole('link')
+  await expect(links).toHaveCount(6)
+  for (const [index, entry] of discoveryMovies.entries()) {
+    await expect(links.nth(index)).toHaveAttribute(
+      'href',
+      `/film/${encoded(entry.slug)}?shared_theaters=${theater.id}`,
+    )
+  }
+
+  const geometry = () =>
+    list.evaluate((element) => {
+      const style = getComputedStyle(element)
+      return {
+        display: style.display,
+        columns: style.gridTemplateColumns.split(' ').length,
+        snap: style.scrollSnapType,
+        width: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        tops: Array.from(
+          element.children,
+          (card) => card.getBoundingClientRect().top,
+        ),
+        lefts: Array.from(
+          element.children,
+          (card) => card.getBoundingClientRect().left,
+        ),
+      }
+    })
+  const fullyRevealed = (link: import('@playwright/test').Locator) =>
+    link.evaluate((link) => {
+      const card = link.getBoundingClientRect()
+      const row = link.closest('ul')!.getBoundingClientRect()
+      return card.left >= row.left && card.right <= row.right
+    })
+
+  for (const width of [320, 390, 768, 1023]) {
+    await links.last().blur()
+    await page.setViewportSize({ width, height: 900 })
+    await list.evaluate((element) => element.scrollTo({ left: 0 }))
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollLeft))
+      .toBe(0)
+    const row = await geometry()
+    expect(row.display).toBe('flex')
+    expect(row.snap).toBe('x mandatory')
+    expect(row.scrollWidth).toBeGreaterThan(row.width)
+    expect(Math.max(...row.tops) - Math.min(...row.tops)).toBeLessThan(1)
+    expect(row.lefts[5]).toBeGreaterThan(row.lefts[0] + row.width)
+    await noOverflow(page)
+    if (width === 390 || width === 768) {
+      await teaser.scrollIntoViewIfNeeded()
+      await page.screenshot({
+        path: testInfo.outputPath(`cinema-carousel-${width}.png`),
+        fullPage: true,
+      })
+    }
+
+    // Native scrolling alone must expose the final card, without clicking it.
+    await list.evaluate((element) =>
+      element.scrollTo({ left: element.scrollWidth }),
+    )
+    await expect.poll(() => fullyRevealed(links.last())).toBe(true)
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollLeft))
+      .toBeGreaterThan(0)
+    await list.evaluate((element) => element.scrollTo({ left: 0 }))
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollLeft))
+      .toBe(0)
+
+    // Tab follows server order and browser focus scrolls off-screen links into view.
+    await links.first().focus()
+    for (let index = 1; index < 6; index++) {
+      await page.keyboard.press('Tab')
+      await expect(links.nth(index)).toBeFocused()
+      await expect.poll(() => fullyRevealed(links.nth(index))).toBe(true)
+    }
+    await expect.poll(() => fullyRevealed(links.last())).toBe(true)
+    expect(
+      await links.last().evaluate((link) => link.matches(':focus-visible')),
+    ).toBe(true)
+    expect(
+      await links.last().evaluate((link) => getComputedStyle(link).boxShadow),
+    ).toContain('rgb(31, 111, 120)')
+    await noOverflow(page)
+  }
+
+  await page.setViewportSize({ width: 1440, height: 900 })
+  const grid = await geometry()
+  expect(grid.display).toBe('grid')
+  expect(grid.columns).toBe(6)
+  expect(grid.snap).toBe('none')
+  expect(grid.scrollWidth).toBeLessThanOrEqual(grid.width + 5)
+  expect(Math.max(...grid.tops) - Math.min(...grid.tops)).toBeLessThan(1)
+  expect(new Set(grid.lefts).size).toBe(6)
+  await noOverflow(page)
+  await links.last().blur()
+  await page.screenshot({
+    path: testInfo.outputPath('cinema-carousel-desktop.png'),
+    fullPage: true,
+  })
+  await links.last().click()
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+    discoveryMovies[5].title,
+  )
+  await expect(page).toHaveURL(/shared_theaters=fixture-cinema/)
+})
+
 test('city venue rows keep inventory order, addresses, scoped zero counts and real focusable links', async ({
   page,
 }, testInfo) => {
@@ -394,6 +508,13 @@ for (const mode of ['empty', 'null-window', 'single-cinema']) {
     request,
   }) => {
     await request.post('/__playwright/scenario', { data: { discovery: mode } })
+    const cinemaHtml = (await (await request.get(cinemaPath)).text()).replace(
+      /<script\b[^>]*>[\s\S]*?<\/script>/g,
+      '',
+    )
+    expect(cinemaHtml.includes('cinema-discovery-films-heading')).toBe(
+      mode === 'single-cinema',
+    )
     await openPage(page, cinemaPath)
     await expect(
       page.getByRole('heading', { name: headings.alternatives }),
@@ -404,6 +525,7 @@ for (const mode of ['empty', 'null-window', 'single-cinema']) {
     await expect(
       page.getByRole('heading', { name: 'Séances', exact: true }),
     ).toBeVisible()
+    await noOverflow(page)
     await openPage(page, cityPath)
     if (mode === 'null-window') {
       await expect(
