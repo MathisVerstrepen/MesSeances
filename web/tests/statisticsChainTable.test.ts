@@ -5,7 +5,7 @@ import test from 'node:test'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
-import { computed, createSSRApp, type Component } from 'vue'
+import { computed, createSSRApp, h, type Component } from 'vue'
 import type { HistoryChainRank, Provider } from '../app/types/api.ts'
 import {
   statisticsChainLabels,
@@ -59,6 +59,13 @@ const render = (rows: HistoryChainRank[], showMovieCount?: boolean) => {
   const app = createSSRApp(Table, { rows, showMovieCount })
   app.component('TheaterName', TheaterName)
   app.component('BrandLogo', BrandLogo)
+  app.component('NuxtLink', {
+    props: ['to'],
+    setup:
+      (props, { slots }) =>
+      () =>
+        h('a', { href: props.to }, slots.default?.()),
+  })
   return renderToString(app)
 }
 const cells = (html: string, tag: 'th' | 'td') =>
@@ -116,7 +123,7 @@ test('SSR preserves provider order and exact French counts without mutating rows
     rows.length * 3,
   )
   assert.match(source, /v-for="row in rows" :key="row.chain"/)
-  assert.doesNotMatch(html, /<button|<select|<a\b|Aucune donnée/)
+  assert.doesNotMatch(html, /<button|<select|Aucune donnée/)
 })
 
 test('SSR exposes scoped headers, ranking caption and keyboard-scroll region', async () => {
@@ -144,7 +151,7 @@ test('SSR exposes scoped headers, ranking caption and keyboard-scroll region', a
   )
   assert.match(
     html,
-    /<th scope="row"[^>]*whitespace-normal[^>]*><span><img\b[^>]*> Cinéville<\/span><\/th>/,
+    /<th scope="row"[^>]*whitespace-normal[^>]*><a\b[^>]*><span\b[^>]*><img\b[^>]*> Cinéville<\/span><\/a><\/th>/,
   )
   assert.deepEqual(cells(html, 'td'), ['5', '4', '3'])
   assert.equal((html.match(/scope="row"/g) ?? []).length, 1)
@@ -167,7 +174,7 @@ const providerLogos = {
 const providers = Object.keys(providerLogos) as Provider[]
 
 for (const provider of providers) {
-  test(`${provider}: Circuit cell keeps its label and one decorative bundled inline logo`, async () => {
+  test(`${provider}: Circuit link keeps its label, fixed logo column and decorative bundled logo`, async () => {
     const html = await render([
       { chain: provider, showtime_count: 5, movie_count: 4, theater_count: 3 },
     ])
@@ -177,7 +184,19 @@ for (const provider of providers) {
     assert.equal((html.match(/<img\b/g) ?? []).length, 1)
     assert.ok(header.includes(`src="~/assets/imgs/${asset}?no-inline"`))
     assert.match(header, /<img\b[^>]*alt(?:="")? aria-hidden="true"/)
-    assert.ok(header.endsWith(` ${label}</span>`))
+    assert.ok(header.endsWith(` ${label}</span></a>`))
+    assert.match(header, new RegExp(`href="/cinemas\\?chains=${provider}"`))
+    assert.match(
+      header,
+      /grid grid-cols-\[4rem_minmax\(0,1fr\)\] items-center gap-3/,
+    )
+    assert.match(header, /<img\b[^>]*justify-self-center/)
+    assert.match(
+      header,
+      /inline-flex items-center underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink/,
+    )
+    assert.doesNotMatch(header, /\bmin-h-/)
+    assert.equal((header.match(/<a\b/g) ?? []).length, 1)
     assert.doesNotMatch(
       header,
       /<(?:span|th)\b[^>]*aria-hidden|aria-label=|https?:\/\//,
@@ -199,7 +218,7 @@ test('SSR keeps the table and spans all columns for empty results', async () => 
     html,
     /<td colspan="4"[^>]*>\s*Aucune donnée pour ces filtres\.\s*<\/td>/,
   )
-  assert.doesNotMatch(html, /scope="row"|<img\b/)
+  assert.doesNotMatch(html, /scope="row"|<img\b|<a\b/)
   assert.deepEqual(cells(html, 'td'), ['Aucune donnée pour ces filtres.'])
 })
 

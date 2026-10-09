@@ -34,6 +34,116 @@ export const movie = {
   genres: [],
   showtime_count: 1,
 }
+
+const statisticsWednesdayTime =
+  Date.parse(`${date}T00:00:00Z`) -
+  ((new Date(`${date}T00:00:00Z`).getUTCDay() + 4) % 7) * 86_400_000
+const statisticsDay = (offset) =>
+  new Date(statisticsWednesdayTime + offset * 86_400_000)
+    .toISOString()
+    .slice(0, 10)
+export const statisticsWednesday = statisticsDay(0)
+export const statisticsRelease = statisticsDay(-14)
+export const statisticsFrom = statisticsDay(-7)
+export const statisticsThrough = statisticsDay(21)
+export function historyStatistics(query) {
+  const from = query.get('date') || statisticsFrom
+  const through = query.get('date_to') || statisticsThrough
+  const first = Date.parse(`${from}T00:00:00Z`)
+  const last = Date.parse(`${through}T00:00:00Z`)
+  const rows = Array.from(
+    { length: (last - first) / 86_400_000 + 1 },
+    (_, index) => ({
+      date: new Date(first + index * 86_400_000).toISOString().slice(0, 10),
+      showtime_count: index === 1 ? 0 : (index + 1) * 37,
+    }),
+  )
+  const count = rows.reduce((sum, row) => sum + row.showtime_count, 0)
+  return {
+    mode: 'history',
+    generated_at: generatedAt,
+    timezone: 'Europe/Paris',
+    range: { from, through },
+    daily_showtimes: rows,
+    coverage: {
+      collection_started_at: generatedAt,
+      last_publication_at: generatedAt,
+      recorded_window: { from, through },
+      completeness: 'unknown',
+      bootstrap: 'none',
+      providers: [],
+    },
+    options: {
+      cities: [],
+      theaters: [],
+      chains: [],
+      languages: [],
+      formats: [],
+      genres: [],
+      passes: [],
+    },
+    totals: { showtimes: count, movies: 1, theaters: 1, cities: 1 },
+    limits: {
+      options: { cities: false, theaters: false, genres: false, passes: false },
+      genres: false,
+      local: { cities: false, theaters: false },
+    },
+    top_movies: { by_showtimes: [], by_theaters: [] },
+    heatmap: [],
+    versions: [],
+    formats: [],
+    genres: [],
+    runtimes: [],
+    chains: [
+      {
+        chain: 'ugc',
+        showtime_count: count - 12,
+        movie_count: 1,
+        theater_count: 1,
+      },
+      { chain: 'mk2', showtime_count: 8, movie_count: 1, theater_count: 1 },
+      {
+        chain: 'kinepolis',
+        showtime_count: 4,
+        movie_count: 1,
+        theater_count: 1,
+      },
+    ],
+    local: {
+      cities: [
+        {
+          slug: 'lille',
+          name: 'LILLE',
+          movie_count: 1,
+          showtime_count: 12,
+          theater_count: 1,
+        },
+        {
+          slug: 'roubaix',
+          name: 'ROUBAIX',
+          movie_count: 1,
+          showtime_count: 8,
+          theater_count: 1,
+        },
+      ],
+      theaters: [theater, secondTheater].map((item, index) => ({
+        id: item.id,
+        slug: item.slug,
+        name: item.name,
+        city: item.city,
+        city_slug: index === 0 ? 'lille' : 'roubaix',
+        chain: item.provider,
+        movie_count: 1,
+        showtime_count: index === 0 ? 12 : 8,
+      })),
+    },
+    concentration: {
+      top_movie_count: 1,
+      top_showtime_count: count,
+      other_showtime_count: 0,
+    },
+  }
+}
 export function showtimes(selectedDate = date) {
   return {
     generated_at: generatedAt,

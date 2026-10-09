@@ -5,7 +5,7 @@ import test from 'node:test'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
-import { computed, createSSRApp, ref, watch, type Component } from 'vue'
+import { computed, createSSRApp, h, ref, watch, type Component } from 'vue'
 import type { StatisticsResponse } from '../app/types/api.ts'
 import * as statistics from '../app/utils/statistics.ts'
 
@@ -56,13 +56,19 @@ async function render(
     watch,
   )
   assert.ok(exports.default)
-  return renderToString(
-    createSSRApp(exports.default, {
-      local,
-      showMovieCount,
-      limits: { cities: true, theaters: true },
-    }),
-  )
+  const app = createSSRApp(exports.default, {
+    local,
+    showMovieCount,
+    limits: { cities: true, theaters: true },
+  })
+  app.component('NuxtLink', {
+    props: ['to'],
+    setup:
+      (props, { slots }) =>
+      () =>
+        h('a', { href: props.to }, slots.default?.()),
+  })
+  return renderToString(app)
 }
 
 const local: StatisticsResponse['local'] = {
@@ -78,7 +84,7 @@ const local: StatisticsResponse['local'] = {
   theaters: [
     {
       id: 'ugc-1',
-      slug: 'ugc-1',
+      slug: 'ugc-paris',
       name: 'UGC PARIS',
       city: 'PARIS',
       city_slug: 'paris',
@@ -98,6 +104,75 @@ const cells = (html: string, tag: 'th' | 'td') =>
   )
 
 for (const mode of ['cities', 'theaters'] as const) {
+  test(`${mode}: SSR links use encoded canonical slugs and existing labels without changing row styles`, async () => {
+    const slug = 'été /?#% cinéma'
+    const data = {
+      ...local,
+      [mode]: [{ ...local[mode][0]!, slug }],
+    }
+    const before = structuredClone(data)
+    for (const showMovieCount of [true, false]) {
+      for (const [rows, expectedSlug] of [
+        [local, local[mode][0]!.slug],
+        [data, slug],
+      ] as const) {
+        const html = await render(rows, mode, showMovieCount)
+        const anchors = [...html.matchAll(/<a\b([^>]*)>(.*?)<\/a>/gs)]
+        assert.equal(anchors.length, 1)
+        assert.match(
+          anchors[0]![1]!,
+          new RegExp(
+            `href="${mode === 'cities' ? '/ville/' : '/cinema/'}${encodeURIComponent(expectedSlug)}${mode === 'cities' ? '/cinemas' : ''}"`,
+          ),
+        )
+        assert.equal(
+          anchors[0]![2]!.trim(),
+          mode === 'cities' ? 'Paris' : 'UGC PARIS',
+        )
+        assert.doesNotMatch(
+          anchors[0]![1]!,
+          /(?:inline|block|flex|grid|leading-|min-h-|h-|p[xytrblse]?-|text-(?:xs|sm|base|lg|xl|\[))/,
+        )
+        assert.match(
+          html,
+          /<table class="w-full min-w-\[36rem\] border-collapse text-left text-sm">/,
+        )
+        assert.match(html, /<tr class="border-b border-ink\/20">/)
+        assert.match(
+          html,
+          /<th scope="row" class="max-w-96 px-3 py-4 font-bold">/,
+        )
+        assert.equal(
+          (html.match(/class="px-3 py-4/g) ?? []).length,
+          showMovieCount ? 3 : 2,
+        )
+        assert.match(
+          html,
+          /type="radio" name="statistics-local-mode" value="cities"/,
+        )
+        assert.match(
+          html,
+          /type="radio" name="statistics-local-mode" value="theaters"/,
+        )
+        assert.match(
+          html,
+          new RegExp(
+            `aria-label="Offre par ${mode === 'cities' ? 'ville' : 'cinéma'}, tableau défilant"`,
+          ),
+        )
+        assert.doesNotMatch(html, /href="\/cinema\/ugc-1"/)
+      }
+      const empty = await render(
+        { cities: [], theaters: [] },
+        mode,
+        showMovieCount,
+      )
+      assert.doesNotMatch(empty, /<a\b/)
+      assert.match(empty, /Aucune donnée pour ces filtres\./)
+    }
+    assert.deepEqual(data, before)
+  })
+
   test(`${mode}: movie column defaults visible, with existing row values and ranking copy`, async () => {
     const before = structuredClone(local)
     for (const showMovieCount of [undefined, true]) {

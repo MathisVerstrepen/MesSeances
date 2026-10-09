@@ -5,10 +5,24 @@ import test from 'node:test'
 import { compileScript, parse } from '@vue/compiler-sfc'
 import { renderToString } from '@vue/server-renderer'
 import ts from 'typescript'
-import { computed, createSSRApp, type Component } from 'vue'
+import {
+  computed,
+  createSSRApp,
+  ref,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  useId,
+  type Component,
+} from 'vue'
 import type { StatisticsDailyShowtimes } from '../app/types/api.ts'
 import { statisticsCount } from '../app/utils/statistics.ts'
-import { statisticsLineChart } from '../app/utils/statisticsLineChart.ts'
+import {
+  statisticsLineChart,
+  statisticsNearestPoint,
+  statisticsWeekLabels,
+  type StatisticsChartOptions,
+} from '../app/utils/statisticsLineChart.ts'
 
 const require = createRequire(import.meta.url)
 const source = await readFile(
@@ -30,19 +44,42 @@ interface ComponentModule {
   default?: Component
 }
 const exports: ComponentModule = {}
-new Function('require', 'exports', 'computed', compiled)(
+new Function(
+  'require',
+  'exports',
+  'computed',
+  'ref',
+  'watch',
+  'onMounted',
+  'onBeforeUnmount',
+  'useId',
+  compiled,
+)(
   (id: string) => {
     if (id === '~/utils/statistics') return { statisticsCount }
-    if (id === '~/utils/statisticsLineChart') return { statisticsLineChart }
+    if (id === '~/utils/statisticsLineChart')
+      return {
+        statisticsLineChart,
+        statisticsNearestPoint,
+        statisticsWeekLabels,
+      }
     return require(id)
   },
   exports,
   computed,
+  ref,
+  watch,
+  onMounted,
+  onBeforeUnmount,
+  useId,
 )
 assert.ok(exports.default)
 const Chart = exports.default
-const render = (rows: StatisticsDailyShowtimes[]) =>
-  renderToString(createSSRApp(Chart, { rows }))
+const render = (
+  rows: StatisticsDailyShowtimes[],
+  options: StatisticsChartOptions = {},
+) =>
+  renderToString(createSSRApp(Chart, { rows, today: '2026-09-23', ...options }))
 
 test('daily chart keeps exact counts, calendar spacing and zero-count days without mutating rows', () => {
   const rows = [
@@ -112,7 +149,7 @@ test('long histories keep every day while limiting visible date ticks', () => {
   assert.ok(chart.points.every((point) => point.x >= 0 && point.x <= 100))
 })
 
-test('SSR renders accessible French data table with native SVG and no interactive plot', async () => {
+test('SSR renders keyboard-accessible native SVG chart and preserves exact French data table', async () => {
   const html = await render([
     { date: '2026-09-21', showtime_count: 1234 },
     { date: '2026-09-22', showtime_count: 0 },
@@ -120,7 +157,7 @@ test('SSR renders accessible French data table with native SVG and no interactiv
   ])
   assert.match(
     html,
-    /role="img" aria-label="Évolution du nombre de séances par jour/,
+    /role="group" tabindex="0" aria-label="Évolution du nombre de séances par jour/,
   )
   assert.match(html, /<svg/)
   assert.match(html, /<polyline/)
@@ -142,7 +179,129 @@ test('SSR renders accessible French data table with native SVG and no interactiv
   assert.ok(html.includes(statisticsCount(1234)))
   assert.match(html, /23 septembre 2026 : 1 séance\s*<\/title>/)
   assert.match(html, /22 septembre 2026 : 0 séances\s*<\/title>/)
+  assert.match(html, /Flèches gauche et droite/)
+  assert.match(html, /data-today-marker data-date="2026-09-23" x1="100%"/)
+  assert.doesNotMatch(html, /data-week-marker/)
   assert.doesNotMatch(html, /<canvas|NaN|Infinity|<svg[^>]*tabindex/)
+})
+
+test('today marker uses calendar geometry including sparse gaps and endpoints, never clamps outside domain', () => {
+  const rows = [
+    { date: '2026-03-25', showtime_count: 1 },
+    { date: '2026-04-01', showtime_count: 2 },
+  ]
+  for (const [today, x] of [
+    ['2026-03-25', 0],
+    ['2026-03-29', 400 / 7],
+    ['2026-04-01', 100],
+  ] as const) {
+    assert.ok(
+      Math.abs(statisticsLineChart(rows, { today }).today!.x - x) < 1e-8,
+    )
+  }
+  for (const today of ['2026-03-24', '2026-04-02', '2026-02-30', 'invalid'])
+    assert.equal(statisticsLineChart(rows, { today }).today, null)
+  assert.equal(
+    statisticsLineChart([], { today: '1970-01-01', film: true }).today,
+    null,
+  )
+  const single = statisticsLineChart([rows[0]!], {
+    today: rows[0]!.date,
+    film: true,
+  })
+  assert.equal(single.today?.x, 50)
+  assert.equal(single.weeks[0]?.x, 50)
+})
+
+test('Wednesday release weeks stay French-release-relative through clipping and DST', () => {
+  const rows = [
+    { date: '2026-03-20', showtime_count: 0 },
+    { date: '2026-04-08', showtime_count: 1 },
+  ]
+  const options = {
+    film: true,
+    frenchReleaseDate: '2026-03-27',
+    today: '2026-04-01',
+  }
+  const chart = statisticsLineChart(rows, options)
+  assert.deepEqual(
+    chart.weeks.map(({ date, label }) => ({ date, label })),
+    [
+      { date: '2026-03-25', label: 'Semaine 1' },
+      { date: '2026-04-01', label: 'Semaine 2' },
+      { date: '2026-04-08', label: 'Semaine 3' },
+    ],
+  )
+  assert.equal(chart.weeks[1]?.x, chart.today?.x)
+  assert.equal(
+    statisticsLineChart(rows, { ...options, frenchReleaseDate: '2026-04-01' })
+      .weeks[0]?.label,
+    'Mercredi',
+  )
+  assert.equal(
+    statisticsLineChart(
+      [{ date: '2026-04-01', showtime_count: 0 }, rows[1]!],
+      options,
+    ).weeks[0]?.label,
+    'Semaine 2',
+  )
+  assert.deepEqual(
+    statisticsLineChart(rows, { ...options, film: false }).weeks,
+    [],
+  )
+  for (const frenchReleaseDate of [null, undefined, '2026-02-30', '']) {
+    const weeks = statisticsLineChart(rows, {
+      film: true,
+      frenchReleaseDate,
+    }).weeks
+    assert.equal(weeks.length, 3)
+    assert.ok(weeks.every((marker) => marker.label === 'Mercredi'))
+  }
+})
+
+test('dense labels stay inside measured width without collisions or lost boundaries', () => {
+  const chart = statisticsLineChart(
+    [
+      { date: '2024-01-01', showtime_count: 0 },
+      { date: '2026-10-28', showtime_count: 1 },
+    ],
+    { film: true, frenchReleaseDate: '2023-12-27' },
+  )
+  for (const width of [180, 240, 320, 1200]) {
+    const labels = statisticsWeekLabels(chart.weeks, width)
+    assert.ok(labels.length < chart.weeks.length)
+    let right = -Infinity
+    for (const label of labels) {
+      const half = (label.label.length * 7 + 8) / 2
+      const center = (label.labelX * width) / 100
+      assert.ok(center - half >= right + 12 - 1e-8)
+      assert.ok(center - half >= 0 && center + half <= width + 1e-8)
+      right = center + half
+    }
+  }
+  assert.deepEqual(statisticsWeekLabels(chart.weeks, 0), [])
+})
+
+test('pointer selection finds closest calendar day, including sparse and single points', () => {
+  const points = [{ x: 0 }, { x: 10 }, { x: 100 }]
+  assert.equal(statisticsNearestPoint(points, 9), 1)
+  assert.equal(statisticsNearestPoint(points, 51), 1)
+  assert.equal(statisticsNearestPoint(points, 90), 2)
+  assert.equal(statisticsNearestPoint([{ x: 50 }], 0), 0)
+})
+
+test('SSR keeps full Wednesday information even when dense visual labels are thinned', async () => {
+  const html = await render(
+    [
+      { date: '2026-03-25', showtime_count: 1 },
+      { date: '2026-06-24', showtime_count: 1 },
+    ],
+    { film: true, frenchReleaseDate: '2026-03-25', today: '2026-04-01' },
+  )
+  assert.equal((html.match(/data-week-marker/g) ?? []).length, 14)
+  assert.ok((html.match(/data-week-label/g) ?? []).length < 14)
+  assert.match(html, /<li>Semaine 14 : 24 juin 2026\.\s*<\/li>/)
+  assert.match(html, /<li>Aujourd’hui : 1 avril 2026\.<\/li>/)
 })
 
 test('SSR gives empty state and single-point marker without inventing a line', async () => {
