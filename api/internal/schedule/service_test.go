@@ -1640,6 +1640,13 @@ func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
 	if err != nil || all.Total != 2 || len(all.Items) != 1 || all.Items[0].Slug != "tmdb-film-42" || all.Items[0].Title != "Alpha" {
 		t.Fatalf("all=%+v err=%v", all, err)
 	}
+	if all.Items[0].ShowtimeCount != 3 {
+		t.Fatal("blank query lost combined variant counts")
+	}
+	blank, err := service.Movies(MovieCatalogQuery{Search: " \t\n", Sort: MovieCatalogSortShowtimesDesc, PageSize: 1})
+	if err != nil || !reflect.DeepEqual(blank, all) {
+		t.Fatal("whitespace query changed unfiltered catalog", err)
+	}
 	second, err := service.Movies(MovieCatalogQuery{Sort: MovieCatalogSortShowtimesDesc, Page: 2, PageSize: 1})
 	if err != nil || second.Total != 2 || len(second.Items) != 1 || second.Items[0].Title != "Gamma" {
 		t.Fatalf("second=%+v err=%v", second, err)
@@ -1647,6 +1654,18 @@ func TestMoviesCatalogSearchPreservesSharedSlugVariants(t *testing.T) {
 	filtered, err := service.Movies(MovieCatalogQuery{Search: " bêta ", Sort: MovieCatalogSortShowtimesDesc, PageSize: 10})
 	if err != nil || filtered.Total != 1 || len(filtered.Items) != 1 || filtered.Items[0].Slug != "tmdb-film-42" || filtered.Items[0].Title != "Bêta" || filtered.Items[0].ShowtimeCount != 2 || filtered.Items[0].OriginalTitle != nil {
 		t.Fatalf("filtered=%+v err=%v", filtered, err)
+	}
+	for _, query := range []string{"beta", " TA - BÉ "} {
+		result, err := service.Movies(MovieCatalogQuery{Search: query, Sort: MovieCatalogSortShowtimesDesc, PageSize: 10})
+		if err != nil || !reflect.DeepEqual(result, filtered) {
+			t.Fatalf("query=%q result=%+v err=%v", query, result, err)
+		}
+	}
+	for _, query := range []string{"alpha beta", "alpha gamma", "%_"} {
+		result, err := service.Movies(MovieCatalogQuery{Search: query})
+		if err != nil || result.Total != 0 {
+			t.Fatalf("borrowed words or punctuation wildcard: query=%q result=%+v err=%v", query, result, err)
+		}
 	}
 	variants := service.source.Snapshot().movieBySlug["tmdb-film-42"].variants
 	if len(variants) != 2 || variants[0].count != 1 || variants[1].count != 2 {

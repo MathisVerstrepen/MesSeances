@@ -8,7 +8,7 @@ import (
 )
 
 func TestWatchlistInputBounds(t *testing.T) {
-	for _, input := range []string{"", "1", strings.Repeat("é", 201), "ab\x00cd", "\xffab"} {
+	for _, input := range []string{"", " \t\n", "1", "é", "  é  ", strings.Repeat("é", 201), "ab\x00cd", "\xffab"} {
 		if _, err := watchlistQuery(input); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("query accepted %q", input)
 		}

@@ -4,7 +4,7 @@
 
 Run `make install` online once: application `go mod download`, existing npm installation/`nuxt prepare`, then pinned tools. `make install-tools` installs only gotestsum v1.13.0 and golangci-lint v2.13.1 into absolute repository `api/bin/`. `python3 scripts/validate.py install-tools --tool gotestsum` installs only the reporter, as Go CI does. Pins, module identity, embedded build Go version, and readable binary versions are verified; unverifiable, development, or wrong binaries block execution. No runtime `go run ...@version` fallback exists.
 
-The application requires Go 1.25.13 or newer; tooling compilation may acquire Go 1.26+ during setup because golangci-lint v2.13.1 requires it. Application `api/go.mod`/`go.sum` are not tooling manifests. Validation requires Python 3.12+, Git, and a writable private artifact directory. Frontend checks require Node 22.23.1 and npm 10.9.8, matching verified CI versions. Install selected system prerequisites independently; the runner never uses sudo or repairs an environment.
+The application requires Go 1.26.0 or newer; tooling compilation may acquire Go 1.26+ during setup because golangci-lint v2.13.1 requires it. Application `api/go.mod`/`go.sum` are not tooling manifests. Validation requires Python 3.12+, Git, and a writable private artifact directory. Frontend checks require Node 22.23.1 and npm 10.9.8, matching verified CI versions. Install selected system prerequisites independently; the runner never uses sudo or repairs an environment.
 
 ## Commands
 

@@ -23,6 +23,13 @@ linters:
   exclusions:
     warn-unused: true
     rules:
+      # Go 1.26 net/http requires *crypto/tls.Conn to negotiate HTTP/2, but our
+      # custom uTLS dialer returns *utls.UConn. Keep x/net's transport and timeout
+      # fields to preserve fingerprinted HTTP/2; exempt only these deprecations.
+      - path: ^internal/(syncproxy/proxy(_test)?|kinepolis/client_test)\.go$
+        text: '^SA1019: (golang\.org/x/net/http2\.Transport|\(golang\.org/x/net/http2\.Transport\)\.(DialTLSContext|IdleConnTimeout|ReadIdleTimeout|PingTimeout|WriteByteTimeout)) is deprecated: '
+        linters:
+          - staticcheck
       - path: ^internal/ign/client_test\.go$
         source: 'response:\s+response\('
         linters:

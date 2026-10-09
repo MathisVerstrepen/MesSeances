@@ -4,7 +4,7 @@ Recipe `local-docker` creates an SSH container and a private PostgreSQL 18 conta
 
 ## Setup
 
-Requirements: Docker Engine, Node, SSH, `gh` authenticated as the intended GitHub account, and local `opencode`, `bun`, `rtk`, `codebase-memory-mcp` executables. The image uses Go 1.25.13, Node 22.23.1, npm 10.9.8 and copies the installed OpenCode binary. It copies active files from `~/.config/opencode` without rewriting them, including agents, plugins, skills and their dependencies. Credentials, caches, sessions and host runtime data are excluded. This configuration uses `/home/mathis` inside the image.
+Requirements: Docker Engine, Node, SSH, `gh` authenticated as the intended GitHub account, and local `opencode`, `bun`, `rtk`, `codebase-memory-mcp` executables. The image uses Go 1.26.0, Node 22.23.1, npm 10.9.8 and copies the installed OpenCode binary. It copies active files from `~/.config/opencode` without rewriting them, including agents, plugins, skills and their dependencies. Credentials, caches, sessions and host runtime data are excluded. This configuration uses `/home/mathis` inside the image.
 
 Python 3, make and g++ are included for Orca's native `node-pty` terminal installation on Linux. Orca installs its relay inside each running environment; the base and authenticated images contain no initialized Orca runtime.
 
