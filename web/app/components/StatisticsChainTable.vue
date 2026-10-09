@@ -51,10 +51,17 @@ withDefaults(
             scope="row"
             class="max-w-96 whitespace-normal px-3 py-4 font-bold"
           >
-            <TheaterName
-              :name="statisticsChainLabels[row.chain]"
-              :provider="row.chain"
-            />
+            <NuxtLink
+              :to="`/cinemas?chains=${row.chain}`"
+              class="inline-flex items-center underline decoration-2 underline-offset-4 hover:text-primary focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+            >
+              <TheaterName
+                :name="statisticsChainLabels[row.chain]"
+                :provider="row.chain"
+                class="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-3"
+                logo-class="justify-self-center"
+              />
+            </NuxtLink>
           </th>
           <td class="px-3 py-4 text-right font-mono tabular-nums">
             {{ statisticsCount(row.showtime_count) }}

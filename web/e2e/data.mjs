@@ -94,7 +94,21 @@ export function historyStatistics(query) {
     formats: [],
     genres: [],
     runtimes: [],
-    chains: [],
+    chains: [
+      {
+        chain: 'ugc',
+        showtime_count: count - 12,
+        movie_count: 1,
+        theater_count: 1,
+      },
+      { chain: 'mk2', showtime_count: 8, movie_count: 1, theater_count: 1 },
+      {
+        chain: 'kinepolis',
+        showtime_count: 4,
+        movie_count: 1,
+        theater_count: 1,
+      },
+    ],
     local: { cities: [], theaters: [] },
     concentration: {
       top_movie_count: 1,

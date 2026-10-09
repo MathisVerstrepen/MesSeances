@@ -191,3 +191,110 @@ test('single Wednesday centers both markers and excludes off-range today', async
   await expect(chartSection(page).locator('ul')).toContainText('Mercredi')
   await expect(chartSection(page).locator('ul')).not.toContainText('Semaine')
 })
+
+test('circuit names align across logo widths and link to filtered cinemas with either column set', async ({
+  page,
+}, info) => {
+  for (const film of [movie.slug, '']) {
+    await openPage(page, route(film))
+    const section = page.locator('section[aria-labelledby="statistics-chains"]')
+    const region = section.getByRole('region')
+    const table = section.getByRole('table')
+    await region.scrollIntoViewIfNeeded()
+    await expect(table.getByRole('columnheader')).toHaveText(
+      film
+        ? ['Circuit', 'Séances', 'Cinémas']
+        : ['Circuit', 'Séances', 'Films', 'Cinémas'],
+    )
+    await expect(table.getByRole('row').nth(2).getByRole('cell')).toHaveText(
+      film ? ['8', '1'] : ['8', '1', '1'],
+    )
+    const links = table.getByRole('link')
+    await expect(links).toHaveCount(3)
+    for (const [name, chain] of [
+      ['UGC', 'ugc'],
+      ['MK2', 'mk2'],
+      ['Kinepolis', 'kinepolis'],
+    ]) {
+      await expect(
+        table.getByRole('link', { name, exact: true }),
+      ).toHaveAttribute('href', `/cinemas?chains=${chain}`)
+    }
+    await expect
+      .poll(() =>
+        table
+          .locator('img')
+          .evaluateAll((images) =>
+            images.every(
+              (image) =>
+                image instanceof HTMLImageElement &&
+                image.complete &&
+                image.naturalWidth > 0,
+            ),
+          ),
+      )
+      .toBe(true)
+    const positions = await links.evaluateAll((elements) =>
+      elements.map((link) => {
+        const name = link.firstElementChild!
+        const image = name.querySelector('img')!
+        const text = [...name.childNodes].find(
+          (node) =>
+            node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+        )!
+        const range = document.createRange()
+        range.selectNodeContents(text)
+        const label = range.getBoundingClientRect()
+        const logo = image.getBoundingClientRect()
+        return { x: label.x, gap: label.x - logo.right, width: logo.width }
+      }),
+    )
+    expect(
+      Math.max(...positions.map(({ x }) => x)) -
+        Math.min(...positions.map(({ x }) => x)),
+    ).toBeLessThan(1)
+    expect(
+      Math.max(...positions.map(({ width }) => width)) -
+        Math.min(...positions.map(({ width }) => width)),
+    ).toBeGreaterThan(4)
+    for (const { gap } of positions) expect(gap).toBeGreaterThanOrEqual(12)
+    await region.focus()
+    await region.press('Tab')
+    const ugc = table.getByRole('link', { name: 'UGC', exact: true })
+    await expect(ugc).toBeFocused()
+    expect(
+      await ugc.evaluate((element) => getComputedStyle(element).outlineStyle),
+    ).toBe('solid')
+    expect(
+      await ugc.evaluate((element) => getComputedStyle(element).outlineWidth),
+    ).toBe('3px')
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await section.screenshot({
+      path: info.outputPath(
+        `statistics-circuits-${film ? 'film' : 'general'}.png`,
+      ),
+    })
+    if (film) {
+      await ugc.press('Enter')
+      await expect(page).toHaveURL(/\/cinemas\?chains=ugc$/)
+      await expect(
+        page.getByRole('link', { name: /^Voir les séances :/ }),
+      ).toHaveCount(2)
+    } else {
+      await table.getByRole('link', { name: 'MK2', exact: true }).click()
+      await expect(page).toHaveURL(/\/cinemas\?chains=mk2$/)
+      await expect(
+        page.getByText('Aucun cinéma ne correspond à votre recherche.', {
+          exact: true,
+        }),
+      ).toBeVisible()
+      await expect(
+        page.getByRole('link', { name: /^Voir les séances :/ }),
+      ).toHaveCount(0)
+    }
+  }
+})
