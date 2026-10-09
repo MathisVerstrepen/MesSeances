@@ -125,6 +125,7 @@ const theaterValidationMessage = ref('')
 const appliedSearch = ref<AppliedSearch | null>(null)
 const isFilterSheetOpen = ref(false)
 const isTheaterListOpen = ref(false)
+const isAdvancedOptionsOpen = ref(false)
 const draftTheaterIds = ref<string[]>([])
 const draftBroadScope = ref(false)
 const broadPreferenceScope = computed(() =>
@@ -530,7 +531,8 @@ function focusableElementsWithin(container: HTMLElement) {
   ].filter(
     (element) =>
       !element.hasAttribute('disabled') &&
-      element.getAttribute('aria-hidden') !== 'true',
+      element.getAttribute('aria-hidden') !== 'true' &&
+      element.getClientRects().length > 0,
   )
 }
 
@@ -1159,25 +1161,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             </p>
           </fieldset>
 
-          <label class="block">
-            <span
-              class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-              >Format</span
-            >
-            <select
-              v-model="form.format"
-              class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
-            >
-              <option
-                v-for="option in queryFormatOptions"
-                :key="option.value"
-                :value="option.value"
-              >
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
-
           <TimeRangeSlider
             v-model:start="form.startAfter"
             v-model:end="form.finishBefore"
@@ -1203,29 +1186,75 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             </select>
           </label>
 
-          <label
-            class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
-          >
-            <input
-              v-model="form.includeAds"
-              type="checkbox"
-              class="mt-0.5 size-4 accent-primary"
+          <div>
+            <button
+              type="button"
+              class="flex w-full cursor-pointer items-center gap-3 text-left text-sm font-bold text-ink hover:text-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+              :aria-expanded="isAdvancedOptionsOpen"
+              aria-controls="search-advanced-options"
+              @click="isAdvancedOptionsOpen = !isAdvancedOptionsOpen"
             >
-            <span>Inclure les publicités (+{{ ADS_BUFFER_MINUTES }} min)</span>
-          </label>
+              <span class="shrink-0">Options avancées</span>
+              <span class="h-px min-w-0 flex-1 bg-ink" aria-hidden="true" />
+              <ChevronDown
+                :size="18"
+                class="shrink-0 transition-transform motion-reduce:transition-none"
+                :class="isAdvancedOptionsOpen ? 'rotate-180' : ''"
+                aria-hidden="true"
+              />
+            </button>
+            <div
+              v-show="isAdvancedOptionsOpen"
+              id="search-advanced-options"
+              class="space-y-5 pt-5"
+            >
+              <label class="block">
+                <span
+                  class="mb-2 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+                  >Format</span
+                >
+                <select
+                  v-model="form.format"
+                  class="h-12 w-full rounded-none border-2 border-ink bg-surface px-3 text-[0.85rem] font-bold text-ink focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                >
+                  <option
+                    v-for="option in queryFormatOptions"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </select>
+              </label>
 
-          <label
-            v-if="watchlist.owner.value"
-            class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
-          >
-            <input
-              v-model="watchlistOnly"
-              type="checkbox"
-              class="size-4 accent-primary"
-              :disabled="!watchlist.ready.value"
-            >
-            <span>Ma watchlist uniquement</span>
-          </label>
+              <label
+                class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
+              >
+                <input
+                  v-model="form.includeAds"
+                  type="checkbox"
+                  class="mt-0.5 size-4 accent-primary"
+                >
+                <span
+                  >Inclure les publicités (+{{ ADS_BUFFER_MINUTES }}
+                  min)</span
+                >
+              </label>
+
+              <label
+                v-if="watchlist.owner.value"
+                class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
+              >
+                <input
+                  v-model="watchlistOnly"
+                  type="checkbox"
+                  class="size-4 accent-primary"
+                  :disabled="!watchlist.ready.value"
+                >
+                <span>Ma watchlist uniquement</span>
+              </label>
+            </div>
+          </div>
 
           <label
             v-if="selectedCount"
