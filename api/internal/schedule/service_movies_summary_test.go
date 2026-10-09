@@ -279,11 +279,13 @@ func TestMoviesScreeningSummaryPreservesSearchVariantCounts(t *testing.T) {
 	}
 	data.Showtimes[1].Movie.Title = "Other title"
 	service := summaryService(t, newTestSource(data), testServiceNow())
-	result, err := service.Movies(MovieCatalogQuery{ScreeningSummary: true, Search: "other title"})
-	if err != nil || result.Total != 1 || result.Items[0].Title != "Other title" {
-		t.Fatalf("result=%+v err=%v", result, err)
+	for _, query := range []string{"other title", " TITLE - othér "} {
+		result, err := service.Movies(MovieCatalogQuery{ScreeningSummary: true, Search: query})
+		if err != nil || result.Total != 1 || result.Items[0].Title != "Other title" {
+			t.Fatalf("result=%+v err=%v", result, err)
+		}
+		assertSummaryCount(t, result.Items[0], 1, 1, 1)
 	}
-	assertSummaryCount(t, result.Items[0], 1, 1, 1)
 }
 
 func TestMoviesScreeningSummaryRollingSevenDayBoundaries(t *testing.T) {

@@ -81,7 +81,7 @@ func TestMoviesCatalogOriginalTitleSearch(t *testing.T) {
 		{"original case and whitespace", MovieCatalogQuery{Search: " THE INVITE "}, []string{"film-2", "film-1", "film-3"}, 3, 1},
 		{"French substring", MovieCatalogQuery{Search: " INVITATION "}, []string{"film-1"}, 1, 2},
 		{"French accents", MovieCatalogQuery{Search: "FRANÇAIS"}, []string{"film-3"}, 1, 1},
-		{"no accent folding", MovieCatalogQuery{Search: "francais"}, []string{}, 0, 0},
+		{"accent folding", MovieCatalogQuery{Search: "francais"}, []string{"film-3"}, 1, 1},
 		{"missing original falls back", MovieCatalogQuery{Search: "film d"}, []string{"film-4"}, 1, 1},
 		{"no match", MovieCatalogQuery{Search: "unknown"}, []string{}, 0, 0},
 		{"page one", MovieCatalogQuery{Search: "the invite", PageSize: 1}, []string{"film-2"}, 3, 1},

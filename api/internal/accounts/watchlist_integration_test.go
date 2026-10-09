@@ -2,13 +2,19 @@ package accounts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/schedule"
@@ -255,7 +261,7 @@ func TestWatchlistSearchLiteralOverrideDedupIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	f.service.watchlistProvider = watchlistFakeProvider{search: func(_ context.Context, q string) ([]tmdb.Candidate, error) {
-		if q != "Film" && q != "%_" {
+		if q != "Film" && q != "%_" && q != "literal movie" {
 			t.Error("query not trimmed")
 		}
 		return []tmdb.Candidate{{ID: 99, Title: "Known outside local page"}, {ID: 100, Title: "Film 02"}, {ID: 100, Title: "Duplicate"}}, nil
@@ -265,8 +271,12 @@ func TestWatchlistSearchLiteralOverrideDedupIntegration(t *testing.T) {
 		t.Fatalf("search %+v %v", view, err)
 	}
 	view, err = f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "search_owner", "%_")
-	if err != nil || len(view.Catalog) != 1 || view.Catalog[0].Slug != "film-1" {
-		t.Fatal("wildcards not literal or override ignored")
+	if err != nil || len(view.Catalog) != 0 || view.CatalogHasMore {
+		t.Fatal("punctuation-only query exposed catalog")
+	}
+	view, err = f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "search_owner", "  literal movie  ")
+	if err != nil || len(view.Catalog) != 1 || view.Catalog[0].Slug != "film-1" || view.Catalog[0].Title != "Literal %_ movie" || view.CatalogHasMore {
+		t.Fatal("normalized override search failed")
 	}
 	f.service.watchlistProvider = watchlistFakeProvider{search: func(context.Context, string) ([]tmdb.Candidate, error) {
 		return nil, errors.New("secret provider body")
@@ -279,6 +289,266 @@ func TestWatchlistSearchLiteralOverrideDedupIntegration(t *testing.T) {
 	view, err = f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "search_owner", "Film")
 	if err != nil || view.ExternalStatus != "disabled" {
 		t.Fatal("disabled external search failed local search")
+	}
+}
+
+func watchlistSeedOriginalTitle(t *testing.T, f *lifecycleFixture, id int64, title string) {
+	t.Helper()
+	if _, err := f.pool.Exec(t.Context(), `INSERT INTO movie_metadata_cache(provider,provider_movie_id,locale,provider_title,localized_title,runtime_minutes,fetched_at,refresh_after)
+ VALUES('tmdb',$1,'fr-FR',$2,'Localized',100,now(),now())
+ ON CONFLICT(provider,provider_movie_id,locale) DO UPDATE SET provider_title=EXCLUDED.provider_title`, id, title); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWatchlistSearchSharedTitleCorpusIntegration(t *testing.T) {
+	fixture, err := os.ReadFile("../../../web/tests/fixtures/movie-title-search.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name          string  `json:"name"`
+		Query         string  `json:"query"`
+		Title         string  `json:"title"`
+		OriginalTitle *string `json:"original_title"`
+		Expected      bool    `json:"expected"`
+	}
+	if err := json.Unmarshal(fixture, &cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("empty corpus")
+	}
+	f := newLifecycleFixture(t)
+	one := f.complete(t, "corpus@example.com", "corpus_owner")
+	for _, tc := range cases {
+		t.Run(tc.Name, func(t *testing.T) {
+			// Keep each single-movie expectation isolated without copying the corpus.
+			if _, err := f.pool.Exec(t.Context(), `DELETE FROM public_movies; DELETE FROM movie_metadata_cache`); err != nil {
+				t.Fatal(err)
+			}
+			slug := watchlistSeedMovie(t, f, 42, tc.Title)
+			if tc.OriginalTitle != nil {
+				watchlistSeedOriginalTitle(t, f, 42, *tc.OriginalTitle)
+			}
+			called := false
+			f.service.watchlistProvider = watchlistFakeProvider{search: func(_ context.Context, query string) ([]tmdb.Candidate, error) {
+				called = true
+				if query != strings.TrimSpace(tc.Query) {
+					t.Fatal("provider query rewritten")
+				}
+				return []tmdb.Candidate{{ID: 999, Title: "External unchanged"}}, nil
+			}}
+			view, err := f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "corpus_owner", tc.Query)
+			if _, validationErr := watchlistQuery(tc.Query); validationErr != nil {
+				if !errors.Is(err, ErrInvalidInput) || called || view.Username != "" {
+					t.Fatal("invalid raw query accepted", err)
+				}
+				return
+			}
+			want := 0
+			if tc.Expected {
+				want = 1
+			}
+			if err != nil || !called || len(view.Catalog) != want || view.CatalogHasMore || len(view.External) != 1 || view.External[0].TMDBID != "999" || view.ExternalStatus != "ready" {
+				t.Fatalf("view=%+v err=%v want=%d", view, err, want)
+			}
+			if want > 0 && (view.Catalog[0].Slug != slug || view.Catalog[0].Title != tc.Title) {
+				t.Fatal("display or identity changed")
+			}
+		})
+		// Keep the same account below its real per-minute quota as corpus grows.
+		f.advance(time.Minute)
+	}
+}
+
+func TestWatchlistSearchConfirmedOriginalAndOverridesIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	one := f.complete(t, "original@example.com", "original_owner")
+	slug := watchlistSeedMovie(t, f, 42, "Base-Title")
+	if _, err := f.pool.Exec(t.Context(), `UPDATE public_movies SET poster_url='https://example.com/base.jpg',release_date='2000-01-01' WHERE id=42;
+ INSERT INTO public_movie_metadata_overrides(public_movie_id,title_overridden,title,poster_url_overridden,poster_url,release_date_overridden,release_date)
+ VALUES(42,true,'Local-Été',true,'https://example.com/override.jpg',true,'2001-02-03')`); err != nil {
+		t.Fatal(err)
+	}
+	assertSearch := func(query string, want bool) {
+		t.Helper()
+		view, err := f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "original_owner", query)
+		count := 0
+		if want {
+			count = 1
+		}
+		if err != nil || len(view.Catalog) != count || view.CatalogHasMore || view.ExternalStatus != "disabled" {
+			t.Fatalf("query=%q view=%+v err=%v", query, view, err)
+		}
+		if want && view.Catalog[0] != (WatchlistMovie{Slug: slug, Title: "Local-Été", PosterURL: "https://example.com/override.jpg", ReleaseDate: "2001-02-03"}) {
+			t.Fatal("summary overrides changed")
+		}
+	}
+	assertSearch("ete local", true)
+	assertSearch("base title", false)
+	assertSearch("the invite", false) // Missing cache cannot supply an original title.
+	watchlistSeedOriginalTitle(t, f, 42, "  The Invite  ")
+	assertSearch("invité the", true)
+	assertSearch("local invite", false)
+	watchlistSeedOriginalTitle(t, f, 42, "The Héros Returned")
+	assertSearch("returned heros", true) // Reads current durable cache, not a snapshot.
+	assertSearch("the invite", false)
+	watchlistSeedOriginalTitle(t, f, 42, " \t\n")
+	assertSearch("heros", false)
+	assertSearch("ete local", true)
+	watchlistSeedOriginalTitle(t, f, 42, "The Invite")
+	if _, err := f.pool.Exec(t.Context(), `UPDATE public_movies SET confirmed_tmdb_id=NULL WHERE id=42`); err != nil {
+		t.Fatal(err)
+	}
+	assertSearch("the invite", false) // Identity anchor alone must not attach cache.
+	watchlistSeedOriginalTitle(t, f, 43, "Replacement Original")
+	if _, err := f.pool.Exec(t.Context(), `UPDATE public_movies SET confirmed_tmdb_id=43 WHERE id=42`); err != nil {
+		t.Fatal(err)
+	}
+	assertSearch("the invite", false) // Old anchored cache is stale after rematching.
+	assertSearch("original replacement", true)
+}
+
+func TestWatchlistSearchOrderedPostMatchLimitIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	one := f.complete(t, "ordered@example.com", "ordered_owner")
+	// More than 21 nonmatches sort before all matches. No pre-match cap is valid.
+	if _, err := f.pool.Exec(t.Context(), `INSERT INTO public_movies(id,identity_anchor_tmdb_id,confirmed_tmdb_id,title,runtime_minutes) OVERRIDING SYSTEM VALUE
+ SELECT n,n,n,'Alpha nonmatch ' || n,0 FROM generate_series(1,30)n`); err != nil {
+		t.Fatal(err)
+	}
+	for _, count := range []int{3, 20, 21, 22} {
+		t.Run(strconv.Itoa(count), func(t *testing.T) {
+			if _, err := f.pool.Exec(t.Context(), `DELETE FROM public_movies WHERE id>=1000`); err != nil {
+				t.Fatal(err)
+			}
+			for i := count; i >= 1; i-- {
+				watchlistSeedMovie(t, f, int64(1000+i), fmt.Sprintf("Zulu Étoile %02d", i))
+			}
+			watchlistSeedMovie(t, f, 2000, "Zulu Étoile 00")
+			if _, err := f.pool.Exec(t.Context(), `UPDATE public_movies SET redirect_to_id=1001,confirmed_tmdb_id=NULL WHERE id=2000`); err != nil {
+				t.Fatal(err)
+			}
+			f.service.watchlistProvider = watchlistFakeProvider{search: func(_ context.Context, q string) ([]tmdb.Candidate, error) {
+				if q != "etoile zulu" {
+					t.Fatal("provider query normalized")
+				}
+				return []tmdb.Candidate{{ID: 30, Title: "Known nonmatching"}, {ID: int64(1000 + count), Title: "Known outside page"}, {ID: 3000, Title: "External"}, {ID: 3000, Title: "Duplicate"}, {ID: 0}, {ID: -1}}, nil
+			}}
+			view, err := f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "ordered_owner", "  etoile zulu  ")
+			if err != nil || len(view.Catalog) != min(count, 20) || view.CatalogHasMore != (count > 20) || len(view.External) != 1 || view.External[0].TMDBID != "3000" {
+				t.Fatalf("count=%d view=%+v err=%v", count, view, err)
+			}
+			for i, movie := range view.Catalog {
+				if movie.Slug != "film-"+strconv.Itoa(1001+i) || movie.Title != fmt.Sprintf("Zulu Étoile %02d", i+1) {
+					t.Fatal("SQL order or redirect omission changed")
+				}
+			}
+		})
+	}
+}
+
+func TestWatchlistSearchDurableImportOutsideSnapshotIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	one := f.complete(t, "durable@example.com", "durable_owner")
+	public := watchlistPublicService(t, f)
+	var id int64
+	err := f.service.store.withTransaction(t.Context(), func(tx pgx.Tx) error {
+		var err error
+		id, err = enrichment.ImportCatalogMovie(t.Context(), tx, watchlistDetails(42), f.now())
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Import commits without refreshing this live schedule replica.
+	if public.HasCatalog() || public.HasSnapshot() {
+		t.Fatal("fixture snapshot already contains durable import")
+	}
+	view, err := f.service.SearchWatchlist(t.Context(), one.Cookie.Token, "durable_owner", "film imported")
+	if err != nil || len(view.Catalog) != 1 || view.Catalog[0].Slug != "film-"+strconv.FormatInt(id, 10) || view.CatalogHasMore {
+		t.Fatalf("view=%+v err=%v", view, err)
+	}
+}
+
+func TestWatchlistSearchCancellationReturnsNoPartialCatalogIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	one := f.complete(t, "cancel@example.com", "cancel_owner")
+	watchlistSeedMovie(t, f, 42, "Matching Film")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	started := make(chan struct{})
+	f.service.watchlistProvider = watchlistFakeProvider{search: func(providerCtx context.Context, _ string) ([]tmdb.Candidate, error) {
+		close(started)
+		<-providerCtx.Done()
+		return nil, providerCtx.Err()
+	}}
+	type outcome struct {
+		view WatchlistSearchView
+		err  error
+	}
+	result := make(chan outcome, 1)
+	go func() {
+		view, err := f.service.SearchWatchlist(ctx, one.Cookie.Token, "cancel_owner", "matching film")
+		result <- outcome{view: view, err: err}
+	}()
+	<-started
+	cancel()
+	got := <-result
+	if !errors.Is(got.err, ErrWatchlistUnavailable) || got.view.Username != "" || got.view.Catalog != nil || got.view.External != nil {
+		t.Fatalf("partial response survived cancellation: %+v %v", got.view, got.err)
+	}
+}
+
+type watchlistCatalogQueryKey struct{}
+
+type watchlistCatalogCancelTracer struct {
+	cancel context.CancelFunc
+	ended  chan struct{}
+}
+
+func (tracer watchlistCatalogCancelTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if strings.Contains(data.SQL, "COALESCE(tmdb.provider_title,'')") {
+		return context.WithValue(ctx, watchlistCatalogQueryKey{}, true)
+	}
+	return ctx
+}
+
+func (tracer watchlistCatalogCancelTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.TraceQueryEndData) {
+	if ctx.Value(watchlistCatalogQueryKey{}) == true {
+		// pgx signals query completion when rows close. Cancel after the local
+		// matches have been accumulated, before any partial view can be returned.
+		tracer.cancel()
+		close(tracer.ended)
+	}
+}
+
+func TestWatchlistSearchCatalogCancellationReturnsNoPartialResultsIntegration(t *testing.T) {
+	f := newLifecycleFixture(t)
+	one := f.complete(t, "catalog-cancel@example.com", "catalog_cancel")
+	for id := int64(1); id <= 25; id++ {
+		watchlistSeedMovie(t, f, id, "Matching Film")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	ended := make(chan struct{})
+	config := f.pool.Config()
+	config.ConnConfig.Tracer = watchlistCatalogCancelTracer{cancel: cancel, ended: ended}
+	pool, err := pgxpool.NewWithConfig(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	f.service.store = NewPostgresStore(pool)
+	view, err := f.service.SearchWatchlist(ctx, one.Cookie.Token, "catalog_cancel", "matching film")
+	select {
+	case <-ended:
+	default:
+		t.Fatal("catalog cancellation boundary not reached")
+	}
+	if !errors.Is(err, ErrWatchlistUnavailable) || view.Username != "" || view.Catalog != nil || view.External != nil {
+		t.Fatalf("partial catalog survived cancellation: %+v %v", view, err)
 	}
 }
 

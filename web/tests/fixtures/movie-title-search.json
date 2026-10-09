@@ -1,0 +1,254 @@
+[
+  {
+    "name": "hyphen",
+    "query": "spider man",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "reversed partial words",
+    "query": "man spid",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "query punctuation",
+    "query": "DAY: spider-man",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "nonbreaking hyphen",
+    "query": "spider man",
+    "title": "Spider‑Man",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "en dash",
+    "query": "spider–man",
+    "title": "Spider–Man",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "em dash",
+    "query": "man spider",
+    "title": "Spider—Man",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "apostrophe",
+    "query": "invitation l",
+    "title": "L'Invitation",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "curly apostrophe",
+    "query": "l’invitation",
+    "title": "L’Invitation",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "composed accents",
+    "query": "ete francais",
+    "title": "Un Été Français",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "decomposed accents",
+    "query": "francais ete",
+    "title": "Un E\u0301te\u0301 Franc\u0327ais",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "accented query",
+    "query": "ÉTÉ français",
+    "title": "Un Ete Francais",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "decomposed query",
+    "query": "E\u0301TE\u0301",
+    "title": "Été",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "mixed case",
+    "query": "bRaNd DAY",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "repeated whitespace",
+    "query": "  man  \tspider\n day  ",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "nonbreaking spaces",
+    "query": "new\u00a0day",
+    "title": "Brand\u00a0\u00a0New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "original only",
+    "query": "the invite",
+    "title": "L'Invitation",
+    "original_title": "The Invite",
+    "expected": true
+  },
+  {
+    "name": "original reordered",
+    "query": "invité - the",
+    "title": "L'Invitation",
+    "original_title": "  The Invite  ",
+    "expected": true
+  },
+  {
+    "name": "null original fallback",
+    "query": "film",
+    "title": "Film Français",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "blank original fallback",
+    "query": "francais",
+    "title": "Film Français",
+    "original_title": " \t\n",
+    "expected": true
+  },
+  {
+    "name": "both titles",
+    "query": "spider man",
+    "title": "Spider-Man",
+    "original_title": "Spider-Man",
+    "expected": true
+  },
+  {
+    "name": "no borrowing between titles",
+    "query": "invitation invite",
+    "title": "L'Invitation",
+    "original_title": "The Invite",
+    "expected": false
+  },
+  {
+    "name": "missing extra word",
+    "query": "spider man batman",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": false
+  },
+  {
+    "name": "unrelated title",
+    "query": "spider man",
+    "title": "Superman",
+    "original_title": "Batman",
+    "expected": false
+  },
+  {
+    "name": "inside word substring",
+    "query": "rand",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "repeated query word",
+    "query": "man man",
+    "title": "Spider-Man",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "numeric word",
+    "query": "2 dune",
+    "title": "Dune: Part 2",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "Unicode letters and numbers",
+    "query": "東京 ٢",
+    "title": "東京: ٢",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "contextual lowercase",
+    "query": "ος",
+    "title": "ΟΣ",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "empty query",
+    "query": "",
+    "title": "Any Film",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "whitespace query",
+    "query": " \t\n\u00a0 ",
+    "title": "Any Film",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "punctuation only",
+    "query": "--- : ' ’",
+    "title": "Spider-Man : Brand New Day",
+    "original_title": null,
+    "expected": false
+  },
+  {
+    "name": "SQL wildcard punctuation",
+    "query": "%_",
+    "title": "Literal %_ movie",
+    "original_title": null,
+    "expected": false
+  },
+  {
+    "name": "punctuation separates",
+    "query": "literal movie",
+    "title": "Literal %_ movie",
+    "original_title": null,
+    "expected": true
+  },
+  {
+    "name": "no concatenation",
+    "query": "spiderman",
+    "title": "Spider-Man",
+    "original_title": null,
+    "expected": false
+  },
+  {
+    "name": "no ligature transliteration",
+    "query": "coeur",
+    "title": "Cœur",
+    "original_title": null,
+    "expected": false
+  },
+  {
+    "name": "no compatibility expansion",
+    "query": "film",
+    "title": "ﬁlm",
+    "original_title": null,
+    "expected": false
+  }
+]

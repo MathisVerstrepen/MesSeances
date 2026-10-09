@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"messeances/api/internal/enrichment"
+	"messeances/api/internal/moviesearch"
 	"messeances/api/internal/tmdb"
 )
 
@@ -92,6 +93,7 @@ func (s *Service) SearchWatchlist(ctx context.Context, raw, username, rawQuery s
 	if err != nil {
 		return WatchlistSearchView{}, err
 	}
+	search := moviesearch.Compile(query)
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	owner, err := s.watchlistOwner(ctx, raw, username, "watchlist_search")
@@ -125,24 +127,34 @@ func (s *Service) SearchWatchlist(ctx context.Context, raw, username, rawQuery s
 		if a.id != owner.id || a.revision != owner.revision || *a.username != username {
 			return ErrUnauthorized
 		}
-		rows, err := tx.Query(ctx, `SELECT `+watchlistSummary+` FROM public_movies p
+		rows, err := tx.Query(ctx, `SELECT `+watchlistSummary+`, COALESCE(tmdb.provider_title,'') FROM public_movies p
  LEFT JOIN public_movie_metadata_overrides o ON o.public_movie_id=p.id
- WHERE p.redirect_to_id IS NULL AND strpos(lower(CASE WHEN o.title_overridden THEN o.title ELSE p.title END),lower($1))>0
- ORDER BY lower(CASE WHEN o.title_overridden THEN o.title ELSE p.title END), 'film-' || p.id::text LIMIT 21`, query)
+ LEFT JOIN movie_metadata_cache tmdb ON tmdb.provider='tmdb' AND tmdb.locale='fr-FR' AND tmdb.provider_movie_id=p.confirmed_tmdb_id
+ WHERE p.redirect_to_id IS NULL
+ ORDER BY lower(CASE WHEN o.title_overridden THEN o.title ELSE p.title END), 'film-' || p.id::text`)
 		if err != nil {
 			return ErrWatchlistUnavailable
 		}
 		for rows.Next() {
-			var movie WatchlistMovie
-			if err = rows.Scan(&movie.Slug, &movie.Title, &movie.PosterURL, &movie.ReleaseDate); err != nil {
+			if ctx.Err() != nil {
 				rows.Close()
 				return ErrWatchlistUnavailable
 			}
-			view.Catalog = append(view.Catalog, movie)
+			var movie WatchlistMovie
+			var original string
+			if err = rows.Scan(&movie.Slug, &movie.Title, &movie.PosterURL, &movie.ReleaseDate, &original); err != nil {
+				rows.Close()
+				return ErrWatchlistUnavailable
+			}
+			if search.Matches(movie.Title, original) {
+				view.Catalog = append(view.Catalog, movie)
+				if len(view.Catalog) == 21 {
+					break
+				}
+			}
 		}
-		err = rows.Err()
 		rows.Close()
-		if err != nil {
+		if rows.Err() != nil || ctx.Err() != nil {
 			return ErrWatchlistUnavailable
 		}
 		if len(view.Catalog) > 20 {
