@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.25.13-bookworm AS go
+FROM golang:1.26.0-bookworm AS go
 FROM node:22.23.1-bookworm-slim
 ARG REPO_URL
 ARG REPO_REF
