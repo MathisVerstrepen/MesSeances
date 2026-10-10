@@ -2,6 +2,7 @@ import type { Locator, Page } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
 import {
   movie,
+  cityDetail,
   theater,
   secondTheater,
   statisticsFrom,
@@ -140,7 +141,11 @@ test('general chart keeps today but no film boundaries after removing applied fi
 
 test('missing French release keeps boundaries without using international release', async ({
   page,
+  request,
 }) => {
+  const response = await request.get('/film/film-no-release')
+  expect(response.status()).toBe(200)
+  expect(await response.text()).toContain('Film sans sortie française')
   await openPage(page, route('film-no-release'))
   await expect(plotOf(page).locator('[data-week-marker]')).toHaveCount(5)
   await expect(chartSection(page).locator('ul')).toContainText('Mercredi')
@@ -438,11 +443,27 @@ test('local names link to city and canonical cinema pages without changing row g
     const cinemaListing = page
       .locator('section[aria-labelledby="city-cinemas-heading"]')
       .getByRole('link')
-    await expect(cinemaListing).toHaveCount(1)
-    await expect(cinemaListing).toHaveAttribute(
+    const venues = cityDetail('lille').theaters
+    await expect(cinemaListing).toHaveCount(venues.length)
+    expect(
+      await cinemaListing.evaluateAll((links) =>
+        links.map((link) => link.getAttribute('href')),
+      ),
+    ).toEqual(
+      venues.map((venue) => `/cinema/${encodeURIComponent(venue.slug)}`),
+    )
+    for (const [index, venue] of venues.entries())
+      await expect(cinemaListing.nth(index)).toContainText(venue.name)
+    const canonicalCinema = cinemaListing.filter({ hasText: theater.name })
+    await expect(canonicalCinema).toHaveCount(1)
+    await expect(canonicalCinema).toHaveAttribute(
       'href',
       `/cinema/${theater.slug}`,
     )
-    await expect(cinemaListing).toContainText(theater.name)
+    await canonicalCinema.click()
+    await expect(page).toHaveURL(new RegExp(`/cinema/${theater.slug}$`))
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(
+      theater.name,
+    )
   }
 })

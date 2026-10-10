@@ -8,6 +8,10 @@ import {
   discoveryCities,
   discoveryMovies,
   movieSchedule,
+  movie,
+  date,
+  statisticsRelease,
+  theater,
 } from '../e2e/data.mjs'
 
 const source = (path: string) =>
@@ -189,4 +193,34 @@ test('synthetic acceptance has bounded canonical tied/sorted data, zero counts a
     ).theaters.length,
     2,
   )
+})
+
+test('statistics film metadata composes with the complete discovery schedule and canonical identity', () => {
+  for (const slug of [movie.slug, 'merged-film']) {
+    const schedule = movieSchedule(
+      slug,
+      new URLSearchParams(`theaters=${theater.id}&date=${date}&page=2`),
+    )
+    assert.equal(schedule.movie.slug, movie.slug)
+    assert.equal(schedule.movie.french_release_date, statisticsRelease)
+    assert.equal(schedule.movie.release_date, '2001-01-01')
+    assert.equal(schedule.release_status, 'showing')
+    assert.equal(schedule.currently_screened, true)
+    assert.deepEqual(schedule.available_dates, [date])
+    assert.deepEqual(
+      schedule.theaters.map((venue) => venue.id),
+      [theater.id],
+    )
+    assert.equal(schedule.theaters[0].showtimes[0].movie, schedule.movie)
+    assert.equal(schedule.pagination.page, 2)
+    assert.deepEqual(schedule.discovery.cities, discoveryCities)
+  }
+  const noRelease = movieSchedule('film-no-release', new URLSearchParams())
+  assert.equal(noRelease.movie.slug, 'film-no-release')
+  assert.equal(noRelease.movie.french_release_date, null)
+  assert.equal(noRelease.movie.release_date, '2001-01-01')
+  assert.equal(noRelease.currently_screened, false)
+  assert.deepEqual(noRelease.theaters, [])
+  assert.deepEqual(noRelease.discovery.cities, [])
+  assert.equal(movieSchedule('missing', new URLSearchParams()), null)
 })

@@ -309,18 +309,40 @@ export function cityDetail(slug, mode = 'populated') {
 }
 export function movieSchedule(slug, query, mode = 'populated') {
   const canonicalSlug = slug === 'merged-film' ? movie.slug : slug
-  const entry =
+  const candidate =
     discoveryMovies.find((item) => item.slug === canonicalSlug) ??
-    (['film-ended', 'film-upcoming'].includes(slug)
+    (['film-ended', 'film-upcoming', 'film-no-release'].includes(slug)
       ? {
           ...movie,
           slug,
-          title: slug === 'film-ended' ? 'Film terminé' : 'Film à venir',
-          french_release_date: slug === 'film-upcoming' ? '2099-01-01' : date,
+          title:
+            slug === 'film-ended'
+              ? 'Film terminé'
+              : slug === 'film-upcoming'
+                ? 'Film à venir'
+                : 'Film sans sortie française',
+          french_release_date:
+            slug === 'film-upcoming'
+              ? '2099-01-01'
+              : slug === 'film-no-release'
+                ? null
+                : date,
+          release_date: slug === 'film-no-release' ? '2001-01-01' : date,
         }
       : null)
-  if (!entry) return null
-  const inactive = ['film-ended', 'film-upcoming'].includes(slug)
+  if (!candidate) return null
+  // Statistics and detail pages share one complete, canonical film contract.
+  const entry =
+    canonicalSlug === movie.slug
+      ? {
+          ...candidate,
+          french_release_date: statisticsRelease,
+          release_date: '2001-01-01',
+        }
+      : candidate
+  const inactive = ['film-ended', 'film-upcoming', 'film-no-release'].includes(
+    slug,
+  )
   const selectedDate = query.get('date') || date
   const venues =
     mode === 'no-local-programme'

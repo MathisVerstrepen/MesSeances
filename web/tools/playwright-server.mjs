@@ -22,7 +22,6 @@ import {
   showtimes,
   theater,
   syntheticWatchlist,
-  statisticsRelease,
 } from '../e2e/data.mjs'
 
 const port = Number(process.env.PLAYWRIGHT_PORT || 13400)
@@ -106,25 +105,6 @@ const mock = createServer((request, response) => {
   if (request.method === 'GET') {
     if (path === '/api/v1/statistics/history')
       return json(response, historyStatistics(url.searchParams))
-    if (
-      path === `/api/v1/movies/${movie.slug}/showtimes` ||
-      path === '/api/v1/movies/film-no-release/showtimes'
-    )
-      return json(response, {
-        generated_at: generatedAt,
-        timezone: 'Europe/Paris',
-        date: url.searchParams.get('date') || date,
-        movie: {
-          ...movie,
-          french_release_date: path.includes('film-no-release')
-            ? null
-            : statisticsRelease,
-          release_date: '2001-01-01',
-        },
-        currently_screened: false,
-        backdrop_url: null,
-        theaters: [],
-      })
     if (path === '/api/v1/auth/session')
       return json(response, syntheticSession())
     if (path === '/api/v1/account/theater-follows') {
@@ -198,13 +178,6 @@ const mock = createServer((request, response) => {
         detail ? 200 : 404,
       )
     }
-    if (path === '/api/v1/cities/lille')
-      return json(response, {
-        generated_at: generatedAt,
-        city: { name: 'Lille', slug: 'lille' },
-        theaters: [theater],
-        movies: [movie],
-      })
     if (
       path === `/api/v1/theaters/${theater.slug}/activity` ||
       path === `/api/v1/theaters/${secondTheater.slug}/activity`
