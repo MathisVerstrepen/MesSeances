@@ -1271,7 +1271,7 @@ if (
       <FilmCityDiscovery v-if="broadScope" :discovery="schedule.discovery" />
       <section
         v-if="!hasNoSessions"
-        class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10"
+        class="schedule-section mt-6 pt-4 sm:mt-12 sm:pt-10"
         aria-labelledby="schedule-heading"
       >
         <div
