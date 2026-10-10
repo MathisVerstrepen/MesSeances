@@ -127,7 +127,7 @@ const resultGrouping = computed<ResultGrouping>(() =>
     : 'movie',
 )
 const resultLayout = computed<ResultLayout>(() =>
-  singularQueryValue(route.query.layout) === 'boxes' ? 'boxes' : 'lines',
+  singularQueryValue(route.query.layout) === 'lines' ? 'lines' : 'boxes',
 )
 const groupingOptions = resultGroupingOptions
 const layoutOptions = resultLayoutOptions
@@ -324,7 +324,7 @@ function selectDate(date: string) {
       date: date === todayInParis() ? undefined : date,
       grouping:
         resultGrouping.value === 'chronological' ? 'chronological' : undefined,
-      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined,
+      layout: resultLayout.value === 'lines' ? 'lines' : undefined,
     }),
   })
 }
@@ -335,7 +335,7 @@ async function setResultGrouping(grouping: string) {
   await router.push({
     query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
       grouping: grouping === 'chronological' ? grouping : undefined,
-      layout: resultLayout.value === 'boxes' ? 'boxes' : undefined,
+      layout: resultLayout.value === 'lines' ? 'lines' : undefined,
     }),
   })
 }
@@ -347,7 +347,7 @@ async function setResultLayout(layout: string) {
     query: mergeOwnedQuery(route.query, DISPLAY_QUERY_KEYS, {
       grouping:
         resultGrouping.value === 'chronological' ? 'chronological' : undefined,
-      layout: layout === 'boxes' ? layout : undefined,
+      layout: layout === 'lines' ? layout : undefined,
     }),
   })
 }

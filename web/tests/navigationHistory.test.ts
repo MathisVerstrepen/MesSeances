@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
+import ts from 'typescript'
+import { computed, reactive, type ComputedRef } from 'vue'
+import type { LocationQuery } from 'vue-router'
+import { mergeOwnedQuery, singularQueryValue } from '../app/utils/routeQuery.ts'
 
 const [
   films,
@@ -135,6 +139,131 @@ test('cinema date changes replace history while grouping, layout, and view tabs 
     functionSource(cinema, 'viewQuery'),
     /mergeOwnedQuery\(route\.query, FILMS_QUERY_KEYS/,
   )
+})
+
+// Execute the cinema page's display-query boundary with actual Vue reactivity.
+function cinemaDisplay(query: LocationQuery) {
+  const script = cinema.match(
+    /<script setup lang="ts">([\s\S]*?)<\/script>/,
+  )![1]!
+  const parsed = ts.createSourceFile(
+    'cinema.ts',
+    script,
+    ts.ScriptTarget.Latest,
+    true,
+  )
+  const names = new Set([
+    'DISPLAY_QUERY_KEYS',
+    'FILMS_QUERY_KEYS',
+    'resultGrouping',
+    'resultLayout',
+    'viewQuery',
+    'selectDate',
+    'setResultGrouping',
+    'setResultLayout',
+  ])
+  const statements = parsed.statements.filter((statement) => {
+    if (ts.isFunctionDeclaration(statement))
+      return names.has(statement.name?.text ?? '')
+    return (
+      ts.isVariableStatement(statement) &&
+      statement.declarationList.declarations.some(
+        (declaration) =>
+          ts.isIdentifier(declaration.name) && names.has(declaration.name.text),
+      )
+    )
+  })
+  assert.equal(statements.length, names.size)
+  const compiled = ts.transpileModule(
+    statements.map((statement) => statement.getFullText(parsed)).join('\n'),
+    {
+      compilerOptions: { target: ts.ScriptTarget.ESNext },
+    },
+  ).outputText
+  const route = reactive({ query })
+  const navigate = async ({ query: next }: { query: LocationQuery }) => {
+    route.query = next
+  }
+  const bindings = {
+    computed,
+    route,
+    router: { replace: navigate, push: navigate },
+    mergeOwnedQuery,
+    singularQueryValue,
+    todayInParis: () => '2026-10-10',
+  }
+  // SAFETY: The selected page declarations and explicit return expose exactly these reactive query bindings.
+  const display = new Function(
+    ...Object.keys(bindings),
+    `${compiled}\nreturn { resultLayout, viewQuery, selectDate, setResultGrouping, setResultLayout }`,
+  )(...Object.values(bindings)) as {
+    resultLayout: ComputedRef<string>
+    viewQuery: (view: string) => LocationQuery
+    selectDate: (date: string) => void
+    setResultGrouping: (grouping: string) => Promise<void>
+    setResultLayout: (layout: string) => Promise<void>
+  }
+  return { route, ...display }
+}
+
+test('cinema defaults to boxes except for a singular explicit lines query', () => {
+  for (const layout of [
+    undefined,
+    null,
+    '',
+    'invalid',
+    'boxes',
+    ['lines'],
+    ['lines', 'boxes'],
+  ]) {
+    assert.equal(cinemaDisplay({ layout }).resultLayout.value, 'boxes')
+  }
+  assert.equal(cinemaDisplay({ layout: 'lines' }).resultLayout.value, 'lines')
+})
+
+test('cinema keeps explicit lines across date, grouping and tabs; boxes removes layout only', async () => {
+  const preserved = {
+    q: 'keep',
+    shared_theaters: ['ugc-25', 'ugc-26'],
+    other: 'keep',
+  }
+  const display = cinemaDisplay({ ...preserved, date: '2026-10-11' })
+  await display.setResultLayout('lines')
+  assert.deepEqual(display.route.query, {
+    ...preserved,
+    date: '2026-10-11',
+    layout: 'lines',
+  })
+  display.selectDate('2026-10-12')
+  await display.setResultGrouping('chronological')
+  assert.deepEqual(display.route.query, {
+    ...preserved,
+    date: '2026-10-12',
+    layout: 'lines',
+    grouping: 'chronological',
+  })
+  for (const view of ['films', 'activity', 'showtimes']) {
+    display.route.query = display.viewQuery(view)
+    assert.equal(display.route.query.layout, 'lines')
+    assert.equal(display.route.query.grouping, 'chronological')
+    assert.equal(display.route.query.other, 'keep')
+    assert.deepEqual(
+      display.route.query.shared_theaters,
+      preserved.shared_theaters,
+    )
+    assert.equal(display.resultLayout.value, 'lines')
+  }
+  await display.setResultLayout('boxes')
+  assert.deepEqual(display.route.query, {
+    date: '2026-10-12',
+    grouping: 'chronological',
+    shared_theaters: preserved.shared_theaters,
+    other: 'keep',
+  })
+  display.selectDate('2026-10-10')
+  assert.equal(display.route.query.layout, undefined)
+  assert.equal(display.route.query.date, undefined)
+  assert.equal(display.resultLayout.value, 'boxes')
 })
 
 test('TMDB matched search replaces history while pagination and tabs push', () => {

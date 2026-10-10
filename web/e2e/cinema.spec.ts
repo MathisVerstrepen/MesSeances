@@ -95,9 +95,99 @@ test('cinema identity and programme render on the server', async ({
   expect(html).toContain(theater.name)
   expect(html).toContain(theater.address)
   expect(html).toContain(movie.title)
+  for (const viewport of ['mobile', 'desktop']) {
+    expect(html).toMatch(
+      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
+    )
+    const selector = html.match(
+      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
+    )![0]
+    expect(selector).toContain('Boîtes')
+    expect(selector).not.toContain('Lignes')
+  }
   expect(html).toContain(
     `/statistiques?period=all&amp;theater=${encodeURIComponent(theater.id)}`,
   )
+})
+
+test('cinema boxes default and explicit lines survive date, grouping, tabs and history', async ({
+  page,
+}, testInfo) => {
+  await openPage(page, `${path}&other=keep`)
+  const layout = page.getByRole('button', { name: 'Vue Boîtes', exact: true })
+  await expect(layout).toBeVisible()
+  const sessions = page.getByRole('list', {
+    name: `Séances de ${movie.title}`,
+    exact: true,
+  })
+  await expect(sessions).toHaveCSS('display', 'grid')
+  await layout.click()
+  await expect(
+    page.getByRole('menuitemradio', { name: 'Boîtes', exact: true }),
+  ).toHaveAttribute('aria-checked', 'true')
+  await page.getByRole('menuitemradio', { name: 'Lignes', exact: true }).click()
+  await expect(page).toHaveURL(/layout=lines/)
+  await expect(
+    page.getByRole('button', { name: 'Vue Lignes', exact: true }),
+  ).toBeVisible()
+  await expect(sessions).not.toHaveCSS('display', 'grid')
+  const preserved = () => {
+    const query = new URL(page.url()).searchParams
+    expect(query.get('layout')).toBe('lines')
+    expect(query.get('other')).toBe('keep')
+  }
+  await page
+    .getByRole('button', { name: 'Groupement Par film', exact: true })
+    .click()
+  await page
+    .getByRole('menuitemradio', { name: 'Chronologique', exact: true })
+    .click()
+  await expect(page).toHaveURL(/grouping=chronological/)
+  preserved()
+  const nextDate = new Date(`${date}T12:00:00Z`)
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+  await expect(page).toHaveURL(
+    new RegExp(`date=${nextDate.toISOString().slice(0, 10)}`),
+  )
+  preserved()
+  await page.getByRole('tab', { name: 'Aujourd’hui', exact: true }).click()
+  await page.setViewportSize(testInfo.project.use.viewport!)
+  await expect(
+    page.getByRole('button', { name: 'Vue Lignes', exact: true }),
+  ).toBeVisible()
+  preserved()
+  const navigation = page.getByRole('navigation', {
+    name: 'Vue de la programmation',
+  })
+  for (const tab of ['Films', 'Activité', 'Séances']) {
+    await navigation.getByRole('link', { name: tab, exact: true }).click()
+    await expect(
+      navigation.getByRole('link', { name: tab, exact: true }),
+    ).toHaveAttribute('aria-current', 'page')
+    preserved()
+  }
+  await page.getByRole('button', { name: 'Vue Lignes', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: 'Boîtes', exact: true }).click()
+  await expect(page).not.toHaveURL(/layout=/)
+  await expect(layout).toBeVisible()
+  await expect(
+    page.getByRole('list', {
+      name: 'Séances par ordre chronologique',
+      exact: true,
+    }),
+  ).toHaveCSS('display', 'grid')
+  expect(new URL(page.url()).searchParams.get('other')).toBe('keep')
+  expect(new URL(page.url()).searchParams.get('grouping')).toBe('chronological')
+  await page.goBack()
+  await expect(
+    page.getByRole('button', { name: 'Vue Lignes', exact: true }),
+  ).toBeVisible()
+  preserved()
+  await page.goForward()
+  await expect(layout).toBeVisible()
+  await expect(page).not.toHaveURL(/layout=/)
 })
 
 test('cinema is usable without horizontal overflow', async ({
