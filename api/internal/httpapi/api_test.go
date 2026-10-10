@@ -267,7 +267,7 @@ func TestOriginalLanguageMovieWireContract(t *testing.T) {
 			}{
 				{"/api/v1/movies", 1},
 				{"/api/v1/movies/" + slug + "/showtimes?date=2026-08-15", 2},
-				{"/api/v1/theaters/ugc-25/showtimes?date=2026-08-15", 1},
+				{"/api/v1/theaters/ugc-25/showtimes?date=2026-08-15", 2},
 				{"/api/v1/timeline?date=2026-08-15&theaters=ugc-25", 1},
 				{"/api/v1/search/slot?date=2026-08-15&theaters=ugc-25&start_after=08:00&finish_before=02:00", 1},
 				{"/api/v1/timeline?date=2026-08-15&theaters=ugc-25&language=VOF", vofMovies},
@@ -783,7 +783,7 @@ func TestCitiesTransportContracts(t *testing.T) {
 	if err := json.Unmarshal(detail.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(sortedKeys(payload), []string{"city", "generated_at", "movies", "theaters"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" {
+	if !reflect.DeepEqual(sortedKeys(payload), []string{"city", "discovery", "generated_at", "movies", "theaters"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" {
 		t.Fatalf("detail root=%+v", payload)
 	}
 	city := payload["city"].(map[string]any)
@@ -809,7 +809,7 @@ func TestTheaterShowtimesTransportContracts(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(sortedKeys(payload), []string{"date", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
+	if !reflect.DeepEqual(sortedKeys(payload), []string{"date", "discovery", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || payload["timezone"] != schedule.Timezone || payload["date"] != "2026-08-15" {
 		t.Fatalf("payload=%+v", payload)
 	}
 	theater := payload["theater"].(map[string]any)

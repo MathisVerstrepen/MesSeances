@@ -126,6 +126,7 @@ func (s *Service) movieShowtimes(view *SnapshotView, now time.Time, query MovieS
 		})
 	}
 	result := MovieSchedule{Movie: movie, BackdropURL: backdrop, CurrentlyScreened: movieCurrentlyScreened(view, canonicalSlug, now), Date: query.Date, AvailableDates: availableDates, CatalogRevision: view.catalogRevision, AvailableLanguages: []Language{}, AvailableFormats: []Format{}, Theaters: []MovieTheaterShowtimes{}, ReleaseStatus: "ended"}
+	result.Discovery = aggregateProgramme(view, now).movie(view, canonicalSlug)
 	for _, language := range movieShowtimesLanguages {
 		if languages[language] {
 			result.AvailableLanguages = append(result.AvailableLanguages, language)

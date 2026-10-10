@@ -29,6 +29,7 @@ type API struct {
 	historyCache        *HistoryCache
 	activity            ActivityReader
 	publicTheaterImages PublicTheaterImageController
+	sitemap             SitemapObserver
 	origin              string
 }
 
@@ -46,6 +47,7 @@ type HandlerOptions struct {
 	HistoryCache         *HistoryCache
 	Activity             ActivityReader
 	PublicTheaterImages  PublicTheaterImageController
+	Sitemap              SitemapObserver
 	TrustedProxyCIDRs    []netip.Prefix
 	InternalSharedSecret string
 	RateLimitClock       func() time.Time
@@ -143,7 +145,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	if options.RateLimitClock == nil {
 		options.RateLimitClock = time.Now
 	}
-	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, historyCache: options.HistoryCache, activity: options.Activity, publicTheaterImages: options.PublicTheaterImages, origin: webOrigin}
+	api := &API{schedule: service, admin: newAdminAPI(webOrigin, options.Admin), shortlinks: options.Shortlinks, history: options.History, historyCache: options.HistoryCache, activity: options.Activity, publicTheaterImages: options.PublicTheaterImages, sitemap: options.Sitemap, origin: webOrigin}
 	clients := newClientIdentifier(options.TrustedProxyCIDRs)
 	authenticator := newInternalServiceAuthenticator(options.InternalSharedSecret)
 	publicExpensiveReads := newTokenBucketLimiter(expensiveReadBurst, expensiveReadRefillRate, expensiveReadIdleHorizon, maxRateLimitClients, options.RateLimitClock)
@@ -188,6 +190,7 @@ func NewHandlerWithOptions(service *schedule.Service, webOrigin string, options 
 	router.With(api.requireSchedule).Get("/api/v1/cities", api.cities)
 	router.With(api.requireSchedule).Get("/api/v1/cities/{slug}", api.city)
 	router.With(api.requireCatalog, expensiveReads).Get("/api/v1/movies", api.movies)
+	router.With(expensiveReads).Get("/api/v1/sitemap-data", api.sitemapData)
 	router.With(api.requireCatalog, expensiveReads).Get("/api/v1/movies/upcoming", api.upcomingMovies)
 	router.With(expensiveReads, api.refreshMissingMovie, api.requireCatalog).Get("/api/v1/movies/{slug}/showtimes", api.movieShowtimes)
 	router.With(api.requireInternalService, expensiveReads, api.refreshMissingMovie, api.requireCatalog).Get("/api/v1/internal/movies/{slug}/showtimes-bundle", api.movieShowtimesBundle)

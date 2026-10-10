@@ -163,6 +163,7 @@ type CityInventory struct {
 }
 
 type CityDetail struct {
+	Discovery   CityDiscovery      `json:"discovery"`
 	GeneratedAt time.Time          `json:"generated_at"`
 	City        City               `json:"city"`
 	Theaters    []Theater          `json:"theaters"`
@@ -170,6 +171,7 @@ type CityDetail struct {
 }
 
 type TheaterShowtimes struct {
+	Discovery   TheaterDiscovery   `json:"discovery"`
 	GeneratedAt time.Time          `json:"generated_at"`
 	Timezone    string             `json:"timezone"`
 	Theater     Theater            `json:"theater"`
@@ -229,6 +231,7 @@ type MovieTheaterShowtimes struct {
 }
 
 type MovieSchedule struct {
+	Discovery          MovieDiscovery            `json:"discovery"`
 	ReleaseStatus      string                    `json:"release_status"`
 	Movie              MovieCatalogItem          `json:"movie"`
 	BackdropURL        *string                   `json:"backdrop_url"`

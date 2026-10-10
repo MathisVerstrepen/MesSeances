@@ -18,6 +18,18 @@ func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRe
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("begin schedule load failed")
 	}
 	defer rollbackScheduleTx(tx)
+	data, revision, err := loadDataset(ctx, tx)
+	if err != nil {
+		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("commit schedule load failed")
+	}
+	return data, revision, nil
+}
+
+// loadDataset reuses the caller's transaction snapshot, including catalog and locations.
+func loadDataset(ctx context.Context, tx pgx.Tx) (schedule.Dataset, schedule.SnapshotRevision, error) {
 	data, revision, err := loadMetadata(ctx, tx)
 	if err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, err
@@ -48,9 +60,6 @@ func (s *Store) Load(ctx context.Context) (schedule.Dataset, schedule.SnapshotRe
 	}
 	if err := schedule.ValidateSnapshotDataset(data, revision); err != nil {
 		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("loaded schedule dataset is invalid: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return schedule.Dataset{}, schedule.SnapshotRevision{}, fmt.Errorf("commit schedule load failed")
 	}
 	return data, revision, nil
 }

@@ -925,6 +925,26 @@ export interface CityDetailResponse {
   city: City
   theaters: Theater[]
   movies: CatalogMovie[]
+  discovery: {
+    window: DiscoveryWindow | null
+    theaters: { id: string; movie_count: number; showtime_count: number }[]
+  }
+}
+
+export interface DiscoveryWindow {
+  from: string
+  through: string
+  timezone: 'Europe/Paris'
+}
+
+export interface SitemapDataResponse {
+  as_of: string
+  revision: string
+  movies: CatalogMovie[]
+  movie_total: number
+  cities: CitiesResponse | null
+  upcoming_available: boolean
+  lastmod_by_path: Record<string, string | null>
 }
 
 export interface PublicTheaterImage {
@@ -939,6 +959,20 @@ export interface TheaterShowtimesResponse {
   theater: Theater & { image: PublicTheaterImage | null }
   date: string | null
   showtimes: TimelineShowtime[]
+  discovery: {
+    window: DiscoveryWindow | null
+    movies: CatalogMovie[]
+    other_theaters: {
+      provider: Provider
+      id: string
+      slug: string
+      name: string
+      city: string
+      city_slug: string
+      movie_count: number
+      showtime_count: number
+    }[]
+  }
 }
 
 export interface TheaterActivityQuery {
@@ -1079,6 +1113,15 @@ export type UpcomingMoviesResponse = UpcomingMoviesResponseBase &
   )
 
 export interface MovieShowtimesResponse {
+  discovery: {
+    window: DiscoveryWindow | null
+    cities: {
+      name: string
+      slug: string
+      theater_count: number
+      showtime_count: number
+    }[]
+  }
   release_status: 'upcoming' | 'showing' | 'ended' | 'unavailable'
   movie: CatalogMovie
   backdrop_url: string | null

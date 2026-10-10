@@ -5,7 +5,6 @@ import {
   date,
   movie,
   secondTheater,
-  showtimes,
   theater,
 } from './data.mjs'
 
@@ -346,25 +345,6 @@ test('multiline movie title keeps compact natural stack and working keyboard lin
   )
   await movieLink.focus()
   await expect(movieLink).toBeFocused()
-  // This layout fixture has no movie-detail endpoint. Keep keyboard activation
-  // synthetic and scoped here without widening the shared upstream fixture.
-  await page.route('**/api/v1/movies/film-playwright/showtimes*', (route) =>
-    route.fulfill({
-      json: {
-        release_status: 'showing',
-        movie,
-        backdrop_url: null,
-        date,
-        currently_screened: true,
-        available_dates: [date],
-        theaters: [{ ...theater, showtimes: showtimes().showtimes }],
-        catalog_revision: 'fixture-1',
-        available_languages: ['VF'],
-        available_formats: ['2D'],
-        pagination: null,
-      },
-    }),
-  )
   await page.screenshot({
     path: testInfo.outputPath('activity-multiline-title.png'),
     fullPage: true,
@@ -373,6 +353,13 @@ test('multiline movie title keeps compact natural stack and working keyboard lin
   await expect(page).toHaveURL(
     new RegExp(`/film/film-playwright\\?shared_theaters=${theater.id}$`),
   )
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(movie.title)
+  await expect(page.locator('.schedule-section')).toBeVisible()
+  await expect(page.locator('.theater-section')).toHaveCount(1)
+  await expect(
+    page.locator('.theater-section').getByRole('heading', { level: 3 }),
+  ).toContainText(theater.name)
+  await expect(page.locator('#film-discovery-heading')).toHaveCount(1)
 })
 
 for (const [mode, heading] of [

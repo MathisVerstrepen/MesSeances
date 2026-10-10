@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [060_capitole_ticketingcine.sql](060_capitole_ticketingcine.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [061_public_page_content.sql](061_public_page_content.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -152,6 +152,12 @@ Migration 047 separates source/nullability/revision invariants (`accounts_avatar
 Indexes support pending-account cleanup; sessions by account, absolute expiry and idle time; tokens by account/purpose, session and expiry; OAuth flows by account/session/grant and expiry; outbox readiness, account/token, expiry and terminal retention; suppression/quota expiry. Nullable lookup indexes are partial where appropriate. Username uniqueness remains database-authoritative, independent of embedded application reservations.
 
 ## Schedule tables
+
+### Public detail content observations
+
+`public_page_content_state` is a true-only boolean singleton primary key with nullable `observed_at timestamptz`. Migration 061 inserts one uninitialized NULL observation. `public_page_content` has canonical detail `path text` primary key (film, cinema or city/cinemas only, no query/fragment), required 32-byte SHA-256 `fingerprint bytea`, required `present boolean` and nullable `changed_at timestamptz`. No entity/generation foreign keys, triggers or historical date backfill exist. Neither table changes provider, metadata or location publication timestamps.
+
+The sitemap read model serializes repeatable-read observations through the singleton row lock, freezes its UTC clock after locking and commits inventory comparisons and observation state together. First observation baselines existing pages with unknown NULL dates; later changed/new/reappearing paths receive the observation instant. Equal public content preserves dates despite changed bookkeeping revisions. Disappearing paths retain tombstones but never re-enter inventory from storage. Load failures, cancellation and clock regression roll back. A bounded serialization retry takes a fresh database snapshot and clock. Records survive generation pruning and API restart. These are lazy observed-change dates, not historical mutation times; reverted-before-observation changes are not reconstructed. Public hub dates are deliberately not tracked. Deployment requires the additive migration and a compatible binary retaining migration history; there is no down migration or production execution in this implementation task.
 
 ### `schedule_snapshot`
 
