@@ -24,7 +24,7 @@ import {
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const PAGE_SIZE = 24
-const DEFAULT_SORT: MovieSort = 'title_asc'
+const DEFAULT_SORT: MovieSort = 'showtimes_desc'
 const OWNED_QUERY_KEYS = ['q', 'sort', 'page'] as const
 
 const route = useRoute()
