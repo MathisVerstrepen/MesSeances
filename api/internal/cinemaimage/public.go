@@ -30,6 +30,15 @@ func (s *Service) PublicImage(ctx context.Context, id Identity) (*PublicImage, e
 	if err != nil {
 		return nil, err
 	}
+	return MaterializePublicImage(id, r)
+}
+
+// MaterializePublicImage shares public metadata normalization with coherent snapshot readers.
+// It reads neither files nor storage. Missing images retain the existing null semantics.
+func MaterializePublicImage(id Identity, r Record) (*PublicImage, error) {
+	if !validIdentity(id) {
+		return nil, ErrRequest
+	}
 	if r.Key == "" {
 		return nil, nil
 	}

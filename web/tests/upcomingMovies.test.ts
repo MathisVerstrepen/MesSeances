@@ -21,7 +21,6 @@ import {
   upcomingApiQuery,
   upcomingRouteQuery,
 } from '../app/utils/upcomingMovies.ts'
-import { upcomingSitemapEntry } from '../server/utils/sitemap.ts'
 
 function movie(date: string, slug = 'film-1'): UpcomingCatalogMovie {
   return {
@@ -445,22 +444,16 @@ test('catalog-only SSR preserves upcoming and withdrawn states with no invented 
   }
 })
 
-test('sitemap uses real upcoming publication timestamp only at canonical page', async () => {
-  assert.deepEqual(upcomingSitemapEntry('2026-09-13T12:00:00Z'), {
-    path: '/films/prochainement',
-    lastmod: '2026-09-13T12:00:00Z',
-  })
-  assert.throws(() => upcomingSitemapEntry(''))
-  const handler = await readFile(
-    new URL('../server/routes/sitemaps/films.xml.ts', import.meta.url),
+test('sitemap keeps conditional canonical upcoming URL without unproven hub timestamp', async () => {
+  const sitemap = await readFile(
+    new URL('../server/utils/sitemap.ts', import.meta.url),
     'utf8',
   )
-  assert.match(handler, /publication\.error\.code === 'upcoming_unavailable'/)
-  assert.match(handler, /upcomingSitemapEntry\(publication\.generated_at\)/)
   assert.match(
-    handler,
-    /\/api\/v1\/movies\/upcoming`,\s*\{\s*headers,\s*retry: false,\s*ignoreResponseError: true,\s*query: \{ page: 1 \},?\s*\},?\s*\)/,
+    sitemap,
+    /data\.upcoming_available \? \[\{ path: '\/films\/prochainement' \}\] : \[\]/,
   )
+  assert.doesNotMatch(sitemap, /lastmod:\s*[^\n]*(?:generated_at|updated_at)/)
 })
 
 test('SSR page and detail use exact states, shared cards and no catalog-only preference blocker', async () => {

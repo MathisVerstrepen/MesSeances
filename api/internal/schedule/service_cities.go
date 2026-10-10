@@ -8,7 +8,10 @@ import (
 )
 
 func (s *Service) Cities() CityInventory {
-	view := s.source.Snapshot()
+	return cities(s.source.Snapshot())
+}
+
+func cities(view *SnapshotView) CityInventory {
 	result := CityInventory{GeneratedAt: view.data.GeneratedAt, Items: make([]CityInventoryItem, 0, len(view.cityBuckets))}
 	for _, bucket := range view.cityBuckets {
 		item := CityInventoryItem{Name: bucket.city, Slug: bucket.slug, Theaters: make([]CityTheater, 0, len(bucket.catalogPositions))}
@@ -55,6 +58,7 @@ func (s *Service) City(slug string) (CityDetail, error) {
 		result.Movies = append(result.Movies, materializeCatalogMovie(view, view.data.Showtimes[movie.firstShowtime].Movie))
 	}
 	sort.Slice(result.Movies, func(i, j int) bool { return compareMovieCatalogTitle(result.Movies[i], result.Movies[j], false) })
+	result.Discovery = aggregateProgramme(view, s.now()).city(view, result.Theaters)
 	return result, nil
 }
 

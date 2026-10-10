@@ -995,7 +995,7 @@ func TestMovieCatalogShowtimeCountIsOmittedOutsideMovies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, value := range map[string]any{"movie detail": detail, "city detail": city} {
+	for name, value := range map[string]any{"movie detail movie": detail.Movie, "city detail movies": city.Movies} {
 		encoded, err := json.Marshal(value)
 		if err != nil {
 			t.Fatal(err)

@@ -50,7 +50,7 @@ func TestOriginalTitleMovieWireContract(t *testing.T) {
 			}{
 				{"/api/v1/movies", 1},
 				{"/api/v1/movies/" + slug + "/showtimes?date=2026-08-15", 2},
-				{"/api/v1/theaters/ugc-25/showtimes?date=2026-08-15", 1},
+				{"/api/v1/theaters/ugc-25/showtimes?date=2026-08-15", 2},
 				{"/api/v1/timeline?date=2026-08-15&theaters=ugc-25", 1},
 				{"/api/v1/search/slot?date=2026-08-15&theaters=ugc-25&start_after=08:00&finish_before=02:00", 1},
 			} {

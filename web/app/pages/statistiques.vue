@@ -231,7 +231,8 @@ const { data: selectedMovie } = await useAsyncData(
   selectedFilmKey,
   async () => {
     const film = selectedFilm.value
-    if (!film) return { film, title: '', backdrop: null }
+    if (!film)
+      return { film, title: '', backdrop: null, frenchReleaseDate: null }
     try {
       const response = await api.movieShowtimes(film, {
         date: statisticsParisToday(),
@@ -240,9 +241,10 @@ const { data: selectedMovie } = await useAsyncData(
         film,
         title: response.movie.title.trim(),
         backdrop: safeBackdropUrl(response.backdrop_url),
+        frenchReleaseDate: response.movie.french_release_date,
       }
     } catch {
-      return { film, title: '', backdrop: null }
+      return { film, title: '', backdrop: null, frenchReleaseDate: null }
     }
   },
   { lazy: true },
@@ -252,6 +254,11 @@ const selectedFilmLabel = computed(() =>
   selectedFilm.value && selectedMovie.value?.film === selectedFilm.value
     ? selectedMovie.value.title || 'Titre indisponible'
     : 'Titre indisponible',
+)
+const selectedFrenchReleaseDate = computed(() =>
+  selectedFilm.value && selectedMovie.value?.film === selectedFilm.value
+    ? selectedMovie.value.frenchReleaseDate
+    : null,
 )
 const backdropUrl = computed(() =>
   draft.value.film &&
@@ -846,6 +853,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               <StatisticsLineChart
                 :key="signature"
                 :rows="data.daily_showtimes"
+                :today="today"
+                :film="Boolean(selectedFilm)"
+                :french-release-date="selectedFrenchReleaseDate"
               />
             </section>
             <section

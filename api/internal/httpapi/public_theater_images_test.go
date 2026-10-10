@@ -89,7 +89,7 @@ func TestTheaterShowtimesCinemaImageMetadata(t *testing.T) {
 			if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &payload) != nil {
 				t.Fatal(response.Code, response.Body.String())
 			}
-			if !reflect.DeepEqual(sortedKeys(payload), []string{"date", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || len(payload["showtimes"].([]any)) != 1 {
+			if !reflect.DeepEqual(sortedKeys(payload), []string{"date", "discovery", "generated_at", "showtimes", "theater", "timezone"}) || payload["generated_at"] != "2026-08-14T12:00:00Z" || len(payload["showtimes"].([]any)) != 1 {
 				t.Fatal(payload)
 			}
 			theater := payload["theater"].(map[string]any)

@@ -171,3 +171,25 @@ func TestPublicImageNormalizedReadAndRevocation(t *testing.T) {
 		t.Fatal("unsafe file read", err)
 	}
 }
+
+func TestMaterializePublicImageStableMetadata(t *testing.T) {
+	id := Identity{Provider: "ugc", ProviderTheaterID: "25"}
+	for _, record := range []Record{{}, {Revision: 4}} {
+		image, err := MaterializePublicImage(id, record)
+		if err != nil || image != nil {
+			t.Fatal("absence/tombstone", image, err)
+		}
+	}
+	record := Record{Revision: 9007199254740991, Key: strings.Repeat("a", 32) + ".webp", Width: 800, Height: 600, Size: 1000}
+	image, err := MaterializePublicImage(id, record)
+	if err != nil || image == nil || image.URL != "/api/v1/theaters/ugc/25/image/9007199254740991" || image.Width != 800 || image.Height != 600 {
+		t.Fatal(image, err)
+	}
+	record.Key = "invalid"
+	if _, err := MaterializePublicImage(id, record); !errors.Is(err, ErrStorage) {
+		t.Fatal("invalid metadata accepted", err)
+	}
+	if _, err := MaterializePublicImage(Identity{Provider: "invalid", ProviderTheaterID: "25"}, Record{}); !errors.Is(err, ErrRequest) {
+		t.Fatal("invalid identity accepted", err)
+	}
+}

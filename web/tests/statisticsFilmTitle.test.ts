@@ -48,7 +48,12 @@ const compiled = ts.transpileModule(withoutImports, {
 }).outputText
 
 interface MovieResult {
-  movie: { slug: string; title: string }
+  movie: {
+    slug: string
+    title: string
+    french_release_date?: string | null
+    release_date?: string | null
+  }
   backdrop_url?: string | null
   currently_screened: boolean
   theaters: never[]
@@ -57,11 +62,13 @@ interface TitleResult {
   film: string
   title: string
   backdrop?: string | null
+  frenchReleaseDate?: string | null
 }
 interface Page {
   selectedFilm: Ref<string>
   totals: Ref<{ label: string; count: number }[]>
   selectedFilmLabel: Ref<string>
+  selectedFrenchReleaseDate: Ref<string | null | undefined>
   backdropUrl: Ref<string | null>
   backdropAvailable: Ref<boolean>
   backdropFailed: Ref<boolean>
@@ -188,7 +195,7 @@ async function harness(
   // SAFETY: The wrapper explicitly returns these actual page setup bindings.
   const page = (await new Function(
     ...Object.keys(bindings),
-    `return (async () => { ${compiled}\nreturn { selectedFilm, totals, selectedFilmLabel, backdropUrl, backdropAvailable, backdropFailed, draft, error, apply, reset, data, historyData, pending, showSkeleton, buttonClass, headingClass, sectionClass, dateLabel, timestampLabel, generatedLabel, statisticsCount, statisticsShare, statisticsChainLabels, signature, movieBars, buckets, concentration, reload } })()`,
+    `return (async () => { ${compiled}\nreturn { selectedFilm, totals, selectedFilmLabel, selectedFrenchReleaseDate, today, backdropUrl, backdropAvailable, backdropFailed, draft, error, apply, reset, data, historyData, pending, showSkeleton, buttonClass, headingClass, sectionClass, dateLabel, timestampLabel, generatedLabel, statisticsCount, statisticsShare, statisticsChainLabels, signature, movieBars, buckets, concentration, reload } })()`,
   )(...Object.values(bindings))) as Page
   return {
     page,
@@ -509,6 +516,61 @@ test('movie title stays plain text and never becomes route or API identity', asy
   await h.page.apply()
   assert.deepEqual(h.route.query, { film: 'film-230', period: 'all' })
   assert.equal(h.historyCalls[0]?.film, 'film-230')
+})
+
+test('chart metadata uses only French release and rejects prior selected film while pending, late or removed', async (context) => {
+  let resolveNext!: (value: MovieResult) => void
+  const h = await harness(
+    { film: 'film-230' },
+    {
+      lookup: (film) =>
+        film === 'film-231'
+          ? new Promise((resolve) => {
+              resolveNext = resolve
+            })
+          : Promise.resolve({
+              ...movie(),
+              movie: {
+                ...movie().movie,
+                french_release_date: '2026-03-27',
+                release_date: '2026-01-01',
+              },
+            }),
+    },
+  )
+  context.after(h.stop)
+  assert.equal(h.page.selectedFrenchReleaseDate.value, '2026-03-27')
+  h.page.draft.value.film = ''
+  assert.equal(
+    h.page.selectedFrenchReleaseDate.value,
+    '2026-03-27',
+    'annotation follows applied filter, not draft',
+  )
+  h.route.query = { film: 'film-231' }
+  assert.equal(h.page.selectedFrenchReleaseDate.value, null)
+  resolveNext({
+    ...movie(),
+    movie: { ...movie().movie, release_date: '2026-01-01' },
+  })
+  await settle()
+  assert.equal(
+    h.page.selectedFrenchReleaseDate.value,
+    undefined,
+    'no international fallback',
+  )
+  h.titleData.value = {
+    film: 'film-230',
+    title: 'Stale',
+    frenchReleaseDate: '2026-03-27',
+  }
+  assert.equal(h.page.selectedFrenchReleaseDate.value, null)
+  h.route.query = {}
+  assert.equal(h.page.selectedFrenchReleaseDate.value, null)
+  await settle()
+  assert.equal(h.page.selectedFrenchReleaseDate.value, null)
+  assert.match(source, /:today="today"/)
+  assert.match(source, /:film="Boolean\(selectedFilm\)"/)
+  assert.match(source, /:french-release-date="selectedFrenchReleaseDate"/)
 })
 
 const backdrop = 'https://image.tmdb.org/t/p/w780/selected-film.jpg'

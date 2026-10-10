@@ -358,6 +358,14 @@ func TestCapitoleDestinationOnlyMigrationIntegration(t *testing.T) {
 	}
 	after := capitoleFacts(t, ctx, pool, nil)
 	delete(after, "movieflow_schema_migrations")
+	// Later additive migrations introduce derived sitemap baseline storage, not
+	// a mutation of Capitole's existing destination-only state.
+	delete(after, "public_page_content_state")
+	delete(after, "public_page_content")
+	var baseline bool
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*)=1 FROM public_page_content_state WHERE singleton AND observed_at IS NULL) AND NOT EXISTS(SELECT 1 FROM public_page_content)`).Scan(&baseline); err != nil || !baseline {
+		t.Fatal("sitemap migration did not create an unknown empty baseline", err)
+	}
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("destination-only state mutated")
 	}

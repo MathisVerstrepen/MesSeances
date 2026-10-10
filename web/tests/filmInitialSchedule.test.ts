@@ -15,6 +15,21 @@ function schedule(
   marker: string,
 ): MovieShowtimesResponse {
   return {
+    discovery: {
+      window: {
+        from: REQUESTED_DATE,
+        through: '2026-09-07',
+        timezone: 'Europe/Paris',
+      },
+      cities: [
+        {
+          name: 'Paris & proche',
+          slug: 'paris & proche',
+          theater_count: 2,
+          showtime_count: 9,
+        },
+      ],
+    },
     catalog_revision: 'r1',
     available_languages: [],
     available_formats: [],

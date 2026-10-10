@@ -1,9 +1,10 @@
-import type { CitiesResponse } from '../../../app/types/api'
 import { internalApiHeaders } from '../../utils/internalApi'
 import {
   API_SITEMAP_CACHE_POLICIES,
   buildCitySitemapEntries,
+  parseSitemapData,
   renderSitemap,
+  type SitemapDataPayload,
 } from '../../utils/sitemap'
 
 export default defineCachedEventHandler(async (event) => {
@@ -11,11 +12,13 @@ export default defineCachedEventHandler(async (event) => {
   const apiBase = config.apiBase.replace(/\/$/, '')
 
   try {
-    const inventory = await $fetch<CitiesResponse>(`${apiBase}/api/v1/cities`, {
+    const response = await $fetch<unknown>(`${apiBase}/api/v1/sitemap-data`, {
       headers: internalApiHeaders(event, config.internalApiSharedSecret),
       retry: false,
     })
-    const entries = buildCitySitemapEntries(inventory)
+    // SAFETY: Object coercion creates a field-readable candidate; parser checks every consumed field.
+    const payload = Object(response) as SitemapDataPayload
+    const entries = buildCitySitemapEntries(parseSitemapData(payload))
     setResponseHeader(event, 'Content-Type', 'application/xml; charset=utf-8')
     return renderSitemap(config.public.siteUrl, entries)
   } catch {

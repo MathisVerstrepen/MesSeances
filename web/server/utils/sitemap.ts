@@ -1,15 +1,18 @@
 import type {
   CatalogMovie,
   CitiesResponse,
-  MoviesResponse,
+  SitemapDataResponse,
 } from '../../app/types/api.ts'
 import { isIndexableMovie } from '../../app/utils/movieIndexability.ts'
 import { absoluteSiteUrl } from '../../app/utils/siteUrl.ts'
 
 export interface SitemapEntry {
   path: string
-  lastmod: string
+  lastmod?: string
 }
+
+// Candidate at the API boundary, not a validated sitemap response.
+export interface SitemapDataPayload extends Partial<SitemapDataResponse> {}
 
 interface SitemapCacheKeyInput {
   path: string
@@ -19,14 +22,6 @@ export interface ApiSitemapCachePolicy {
   readonly maxAge: number
   readonly swr: true
   readonly getKey: (event: SitemapCacheKeyInput) => string
-}
-
-interface CatalogPageExpectation {
-  page: number
-  pageSize: number
-  generatedAt?: string
-  catalogRevision?: string
-  total?: number
 }
 
 interface ValidatedCityInventory {
@@ -52,72 +47,59 @@ export const API_SITEMAP_CACHE_POLICIES = Object.freeze({
   cinemas: staticApiSitemapCachePolicy('/sitemaps/cinemas.xml'),
   cities: staticApiSitemapCachePolicy('/sitemaps/cities.xml'),
 })
-export const SITEMAP_CATALOG_PAGE_SIZE = 100
-
-export function upcomingSitemapEntry(generatedAt: string): SitemapEntry {
-  if (!validTimestamp(generatedAt))
-    throw new Error('Invalid upcoming publication timestamp')
-  return { path: '/films/prochainement', lastmod: generatedAt }
-}
-
 function nonblank(value: string | null | undefined): boolean {
   return value !== null && value !== undefined && value.trim().length > 0
 }
 
-export function validTimestamp(value: string | null | undefined): boolean {
-  if (value === null || value === undefined || value.trim().length === 0)
-    return false
-  return (
-    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+// Compare full fractional precision, not Date.parse's truncated milliseconds.
+function timestampInstant(value: string): bigint | null {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/.exec(
       value,
-    ) && Number.isFinite(Date.parse(value))
-  )
-}
-
-export function latestTimestamp(...values: string[]): string {
-  if (values.length === 0 || values.some((value) => !validTimestamp(value)))
-    throw new Error('Invalid sitemap timestamp')
-  return values.reduce((latest, value) =>
-    Date.parse(value) > Date.parse(latest) ? value : latest,
-  )
-}
-
-export function validateCatalogPage(
-  page: MoviesResponse,
-  expected: CatalogPageExpectation,
-): void {
-  const expectedItemCount = Math.max(
-    0,
-    Math.min(page.page_size, page.total - (page.page - 1) * page.page_size),
-  )
+    )
+  if (!match) return null
+  const [, year, month, day, hour, minute, second, fraction = '', zone] = match
+  const calendar = new Date(`${year}-${month}-${day}T00:00:00Z`)
   if (
-    page.page !== expected.page ||
-    page.page_size !== expected.pageSize ||
-    !Number.isSafeInteger(page.total) ||
-    page.total < 0 ||
-    !Array.isArray(page.items) ||
-    page.items.length !== expectedItemCount ||
-    !validTimestamp(page.generated_at) ||
-    !nonblank(page.catalog_revision) ||
-    (expected.generatedAt !== undefined &&
-      page.generated_at !== expected.generatedAt) ||
-    (expected.catalogRevision !== undefined &&
-      page.catalog_revision !== expected.catalogRevision) ||
-    (expected.total !== undefined && page.total !== expected.total)
-  ) {
-    throw new Error('Inconsistent movie catalog snapshot')
-  }
+    !Number.isFinite(calendar.getTime()) ||
+    calendar.toISOString().slice(0, 10) !== `${year}-${month}-${day}` ||
+    Number(hour) > 23 ||
+    Number(minute) > 59 ||
+    Number(second) > 59
+  )
+    return null
+  if (
+    zone !== 'Z' &&
+    (Number(zone!.slice(1, 3)) > 23 || Number(zone!.slice(4)) > 59)
+  )
+    return null
+  const milliseconds = Date.parse(
+    `${year}-${month}-${day}T${hour}:${minute}:${second}${zone}`,
+  )
+  if (!Number.isFinite(milliseconds)) return null
+  return (
+    BigInt(milliseconds) * BigInt(1_000_000) + BigInt(fraction.padEnd(9, '0'))
+  )
+}
+
+export function validTimestamp(value: string): boolean {
+  return timestampInstant(value) !== null
 }
 
 export function validateMovieInventory(
   movies: CatalogMovie[],
   expectedTotal: number,
 ): void {
-  if (movies.length !== expectedTotal)
+  if (
+    !Array.isArray(movies) ||
+    !Number.isSafeInteger(expectedTotal) ||
+    expectedTotal < 0 ||
+    movies.length !== expectedTotal
+  )
     throw new Error('Incomplete movie catalog snapshot')
   const slugs = new Set<string>()
   for (const movie of movies) {
-    const slug = movie.slug.trim()
+    const slug = movie.slug
     if (
       !/^film-[1-9]\d*$/.test(slug) ||
       slugs.has(slug) ||
@@ -129,70 +111,25 @@ export function validateMovieInventory(
   }
 }
 
-function visibleCatalogLastmod(page: MoviesResponse): string {
-  return latestTimestamp(
-    page.generated_at,
-    ...page.items.map((movie) => movie.updated_at),
-  )
-}
-
-function currentCatalogLastmod(
-  movies: CatalogMovie[],
-  generatedAt: string,
-): string {
-  const currentMovieTimestamps = movies
-    .filter(
-      (movie) =>
-        Number.isFinite(movie.showtime_count) &&
-        (movie.showtime_count ?? 0) > 0,
-    )
-    .map((movie) => movie.updated_at)
-  return latestTimestamp(generatedAt, ...currentMovieTimestamps)
-}
-
 export function buildFilmSitemapEntries(
-  movies: CatalogMovie[],
-  snapshot: Pick<MoviesResponse, 'total' | 'generated_at' | 'catalog_revision'>,
-  homepageCatalog: MoviesResponse,
-  filmsCatalog: MoviesResponse,
+  data: SitemapDataResponse,
 ): SitemapEntry[] {
-  validateMovieInventory(movies, snapshot.total)
-  validateCatalogPage(homepageCatalog, {
-    page: 1,
-    pageSize: 6,
-    generatedAt: snapshot.generated_at,
-    catalogRevision: snapshot.catalog_revision,
-  })
-  validateCatalogPage(filmsCatalog, {
-    page: 1,
-    pageSize: 24,
-    generatedAt: snapshot.generated_at,
-    catalogRevision: snapshot.catalog_revision,
-  })
+  validateSitemapData(data)
 
-  const filmEntries = movies
+  const filmEntries = data.movies
     .flatMap((movie) => {
       const currentlyScreened =
         Number.isFinite(movie.showtime_count) && (movie.showtime_count ?? 0) > 0
       if (!isIndexableMovie(movie, currentlyScreened)) return []
-      return [
-        {
-          path: `/film/${encodeURIComponent(movie.slug.trim())}`,
-          lastmod: currentlyScreened
-            ? latestTimestamp(movie.updated_at, snapshot.generated_at)
-            : movie.updated_at,
-        },
-      ]
+      return [detailEntry(data, `/film/${encodeURIComponent(movie.slug)}`)]
     })
     .sort((left, right) => left.path.localeCompare(right.path))
 
   return [
-    { path: '/', lastmod: visibleCatalogLastmod(homepageCatalog) },
-    {
-      path: '/films',
-      lastmod: currentCatalogLastmod(movies, snapshot.generated_at),
-    },
+    { path: '/' },
+    { path: '/films' },
     ...filmEntries,
+    ...(data.upcoming_available ? [{ path: '/films/prochainement' }] : []),
   ]
 }
 
@@ -243,26 +180,170 @@ export function validateCityInventory(
 }
 
 export function buildCinemaSitemapEntries(
-  inventory: CitiesResponse,
+  data: SitemapDataResponse,
 ): SitemapEntry[] {
-  const { theaterSlugs } = validateCityInventory(inventory)
+  const { theaterSlugs } = validateSitemapData(data)
+  if (!data.cities) throw new Error('Local sitemap unavailable')
   return [
-    { path: '/cinemas', lastmod: inventory.generated_at },
-    ...theaterSlugs.map((slug) => ({
-      path: `/cinema/${encodeURIComponent(slug)}`,
-      lastmod: inventory.generated_at,
-    })),
+    { path: '/cinemas' },
+    ...theaterSlugs.map((slug) =>
+      detailEntry(data, `/cinema/${encodeURIComponent(slug)}`),
+    ),
   ]
 }
 
 export function buildCitySitemapEntries(
-  inventory: CitiesResponse,
+  data: SitemapDataResponse,
 ): SitemapEntry[] {
-  const { citySlugs } = validateCityInventory(inventory)
-  return citySlugs.map((slug) => ({
-    path: `/ville/${encodeURIComponent(slug)}/cinemas`,
-    lastmod: inventory.generated_at,
-  }))
+  const { citySlugs } = validateSitemapData(data)
+  if (!data.cities) throw new Error('Local sitemap unavailable')
+  return citySlugs.map((slug) =>
+    detailEntry(data, `/ville/${encodeURIComponent(slug)}/cinemas`),
+  )
+}
+
+function detailEntry(data: SitemapDataResponse, path: string): SitemapEntry {
+  const lastmod = data.lastmod_by_path[path]
+  return lastmod === null ? { path } : { path, lastmod }
+}
+
+export function parseSitemapData(
+  payload: SitemapDataPayload,
+): SitemapDataResponse {
+  if (
+    Object.prototype.toString.call(payload.as_of) !== '[object String]' ||
+    Object.prototype.toString.call(payload.revision) !== '[object String]' ||
+    !Array.isArray(payload.movies) ||
+    !Number.isSafeInteger(payload.movie_total) ||
+    payload.cities === undefined ||
+    (payload.upcoming_available !== true &&
+      payload.upcoming_available !== false) ||
+    Object.prototype.toString.call(payload.lastmod_by_path) !==
+      '[object Object]'
+  )
+    throw new Error('Invalid sitemap data')
+
+  for (const movie of payload.movies) {
+    if (
+      Object.prototype.toString.call(movie) !== '[object Object]' ||
+      Object.prototype.toString.call(movie.slug) !== '[object String]' ||
+      Object.prototype.toString.call(movie.updated_at) !== '[object String]' ||
+      [
+        movie.overview,
+        movie.release_date,
+        movie.poster_url,
+        movie.imdb_id,
+      ].some(
+        (value) =>
+          value !== null &&
+          value !== undefined &&
+          Object.prototype.toString.call(value) !== '[object String]',
+      ) ||
+      (movie.tmdb_id !== null &&
+        movie.tmdb_id !== undefined &&
+        !Number.isSafeInteger(movie.tmdb_id)) ||
+      (movie.showtime_count !== undefined &&
+        (!Number.isSafeInteger(movie.showtime_count) ||
+          movie.showtime_count < 0)) ||
+      !Array.isArray(movie.genres) ||
+      movie.genres.some(
+        (genre) => Object.prototype.toString.call(genre) !== '[object String]',
+      )
+    )
+      throw new Error('Invalid movie catalog item')
+  }
+  if (payload.cities !== null) {
+    const inventory = payload.cities
+    if (
+      Object.prototype.toString.call(inventory) !== '[object Object]' ||
+      Object.prototype.toString.call(inventory.generated_at) !==
+        '[object String]' ||
+      !Array.isArray(inventory.items)
+    )
+      throw new Error('Invalid city inventory snapshot')
+    for (const city of inventory.items) {
+      if (
+        Object.prototype.toString.call(city) !== '[object Object]' ||
+        [city.name, city.slug].some(
+          (value) =>
+            Object.prototype.toString.call(value) !== '[object String]',
+        ) ||
+        !Array.isArray(city.theaters)
+      )
+        throw new Error('Invalid city inventory item')
+      for (const theater of city.theaters) {
+        if (
+          Object.prototype.toString.call(theater) !== '[object Object]' ||
+          [theater.provider, theater.id, theater.slug, theater.name].some(
+            (value) =>
+              Object.prototype.toString.call(value) !== '[object String]',
+          )
+        )
+          throw new Error('Invalid city theater inventory')
+      }
+    }
+  }
+  if (
+    Object.values(payload.lastmod_by_path!).some(
+      (value) =>
+        value !== null &&
+        Object.prototype.toString.call(value) !== '[object String]',
+    )
+  )
+    throw new Error('Invalid sitemap detail timestamp')
+
+  // All fields consumed by sitemap builders passed boundary validation above.
+  return {
+    as_of: payload.as_of!,
+    revision: payload.revision!,
+    movies: payload.movies,
+    movie_total: payload.movie_total!,
+    cities: payload.cities,
+    upcoming_available: payload.upcoming_available,
+    lastmod_by_path: payload.lastmod_by_path!,
+  }
+}
+
+export function validateSitemapData(
+  data: SitemapDataResponse,
+): ValidatedCityInventory {
+  const asOf = timestampInstant(data.as_of)
+  if (
+    asOf === null ||
+    !nonblank(data.revision) ||
+    (data.upcoming_available !== true && data.upcoming_available !== false)
+  )
+    throw new Error('Invalid sitemap data')
+  validateMovieInventory(data.movies, data.movie_total)
+  const inventory =
+    data.cities === null
+      ? { citySlugs: [], theaterSlugs: [] }
+      : validateCityInventory(data.cities)
+  const paths = new Set([
+    ...data.movies.map((movie) => `/film/${encodeURIComponent(movie.slug)}`),
+    ...inventory.theaterSlugs.map(
+      (slug) => `/cinema/${encodeURIComponent(slug)}`,
+    ),
+    ...inventory.citySlugs.map(
+      (slug) => `/ville/${encodeURIComponent(slug)}/cinemas`,
+    ),
+  ])
+  if (
+    Object.keys(data.lastmod_by_path).length !== paths.size ||
+    Object.keys(data.lastmod_by_path).some((path) => !paths.has(path))
+  )
+    throw new Error('Incomplete sitemap timestamp map')
+  for (const path of paths) {
+    if (!Object.hasOwn(data.lastmod_by_path, path))
+      throw new Error('Incomplete sitemap timestamp map')
+    const value = data.lastmod_by_path[path]
+    if (value === undefined) throw new Error('Incomplete sitemap timestamp map')
+    if (value === null) continue
+    const instant = timestampInstant(value)
+    if (instant === null || instant > asOf)
+      throw new Error('Invalid sitemap detail timestamp')
+  }
+  return inventory
 }
 
 export function xmlEscape(value: string): string {
@@ -282,7 +363,9 @@ export function renderSitemap(
   if (
     new Set(paths).size !== paths.length ||
     entries.some(
-      (entry) => !entry.path.startsWith('/') || !validTimestamp(entry.lastmod),
+      (entry) =>
+        !entry.path.startsWith('/') ||
+        (entry.lastmod !== undefined && !validTimestamp(entry.lastmod)),
     )
   ) {
     throw new Error('Invalid sitemap entries')
@@ -290,7 +373,11 @@ export function renderSitemap(
   const body = entries
     .map((entry) => {
       const location = xmlEscape(absoluteSiteUrl(siteUrl, entry.path))
-      return `  <url>\n    <loc>${location}</loc>\n    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>\n  </url>`
+      const date =
+        entry.lastmod === undefined
+          ? ''
+          : `\n    <lastmod>${xmlEscape(entry.lastmod)}</lastmod>`
+      return `  <url>\n    <loc>${location}</loc>${date}\n  </url>`
     })
     .join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>\n`

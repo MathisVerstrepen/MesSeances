@@ -296,7 +296,7 @@ func run(ctx context.Context) error {
 			Schedule:  schedules.source,
 			Database:  pool,
 			Revisions: schedules.store,
-		}, accountService, publicTheaterImages),
+		}, accountService, publicTheaterImages, &schedulepg.SitemapObserver{Store: schedules.store, PublicImages: publicTheaterImages != nil}),
 		ReadHeaderTimeout: serverReadHeaderTimeout,
 		ReadTimeout:       serverReadTimeout,
 		WriteTimeout:      serverWriteTimeout,
@@ -572,7 +572,7 @@ func shutdownWorkers(stopWorkers context.CancelFunc, schedules, syncManager, geo
 	polling.Wait()
 }
 
-func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, historyCache *httpapi.HistoryCache, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service, publicTheaterImages httpapi.PublicTheaterImageController) http.Handler {
+func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOptions httpapi.AdminOptions, shortlinks httpapi.ShortlinkService, history httpapi.HistoryReader, historyCache *httpapi.HistoryCache, activity httpapi.ActivityReader, readiness httpapi.ReadinessOptions, accountService *accounts.Service, publicTheaterImages httpapi.PublicTheaterImageController, sitemap httpapi.SitemapObserver) http.Handler {
 	return httpapi.NewHandlerWithOptions(service, cfg.Server.Origin, httpapi.HandlerOptions{
 		Accounts:             httpapi.AccountOptions{Enabled: cfg.Accounts.Enabled, Service: accountService, Origin: cfg.Server.Origin},
 		Admin:                adminOptions,
@@ -582,6 +582,7 @@ func newAPIHandler(service *schedule.Service, cfg runtimeconfig.Config, adminOpt
 		HistoryCache:         historyCache,
 		Activity:             activity,
 		PublicTheaterImages:  publicTheaterImages,
+		Sitemap:              sitemap,
 		TrustedProxyCIDRs:    cfg.Server.TrustedProxyCIDRs,
 		InternalSharedSecret: cfg.Internal.SharedSecret,
 	})

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -25,6 +26,22 @@ import (
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 )
+
+type testSitemapObserver struct{}
+
+func (testSitemapObserver) ObserveSitemapData(context.Context) (schedule.SitemapData, error) {
+	return schedule.SitemapData{Revision: "schedule:0;enrichment:1;location:2", Movies: []schedule.MovieCatalogItem{}, LastmodByPath: map[string]*time.Time{}}, nil
+}
+
+func TestNewAPIHandlerWiresSitemapObserver(t *testing.T) {
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil, testSitemapObserver{})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/sitemap-data", nil))
+	var result schedule.SitemapData
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil || result.Revision != "schedule:0;enrichment:1;location:2" {
+		t.Fatalf("sitemap not wired: %d %s", response.Code, response.Body)
+	}
+}
 
 type testReadCloser struct {
 	io.Reader
@@ -50,7 +67,7 @@ func (testActivityReader) TheaterActivity(_ context.Context, q schedule.TheaterA
 }
 
 func TestAPIActivityRuntimeInjection(t *testing.T) {
-	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, nil, testActivityReader{}, httpapi.ReadinessOptions{}, nil, nil)
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, nil, nil, testActivityReader{}, httpapi.ReadinessOptions{}, nil, nil, nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/theaters/ugc-25/activity", nil))
 	if response.Code != 200 || response.Header().Get("Cache-Control") != "no-store" {
@@ -73,7 +90,7 @@ func TestAPIHistoryRuntimeInjection(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, cache, nil, httpapi.ReadinessOptions{}, nil, nil)
+	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, cache, nil, httpapi.ReadinessOptions{}, nil, nil, nil)
 	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history?date=2026-01-01", "/api/v1/statistics/history/options?kind=city"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
@@ -276,7 +293,7 @@ func TestCanonicalStartupOriginReachesAdminAuthAndCORS(t *testing.T) {
 		t.Fatalf("admin options manager=%v err=%v", manager, err)
 	}
 	adminOptions.Now = time.Now
-	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil)
+	handler := newAPIHandler(nil, cfg, adminOptions, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil, nil)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/admin/login", strings.NewReader(`{"password":"password"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)
@@ -292,7 +309,7 @@ func TestNewAPIHandlerWiresInternalSharedSecret(t *testing.T) {
 	var cfg runtimeconfig.Config
 	cfg.Server.Origin = "http://localhost:3000"
 	cfg.Internal.SharedSecret = secret
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil)
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, nil, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil, nil)
 	target := "/api/v1/internal/movies/tmdb-film-42/showtimes-bundle?date=2026-08-15&city=Paris"
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, target, nil)
@@ -445,7 +462,7 @@ func TestNewAPIHandlerWiresShortlinkServiceSeparatelyFromAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil)
+	handler := newAPIHandler(nil, cfg, httpapi.AdminOptions{}, testShortlinkService{}, nil, nil, nil, httpapi.ReadinessOptions{}, nil, nil, nil)
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/shortlinks", strings.NewReader(`{"target":"/"}`))
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Origin", cfg.Server.Origin)

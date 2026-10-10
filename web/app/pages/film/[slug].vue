@@ -1268,8 +1268,9 @@ if (
           >Voir les prochaines sorties</NuxtLink
         >
       </section>
+      <FilmCityDiscovery v-if="broadScope" :discovery="schedule.discovery" />
       <section
-        v-else
+        v-if="!hasNoSessions"
         class="schedule-section mt-8 border-t-2 border-ink pt-4 sm:mt-16 sm:pt-10"
         aria-labelledby="schedule-heading"
       >
@@ -1855,6 +1856,12 @@ if (
           </div>
         </div>
       </section>
+      <FilmCityDiscovery
+        v-if="!broadScope"
+        :key="`${slug}|${preferences.selectionScopeKey.value}|${preferences.hasSharedSelection.value}|${preferences.activeTheaterIds.value.join(',')}`"
+        :discovery="schedule.discovery"
+        collapsible
+      />
     </template>
   </main>
 </template>
