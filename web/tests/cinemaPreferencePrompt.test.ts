@@ -252,9 +252,27 @@ test('prompt keeps one compact row with contextual icons and a yellow navigation
   assert.match(source, /text-muted opacity-0 group-hover:pointer-events-auto/)
   assert.match(source, /group-hover:opacity-100/)
   assert.match(source, /group-has-\[:focus-visible\]:opacity-100/)
+  assert.match(source, /\[@media\(any-pointer:coarse\)\]:pointer-events-auto/)
+  assert.match(source, /\[@media\(any-pointer:coarse\)\]:opacity-100/)
+  assert.match(source, /\[@media\(any-pointer:coarse\)\]:place-items-center/)
   assert.match(source, /motion-reduce:translate-none/)
   assert.match(source, /\[@media\(any-pointer:coarse\)\]:touch-none/)
   assert.match(source, /@click\.capture="onClick"/)
+})
+
+test('only search adds mobile action-bar clearance and desktop keeps its original inset', () => {
+  assert.match(
+    source,
+    /route\.path === '\/recherche' \? 'bottom-\[calc\(5\.375rem\+max\(1rem,env\(safe-area-inset-bottom\)\)\)\]/,
+  )
+  assert.match(
+    source,
+    /lg:bottom-\[calc\(1rem\+env\(safe-area-inset-bottom\)\)\]/,
+  )
+  assert.match(
+    source,
+    /: 'bottom-\[calc\(1rem\+env\(safe-area-inset-bottom\)\)\]'/,
+  )
 })
 
 test('deliberate left, right and down swipes persist browser dismissal, including CTA-origin drags', () => {
