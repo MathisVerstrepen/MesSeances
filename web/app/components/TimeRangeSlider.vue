@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const track = ref<HTMLElement | null>(null)
 const startHandle = ref<HTMLButtonElement | null>(null)
+const startSelect = ref<HTMLSelectElement | null>(null)
 const endHandle = ref<HTMLButtonElement | null>(null)
 const activeHandle = ref<Handle>('start')
 const activePointerId = ref<number | null>(null)
@@ -151,6 +152,13 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
   activeHandle.value = handle
   setHandle(handle, nextIndex)
 }
+
+function focusStart() {
+  startSelect.value?.scrollIntoView({ block: 'center' })
+  startSelect.value?.focus({ preventScroll: true })
+}
+
+defineExpose({ focusStart })
 </script>
 
 <template>
@@ -228,6 +236,7 @@ function onKeydown(handle: Handle, event: KeyboardEvent) {
           >À partir de</span
         >
         <select
+          ref="startSelect"
           v-model="startModel"
           class="h-12 w-full rounded-none border-2 border-ink bg-surface px-[0.65rem] text-[0.82rem] font-extrabold text-ink focus-visible:outline-[3px] focus-visible:outline-offset-[3px] focus-visible:outline-ink"
         >

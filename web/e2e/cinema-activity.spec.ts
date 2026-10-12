@@ -131,9 +131,13 @@ test('public timeline preserves Paris chronology, same-day events, labels, fallb
   await page.keyboard.press('Shift+Tab')
   await expect(titleLink).toBeFocused()
   await expect(titleLink).toHaveCSS('outline-style', 'solid')
-  const dismiss = page.getByRole('button', { name: 'Ne plus afficher' })
-  await dismiss.focus()
-  await dismiss.press('Enter')
+  const prompt = page
+    .getByRole('status')
+    .filter({ hasText: 'Choisissez vos cinémas' })
+    .locator('..')
+  await prompt.getByRole('link', { name: 'Choisir' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(prompt).toHaveCount(0)
   await page.evaluate(() => window.scrollTo(0, 0))
   await page.screenshot({
     path: testInfo.outputPath('cinema-activity.png'),

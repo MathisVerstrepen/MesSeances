@@ -74,6 +74,7 @@ function harness(
     writesBlocked: ref(false),
   }
   const update = reactive({ available: false })
+  const searchActionBarVisible = ref(false)
   let mount = () => {}
   const bindings = {
     ref,
@@ -82,6 +83,7 @@ function harness(
     isAccountPage,
     Element: ElementFixture,
     useRoute: () => route,
+    useState: () => searchActionBarVisible,
     useNuxtApp: () => ({ $appUpdate: { state: update } }),
     useCinemaPreferences: () => preferences,
     onMounted: (callback: () => void) => {
@@ -119,7 +121,14 @@ function harness(
     onClick: (event: ClickFixture) => void
   }
   page.popup.value = new ElementFixture()
-  return { page, route, preferences, update, mount: () => mount() }
+  return {
+    page,
+    route,
+    preferences,
+    update,
+    searchActionBarVisible,
+    mount: () => mount(),
+  }
 }
 
 function pointer(
@@ -223,12 +232,11 @@ test('dismissal persists across remounts, does not reset on scope changes, and t
 
 test('prompt is compact, client-only, keyboard dismissible, labelled, and navigation does not dismiss', async () => {
   assert.match(source, /@keydown\.esc\.stop="dismiss"/)
-  assert.match(source, /aria-label="Ne plus afficher"/)
+  assert.doesNotMatch(source, /aria-label="Ne plus afficher"|<button|<X\b/)
   assert.match(source, /role="status"\s+aria-live="polite"/)
   assert.match(source, /min-h-11/)
-  assert.match(source, /size-11/)
   assert.match(source, /safe-area-inset-bottom/)
-  assert.doesNotMatch(source, /initialize\(|useState|autofocus/)
+  assert.doesNotMatch(source, /initialize\(|autofocus/)
   const app = await readFile(new URL('../app/app.vue', import.meta.url), 'utf8')
   assert.match(app, /<ClientOnly><CinemaPreferencePrompt \/><\/ClientOnly>/)
   assert.doesNotMatch(
@@ -248,13 +256,24 @@ test('prompt keeps one compact row with contextual icons and a yellow navigation
   assert.match(action, /min-h-11 shrink-0/)
   assert.match(action, /bg-\[#ffcf3f\]/)
   assert.match(action, />\s+Choisir\s/)
-  assert.match(source, /absolute -top-11 right-0 grid size-11/)
-  assert.match(source, /text-muted opacity-0 group-hover:pointer-events-auto/)
-  assert.match(source, /group-hover:opacity-100/)
-  assert.match(source, /group-has-\[:focus-visible\]:opacity-100/)
   assert.match(source, /motion-reduce:translate-none/)
   assert.match(source, /\[@media\(any-pointer:coarse\)\]:touch-none/)
   assert.match(source, /@click\.capture="onClick"/)
+})
+
+test('only search adds mobile action-bar clearance and desktop keeps its original inset', () => {
+  assert.match(
+    source,
+    /route\.path === '\/recherche' && searchActionBarVisible \? 'bottom-\[calc\(5\.375rem\+max\(1rem,env\(safe-area-inset-bottom\)\)\)\]/,
+  )
+  assert.match(
+    source,
+    /lg:bottom-\[calc\(1rem\+env\(safe-area-inset-bottom\)\)\]/,
+  )
+  assert.match(
+    source,
+    /: 'bottom-\[calc\(1rem\+env\(safe-area-inset-bottom\)\)\]'/,
+  )
 })
 
 test('deliberate left, right and down swipes persist browser dismissal, including CTA-origin drags', () => {
