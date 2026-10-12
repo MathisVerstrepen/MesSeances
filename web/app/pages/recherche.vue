@@ -135,6 +135,7 @@ const searchScopeTheaters = computed(() =>
   broadPreferenceScope.value ? theaters.value : activeTheaters.value,
 )
 const filterForm = ref<HTMLFormElement | null>(null)
+const timeRange = ref<InstanceType<typeof TimeRangeSlider> | null>(null)
 const sheetCloseButton = ref<HTMLButtonElement | null>(null)
 const modifierButton = ref<HTMLButtonElement | null>(null)
 const dateBar = ref<{
@@ -512,6 +513,11 @@ async function openFilterSheet(event: MouseEvent) {
   lockBodyScroll()
   await nextTick()
   sheetCloseButton.value?.focus()
+}
+
+function openTimeSlotEditor(event: MouseEvent) {
+  if (isMobileViewport()) return openFilterSheet(event)
+  timeRange.value?.focusStart()
 }
 
 function closeFilterSheet({ restoreFocus = true } = {}) {
@@ -1169,6 +1175,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             </fieldset>
 
             <TimeRangeSlider
+              ref="timeRange"
               v-model:start="form.startAfter"
               v-model:end="form.finishBefore"
               :options="timeOptions"
@@ -1540,6 +1547,14 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               watchlistOnly ? 'Aucune séance de votre watchlist ne correspond à ces filtres.' : 'Aucune séance ne correspond à ce créneau et aux filtres sélectionnés.'
             }}
           </p>
+          <button
+            type="button"
+            class="editorial-button mt-4"
+            aria-controls="search-filters"
+            @click="openTimeSlotEditor"
+          >
+            Modifier mon créneau
+          </button>
           <button
             v-if="watchlistOnly"
             type="button"
