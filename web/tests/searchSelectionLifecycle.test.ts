@@ -50,6 +50,17 @@ const evaluateSubmitDisabled = new Function(
   `return (${submitDisabledExpression})`,
 )
 
+test('all-cinema label uses neutral ink while selection errors retain alert styling', () => {
+  assert.match(
+    source,
+    /<p\s+v-else\s+class="[^"]*\btext-ink"\s*>\s*Tous les cinémas\s*<\/p>/,
+  )
+  assert.match(
+    source,
+    /id="theater-selection-message"\s+class="[^"]*\btext-red-700"\s+role="alert"/,
+  )
+})
+
 interface PageState {
   form: { language: string; date: string }
   draftTheaterIds: Ref<string[]>
@@ -72,6 +83,7 @@ interface PageState {
   setSelectedOnly: (event: { target: { checked: boolean } }) => Promise<void>
   toggleShowtimeSelection: (key: string) => Promise<void>
   clearShowtimeSelection: () => Promise<void>
+  errorMessage: Ref<string>
   setResultGrouping: (grouping: string) => Promise<void>
   setResultLayout: (layout: string) => Promise<void>
   submitSearch: () => Promise<void>
@@ -127,6 +139,14 @@ function harness(
   const activeTheaterIds = ref(['ugc-25', 'ugc-46', 'ugc-45'])
   const isInitialized = ref(true)
   const selectionScopeKey = ref(0)
+  const theaters = ref([
+    { id: 'ugc-25', available_dates: ['2026-09-13'] },
+    { id: 'ugc-46', available_dates: ['2026-09-13'] },
+    { id: 'ugc-45', available_dates: ['2026-09-13'] },
+    { id: 'other', available_dates: ['2026-09-14'] },
+  ])
+  const searchActionBarVisible = ref(false)
+  let unmount = () => {}
   const watchlist = {
     owner: ref(''),
     ready: ref(false),
@@ -149,6 +169,7 @@ function harness(
     buildCompleteSearchShareTarget,
     absoluteSiteUrl,
     useRoute: () => route,
+    useState: () => searchActionBarVisible,
     useRouter: () => ({ replace: navigate, push: navigate }),
     useMesSeancesApi: () => ({
       searchSlot: (query: SlotQuery) => {
@@ -157,12 +178,7 @@ function harness(
       },
     }),
     usePageCinemaSelection: () => ({
-      theaters: ref([
-        { id: 'ugc-25', available_dates: ['2026-09-13'] },
-        { id: 'ugc-46', available_dates: ['2026-09-13'] },
-        { id: 'ugc-45', available_dates: ['2026-09-13'] },
-        { id: 'other', available_dates: ['2026-09-14'] },
-      ]),
+      theaters,
       activeTheaterIds,
       activeTheaters: ref([
         { id: 'ugc-25', available_dates: ['2026-09-13'] },
@@ -180,7 +196,10 @@ function harness(
     useSeoMeta: () => {},
     useHead: () => {},
     onMounted: () => {},
-    onBeforeUnmount: () => {},
+    onBeforeUnmount: (callback: () => void) => {
+      unmount = callback
+    },
+    document: { removeEventListener: () => {} },
     getFrenchApiError: () => 'Recherche impossible',
   }
   const scope = effectScope()
@@ -188,7 +207,7 @@ function harness(
   const page = scope.run(() =>
     new Function(
       ...Object.keys(bindings),
-      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, timeRange, openTimeSlotEditor, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
+      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, timeRange, openTimeSlotEditor, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater, errorMessage }`,
     )(...Object.values(bindings)),
   ) as PageState
   return {
@@ -197,6 +216,9 @@ function harness(
     activeTheaterIds,
     isInitialized,
     selectionScopeKey,
+    theaters,
+    searchActionBarVisible,
+    unmount: () => unmount(),
     watchlist,
     isSubmitDisabled: () =>
       evaluateSubmitDisabled(
@@ -297,7 +319,7 @@ test('watchlist updates only private projection, preserves share selection and n
   }
 })
 
-test('complete empty theater marker searches nationwide despite saved preferences and shares the marker', async () => {
+test('complete empty theater marker searches catalog IDs despite saved preferences and shares the marker', async () => {
   const requests: SlotQuery[] = []
   const h = harness({ ...searchQuery, theaters: '' }, async (query) => {
     requests.push(query)
@@ -307,7 +329,7 @@ test('complete empty theater marker searches nationwide despite saved preference
     await h.page.initializePreferences()
     await nextTick()
     assert.equal(requests.length, 1)
-    assert.equal(requests[0]?.theaters, undefined)
+    assert.equal(requests[0]?.theaters, 'ugc-25,ugc-46,ugc-45,other')
     assert.equal(h.route.query.theaters, '')
     assert.equal(
       new URL(
@@ -322,7 +344,7 @@ test('complete empty theater marker searches nationwide despite saved preference
   }
 })
 
-test('fresh empty scope submits nationwide without constructing catalog IDs; empty partial draft stays invalid', async () => {
+test('fresh empty scope submits catalog IDs without changing selection; empty partial draft stays invalid', async () => {
   const requests: SlotQuery[] = []
   const h = harness({}, async (query) => {
     requests.push(query)
@@ -335,7 +357,7 @@ test('fresh empty scope submits nationwide without constructing catalog IDs; emp
     await h.page.submitSearch()
     await nextTick()
     assert.equal(h.route.query.theaters, '')
-    assert.equal(requests[0]?.theaters, undefined)
+    assert.equal(requests[0]?.theaters, 'ugc-25,ugc-46,ugc-45,other')
     assert.deepEqual(h.page.draftTheaterIds.value, [])
     h.route.query = {}
     h.activeTheaterIds.value = ['ugc-25']
@@ -350,6 +372,99 @@ test('fresh empty scope submits nationwide without constructing catalog IDs; emp
   } finally {
     h.stop()
   }
+})
+
+test('broad fresh and restored searches compute first ten in catalog order without truncating scope', async (context) => {
+  const catalog = Array.from({ length: 13 }, (_, index) => ({
+    id: `cinema-${13 - index}`,
+    available_dates: [searchQuery.date],
+  }))
+  const allIds = catalog.map((theater) => theater.id)
+  for (const mode of [
+    'fresh-empty',
+    'fresh-full',
+    'restored-empty',
+    'restored-full',
+    'subset',
+  ] as const) {
+    const requests: SlotQuery[] = []
+    const subset = allIds.slice(1)
+    const restoredIds =
+      mode === 'subset' ? subset : mode === 'restored-full' ? allIds : []
+    const h = harness(
+      mode.startsWith('fresh')
+        ? {}
+        : {
+            ...searchQuery,
+            theaters: restoredIds.join(','),
+          },
+      async (query) => {
+        requests.push(query)
+        return response
+      },
+    )
+    context.after(h.stop)
+    h.theaters.value = catalog
+    h.activeTheaterIds.value = mode === 'fresh-empty' ? [] : allIds
+    const savedIds = [...h.activeTheaterIds.value]
+    await h.page.initializePreferences()
+    if (mode.startsWith('fresh')) await h.page.submitSearch()
+    await settle()
+    assert.equal(requests.length, 1, mode)
+    assert.equal(
+      requests[0]?.theaters,
+      (mode === 'subset' ? subset : allIds.slice(0, 10)).join(','),
+      mode,
+    )
+    assert.deepEqual(h.activeTheaterIds.value, savedIds, mode)
+    assert.equal(
+      h.route.query.theaters,
+      mode.startsWith('fresh') ? '' : restoredIds.join(','),
+      mode,
+    )
+  }
+})
+
+test('empty catalog blocks broad restored request instead of sending nationwide', async (context) => {
+  const h = harness({ ...searchQuery, theaters: '', date: date.todayInParis() })
+  context.after(h.stop)
+  h.theaters.value = []
+  h.activeTheaterIds.value = []
+  await h.page.initializePreferences()
+  await settle()
+  assert.equal(h.searchCalls(), 0)
+  assert.equal(h.page.pending.value, false)
+  assert.match(h.page.errorMessage.value, /Aucun cinéma disponible/)
+})
+
+test('prompt clearance follows form visibility through submit, filter editing, bare route, restoration and unmount', async (context) => {
+  const h = harness({})
+  context.after(h.stop)
+  assert.equal(h.searchActionBarVisible.value, true)
+  await h.page.initializePreferences()
+  await h.page.submitSearch()
+  await settle()
+  assert.equal(h.searchActionBarVisible.value, false)
+  const appliedQuery = { ...h.route.query }
+  h.page.isFilterSheetOpen.value = true
+  assert.equal(h.searchActionBarVisible.value, true)
+  h.page.isFilterSheetOpen.value = false
+  assert.equal(h.searchActionBarVisible.value, false)
+  h.route.query = {}
+  await settle()
+  assert.equal(h.searchActionBarVisible.value, true)
+  h.route.query = appliedQuery
+  await settle()
+  assert.equal(h.searchActionBarVisible.value, false)
+  h.route.query = {}
+  await settle()
+  h.unmount()
+  assert.equal(h.searchActionBarVisible.value, false)
+  const restored = harness(searchQuery)
+  context.after(restored.stop)
+  assert.equal(restored.searchActionBarVisible.value, false)
+  await restored.page.initializePreferences()
+  assert.equal(restored.searchActionBarVisible.value, false)
 })
 
 test('search submit button preserves loading, initialization and date guards for broad and selected scope', async (context) => {

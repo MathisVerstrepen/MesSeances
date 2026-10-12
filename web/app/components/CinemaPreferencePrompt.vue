@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ArrowRight, Clapperboard, X } from '@lucide/vue'
+import { ArrowRight, Clapperboard } from '@lucide/vue'
 import { isAccountPage } from '~~/shared/accountPrivacy'
 
 const STORAGE_KEY = 'messeances.cinemaSelectionPromptDismissed.v1'
 const route = useRoute()
+const searchActionBarVisible = useState(
+  'search-action-bar-visible',
+  () => false,
+)
 const { $appUpdate } = useNuxtApp()
 const preferences = useCinemaPreferences()
 const dismissalReady = ref(false)
@@ -129,7 +133,7 @@ function dismiss() {
   <div
     v-if="visible"
     class="pointer-events-none fixed inset-x-0 z-40 flex justify-center px-4"
-    :class="route.path === '/recherche' ? 'bottom-[calc(5.375rem+max(1rem,env(safe-area-inset-bottom)))] lg:bottom-[calc(1rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(1rem+env(safe-area-inset-bottom))]'"
+    :class="route.path === '/recherche' && searchActionBarVisible ? 'bottom-[calc(5.375rem+max(1rem,env(safe-area-inset-bottom)))] lg:bottom-[calc(1rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(1rem+env(safe-area-inset-bottom))]'"
     @keydown.esc.stop="dismiss"
   >
     <div
@@ -162,14 +166,6 @@ function dismiss() {
         Choisir
         <ArrowRight :size="14" aria-hidden="true" />
       </NuxtLink>
-      <button
-        type="button"
-        aria-label="Ne plus afficher"
-        class="pointer-events-none absolute -top-11 right-0 grid size-11 place-items-end rounded-[3px] pr-1 pb-1 text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 hover:text-ink focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 [@media(any-pointer:coarse)]:pointer-events-auto [@media(any-pointer:coarse)]:place-items-center [@media(any-pointer:coarse)]:p-0 [@media(any-pointer:coarse)]:text-ink [@media(any-pointer:coarse)]:opacity-100"
-        @click="dismiss"
-      >
-        <X :size="16" aria-hidden="true" />
-      </button>
     </div>
   </div>
 </template>

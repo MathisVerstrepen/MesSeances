@@ -238,6 +238,7 @@ test('cinema onboarding clears the search action bar and touch dismissal persist
   const close = page.getByRole('button', { name: 'Ne plus afficher' })
   const submit = page.getByRole('button', { name: 'Trouver une séance' })
   await expect(prompt).toBeVisible()
+  await expect(close).toHaveCount(0)
   await expect(submit).toBeEnabled()
 
   for (const width of mobile ? [390, 320, 768, 1023] : [1440]) {
@@ -247,15 +248,9 @@ test('cinema onboarding clears the search action bar and touch dismissal persist
     expect(box!.x).toBeGreaterThanOrEqual(16)
     expect(box!.x + box!.width).toBeLessThanOrEqual(width - 16)
     if (mobile) {
-      await expect(close).toHaveCSS('opacity', '1')
-      await expect(close).toHaveCSS('pointer-events', 'auto')
       expect(
         await prompt.evaluate((element) => element.matches(':hover')),
       ).toBe(false)
-      const target = await close.boundingBox()
-      expect(target!.width).toBeGreaterThanOrEqual(44)
-      expect(target!.height).toBeGreaterThanOrEqual(44)
-      await expect(close).toBeInViewport({ ratio: 1 })
       const bar = await submit.locator('..').boundingBox()
       expect(bar).not.toBeNull()
       expect(bar!.y - (box!.y + box!.height)).toBeGreaterThanOrEqual(16)
@@ -280,7 +275,8 @@ test('cinema onboarding clears the search action bar and touch dismissal persist
       await submit.tap({ trial: true })
     } else {
       expect(900 - (box!.y + box!.height)).toBe(16)
-      await expect(close).toHaveCSS('opacity', '0')
+      await prompt.hover()
+      await expect(close).toHaveCount(0)
     }
     await page.screenshot({
       path: info.outputPath(`onboarding-search-${width}.png`),
@@ -297,10 +293,26 @@ test('cinema onboarding clears the search action bar and touch dismissal persist
   await openPage(page, '/recherche')
   if (mobile) {
     await page.setViewportSize({ width: 320, height: 844 })
-    await close.tap()
+    // Real touch swipe preserves dismissal after removing the floating cross.
+    const box = (await prompt.boundingBox())!
+    const session = await page.context().newCDPSession(page)
+    const x = box.x + box.width / 2
+    const y = box.y + box.height / 2
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [{ x, y }],
+    })
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: x + 80, y }],
+    })
+    await session.send('Input.dispatchTouchEvent', {
+      type: 'touchEnd',
+      touchPoints: [],
+    })
+    await session.detach()
   } else {
-    await close.focus()
-    await expect(close).toHaveCSS('opacity', '1')
+    await prompt.getByRole('link', { name: 'Choisir' }).focus()
     await page.keyboard.press('Escape')
   }
   await expect(prompt).toHaveCount(0)
@@ -313,6 +325,157 @@ test('cinema onboarding clears the search action bar and touch dismissal persist
   await expect(prompt).toHaveCount(0)
   await openPage(page, '/cinema/cinema-playwright')
   await expect(prompt).toHaveCount(0)
+})
+
+test('onboarding follows initial, results, scroll, filter edit and history clearance with a bounded broad request', async ({
+  page,
+}, info) => {
+  const catalog = Array.from({ length: 13 }, (_, index) => ({
+    ...theater,
+    id: `fixture-${13 - index}`,
+    slug: `cinema-${13 - index}`,
+  }))
+  await page.route('**/api/v1/theaters', (route) =>
+    route.fulfill({ json: catalog }),
+  )
+  const searches = await mockSlotSearch(page)
+  await openPage(page, '/recherche')
+  const prompt = page
+    .getByRole('status')
+    .filter({ hasText: 'Choisissez vos cinémas' })
+    .locator('..')
+  const submit = page.getByRole('button', { name: 'Trouver une séance' })
+  const mobile = info.project.name === 'mobile'
+  const expectInset = async (clearance: boolean) => {
+    await expect(prompt).toBeVisible()
+    await expect
+      .poll(async () => {
+        const box = (await prompt.boundingBox())!
+        return page.viewportSize()!.height - box.y - box.height
+      })
+      .toBe(clearance && mobile ? 102 : 16)
+  }
+  await expectInset(true)
+  await page
+    .getByRole('link', { name: 'Crédits & sources', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/credits$/)
+  await expectInset(false)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/recherche$/)
+  await expectInset(true)
+  await submit.click()
+  await expect.poll(() => searches.length).toBe(1)
+  expect(searches[0]!.theaters).toBe(
+    catalog
+      .slice(0, 10)
+      .map((item) => item.id)
+      .join(','),
+  )
+  await expect(page).toHaveURL((url) => url.searchParams.get('theaters') === '')
+  await expectInset(false)
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  )
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(0)
+  await expectInset(false)
+  await page.screenshot({
+    path: info.outputPath('onboarding-results-scrolled.png'),
+  })
+  if (mobile) {
+    await openFilters(page)
+    await expectInset(true)
+    await page.getByRole('button', { name: 'Fermer les filtres' }).click()
+    await expectInset(false)
+  }
+  // SPA navigation and history must not retain form clearance from a previous page.
+  await page
+    .getByRole('link', { name: 'Crédits & sources', exact: true })
+    .click()
+  await expect(page).toHaveURL(/\/credits$/)
+  await expectInset(false)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/recherche\?/)
+  await expectInset(false)
+  await openPage(page, '/recherche')
+  await expectInset(true)
+  await page.goBack()
+  await expect(page).toHaveURL(/\/recherche\?/)
+  await expectInset(false)
+})
+
+for (const mode of [
+  'restored-empty',
+  'restored-full',
+  'saved-full',
+  'subset',
+] as const) {
+  test(`broad cinema cap preserves ${mode} route and saved scope`, async ({
+    page,
+  }) => {
+    const catalog = Array.from({ length: 13 }, (_, index) => ({
+      ...theater,
+      id: `fixture-${13 - index}`,
+      slug: `cinema-${13 - index}`,
+    }))
+    const ids = catalog.map((item) => item.id)
+    const selected = mode === 'subset' ? ids.slice(1) : ids
+    await page.route('**/api/v1/theaters', (route) =>
+      route.fulfill({ json: catalog }),
+    )
+    if (mode === 'saved-full') {
+      await page.addInitScript((ids) => {
+        localStorage.setItem(
+          'messeances.favoriteTheaterIds.v1',
+          JSON.stringify(ids),
+        )
+      }, ids)
+    }
+    const searches = await mockSlotSearch(page)
+    const params = new URLSearchParams({
+      ...Object.fromEntries(query),
+      theaters: mode === 'restored-empty' ? '' : selected.join(','),
+    })
+    await openPage(
+      page,
+      mode === 'saved-full' ? '/recherche' : `/recherche?${params}`,
+    )
+    if (mode === 'saved-full')
+      await page.getByRole('button', { name: 'Trouver une séance' }).click()
+    await expect.poll(() => searches.length).toBe(1)
+    expect(searches[0]!.theaters).toBe(
+      (mode === 'subset' ? selected : ids.slice(0, 10)).join(','),
+    )
+    expect(new URL(page.url()).searchParams.get('theaters')).toBe(
+      mode === 'saved-full' || mode === 'restored-empty'
+        ? ''
+        : selected.join(','),
+    )
+    if (mode === 'saved-full')
+      expect(
+        await page.evaluate(() =>
+          JSON.parse(localStorage.getItem('messeances.favoriteTheaterIds.v1')!),
+        ),
+      ).toEqual(ids)
+  })
+}
+
+test('empty broad catalog never issues a nationwide slot request', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/theaters', (route) => route.fulfill({ json: [] }))
+  const searches = await mockSlotSearch(page)
+  const params = new URLSearchParams({
+    ...Object.fromEntries(query),
+    theaters: '',
+  })
+  await openPage(page, `/recherche?${params}`)
+  await expect(page.getByRole('alert')).toContainText(
+    'Aucun cinéma disponible pour la recherche.',
+  )
+  expect(searches).toHaveLength(0)
 })
 
 test('advanced filters start collapsed, support keyboard and preserve hidden values on search', async ({
