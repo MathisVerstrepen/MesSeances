@@ -15,7 +15,7 @@ const query = new URLSearchParams({
   finish_before: '18:00',
 })
 
-async function mockSlotSearch(page: Page) {
+async function mockSlotSearch(page: Page, empty = false) {
   const queries: Record<string, string>[] = []
   // Slot searches start after hydration; SSR account/cinema data uses the fixture server.
   await page.route('**/api/v1/search/slot?**', async (route) => {
@@ -23,23 +23,24 @@ async function mockSlotSearch(page: Page) {
     queries.push(Object.fromEntries(params))
     const showtime = showtimes().showtimes[0]!
     await route.fulfill({
-      json: [movie, { ...movie, slug: 'other-film', title: 'Autre film' }].map(
-        (item, index) => ({
-          showtime: {
-            ...showtime,
-            id: `ugc-showing-${100 + index}`,
-            movie: item,
-          },
-          theater,
-          poster_url: null,
-          backdrop_url: null,
-          effective_start_time: showtime.start_time,
-          effective_end_time: showtime.end_time,
-          buffer_ads_minutes: 15,
-          slack_before_minutes: 120,
-          slack_after_minutes: 150,
-        }),
-      ),
+      json: (empty
+        ? []
+        : [movie, { ...movie, slug: 'other-film', title: 'Autre film' }]
+      ).map((item, index) => ({
+        showtime: {
+          ...showtime,
+          id: `ugc-showing-${100 + index}`,
+          movie: item,
+        },
+        theater,
+        poster_url: null,
+        backdrop_url: null,
+        effective_start_time: showtime.start_time,
+        effective_end_time: showtime.end_time,
+        buffer_ads_minutes: 15,
+        slack_before_minutes: 120,
+        slack_after_minutes: 150,
+      })),
     })
   })
   return queries
@@ -50,6 +51,180 @@ async function openFilters(page: Page) {
     await page.getByRole('button', { name: /^Modifier les filtres/ }).click()
   return page.locator('#search-filters')
 }
+
+test('empty results reach the time editor without changing criteria until submission', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: account })
+  const searches = await mockSlotSearch(page, true)
+  await openPage(
+    page,
+    `/recherche?${query}&language=VOSTFR&format=2D&include_ads=0`,
+  )
+  const recovery = page.getByRole('button', {
+    name: 'Modifier mon créneau',
+    exact: true,
+  })
+  await expect(recovery).toBeVisible()
+  await expect(
+    page.getByText(
+      'Aucune séance ne correspond à ce créneau et aux filtres sélectionnés.',
+    ),
+  ).toBeVisible()
+  const before = page.url()
+  const form = page.locator('#search-filters')
+  const start = form.getByRole('combobox', { name: 'À partir de' })
+  const end = form.getByRole('combobox', { name: 'Terminé avant' })
+  const mobile = info.project.name === 'mobile'
+  await recovery.focus()
+  await page.keyboard.press('Enter')
+  await expect(form).toBeVisible()
+  if (mobile) {
+    const close = form.getByRole('button', { name: 'Fermer les filtres' })
+    const submit = form.getByRole('button', { name: 'Trouver une séance' })
+    await expect(form).toHaveAttribute('aria-modal', 'true')
+    await expect(close).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(submit).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(close).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(form).toBeHidden()
+    await expect(recovery).toBeFocused()
+    expect(page.url()).toBe(before)
+    expect(searches).toHaveLength(1)
+    await page.keyboard.press('Enter')
+  } else {
+    await expect(start).toBeFocused()
+    await expect(start).toBeInViewport({ ratio: 1 })
+  }
+  await expect(start).toHaveValue('12:00')
+  await expect(end).toHaveValue('18:00')
+  await expect(
+    form.getByRole('combobox', { name: 'Langue', exact: true }),
+  ).toHaveValue('VOSTFR')
+  await form.getByRole('button', { name: 'Options avancées' }).click()
+  await expect(
+    form.getByRole('combobox', { name: 'Format', exact: true }),
+  ).toHaveValue('2D')
+  await expect(
+    form.getByLabel('Inclure les publicités (+15 min)'),
+  ).not.toBeChecked()
+  await expect(form.getByLabel('Ma watchlist uniquement')).not.toBeChecked()
+  await form.getByRole('button', { name: 'Options avancées' }).click()
+  expect(page.url()).toBe(before)
+  expect(searches).toHaveLength(1)
+  await page.screenshot({ path: info.outputPath('empty-time-editor.png') })
+  await start.selectOption('12:15')
+  expect(page.url()).toBe(before)
+  expect(searches).toHaveLength(1)
+  await form.getByRole('button', { name: 'Trouver une séance' }).click()
+  await expect.poll(() => searches.length).toBe(2)
+  expect(searches[1]).toEqual({ ...searches[0], start_after: '12:15' })
+  await expect(page).toHaveURL(
+    (url) => url.searchParams.get('start_after') === '12:15',
+  )
+  await expect(recovery).toBeVisible()
+  await page.screenshot({
+    path: info.outputPath('empty-recovery.png'),
+    fullPage: true,
+  })
+})
+
+test('watchlist empty recovery preserves selection and keeps other-film fallback within the same time slot', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: account })
+  const searches = await mockSlotSearch(page)
+  await openPage(page, `/recherche?${query}`)
+  await page
+    .getByRole('button', { name: /^Ajouter la séance de Autre film/ })
+    .click()
+  const form = await openFilters(page)
+  const selected = form.getByLabel(
+    'Afficher uniquement les séances sélectionnées',
+  )
+  await selected.check()
+  await form.getByRole('button', { name: 'Options avancées' }).click()
+  const watchlist = form.getByLabel('Ma watchlist uniquement')
+  await watchlist.check()
+  if (info.project.name === 'mobile') await page.keyboard.press('Escape')
+  const before = page.url()
+  const recovery = page.getByRole('button', {
+    name: 'Modifier mon créneau',
+    exact: true,
+  })
+  await expect(recovery).toBeVisible()
+  await expect(
+    page.getByText(
+      'Aucune séance de votre watchlist ne correspond à ces filtres.',
+    ),
+  ).toBeVisible()
+  await recovery.click()
+  await expect(watchlist).toBeChecked()
+  await expect(selected).toBeChecked()
+  await expect(form.getByRole('combobox', { name: 'À partir de' })).toHaveValue(
+    '12:00',
+  )
+  await expect(
+    form.getByRole('combobox', { name: 'Terminé avant' }),
+  ).toHaveValue('18:00')
+  if (info.project.name === 'mobile') {
+    await page.keyboard.press('Escape')
+    await expect(recovery).toBeFocused()
+  }
+  expect(page.url()).toBe(before)
+  expect(searches).toHaveLength(1)
+  await page
+    .getByRole('button', { name: 'Afficher aussi les autres films' })
+    .click()
+  await expect(
+    page.getByRole('heading', { name: 'Autres films', exact: true }),
+  ).toBeVisible()
+  await expect(recovery).toHaveCount(0)
+  expect(page.url()).toBe(before)
+  expect(searches).toHaveLength(1)
+  expect(searches[0]).toMatchObject({
+    date,
+    theaters: theater.id,
+    start_after: '12:00',
+    finish_before: '18:00',
+  })
+  await openFilters(page)
+  await expect(watchlist).not.toBeChecked()
+  await expect(selected).toBeChecked()
+})
+
+test('pending and failed searches never offer empty-result recovery', async ({
+  page,
+}) => {
+  let release!: () => void
+  const response = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/v1/search/slot?**', async (route) => {
+    await response
+    await route.fulfill({ status: 503, json: {} })
+  })
+  try {
+    await openPage(page, `/recherche?${query}`)
+    await expect(
+      page.getByText('Recherche des séances compatibles…'),
+    ).toBeVisible()
+    const recovery = page.getByRole('button', {
+      name: 'Modifier mon créneau',
+      exact: true,
+    })
+    await expect(recovery).toHaveCount(0)
+    release()
+    await expect(page.getByRole('alert')).toBeVisible()
+    await expect(recovery).toHaveCount(0)
+  } finally {
+    release()
+  }
+})
 
 test('cinema onboarding clears the search action bar and touch dismissal persists', async ({
   page,

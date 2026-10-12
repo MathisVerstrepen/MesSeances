@@ -64,6 +64,8 @@ interface PageState {
   visibleResults: Ref<ShowtimeResultViewModel[]>
   shareTarget: Ref<string | null>
   isFilterSheetOpen: Ref<boolean>
+  timeRange: Ref<{ focusStart: () => void } | null>
+  openTimeSlotEditor: (event: MouseEvent) => void
   isResolvingInitialSearch: Ref<boolean>
   initializePreferences: () => Promise<void>
   canonicalizeShowtimeSelection: () => Promise<void>
@@ -186,7 +188,7 @@ function harness(
   const page = scope.run(() =>
     new Function(
       ...Object.keys(bindings),
-      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
+      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, timeRange, openTimeSlotEditor, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
     )(...Object.values(bindings)),
   ) as PageState
   return {
@@ -209,6 +211,55 @@ function harness(
     searchCalls: () => searchCalls,
   }
 }
+
+test('empty-result desktop recovery only focuses the existing editor, preserving every criterion and request', async () => {
+  const f = harness(
+    { ...searchQuery, language: 'VOSTFR', format: '2D', include_ads: '0' },
+    async () => [],
+  )
+  try {
+    await f.page.initializePreferences()
+    await nextTick()
+    f.page.watchlistOnly.value = true
+    let focusCalls = 0
+    f.page.timeRange.value = {
+      focusStart: () => {
+        focusCalls++
+      },
+    }
+    const before = JSON.stringify({
+      query: f.route.query,
+      form: f.page.form,
+      theaters: f.page.draftTheaterIds.value,
+      broad: f.page.draftBroadScope.value,
+      watchlist: f.page.watchlistOnly.value,
+      selected: f.page.selectedOnly.value,
+      share: f.page.shareTarget.value,
+    })
+    const requests = f.searchCalls()
+    assert.equal(f.page.visibleResults.value.length, 0)
+    // SAFETY: Desktop recovery does not read event fields; native Event suffices for this branch.
+    f.page.openTimeSlotEditor(new Event('click') as MouseEvent)
+    await nextTick()
+    assert.equal(focusCalls, 1)
+    assert.equal(f.page.isFilterSheetOpen.value, false)
+    assert.equal(f.searchCalls(), requests)
+    assert.equal(
+      JSON.stringify({
+        query: f.route.query,
+        form: f.page.form,
+        theaters: f.page.draftTheaterIds.value,
+        broad: f.page.draftBroadScope.value,
+        watchlist: f.page.watchlistOnly.value,
+        selected: f.page.selectedOnly.value,
+        share: f.page.shareTarget.value,
+      }),
+      before,
+    )
+  } finally {
+    f.stop()
+  }
+})
 
 test('watchlist updates only private projection, preserves share selection and never refetches', async () => {
   const f = harness(searchQuery)
