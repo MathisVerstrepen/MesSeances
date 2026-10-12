@@ -1285,7 +1285,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           <button
             type="submit"
             class="inline-flex min-h-[3.25rem] w-full items-center justify-center gap-[0.55rem] border-2 border-ink bg-ink font-mono text-[0.68rem] font-black uppercase tracking-[0.1em] text-white enabled:hover:bg-primary focus-visible:outline-3 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55"
-            :disabled="pending || isLoading || !isInitialized || draftTheaterIds.length === 0 || !hasValidSelectedDate"
+            :disabled="pending || isLoading || !isInitialized || (draftTheaterIds.length === 0 && !draftBroadScope) || !hasValidSelectedDate"
           >
             <LoaderCircle
               v-if="pending"

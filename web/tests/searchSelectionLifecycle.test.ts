@@ -36,10 +36,26 @@ const withoutImports = parsed.statements
 const compiled = ts.transpileModule(withoutImports, {
   compilerOptions: { target: ts.ScriptTarget.ESNext },
 }).outputText
+const submitDisabledExpression = source.match(
+  /<button\s+type="submit"[\s\S]*?:disabled="([^"]+)"/,
+)?.[1]
+assert.ok(submitDisabledExpression, 'Search submit button must bind disabled')
+const evaluateSubmitDisabled = new Function(
+  'pending',
+  'isLoading',
+  'isInitialized',
+  'draftTheaterIds',
+  'draftBroadScope',
+  'hasValidSelectedDate',
+  `return (${submitDisabledExpression})`,
+)
 
 interface PageState {
-  form: { language: string }
+  form: { language: string; date: string }
   draftTheaterIds: Ref<string[]>
+  draftBroadScope: Ref<boolean>
+  hasValidSelectedDate: Ref<boolean>
+  isLoading: Ref<boolean>
   isTheaterListOpen: Ref<boolean>
   pending: Ref<boolean>
   selectedOnly: Ref<boolean>
@@ -170,7 +186,7 @@ function harness(
   const page = scope.run(() =>
     new Function(
       ...Object.keys(bindings),
-      `${compiled}\nreturn { form, draftTheaterIds, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
+      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater }`,
     )(...Object.values(bindings)),
   ) as PageState
   return {
@@ -180,6 +196,15 @@ function harness(
     isInitialized,
     selectionScopeKey,
     watchlist,
+    isSubmitDisabled: () =>
+      evaluateSubmitDisabled(
+        page.pending.value,
+        page.isLoading.value,
+        isInitialized.value,
+        page.draftTheaterIds.value,
+        page.draftBroadScope.value,
+        page.hasValidSelectedDate.value,
+      ),
     stop: () => scope.stop(),
     searchCalls: () => searchCalls,
   }
@@ -255,6 +280,7 @@ test('fresh empty scope submits nationwide without constructing catalog IDs; emp
   try {
     h.activeTheaterIds.value = []
     await h.page.initializePreferences()
+    assert.equal(h.isSubmitDisabled(), false)
     await h.page.submitSearch()
     await nextTick()
     assert.equal(h.route.query.theaters, '')
@@ -263,13 +289,43 @@ test('fresh empty scope submits nationwide without constructing catalog IDs; emp
     h.route.query = {}
     h.activeTheaterIds.value = ['ugc-25']
     await nextTick()
+    assert.equal(h.isSubmitDisabled(), false)
     h.page.toggleSearchTheater('ugc-25')
+    assert.equal(h.isSubmitDisabled(), true)
     const before = requests.length
     await h.page.submitSearch()
     assert.equal(requests.length, before)
     assert.equal(h.route.query.theaters, undefined)
   } finally {
     h.stop()
+  }
+})
+
+test('search submit button preserves loading, initialization and date guards for broad and selected scope', async (context) => {
+  for (const theaterIds of [[], ['ugc-25']]) {
+    const h = harness({})
+    context.after(h.stop)
+    h.activeTheaterIds.value = theaterIds
+    await h.page.initializePreferences()
+    assert.equal(h.isSubmitDisabled(), false)
+
+    for (const guard of [h.page.pending, h.page.isLoading]) {
+      guard.value = true
+      assert.equal(h.isSubmitDisabled(), true)
+      guard.value = false
+      assert.equal(h.isSubmitDisabled(), false)
+    }
+
+    h.isInitialized.value = false
+    assert.equal(h.isSubmitDisabled(), true)
+    h.isInitialized.value = true
+    assert.equal(h.isSubmitDisabled(), false)
+
+    const validDate = h.page.form.date
+    h.page.form.date = ''
+    assert.equal(h.isSubmitDisabled(), true)
+    h.page.form.date = validDate
+    assert.equal(h.isSubmitDisabled(), false)
   }
 })
 

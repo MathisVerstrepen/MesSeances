@@ -212,7 +212,7 @@ test('search accepts unavailable quick dates without broadening calendar-date av
   )
   assert.match(
     searchSource,
-    /:disabled="\s*pending \|\|\s*isLoading \|\|\s*!isInitialized \|\|\s*draftTheaterIds\.length === 0 \|\|\s*!hasValidSelectedDate\s*"/,
+    /:disabled="\s*pending \|\|\s*isLoading \|\|\s*!isInitialized \|\|\s*\(draftTheaterIds\.length === 0 && !draftBroadScope\) \|\|\s*!hasValidSelectedDate\s*"/,
   )
   assert.match(
     searchSource,
