@@ -226,6 +226,95 @@ test('pending and failed searches never offer empty-result recovery', async ({
   }
 })
 
+test('cinema onboarding clears the search action bar and touch dismissal persists', async ({
+  page,
+}, info) => {
+  const mobile = info.project.name === 'mobile'
+  await openPage(page, '/recherche')
+  const prompt = page
+    .getByRole('status')
+    .filter({ hasText: 'Choisissez vos cinémas' })
+    .locator('..')
+  const close = page.getByRole('button', { name: 'Ne plus afficher' })
+  const submit = page.getByRole('button', { name: 'Trouver une séance' })
+  await expect(prompt).toBeVisible()
+  await expect(submit).toBeEnabled()
+
+  for (const width of mobile ? [390, 320, 768, 1023] : [1440]) {
+    await page.setViewportSize({ width, height: mobile ? 844 : 900 })
+    const box = await prompt.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(16)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width - 16)
+    if (mobile) {
+      await expect(close).toHaveCSS('opacity', '1')
+      await expect(close).toHaveCSS('pointer-events', 'auto')
+      expect(
+        await prompt.evaluate((element) => element.matches(':hover')),
+      ).toBe(false)
+      const target = await close.boundingBox()
+      expect(target!.width).toBeGreaterThanOrEqual(44)
+      expect(target!.height).toBeGreaterThanOrEqual(44)
+      await expect(close).toBeInViewport({ ratio: 1 })
+      const bar = await submit.locator('..').boundingBox()
+      expect(bar).not.toBeNull()
+      expect(bar!.y - (box!.y + box!.height)).toBeGreaterThanOrEqual(16)
+      expect(bar!.y + bar!.height).toBe(844)
+      await expect(submit).toBeInViewport({ ratio: 1 })
+      // Check every CTA corner as well as its center, not just visual visibility.
+      expect(
+        await submit.evaluate((element) => {
+          const rect = element.getBoundingClientRect()
+          return [
+            [rect.left + 2, rect.top + 2],
+            [rect.right - 2, rect.top + 2],
+            [rect.left + 2, rect.bottom - 2],
+            [rect.right - 2, rect.bottom - 2],
+            [rect.left + rect.width / 2, rect.top + rect.height / 2],
+          ].every(([x, y]) => {
+            const hit = document.elementFromPoint(x!, y!)
+            return Boolean(hit && element.contains(hit))
+          })
+        }),
+      ).toBe(true)
+      await submit.tap({ trial: true })
+    } else {
+      expect(900 - (box!.y + box!.height)).toBe(16)
+      await expect(close).toHaveCSS('opacity', '0')
+    }
+    await page.screenshot({
+      path: info.outputPath(`onboarding-search-${width}.png`),
+    })
+  }
+
+  // Other pages retain the original inset, even on touch devices.
+  await openPage(page, '/cinema/cinema-playwright')
+  await expect(prompt).toBeVisible()
+  const otherPage = await prompt.boundingBox()
+  expect(page.viewportSize()!.height - (otherPage!.y + otherPage!.height)).toBe(
+    16,
+  )
+  await openPage(page, '/recherche')
+  if (mobile) {
+    await page.setViewportSize({ width: 320, height: 844 })
+    await close.tap()
+  } else {
+    await close.focus()
+    await expect(close).toHaveCSS('opacity', '1')
+    await page.keyboard.press('Escape')
+  }
+  await expect(prompt).toHaveCount(0)
+  expect(
+    await page.evaluate(() =>
+      localStorage.getItem('messeances.cinemaSelectionPromptDismissed.v1'),
+    ),
+  ).toBe('1')
+  await openPage(page, '/recherche')
+  await expect(prompt).toHaveCount(0)
+  await openPage(page, '/cinema/cinema-playwright')
+  await expect(prompt).toHaveCount(0)
+})
+
 test('advanced filters start collapsed, support keyboard and preserve hidden values on search', async ({
   page,
   request,
