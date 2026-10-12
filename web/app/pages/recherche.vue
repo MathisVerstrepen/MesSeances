@@ -72,6 +72,7 @@ const REQUIRED_QUERY_KEYS = [
 const PARIS_TIMEZONE = 'Europe/Paris'
 const DEFAULT_RANGE_STEPS = 12
 const ADS_BUFFER_MINUTES = 15
+const THEATER_BATCH_SIZE = 10
 
 const api = useMesSeancesApi()
 const route = useRoute()
@@ -147,6 +148,22 @@ const isCalendarOpen = ref(false)
 const isCompactCalendarViewport = ref(false)
 const isResolvingInitialSearch = ref(
   REQUIRED_QUERY_KEYS.every((key) => key in route.query),
+)
+const isFilterFormVisible = computed(
+  () =>
+    isFilterSheetOpen.value ||
+    !(appliedSearch.value || isResolvingInitialSearch.value),
+)
+const searchActionBarVisible = useState(
+  'search-action-bar-visible',
+  () => false,
+)
+watch(
+  isFilterFormVisible,
+  (visible) => {
+    searchActionBarVisible.value = visible
+  },
+  { immediate: true, flush: 'sync' },
 )
 const isCenteredCalendar = computed(
   () => isFilterSheetOpen.value && isCompactCalendarViewport.value,
@@ -763,12 +780,19 @@ async function runSearch(search: AppliedSearch) {
   theaterValidationMessage.value = ''
   results.value = null
   try {
+    const theaterIds = isBroadTheaterSelection(
+      search.theaterIds,
+      theaters.value,
+    )
+      ? theaters.value.slice(0, THEATER_BATCH_SIZE).map((theater) => theater.id)
+      : search.theaterIds
+    if (theaterIds.length === 0) {
+      errorMessage.value =
+        'Aucun cinéma disponible pour la recherche. Rechargez la page pour réessayer.'
+      return
+    }
     const response = await api.searchSlot({
-      theaters:
-        search.theaterIds.length === 0 ||
-        isBroadTheaterSelection(search.theaterIds, theaters.value)
-          ? undefined
-          : search.theaterIds.join(','),
+      theaters: theaterIds.join(','),
       date: search.date,
       start_after: search.startAfter,
       finish_before: search.finishBefore,
@@ -895,6 +919,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  searchActionBarVisible.value = false
   isReady = false
   requestId++
   mobileMediaQuery?.removeEventListener('change', handleViewportChange)
@@ -994,7 +1019,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         ref="filterForm"
         class="filter-form min-w-0 scroll-mt-28 lg:sticky lg:top-24 lg:flex lg:max-h-[calc(100dvh-8rem)] lg:flex-col lg:border-2 lg:border-ink lg:bg-[#f1efe8] lg:p-6 lg:shadow-[7px_7px_0_#27272a]"
         :class="[
-          (appliedSearch || isResolvingInitialSearch) && !isFilterSheetOpen ? 'hidden' : '',
+          !isFilterFormVisible ? 'hidden' : '',
           isFilterSheetOpen ? 'fixed inset-x-0 bottom-0 z-50 flex max-h-[calc(100dvh-1rem)] flex-col border-2 border-b-0 border-ink bg-[#f8f7f2] px-4 pt-4 shadow-[0_-8px_0_#27272a] sm:px-6' : 'pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6'
         ]"
         :role="isFilterSheetOpen ? 'dialog' : undefined"
@@ -1128,7 +1153,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               </div>
               <p
                 v-else
-                class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-primary"
+                class="clear-both border-2 border-ink bg-surface px-3 py-3 text-sm text-ink"
               >
                 Tous les cinémas
               </p>
