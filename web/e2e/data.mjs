@@ -396,6 +396,68 @@ export function movieSchedule(slug, query, mode = 'populated') {
     },
   }
 }
+
+// Scroll scenarios use valid, distinct rows rather than artificial document height.
+export function scrollInventory(query, mode = 'long') {
+  const selectedDate = query.get('date') || date
+  const count = mode === 'empty' ? 0 : mode === 'short' ? 1 : 10
+  const venues = Array.from({ length: count }, (_, index) => ({
+    ...theater,
+    id: `scroll-theater-${index}`,
+    name: `Cinéma de défilement ${index + 1}`,
+    available_dates: [selectedDate],
+  }))
+  const sessions = venues.map((venue, index) => ({
+    ...showtimes().showtimes[0],
+    id: `scroll-session-${index}`,
+    movie: {
+      ...movie,
+      slug: `scroll-movie-${index}`,
+      title: `Film de défilement ${index + 1}`,
+    },
+    start_time: `${selectedDate}T14:00:00+02:00`,
+    end_time: `${selectedDate}T15:30:00+02:00`,
+  }))
+  return {
+    venues,
+    timeline: {
+      date: selectedDate,
+      timezone: 'Europe/Paris',
+      window_start_time: `${selectedDate}T08:00:00+02:00`,
+      window_end_time: `${selectedDate}T23:59:00+02:00`,
+      theaters: venues.map((venue, index) => ({
+        ...venue,
+        showtimes: [sessions[index]],
+      })),
+    },
+    slots: sessions.map((session, index) => ({
+      showtime: session,
+      theater: venues[index],
+      poster_url: null,
+      backdrop_url: null,
+      effective_start_time: session.start_time,
+      effective_end_time: session.end_time,
+      buffer_ads_minutes: 0,
+      slack_before_minutes: 120,
+      slack_after_minutes: 120,
+    })),
+    film: {
+      ...movieSchedule(movie.slug, query),
+      date: selectedDate,
+      available_dates: [selectedDate],
+      theaters: venues.map((venue, index) => ({
+        ...venue,
+        showtimes: [{ ...sessions[index], movie }],
+      })),
+      pagination: {
+        page: Number(query.get('page') || 1),
+        page_size: 10,
+        total: count,
+        has_more: false,
+      },
+    },
+  }
+}
 export function sitemapData() {
   const movies = [
     ...discoveryMovies,

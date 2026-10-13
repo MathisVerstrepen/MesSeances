@@ -995,6 +995,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 <template>
   <main
+    id="search-catalog"
+    :aria-busy="pending || isResolvingInitialSearch || personalizedPending"
     class="mx-auto max-w-[1440px] bg-[#f8f7f2] bg-[linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] bg-[size:28px_28px] px-4 py-4 sm:px-6 sm:py-6 lg:px-10 lg:py-8"
   >
     <h1 class="sr-only">Trouver une séance</h1>

@@ -22,6 +22,7 @@ import {
   showtimes,
   theater,
   syntheticWatchlist,
+  scrollInventory,
 } from '../e2e/data.mjs'
 
 const port = Number(process.env.PLAYWRIGHT_PORT || 13400)
@@ -103,6 +104,45 @@ const mock = createServer((request, response) => {
   const url = new URL(request.url, origin)
   const path = url.pathname
   if (request.method === 'GET') {
+    if (scenario.scrollRoute) {
+      const mode = scenario.scrollRoute
+      const inventory = scrollInventory(url.searchParams, mode)
+      if (path === '/api/v1/theaters')
+        return json(response, scrollInventory(url.searchParams).venues)
+      let value
+      if (path === '/api/v1/timeline') value = inventory.timeline
+      if (path === '/api/v1/search/slot') value = inventory.slots
+      if (path === `/api/v1/movies/${movie.slug}/showtimes`)
+        value = inventory.film
+      if (path === '/api/v1/statistics/history') {
+        value = historyStatistics(url.searchParams)
+        if (mode === 'empty') {
+          value.totals = { showtimes: 0, movies: 0, theaters: 0, cities: 0 }
+          value.daily_showtimes = []
+          value.chains = []
+          value.local = { cities: [], theaters: [] }
+        } else if (mode === 'short') {
+          value.local = {
+            cities: value.local.cities.slice(0, 1),
+            theaters: value.local.theaters.slice(0, 1),
+          }
+          value.chains = value.chains.slice(0, 1)
+        }
+      }
+      if (value) {
+        setTimeout(() => {
+          if (!response.destroyed)
+            json(
+              response,
+              mode === 'error'
+                ? { error: { code: 'schedule_unavailable' } }
+                : value,
+              mode === 'error' ? 503 : 200,
+            )
+        }, 700)
+        return
+      }
+    }
     if (path === '/api/v1/statistics/history')
       return json(response, historyStatistics(url.searchParams))
     if (path === '/api/v1/auth/session')

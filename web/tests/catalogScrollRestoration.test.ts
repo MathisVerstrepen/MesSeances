@@ -9,6 +9,7 @@ import {
 
 function dom(t: import('node:test').TestContext, initial = 'true') {
   let busy = initial
+  const queried: string[] = []
   const callbacks = new Set<() => void>()
   const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
   const oldObserver = Object.getOwnPropertyDescriptor(
@@ -19,7 +20,10 @@ function dom(t: import('node:test').TestContext, initial = 'true') {
     configurable: true,
     value: {
       documentElement: {},
-      getElementById: () => ({ getAttribute: () => busy }),
+      getElementById: (id: string) => {
+        queried.push(id)
+        return { getAttribute: () => busy }
+      },
     },
   })
   Object.defineProperty(globalThis, 'MutationObserver', {
@@ -46,6 +50,7 @@ function dom(t: import('node:test').TestContext, initial = 'true') {
   })
   return {
     callbacks,
+    queried,
     render: () => {
       busy = 'false'
       for (const callback of callbacks) callback()
@@ -55,18 +60,28 @@ function dom(t: import('node:test').TestContext, initial = 'true') {
 
 test('waits for rendered success, empty or failed catalog and disconnects', async (t) => {
   const page = dom(t)
-  const waiting = waitForCatalogRender(new AbortController().signal)
+  const waiting = waitForCatalogRender(
+    new AbortController().signal,
+    'films-catalog',
+  )
   assert.equal(page.callbacks.size, 1)
   page.render()
   assert.equal(await waiting, true)
   assert.equal(page.callbacks.size, 0)
-  assert.equal(await waitForCatalogRender(new AbortController().signal), true)
+  assert.equal(
+    await waitForCatalogRender(new AbortController().signal, 'films-catalog'),
+    true,
+  )
 })
 
 test('stalled catalog has bounded wait with no late observer', async (t) => {
   const page = dom(t)
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  const waiting = waitForCatalogRender(new AbortController().signal, 100)
+  const waiting = waitForCatalogRender(
+    new AbortController().signal,
+    'films-catalog',
+    100,
+  )
   t.mock.timers.tick(100)
   assert.equal(await waiting, true)
   assert.equal(page.callbacks.size, 0)
@@ -76,11 +91,14 @@ test('stalled catalog has bounded wait with no late observer', async (t) => {
 test('superseding navigation cancels wait and cleans observer/timer', async (t) => {
   const page = dom(t)
   const controller = new AbortController()
-  const waiting = waitForCatalogRender(controller.signal)
+  const waiting = waitForCatalogRender(controller.signal, 'films-catalog')
   controller.abort()
   assert.equal(await waiting, false)
   assert.equal(page.callbacks.size, 0)
-  assert.equal(await waitForCatalogRender(controller.signal), false)
+  assert.equal(
+    await waitForCatalogRender(controller.signal, 'films-catalog'),
+    false,
+  )
 })
 
 function routerFixture(original: RouterScrollBehavior) {
@@ -165,3 +183,25 @@ test('never restores stale position after navigation, even during Nuxt readiness
   assert.equal(await stale, false)
   assert.equal(page.callbacks.size, 0)
 })
+
+for (const [path, id] of [
+  ['/films/', 'films-catalog'],
+  ['/planning', 'planning-catalog'],
+  ['/recherche?date=2026-10-13', 'search-catalog'],
+  ['/film/film-test?language=VF', 'film-catalog'],
+  ['/statistiques?film=film-test', 'statistics-catalog'],
+] as const) {
+  test(`waits for own readiness on ${path}, not a previous page`, async (t) => {
+    const page = dom(t)
+    const fixture = routerFixture((_to, _from, saved) => saved)
+    const waiting = fixture.scroll(path, '/cinemas')
+    await Promise.resolve()
+    assert.deepEqual(page.queried, [id])
+    assert.equal(page.callbacks.size, 1)
+    page.render()
+    assert.deepEqual(await waiting, { top: 2000, left: 0 })
+    assert.equal(page.callbacks.size, 0)
+    await fixture.scroll(path, path)
+    assert.equal(page.callbacks.size, 0)
+  })
+}

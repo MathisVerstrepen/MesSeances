@@ -1,14 +1,24 @@
 import type { Router } from 'vue-router'
 
+const readinessElements = new Map([
+  ['/films', 'films-catalog'],
+  ['/planning', 'planning-catalog'],
+  ['/recherche', 'search-catalog'],
+  ['/statistiques', 'statistics-catalog'],
+])
+
 // Catalog loading is deliberately outside Nuxt's page Suspense. Wait for its
 // rendered success/error/empty state, not just page:loading:end. A stalled
 // request gets one bounded, naturally clamped restore, never a later retry.
-export function waitForCatalogRender(signal: AbortSignal, timeoutMs = 10000) {
+export function waitForCatalogRender(
+  signal: AbortSignal,
+  elementId: string,
+  timeoutMs = 10000,
+) {
   return new Promise<boolean>((resolve) => {
     if (signal.aborted) return resolve(false)
     const ready = () =>
-      document.getElementById('films-catalog')?.getAttribute('aria-busy') ===
-      'false'
+      document.getElementById(elementId)?.getAttribute('aria-busy') === 'false'
     if (ready()) return resolve(true)
     const observer = new MutationObserver(() => {
       if (ready()) finish(true)
@@ -50,13 +60,18 @@ export function installCatalogScrollRestoration(
       original(to, from, savedPosition),
     )
     if (controller.signal.aborted) return false
+    const path = to.path.replace(/\/$/, '')
+    const elementId =
+      readinessElements.get(path) ??
+      (/^\/film\/[^/]+$/.test(path) ? 'film-catalog' : undefined)
     if (
       savedPosition &&
       position === savedPosition &&
-      to.path.replace(/\/$/, '') === '/films' &&
-      to.path.replace(/\/$/, '') !== from.path.replace(/\/$/, '')
+      elementId &&
+      path !== from.path.replace(/\/$/, '')
     ) {
-      if (!(await waitForCatalogRender(controller.signal))) return false
+      if (!(await waitForCatalogRender(controller.signal, elementId)))
+        return false
     }
     return controller.signal.aborted ? false : position
   }
