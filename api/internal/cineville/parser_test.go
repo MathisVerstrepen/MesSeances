@@ -278,16 +278,25 @@ func TestBootstrapValidation(t *testing.T) {
 	}
 }
 func TestRuntimeGrammar(t *testing.T) {
-	valid := map[string]int{"1h33": 93, "1 h 37": 97, "1H54": 114, "01:25": 85, "2h3": 123, "1h": 60, "3H": 180, "1h38min": 98, "33 mn": 33, "45mn": 45, "52 min": 52, " 1h30 ": 90, "": 0, " ": 0}
+	valid := map[string]int{"1h33": 93, "1 h 37": 97, "1H54": 114, "01:25": 85, "2h3": 123, "1h": 60, "3H": 180, "1h38min": 98, "33 mn": 33, "45mn": 45, "52 min": 52, " 1h30 ": 90, "": 0, " ": 0, "NC": 0, "nc": 0, "Nc": 0, "nC": 0, " \tNC\n": 0, "N \t C": 0, "\u00a0NC\u202f": 0}
 	for raw, want := range valid {
 		if got, err := parseRuntime(raw); err != nil || got != want {
 			t.Fatalf("%q = %d %v", raw, got, err)
 		}
 	}
-	for _, raw := range []string{"0min", "0h", "1h60", "1:99", "-1h", "1.5h", "90", "999999999999999999999h", "2147483648min", "1h3junk", "1:2"} {
+	for _, raw := range []string{"0min", "0h", "1h60", "1:99", "-1h", "1.5h", "90", "999999999999999999999h", "2147483648min", "1h3junk", "1:2", "N/C", "NCmin", "unknown"} {
 		if _, err := parseRuntime(raw); err == nil {
 			t.Fatalf("accepted runtime %q", raw)
 		}
+	}
+}
+func TestMetadataUnknownRuntime(t *testing.T) {
+	f := fixtureFilm("158327")
+	f.Title = ""
+	f.Metadata = json.RawMessage(`[{"titre":"Unknown runtime film","duree":"NC","affichette":"safe-1.jpg","synopsis":"Summary"}]`)
+	m, err := parseMovie(f)
+	if err != nil || m.ProviderID != "158327" || m.Title != "Unknown runtime film" || m.RuntimeMinutes != 0 || m.PosterURL != schedule.CinevillePosterPrefix+"safe-1.jpg" || m.Overview != "Summary" {
+		t.Fatalf("unknown runtime metadata: movie=%+v err=%v", m, err)
 	}
 }
 func TestMetadataFirstEntryAndGaps(t *testing.T) {
