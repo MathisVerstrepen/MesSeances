@@ -227,28 +227,29 @@ const selectedFilm = computed(() =>
     : (parseStatisticsQuery({ film: route.query.film }).query.film ?? ''),
 )
 const selectedFilmKey = computed(() => `statistics-film:${selectedFilm.value}`)
-const { data: selectedMovie } = await useAsyncData(
-  selectedFilmKey,
-  async () => {
-    const film = selectedFilm.value
-    if (!film)
-      return { film, title: '', backdrop: null, frenchReleaseDate: null }
-    try {
-      const response = await api.movieShowtimes(film, {
-        date: statisticsParisToday(),
-      })
-      return {
-        film,
-        title: response.movie.title.trim(),
-        backdrop: safeBackdropUrl(response.backdrop_url),
-        frenchReleaseDate: response.movie.french_release_date,
+const { data: selectedMovie, pending: selectedMoviePending } =
+  await useAsyncData(
+    selectedFilmKey,
+    async () => {
+      const film = selectedFilm.value
+      if (!film)
+        return { film, title: '', backdrop: null, frenchReleaseDate: null }
+      try {
+        const response = await api.movieShowtimes(film, {
+          date: statisticsParisToday(),
+        })
+        return {
+          film,
+          title: response.movie.title.trim(),
+          backdrop: safeBackdropUrl(response.backdrop_url),
+          frenchReleaseDate: response.movie.french_release_date,
+        }
+      } catch {
+        return { film, title: '', backdrop: null, frenchReleaseDate: null }
       }
-    } catch {
-      return { film, title: '', backdrop: null, frenchReleaseDate: null }
-    }
-  },
-  { lazy: true },
-)
+    },
+    { lazy: true },
+  )
 // Nuxt can retain the previous key's data while loading; never label a new film with it.
 const selectedFilmLabel = computed(() =>
   selectedFilm.value && selectedMovie.value?.film === selectedFilm.value
@@ -469,7 +470,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 </script>
 
 <template>
-  <main class="min-w-0 bg-[#f8f7f2] text-ink">
+  <main
+    id="statistics-catalog"
+    :aria-busy="pending || selectedMoviePending"
+    class="min-w-0 bg-[#f8f7f2] text-ink"
+  >
     <header class="border-b-2 border-ink bg-surface">
       <div class="mx-auto max-w-[1440px] px-4 py-12 sm:px-6 sm:py-16 lg:px-10">
         <p class="font-mono text-xs font-black uppercase tracking-[0.15em]">

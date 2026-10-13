@@ -399,6 +399,8 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 <template>
   <main
+    id="planning-catalog"
+    :aria-busy="pending"
     class="min-h-[calc(100vh-4.5rem)] bg-[#f8f7f2] px-2 py-3 text-ink [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-4 sm:py-4 lg:px-6"
   >
     <h1 class="sr-only">Planning des séances</h1>
