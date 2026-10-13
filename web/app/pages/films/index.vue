@@ -665,7 +665,11 @@ useHead(() => ({
 </script>
 
 <template>
-  <main class="catalog-page bg-[#f8f7f2] text-ink">
+  <main
+    id="films-catalog"
+    :aria-busy="pending"
+    class="catalog-page bg-[#f8f7f2] text-ink"
+  >
     <FilmCatalogTabs active="showing" />
     <section
       class="border-b-2 border-ink bg-surface"

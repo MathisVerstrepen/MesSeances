@@ -1008,6 +1008,8 @@ if (
 
 <template>
   <main
+    id="film-catalog"
+    :aria-busy="pending"
     class="mx-auto max-w-[1440px] bg-[#f8f7f2] px-4 py-8 [background-image:linear-gradient(rgba(39,39,42,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(39,39,42,0.07)_1px,transparent_1px)] [background-size:28px_28px] sm:px-6 sm:py-10 lg:px-10 lg:py-14"
   >
     <EditorialStatePanel
