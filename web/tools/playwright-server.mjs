@@ -257,6 +257,40 @@ const mock = createServer((request, response) => {
       }
       return json(response, value)
     }
+    if (path === '/api/v1/movies' && scenario.scrollCatalog) {
+      const mode = scenario.scrollCatalog
+      const items = Array.from(
+        { length: mode === 'short' ? 1 : 24 },
+        (_, index) => ({
+          ...movie,
+          slug:
+            index === 23 || mode === 'short'
+              ? movie.slug
+              : `scroll-film-${index}`,
+          title: `Film de défilement ${index + 1}`,
+        }),
+      )
+      const value = {
+        items,
+        available_genres: [],
+        page: Number(url.searchParams.get('page') || 1),
+        page_size: 24,
+        total: 72,
+        generated_at: generatedAt,
+        catalog_revision: 'scroll-fixture',
+      }
+      setTimeout(() => {
+        if (!response.destroyed)
+          json(
+            response,
+            mode === 'error'
+              ? { error: { code: 'schedule_unavailable' } }
+              : value,
+            mode === 'error' ? 503 : 200,
+          )
+      }, 700)
+      return
+    }
     if (path === '/api/v1/movies')
       return json(response, {
         items: scenario.discovery ? discoveryMovies : [movie],
