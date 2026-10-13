@@ -444,6 +444,50 @@ func TestSyncNormalizesPostalCode(t *testing.T) {
 	}
 }
 
+func TestSyncUnknownRuntimePreservesMovieAndSessions(t *testing.T) {
+	for _, placement := range []string{"program", "events", "both"} {
+		t.Run(placement, func(t *testing.T) {
+			c := fixtureCinema()
+			standard := json.RawMessage(jsonBytes(t, fixtureFilm("167934")))
+			unknown := fixtureFilm("158327")
+			unknown.Metadata = json.RawMessage(`[{"titre":"Unknown runtime film","duree":"NC"}]`)
+			unknown.Dates[0].Showtimes[0].ID = "2"
+			raw := json.RawMessage(jsonBytes(t, unknown))
+			program, events := []json.RawMessage{standard}, []json.RawMessage{}
+			if placement != "events" {
+				program = append(program, raw)
+			}
+			if placement != "program" {
+				events = append(events, raw)
+			}
+			page := wireProgramPage(t, c, program, events)
+			client := wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page})
+			data, summary, err := Sync(t.Context(), client, fixtureOptions())
+			if err != nil || summary.Cinemas != 1 || summary.Movies != 2 || summary.Showtimes != 2 || summary.Requests != 2 || client.RequestCount() != 2 || len(data.Showtimes) != 2 {
+				t.Fatalf("unknown runtime sync: summary=%+v err=%v", summary, err)
+			}
+			found := false
+			for _, showing := range data.Showtimes {
+				if !showing.EndTime.Equal(showing.StartTime) {
+					t.Fatal("unknown end time changed")
+				}
+				if showing.Movie.ProviderID == "158327" {
+					found = true
+					if showing.Movie.RuntimeMinutes != 0 || showing.Movie.Title != unknown.Title || showing.ProviderShowingID != "639-2" {
+						t.Fatalf("unknown runtime movie/session changed: %+v", showing)
+					}
+				}
+			}
+			if !found {
+				t.Fatal("unknown runtime movie/session lost")
+			}
+			if err := schedule.ValidateDataset(data, true); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestSyncUnionMetadataAndUnknownEnds(t *testing.T) {
 	c := fixtureCinema()
 	p := fixturePage(c)
@@ -723,6 +767,7 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 		"invalid visa":           func(p *pageProps) { p.Program[0].Visa = "9223372036854775808" },
 		"missing title":          func(p *pageProps) { p.Program[0].Title = ""; p.Program[0].Metadata = json.RawMessage(`[]`) },
 		"metadata malformed":     func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`{"result":true}`) },
+		"runtime malformed":      func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"unknown"}]`) },
 		"wrong session cinema":   func(p *pageProps) { p.Program[0].Dates[0].Showtimes[0].Cinema = "707" },
 		"zero session":           func(p *pageProps) { p.Program[0].Dates[0].Showtimes[0].ID = "0" },
 		"invalid bordereau":      func(p *pageProps) { p.Program[0].Dates[0].Showtimes[0].Bordereau = "01" },
