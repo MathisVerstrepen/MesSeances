@@ -292,7 +292,7 @@ var minuteRuntime = regexp.MustCompile(`^([0-9]+)(?:mn|min)$`)
 
 func parseRuntime(raw string) (int, error) {
 	v := strings.ToLower(strings.Join(strings.Fields(raw), ""))
-	if v == "" {
+	if v == "" || v == "nc" {
 		return 0, nil
 	}
 	parts := hourRuntime.FindStringSubmatch(v)
