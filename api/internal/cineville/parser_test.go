@@ -278,13 +278,13 @@ func TestBootstrapValidation(t *testing.T) {
 	}
 }
 func TestRuntimeGrammar(t *testing.T) {
-	valid := map[string]int{"1h33": 93, "1 h 37": 97, "1H54": 114, "01:25": 85, "2h3": 123, "1h": 60, "3H": 180, "1h38min": 98, "33 mn": 33, "45mn": 45, "52 min": 52, " 1h30 ": 90, "": 0, " ": 0, "NC": 0, "nc": 0, "Nc": 0, "nC": 0, " \tNC\n": 0, "N \t C": 0, "\u00a0NC\u202f": 0}
+	valid := map[string]int{"1h33": 93, "1 h 37": 97, "1H54": 114, "01:25": 85, "2h3": 123, "1h": 60, "3H": 180, "1h38min": 98, "33 mn": 33, "45mn": 45, "52 min": 52, "45": 45, "90": 90, " \t45\n": 45, "1": 1, "153722867": 153722867, " 1h30 ": 90, "": 0, " ": 0, "NC": 0, "nc": 0, "Nc": 0, "nC": 0, " \tNC\n": 0, "N \t C": 0, "\u00a0NC\u202f": 0}
 	for raw, want := range valid {
 		if got, err := parseRuntime(raw); err != nil || got != want {
 			t.Fatalf("%q = %d %v", raw, got, err)
 		}
 	}
-	for _, raw := range []string{"0min", "0h", "1h60", "1:99", "-1h", "1.5h", "90", "999999999999999999999h", "2147483648min", "1h3junk", "1:2", "N/C", "NCmin", "unknown"} {
+	for _, raw := range []string{"0", "00", "-45", "+45", "45.0", "4 5", "4\t5", "45junk", "45m", "153722868", "2147483647", "2147483648", "999999999999999999999", "0min", "0h", "1h60", "1:99", "-1h", "1.5h", "999999999999999999999h", "2147483648min", "1h3junk", "1:2", "N/C", "NCmin", "unknown"} {
 		if _, err := parseRuntime(raw); err == nil {
 			t.Fatalf("accepted runtime %q", raw)
 		}
