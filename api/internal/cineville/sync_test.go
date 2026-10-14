@@ -444,6 +444,52 @@ func TestSyncNormalizesPostalCode(t *testing.T) {
 	}
 }
 
+func TestSyncBareRuntimePreservesMovieAndSessions(t *testing.T) {
+	for _, placement := range []string{"program", "events", "both"} {
+		t.Run(placement, func(t *testing.T) {
+			c := fixtureCinema()
+			standard := json.RawMessage(jsonBytes(t, fixtureFilm("167934")))
+			bare := fixtureFilm("158327")
+			bare.Metadata = json.RawMessage(`[{"titre":"Bare runtime film","duree":"45"}]`)
+			bare.Dates[0].Date = "20270126"
+			bare.Dates[0].Showtimes[0].ID = "2"
+			raw := json.RawMessage(jsonBytes(t, bare))
+			program, events := []json.RawMessage{standard}, []json.RawMessage{}
+			if placement != "events" {
+				program = append(program, raw)
+			}
+			if placement != "program" {
+				events = append(events, raw)
+			}
+			page := wireProgramPage(t, c, program, events)
+			client := wireProgramClient(t, []cinema{c}, map[string][]byte{c.Route: page})
+			data, summary, err := Sync(t.Context(), client, fixtureOptions())
+			if err != nil || summary.Cinemas != 1 || summary.Movies != 2 || summary.Showtimes != 2 || summary.Requests != 2 || client.RequestCount() != 2 || len(data.Showtimes) != 2 || data.Window.Through != "2027-01-26" {
+				t.Fatalf("bare runtime sync: summary=%+v err=%v", summary, err)
+			}
+			retained := map[string]bool{}
+			for _, showing := range data.Showtimes {
+				retained[showing.Movie.ProviderID] = true
+				if !showing.EndTime.Equal(showing.StartTime) || showing.FirstPartDurationMinutes != 0 {
+					t.Fatal("unknown source end changed")
+				}
+				if showing.Movie.ProviderID == "158327" && (showing.Movie.RuntimeMinutes != 45 || showing.Movie.Title != bare.Title || showing.ProviderShowingID != "639-2" || showing.ServiceDate != "2027-01-26") {
+					t.Fatalf("bare runtime movie/session changed: %+v", showing)
+				}
+				if showing.Movie.ProviderID == "167934" && (showing.Movie.RuntimeMinutes != 93 || showing.ProviderShowingID != "639-1") {
+					t.Fatal("standard movie/session changed")
+				}
+			}
+			if !retained["158327"] || !retained["167934"] {
+				t.Fatal("valid movie/session lost")
+			}
+			if err := schedule.ValidateDataset(data, true); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestSyncUnknownRuntimePreservesMovieAndSessions(t *testing.T) {
 	for _, placement := range []string{"program", "events", "both"} {
 		t.Run(placement, func(t *testing.T) {
@@ -768,6 +814,11 @@ func TestSyncRejectsMalformedAndConflictingSessions(t *testing.T) {
 		"missing title":          func(p *pageProps) { p.Program[0].Title = ""; p.Program[0].Metadata = json.RawMessage(`[]`) },
 		"metadata malformed":     func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`{"result":true}`) },
 		"runtime malformed":      func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"unknown"}]`) },
+		"runtime bare zero":      func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"0"}]`) },
+		"runtime bare negative":  func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"-45"}]`) },
+		"runtime bare malformed": func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"4 5"}]`) },
+		"runtime bare overflow":  func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"2147483648"}]`) },
+		"runtime bare excessive": func(p *pageProps) { p.Program[0].Metadata = json.RawMessage(`[{"duree":"153722868"}]`) },
 		"wrong session cinema":   func(p *pageProps) { p.Program[0].Dates[0].Showtimes[0].Cinema = "707" },
 		"zero session":           func(p *pageProps) { p.Program[0].Dates[0].Showtimes[0].ID = "0" },
 		"invalid bordereau":      func(p *pageProps) { p.Program[0].Dates[0].Showtimes[0].Bordereau = "01" },
