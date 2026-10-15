@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { access } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
@@ -397,6 +398,53 @@ function safeBackdropUrl(value) {
 }
 
 function reservationUrl(showtime) {
+  // Match Véo original bytes and cinema-qualified identity before generic parsing.
+  if (!showtime.provider || showtime.provider === 'veo') {
+    const raw = String(showtime.booking_url ?? '')
+    if (raw === showtime.booking_url && raw.length <= 4096) {
+      let theater
+      let validIdentity = true
+      if (showtime.theater_id !== undefined) {
+        const match = /^veo-([A-Z0-9]{5}|EMS1361)$/.exec(
+          showtime.theater_id ?? '',
+        )
+        if (!match || match[0] !== showtime.theater_id) validIdentity = false
+        else theater = match[1]
+      }
+      if (showtime.id !== undefined) {
+        const match = /^veo-showing-([A-Z0-9]{5}|EMS1361)-[a-f0-9]{64}$/.exec(
+          showtime.id ?? '',
+        )
+        if (
+          !match ||
+          match[0] !== showtime.id ||
+          (theater && theater !== match[1])
+        )
+          validIdentity = false
+        else theater = match[1]
+      }
+      if (validIdentity) {
+        const checkout =
+          /^https:\/\/achat\.veocinemas\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/r\/[1-9][0-9]*$/.exec(
+            raw,
+          )
+        if (checkout?.[0] === raw && theater !== 'EMS1361') return raw
+        if (!theater || theater === 'EMS1361') {
+          const root = /^https:\/\/castelginest\.miracinemas\.fr\/?$/.exec(raw)
+          if (root?.[0] === raw) return raw
+          const session =
+            /^https:\/\/castelginest\.miracinemas\.fr\/?#showsession\?id=(emsx1361[0-9]{8})$/.exec(
+              raw,
+            )
+          if (session?.[0] === raw) {
+            const id = `veo-showing-EMS1361-${createHash('sha256').update(`EMS1361\0${session[1]}`).digest('hex')}`
+            if (showtime.id === undefined || showtime.id === id) return raw
+          }
+        }
+      }
+    }
+  }
+  if (showtime.provider === 'veo') return null
   // Mirror the finite default:DESKTOP policy, never the room-only redirect grammar.
   const noePrefixes = {
     B0158: 'https://achat.noecinemas.com/domont-ermitage/r/',

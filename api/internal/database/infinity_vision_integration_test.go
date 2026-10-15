@@ -38,16 +38,19 @@ func TestInfinityVisionMigrationIntegration(t *testing.T) {
 			defer cancel()
 			pool := historyMigrationPool(t, ctx)
 			var beforeRows, beforeConstraints string
+			var veoChanges []veoConstraintChange
 			if upgrade {
 				installMigrationPrefix(t, ctx, pool, 39, "039_screening_history.sql")
 				seedInfinityMigration(t, ctx, pool)
-				beforeRows, beforeConstraints = infinityMigrationState(t, ctx, pool)
+				veoChanges = captureVeoConstraintChanges(t, ctx, pool)
+				beforeRows, beforeConstraints = infinityMigrationState(t, ctx, pool, veoChanges)
 			}
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if upgrade {
-				rows, constraints := infinityMigrationState(t, ctx, pool)
+				assertVeoConstraintChanges(t, ctx, pool, veoChanges)
+				rows, constraints := infinityMigrationState(t, ctx, pool, veoChanges)
 				if rows != beforeRows || constraints != beforeConstraints {
 					t.Fatal("migration changed existing rows or unrelated constraints")
 				}
@@ -105,14 +108,16 @@ INSERT INTO screening_history_showtimes(id,provider,provider_showing_id,theater_
 	}
 }
 
-func infinityMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (string, string) {
+func infinityMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, veoChanges []veoConstraintChange) (string, string) {
 	t.Helper()
 	var rows, constraints string
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array((SELECT jsonb_agg(to_jsonb(s) ORDER BY id) FROM showtimes s),(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM screening_history_showtimes h))::text`).Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
 	// Migration 060 deliberately changes the Cinewest historical shape exception.
-	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)::text FROM pg_constraint WHERE conrelid IN ('showtimes'::regclass,'screening_history_showtimes'::regclass) AND conname NOT IN ('showtimes_format_check', 'showtimes_language_original_check', 'screening_history_showtimes_language_original_check', 'showtimes_language_vof_check', 'screening_history_showtimes_language_vof_check', 'showtimes_cinewest_shape_check')`).Scan(&constraints); err != nil {
+	// The exact table/name pairs changed by 062 are checked separately against
+	// their captured legacy predicates plus the explicitly expected Véo branch.
+	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)::text FROM pg_constraint WHERE conrelid IN ('showtimes'::regclass,'screening_history_showtimes'::regclass) AND conname NOT IN ('showtimes_format_check', 'showtimes_language_original_check', 'screening_history_showtimes_language_original_check', 'showtimes_language_vof_check', 'screening_history_showtimes_language_vof_check', 'showtimes_cinewest_shape_check') AND (conrelid::regclass::text || '.' || conname) <> ALL($1::text[])`, veoConstraintKeys(veoChanges)).Scan(&constraints); err != nil {
 		t.Fatal(err)
 	}
 	return rows, constraints

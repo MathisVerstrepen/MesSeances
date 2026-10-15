@@ -1,5 +1,5 @@
 const BRAND_ONLY_NAME =
-  /^(UGC|CGR|Megarama|IMAX|Kinepolis|Pathé|Pathe|Cinéville|Cineville|MK2|Cinewest|Grand [EÉ]cran|No[eé](?:\u0301)?\s+Cin[eé](?:\u0301)?mas)$/iu
+  /^(UGC|CGR|Megarama|IMAX|Kinepolis|Pathé|Pathe|Cinéville|Cineville|MK2|Cinewest|Grand [EÉ]cran|No[eé](?:\u0301)?\s+Cin[eé](?:\u0301)?mas|V[eé](?:\u0301)?o(?:\s+Cin[eé](?:\u0301)?mas)?)$/iu
 
 export function theaterDisplayName(theater: {
   name: string

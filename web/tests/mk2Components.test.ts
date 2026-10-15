@@ -38,7 +38,7 @@ test('MK2 appears in individual, all-run and schedule provider surfaces without 
     if (page.startsWith('sync'))
       assert.match(
         value,
-        /\[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',?\s*\]/,
+        /\[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',\s*'veo',?\s*\]/,
       )
   }
   assert.match(

@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var allTestProviders = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas}
+var allTestProviders = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo}
 
 func TestManagerAllIsolatesProviderFailures(t *testing.T) {
 	for _, test := range []struct {
@@ -21,7 +21,7 @@ func TestManagerAllIsolatesProviderFailures(t *testing.T) {
 		{name: "success"},
 		{name: "first", failures: []Target{TargetUGC}},
 		{name: "middle", failures: []Target{TargetMegarama}},
-		{name: "last", failures: []Target{TargetNoeCinemas}},
+		{name: "last", failures: []Target{TargetVeo}},
 		{name: "multiple", failures: []Target{TargetUGC, TargetCGR, TargetGrandEcran}},
 		{name: "all", failures: allTestProviders},
 		{name: "panic", failures: []Target{TargetKinepolis}, mode: "panic"},

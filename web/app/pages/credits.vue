@@ -10,6 +10,7 @@ type CreditBrand =
   | 'CINEWEST'
   | 'Grand Ecran'
   | 'Noé Cinémas'
+  | 'Véo Cinémas'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -62,6 +63,11 @@ const creditSections: Array<{
         brand: 'Noé Cinémas',
         name: 'Noé Cinémas',
         url: 'https://www.noecinemas.com/',
+      },
+      {
+        brand: 'Véo Cinémas',
+        name: 'Véo Cinémas',
+        url: 'https://veocinemas.fr',
       },
     ],
   },

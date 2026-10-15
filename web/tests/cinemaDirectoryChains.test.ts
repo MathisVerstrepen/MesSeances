@@ -62,6 +62,7 @@ test('chain query accepts all allowed identifiers, normalizes case, whitespace a
     'cinewest',
     'grandecran',
     'noecinemas',
+    'veo',
   ]
   assert.deepEqual(normalizeCinemaChains(providers), providers)
   assert.deepEqual(

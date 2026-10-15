@@ -57,6 +57,7 @@ function run(
       cinewest: { state: 'not_requested' },
       grandecran: { state: 'not_requested' },
       noecinemas: { state: 'not_requested' },
+      veo: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -88,6 +89,16 @@ test('single-provider history shows new showtimes, ungrouped and spaced after pl
   const job = run({ ugc: published(8395) })
   job.target = 'ugc'
   assert.equal(summary(job), '+ 8395 séances')
+})
+
+test('Véo individual and all-run histories include published new sessions', () => {
+  const job = run({ veo: published(42) })
+  job.target = 'veo'
+  assert.equal(summary(job), '+ 42 séances')
+  assert.equal(
+    summary(run({ veo: published(42), ugc: published(8) })),
+    '+ 50 séances',
+  )
 })
 
 test('multi-provider history sums requested outcomes, not total showtimes or unrequested providers', () => {
@@ -259,12 +270,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all ten decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all eleven decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 11)
+  assert.equal(buttons.length, 12)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -280,6 +291,7 @@ test('idle launch buttons use all ten decorative chain logos with visible names;
     'CINEWEST',
     'Grand Ecran',
     'Noé Cinémas',
+    'Véo Cinémas',
   ]
   uiBindings.providers.forEach((provider: Provider, index: number) => {
     const button = buttons[index + 1]!

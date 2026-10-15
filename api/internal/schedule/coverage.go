@@ -56,7 +56,7 @@ func validateCoverage(data Dataset, theaters map[string]TheaterRecord) error {
 		if c.Status != CoverageComplete && c.Status != CoverageUnknown || c.Status == CoverageComplete && c.Basis != CoverageDateResponse || c.Status == CoverageUnknown && c.Basis != CoverageUnproven && c.Basis != CoverageAcceptedOmission {
 			return fmt.Errorf("invalid publication coverage status or basis")
 		}
-		if c.Status == CoverageComplete && provider != ProviderUGC && provider != ProviderPathe && provider != ProviderCGR && provider != ProviderGrandEcran && provider != ProviderNoeCinemas {
+		if c.Status == CoverageComplete && provider != ProviderUGC && provider != ProviderPathe && provider != ProviderCGR && provider != ProviderGrandEcran && provider != ProviderNoeCinemas && (provider != ProviderVeo || t.ProviderID == "EMS1361") {
 			return fmt.Errorf("provider has no complete date evidence")
 		}
 		seen[key] = true

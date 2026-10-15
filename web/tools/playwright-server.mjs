@@ -21,6 +21,8 @@ import {
   secondTheater,
   showtimes,
   theater,
+  veoTheaters,
+  veoShowtimes,
   syntheticWatchlist,
   scrollInventory,
 } from '../e2e/data.mjs'
@@ -182,7 +184,11 @@ const mock = createServer((request, response) => {
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
     if (path === '/api/v1/theaters')
-      return json(response, [theater, secondTheater])
+      return json(response, [
+        theater,
+        secondTheater,
+        ...(scenario.veo ? veoTheaters : []),
+      ])
     if (path === '/api/v1/cities')
       return json(response, {
         generated_at: generatedAt,
@@ -235,6 +241,13 @@ const mock = createServer((request, response) => {
     }
     const cinemaRoute = /^\/api\/v1\/theaters\/([^/]+)\/showtimes$/.exec(path)
     if (cinemaRoute && cinemaRoute[1] !== 'missing') {
+      const veoVenue =
+        scenario.veo && veoTheaters.find((item) => item.slug === cinemaRoute[1])
+      if (veoVenue)
+        return json(
+          response,
+          veoShowtimes(veoVenue, url.searchParams.get('date') || date),
+        )
       const venue = publicCities
         .flatMap((city) => city.theaters)
         .find((item) => item.slug === decodeURIComponent(cinemaRoute[1]))

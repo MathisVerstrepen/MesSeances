@@ -78,7 +78,7 @@ func TestGrandEcranExecutorAndScheduledManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForTerminal(t, manager)
-	if status.State != StateSucceeded || status.Providers["grandecran"].State != ProviderSucceeded || len(status.Providers) != 10 {
+	if status.State != StateSucceeded || status.Providers["grandecran"].State != ProviderSucceeded || len(status.Providers) != 11 {
 		t.Fatal("scheduled status")
 	}
 	status.Providers["grandecran"] = ProviderStatus{State: "mutated"}

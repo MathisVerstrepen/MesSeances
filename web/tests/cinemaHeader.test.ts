@@ -40,6 +40,7 @@ test('public photo URLs use only the browser API base and normalized public meta
     'cinewest',
     'grandecran',
     'noecinemas',
+    'veo',
   ]) {
     for (const id of [
       '0004',

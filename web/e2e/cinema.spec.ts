@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
-import { date, movie, showtimes, theater } from './data.mjs'
+import { date, movie, showtimes, theater, veoTheaters } from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
 
@@ -510,4 +510,139 @@ test('ICE technology credit uses supplied display logo and official attribution'
     ),
   ).toBe(true)
   await credit.screenshot({ path: info.outputPath('ice-credit.png') })
+})
+
+for (const venue of veoTheaters) {
+  test(`Véo ${venue.id} SSR and hydrated reservations preserve missing metadata and safe links`, async ({
+    page,
+    request,
+  }, info) => {
+    await request.post('/__playwright/scenario', { data: { veo: true } })
+    const url = `/cinema/${venue.slug}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain(venue.name)
+    expect(html).toContain('veocinema_logo')
+    expect(html).toContain('Événement Véo')
+    expect(html).toContain('VOSTFR')
+    expect(html).not.toContain('href="https://achat.veocinemas.fr.evil.test')
+    expect(html).toContain(
+      venue.id === 'veo-EMS1361'
+        ? 'href="https://castelginest.miracinemas.fr/#showsession?id=emsx136100000001"'
+        : 'href="https://achat.veocinemas.fr/muret-veo/r/19"',
+    )
+    await openPage(page, url)
+    const logo = page.locator('main > header img[src*="veocinema_logo"]')
+    await expect(logo).toHaveCount(1)
+    await expect(logo).toHaveAttribute('alt', '')
+    await expect(logo).toHaveAttribute('aria-hidden', 'true')
+    await expect(logo).toHaveJSProperty('complete', true)
+    expect(
+      await logo.evaluate((image: HTMLImageElement) => image.naturalWidth),
+    ).toBeGreaterThan(0)
+    // Hero constrains its image box in both axes; contain preserves artwork ratio.
+    await expect(logo).toHaveCSS('object-fit', 'contain')
+    expect(
+      await logo.evaluate(
+        (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+      ),
+    ).toBeCloseTo(2357 / 1485, 2)
+    async function checkProgramme() {
+      const booking = page.locator('main a[data-showtime-id]').first()
+      await expect(booking).toHaveAttribute(
+        'href',
+        venue.id === 'veo-EMS1361'
+          ? 'https://castelginest.miracinemas.fr/#showsession?id=emsx136100000001'
+          : 'https://achat.veocinemas.fr/muret-veo/r/19',
+      )
+      await expect(booking).toHaveAttribute('target', '_blank')
+      await expect(booking).toHaveAttribute('rel', 'noopener noreferrer')
+      await expect(booking).toHaveAttribute(
+        'aria-label',
+        /ouverture dans un nouvel onglet/,
+      )
+      await expect(
+        page.locator('main [aria-disabled="true"][data-showtime-id]'),
+      ).toHaveCount(1)
+      await expect(page.locator('main a[href*="evil.test"]')).toHaveCount(0)
+      await expect(
+        page.locator('main').getByText(/^Salle(?:\s|$)/),
+      ).toHaveCount(0)
+      await expect(page.locator('main').getByText(/^fin(?:\s|$)/i)).toHaveCount(
+        0,
+      )
+      if (venue.id === 'veo-EMS1361') {
+        const website = page.getByRole('link', {
+          name: 'Site du cinéma Véo, ouverture dans un nouvel onglet',
+          exact: true,
+        })
+        await expect(website).toHaveAttribute(
+          'href',
+          'https://castelginest.miracinemas.fr/',
+        )
+        await expect(website).toContainText('Site du cinéma Véo')
+      }
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+    }
+    await checkProgramme()
+    await page.screenshot({
+      path: info.outputPath(`${venue.id}.png`),
+      fullPage: true,
+    })
+    // Exercise a real client fetch after SSR, without replacing server responses by routes.
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+    await page.setViewportSize(info.project.use.viewport!)
+    await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+    await checkProgramme()
+  })
+}
+
+test('Véo directory filtering and operator credit retain brand identity on desktop and mobile', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { veo: true } })
+  await openPage(page, '/cinemas')
+  // The responsive directory exposes the same chain control inside mobile settings.
+  if (info.project.name === 'mobile')
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const chain = page.getByRole('checkbox', { name: 'Véo Cinémas', exact: true })
+  await chain.locator('..').click()
+  await expect(chain).toBeChecked()
+  await expect(page).toHaveURL(/chains=veo/)
+  if (info.project.name === 'mobile')
+    await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  for (const venue of veoTheaters)
+    await expect(
+      page.getByRole('link', { name: new RegExp(venue.name) }).first(),
+    ).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: /Cinéma Playwright/ }),
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-playwright-ready',
+    'true',
+  )
+  await expect(page).toHaveURL(/chains=veo/)
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Véo Cinémas, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://veocinemas.fr')
+  await expect(credit.locator('img')).toHaveAttribute('alt', '')
+  await expect(credit.locator('img')).toHaveJSProperty('complete', true)
 })
