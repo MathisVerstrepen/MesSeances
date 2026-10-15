@@ -23,6 +23,7 @@ function createWatchlist() {
   const app = useNuxtApp()
   const api = useAccountApi()
   const account = useAccountSession()
+  const collectionWrite = useCollectionWrite()
   const snapshot = ref<AccountWatchlist | null>(null)
   const error = ref('')
   const loading = ref(false)
@@ -52,8 +53,13 @@ function createWatchlist() {
       !!owner.value && !!snapshot.value && !loading.value && !uncertain.value,
   )
   // Committed display survives same-owner revalidation, never write authority.
-  const writesBlocked = computed(
-    () => account.writesBlocked.value || !ready.value || saving.value,
+  const writesBlocked = computed<boolean>(
+    (): boolean =>
+      account.writesBlocked.value ||
+      !ready.value ||
+      saving.value ||
+      collectionWrite.busy.value ||
+      (!!app._watched?.owner.value && !app._watched.ready.value),
   )
   const items = computed(() => snapshot.value?.items ?? [])
   const tags = computed(() => snapshot.value?.tags ?? [])
@@ -122,6 +128,7 @@ function createWatchlist() {
   }
 
   function reset() {
+    collectionWrite.reset()
     admissionRevision = account.revision.value
     generation++
     controller?.abort()
@@ -173,6 +180,7 @@ function createWatchlist() {
       expected_revision: snapshot.value.revision,
     }
     saving.value = true
+    const release = collectionWrite.acquire()
     controller?.abort()
     controller = new AbortController()
     savingPromise = (async () => {
@@ -272,9 +280,11 @@ function createWatchlist() {
         uncertain.value = true
         // A timeout can follow a commit. Read back, never replay a mutation.
         await readSnapshot()
+        await app._watched?.reconcile()
         if (token.valid()) error.value = accountErrorMessage(cause)
         return false
       } finally {
+        release()
         if (token.inScope()) saving.value = false
       }
     })()
@@ -326,6 +336,7 @@ function createWatchlist() {
   async function revalidate() {
     const token = capture()
     await savingPromise
+    await collectionWrite.wait()
     if (!token.valid()) return () => {}
     controller?.abort()
     controller = new AbortController()
@@ -414,6 +425,9 @@ function createWatchlist() {
     searchError: readonly(searchError),
     searching: readonly(searching),
     startSynchronization,
+    snapshot: readonly(snapshot),
+    applySnapshot: apply,
+    readSnapshot,
     retry,
     search,
     dismissSearch,

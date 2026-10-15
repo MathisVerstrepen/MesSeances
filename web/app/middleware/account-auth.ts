@@ -30,6 +30,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
       '/compte',
       '/compte/parametres',
       '/compte/watchlist',
+      '/compte/films-vus',
       '/compte/activite',
     ].includes(path) &&
     session.value.state !== 'complete'

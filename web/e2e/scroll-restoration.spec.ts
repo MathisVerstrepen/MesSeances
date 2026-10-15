@@ -136,23 +136,36 @@ test('superseding navigation cancels delayed catalog restoration', async ({
   const held = new Promise<void>((resolve) => {
     release = resolve
   })
+  let continued!: () => void
+  const routeContinued = new Promise<void>((resolve) => {
+    continued = resolve
+  })
   await page.route('**/api/v1/movies?**', async (route) => {
     await held
     await route.continue()
+    continued()
   })
-  await page.goBack()
-  await expect(page.locator('#films-catalog')).toHaveAttribute(
-    'aria-busy',
-    'true',
-  )
-  await page.getByRole('link', { name: /Gérer mes cinémas/ }).click()
-  await expect(page).toHaveURL('/cinemas')
-  await restored(page, 0)
-  const response = page.waitForResponse(
-    (response) => new URL(response.url()).pathname === '/api/v1/movies',
-  )
-  release()
-  await (await response).finished()
+  try {
+    const catalogRequest = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === '/api/v1/movies',
+    )
+    await page.goBack()
+    const pendingRequest = await catalogRequest
+    await expect(page.locator('#films-catalog')).toHaveAttribute(
+      'aria-busy',
+      'true',
+    )
+    const cancelled = page.waitForEvent('requestfailed', {
+      predicate: (request) => request === pendingRequest,
+    })
+    await page.getByRole('link', { name: /Gérer mes cinémas/ }).click()
+    await expect(page).toHaveURL('/cinemas')
+    await restored(page, 0)
+    expect((await cancelled).failure()?.errorText).toBe('net::ERR_ABORTED')
+  } finally {
+    release()
+  }
+  await routeContinued
   await page.evaluate(
     () =>
       new Promise<void>((resolve) =>

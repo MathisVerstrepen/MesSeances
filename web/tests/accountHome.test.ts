@@ -44,7 +44,7 @@ function evaluate(source: string, globals: Context) {
   return exports
 }
 
-test('home renders settings, watchlist and activity in sidebar order without initializing settings data or secrets', async () => {
+test('home renders settings, watchlist, watched films and activity in sidebar order without initializing settings data or secrets', async () => {
   const session = ref<AccountSession | null>({
     enabled: true,
     state: 'complete',
@@ -91,7 +91,7 @@ test('home renders settings, watchlist and activity in sidebar order without ini
   const html = await render()
   assert.equal(title, 'Mon compte - MesSeances')
   assert.match(html, /<h1>Mon compte<\/h1>/)
-  assert.equal([...html.matchAll(/<li>/g)].length, 3)
+  assert.equal([...html.matchAll(/<li>/g)].length, 4)
   assert.match(html, /href="\/compte\/activite"/)
   assert.match(html, /href="\/compte\/watchlist"/)
   assert.match(html, /href="\/compte\/parametres"/)
@@ -101,6 +101,7 @@ test('home renders settings, watchlist and activity in sidebar order without ini
   assert.deepEqual(homeHrefs, [
     '/compte/parametres',
     '/compte/watchlist',
+    '/compte/films-vus',
     '/compte/activite',
   ])
   const sidebar = createSSRApp({
@@ -109,6 +110,7 @@ test('home renders settings, watchlist and activity in sidebar order without ini
       settingsActive: false,
       watchlistActive: false,
       activityActive: false,
+      watchedActive: false,
       upcomingEntries: [],
     }),
   })

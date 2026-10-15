@@ -13,6 +13,7 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const api = useMesSeancesApi()
 const route = useRoute()
+const discovery = useWatchedCatalog('home')
 const movies = ref<CatalogMovie[]>([])
 const pending = ref(true)
 const errorMessage = ref('')
@@ -69,7 +70,7 @@ async function loadMovies() {
   errorMessage.value = ''
 
   try {
-    const response = await api.movies({
+    const response = await discovery.movies({
       currently_screened: true,
       sort: 'showtimes_desc',
       page: 1,
@@ -104,6 +105,12 @@ const initialResult = await useAsyncData('home-current-movies', async () => {
 movies.value = initialResult.data.value?.movies ?? []
 errorMessage.value = initialResult.data.value?.errorMessage ?? ''
 pending.value = false
+watch(discovery.key, () => {
+  if (!discovery.blocked.value) void loadMovies()
+})
+onBeforeUnmount(() => {
+  requestId++
+})
 if (import.meta.server && errorMessage.value) {
   const event = useRequestEvent()
   if (event) setResponseStatus(event, 502)
@@ -210,8 +217,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </NuxtLink>
         </div>
 
+        <WatchedReadiness v-if="discovery.blocked.value" />
         <ul
-          v-if="pending"
+          v-else-if="pending"
           class="relative min-h-[35rem] max-md:grid max-md:min-h-0 max-md:grid-cols-2 max-md:gap-x-5 max-md:gap-y-8 max-md:px-0 max-md:pt-12 max-md:pb-6"
           aria-hidden="true"
         >
@@ -284,8 +292,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               :aria-label="`${movie.title}, ${movie.runtime_minutes} minutes`"
             >
               <div
-                class="aspect-[2/3] overflow-hidden rounded-[0.4rem] border-2 border-ink bg-[#e8e6de] shadow-[7px_7px_0_rgba(39,39,42,0.95)]"
+                class="relative aspect-[2/3] overflow-hidden rounded-[0.4rem] border-2 border-ink bg-[#e8e6de] shadow-[7px_7px_0_rgba(39,39,42,0.95)]"
               >
+                <WatchedBadge :slug="movie.slug" />
                 <PosterImage
                   :src="movie.poster_url"
                   :alt="`Affiche de ${movie.title}`"

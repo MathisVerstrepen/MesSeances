@@ -570,7 +570,20 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
-  assert.equal([...navigation.matchAll(/to=/g)].length, 3)
+  assert.equal([...navigation.matchAll(/to=/g)].length, 4)
+  assert.deepEqual(
+    [...navigation.matchAll(/to="([^"]+)"/g)].map((match) => match[1]),
+    [
+      '/compte/parametres',
+      '/compte/watchlist',
+      '/compte/films-vus',
+      '/compte/activite',
+    ],
+  )
+  assert.ok(
+    navigation.indexOf('to="/compte/activite"') <
+      navigation.indexOf('v-for="entry in upcomingEntries"'),
+  )
   assert.match(navigation, /to="\/compte\/activite"/)
   assert.doesNotMatch(navigation, /@click|tabindex|href=/)
   for (const page of [
@@ -598,7 +611,7 @@ test('account navigation pairs each label with a decorative icon without changin
   )
   assert.match(
     navigation,
-    /import \{ Activity, Settings, Users \} from '@lucide\/vue'/,
+    /import \{ Activity, Settings, Users, Eye \} from '@lucide\/vue'/,
   )
   assert.match(
     navigation,

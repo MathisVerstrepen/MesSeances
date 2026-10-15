@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, ChevronRight, Settings } from '@lucide/vue'
+import { Activity, ChevronRight, Settings, Eye } from '@lucide/vue'
 import { accountDestination } from '~/utils/accountState'
 
 definePageMeta({ middleware: 'account-auth' })
@@ -34,6 +34,20 @@ useHead({ title: 'Mon compte - MesSeances' })
             class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
           >
             <WatchlistIcon :size="20" class="shrink-0" />Watchlist
+            <ChevronRight
+              :size="20"
+              class="ml-auto shrink-0"
+              aria-hidden="true"
+            />
+          </NuxtLink>
+        </li>
+        <li>
+          <NuxtLink
+            to="/compte/films-vus"
+            :prefetch="false"
+            class="flex min-h-12 items-center gap-3 py-4 text-lg font-semibold hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
+          >
+            <Eye :size="20" class="shrink-0" aria-hidden="true" />Films vus
             <ChevronRight
               :size="20"
               class="ml-auto shrink-0"

@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [061_public_page_content.sql](061_public_page_content.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [062_account_watched.sql](062_account_watched.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -42,7 +42,8 @@ public_movies
    <- public_movie_metadata_overrides
     <- tmdb_upcoming_movies
     <- tmdb_catalog_imports
-    <- account_watchlist_items -> accounts
+     <- account_watchlist_items -> accounts
+     <- account_watched_items -> accounts
   <- public_movies.redirect_to_id
 local_movie_groups <-> local_movie_group_members
 sync_schedules <- sync_schedule_occurrence_claims
@@ -83,7 +84,7 @@ Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and
 
 ## Account tables
 
-Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql), [045_account_registration_binding.sql](045_account_registration_binding.sql), [046_account_avatars.sql](046_account_avatars.sql), [047_account_avatar_webp.sql](047_account_avatar_webp.sql), [049_account_theater_preferences.sql](049_account_theater_preferences.sql) and [050_account_watchlist.sql](050_account_watchlist.sql). Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
+Accounts are independent of schedule generations, administrator authentication and internal-service identity. The following schema comes from [043_accounts.sql](043_accounts.sql), [044_account_oauth_continuation.sql](044_account_oauth_continuation.sql), [045_account_registration_binding.sql](045_account_registration_binding.sql), [046_account_avatars.sql](046_account_avatars.sql), [047_account_avatar_webp.sql](047_account_avatar_webp.sql), [049_account_theater_preferences.sql](049_account_theater_preferences.sql), [050_account_watchlist.sql](050_account_watchlist.sql) and [062_account_watched.sql](062_account_watched.sql), with subsequent preference/tag/follow additions described below. Feature disablement does not prevent migrations. A binary embedding an earlier migration history rejects the newer migration ledger; use a compatible corrective build, not a down migration or ledger edit. Operational requirements are in [accounts documentation](../../../../docs/accounts.md).
 
 | Table | Columns and constraints |
 | --- | --- |
@@ -103,6 +104,8 @@ Accounts are independent of schedule generations, administrator authentication a
 | `account_watchlist_items` | Composite PK `(account_id, public_movie_id)`; account FK with `ON DELETE CASCADE`; durable `public_movies(id)` FK with default no-action deletion; `added_at timestamptz` default `now()`. No generation-scoped movie FK, slug, title or metadata copy. |
 | `account_watchlist_tags` | Composite PK `(account_id, id)`; account FK with `ON DELETE CASCADE`; positive `id bigint GENERATED ALWAYS AS IDENTITY`; nonblank `name text` of 1-40 characters; nonblank `name_key text COLLATE "C"` of 1-120 characters; UNIQUE `(account_id, name_key)`; `color text NOT NULL DEFAULT 'neutral'`, checked against `neutral`, `red`, `amber`, `green`, `teal`, `blue`, `violet`, `rose`. Names, keys and colors are private account data. |
 | `account_watchlist_item_tags` | Composite PK `(account_id, public_movie_id, tag_id)`; composite ownership FKs to `account_watchlist_items(account_id, public_movie_id)` and `account_watchlist_tags(account_id, id)`, both `ON DELETE CASCADE`; lookup index `(account_id, tag_id)`. No generation-scoped FK or copied metadata. |
+| `account_watched_state` | `account_id bigint` PK/FK to accounts with `ON DELETE CASCADE`; `revision bigint` between 1 and 9,007,199,254,740,991; `default_visibility text` default `hide`, checked `hide`/`show`; `search_visibility`, `planning_visibility`, `films_visibility`, `upcoming_visibility`, `home_visibility`, `cinema_city_visibility` text default `inherit`, each checked `inherit`/`hide`/`show`; `auto_remove_watchlist boolean` default false. All columns not null. Missing state reads revision 0 and these defaults without insertion. |
+| `account_watched_items` | Composite PK `(account_id, public_movie_id)`; account FK with `ON DELETE CASCADE`; durable `public_movies(id)` FK with default no-action deletion; `watched_at timestamptz` default `now()`. Movie lookup index `(public_movie_id)`. No schedule-generation FK, copied metadata or claimed viewing date. |
 
 All account ownership foreign keys cascade except username claims. Composite session/account and token/account foreign keys prevent cross-account binding; their deletion cascades dependent grants, flows and queued mail. Account-associated outbox rows cascade on deletion. Terminal delivery metadata is detached from account/token authority. Suppressions and quota HMACs have independent bounded retention.
 
@@ -121,6 +124,10 @@ Saved-item projections union distinct tag IDs across the same resolved durable r
 Migration 054 adds neutral color to existing tags without changing names, keys, IDs, assignments, revisions, sort, addition times or absent watchlist state. The default also applies to direct SQL inserts, but the private API requires an explicit exact palette value. Name and color updates are atomic under the same watchlist CAS; only an unchanged normalized name and unchanged color are a no-op. Colors are definition-only data and do not affect canonical assignment resolution or publication.
 
 Migration 055 gives existing state `view_mode='list'` and NULL filter without changing revision, sort, membership, addition times, tags/colors/assignments or public data, and does not initialize absent state. View mode and selected owned tag are saved as one pair under the existing account lock and shared revision. Revision comparison precedes owned-tag lookup and no-op detection. Unchanged pairs succeed even at maximum revision; actual changes fail there without mutation. Other mutations preserve the pair. Selected-tag deletion clears only the filter through the FK in the same transaction as assignment deletion and the service's single revision increment; exhausted-revision rollback restores all three. Deleting an unselected tag or removing/unassigning its last film does not reset a surviving selection. Mode, sort and state survive empty lists and last-tag deletion; account deletion cascades private state through its existing account FK, without deleting public movies. No preference trigger, separate revision, backfill job or public API field is added.
+
+Watched membership and preferences share an independent watched revision and the existing account-row lock. The application caps stored rows at 1,000, checks revisions before no-ops/bounds and acquires the catalog writer lock after owner/revision fencing. Reads resolve aliases/redirects to canonical identities, collapse with earliest `watched_at`, and order time descending/slug ascending; unwatch removes every contributing saved row. Splits follow saved durable IDs without fan-out; catalog reconciliation never rewrites private rows. No-op defaults do not initialize state, positive state survives last removal, and maximum-revision no-ops succeed while actual changes fail atomically.
+
+Migration 062 creates empty watched tables without backfill or changes to existing watchlist/catalog/auth/public clocks. With committed auto-removal enabled, only an actual unwatched-to-watched transition removes watchlist rows and their cascading item-tag assignments. The same transaction fences both resource revisions and advances watchlist revision iff removal occurs; definitions/colors, selected tag, mode, sort and unrelated rows survive. Preference changes/repeated saves never sweep; unwatch never restores membership. Both watched POSTs reuse persisted `watchlist_write` quota. Account deletion cascades both new tables, not public movies. Retain compatible append-only history for recovery; no down migration or deployment is provided.
 
 ### `tmdb_french_release_cache`
 

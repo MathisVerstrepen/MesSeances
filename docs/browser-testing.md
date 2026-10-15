@@ -61,6 +61,15 @@ and the [accounts runbook](accounts.md#validation) for those requirements.
 The fixture reads no deployment dotenv, starts no Go API/database, and has
 empty internal authentication and analytics configuration.
 
+Watched-film acceptance runs with `npm --prefix web run test:browser --
+e2e/watched.spec.ts` at both configured widths. Its synthetic private snapshots
+default to empty for existing complete-account scenarios. The watched scenarios
+cover all six saved section policies, canonical detail controls and management,
+atomic watchlist removal, private lifecycle/conflict recovery, retained history
+badges and sequential full-query pagination (including hidden-only public
+pages). Successful detail/settings checks retain desktop/mobile screenshots.
+Private caches begin synchronization after hydration, never in SSR payloads.
+
 ## CLI exploration with the official skill
 
 The global OpenCode setup uses `@playwright/cli@0.1.22` and Microsoft's
