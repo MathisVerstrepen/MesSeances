@@ -66,7 +66,7 @@ test('Cinewest theater names get one provider logo and preserve actual source na
   ]) {
     const html = await render(name, 'cinewest')
     assert.equal((html.match(/<img /g) || []).length, 1)
-    assert.match(html, /cinewest_logo_small\.webp/)
+    assert.match(html, /cinewest_logo\.svg/)
     assert.match(html, /alt="Cinewest"/)
     assert.ok(html.includes(` ${name}</span>`), html)
     assert.doesNotMatch(html, /class="sr-only"/)
@@ -143,8 +143,8 @@ test('hero retains nonduplicated accessible branding and inline remains the defa
 
 for (const provider of providerKeys) {
   const asset =
-    provider === 'mk2'
-      ? 'mk2_logo.svg'
+    provider === 'mk2' || provider === 'ugc' || provider === 'cinewest'
+      ? `${provider}_logo.svg`
       : provider === 'grandecran'
         ? 'grand_ecran_logo_small.webp'
         : provider === 'noecinemas'
