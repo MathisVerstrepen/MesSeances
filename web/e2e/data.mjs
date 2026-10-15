@@ -781,6 +781,106 @@ export const upcomingReleases = [
   releaseMovie(304, 'Les films de décembre', '2026-12-02'),
   releaseMovie(305, 'Une sortie plus lointaine', '2026-12-16'),
 ]
+
+export const watchedDefaults = {
+  default_visibility: 'hide',
+  search_visibility: 'inherit',
+  planning_visibility: 'inherit',
+  films_visibility: 'inherit',
+  upcoming_visibility: 'inherit',
+  home_visibility: 'inherit',
+  cinema_city_visibility: 'inherit',
+  auto_remove_watchlist: false,
+}
+export const watchedMovies = Array.from({ length: 230 }, (_, index) => ({
+  ...movie,
+  slug: index === 0 ? movie.slug : `film-watched-${index}`,
+  title: index < 100 || index >= 130 ? `Vu ${index}` : `Inédit ${index - 99}`,
+}))
+export const hiddenWatchedSlugs = watchedMovies
+  .filter((_, index) => index < 100 || index >= 130)
+  .map((item) => item.slug)
+export function syntheticWatched(username, slugs = [], preferences = {}) {
+  const inventory = [
+    ...watchedMovies,
+    ...discoveryMovies,
+    ...releaseHistory,
+    ...upcomingReleases,
+  ]
+  return {
+    username,
+    revision: slugs.length || Object.keys(preferences).length ? '1' : '0',
+    items: slugs.map((slug) => ({
+      ...(inventory.find((item) => item.slug === slug) ?? { ...movie, slug }),
+      watched_at: generatedAt,
+    })),
+    preferences: { ...watchedDefaults, ...preferences },
+  }
+}
+export function watchedCatalog(query) {
+  const page = Number(query.get('page') || 1)
+  const pageSize = Math.min(100, Number(query.get('page_size') || 24))
+  const search = (query.get('search') || '').toLocaleLowerCase('fr')
+  const items = watchedMovies.filter((item) =>
+    item.title.toLocaleLowerCase('fr').includes(search),
+  )
+  return {
+    items: items.slice((page - 1) * pageSize, page * pageSize),
+    total: items.length,
+    page,
+    page_size: pageSize,
+    available_genres: [],
+    generated_at: generatedAt,
+    catalog_revision: 'watched-fixture-1',
+  }
+}
+export const watchedVenues = Array.from({ length: 12 }, (_, index) => ({
+  ...theater,
+  id: index === 0 ? theater.id : `fixture-watched-${index}`,
+  slug: `cinema-watched-${index}`,
+  name: `Salle ${index + 1}`,
+}))
+export function watchedShowtimes(query, timeline = false) {
+  const requested =
+    query.get('theaters')?.split(',') ?? watchedVenues.map((item) => item.id)
+  const venues = watchedVenues.filter((item) => requested.includes(item.id))
+  const rows = venues.map((venue) => {
+    const visible =
+      watchedVenues.findIndex((item) => item.id === venue.id) >= 10
+    const film = visible ? watchedMovies[100] : movie
+    const base = showtimes().showtimes[0]
+    return {
+      theater: venue,
+      showtime: {
+        ...base,
+        id: `ugc-showing-${800000 + watchedVenues.findIndex((item) => item.id === venue.id)}`,
+        movie: film,
+        start_offset_minutes: 120,
+        poster_url: null,
+      },
+      poster_url: null,
+      backdrop_url: null,
+      effective_start_time: base.start_time,
+      effective_end_time: base.end_time,
+      buffer_ads_minutes: 15,
+      slack_before_minutes: 120,
+      slack_after_minutes: 150,
+    }
+  })
+  if (!timeline) return rows
+  return {
+    generated_at: generatedAt,
+    timezone: 'Europe/Paris',
+    date: query.get('date') || date,
+    window_start_time: `${date}T12:00:00+02:00`,
+    window_end_time: `${date}T23:59:00+02:00`,
+    window_minutes: 719,
+    theaters: rows.map((row) => ({
+      ...row.theater,
+      showtimes: [row.showtime],
+    })),
+  }
+}
 function releaseWeek(value) {
   const day = new Date(`${value}T12:00:00Z`)
   day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 4) % 7))

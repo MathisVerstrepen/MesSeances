@@ -154,6 +154,13 @@ function harness(
     slugs: ref(new Set<string>()),
   }
   const bindings = {
+    useWatchedDiscovery: () => ({
+      key: ref('public'),
+      personal: ref(false),
+      blocked: ref(false),
+      hide: ref(false),
+      filter: <T>(items: T[]) => items,
+    }),
     isBroadTheaterSelection,
     ...date,
     ...routeQuery,

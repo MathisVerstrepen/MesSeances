@@ -24,6 +24,11 @@ import {
   veoTheaters,
   veoShowtimes,
   syntheticWatchlist,
+  syntheticWatched,
+  watchedCatalog,
+  watchedMovies,
+  watchedVenues,
+  watchedShowtimes,
   scrollInventory,
 } from '../e2e/data.mjs'
 
@@ -48,6 +53,13 @@ let selected = {
   theater_ids: [secondTheater.id],
 }
 let watchlist = syntheticWatchlist(scenario.username)
+let watched = syntheticWatched(scenario.username)
+let watchedGets = 0
+let watchlistGets = 0
+let watchedPosts = 0
+let watchedPreferencePosts = 0
+const publicQueries = []
+const timelineQueries = []
 const screeningQueries = []
 const upcomingQueries = []
 function syntheticSession() {
@@ -106,6 +118,31 @@ const mock = createServer((request, response) => {
   const url = new URL(request.url, origin)
   const path = url.pathname
   if (request.method === 'GET') {
+    if (
+      path.startsWith('/api/v1/') &&
+      !/\/account\/|\/auth\/|\/admin\//.test(path)
+    )
+      publicQueries.push({ path, query: Object.fromEntries(url.searchParams) })
+    if (path === '/api/v1/account/watched') {
+      watchedGets++
+      if (scenario.watchedRead === 'error')
+        return json(response, { error: { code: 'watched_unavailable' } }, 503)
+      return json(response, watched)
+    }
+    if (scenario.watchedCatalog) {
+      if (path === '/api/v1/theaters') return json(response, watchedVenues)
+      if (path === '/api/v1/search/slot')
+        return json(response, watchedShowtimes(url.searchParams))
+      if (path === '/api/v1/timeline') {
+        timelineQueries.push(Object.fromEntries(url.searchParams))
+        return json(response, watchedShowtimes(url.searchParams, true))
+      }
+      if (
+        path === '/api/v1/movies' &&
+        url.searchParams.get('screening_summary') !== 'true'
+      )
+        return json(response, watchedCatalog(url.searchParams))
+    }
     if (scenario.scrollRoute) {
       const mode = scenario.scrollRoute
       const inventory = scrollInventory(url.searchParams, mode)
@@ -180,7 +217,10 @@ const mock = createServer((request, response) => {
         return json(response, { error: { code: 'accounts_unavailable' } }, 503)
       return json(response, selected)
     }
-    if (path === '/api/v1/account/watchlist') return json(response, watchlist)
+    if (path === '/api/v1/account/watchlist') {
+      watchlistGets++
+      return json(response, watchlist)
+    }
     if (path === '/api/v1/admin/session')
       return json(response, { authenticated: false })
     if (path === '/api/v1/theaters')
@@ -214,7 +254,9 @@ const mock = createServer((request, response) => {
       if (scenario.discovery === 'error')
         return json(response, { error: { code: 'schedule_unavailable' } }, 503)
       const detail = movieSchedule(
-        decodeURIComponent(filmRoute[1]),
+        scenario.canonicalAlias && filmRoute[1] === 'watched-alias'
+          ? movie.slug
+          : decodeURIComponent(filmRoute[1]),
         url.searchParams,
         scenario.discovery,
       )
@@ -357,6 +399,92 @@ const mock = createServer((request, response) => {
   }
   if (
     request.method === 'POST' &&
+    ['/api/v1/account/watched', '/api/v1/account/watched/preferences'].includes(
+      path,
+    )
+  ) {
+    let body = ''
+    request.on('data', (chunk) => {
+      body += chunk
+    })
+    request.on('end', () => {
+      const input = JSON.parse(body)
+      const preferences = path.endsWith('/preferences')
+      if (preferences) watchedPreferencePosts++
+      else watchedPosts++
+      if (input.expected_username !== watched.username)
+        return json(
+          response,
+          { error: { code: 'authentication_required' } },
+          401,
+        )
+      if (scenario.watchedWrite === 'watched-conflict') {
+        watched.revision = String(BigInt(watched.revision) + 1n)
+        scenario.watchedWrite = ''
+        return json(response, { error: { code: 'watched_changed' } }, 409)
+      }
+      if (scenario.watchedWrite === 'watchlist-conflict') {
+        watchlist.revision = String(BigInt(watchlist.revision) + 1n)
+        scenario.watchedWrite = ''
+        return json(response, { error: { code: 'watchlist_changed' } }, 409)
+      }
+      if (input.expected_revision !== watched.revision)
+        return json(response, { error: { code: 'watched_changed' } }, 409)
+      let saved = null
+      if (preferences) {
+        const next = { ...input }
+        delete next.expected_username
+        delete next.expected_revision
+        next.auto_remove_watchlist = input.auto_remove_watchlist === 'true'
+        watched.preferences = next
+        watched.revision = String(BigInt(watched.revision) + 1n)
+      } else {
+        const remove =
+          input.watched === 'true' && watched.preferences.auto_remove_watchlist
+        if (!/^(0|[1-9]\d*)$/.test(input.expected_watchlist_revision || ''))
+          return json(response, { error: { code: 'invalid_request' } }, 400)
+        if (remove && input.expected_watchlist_revision !== watchlist.revision)
+          return json(response, { error: { code: 'watchlist_changed' } }, 409)
+        const existing = watched.items.some(
+          (item) => item.slug === input.movie_slug,
+        )
+        if ((input.watched === 'true') !== existing) {
+          watched.items = watched.items.filter(
+            (item) => item.slug !== input.movie_slug,
+          )
+          if (input.watched === 'true')
+            watched.items.unshift({
+              ...(watchedMovies.find(
+                (item) => item.slug === input.movie_slug,
+              ) ?? { ...movie, slug: input.movie_slug }),
+              watched_at: generatedAt,
+            })
+          watched.revision = String(BigInt(watched.revision) + 1n)
+          if (
+            remove &&
+            watchlist.items.some((item) => item.slug === input.movie_slug)
+          ) {
+            watchlist.items = watchlist.items.filter(
+              (item) => item.slug !== input.movie_slug,
+            )
+            watchlist.revision = String(BigInt(watchlist.revision) + 1n)
+          }
+        }
+        if (remove) saved = watchlist
+      }
+      if (scenario.watchedWrite === 'commit-error') {
+        scenario.watchedWrite = ''
+        return json(response, { error: { code: 'watched_unavailable' } }, 503)
+      }
+      return json(
+        response,
+        preferences ? watched : { watched, watchlist: saved },
+      )
+    })
+    return
+  }
+  if (
+    request.method === 'POST' &&
     [
       '/api/v1/account/watchlist',
       '/api/v1/account/watchlist/preferences',
@@ -390,6 +518,13 @@ const mock = createServer((request, response) => {
         watchlist.items = watchlist.items.filter(
           (item) => item.slug !== input.movie_slug,
         )
+        if (input.saved === 'true')
+          watchlist.items.unshift({
+            ...movie,
+            slug: input.movie_slug,
+            added_at: generatedAt,
+            tag_ids: [],
+          })
       }
       watchlist.revision = String(BigInt(watchlist.revision) + 1n)
       json(response, watchlist)
@@ -543,6 +678,14 @@ try {
         screeningQueries,
         upcomingQueries,
         selected,
+        watched,
+        watchlist,
+        watchedGets,
+        watchlistGets,
+        watchedPosts,
+        watchedPreferencePosts,
+        publicQueries,
+        timelineQueries,
       })
     if (request.url === '/__playwright/scenario' && request.method === 'POST') {
       let body = ''
@@ -569,12 +712,64 @@ try {
           theater_ids: input.selected_ids ?? [secondTheater.id],
         }
         watchlist = syntheticWatchlist(scenario.username, !!input.watchlist)
+        watched = syntheticWatched(
+          scenario.username,
+          input.watchedSlugs,
+          input.watchedPreferences,
+        )
+        watchedGets = 0
+        watchlistGets = 0
+        watchedPosts = 0
+        watchedPreferencePosts = 0
+        publicQueries.length = 0
+        timelineQueries.length = 0
         screeningQueries.length = 0
         upcomingQueries.length = 0
         followPosts = 0
         followGets = 0
         activityGets = 0
         unexpected.length = 0
+        json(response, { ready: true })
+      })
+      return
+    }
+    if (request.url === '/__playwright/watched' && request.method === 'POST') {
+      let body = ''
+      request.on('data', (chunk) => {
+        body += chunk
+      })
+      request.on('end', () => {
+        const input = JSON.parse(body)
+        if (input.preferences)
+          watched = {
+            ...watched,
+            revision: String(BigInt(watched.revision) + 1n),
+            preferences: { ...watched.preferences, ...input.preferences },
+          }
+        if (input.slugs)
+          watched = {
+            ...syntheticWatched(
+              scenario.username,
+              input.slugs,
+              watched.preferences,
+            ),
+            revision: String(BigInt(watched.revision) + 1n),
+          }
+        if (input.watchlistPreferences)
+          watchlist = {
+            ...watchlist,
+            ...input.watchlistPreferences,
+            revision: String(BigInt(watchlist.revision) + 1n),
+          }
+        for (const key of ['watchedRead', 'watchedWrite', 'state'])
+          if (key in input) scenario[key] = input[key]
+        if (input.username) {
+          scenario.username = input.username
+          watched = syntheticWatched(input.username)
+          watchlist = syntheticWatchlist(input.username)
+          selected = { ...selected, username: input.username }
+          follows = { ...follows, username: input.username }
+        }
         json(response, { ready: true })
       })
       return

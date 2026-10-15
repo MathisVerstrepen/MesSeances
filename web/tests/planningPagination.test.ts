@@ -124,6 +124,11 @@ function harness(
   let mount = async () => {}
   let day = TODAY
   const bindings = {
+    useWatchedDiscovery: () => ({
+      key: ref('public'),
+      blocked: ref(false),
+      hide: ref(false),
+    }),
     ...routeQuery,
     ...filters,
     ref,

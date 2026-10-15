@@ -78,6 +78,7 @@ const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const watchlist = useWatchlist()
+const discovery = useWatchedDiscovery('search')
 const watchlistOnly = ref(false)
 watch(
   watchlist.scopeKey,
@@ -182,12 +183,15 @@ const layoutOptions = resultLayoutOptions
 const normalizedResults = computed(() =>
   toSlotShowtimeResults(results.value ?? []),
 )
+const policyResults = computed(() =>
+  discovery.filter(normalizedResults.value, (item) => item.movieSlug),
+)
 const routeSelectedShowtimeKeys = computed(() =>
   parseShowtimeSelection(singularQueryValue(route.query.selected)),
 )
 const selectedShowtimeKeys = computed(() =>
   validShowtimeSelectionKeys(
-    normalizedResults.value,
+    policyResults.value,
     routeSelectedShowtimeKeys.value,
   ),
 )
@@ -201,16 +205,18 @@ const selectedOnly = computed(
 const compatibleResults = computed(() =>
   selectedOnly.value
     ? filterSelectedShowtimeResults(
-        normalizedResults.value,
+        policyResults.value,
         selectedShowtimeKeys.value,
       )
     : filterCompatibleShowtimeResults(
-        normalizedResults.value,
+        policyResults.value,
         selectedShowtimeKeys.value,
       ),
 )
 const personalizedPending = computed(
-  () => !!watchlist.owner.value && !watchlist.ready.value,
+  () =>
+    discovery.blocked.value ||
+    (!!watchlist.owner.value && !watchlist.ready.value),
 )
 const resultSections = computed(() => {
   if (personalizedPending.value) return []
@@ -236,7 +242,10 @@ const shareTarget = computed(() => {
     selectedShowtimeKeys:
       results.value === null
         ? routeSelectedShowtimeKeys.value
-        : selectedShowtimeKeys.value,
+        : validShowtimeSelectionKeys(
+            normalizedResults.value,
+            routeSelectedShowtimeKeys.value,
+          ),
     selectedOnly: routeSelectedOnly.value,
   })
 })
@@ -448,7 +457,10 @@ async function canonicalizeShowtimeSelection() {
     route.query,
     SELECTION_QUERY_KEYS,
     showtimeSelectionQueryValues(
-      selectedShowtimeKeys.value,
+      validShowtimeSelectionKeys(
+        normalizedResults.value,
+        routeSelectedShowtimeKeys.value,
+      ),
       routeSelectedOnly.value,
     ),
   )
@@ -1294,6 +1306,19 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                   >
                   <span>Ma watchlist uniquement</span>
                 </label>
+                <label
+                  v-if="discovery.personal.value"
+                  class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
+                >
+                  <input
+                    type="checkbox"
+                    class="size-4 accent-primary"
+                    :checked="discovery.show.value"
+                    :disabled="discovery.blocked.value"
+                    @change="discovery.temporary.value = ($event.target as HTMLInputElement).checked"
+                  >
+                  <span>Afficher les films vus</span>
+                </label>
               </div>
             </div>
 
@@ -1540,6 +1565,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           >
           <p class="max-w-lg">{{ errorMessage }}</p>
         </EditorialStatePanel>
+        <WatchedReadiness v-else-if="results && discovery.blocked.value" />
         <EditorialStatePanel
           v-else-if="results && personalizedPending"
           :semantic="watchlist.error.value ? 'alert' : 'status'"

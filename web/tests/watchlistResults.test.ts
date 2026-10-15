@@ -135,7 +135,10 @@ test('page keeps private filter out of request/share/metadata and renders separa
     new URL('../app/pages/film/[slug].vue', import.meta.url),
     'utf8',
   )
-  assert.match(film, /<MovieTrailer[\s\S]*?\/>\s*<WatchlistButton/)
+  assert.match(
+    film,
+    /<MovieTrailer[\s\S]*?\/>\s*<div[^>]*aria-label="Ma collection">\s*<WatchlistButton/,
+  )
   const button = await readFile(
     new URL('../app/components/WatchlistButton.vue', import.meta.url),
     'utf8',

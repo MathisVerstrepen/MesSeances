@@ -27,7 +27,7 @@ test('pages consume bounded server discoveries without client ranking, dedupe, s
   const city = source('ville/[slug]/cinemas.vue')
   assert.match(film, /:discovery="schedule\.discovery"/u)
   assert.match(filmDiscovery, /v-for="city in discovery\.cities"/u)
-  assert.match(cinema, /v-for="movie in response\.discovery\.movies"/u)
+  assert.match(cinema, /v-for="movie in discoveryMovies"/u)
   assert.match(cinema, /v-for="other in response\.discovery\.other_theaters"/u)
   assert.match(city, /detail\.value\?\.discovery\.theaters\.map/u)
   for (const page of [filmDiscovery, cinema, city]) {
@@ -89,7 +89,7 @@ test('optional sections guard both window and nonempty arrays; same-entity error
   const cinema = source('cinema/[slug].vue')
   assert.match(
     cinema,
-    /response\.discovery\.window && response\.discovery\.movies\.length/u,
+    /response\.discovery\.window && discoveryMovies\.length/u,
   )
   assert.match(
     cinema,

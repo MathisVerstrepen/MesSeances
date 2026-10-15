@@ -730,10 +730,12 @@ for (const mode of ['initial', 'edit'] as const) {
     await form.getByLabel('Inclure les publicités (+15 min)').uncheck()
     const watchlist = form.getByLabel('Ma watchlist uniquement')
     await watchlist.check()
+    const watched = form.getByLabel('Afficher les films vus')
+    await expect(watched).toBeEnabled()
     const finalSetting =
       mode === 'edit'
         ? form.getByLabel('Afficher uniquement les séances sélectionnées')
-        : watchlist
+        : watched
     await form
       .getByRole('combobox', { name: 'À partir de' })
       .selectOption('12:00')
@@ -773,6 +775,8 @@ for (const mode of ['initial', 'edit'] as const) {
             rect.y + rect.height / 2,
           )
           return (
+            rect.width >= 44 &&
+            rect.height >= 44 &&
             rect.top >= 0 &&
             rect.bottom <= window.innerHeight &&
             rect.left >= 0 &&
@@ -800,8 +804,16 @@ for (const mode of ['initial', 'edit'] as const) {
     const lastControl = await finalSetting.locator('..').boundingBox()
     const action = await submit.locator('..').boundingBox()
     expect(lastControl).not.toBeNull()
+    expect(lastControl!.height).toBeGreaterThanOrEqual(44)
     expect(action).not.toBeNull()
     expect(lastControl!.y + lastControl!.height).toBeLessThanOrEqual(action!.y)
+    await watchlist.focus()
+    await page.keyboard.press('Tab')
+    await expect(watched).toBeFocused()
+    if (mode === 'edit') {
+      await page.keyboard.press('Tab')
+      await expect(finalSetting).toBeFocused()
+    }
     await finalSetting.focus()
     await page.keyboard.press('Tab')
     await expect(submit).toBeFocused()

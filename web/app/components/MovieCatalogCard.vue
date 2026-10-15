@@ -18,6 +18,7 @@ const props = withDefaults(
 <template>
   <NuxtLink
     :to="props.to"
+    :data-catalog-movie="movie.slug"
     class="group block text-ink transition-transform hover:-translate-y-1 focus-visible:ring-offset-4 motion-reduce:transition-none motion-reduce:hover:translate-y-0"
   >
     <div
@@ -34,6 +35,7 @@ const props = withDefaults(
         fallback-class="gap-2 bg-[#e8e6de] px-3 text-center text-xs font-bold text-muted"
         :fallback-icon-size="32"
       />
+      <WatchedBadge :slug="movie.slug" />
     </div>
     <div class="border-x-2 border-b-2 border-ink bg-surface px-3 py-3">
       <h3

@@ -71,6 +71,12 @@ export function accountErrorMessage(cause: unknown): string {
     return 'Vos cinémas ont changé sur un autre appareil. Vérifiez la sélection avant de recommencer.'
   if (cause.code === 'watchlist_changed')
     return 'Votre watchlist a changé sur un autre appareil. Vérifiez son contenu avant de recommencer.'
+  if (cause.code === 'watched_changed')
+    return 'Vos films vus ou leurs préférences ont changé. Vérifiez leur état actualisé, puis enregistrez à nouveau votre choix.'
+  if (cause.code === 'watched_limit_reached')
+    return 'Vous avez déjà 1 000 films vus. Retirez un film avant d’en ajouter un autre.'
+  if (cause.code === 'watched_unavailable')
+    return 'Les films vus sont indisponibles. Vérifiez votre connexion, puis réessayez.'
   if (cause.code === 'watchlist_tag_name_taken')
     return 'Ce nom de tag existe déjà. Choisissez un autre nom.'
   if (cause.code === 'watchlist_tag_limit_reached')

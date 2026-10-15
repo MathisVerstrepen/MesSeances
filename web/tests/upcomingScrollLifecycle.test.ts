@@ -153,6 +153,13 @@ async function harness(
   const initialQueries: UpcomingMoviesQuery[] = []
   let cacheKey = ''
   const bindings = {
+    useWatchedCatalog: () => ({
+      key: ref('public'),
+      blocked: ref(false),
+      personal: ref(false),
+      upcoming: (query: UpcomingMoviesQuery): Promise<UpcomingMoviesResponse> =>
+        bindings.useMesSeancesApi().upcomingMovies(query),
+    }),
     HTMLSelectElement: SyntheticSelect,
     ...upcoming,
     queriesEqual,

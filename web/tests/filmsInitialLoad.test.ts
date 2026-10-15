@@ -79,6 +79,15 @@ async function fixture(
     },
   }
   const bindings = {
+    useWatchedCatalog: () => ({
+      key: ref('public'),
+      blocked: ref(false),
+      movies: async (query: MoviesQuery) => {
+        requests.push(query)
+        if (options.fail) throw new Error('upstream unavailable')
+        return response
+      },
+    }),
     isBroadTheaterSelection,
     ...dates,
     ...filters,
