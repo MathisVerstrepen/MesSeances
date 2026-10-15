@@ -82,7 +82,7 @@ onMounted(() =>
         aria-hidden="true"
       />
       <div
-        class="aspect-[2/3] w-24 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a] sm:w-[120px]"
+        class="relative aspect-[2/3] w-24 overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a] sm:w-[120px]"
       >
         <PosterImage
           :src="posterUrl"
@@ -97,6 +97,7 @@ onMounted(() =>
           :fallback-icon-size="28"
           :fallback-marker="movie.movieSlug"
         />
+        <WatchedBadge :slug="movie.movieSlug" />
       </div>
       <div class="min-w-0 pb-1">
         <h3
@@ -139,7 +140,7 @@ onMounted(() =>
       <div class="absolute inset-0 bg-black/80" aria-hidden="true" />
       <div class="relative flex items-center gap-4">
         <div
-          class="flex aspect-[2/3] w-16 shrink-0 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[4px_4px_0_#27272a] sm:w-[4.5rem]"
+          class="relative flex aspect-[2/3] w-16 shrink-0 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[4px_4px_0_#27272a] sm:w-[4.5rem]"
         >
           <PosterImage
             :src="posterUrl"
@@ -152,6 +153,7 @@ onMounted(() =>
             :fallback-icon-size="24"
             :fallback-text="null"
           />
+          <WatchedBadge :slug="movie.movieSlug" />
         </div>
         <div
           class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"

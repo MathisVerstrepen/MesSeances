@@ -1143,6 +1143,7 @@ if (
           <FilmPoster
             :src="schedule.movie.poster_url"
             :movie-title="schedule.movie.title"
+            :movie-slug="schedule.movie.slug"
             :reset-key="slug"
           />
         </div>
@@ -1209,7 +1210,10 @@ if (
               :vf-youtube-key="schedule.movie.trailer_vf_youtube_key"
               :vo-youtube-key="schedule.movie.trailer_vo_youtube_key"
             />
-            <WatchlistButton class="mt-5" :slug="schedule.movie.slug" />
+            <div class="mt-5 flex items-start gap-3" aria-label="Ma collection">
+              <WatchlistButton :slug="schedule.movie.slug" />
+              <WatchedButton :slug="schedule.movie.slug" />
+            </div>
           </div>
           <div
             v-if="schedule.movie.overview?.trim()"

@@ -26,7 +26,7 @@ const blocked = computed(
   () =>
     unknown.value ||
     (!!watchlist.owner.value && account.writesBlocked.value) ||
-    watchlist.saving.value,
+    (!!watchlist.owner.value && watchlist.writesBlocked.value),
 )
 async function toggle() {
   if (blocked.value) return

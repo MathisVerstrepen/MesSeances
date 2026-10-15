@@ -30,6 +30,7 @@ const OWNED_QUERY_KEYS = ['q', 'sort', 'page'] as const
 const route = useRoute()
 const router = useRouter()
 const api = useMesSeancesApi()
+const discovery = useWatchedCatalog('cinema_city')
 const detail = ref<CityDetailResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
@@ -100,7 +101,7 @@ async function fetchCatalog(currentDetail: CityDetailResponse) {
     return { catalog: null, errorMessage: '' }
   try {
     return {
-      catalog: await api.movies({
+      catalog: await discovery.movies({
         currently_screened: true,
         theaters: currentDetail.theaters.map((theater) => theater.id).join(','),
         search: appliedSearch.value || undefined,
@@ -162,6 +163,10 @@ async function loadCatalog() {
   const currentRequest = ++catalogRequestId
   catalogPending.value = true
   catalogErrorMessage.value = ''
+  if (discovery.blocked.value) {
+    catalog.value = null
+    return
+  }
   if (!currentDetail || currentDetail.theaters.length === 0) {
     catalog.value = null
     catalogPending.value = false
@@ -247,6 +252,14 @@ watch(
     if (isMounted) void applyCatalogRoute()
   },
 )
+watch(discovery.key, () => {
+  if (isMounted) void loadCatalog()
+})
+onBeforeUnmount(() => {
+  isMounted = false
+  catalogRequestId++
+  cityRequestId++
+})
 onMounted(async () => {
   isMounted = true
   const canonicalQuery = hydrateCatalogRoute()
@@ -631,6 +644,7 @@ useHead(() => ({
             Aucun film n’est programmé dans cette ville sur la période actuelle.
           </p></EditorialStatePanel
         >
+        <WatchedReadiness v-else-if="discovery.blocked.value" />
         <EditorialStatePanel
           v-else-if="catalogPending"
           semantic="status"

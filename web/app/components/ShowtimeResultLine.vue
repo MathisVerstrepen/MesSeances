@@ -108,7 +108,7 @@ function formatRoom(room: string) {
       class="relative grid grid-cols-[3rem_minmax(0,1fr)_auto] gap-x-3 gap-y-2 sm:grid-cols-[3.25rem_minmax(10rem,auto)_minmax(0,1fr)_auto] sm:items-center sm:gap-4"
     >
       <div
-        class="row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]"
+        class="relative row-span-2 flex aspect-[2/3] w-12 items-center justify-center overflow-hidden border-2 border-ink bg-[#e8e6de] sm:row-span-1 sm:w-[3.25rem]"
       >
         <PosterImage
           :src="posterUrl"
@@ -124,6 +124,7 @@ function formatRoom(room: string) {
           :data-movie-slug="scope === 'single-theater' ? result.movieSlug : undefined"
           :data-media-kind="scope === 'single-theater' ? 'poster' : undefined"
         />
+        <WatchedBadge :slug="result.movieSlug" />
       </div>
       <div
         class="col-start-2 self-center border-l-2 border-ink pl-3 sm:col-start-auto"

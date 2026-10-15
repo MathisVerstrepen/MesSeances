@@ -124,13 +124,35 @@ func capitoleFacts(t *testing.T, ctx context.Context, pool *pgxpool.Pool, omit m
 	return facts
 }
 
-func capitoleFKFacts(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+// An optional table set compares every FK property on the original schema,
+// including any unexpected added/removed FK on an existing table. Later
+// additive tables have their own migration integrity tests.
+func capitoleFKFacts(t *testing.T, ctx context.Context, pool *pgxpool.Pool, tables ...string) string {
 	t.Helper()
 	var value string
-	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),condeferrable,condeferred,convalidated) ORDER BY conrelid::regclass::text,conname)::text FROM pg_constraint WHERE contype='f' AND connamespace=(SELECT oid FROM pg_namespace WHERE nspname=current_schema())`).Scan(&value); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),condeferrable,condeferred,convalidated) ORDER BY conrelid::regclass::text,conname)::text FROM pg_constraint WHERE contype='f' AND connamespace=(SELECT oid FROM pg_namespace WHERE nspname=current_schema()) AND ($1::text[] IS NULL OR conrelid::regclass::text=ANY($1::text[]))`, tables).Scan(&value); err != nil {
 		t.Fatal(err)
 	}
 	return value
+}
+
+// Fixtures start at 059. Only these known additive baselines are excluded from
+// old-row preservation; require their exact initial state instead of silently
+// ignoring new tables or any backfilled private rows.
+func assertCapitoleAdditiveBaselines(t *testing.T, ctx context.Context, pool *pgxpool.Pool, facts map[string]string) {
+	t.Helper()
+	for _, table := range []string{"account_watched_state", "account_watched_items"} {
+		if facts[table] != "[]" {
+			t.Fatalf("watched migration did not create empty %s", table)
+		}
+		delete(facts, table)
+	}
+	var baseline bool
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*)=1 FROM public_page_content_state WHERE singleton AND observed_at IS NULL) AND NOT EXISTS(SELECT 1 FROM public_page_content)`).Scan(&baseline); err != nil || !baseline {
+		t.Fatal("sitemap migration did not create an unknown empty baseline", err)
+	}
+	delete(facts, "public_page_content_state")
+	delete(facts, "public_page_content")
 }
 
 func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
@@ -153,20 +175,26 @@ func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
 			}
 			before := capitoleFacts(t, ctx, pool, omit)
 			delete(before, "movieflow_schema_migrations")
-			fks := capitoleFKFacts(t, ctx, pool)
+			originalTables := make([]string, 0, len(before))
+			for table := range before {
+				originalTables = append(originalTables, table)
+			}
+			fks := capitoleFKFacts(t, ctx, pool, originalTables...)
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			after := capitoleFacts(t, ctx, pool, omit)
 			delete(after, "movieflow_schema_migrations")
+			assertCapitoleAdditiveBaselines(t, ctx, pool, after)
 			if !reflect.DeepEqual(before, after) {
 				for table, value := range before {
 					if value != after[table] {
 						t.Errorf("preserved facts changed in %s", table)
 					}
 				}
+				t.Fatal("preserved schema facts changed")
 			}
-			if fks != capitoleFKFacts(t, ctx, pool) {
+			if fks != capitoleFKFacts(t, ctx, pool, originalTables...) {
 				t.Fatal("FK properties changed")
 			}
 			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
@@ -358,14 +386,7 @@ func TestCapitoleDestinationOnlyMigrationIntegration(t *testing.T) {
 	}
 	after := capitoleFacts(t, ctx, pool, nil)
 	delete(after, "movieflow_schema_migrations")
-	// Later additive migrations introduce derived sitemap baseline storage, not
-	// a mutation of Capitole's existing destination-only state.
-	delete(after, "public_page_content_state")
-	delete(after, "public_page_content")
-	var baseline bool
-	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*)=1 FROM public_page_content_state WHERE singleton AND observed_at IS NULL) AND NOT EXISTS(SELECT 1 FROM public_page_content)`).Scan(&baseline); err != nil || !baseline {
-		t.Fatal("sitemap migration did not create an unknown empty baseline", err)
-	}
+	assertCapitoleAdditiveBaselines(t, ctx, pool, after)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("destination-only state mutated")
 	}

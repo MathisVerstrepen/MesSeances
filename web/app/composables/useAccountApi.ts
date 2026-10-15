@@ -12,6 +12,12 @@ import type {
 import { AccountApiError } from '~/utils/accountState'
 import { uploadAccountAvatar } from '~/utils/accountAvatar'
 import type {
+  WatchedSnapshot,
+  WatchedMutation,
+  SaveWatched,
+  SaveWatchedPreferences,
+} from '~/types/watched'
+import type {
   AccountTheaterFollows,
   SaveAccountTheaterFollow,
   AccountActivityResponse,
@@ -99,6 +105,9 @@ export function useAccountApi() {
         'avatar_busy',
         'avatar_not_found',
         'watchlist_changed',
+        'watched_changed',
+        'watched_limit_reached',
+        'watched_unavailable',
         'watchlist_tag_name_taken',
         'watchlist_tag_limit_reached',
         'watchlist_tag_not_found',
@@ -163,6 +172,25 @@ export function useAccountApi() {
       ),
     watchlist: (signal?: AbortSignal) =>
       request<AccountWatchlist>('/account/watchlist', undefined, 'GET', signal),
+    watched: (signal?: AbortSignal) =>
+      request<WatchedSnapshot>('/account/watched', undefined, 'GET', signal),
+    saveWatched: (input: SaveWatched, signal?: AbortSignal) =>
+      request<WatchedMutation>(
+        '/account/watched',
+        { ...input },
+        'POST',
+        signal,
+      ),
+    saveWatchedPreferences: (
+      input: SaveWatchedPreferences,
+      signal?: AbortSignal,
+    ) =>
+      request<WatchedSnapshot>(
+        '/account/watched/preferences',
+        { ...input },
+        'POST',
+        signal,
+      ),
     saveWatchlist: (input: SaveWatchlist, signal?: AbortSignal) =>
       request<AccountWatchlist>(
         '/account/watchlist',

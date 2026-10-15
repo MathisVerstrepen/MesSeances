@@ -43,6 +43,10 @@ func watchlistPath(path string) bool {
 }
 
 func accountInvalidInput(w http.ResponseWriter, r *http.Request) {
+	if watchedPath(r.URL.Path) {
+		watchedHTTPError(w, accounts.ErrInvalidInput)
+		return
+	}
 	if watchlistPath(r.URL.Path) {
 		watchlistHTTPError(w, accounts.ErrInvalidInput)
 		return

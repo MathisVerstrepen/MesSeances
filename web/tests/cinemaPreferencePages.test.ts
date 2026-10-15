@@ -179,6 +179,13 @@ test('movie catalog invalidates personalized requests but still permits explicit
     PAGE_SIZE: 24,
     finishAdvancedApplyNavigation: async () => {},
     serializeMovieCatalogFilters: () => ({}),
+    discovery: {
+      blocked: ref(false),
+      movies: () => {
+        requests++
+        return response.promise
+      },
+    },
     api: {
       movies: () => {
         requests++

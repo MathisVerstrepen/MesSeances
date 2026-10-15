@@ -1,8 +1,9 @@
 export default defineNuxtPlugin((nuxtApp) => {
   const account = useAccountSession()
-  useCinemaPreferences().startSynchronization()
-  useWatchlist().startSynchronization()
-  useCinemaFollows().startSynchronization()
+  const preferences = useCinemaPreferences()
+  const watchlist = useWatchlist()
+  const watched = useWatched()
+  const follows = useCinemaFollows()
   let active = true
   const refresh = () => {
     if (active) void account.refresh()
@@ -12,7 +13,6 @@ export default defineNuxtPlugin((nuxtApp) => {
   }
   const offline = () => {
     account.clear()
-    void account.refresh()
   }
   const pagehide = () => {
     active = false
@@ -26,16 +26,22 @@ export default defineNuxtPlugin((nuxtApp) => {
     'BroadcastChannel' in window
       ? new BroadcastChannel('messeances-account')
       : null
-  if (channel) {
-    nuxtApp._accountChannel = channel
-    channel.onmessage = (event) => {
-      if (event.data === 'changed') refresh()
-      if (event.data === 'theaters-changed') focus()
-      if (event.data === 'watchlist-changed') focus()
-      if (event.data === 'theater-follows-changed') focus()
-    }
-  }
+  if (channel) nuxtApp._accountChannel = channel
   nuxtApp.hook('app:mounted', () => {
+    // Private refs are absent from SSR. Admit them only after hydration so a
+    // fast GET cannot replace the server's skeleton during its first render.
+    preferences.startSynchronization()
+    watchlist.startSynchronization()
+    watched.startSynchronization()
+    follows.startSynchronization()
+    if (channel)
+      channel.onmessage = (event) => {
+        if (event.data === 'changed') refresh()
+        if (event.data === 'theaters-changed') focus()
+        if (event.data === 'watchlist-changed') focus()
+        if (event.data === 'watched-changed') focus()
+        if (event.data === 'theater-follows-changed') focus()
+      }
     if (account.status.value === 'idle') refresh()
     window.addEventListener('focus', focus)
     window.addEventListener('online', focus)

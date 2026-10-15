@@ -23,6 +23,7 @@ import {
   queryLanguageValues,
 } from '~/utils/showtimeFilters'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
+import { projectTimeline } from '~/utils/watchedDiscovery'
 
 type TimelineMode = 'theater' | 'movie'
 type TimelineZoom = 15 | 30 | 60
@@ -36,6 +37,7 @@ const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const preferences = usePageCinemaSelection()
+const discovery = useWatchedDiscovery('planning')
 const today = ref(todayInParis())
 const date = ref(today.value)
 const language = ref<Language>('ALL')
@@ -43,6 +45,13 @@ const mode = ref<TimelineMode>('theater')
 const formatFilter = ref<QueryFormat>('ALL')
 const zoom = ref<TimelineZoom>(30)
 const timeline = ref<TimelineResponse | null>(null)
+const displayedTimeline = computed(() =>
+  !timeline.value || discovery.blocked.value
+    ? null
+    : discovery.hide.value
+      ? projectTimeline(timeline.value, discovery.watched.slugs.value)
+      : timeline.value,
+)
 const pending = ref(true)
 const errorMessage = ref('')
 const appendPending = ref(false)
@@ -294,7 +303,7 @@ function selectPlanningDate(selectedDate: string) {
 
 const showtimeCount = computed(
   () =>
-    timeline.value?.theaters.reduce(
+    displayedTimeline.value?.theaters.reduce(
       (total, theater) =>
         total +
         theater.showtimes.filter((showtime) => matchesFormat(showtime.format))
@@ -304,7 +313,7 @@ const showtimeCount = computed(
 )
 const rawShowtimeCount = computed(
   () =>
-    timeline.value?.theaters.reduce(
+    displayedTimeline.value?.theaters.reduce(
       (total, theater) => total + theater.showtimes.length,
       0,
     ) ?? 0,
@@ -316,6 +325,18 @@ async function refreshPlanningDay() {
   today.value = currentDay
   await applyRoute()
 }
+watch([discovery.key, pending, appendPending, formatFilter], () => {
+  if (
+    discovery.hide.value &&
+    !discovery.blocked.value &&
+    !pending.value &&
+    !appendPending.value &&
+    !appendError.value &&
+    showtimeCount.value === 0 &&
+    hasMoreTheaters.value
+  )
+    void loadMore()
+})
 
 function scheduleDayCheck() {
   if (dayCheckTimer) window.clearTimeout(dayCheckTimer)
@@ -566,8 +587,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </p>
       </div>
 
+      <WatchedReadiness v-if="discovery.blocked.value" />
       <EditorialStatePanel
-        v-if="pending"
+        v-else-if="pending"
         semantic="status"
         live="polite"
         size="viewport"
@@ -612,7 +634,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       </EditorialStatePanel>
 
       <EditorialStatePanel
-        v-else-if="!timeline || rawShowtimeCount === 0"
+        v-else-if="!displayedTimeline || rawShowtimeCount === 0"
         size="viewport"
         shadow="small"
         class="planning-state font-extrabold"
@@ -625,7 +647,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <TimelineMatrix
         v-else
-        :timeline="timeline"
+        :timeline="displayedTimeline!"
         :mode="mode"
         :format-filter="formatFilter"
         :zoom="zoom"
