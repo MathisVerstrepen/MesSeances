@@ -48,6 +48,10 @@ jobs:
     name: Frontend CI / browser
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     defaults:
       run:
         working-directory: web
@@ -67,4 +71,4 @@ jobs:
       - name: Install Chromium and system dependencies
         run: npx --no-install playwright install --with-deps chromium
       - name: Browser acceptance
-        run: npm run test:browser
+        run: npm run test:browser -- --shard=${{ matrix.shard }}/4
