@@ -13,7 +13,7 @@ import (
 	"messeances/api/internal/schedule"
 )
 
-// Exact expected 062 CHECK deltas for legacy snapshot fixtures. Capture the
+// Exact expected 063 CHECK deltas for legacy snapshot fixtures. Capture the
 // original expression, then have PostgreSQL parse/deparse the expected amended
 // CHECK on an empty temporary table. This compares full predicates (including
 // their legacy branch), not just a provider name or a broad exclusion pattern.
@@ -137,7 +137,7 @@ func assertVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool
 FROM pg_constraint actual CROSS JOIN pg_constraint expected
 WHERE actual.conrelid=$1::regclass AND actual.conname=$2
 AND expected.conrelid='pg_temp.veo_expected_check'::regclass AND expected.conname='expected'`, change.table, change.name).Scan(&matches); err != nil || !matches {
-			t.Fatal("062 changed more than the expected Véo CHECK delta", change.table, change.name, err)
+			t.Fatal("063 changed more than the expected Véo CHECK delta", change.table, change.name, err)
 		}
 		if _, err := tx.Exec(ctx, `DROP TABLE pg_temp.veo_expected_check`); err != nil {
 			t.Fatal(err)
@@ -146,31 +146,46 @@ AND expected.conrelid='pg_temp.veo_expected_check'::regclass AND expected.connam
 }
 
 func TestVeoMigrationIntegration(t *testing.T) {
-	for _, upgrade := range []bool{false, true} {
+	for _, baseline := range []int64{0, 61, 62} {
 		name := "fresh"
-		if upgrade {
-			name = "upgrade061"
+		if baseline != 0 {
+			name = fmt.Sprintf("upgrade%03d", baseline)
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
 			pool, _ := newMigrationTestPool(t, ctx, "veo_migration_")
 			var changes []veoConstraintChange
-			if upgrade {
-				installMigrationPrefix(t, ctx, pool, 61, "061_public_page_content.sql")
+			var watchedBefore string
+			if baseline != 0 {
+				throughName := "061_public_page_content.sql"
+				if baseline == 62 {
+					throughName = "062_account_watched.sql"
+				}
+				installMigrationPrefix(t, ctx, pool, baseline, throughName)
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90)`)
 				changes = captureVeoConstraintChanges(t, ctx, pool)
+				if baseline == 62 {
+					mustCinevilleSQL(t, ctx, pool, `INSERT INTO accounts(id,email,created_at,email_verified_at,verification_source) OVERRIDING SYSTEM VALUE VALUES(1,'watched@example.com','2026-09-01T12:00:00Z','2026-09-01T12:01:00Z','email');
+INSERT INTO public_movies(id,identity_anchor_tmdb_id,title,runtime_minutes) OVERRIDING SYSTEM VALUE VALUES(10,10,'Retained watched film',90);
+INSERT INTO account_watched_state(account_id,revision,default_visibility,search_visibility,planning_visibility,films_visibility,upcoming_visibility,home_visibility,cinema_city_visibility,auto_remove_watchlist) VALUES(1,17,'show','hide','show','inherit','hide','show','hide',true);
+INSERT INTO account_watched_items(account_id,public_movie_id,watched_at) VALUES(1,10,'2026-09-15T18:00:00.123456Z')`)
+					watchedBefore = watchedVeoUpgradeSnapshot(t, ctx, pool)
+				}
 			}
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
 			var n int
-			if upgrade {
+			if baseline != 0 {
 				assertVeoConstraintChanges(t, ctx, pool, changes)
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE provider='ugc' AND title='Existing' AND runtime_minutes=90`).Scan(&n); err != nil || n != 1 {
 					t.Fatal("legacy changed", err)
 				}
+			}
+			if baseline == 62 && watchedVeoUpgradeSnapshot(t, ctx, pool) != watchedBefore {
+				t.Fatal("Véo063 changed published watched062 data, metadata or ledger timestamps")
 			}
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM sync_schedules WHERE target='veo'`).Scan(&n); err != nil || n != 0 {
 				t.Fatal("seeded schedule", err)
@@ -224,9 +239,43 @@ func TestVeoMigrationIntegration(t *testing.T) {
 					t.Fatal(raw, err)
 				}
 			}
+			var historyBefore string
+			if err := pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(m) ORDER BY version)::text FROM movieflow_schema_migrations m`).Scan(&historyBefore); err != nil {
+				t.Fatal(err)
+			}
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
+			var historyAfter string
+			if err := pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(m) ORDER BY version)::text FROM movieflow_schema_migrations m`).Scan(&historyAfter); err != nil || historyAfter != historyBefore {
+				t.Fatal("rerun changed migration records or application timestamps", err)
+			}
+			if baseline == 62 && watchedVeoUpgradeSnapshot(t, ctx, pool) != watchedBefore {
+				t.Fatal("rerun changed watched data, metadata or original migration history")
+			}
 		})
 	}
+}
+
+func watchedVeoUpgradeSnapshot(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+	var snapshot string
+	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id) FROM account_watched_state t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY account_id,public_movie_id) FROM account_watched_items t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM accounts t),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM public_movies t WHERE identity_anchor_provider IS DISTINCT FROM 'veo'),
+ (SELECT jsonb_agg(to_jsonb(t) ORDER BY version) FROM movieflow_schema_migrations t WHERE version <= 62),
+ (SELECT jsonb_agg(jsonb_build_array(c.relname,a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,pg_get_expr(d.adbin,d.adrelid)) ORDER BY c.relname,a.attnum)
+  FROM pg_class c JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+  LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum
+  WHERE c.oid IN ('account_watched_state'::regclass,'account_watched_items'::regclass)),
+ (SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid::regclass::text,conname)
+  FROM pg_constraint WHERE conrelid IN ('account_watched_state'::regclass,'account_watched_items'::regclass)),
+ (SELECT jsonb_agg(jsonb_build_array(tablename,indexname,indexdef) ORDER BY tablename,indexname)
+  FROM pg_indexes WHERE schemaname=current_schema() AND tablename IN ('account_watched_state','account_watched_items'))
+)::text`).Scan(&snapshot); err != nil {
+		t.Fatal("snapshot published watched062 state", err)
+	}
+	return snapshot
 }

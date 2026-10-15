@@ -115,7 +115,7 @@ func infinityMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Poo
 		t.Fatal(err)
 	}
 	// Migration 060 deliberately changes the Cinewest historical shape exception.
-	// The exact table/name pairs changed by 062 are checked separately against
+	// The exact table/name pairs changed by 063 are checked separately against
 	// their captured legacy predicates plus the explicitly expected Véo branch.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_agg(jsonb_build_array(conrelid::regclass::text,conname,pg_get_constraintdef(oid),convalidated) ORDER BY conrelid,conname)::text FROM pg_constraint WHERE conrelid IN ('showtimes'::regclass,'screening_history_showtimes'::regclass) AND conname NOT IN ('showtimes_format_check', 'showtimes_language_original_check', 'screening_history_showtimes_language_original_check', 'showtimes_language_vof_check', 'screening_history_showtimes_language_vof_check', 'showtimes_cinewest_shape_check') AND (conrelid::regclass::text || '.' || conname) <> ALL($1::text[])`, veoConstraintKeys(veoChanges)).Scan(&constraints); err != nil {
 		t.Fatal(err)

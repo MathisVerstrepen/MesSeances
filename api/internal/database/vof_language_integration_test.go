@@ -188,7 +188,7 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
 	// Compare constraints only on the captured baseline relations, not tables added by later migrations.
 	// Migration 060 deliberately changes the Cinewest historical shape exception.
-	// Only successful upgrades exclude 062's exact table/name pairs here; each
+	// Only successful upgrades exclude 063's exact table/name pairs here; each
 	// is independently checked against its full expected expression. Rollback,
 	// scope and rerun snapshots continue comparing every such constraint.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(

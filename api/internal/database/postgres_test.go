@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -118,8 +120,8 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{59, "059_account_theater_follows.sql"},
 		{60, "060_capitole_ticketingcine.sql"},
 		{61, "061_public_page_content.sql"},
-		{62, "062_veo_provider.sql"},
-		{63, "063_account_watched.sql"},
+		{62, "062_account_watched.sql"},
+		{63, "063_veo_provider.sql"},
 	}
 
 	items, err := embeddedMigrations()
@@ -144,5 +146,36 @@ func TestEmbeddedMigrations(t *testing.T) {
 	}
 	if retentionSQL != wantRetentionSQL {
 		t.Fatalf("short-link retention migration=%q", retentionSQL)
+	}
+}
+
+func TestPublishedWatchedMigrationPrefix(t *testing.T) {
+	available, err := embeddedMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(available) != 63 || available[61].name != "062_account_watched.sql" || available[62].name != "063_veo_provider.sql" {
+		t.Fatal("published watched062 must precede pending Véo063")
+	}
+	// Pin the published watched body and the pre-renumbering Véo body. This is
+	// a source regression guard, not a change to runtime history validation.
+	for _, test := range []struct {
+		index int
+		hash  string
+	}{
+		{61, "221220ee3e32026b8e224bb0d75b3a42ba8e9ce908fe4e33c6394f4810297ae7"},
+		{62, "523a3f4ef7ed7f92ec8b769a4f8c6af6503f687f0bc55d991d8ef3c677f8b2b2"},
+	} {
+		if got := fmt.Sprintf("%x", sha256.Sum256([]byte(available[test.index].sql))); got != test.hash {
+			t.Fatalf("migration %s body changed", available[test.index].name)
+		}
+	}
+	recorded := append([]migration(nil), available[:62]...)
+	if err := validateMigrationHistory(recorded, available); err != nil {
+		t.Fatal("legitimate published watched062 prefix rejected", err)
+	}
+	recorded[61].name = "062_veo_provider.sql"
+	if err := validateMigrationHistory(recorded, available); !errors.Is(err, ErrMigrationHistoryIncompatible) {
+		t.Fatal("incompatible renumbered history must remain rejected", err)
 	}
 }
