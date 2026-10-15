@@ -158,14 +158,14 @@ test('SSR exposes scoped headers, ranking caption and keyboard-scroll region', a
 })
 
 const providerLogos = {
-  ugc: ['UGC', 'ugc_logo_small.webp'],
+  ugc: ['UGC', 'ugc_logo.svg'],
   kinepolis: ['Kinepolis', 'kinepolis_logo_small.webp'],
   pathe: ['Pathé', 'pathe_logo_small.webp'],
   cgr: ['CGR', 'cgr_logo_small.webp'],
   megarama: ['Megarama', 'megarama_logo_small.webp'],
   cineville: ['Cinéville', 'cineville_logo_small.webp'],
   mk2: ['MK2', 'mk2_logo.svg'],
-  cinewest: ['CinéWest', 'cinewest_logo_small.webp'],
+  cinewest: ['CinéWest', 'cinewest_logo.svg'],
   grandecran: ['Grand Écran', 'grand_ecran_logo_small.webp'],
   noecinemas: ['Noé Cinémas', 'noe_cinema_logo_small.webp'],
 } satisfies Record<Provider, [string, string]>

@@ -180,7 +180,7 @@ test('account home activity entry admits private stream with attribution, scoped
     const cinemaLink = row.getByRole('link', { name: cinema.name, exact: true })
     await expect(cinemaLink.locator('img')).toHaveAttribute(
       'src',
-      /ugc_logo_small/,
+      /ugc_logo.*\.svg/,
     )
     await expectTopAlignedCinema(row, cinema.name)
     expect(
@@ -249,7 +249,7 @@ for (const [provider, name, asset] of [
     'Cinéma des grandes salles et des rencontres internationales '
       .repeat(4)
       .trim(),
-    /ugc_logo_small/,
+    /ugc_logo.*\.svg/,
   ],
   [
     'kinepolis',
