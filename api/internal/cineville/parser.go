@@ -289,6 +289,7 @@ func parsePage(body []byte, expected cinema) (pageProps, error) {
 var hourRuntime = regexp.MustCompile(`^([0-9]+)h(?:([0-9]{1,2})(?:min)?)?$`)
 var colonRuntime = regexp.MustCompile(`^([0-9]+):([0-9]{2})$`)
 var minuteRuntime = regexp.MustCompile(`^([0-9]+)(?:mn|min)$`)
+var bareMinuteRuntime = regexp.MustCompile(`^([0-9]+)$`)
 
 func parseRuntime(raw string) (int, error) {
 	v := strings.ToLower(strings.Join(strings.Fields(raw), ""))
@@ -314,6 +315,9 @@ func parseRuntime(raw string) (int, error) {
 		}
 	} else {
 		parts = minuteRuntime.FindStringSubmatch(v)
+		if parts == nil {
+			parts = bareMinuteRuntime.FindStringSubmatch(strings.TrimSpace(raw))
+		}
 		if parts == nil {
 			return 0, errPayload
 		}
