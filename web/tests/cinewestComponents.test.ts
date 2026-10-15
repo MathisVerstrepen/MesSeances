@@ -6,20 +6,29 @@ import test from 'node:test'
 const source = (path: string) =>
   readFile(new URL(`../app/${path}`, import.meta.url), 'utf8')
 
-test('Cinewest uses the unchanged supplied logo for both sizes with accessible names and credits', async () => {
+test('Cinewest and UGC use unchanged supplied SVGs for both sizes with accessible names and credits', async () => {
   const bytes = await readFile(
-    new URL('../app/assets/imgs/cinewest_logo_small.webp', import.meta.url),
+    new URL('../app/assets/imgs/cinewest_logo.svg', import.meta.url),
   )
   assert.equal(
     createHash('sha256').update(bytes).digest('hex'),
-    '158b83dd20ab4fd7f8ef655bffb2ee0270a64878d51651cd384a84291a28de0c',
+    '7470cf5f7ab3ffbe1419b27872a73b8b4910a24eb96038045d2be626f86a3779',
   )
   const logo = await source('components/BrandLogo.vue')
-  assert.match(logo, /cinewest_logo_small\.webp\?no-inline/)
+  assert.match(logo, /cinewest_logo\.svg\?no-inline/)
   assert.match(
     logo,
-    /CINEWEST: \{ inline: cinewestLogoSmall, display: cinewestLogoSmall \}/,
+    /CINEWEST: \{ inline: cinewestLogo, display: cinewestLogo \}/,
   )
+  const ugcBytes = await readFile(
+    new URL('../app/assets/imgs/ugc_logo.svg', import.meta.url),
+  )
+  assert.equal(
+    createHash('sha256').update(ugcBytes).digest('hex'),
+    'ffba16555493a8d43c02f9f2a1bbbb46a427228b49da344edd32e9e08e99a8ce',
+  )
+  assert.match(logo, /ugc_logo\.svg\?no-inline/)
+  assert.match(logo, /UGC: \{ inline: ugcLogo, display: ugcLogo \}/)
   assert.match(logo, /CINEWEST: 'Cinewest'/)
   assert.match(logo, /:alt="decorative \? '' : accessibleNames\[brand\]"/)
   assert.match(logo, /:aria-hidden="decorative \? 'true' : undefined"/)

@@ -3,7 +3,7 @@ import cgrLogoLarge from '~/assets/imgs/cgr_logo_large.webp?no-inline'
 import cgrLogoSmall from '~/assets/imgs/cgr_logo_small.webp?no-inline'
 import cinevilleLogoLarge from '~/assets/imgs/cineville_logo_large.webp?no-inline'
 import cinevilleLogoSmall from '~/assets/imgs/cineville_logo_small.webp?no-inline'
-import cinewestLogoSmall from '~/assets/imgs/cinewest_logo_small.webp?no-inline'
+import cinewestLogo from '~/assets/imgs/cinewest_logo.svg?no-inline'
 import mk2Logo from '~/assets/imgs/mk2_logo.svg?no-inline'
 import grandEcranLogoSmall from '~/assets/imgs/grand_ecran_logo_small.webp?no-inline'
 import noeCinemasLogoSmall from '~/assets/imgs/noe_cinema_logo_small.webp?no-inline'
@@ -27,8 +27,7 @@ import patheLogoLarge from '~/assets/imgs/pathe_logo_large.webp?no-inline'
 import patheLogoSmall from '~/assets/imgs/pathe_logo_small.webp?no-inline'
 import screenXLogoLarge from '~/assets/imgs/logo_screenx_large.webp?no-inline'
 import screenXLogoSmall from '~/assets/imgs/logo_screenx_small.webp?no-inline'
-import ugcLogoLarge from '~/assets/imgs/ugc_logo_large.webp?no-inline'
-import ugcLogoSmall from '~/assets/imgs/ugc_logo_small.webp?no-inline'
+import ugcLogo from '~/assets/imgs/ugc_logo.svg?no-inline'
 
 type Brand =
   | 'UGC'
@@ -64,12 +63,12 @@ const props = withDefaults(
 )
 
 const sources = {
-  UGC: { inline: ugcLogoSmall, display: ugcLogoLarge },
+  UGC: { inline: ugcLogo, display: ugcLogo },
   CGR: { inline: cgrLogoSmall, display: cgrLogoLarge },
   MEGARAMA: { inline: megaramaLogoSmall, display: megaramaLogoSmall },
   CINEVILLE: { inline: cinevilleLogoSmall, display: cinevilleLogoLarge },
   MK2: { inline: mk2Logo, display: mk2Logo },
-  CINEWEST: { inline: cinewestLogoSmall, display: cinewestLogoSmall },
+  CINEWEST: { inline: cinewestLogo, display: cinewestLogo },
   'Grand Ecran': { inline: grandEcranLogoSmall, display: grandEcranLogoSmall },
   'Noé Cinémas': { inline: noeCinemasLogoSmall, display: noeCinemasLogoSmall },
   'Véo Cinémas': { inline: veoLogo, display: veoLogo },
