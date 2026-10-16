@@ -24,6 +24,7 @@ import (
 const (
 	MainOrigin         = "https://veocinemas.fr"
 	SeteOrigin         = "https://sete.veocinemas.fr"
+	GueretOrigin       = "https://www.cinema-senechal.com"
 	CatalogPath        = "/page-data/sq/d/2506275789.json"
 	CasteliaURL        = "https://castelginest.miracinemas.fr/"
 	ProgramURL         = "https://ws.ticketingcine.com/site"
@@ -51,6 +52,7 @@ type RequestError struct {
 	Kind       syncproxy.FailureKind
 	StatusCode int
 	cause      error
+	redirect   *checkoutRedirectDiagnostic
 }
 
 func (e *RequestError) Error() string {
@@ -113,6 +115,8 @@ type checkoutResponse struct {
 	canonicalURL          string
 	unavailableEnrichment bool
 	pool                  clientPoolPosition
+	transportPool         clientPoolPosition
+	redirect              *checkoutRedirectDiagnostic
 }
 
 // Only this observed canonicalization is internal fetch authority. It is never
@@ -120,10 +124,13 @@ type checkoutResponse struct {
 var checkoutDestination = regexp.MustCompile(`^/([a-z0-9]+(?:-[a-z0-9]+)*)/reserver/F[1-9][0-9]*/D([0-9]{10})/(VF|VO)/[1-9][0-9]*/$`)
 
 func checkoutFetchURLAllowed(u *url.URL) bool {
-	return checkoutURLAllowed(u) || safeURL(u) && u.Host == "achat.veocinemas.fr" && u.RawQuery == "" && checkoutDestination.MatchString(u.Path)
+	return checkoutURLAllowed(u) || canonicalCheckoutURL(u) || gueretFetchURL(u)
 }
 
 func boundCheckoutURL(u *url.URL, b checkoutBinding) bool {
+	if schedule.ValidVeoGueretRelayURL(b.source) {
+		return boundGueretURL(u, b)
+	}
 	if !checkoutFetchURLAllowed(u) {
 		return false
 	}
@@ -140,12 +147,26 @@ func boundCheckoutURL(u *url.URL, b checkoutBinding) bool {
 
 func checkoutRedirect(request *http.Request, via []*http.Request) error {
 	valid := false
+	if len(via) > 0 && via[0] != nil {
+		if b, ok := via[0].Context().Value(checkoutBindingKey{}).(checkoutBinding); ok && schedule.ValidVeoGueretRelayURL(b.source) {
+			valid = gueretRedirect(request, via, b)
+			if !valid {
+				recordRedirectCallback(request, via, b)
+			}
+			return syncproxy.NewRedirectChecker(func(*url.URL) bool { return valid })(request, via)
+		}
+	}
 	if request != nil && request.URL != nil && len(via) == 1 && via[0] != nil && via[0].URL != nil && via[0].Method == http.MethodGet && request.Method == http.MethodGet {
 		b, ok := via[0].Context().Value(checkoutBindingKey{}).(checkoutBinding)
 		valid = ok && via[0].URL.String() == b.source && request.URL.String() != b.source && boundCheckoutURL(request.URL, b)
 	}
 	// Use the shared error classification, but enforce the narrower one-hop,
 	// cinema- and session-bound provider policy before any destination is sent.
+	if !valid && len(via) > 0 && via[0] != nil {
+		if b, ok := via[0].Context().Value(checkoutBindingKey{}).(checkoutBinding); ok {
+			recordRedirectCallback(request, via, b)
+		}
+	}
 	return syncproxy.NewRedirectChecker(func(*url.URL) bool { return valid })(request, via)
 }
 
@@ -157,13 +178,38 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		binding.response.canonicalURL = ""
 		binding.response.unavailableEnrichment = false
 		binding.response.pool = clientPoolPosition{}
+		binding.response.transportPool = clientPoolPosition{}
+		binding.response.redirect = nil
 	}
 	if bound && !boundCheckoutURL(req.URL, binding) {
+		reason := "request_binding"
+		if schedule.ValidVeoGueretRelayURL(binding.source) && !gueretSourceBinding(binding.source, binding.start, nil) {
+			reason = "source_binding"
+		}
+		recordCheckoutRedirect(binding, req.URL, nil, t.pool, "request", reason)
 		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
 	}
 	r, err := t.base.RoundTrip(req)
 	if err != nil {
 		return nil, err
+	}
+	if bound && schedule.ValidVeoGueretRelayURL(binding.source) {
+		if req.Method == http.MethodGet && gueretUnavailable(req.URL, r, binding) {
+			// The exact bound relay-root response is unavailable enrichment. Close
+			// unread, never follow /noweb, and consume only the redirect sentinel.
+			if r.Body != nil {
+				_ = r.Body.Close()
+			}
+			binding.response.unavailableEnrichment = true
+			return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
+		}
+		if !gueretResponseAllowed(req.URL, r, binding) {
+			recordCheckoutRedirect(binding, req.URL, r, t.pool, "response", gueretResponseReason(req.URL, r, binding))
+			if r.Body != nil {
+				_ = r.Body.Close()
+			}
+			return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
+		}
 	}
 	if bound && binding.response != nil && req.Method == http.MethodGet && req.URL.String() == binding.source &&
 		r.StatusCode == http.StatusTemporaryRedirect && len(r.Header.Values("Location")) == 1 &&
@@ -178,12 +224,20 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		binding.response.unavailableEnrichment = true
 		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
 	}
-	if bound && (r.StatusCode == 301 || r.StatusCode == 302 || r.StatusCode == 303 || r.StatusCode == 307 || r.StatusCode == 308) && r.Header.Get("Location") != "" {
+	if bound && !schedule.ValidVeoGueretRelayURL(binding.source) && (r.StatusCode == 301 || r.StatusCode == 302 || r.StatusCode == 303 || r.StatusCode == 307 || r.StatusCode == 308) && r.Header.Get("Location") != "" {
 		// Inspect the raw header before net/http resolves dot segments or loses
 		// a bare fragment marker. Relative/normalized aliases are not approved.
 		raw := r.Header.Get("Location")
 		target, err := url.Parse(raw)
 		if err != nil || target.String() != raw || strings.Contains(raw, "#") || !checkoutDestination.MatchString(target.Path) || !boundCheckoutURL(target, binding) {
+			reason := "raw_location_parse"
+			if err == nil {
+				reason = redirectTargetReason(target, binding, 1)
+				if target.String() != raw || strings.Contains(raw, "#") {
+					reason = "representation"
+				}
+			}
+			recordCheckoutRedirect(binding, req.URL, r, t.pool, "response", reason)
 			if r.Body != nil {
 				_ = r.Body.Close()
 			}
@@ -191,12 +245,13 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 	if bound && r.Request != nil && !boundCheckoutURL(r.Request.URL, binding) {
+		recordCheckoutRedirect(binding, req.URL, r, t.pool, "response", "response_binding")
 		if r.Body != nil {
 			_ = r.Body.Close()
 		}
 		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
 	}
-	if r.StatusCode == http.StatusOK && req.URL.Host == "achat.veocinemas.fr" && strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "html") {
+	if r.StatusCode == http.StatusOK && (req.URL.Host == "achat.veocinemas.fr" || req.URL.Host == "achat.cinema-senechal.com") && strings.Contains(strings.ToLower(r.Header.Get("Content-Type")), "html") {
 		reader, err := charset.NewReader(r.Body, r.Header.Get("Content-Type"))
 		if err != nil {
 			_ = r.Body.Close()
@@ -205,11 +260,19 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		r.Body = decodedBody{reader, r.Body}
 		r.ContentLength = -1
 	}
-	if bound && binding.response != nil && r.StatusCode == http.StatusOK && checkoutDestination.MatchString(req.URL.Path) {
+	if bound && binding.response != nil && r.StatusCode == http.StatusOK && canonicalCheckoutURL(req.URL) {
 		binding.response.canonicalURL = req.URL.String()
 	}
 	if bound && binding.response != nil && r.StatusCode == http.StatusOK {
 		binding.response.pool = t.pool
+	}
+	if bound && binding.response != nil && (r.StatusCode == 301 || r.StatusCode == 302 || r.StatusCode == 303 || r.StatusCode == 307 || r.StatusCode == 308) && r.Header.Get("Location") != "" {
+		binding.response.transportPool = t.pool
+	}
+	if bound && r.StatusCode == http.StatusOK && r.Request == nil {
+		// Executor's existing final-response check rejects missing identity. Keep
+		// this exact response's bounded facts only if that check returns redirect.
+		recordCheckoutRedirect(binding, req.URL, r, t.pool, "response", "response_identity_unknown")
 	}
 	return r, nil
 }
@@ -318,6 +381,11 @@ func (c *Client) Get(ctx context.Context, op Operation, raw string) ([]byte, err
 		return body, nil
 	}
 	rerr := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode}
+	if failure.Kind == syncproxy.FailureRedirect {
+		if b, ok := ctx.Value(checkoutBindingKey{}).(checkoutBinding); ok && b.response != nil {
+			rerr.redirect = b.response.redirect
+		}
+	}
 	if failure.Kind == syncproxy.FailureCanceled {
 		rerr.cause = ctx.Err()
 	}
@@ -334,7 +402,7 @@ func allowedURL(u *url.URL) bool {
 	if u.String() == ProgramURL {
 		return true
 	}
-	if u.Host != "veocinemas.fr" && u.Host != "sete.veocinemas.fr" {
+	if u.Host != "veocinemas.fr" && u.Host != "sete.veocinemas.fr" && u.Host != "www.cinema-senechal.com" {
 		return false
 	}
 	for _, op := range []Operation{OperationCinemas, OperationProgram, OperationSchedule, OperationMovies} {
@@ -354,7 +422,7 @@ func operationMatchesURL(op Operation, u *url.URL) bool {
 	if op == OperationCastelia {
 		return u.String() == ProgramURL
 	}
-	if u.Host != "veocinemas.fr" && u.Host != "sete.veocinemas.fr" {
+	if u.Host != "veocinemas.fr" && u.Host != "sete.veocinemas.fr" && u.Host != "www.cinema-senechal.com" {
 		return false
 	}
 	q, err := url.ParseQuery(u.RawQuery)
@@ -363,9 +431,9 @@ func operationMatchesURL(op Operation, u *url.URL) bool {
 	}
 	switch op {
 	case OperationCinemas:
-		return u.Path == CatalogPath && u.RawQuery == ""
+		return u.Host != "www.cinema-senechal.com" && u.Path == CatalogPath && u.RawQuery == ""
 	case OperationProgram:
-		return u.Path == "/api/gatsby-source-boxofficeapi/scheduledMovies" && len(q) == 1 && len(q["theaterId"]) == 1 && boxTheater(q.Get("theaterId"))
+		return u.Path == "/api/gatsby-source-boxofficeapi/scheduledMovies" && len(q) == 1 && len(q["theaterId"]) == 1 && boxTheater(q.Get("theaterId")) && (u.Host != "www.cinema-senechal.com" || q.Get("theaterId") == "P1394")
 	case OperationMovies:
 		if u.Path != "/api/gatsby-source-boxofficeapi/movies" || len(q) != 1 || len(q["ids"]) == 0 || len(q["ids"]) > MovieBatchSize {
 			return false
@@ -389,7 +457,7 @@ func operationMatchesURL(op Operation, u *url.URL) bool {
 		compact, _ := json.Marshal(t)
 		f, e1 := time.Parse("2006-01-02T15:04:05", q.Get("from"))
 		to, e2 := time.Parse("2006-01-02T15:04:05", q.Get("to"))
-		return string(compact) == q.Get("theaters") && boxTheater(t.ID) && t.TimeZone == schedule.Timezone && e1 == nil && e2 == nil && f.Format("15:04:05") == "03:00:00" && to.Format("15:04:05") == "03:00:00" && to.After(f)
+		return string(compact) == q.Get("theaters") && boxTheater(t.ID) && (u.Host != "www.cinema-senechal.com" || t.ID == "P1394") && t.TimeZone == schedule.Timezone && e1 == nil && e2 == nil && f.Format("15:04:05") == "03:00:00" && to.Format("15:04:05") == "03:00:00" && to.After(f)
 	}
 	return false
 }

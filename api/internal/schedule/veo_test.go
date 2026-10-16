@@ -36,6 +36,30 @@ func TestVeoIdentitiesAndBookingSafety(t *testing.T) {
 	}
 }
 
+func TestVeoGueretRelayStructuralPolicy(t *testing.T) {
+	const raw = "https://relay.mvtx.us/ticketing/dbz?code_theater=P1394&gid_entity=fixture_123.opaque&tags=Localization.Language.French,Format.Projection.Digital&perfd=20261016&perft=15:00"
+	valid := []string{raw, strings.ReplaceAll(strings.ReplaceAll(raw, ",", "%2C"), ":00", "%3a00"), strings.ReplaceAll(raw, "20261016", "20000229"), strings.ReplaceAll(raw, "fixture_123.opaque", strings.Repeat("%41", 1024))}
+	for _, value := range valid {
+		if !ValidVeoCheckoutURL(value) || !ValidVeoBookingURL(value, "G06DB", VeoShowingID("G06DB", "synthetic")) {
+			t.Fatal("structural source rejected")
+		}
+		for _, theater := range []string{"P1394", "P1028", "W0067", "EMS1361"} {
+			if ValidVeoBookingURL(value, theater, VeoShowingID(theater, "synthetic")) {
+				t.Fatal("relay escaped G06DB")
+			}
+		}
+	}
+	bad := []string{raw + "&tags=x", raw + "&x=1", raw + "&", raw + "#", raw + "\n", raw + " ", strings.ReplaceAll(raw, "code_theater", "code%5ftheater"), strings.ReplaceAll(raw, "P1394", "G06DB"), strings.ReplaceAll(raw, "20261016", "20260229"), strings.ReplaceAll(raw, "20261016", "19000229"), strings.ReplaceAll(raw, "20261016", "00001016"), strings.ReplaceAll(raw, "15:00", "24:00"), strings.ReplaceAll(raw, "15:00", "15:60"), strings.ReplaceAll(raw, "https:", "http:"), strings.ReplaceAll(raw, "relay.mvtx.us", "relay.mvtx.us.evil.test"), strings.ReplaceAll(raw, "relay.mvtx.us", "relay.mvtx.us:443"), strings.ReplaceAll(raw, "https://", "https://user@"), strings.ReplaceAll(raw, "/ticketing/dbz", "/ticketing/%64bz"), strings.ReplaceAll(raw, "/ticketing/dbz", "/x/../ticketing/dbz"), "https://achat.cinema-senechal.com/r/1"}
+	for _, value := range []string{"", "%", "%GG", "%252C", "%26x%3D1", "%3B", "%23", "%3F", "%2F", "%5C", "%00", "%0A", "+", "%20", "é", "%C3%A9", "a=b", strings.Repeat("a", 1025)} {
+		bad = append(bad, strings.ReplaceAll(raw, "fixture_123.opaque", value))
+	}
+	for i, value := range bad {
+		if ValidVeoCheckoutURL(value) || ValidVeoBookingURL(value, "G06DB", VeoShowingID("G06DB", "synthetic")) {
+			t.Fatalf("unsafe relay case %d accepted", i)
+		}
+	}
+}
+
 func TestVeoCheckoutSourceForms(t *testing.T) {
 	for _, cinema := range []struct{ id, slug, session string }{{"P0448", "chateaurenard", "22309"}, {"W3187", "labarthe-sur-leze", "5093"}} {
 		for _, segment := range []string{"", "reserver/"} {

@@ -420,6 +420,14 @@ func providerFetchLogArgs(provider Target, err error) []any {
 	if details.Attempt >= 1 && details.AttemptLimit >= details.Attempt && details.AttemptLimit <= 10 {
 		args = append(args, "attempt", details.Attempt, "attempt_limit", details.AttemptLimit)
 	}
+	if provider == TargetVeo && details.Category == categoryRedirect {
+		var rejected *veo.RequestError
+		if errors.As(err, &rejected) && rejected.Operation == veo.OperationCheckout && rejected.Kind == syncproxy.FailureRedirect {
+			if facts, ok := rejected.RedirectFacts(); ok {
+				args = append(args, safeVeoRedirectLogArgs(facts)...)
+			}
+		}
+	}
 	if provider == TargetVeo && details.Category == categoryInvalidPayload {
 		var rejected *veo.CheckoutParseError
 		if errors.As(err, &rejected) {
@@ -456,6 +464,58 @@ func providerFetchLogArgs(provider Target, err error) []any {
 
 func validVeoClientPoolPosition(index, count int) bool {
 	return index >= 1 && index <= count && count <= 10000
+}
+
+func safeVeoRedirectLogArgs(d veo.CheckoutRedirectFacts) []any {
+	// Independent logger whitelist. Never render an error, supplied struct or
+	// unknown string, including when a getter constructs a forged typed error.
+	if !schedule.ValidVeoIdentity("theater", d.CinemaID) || !schedule.ValidVeoIdentity("showing", d.ShowingID) || !strings.HasPrefix(d.ShowingID, d.CinemaID+"-") || !validVeoClientPoolPosition(d.PoolPosition, d.PoolSize) {
+		return nil
+	}
+	switch d.Branch {
+	case "regular", "gueret":
+	default:
+		return nil
+	}
+	if d.Branch == "gueret" && d.CinemaID != "G06DB" {
+		return nil
+	}
+	switch d.Phase {
+	case "request", "response", "callback", "unknown":
+	default:
+		return nil
+	}
+	switch d.Reason {
+	case "unknown", "request_binding", "raw_location_parse", "unsafe_authority", "route", "query", "source_binding", "date_binding", "time_binding", "epoch_binding", "cinema_binding", "status", "location_count", "hop", "method", "response_binding", "representation", "response_identity_unknown":
+	default:
+		return nil
+	}
+	if d.Hop < 0 || d.Hop > 3 || !d.HopKnown && d.Hop != 0 || d.Branch == "regular" && d.Hop > 1 || d.HTTPStatus != 0 && (d.HTTPStatus < 100 || d.HTTPStatus > 599) || d.LocationCount < 0 || d.LocationCount > 4 || d.LocationCountTruncated && d.LocationCount != 4 {
+		return nil
+	}
+	for _, host := range []string{d.ExpectedHost, d.ObservedHost} {
+		switch host {
+		case "unknown", "regular", "relay", "dedicated", "relative", "other":
+		default:
+			return nil
+		}
+	}
+	for _, route := range []string{d.ExpectedRoute, d.ObservedRoute} {
+		switch route {
+		case "unknown", "source", "relay_source", "relay_root", "alias", "canonical", "other":
+		default:
+			return nil
+		}
+	}
+	return []any{
+		"veo_redirect_branch", d.Branch, "veo_redirect_phase", d.Phase, "veo_redirect_reason", d.Reason,
+		"veo_redirect_hop", d.Hop, "veo_redirect_hop_known", d.HopKnown,
+		"veo_redirect_http_status", d.HTTPStatus, "veo_redirect_location_count", d.LocationCount, "veo_redirect_location_count_truncated", d.LocationCountTruncated,
+		"veo_redirect_expected_host", d.ExpectedHost, "veo_redirect_expected_route", d.ExpectedRoute,
+		"veo_redirect_observed_host", d.ObservedHost, "veo_redirect_observed_route", d.ObservedRoute,
+		"veo_cinema_id", d.CinemaID, "veo_showing_id", d.ShowingID,
+		"veo_client_pool_position", d.PoolPosition, "veo_client_pool_size", d.PoolSize,
+	}
 }
 
 func safeVeoActionPathLogArgs(d veo.CheckoutActionPathFacts) []any {
@@ -506,10 +566,12 @@ func safeVeoActionPathLogArgs(d veo.CheckoutActionPathFacts) []any {
 }
 
 func veoCheckoutRetryLogArgs(summary veo.SyncSummary) []any {
-	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts {
+	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts || summary.ToulouseUnavailableCheckouts < 0 || summary.GueretUnavailableCheckouts < 0 {
 		return nil
 	}
 	args := []any{"component", "sync", "provider", "veo", "checkout_retry_attempts", summary.CheckoutRetryAttempts, "checkout_recoveries", summary.CheckoutRecoveries}
+	args = append(args, "toulouse_unavailable_checkouts", summary.ToulouseUnavailableCheckouts)
+	args = append(args, "gueret_unavailable_checkouts", summary.GueretUnavailableCheckouts)
 	if summary.CheckoutRetryAttempts > 0 && summary.FirstCheckoutRetry != nil {
 		args = append(args, "first_retry_recovered", summary.FirstCheckoutRetryRecovered)
 		// Use exactly the existing defensive reason/identity/bit/index whitelist.

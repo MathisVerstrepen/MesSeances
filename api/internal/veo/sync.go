@@ -29,6 +29,8 @@ type SyncSummary struct {
 	CheckoutRetryAttempts, CheckoutRecoveries int
 	FirstCheckoutRetry                        *CheckoutParseError
 	FirstCheckoutRetryRecovered               bool
+	ToulouseUnavailableCheckouts              int
+	GueretUnavailableCheckouts                int
 }
 
 func Sync(ctx context.Context, g Getter, o SyncOptions) (schedule.Dataset, SyncSummary, error) {
@@ -77,7 +79,7 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 			return schedule.Dataset{}, err
 		}
 		programs, err := parallel.MapOrdered(ctx, cinemas, parallel.Options{Workers: min(WorkerCount, len(cinemas))}, func(ctx context.Context, c cinema) (map[string][]string, error) {
-			b, err := g.Get(ctx, OperationProgram, programURL(origin, c.ID))
+			b, err := g.Get(ctx, OperationProgram, programURL(c.origin, c.sourceID()))
 			if err != nil {
 				return nil, err
 			}
@@ -86,42 +88,51 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 		if err != nil {
 			return schedule.Dataset{}, err
 		}
-		idsSet := map[string]bool{}
-		for _, p := range programs {
-			for id, dates := range p {
-				if len(dates) > 0 {
-					idsSet[id] = true
-				}
-			}
-		}
-		ids := make([]string, 0, len(idsSet))
-		for id := range idsSet {
-			ids = append(ids, id)
-		}
-		sort.Strings(ids)
 		movies := map[string]schedule.MovieRecord{}
-		for _, batch := range batchMovieIDs(origin, ids) {
-			b, err := g.Get(ctx, OperationMovies, moviesURL(origin, batch))
-			if err != nil {
-				return schedule.Dataset{}, err
+		movieOrigins := []string{origin}
+		if origin == MainOrigin {
+			movieOrigins = append(movieOrigins, GueretOrigin)
+		}
+		for _, movieOrigin := range movieOrigins {
+			idsSet := map[string]bool{}
+			for i, p := range programs {
+				if cinemas[i].origin != movieOrigin {
+					continue
+				}
+				for id, dates := range p {
+					if len(dates) > 0 {
+						idsSet[id] = true
+					}
+				}
 			}
-			items, err := parseMovies(b)
-			if err != nil {
-				return schedule.Dataset{}, err
+			ids := make([]string, 0, len(idsSet))
+			for id := range idsSet {
+				ids = append(ids, id)
 			}
-			if len(items) != len(batch) {
-				return schedule.Dataset{}, errSnapshotChanged
-			}
-			for _, id := range batch {
-				m, ok := items[id]
-				if !ok {
+			sort.Strings(ids)
+			for _, batch := range batchMovieIDs(movieOrigin, ids) {
+				b, err := g.Get(ctx, OperationMovies, moviesURL(movieOrigin, batch))
+				if err != nil {
+					return schedule.Dataset{}, err
+				}
+				items, err := parseMovies(b)
+				if err != nil {
+					return schedule.Dataset{}, err
+				}
+				if len(items) != len(batch) {
 					return schedule.Dataset{}, errSnapshotChanged
 				}
-				if prior, ok := seenMovies[id]; ok && !reflect.DeepEqual(prior, m) {
-					return schedule.Dataset{}, errSnapshotChanged
+				for _, id := range batch {
+					m, ok := items[id]
+					if !ok {
+						return schedule.Dataset{}, errSnapshotChanged
+					}
+					if prior, ok := seenMovies[id]; ok && !reflect.DeepEqual(prior, m) {
+						return schedule.Dataset{}, errSnapshotChanged
+					}
+					seenMovies[id] = m
+					movies[id] = m
 				}
-				seenMovies[id] = m
-				movies[id] = m
 			}
 		}
 		type result struct {
@@ -140,7 +151,7 @@ func acquire(ctx context.Context, g Getter, o SyncOptions, s *SyncSummary) (sche
 				// to synthesize an advertised horizon.
 				return result{rows: []schedule.ShowtimeRecord{}}, nil
 			}
-			b, err := g.Get(ctx, OperationSchedule, scheduleURL(origin, c.ID, o.From, through))
+			b, err := g.Get(ctx, OperationSchedule, scheduleURL(c.origin, c.sourceID(), o.From, through))
 			if err != nil {
 				return result{}, err
 			}

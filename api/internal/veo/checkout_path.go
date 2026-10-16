@@ -42,7 +42,7 @@ func diagnosticPathSegments(path string) []string {
 func classifyDiagnosticActionPath(action, canonical string) diagnosticPathStructure {
 	d := diagnosticPathStructure{Shape: "canonical_unavailable", ExpectedPositions: [6]int{-1, -1, -1, -1, -1, -1}}
 	c, err := url.Parse(canonical)
-	if err != nil || canonical == "" || !safeURL(c) || c.String() != canonical || c.Host != "achat.veocinemas.fr" || c.RawQuery != "" || !checkoutDestination.MatchString(c.Path) {
+	if err != nil || canonical == "" || !canonicalCheckoutURL(c) || c.String() != canonical {
 		return d
 	}
 	d.CanonicalValid = true
@@ -63,7 +63,10 @@ func classifyDiagnosticActionPath(action, canonical string) diagnosticPathStruct
 	} else {
 		d.MissingCount = len(expected) - len(parts)
 	}
-	labels := [6]string{"expected_slug", "route_reserver", "expected_film", "expected_epoch", "expected_version", "expected_tail"}
+	labels := []string{"expected_slug", "route_reserver", "expected_film", "expected_epoch", "expected_version", "expected_tail"}
+	if c.Host == "achat.cinema-senechal.com" {
+		labels = labels[1:]
+	}
 	for i, part := range parts {
 		class := "other"
 		switch {
@@ -124,7 +127,7 @@ func classifyDiagnosticActionPath(action, canonical string) diagnosticPathStruct
 		d.Shape = "empty_segments"
 	case len(parts) < len(expected):
 		d.Shape = "missing_segments"
-	case allDiagnosticTokensPresent(d.ExpectedPositions) && !d.ExpectedTokensInOrder:
+	case allDiagnosticTokensPresent(d.ExpectedPositions[:len(expected)]) && !d.ExpectedTokensInOrder:
 		d.Shape = "reordered_tokens"
 	default:
 		d.Shape = "different_shape"
@@ -138,7 +141,7 @@ func classifyDiagnosticActionPath(action, canonical string) diagnosticPathStruct
 	return d
 }
 
-func allDiagnosticTokensPresent(positions [6]int) bool {
+func allDiagnosticTokensPresent(positions []int) bool {
 	for _, p := range positions {
 		if p < 0 {
 			return false

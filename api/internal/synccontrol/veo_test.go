@@ -54,6 +54,12 @@ func TestVeoActualPathLoggingWhitelist(t *testing.T) {
 }
 
 func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
+	if veoCheckoutRetryLogArgs(veo.SyncSummary{ToulouseUnavailableCheckouts: -1}) != nil {
+		t.Fatal("negative unavailable count logged")
+	}
+	if veoCheckoutRetryLogArgs(veo.SyncSummary{GueretUnavailableCheckouts: -1}) != nil {
+		t.Fatal("negative Guéret unavailable count logged")
+	}
 	for _, counts := range [][2]int{{-1, 0}, {9, 0}, {1, 2}, {1, -1}} {
 		if veoCheckoutRetryLogArgs(veo.SyncSummary{CheckoutRetryAttempts: counts[0], CheckoutRecoveries: counts[1]}) != nil {
 			t.Fatal("unbounded retry stats logged")
@@ -68,6 +74,8 @@ func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
 		d, s, err := base(ctx, g, o)
 		s.CheckoutRetryAttempts = 1
 		s.CheckoutRecoveries = 1
+		s.ToulouseUnavailableCheckouts = 7
+		s.GueretUnavailableCheckouts = 3
 		s.FirstCheckoutRetryRecovered = true
 		s.FirstCheckoutRetry = &veo.CheckoutParseError{Reason: veo.CheckoutRejection("secret-value"), CinemaID: "secret-value", ShowingID: "secret-value", Cause: errors.New("secret-value")}
 		return d, s, err
@@ -77,11 +85,11 @@ func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := output.String()
-	if !strings.Contains(log, `"msg":"veo_checkout_retry_summary"`) || !strings.Contains(log, `"checkout_retry_attempts":1`) || !strings.Contains(log, `"checkout_recoveries":1`) || strings.Contains(log, "secret-value") || strings.Contains(log, "provider_failed") {
+	if !strings.Contains(log, `"msg":"veo_checkout_retry_summary"`) || !strings.Contains(log, `"checkout_retry_attempts":1`) || !strings.Contains(log, `"checkout_recoveries":1`) || !strings.Contains(log, `"toulouse_unavailable_checkouts":7`) || !strings.Contains(log, `"gueret_unavailable_checkouts":3`) || strings.Contains(log, "secret-value") || strings.Contains(log, "provider_failed") {
 		t.Fatal("unsafe or misleading recovery log", log)
 	}
 	wire, err := json.Marshal(out)
-	if err != nil || strings.Contains(strings.ToLower(string(wire)), "retry") || strings.Contains(strings.ToLower(string(wire)), "recover") {
+	if err != nil || strings.Contains(strings.ToLower(string(wire)), "retry") || strings.Contains(strings.ToLower(string(wire)), "recover") || strings.Contains(strings.ToLower(string(wire)), "toulouse") || strings.Contains(strings.ToLower(string(wire)), "gueret") {
 		t.Fatal("private retry fields leaked")
 	}
 	zero := fmt.Sprint(veoCheckoutRetryLogArgs(veo.SyncSummary{}))

@@ -225,6 +225,67 @@ test('Véo qualified identity and exact Castelia SHA-256 binding fail closed whe
   parity(root, null, showing, 'veo-P1234')
 })
 
+test('Guéret relay single ASCII decoding has strict frontend/tool parity and canonical scope', () => {
+  const raw =
+    'https://relay.mvtx.us/ticketing/dbz?code_theater=P1394&gid_entity=fixture_123.opaque&tags=Localization.Language.French,Format.Projection.Digital&perfd=20261016&perft=15:00'
+  const id = veoShowingId('G06DB', 'synthetic')
+  for (const value of [
+    raw,
+    raw.replaceAll(',', '%2C').replaceAll(':00', '%3a00'),
+    raw.replace('20261016', '20000229'),
+    raw.replace('fixture_123.opaque', '%41'.repeat(1024)),
+  ]) {
+    parity(value, 'booking', id, 'veo-G06DB')
+    parity(value, null)
+    for (const theater of ['P1394', 'P1028', 'W0067', 'EMS1361'])
+      parity(value, null, veoShowingId(theater, 'synthetic'), `veo-${theater}`)
+  }
+  const bad = [
+    raw + '&tags=x',
+    raw + '&x=1',
+    raw + '&',
+    raw + '#',
+    raw + '\n',
+    raw + ' ',
+    raw.replace('code_theater', 'code%5ftheater'),
+    raw.replace('P1394', 'G06DB'),
+    ...['20260229', '19000229', '00001016'].map((day) =>
+      raw.replace('20261016', day),
+    ),
+    raw.replace('15:00', '24:00'),
+    raw.replace('15:00', '15:60'),
+    raw.replace('https:', 'http:'),
+    raw.replace('relay.mvtx.us', 'relay.mvtx.us.evil.test'),
+    raw.replace('relay.mvtx.us', 'relay.mvtx.us:443'),
+    raw.replace('https://', 'https://user@'),
+    raw.replace('/ticketing/dbz', '/ticketing/%64bz'),
+    raw.replace('/ticketing/dbz', '/x/../ticketing/dbz'),
+    'https://achat.cinema-senechal.com/r/1',
+  ]
+  for (const value of [
+    '',
+    '%',
+    '%GG',
+    '%252C',
+    '%26x%3D1',
+    '%3B',
+    '%23',
+    '%3F',
+    '%2F',
+    '%5C',
+    '%00',
+    '%0A',
+    '+',
+    '%20',
+    'é',
+    '%C3%A9',
+    'a=b',
+    'a'.repeat(1025),
+  ])
+    bad.push(raw.replace('fixture_123.opaque', value))
+  for (const value of bad) parity(value, null, id, 'veo-G06DB')
+})
+
 test('Véo e tokens are full-string canonical cinema-qualified SHA-256 encodings, preserving share reload and other providers', () => {
   const keys = ['P1234', 'EMS1361', '00000'].map(
     (theater) => `veo:veo-showing-${theater}-${hash}`,

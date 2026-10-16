@@ -26,7 +26,8 @@ func TestCheckoutActualPathDiagnosticsSurviveRetryIsolation(t *testing.T) {
 			row := retryTestRow(i)
 			g := &retryCheckoutGetter{fetch: func(_ context.Context, _ string, start time.Time, n int) (CheckoutResult, error) {
 				page := retryTestPage(start, false)
-				action := "https://achat.veocinemas.fr/toulouse/reserver/"
+				// The exact G0699 entry is now a source gap; a bare query is not.
+				action := "https://achat.veocinemas.fr/toulouse/reserver/?"
 				if n == 2 {
 					action = page.canonicalURL + "opaque-secret/"
 				}

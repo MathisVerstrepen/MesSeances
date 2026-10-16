@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -34,7 +35,46 @@ func VeoShowingID(theater, sourceSession string) string {
 }
 
 func ValidVeoCheckoutURL(raw string) bool {
-	return len(raw) <= maxURLLength && veoCheckout.MatchString(raw)
+	return len(raw) <= maxURLLength && (veoCheckout.MatchString(raw) || ValidVeoGueretRelayURL(raw))
+}
+
+// ValidVeoGueretRelayURL is structural only. Acquisition binds the decoded date,
+// clock and tags to the actual source row; checkout binds the final epoch again.
+// Keep the single ASCII decoding policy mirrored in migration 065 and web/tool.
+func ValidVeoGueretRelayURL(raw string) bool {
+	const prefix = "https://relay.mvtx.us/ticketing/dbz?"
+	if len(raw) > maxURLLength || !strings.HasPrefix(raw, prefix) {
+		return false
+	}
+	values := map[string]string{}
+	for _, pair := range strings.Split(strings.TrimPrefix(raw, prefix), "&") {
+		key, value, ok := strings.Cut(pair, "=")
+		if !ok || values[key] != "" || !containsVeoRelayKey(key) {
+			return false
+		}
+		// No plus-as-space, encoded delimiters, Unicode, double decoding or
+		// parameter injection. Opaque values have no inferred ID semantics.
+		decoded, err := url.QueryUnescape(value)
+		if err != nil || len(value) > 3072 || len(decoded) > 1024 || !veoRelayValue.MatchString(value) || !veoRelayDecoded.MatchString(decoded) {
+			return false
+		}
+		values[key] = decoded
+	}
+	date := values["perfd"]
+	d, err := time.Parse("20060102", date)
+	return len(values) == 5 && values["code_theater"] == "P1394" && err == nil && d.Year() >= 1 && d.Format("20060102") == date && veoRelayClock.MatchString(values["perft"])
+}
+
+var veoRelayValue = regexp.MustCompile(`^[A-Za-z0-9._~,:%\-]+$`)
+var veoRelayDecoded = regexp.MustCompile(`^[A-Za-z0-9._~,:\-]+$`)
+var veoRelayClock = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
+
+func containsVeoRelayKey(key string) bool {
+	switch key {
+	case "code_theater", "gid_entity", "tags", "perfd", "perft":
+		return true
+	}
+	return false
 }
 
 func ValidVeoBookingURL(raw, theater, showing string) bool {
@@ -42,7 +82,7 @@ func ValidVeoBookingURL(raw, theater, showing string) bool {
 		return false
 	}
 	if theater != "EMS1361" {
-		return ValidVeoCheckoutURL(raw)
+		return len(raw) <= maxURLLength && (veoCheckout.MatchString(raw) || theater == "G06DB" && ValidVeoGueretRelayURL(raw))
 	}
 	u, err := url.Parse(raw)
 	if err != nil || len(raw) > maxURLLength || u.Scheme != "https" || u.Host != "castelginest.miracinemas.fr" || u.User != nil || u.Opaque != "" || u.RawPath != "" || u.RawFragment != "" || u.RawQuery != "" || u.ForceQuery || (u.Path != "" && u.Path != "/") || strings.ContainsAny(raw, "%\\") {

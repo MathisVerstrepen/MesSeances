@@ -69,8 +69,21 @@ type cinema struct {
 	PracticalInfo struct {
 		Location struct{ Address, City, Zip string } `json:"location"`
 	} `json:"practicalInfo"`
-	origin string
+	origin     string
+	upstreamID string
 }
+
+func (c cinema) sourceID() string {
+	if c.upstreamID != "" {
+		return c.upstreamID
+	}
+	return c.ID
+}
+
+func (c cinema) dedicatedGueret() bool {
+	return c.ID == "G06DB" && c.origin == GueretOrigin && c.sourceID() == "P1394"
+}
+
 type programResponse struct {
 	MovieIDs      *struct{ TitleAsc, ReleaseAsc []sourceID } `json:"movieIds"`
 	ScheduledDays map[string][]string                        `json:"scheduledDays"`
@@ -129,6 +142,9 @@ func parseCinemas(b []byte, origin string) ([]cinema, error) {
 		l.City = strings.TrimSpace(l.City)
 		l.Zip = strings.TrimSpace(l.Zip)
 		c.origin = origin
+		if origin == MainOrigin && c.ID == "G06DB" {
+			c.origin, c.upstreamID = GueretOrigin, "P1394"
+		}
 		if !boxTheater(c.ID) || seen[c.ID] || c.Name == "" || l.Address == "" || l.City == "" || l.Zip == "" || c.TimeZone != schedule.Timezone {
 			return nil, errShape
 		}
@@ -220,10 +236,10 @@ func parseMovies(b []byte) (map[string]schedule.MovieRecord, error) {
 }
 func parseSchedule(b []byte, c cinema, p map[string][]string, movies map[string]schedule.MovieRecord, loc *time.Location, allowMissing, from, through string) ([]schedule.ShowtimeRecord, map[string]bool, error) {
 	var r scheduleResponse
-	if decodeJSON(b, &r) != nil || len(r) != 1 || r[c.ID].Schedule == nil {
+	if decodeJSON(b, &r) != nil || len(r) != 1 || r[c.sourceID()].Schedule == nil {
 		return nil, nil, errShape
 	}
-	container := r[c.ID].Schedule
+	container := r[c.sourceID()].Schedule
 	// Never discard positive unadvertised evidence, including an empty index.
 	for id, days := range container {
 		for date, sessions := range days {
@@ -289,8 +305,12 @@ func parseShowtime(s showtimeResponse, c cinema, m schedule.MovieRecord, date st
 	}
 	booking := ""
 	count := 0
+	provider := "default"
+	if c.dedicatedGueret() {
+		provider = "relay"
+	}
 	for _, t := range s.Data.Ticketing {
-		if t.Provider == "default" && t.Type == "DESKTOP" {
+		if t.Provider == provider && t.Type == "DESKTOP" {
 			count++
 			if len(t.URLs) != 1 {
 				return schedule.ShowtimeRecord{}, errShape
@@ -298,14 +318,17 @@ func parseShowtime(s showtimeResponse, c cinema, m schedule.MovieRecord, date st
 			booking = t.URLs[0]
 		}
 	}
-	if count != 1 || !schedule.ValidVeoCheckoutURL(booking) {
+	id := schedule.VeoShowingID(c.ID, s.ID)
+	if count != 1 || !schedule.ValidVeoBookingURL(booking, c.ID, id) {
+		return schedule.ShowtimeRecord{}, errShape
+	}
+	if c.dedicatedGueret() && !gueretSourceBinding(booking, start, s.Tags) {
 		return schedule.ShowtimeRecord{}, errShape
 	}
 	room := ""
 	if s.Screen != nil {
 		room = strings.TrimSpace(s.Screen.Name)
 	}
-	id := schedule.VeoShowingID(c.ID, s.ID)
 	return schedule.ShowtimeRecord{Provider: schedule.ProviderVeo, ID: "veo-showing-" + id, ProviderShowingID: id, TheaterID: "veo-" + c.ID, ServiceDate: date, Movie: m, StartTime: start, EndTime: start, Language: language, ProviderVersion: version, Format: normalizeFormat(s.Tags), Room: room, BookingURL: booking}, nil
 }
 func localTime(layout, raw string, loc *time.Location) (time.Time, error) {
