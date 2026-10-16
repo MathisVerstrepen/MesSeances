@@ -11,6 +11,7 @@ type CreditBrand =
   | 'Grand Ecran'
   | 'Noé Cinémas'
   | 'Véo Cinémas'
+  | 'Majestic Cinémas'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -68,6 +69,11 @@ const creditSections: Array<{
         brand: 'Véo Cinémas',
         name: 'Véo Cinémas',
         url: 'https://veocinemas.fr',
+      },
+      {
+        brand: 'Majestic Cinémas',
+        name: 'Majestic Cinémas',
+        url: 'https://www.majestic-cinemas.com/',
       },
     ],
   },

@@ -57,6 +57,7 @@ const providers = [
   'grandecran',
   'noecinemas',
   'veo',
+  'majestic',
 ] as const
 const targets = ['all', ...providers] as const
 const activeJob = computed(() =>
@@ -103,6 +104,7 @@ const targetLabels = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
 } satisfies Record<AdminSyncTarget, string>
 
 const providerBrands = {
@@ -117,6 +119,7 @@ const providerBrands = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
 } as const satisfies Record<Provider, string>
 
 const providerLabels = {
@@ -131,6 +134,7 @@ const providerLabels = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
 } satisfies Record<Provider, string>
 
 const triggerLabels = {

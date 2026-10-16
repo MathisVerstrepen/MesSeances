@@ -8,6 +8,7 @@ import mk2Logo from '~/assets/imgs/mk2_logo.svg?no-inline'
 import grandEcranLogoSmall from '~/assets/imgs/grand_ecran_logo_small.webp?no-inline'
 import noeCinemasLogoSmall from '~/assets/imgs/noe_cinema_logo_small.webp?no-inline'
 import veoLogo from '~/assets/brands/veocinema_logo.svg?no-inline'
+import majesticLogo from '~/assets/brands/majestic_logo.svg?no-inline'
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
@@ -39,6 +40,7 @@ type Brand =
   | 'Grand Ecran'
   | 'Noé Cinémas'
   | 'Véo Cinémas'
+  | 'Majestic Cinémas'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -72,6 +74,7 @@ const sources = {
   'Grand Ecran': { inline: grandEcranLogoSmall, display: grandEcranLogoSmall },
   'Noé Cinémas': { inline: noeCinemasLogoSmall, display: noeCinemasLogoSmall },
   'Véo Cinémas': { inline: veoLogo, display: veoLogo },
+  'Majestic Cinémas': { inline: majesticLogo, display: majesticLogo },
   IMAX: { inline: imaxLogoSmall, display: imaxLogoLarge },
   KINEPOLIS: { inline: kinepolisLogoSmall, display: kinepolisLogoLarge },
   PATHE: { inline: patheLogoSmall, display: patheLogoLarge },
@@ -99,6 +102,7 @@ const accessibleNames = {
   'Grand Ecran': 'Grand Ecran',
   'Noé Cinémas': 'Noé Cinémas',
   'Véo Cinémas': 'Véo Cinémas',
+  'Majestic Cinémas': 'Majestic Cinémas',
   IMAX: 'IMAX',
   KINEPOLIS: 'Kinepolis',
   PATHE: 'Pathé',
@@ -125,7 +129,7 @@ const accessibleNames = {
     :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'ICE'
       ? (variant === 'display' ? 'h-16 w-auto sm:h-20' : 'h-[2em] w-auto align-middle')
       : variant === 'display'
-      ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
-      : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')]"
+      ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' || brand === 'Majestic Cinémas' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
+      : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' || brand === 'Majestic Cinémas' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')]"
   >
 </template>

@@ -27,6 +27,7 @@ const (
 	TargetGrandEcran Target = "grandecran"
 	TargetNoeCinemas Target = "noecinemas"
 	TargetVeo        Target = "veo"
+	TargetMajestic   Target = "majestic"
 
 	StateRunning   JobState = "running"
 	StateSucceeded JobState = "succeeded"
@@ -160,7 +161,7 @@ func releaseRunLease(ctx context.Context, lease RunLease) error {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetAll || target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran || target == TargetNoeCinemas || target == TargetVeo
+	return target == TargetAll || target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran || target == TargetNoeCinemas || target == TargetVeo || target == TargetMajestic
 }
 
 func (m *Manager) Start(target Target) (Status, error) {
@@ -241,6 +242,7 @@ func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan C
 		string(TargetGrandEcran): {State: ProviderNotRequested},
 		string(TargetNoeCinemas): {State: ProviderNotRequested},
 		string(TargetVeo):        {State: ProviderNotRequested},
+		string(TargetMajestic):   {State: ProviderNotRequested},
 	}
 	if target == TargetAll || target == TargetUGC {
 		providers[string(TargetUGC)] = ProviderStatus{State: ProviderPending}
@@ -274,6 +276,9 @@ func (m *Manager) start(target Target, occurrence *Occurrence) (Status, <-chan C
 	}
 	if target == TargetAll || target == TargetVeo {
 		providers[string(TargetVeo)] = ProviderStatus{State: ProviderPending}
+	}
+	if target == TargetAll || target == TargetMajestic {
+		providers[string(TargetMajestic)] = ProviderStatus{State: ProviderPending}
 	}
 	status := Status{
 		Target: target, State: StateRunning, Trigger: TriggerManual,
@@ -365,7 +370,7 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 	}()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo}
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic}
 	}
 	state := StateSucceeded
 	for _, provider := range providers {
@@ -533,7 +538,7 @@ func cloneStatus(status Status) Status {
 			state.Log = append([]string(nil), state.Log...)
 			copy.Providers[provider] = state
 		}
-		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo} {
+		for _, provider := range []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic} {
 			if _, exists := copy.Providers[string(provider)]; !exists {
 				copy.Providers[string(provider)] = ProviderStatus{State: ProviderNotRequested}
 			}

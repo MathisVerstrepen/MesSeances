@@ -155,7 +155,7 @@ test('Noé follows Grand Ecran throughout admin, latest-run, map and labels', as
     if (page.startsWith('sync'))
       assert.match(
         value,
-        /const providers = \[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',\s*'veo',?\s*\] as const/,
+        /const providers = \[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',\s*'veo',\s*'majestic',?\s*\] as const/,
       )
   }
   assert.match(

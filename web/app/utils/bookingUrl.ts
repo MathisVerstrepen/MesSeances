@@ -2,6 +2,7 @@ import type { Provider } from '../types/api'
 import { isValidMk2ShowingId } from './mk2.ts'
 import { safeCinewestBooking } from './cinewest.ts'
 import { safeVeoBooking } from './veo.ts'
+import { safeMajesticBooking } from './majestic.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -175,6 +176,11 @@ export function safeBookingUrl(
   showtimeId?: string | null,
   theaterId?: string | null,
 ): SafeBookingUrl | null {
+  if (raw && (expectedProvider === 'majestic' || !expectedProvider)) {
+    const majestic = safeMajesticBooking(raw, showtimeId, theaterId)
+    if (majestic) return { provider: 'majestic', ...majestic }
+  }
+  if (expectedProvider === 'majestic') return null
   if (raw && (expectedProvider === 'veo' || !expectedProvider)) {
     const veo = safeVeoBooking(raw, showtimeId, theaterId)
     if (veo) return { provider: 'veo', ...veo }

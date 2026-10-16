@@ -22,20 +22,20 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			pool := historyMigrationPool(t, ctx)
 			var before string
 			var relations []uint32
-			var veoChanges []veoConstraintChange
+			var providerChanges []providerConstraintChange
 			if upgrade {
 				installMigrationPrefix(t, ctx, pool, 41, "041_movie_original_language.sql")
 				seedVOFLanguageMigration(t, ctx, pool)
 				relations = vofLanguageMigrationRelations(t, ctx, pool)
-				veoChanges = captureVeoConstraintChanges(t, ctx, pool)
-				before = vofLanguageMigrationState(t, ctx, pool, relations, veoChanges...)
+				providerChanges = captureProviderConstraintChanges(t, ctx, pool)
+				before = vofLanguageMigrationState(t, ctx, pool, relations, providerChanges...)
 			}
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if upgrade {
-				assertVeoConstraintChanges(t, ctx, pool, veoChanges)
-				if got := vofLanguageMigrationState(t, ctx, pool, relations, veoChanges...); got != before {
+				assertProviderConstraintChanges(t, ctx, pool, providerChanges)
+				if got := vofLanguageMigrationState(t, ctx, pool, relations, providerChanges...); got != before {
 					t.Fatal("migration changed existing metadata, rows, identities, timestamps, or unrelated constraints")
 				}
 			} else {
@@ -182,7 +182,7 @@ func vofLanguageMigrationRelations(t *testing.T, ctx context.Context, pool *pgxp
 	return relations
 }
 
-func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, relations []uint32, veoChanges ...veoConstraintChange) string {
+func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, relations []uint32, providerChanges ...providerConstraintChange) string {
 	t.Helper()
 	var state string
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
@@ -208,7 +208,7 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
       AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check',
             'public_movies_metacritic_id_check','movie_metadata_cache_metacritic_id_check','showtimes_cinewest_shape_check')
        AND (conrelid::regclass::text || '.' || conname) <> ALL($2::text[]))
-)::text`, relations, veoConstraintKeys(veoChanges)).Scan(&state); err != nil {
+)::text`, relations, providerConstraintKeys(providerChanges)).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	return state

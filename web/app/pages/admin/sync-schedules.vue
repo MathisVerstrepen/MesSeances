@@ -69,6 +69,7 @@ const providers = [
   'grandecran',
   'noecinemas',
   'veo',
+  'majestic',
 ] as const
 const targets = [
   ...providers,
@@ -102,6 +103,7 @@ const targetLabels = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
   tmdb_metadata_refresh: 'Actualiser toutes les métadonnées TMDB',
   tmdb_upcoming_movies: 'TMDB - Prochainement',
 } satisfies Record<AdminSyncScheduleTarget, string>
@@ -199,6 +201,11 @@ const latestRuns = computed<Record<Provider, AdminSyncJob | null>>(() => ({
   ),
   veo: selectLatestProviderRun(
     'veo',
+    syncStatus.value?.job ?? null,
+    syncStatus.value?.runs ?? [],
+  ),
+  majestic: selectLatestProviderRun(
+    'majestic',
     syncStatus.value?.job ?? null,
     syncStatus.value?.runs ?? [],
   ),
