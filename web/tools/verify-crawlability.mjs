@@ -425,7 +425,7 @@ function reservationUrl(showtime) {
       }
       if (validIdentity) {
         const checkout =
-          /^https:\/\/achat\.veocinemas\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/r\/[1-9][0-9]*$/.exec(
+          /^https:\/\/achat\.veocinemas\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:reserver\/)?r\/[1-9][0-9]*$/.exec(
             raw,
           )
         if (checkout?.[0] === raw && theater !== 'EMS1361') return raw

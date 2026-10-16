@@ -12,7 +12,7 @@ import (
 var veoTheater = regexp.MustCompile(`^([A-Z0-9]{5}|EMS1361)$`)
 var veoMovie = regexp.MustCompile(`^([1-9][0-9]{0,111}|c[A-Za-z0-9_-]{1,111}|ticketingcine-[A-Z0-9]{5})$`)
 var veoShowing = regexp.MustCompile(`^([A-Z0-9]{5}|EMS1361)-[a-f0-9]{64}$`)
-var veoCheckout = regexp.MustCompile(`^https://achat\.veocinemas\.fr/[a-z0-9]+(-[a-z0-9]+)*/r/[1-9][0-9]*$`)
+var veoCheckout = regexp.MustCompile(`^https://achat\.veocinemas\.fr/[a-z0-9]+(-[a-z0-9]+)*/(reserver/)?r/[1-9][0-9]*$`)
 var veoTicketSession = regexp.MustCompile(`^emsx1361[0-9]{8}$`)
 
 func ValidVeoIdentity(kind, value string) bool {

@@ -94,7 +94,7 @@ test('Véo exact raw checkout and Castelia grammar have crawlability parity and 
     checkout.replace('/19', '/01'),
     checkout.replace('/19', '/-1'),
     checkout.replace('/19', '/1.5'),
-    checkout.replace('/r/', '/reserver/r/'),
+    checkout.replace('/r/', '/reserver/reserver/r/'),
     checkout.replace('/r/', '/x/../r/'),
     checkout.replace('/r/', '/%72/'),
     checkout.replace('/19', '/%31'),
@@ -142,6 +142,48 @@ test('Véo exact raw checkout and Castelia grammar have crawlability parity and 
   }
   for (const url of [checkout, ticket, root])
     assert.equal(safeBookingUrl(url)?.provider, 'veo')
+})
+
+test('Véo source aliases preserve both affected cinema URLs with strict tool parity', () => {
+  for (const [theater, slug, sessionId] of [
+    ['P0448', 'chateaurenard', '22309'],
+    ['W3187', 'labarthe-sur-leze', '5093'],
+  ]) {
+    const id = veoShowingId(theater!, 'opaque-session')
+    for (const segment of ['', 'reserver/']) {
+      const url = `https://achat.veocinemas.fr/${slug}/${segment}r/${sessionId}`
+      parity(url, 'booking', id, `veo-${theater}`)
+      parity(url, null, id, 'veo-W0067')
+      parity(url, null, castelia, 'veo-EMS1361')
+      for (const bad of [
+        `${url}?`,
+        `${url}?x=1`,
+        `${url}#`,
+        `${url}/`,
+        `${url}/extra`,
+        `${url}\n`,
+        `${url}\r`,
+        ` ${url}`,
+        `${url}\0`,
+        url.replace('https:', 'http:'),
+        url.replace('.fr/', '.fr:443/'),
+        url.replace('https://', 'https://user@'),
+        url.replace('achat.', 'evil.achat.'),
+        url.replace(`/${sessionId}`, '/0'),
+        url.replace(`/${sessionId}`, '/01'),
+        url.replace('/r/', '/R/'),
+        url.replace('/r/', '/%72/'),
+        url.replace(`/${slug}/`, `/${slug}/../${slug}/`),
+        url.replace(`/${slug}/`, `/${slug}/reserver/reserver/`),
+        url.replace(`/${slug}/`, `/${slug}/Reserver/`),
+        url.replace(`/${slug}/`, `/${slug}/reserver//`),
+        url.replace(`/${slug}/`, `/${slug}/%72eserver/`),
+        url.replace(`/${slug}/`, `/${slug}/reserver/F1/D1792065000/VF/`),
+        url + '1'.repeat(4097),
+      ])
+        parity(bad, null, id, `veo-${theater}`)
+    }
+  }
 })
 
 test('Véo qualified identity and exact Castelia SHA-256 binding fail closed when supplied', () => {

@@ -34,7 +34,7 @@ export function safeVeoBooking(
   }
   // Exact original bytes only: no trimming, URL normalization or shared-host inference.
   const checkout =
-    /^https:\/\/achat\.veocinemas\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/r\/[1-9][0-9]*$/.exec(
+    /^https:\/\/achat\.veocinemas\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:reserver\/)?r\/[1-9][0-9]*$/.exec(
       raw,
     )
   if (checkout?.[0] === raw)

@@ -96,6 +96,43 @@ func TestVeoPostgresReloadHistoryAndCoverageIntegration(t *testing.T) {
 	}
 }
 
+func TestVeoAlternateCheckoutPersistenceIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	store := NewStore(pool)
+	for _, cinema := range []struct{ id, slug, session string }{{"P0448", "chateaurenard", "22309"}, {"W3187", "labarthe-sur-leze", "5093"}} {
+		for _, segment := range []string{"", "reserver/"} {
+			d := veoTestDataset()
+			theater := &d.Theaters[0]
+			theater.ProviderID, theater.ID, theater.Slug = cinema.id, "veo-"+cinema.id, "veo-"+cinema.id
+			row := &d.Showtimes[0]
+			row.ProviderShowingID = schedule.VeoShowingID(cinema.id, "same-session-"+segment)
+			row.ID, row.TheaterID = "veo-showing-"+row.ProviderShowingID, theater.ID
+			row.BookingURL = "https://achat.veocinemas.fr/" + cinema.slug + "/" + segment + "r/" + cinema.session
+			d.Coverage[0].TheaterID = theater.ID
+			if _, err := store.Replace(t.Context(), []Dataset{d}); err != nil {
+				t.Fatal(err)
+			}
+			reloaded, _, err := store.Load(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, got := range reloaded.Showtimes {
+				if got.ID == row.ID {
+					found = true
+					if got.BookingURL != row.BookingURL || !got.EndTime.Equal(row.EndTime) || got.Room != row.Room {
+						t.Fatal("reload normalized source or changed end/room")
+					}
+				}
+			}
+			var booking string
+			if err := pool.QueryRow(t.Context(), `SELECT booking_url FROM screening_history_showtimes WHERE id=$1`, row.ID).Scan(&booking); err != nil || booking != row.BookingURL || !found {
+				t.Fatal("history lost original source alias", err)
+			}
+		}
+	}
+}
+
 func assertVeoActivityCoverage(t *testing.T, pool *pgxpool.Pool, d Dataset, generation int64) {
 	t.Helper()
 	type key struct{ theater, date, status, basis string }

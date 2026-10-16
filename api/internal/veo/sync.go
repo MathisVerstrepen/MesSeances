@@ -13,7 +13,7 @@ import (
 
 type Getter interface {
 	Get(context.Context, Operation, string) ([]byte, error)
-	Checkout(context.Context, string, time.Time) ([]byte, error)
+	Checkout(context.Context, string, time.Time) (CheckoutResult, error)
 	RequestCount() int
 }
 type SyncOptions struct {
@@ -25,6 +25,10 @@ type SyncOptions struct {
 type SyncSummary struct {
 	Cinemas, Movies, Jobs, Requests, Showtimes, Checkouts, ExactEnds int
 	GeneratedAt                                                      time.Time
+	// Provider-private observability; never copied into public sync models.
+	CheckoutRetryAttempts, CheckoutRecoveries int
+	FirstCheckoutRetry                        *CheckoutParseError
+	FirstCheckoutRetryRecovered               bool
 }
 
 func Sync(ctx context.Context, g Getter, o SyncOptions) (schedule.Dataset, SyncSummary, error) {

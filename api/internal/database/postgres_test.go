@@ -122,6 +122,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{61, "061_public_page_content.sql"},
 		{62, "062_account_watched.sql"},
 		{63, "063_veo_provider.sql"},
+		{64, "064_veo_checkout_source_paths.sql"},
 	}
 
 	items, err := embeddedMigrations()
@@ -154,7 +155,7 @@ func TestPublishedWatchedMigrationPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(available) != 63 || available[61].name != "062_account_watched.sql" || available[62].name != "063_veo_provider.sql" {
+	if len(available) != 64 || available[61].name != "062_account_watched.sql" || available[62].name != "063_veo_provider.sql" {
 		t.Fatal("published watched062 must precede pending Véo063")
 	}
 	// Pin the published watched body and the pre-renumbering Véo body. This is
@@ -177,5 +178,22 @@ func TestPublishedWatchedMigrationPrefix(t *testing.T) {
 	recorded[61].name = "062_veo_provider.sql"
 	if err := validateMigrationHistory(recorded, available); !errors.Is(err, ErrMigrationHistoryIncompatible) {
 		t.Fatal("incompatible renumbered history must remain rejected", err)
+	}
+}
+
+func TestVeoCheckoutMigrationOnlyBroadensSourceAlias(t *testing.T) {
+	items, err := embeddedMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := items[62].sql
+	start := strings.Index(previous, "CREATE FUNCTION veo_booking_valid(")
+	end := strings.Index(previous[start:], "\nDO $$") + start
+	want := strings.TrimSpace(previous[start:end])
+	want = strings.Replace(want, "CREATE FUNCTION", "CREATE OR REPLACE FUNCTION", 1)
+	want = strings.Replace(want, "*/r/[1-9]", "*/(reserver/)?r/[1-9]", 1)
+	got := strings.TrimSpace(strings.SplitN(items[63].sql, "\n", 2)[1])
+	if got != want {
+		t.Fatal("064 must only replace the exact existing helper with the approved source path alternative")
 	}
 }

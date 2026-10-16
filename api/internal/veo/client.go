@@ -4,6 +4,7 @@ package veo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,7 +82,12 @@ func NewClient(c ClientConfig) (*Client, error) {
 
 // Decode HTML at the provider-local transport boundary to honor HTTP charset as
 // well as meta declarations. Executor still bounds the decoded response body.
-type htmlTransport struct{ base http.RoundTripper }
+type htmlTransport struct {
+	base http.RoundTripper
+	pool clientPoolPosition
+}
+
+type clientPoolPosition struct{ index, count int }
 type decodedBody struct {
 	io.Reader
 	io.Closer
@@ -89,8 +95,24 @@ type decodedBody struct {
 
 type checkoutBindingKey struct{}
 type checkoutBinding struct {
-	source string
-	start  time.Time
+	source   string
+	start    time.Time
+	response *checkoutResponse
+}
+
+// CheckoutResult keeps trusted response identity separate from untrusted HTML.
+// Only this provider's transport can supply the canonical URL.
+type CheckoutResult struct {
+	Body                  []byte
+	canonicalURL          string
+	unavailableEnrichment bool
+	pool                  clientPoolPosition
+}
+
+type checkoutResponse struct {
+	canonicalURL          string
+	unavailableEnrichment bool
+	pool                  clientPoolPosition
 }
 
 // Only this observed canonicalization is internal fetch authority. It is never
@@ -129,12 +151,32 @@ func checkoutRedirect(request *http.Request, via []*http.Request) error {
 
 func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	binding, bound := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
+	if bound && binding.response != nil {
+		// Each Checkout owns this cell. Redirects and retries are sequential;
+		// never reuse metadata from an earlier response/attempt.
+		binding.response.canonicalURL = ""
+		binding.response.unavailableEnrichment = false
+		binding.response.pool = clientPoolPosition{}
+	}
 	if bound && !boundCheckoutURL(req.URL, binding) {
 		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
 	}
 	r, err := t.base.RoundTrip(req)
 	if err != nil {
 		return nil, err
+	}
+	if bound && binding.response != nil && req.Method == http.MethodGet && req.URL.String() == binding.source &&
+		r.StatusCode == http.StatusTemporaryRedirect && len(r.Header.Values("Location")) == 1 &&
+		r.Header.Get("Location") == "https://achat.veocinemas.fr/"+strings.Split(req.URL.Path, "/")[1]+"/reserver/" {
+		// This exact first-hop response means enrichment is unavailable, not that
+		// the cinema entry is a session page. Never follow or read its body. Stop
+		// through the existing non-retryable redirect classification; Checkout
+		// alone consumes this per-request transport fact as an explicit outcome.
+		if r.Body != nil {
+			_ = r.Body.Close()
+		}
+		binding.response.unavailableEnrichment = true
+		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
 	}
 	if bound && (r.StatusCode == 301 || r.StatusCode == 302 || r.StatusCode == 303 || r.StatusCode == 307 || r.StatusCode == 308) && r.Header.Get("Location") != "" {
 		// Inspect the raw header before net/http resolves dot segments or loses
@@ -163,6 +205,12 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		r.Body = decodedBody{reader, r.Body}
 		r.ContentLength = -1
 	}
+	if bound && binding.response != nil && r.StatusCode == http.StatusOK && checkoutDestination.MatchString(req.URL.Path) {
+		binding.response.canonicalURL = req.URL.String()
+	}
+	if bound && binding.response != nil && r.StatusCode == http.StatusOK {
+		binding.response.pool = t.pool
+	}
 	return r, nil
 }
 func newClient(clients []*http.Client, sleep func(context.Context, time.Duration) error) (*Client, error) {
@@ -178,7 +226,7 @@ func newClient(clients []*http.Client, sleep func(context.Context, time.Duration
 				if base == nil {
 					base = http.DefaultTransport
 				}
-				copy.Transport = htmlTransport{base}
+				copy.Transport = htmlTransport{base: base, pool: clientPoolPosition{index: i + 1, count: len(clients)}}
 			}
 			copy.CheckRedirect = syncproxy.NewRedirectChecker(valid)
 			if checkout {
@@ -206,11 +254,23 @@ func (c *Client) RequestCount() int { return c.json.RequestCount() + c.html.Requ
 
 // Checkout carries explicit session identity into the private transport policy.
 // A bare Get has no such identity and therefore may not follow any redirect.
-func (c *Client) Checkout(ctx context.Context, raw string, start time.Time) ([]byte, error) {
+func (c *Client) Checkout(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
 	if start.IsZero() || start.Nanosecond() != 0 {
-		return nil, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureInvalidURL}
+		return CheckoutResult{}, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureInvalidURL}
 	}
-	return c.Get(context.WithValue(ctx, checkoutBindingKey{}, checkoutBinding{source: raw, start: start}), OperationCheckout, raw)
+	response := &checkoutResponse{}
+	body, err := c.Get(context.WithValue(ctx, checkoutBindingKey{}, checkoutBinding{source: raw, start: start, response: response}), OperationCheckout, raw)
+	if ctx.Err() != nil {
+		return CheckoutResult{}, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureCanceled, cause: ctx.Err()}
+	}
+	if err != nil {
+		var failure *RequestError
+		if response.unavailableEnrichment && errors.As(err, &failure) && failure.Kind == syncproxy.FailureRedirect {
+			return CheckoutResult{unavailableEnrichment: true}, nil
+		}
+		return CheckoutResult{}, err
+	}
+	return CheckoutResult{Body: body, canonicalURL: response.canonicalURL, pool: response.pool}, nil
 }
 
 func (c *Client) Get(ctx context.Context, op Operation, raw string) ([]byte, error) {

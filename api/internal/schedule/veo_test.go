@@ -36,6 +36,37 @@ func TestVeoIdentitiesAndBookingSafety(t *testing.T) {
 	}
 }
 
+func TestVeoCheckoutSourceForms(t *testing.T) {
+	for _, cinema := range []struct{ id, slug, session string }{{"P0448", "chateaurenard", "22309"}, {"W3187", "labarthe-sur-leze", "5093"}} {
+		for _, segment := range []string{"", "reserver/"} {
+			raw := "https://achat.veocinemas.fr/" + cinema.slug + "/" + segment + "r/" + cinema.session
+			showing := VeoShowingID(cinema.id, "opaque-session")
+			if !ValidVeoCheckoutURL(raw) || !ValidVeoBookingURL(raw, cinema.id, showing) {
+				t.Fatal("source alias rejected", raw)
+			}
+			if ValidVeoBookingURL(raw, "W0067", showing) || ValidVeoBookingURL(raw, "EMS1361", VeoShowingID("EMS1361", "emsx136100000001")) {
+				t.Fatal("cross-cinema/platform identity accepted")
+			}
+			for _, bad := range []string{
+				raw + "?", raw + "?x=1", raw + "#", raw + "/", raw + "/extra", raw + "\n", raw + "\r", " " + raw, raw + "\x00",
+				strings.Replace(raw, "https:", "http:", 1), strings.Replace(raw, ".fr/", ".fr:443/", 1), strings.Replace(raw, "https://", "https://user@", 1), strings.Replace(raw, "achat.", "evil.achat.", 1),
+				strings.Replace(raw, "/"+cinema.session, "/0", 1), strings.Replace(raw, "/"+cinema.session, "/01", 1), strings.Replace(raw, "/r/", "/R/", 1), strings.Replace(raw, "/r/", "/%72/", 1),
+				strings.Replace(raw, "/"+cinema.slug+"/", "/"+cinema.slug+"/../"+cinema.slug+"/", 1),
+				strings.Replace(raw, "/"+cinema.slug+"/", "/"+cinema.slug+"/reserver/reserver/", 1),
+				strings.Replace(raw, "/"+cinema.slug+"/", "/"+cinema.slug+"/Reserver/", 1),
+				strings.Replace(raw, "/"+cinema.slug+"/", "/"+cinema.slug+"/reserver//", 1),
+				strings.Replace(raw, "/"+cinema.slug+"/", "/"+cinema.slug+"/%72eserver/", 1),
+				strings.Replace(raw, "/"+cinema.slug+"/", "/"+cinema.slug+"/reserver/F1/D1792065000/VF/", 1),
+				raw + strings.Repeat("1", 4097),
+			} {
+				if ValidVeoCheckoutURL(bad) || ValidVeoBookingURL(bad, cinema.id, showing) {
+					t.Fatal("unsafe source accepted", bad)
+				}
+			}
+		}
+	}
+}
+
 func TestVeoDatasetTimingAndPlatformChecks(t *testing.T) {
 	loc, _ := time.LoadLocation(Timezone)
 	start := time.Date(2026, 10, 15, 23, 30, 0, 0, loc)

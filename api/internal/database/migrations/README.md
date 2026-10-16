@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [063_veo_provider.sql](063_veo_provider.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [064_veo_checkout_source_paths.sql](064_veo_checkout_source_paths.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -8,7 +8,7 @@ This document describes the PostgreSQL schema after applying migrations `001_ini
 
 `movieflow_schema_migrations` stores the version, filename, and application timestamp of each applied migration.
 
-Published [062_account_watched.sql](062_account_watched.sql) precedes Véo 063. Databases with that watched history apply only the pending Véo migration; do not renumber published history or edit the existing ledger. A checkout that recorded the incompatible Véo062/watched063 ordering requires separate operator assessment, not an automatic ledger rewrite.
+Published [062_account_watched.sql](062_account_watched.sql) precedes Véo 063. Databases with that watched history apply only pending migrations; do not renumber published history or edit the existing ledger. A checkout that recorded the incompatible Véo062/watched063 ordering requires separate operator assessment, not an automatic ledger rewrite.
 
 It is created by the Go runner, not by a numbered migration:
 
@@ -86,6 +86,8 @@ Capitole's current identity is `cinewest-ticketingcine-EMS1378`; retired `webedi
 Identity columns use `varchar(128)` unless documented otherwise. Derived IDs and slugs must also fit their own 128-character columns. Pathé showing identities include both venue and session tokens, not just an `S...` token.
 
 Véo uses `veo_identity_valid`: theater IDs are five uppercase alphanumeric characters or exactly `EMS1361`; movie IDs are numeric/c-prefixed Boxoffice IDs bounded to 112 bytes or `ticketingcine-` plus five uppercase alphanumeric characters. Showing IDs are theater ID plus a hyphen and 64 lowercase SHA-256 hex characters, hashing raw theater ID, NUL and exact source session ID. Live/history shapes bind showing to theater and prevent cross-platform movie identities. Source aliases and catalog source slugs equal `veo-film-` plus source movie ID. Locations and images use the theater identity helper. Boxoffice ends are source-published or equal starts when unpublished, with zero first-part duration. Castelia permits nonnegative first-part duration; application validates its runtime-based end. Empty rooms are valid. `veo_booking_valid` restricts checkout URLs and binds Castelia fragments to hashed sessions. Migration 063 extends live, copied history, activity coverage and image provider checks without changing existing data or enabling/seeding schedules. Only Véo Boxoffice can supply complete date-response coverage; Castelia remains unknown.
+
+Véo Boxoffice booking URLs accept only the exact HTTPS `achat.veocinemas.fr/SLUG/r/POSITIVE_ID` or `achat.veocinemas.fr/SLUG/reserver/r/POSITIVE_ID` source forms, with the same lowercase kebab-case slug, length and identity checks. Queries, fragments, escaping, credentials, ports and other paths remain invalid. Migration 064 replaces only `veo_booking_valid`, preserving its Castelia branch, existing CHECK definitions and stored rows; published migrations through 063 remain unchanged. It neither canonicalizes booking URLs nor changes checkout redirect policy.
 
 ## Account tables
 

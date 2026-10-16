@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -22,8 +23,9 @@ type fixtureGetter struct {
 }
 
 func (f *fixtureGetter) RequestCount() int { f.mu.Lock(); defer f.mu.Unlock(); return f.calls }
-func (f *fixtureGetter) Checkout(ctx context.Context, raw string, _ time.Time) ([]byte, error) {
-	return f.Get(ctx, OperationCheckout, raw)
+func (f *fixtureGetter) Checkout(ctx context.Context, raw string, _ time.Time) (CheckoutResult, error) {
+	body, err := f.Get(ctx, OperationCheckout, raw)
+	return CheckoutResult{Body: body}, err
 }
 func (f *fixtureGetter) Get(ctx context.Context, op Operation, raw string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
@@ -134,6 +136,50 @@ func TestSyncFailureNeverReturnsPartialDataset(t *testing.T) {
 	d, _, err := Sync(ctx, &fixtureGetter{}, fixtureOptions())
 	if !errors.Is(err, context.Canceled) || len(d.Theaters) != 0 {
 		t.Fatal(err)
+	}
+}
+
+func TestSyncAffectedCinemaSourceAliases(t *testing.T) {
+	for _, cinema := range []struct{ id, slug, session string }{{"P0448", "chateaurenard", "22309"}, {"W3187", "labarthe-sur-leze", "5093"}} {
+		for _, segment := range []string{"", "reserver/"} {
+			t.Run(cinema.id+"/"+segment, func(t *testing.T) {
+				f := &fixtureGetter{modify: func(op Operation, raw string, b []byte) ([]byte, error) {
+					text := string(b)
+					if op == OperationCastelia {
+						return []byte(strings.ReplaceAll(text, `https://images.ticketingcine.fr/assets/global/600/FR/fixture.jpg`, ``)), nil
+					}
+					if op == OperationCinemas || op == OperationSchedule {
+						text = strings.ReplaceAll(text, "P1028", cinema.id)
+					}
+					if op == OperationSchedule && strings.HasPrefix(raw, MainOrigin) {
+						text = strings.ReplaceAll(text, "https://achat.veocinemas.fr/fixture/r/123", "https://achat.veocinemas.fr/"+cinema.slug+"/"+segment+"r/"+cinema.session)
+					}
+					return []byte(text), nil
+				}}
+				d, summary, err := Sync(t.Context(), f, fixtureOptions())
+				if err != nil || len(d.Theaters) != 3 || len(d.Showtimes) != 5 || summary.Checkouts != 4 || summary.ExactEnds != 4 {
+					t.Fatal("affected cinemas omitted", summary, err)
+				}
+				if err := schedule.ValidateDataset(d, true); err != nil {
+					t.Fatal(err)
+				}
+				for _, row := range d.Showtimes {
+					if row.TheaterID != "veo-"+cinema.id {
+						continue
+					}
+					if row.BookingURL != "https://achat.veocinemas.fr/"+cinema.slug+"/"+segment+"r/"+cinema.session || row.EndTime.Format("15:04") != "01:15" {
+						t.Fatal("original URL or exact end lost", row)
+					}
+					wantRoom := "Salle source"
+					if row.ServiceDate == "2026-10-28" {
+						wantRoom = "Salle 2"
+					}
+					if row.Room != wantRoom {
+						t.Fatal("room precedence changed", row)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -377,8 +423,188 @@ func (f getterFunc) Get(ctx context.Context, op Operation, u string) ([]byte, er
 	return f(ctx, op, u)
 }
 func (getterFunc) RequestCount() int { return 0 }
-func (f getterFunc) Checkout(ctx context.Context, raw string, _ time.Time) ([]byte, error) {
-	return f(ctx, OperationCheckout, raw)
+func (f getterFunc) Checkout(ctx context.Context, raw string, _ time.Time) (CheckoutResult, error) {
+	body, err := f(ctx, OperationCheckout, raw)
+	return CheckoutResult{Body: body}, err
+}
+
+type formFixtureGetter struct {
+	*fixtureGetter
+	end, mismatch bool
+}
+
+func (f formFixtureGetter) Checkout(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
+	_, err := f.Get(ctx, OperationCheckout, raw)
+	canonical := fmt.Sprintf("https://achat.veocinemas.fr/fixture/reserver/F123/D%d/VF/81/", start.Unix())
+	action := canonical
+	if f.mismatch {
+		action = strings.Replace(canonical, "F123", "F124", 1)
+	}
+	body := bookingFormFixture(action)
+	if f.end {
+		body += `<div id=s_fin>fin prévue à 01h15</div>`
+	}
+	return CheckoutResult{Body: []byte(body), canonicalURL: canonical}, err
+}
+
+func TestSyncVerifiedFormKeepsOptionalMetadataAndAtomicity(t *testing.T) {
+	for _, withEnd := range []bool{false, true} {
+		for _, mismatch := range []bool{false, true} {
+			g := formFixtureGetter{fixtureGetter: &fixtureGetter{}, end: withEnd, mismatch: mismatch}
+			d, summary, err := Sync(t.Context(), g, fixtureOptions())
+			if mismatch {
+				if err == nil || len(d.Showtimes) != 0 || summary.Checkouts != 0 {
+					t.Fatal("unbound future form partially accepted", err)
+				}
+				continue
+			}
+			if err != nil || len(d.Theaters) != 3 || len(d.Showtimes) != 5 || summary.Checkouts != 4 {
+				t.Fatal("verified optional fields blocked full acquisition", summary, err)
+			}
+			for _, row := range d.Showtimes {
+				if row.TheaterID == "veo-EMS1361" {
+					continue
+				}
+				if row.EndTime.Equal(row.StartTime) == withEnd {
+					t.Fatal("source end absence was inferred/discarded")
+				}
+				wantRoom := ""
+				if row.ServiceDate == "2026-10-15" {
+					wantRoom = "Salle source"
+				}
+				if row.Room != wantRoom {
+					t.Fatal("API room lost or missing room fabricated", row.Room)
+				}
+			}
+			if summary.ExactEnds != map[bool]int{false: 0, true: 4}[withEnd] {
+				t.Fatal("inaccurate exact-end count", summary.ExactEnds)
+			}
+		}
+	}
+}
+
+func TestSyncFrontonLiteralUsesBoundCanonicalAndRemainsAtomic(t *testing.T) {
+	for _, mismatch := range []bool{false, true} {
+		c := testClient(t, func(req *http.Request) (*http.Response, error) {
+			binding := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
+			if req.URL.String() == binding.source {
+				slug := strings.Split(req.URL.Path, "/")[1]
+				r := fixtureResponse(307, "", "text/html")
+				r.Header.Set("Location", fmt.Sprintf("https://achat.veocinemas.fr/%s/reserver/F123/D%d/VF/2729/", slug, binding.start.Unix()))
+				return r, nil
+			}
+			body := `<script>{"auditorium_showtime":"salle-2"}</script><div id=s_fin>fin prévue à 01h15</div>`
+			if strings.HasPrefix(req.URL.Path, "/fronton/") {
+				action := req.URL.String()
+				if mismatch {
+					action = strings.Replace(action, "/F123/", "/F124/", 1)
+				}
+				body = `<script>{"auditorium_showtime":"cine-fronton"}</script>` + bookingFormFixture(action) + `<div id=s_fin>fin prévue à 01h15</div>`
+			}
+			return fixtureResponse(200, body, "text/html"), nil
+		})
+		g := checkoutClientFixture{client: c, fixtureGetter: &fixtureGetter{modify: func(op Operation, raw string, b []byte) ([]byte, error) {
+			text := string(b)
+			if op == OperationCastelia {
+				text = strings.ReplaceAll(text, "https://images.ticketingcine.fr/assets/global/600/FR/fixture.jpg", "")
+			}
+			if op == OperationCinemas || op == OperationSchedule {
+				text = strings.ReplaceAll(text, "P1028", "P3863")
+			}
+			if op == OperationSchedule && strings.HasPrefix(raw, MainOrigin) {
+				text = strings.ReplaceAll(text, "/fixture/r/123", "/fronton/r/2729")
+			}
+			return []byte(text), nil
+		}}}
+		d, s, err := Sync(t.Context(), g, fixtureOptions())
+		if mismatch {
+			var rejected *CheckoutParseError
+			if !errors.As(err, &rejected) || rejected.CinemaID != "P3863" || len(d.Showtimes) != 0 {
+				t.Fatal("unbound literal not atomic", err)
+			}
+			continue
+		}
+		if err != nil || len(d.Theaters) != 3 || len(d.Showtimes) != 5 || s.Checkouts != 4 || s.ExactEnds != 4 {
+			t.Fatal(s, err)
+		}
+		for _, row := range d.Showtimes {
+			if row.TheaterID != "veo-P3863" {
+				continue
+			}
+			want := "Salle source"
+			if row.ServiceDate == "2026-10-28" {
+				want = "cine-fronton"
+			}
+			if row.Room != want || row.EndTime.Format("15:04") != "01:15" || row.BookingURL != "https://achat.veocinemas.fr/fronton/r/2729" {
+				t.Fatal("published source fields changed", row)
+			}
+		}
+	}
+}
+
+type checkoutClientFixture struct {
+	*fixtureGetter
+	client *Client
+}
+
+func (f checkoutClientFixture) Checkout(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
+	return f.client.Checkout(ctx, raw, start)
+}
+
+func (f checkoutClientFixture) RequestCount() int {
+	return f.fixtureGetter.RequestCount() + f.client.RequestCount()
+}
+
+func TestSyncUnavailableEntryRetainsAdvertisedRowsAndMetadata(t *testing.T) {
+	baseline, _, err := Sync(t.Context(), &fixtureGetter{}, fixtureOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reject := range []bool{false, true} {
+		c := testClient(t, func(*http.Request) (*http.Response, error) {
+			r := fixtureResponse(307, "not a session page", "text/html")
+			target := "https://achat.veocinemas.fr/fixture/reserver/"
+			if reject {
+				target += "?"
+			}
+			r.Header.Set("Location", target)
+			return r, nil
+		})
+		g := checkoutClientFixture{fixtureGetter: &fixtureGetter{}, client: c}
+		d, summary, err := Sync(t.Context(), g, fixtureOptions())
+		if reject {
+			if err == nil || len(d.Showtimes) != 0 || summary.Checkouts != 0 {
+				t.Fatal("near-miss future error partially published", err)
+			}
+			continue
+		}
+		if err != nil || len(d.Theaters) != len(baseline.Theaters) || len(d.Showtimes) != len(baseline.Showtimes) ||
+			len(d.Coverage) != len(baseline.Coverage) || d.Window != baseline.Window || summary.Checkouts != 4 || summary.ExactEnds != 0 || c.RequestCount() != 4 {
+			t.Fatal("unavailable enrichment lost advertised acquisition", summary, err)
+		}
+		for i, row := range d.Showtimes {
+			before := baseline.Showtimes[i]
+			if row.ID != before.ID || row.ServiceDate != before.ServiceDate || row.BookingURL != before.BookingURL || !row.StartTime.Equal(before.StartTime) {
+				t.Fatal("advertised row identity, date or original URL changed")
+			}
+			if row.TheaterID == "veo-EMS1361" {
+				if !row.EndTime.Equal(before.EndTime) || row.Room != before.Room {
+					t.Fatal("Castelia changed")
+				}
+				continue
+			}
+			wantRoom := ""
+			if row.ServiceDate == "2026-10-15" {
+				wantRoom = "Salle source"
+			}
+			if !row.EndTime.Equal(row.StartTime) || row.Room != wantRoom {
+				t.Fatal("unavailable end or room invented/lost")
+			}
+		}
+		if err := schedule.ValidateDataset(d, true); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 func TestMovieRuntimePosterAndVersions(t *testing.T) {
 	for _, tc := range []struct {

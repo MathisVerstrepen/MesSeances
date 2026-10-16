@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"messeances/api/internal/cgr"
@@ -289,6 +290,9 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary veo.SyncSummary
 		data, summary, err = e.syncVeo(ctx, client, veo.SyncOptions{From: window.From, Now: e.now()})
+		if args := veoCheckoutRetryLogArgs(summary); len(args) != 0 {
+			e.logger.Info("veo_checkout_retry_summary", args...)
+		}
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetMK2:
 		if e.newMK2 == nil {
@@ -416,7 +420,126 @@ func providerFetchLogArgs(provider Target, err error) []any {
 	if details.Attempt >= 1 && details.AttemptLimit >= details.Attempt && details.AttemptLimit <= 10 {
 		args = append(args, "attempt", details.Attempt, "attempt_limit", details.AttemptLimit)
 	}
+	if provider == TargetVeo && details.Category == categoryInvalidPayload {
+		var rejected *veo.CheckoutParseError
+		if errors.As(err, &rejected) {
+			// Revalidate at the logging boundary, including errors constructed by
+			// callers. No provider strings or error/cause rendering is permitted.
+			switch rejected.Reason {
+			case veo.RejectRoom, veo.RejectBookingForm, veo.RejectClock, veo.RejectEndResolution:
+				args = append(args, "veo_checkout_reason", string(rejected.Reason))
+				if rejected.Reason == veo.RejectBookingForm {
+					if subreason := safeVeoFormSubreason(rejected.FormSubreason()); subreason != "" {
+						args = append(args, "veo_form_subreason", subreason)
+					}
+				}
+				if schedule.ValidVeoIdentity("theater", rejected.CinemaID) && schedule.ValidVeoIdentity("showing", rejected.ShowingID) && strings.HasPrefix(rejected.ShowingID, rejected.CinemaID+"-") {
+					args = append(args, "veo_cinema_id", rejected.CinemaID, "veo_showing_id", rejected.ShowingID)
+					if rejected.Reason == veo.RejectBookingForm && rejected.FormSubreason() == "action_mismatch" {
+						if names := safeVeoActionDifferences(rejected.ActionDifferences()); names != "" {
+							args = append(args, "veo_action_difference_bits", rejected.ActionDifferences(), "veo_action_differences", names)
+						}
+						if facts, ok := rejected.ActionPathFacts(); ok {
+							args = append(args, safeVeoActionPathLogArgs(facts)...)
+						}
+					}
+					index, count := rejected.ClientPoolPosition()
+					if validVeoClientPoolPosition(index, count) {
+						args = append(args, "veo_client_pool_position", index, "veo_client_pool_size", count)
+					}
+				}
+			}
+		}
+	}
 	return args
+}
+
+func validVeoClientPoolPosition(index, count int) bool {
+	return index >= 1 && index <= count && count <= 10000
+}
+
+func safeVeoActionPathLogArgs(d veo.CheckoutActionPathFacts) []any {
+	// This independent boundary validates every provider-local enum, mask and
+	// collection. Never serialize the supplied struct or any unrecognized value.
+	switch d.Shape {
+	case "canonical_unavailable", "unparseable", "canonical_tokens", "canonical_prefix_extra", "generic_entry", "source_alias", "empty_segments", "missing_segments", "reordered_tokens", "different_shape":
+	default:
+		return nil
+	}
+	if len(d.Classes) > 32 || d.ExpectedPresentMask&^uint8(63) != 0 || d.ExpectedPositionMask&^d.ExpectedPresentMask != 0 {
+		return nil
+	}
+	for _, count := range []int{d.SegmentCount, d.EmptySegments, d.ExtraCount, d.MissingCount} {
+		if count < 0 || count > 1024 {
+			return nil
+		}
+	}
+	for _, class := range d.Classes {
+		switch class {
+		case "expected_slug", "route_reserver", "expected_film", "expected_epoch", "expected_version", "expected_tail", "route_source_r", "film_like", "epoch_like", "version_enum", "decimal", "empty", "other":
+		default:
+			return nil
+		}
+	}
+	for i, position := range d.ExpectedPositions {
+		if position < -1 || position > 1024 || (position >= 0) != (d.ExpectedPresentMask&(1<<i) != 0) || d.ExpectedAtPosition[i] != (d.ExpectedPositionMask&(1<<i) != 0) {
+			return nil
+		}
+	}
+	if !d.Parsed && (d.ExpectedPresentMask != 0 || d.ExpectedPositionMask != 0 || d.SegmentCount != 0 || len(d.Classes) != 0 || d.CanonicalPrefix || d.ExpectedTokensInOrder) {
+		return nil
+	}
+	return []any{
+		"veo_action_path_shape", d.Shape, "veo_action_path_parsed", d.Parsed, "veo_action_path_canonical_valid", d.CanonicalValid,
+		"veo_action_path_segments", d.SegmentCount, "veo_action_path_empty", d.EmptySegments,
+		"veo_action_path_extra", d.ExtraCount, "veo_action_path_missing", d.MissingCount,
+		"veo_action_path_counts_truncated", d.CountsTruncated, "veo_action_path_classes", strings.Join(d.Classes, ","),
+		"veo_action_path_classes_truncated", d.ClassesTruncated,
+		"veo_action_path_leading_slash", d.LeadingSlash, "veo_action_path_trailing_slash", d.TrailingSlash,
+		"veo_action_path_canonical_prefix", d.CanonicalPrefix, "veo_action_path_tokens_in_order", d.ExpectedTokensInOrder,
+		"veo_action_path_present_mask", d.ExpectedPresentMask, "veo_action_path_position_mask", d.ExpectedPositionMask,
+		"veo_action_path_expected_positions", d.ExpectedPositions,
+		"veo_action_path_absolute", d.Absolute, "veo_action_path_scheme_equal", d.SchemeEqual, "veo_action_path_authority_equal", d.AuthorityEqual,
+		"veo_action_path_query", d.QueryPresent, "veo_action_path_fragment", d.FragmentPresent,
+		"veo_action_path_userinfo", d.UserinfoPresent, "veo_action_path_escaping", d.EscapingPresent,
+	}
+}
+
+func veoCheckoutRetryLogArgs(summary veo.SyncSummary) []any {
+	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts {
+		return nil
+	}
+	args := []any{"component", "sync", "provider", "veo", "checkout_retry_attempts", summary.CheckoutRetryAttempts, "checkout_recoveries", summary.CheckoutRecoveries}
+	if summary.CheckoutRetryAttempts > 0 && summary.FirstCheckoutRetry != nil {
+		args = append(args, "first_retry_recovered", summary.FirstCheckoutRetryRecovered)
+		// Use exactly the existing defensive reason/identity/bit/index whitelist.
+		args = append(args, providerFetchLogArgs(TargetVeo, newProviderRunError(TargetVeo, StageProviderFetch, FailureProviderSync, summary.FirstCheckoutRetry))...)
+	}
+	return args
+}
+
+func safeVeoActionDifferences(bits uint32) string {
+	// Independent logging whitelist. Unknown/forged bits suppress the entire set.
+	names := [...]string{"scheme", "authority", "path_shape", "slug", "film", "epoch", "version", "tail", "trailing_slash", "query", "fragment", "relative", "whitespace", "escaping", "userinfo", "unparseable", "representation"}
+	if bits == 0 || bits&^uint32((1<<len(names))-1) != 0 {
+		return ""
+	}
+	selected := []string{}
+	for i, name := range names {
+		if bits&(1<<i) != 0 {
+			selected = append(selected, name)
+		}
+	}
+	return strings.Join(selected, ",")
+}
+
+func safeVeoFormSubreason(reason string) string {
+	switch reason {
+	case "body_encoding", "html_parse", "canonical_missing", "canonical_invalid", "raw_form_count", "dom_form_count", "template_inert", "action_count", "action_mismatch", "method_count", "method_non_post", "login_password", "fronton_scope":
+		return reason
+	default:
+		return ""
+	}
 }
 
 func safePatheFetchCategory(category pathe.ErrorCategory) logCategory {
@@ -626,6 +749,11 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 			}
 			details.Category = safeMegaramaCategory(requestErr.Kind)
 			details.HTTPStatus = requestErr.StatusCode
+		} else {
+			var rejected *veo.CheckoutParseError
+			if errors.As(err, &rejected) {
+				details.Operation, details.Category = operationShowings, categoryInvalidPayload
+			}
 		}
 	case TargetMK2:
 		var requestErr *mk2.RequestError
