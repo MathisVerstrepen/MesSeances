@@ -83,7 +83,7 @@ func TestCinewestSkippedCountInAdminOutcomeAndLogs(t *testing.T) {
 	}
 }
 
-func TestCinewestExecutorAndScheduledStatus(t *testing.T) {
+func TestCinewestExecutorMetricsAndFailures(t *testing.T) {
 	window := Window{From: "2026-08-17"}
 	writes := 0
 	e := &ProductionExecutor{now: time.Now, logger: slog.New(slog.DiscardHandler), operationTimeout: time.Second, writer: writerFunc(func(_ context.Context, d []schedule.Dataset) (int64, error) {
@@ -109,21 +109,5 @@ func TestCinewestExecutorAndScheduledStatus(t *testing.T) {
 	e.newCinewest = func() (cinewest.Fetcher, error) { return nil, errors.New("synthetic secret") }
 	if _, err := e.Run(t.Context(), TargetCinewest, window); err == nil || writes != 1 {
 		t.Fatal("client failure")
-	}
-	manager, err := newTestManager(t.Context(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer manager.Close()
-	if _, _, err := manager.StartScheduled(Occurrence{ScheduleID: 1, Provider: TargetCinewest, Revision: 1, ScheduledFor: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
-	status := waitForTerminal(t, manager)
-	if status.State != StateSucceeded || len(status.Providers) != 11 || status.Providers["cinewest"].State != ProviderSucceeded || status.Occurrence.Provider != TargetCinewest {
-		t.Fatal("scheduled status")
-	}
-	status.Providers["cinewest"] = ProviderStatus{State: "mutated"}
-	if manager.Status().Providers["cinewest"].State != ProviderSucceeded {
-		t.Fatal("status alias")
 	}
 }

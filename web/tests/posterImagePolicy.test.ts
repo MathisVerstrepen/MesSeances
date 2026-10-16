@@ -1,220 +1,52 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
 import test from 'node:test'
-import { posterImageSources } from '../app/utils/safeImageUrl.ts'
+import * as safeImages from '../app/utils/safeImageUrl.ts'
+import { renderVue } from './helpers/renderVue.ts'
 
-const appRoot = new URL('../app/', import.meta.url)
-const posterImageSource = await readFile(
-  new URL('../app/components/PosterImage.vue', import.meta.url),
-  'utf8',
-)
-const resultBoxSource = await readFile(
-  new URL('../app/components/ShowtimeResultBox.vue', import.meta.url),
-  'utf8',
-)
-const filmPagePath = '/pages/film/[slug].vue'
-const cinemaPagePath = '/pages/cinema/[slug].vue'
-const adminTMDBMatchesPagePath = '/pages/admin/tmdb-matches.vue'
-
-async function readVueSources(
-  directory: URL,
-): Promise<Array<{ path: string; source: string }>> {
-  const entries = await readdir(directory, { withFileTypes: true })
-  const sources = await Promise.all(
-    entries.map(async (entry) => {
-      const url = new URL(
-        entry.name + (entry.isDirectory() ? '/' : ''),
-        directory,
-      )
-      if (entry.isDirectory()) return readVueSources(url)
-      if (!entry.name.endsWith('.vue')) return []
-      return [{ path: url.pathname, source: await readFile(url, 'utf8') }]
-    }),
-  )
-  return sources.flat()
-}
-
-const vueSources = await readVueSources(appRoot)
-const combinedAppSource = vueSources.map(({ source }) => source).join('\n')
-
-test('Cinéville source posters share the existing lazy renderer and missing-poster fallback', () => {
-  const src =
-    'https://storage.googleapis.com/cineville-files-prod/images/event.jpg'
-  assert.deepEqual(posterImageSources(src), { src, srcset: null })
-  for (const value of [
+test('real poster renderer rejects unsafe images and protects lazy responsive attributes from fallthrough', async () => {
+  const imports = { '~/utils/safeImageUrl': safeImages }
+  for (const src of [
     null,
-    '',
-    'https://storage.googleapis.com/other/images/event.jpg',
+    'javascript:alert(1)',
+    'https://evil.test/poster.jpg',
   ]) {
-    assert.deepEqual(posterImageSources(value), { src: null, srcset: null })
+    const html = await renderVue(
+      'components/PosterImage.vue',
+      { src, alt: 'Film', sizes: '96px' },
+      imports,
+    )
+    assert.doesNotMatch(html, /<img\b/)
+    assert.match(html, /Affiche indisponible/)
   }
-  assert.match(posterImageSource, /posterImageSources\(props\.src\)/)
-  assert.match(
-    resultBoxSource,
-    /posterImageSources\(props\.result\.posterUrl\)/,
+  const html = await renderVue(
+    'components/PosterImage.vue',
+    {
+      src: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+      alt: '<Film>',
+      sizes: ' 96px ',
+      loading: 'eager',
+      srcset: 'https://evil.test/x 500w',
+      fetchpriority: 'high',
+      width: '1',
+    },
+    imports,
   )
-})
-
-test('PosterImage centrally owns responsive lazy image policy and protects it from fallthrough attributes', () => {
-  assert.match(posterImageSource, /sizes: string/)
-  assert.match(posterImageSource, /props\.sizes\.trim\(\)/)
-  assert.match(posterImageSource, /posterImageSources\(props\.src\)/)
-  assert.match(
-    posterImageSource,
-    /:srcset="imageSources\.srcset \?\? undefined"/,
+  assert.match(html, /src="https:\/\/image.tmdb.org\/t\/p\/w500\/poster.jpg"/)
+  assert.match(html, /srcset="[^"<>]*w342[^"<>]*w500/)
+  assert.match(html, /sizes="96px"/)
+  assert.match(html, /loading="lazy"/)
+  assert.match(html, /width="500"/)
+  assert.match(html, /alt="&lt;Film&gt;"/)
+  assert.doesNotMatch(html, /evil.test|fetchpriority|eager/)
+  const provider = await renderVue(
+    'components/PosterImage.vue',
+    {
+      src: 'https://storage.googleapis.com/cineville-files-prod/images/event.jpg',
+      alt: '',
+      sizes: '96px',
+    },
+    imports,
   )
-  assert.match(posterImageSource, /:sizes="normalizedSizes"/)
-  assert.match(posterImageSource, /width="500"/)
-  assert.match(posterImageSource, /height="750"/)
-  assert.equal((posterImageSource.match(/loading="lazy"/g) ?? []).length, 1)
-  assert.match(posterImageSource, /decoding="async"/)
-
-  for (const attribute of [
-    'src',
-    'srcset',
-    'sizes',
-    'width',
-    'height',
-    'loading',
-    'decoding',
-    'fetchpriority',
-    'fetch-priority',
-  ]) {
-    assert.match(posterImageSource, new RegExp(`'${attribute}'`), attribute)
-  }
-  assert.match(
-    posterImageSource,
-    /protectedImageAttrs\.has\(key\.toLowerCase\(\)\)/,
-  )
-})
-
-test('every PosterImage consumer supplies an explicit layout size', () => {
-  const tags = vueSources.flatMap(({ path, source }) =>
-    [...source.matchAll(/<PosterImage\b[\s\S]*?\/>/g)].map((match) => ({
-      path,
-      tag: match[0],
-    })),
-  )
-  assert.equal(tags.length, 15)
-  for (const { path, tag } of tags) assert.match(tag, /\s:?sizes=/, path)
-
-  const activityPosters = tags.filter(({ path }) =>
-    path.endsWith('/components/ActivityTimeline.vue'),
-  )
-  assert.equal(activityPosters.length, 1)
-  assert.match(
-    activityPosters[0]!.tag,
-    /sizes="\(min-width: 1024px\) 112px, \(min-width: 640px\) 96px, 72px"/,
-  )
-
-  const adminTMDBMatchPosters = tags.filter(({ path }) =>
-    path.endsWith(adminTMDBMatchesPagePath),
-  )
-  assert.equal(adminTMDBMatchPosters.length, 4)
-  const currentTMDBPoster = adminTMDBMatchPosters.find(({ tag }) =>
-    tag.includes('match.current_match.poster_url'),
-  )
-  assert.ok(currentTMDBPoster)
-  assert.match(currentTMDBPoster.tag, /sizes="\(min-width: 640px\) 96px, 80px"/)
-
-  const requiredSizes = [
-    '(min-width: 1280px) calc((min(100vw, 1440px) - 12.5rem) / 6), (min-width: 1024px) calc((100vw - 9.5rem) / 4), (min-width: 640px) calc((100vw - 6rem) / 3), calc((100vw - 3rem) / 2)',
-    '(min-width: 1024px) 220px, (min-width: 640px) 180px, 160px',
-    '(min-width: 640px) 120px, 96px',
-    '(min-width: 640px) 72px, 64px',
-    '(min-width: 640px) 52px, 48px',
-    '(min-width: 1024px) 112px, (min-width: 640px) 96px, 72px',
-    'sizes="108px"',
-    '(min-width: 1024px) 80px, (min-width: 640px) 96px, 80px',
-    'sizes="32px"',
-  ]
-  for (const sizes of requiredSizes)
-    assert.ok(combinedAppSource.includes(sizes), sizes)
-
-  assert.match(
-    combinedAppSource,
-    /\(max-width: 639px\) calc\(\(100vw - 3\.25rem\) \/ 2\), \(max-width: 767px\) calc\(\(100vw - 4\.25rem\) \/ 2\)/,
-  )
-  for (const desktopWidth of [
-    '10.5rem',
-    '8.5rem',
-    '13rem',
-    '8rem',
-    '10rem',
-    '7rem',
-  ])
-    assert.ok(combinedAppSource.includes(desktopWidth), desktopWidth)
-})
-
-test('raw result-box posters use responsive candidates without changing backdrop sources', () => {
-  assert.match(
-    resultBoxSource,
-    /posterImageSources\(props\.result\.posterUrl\)/,
-  )
-  assert.equal(
-    (
-      resultBoxSource.match(
-        /:srcset="posterSources\.srcset \?\? undefined"/g,
-      ) ?? []
-    ).length,
-    3,
-  )
-  assert.equal((resultBoxSource.match(/sizes="auto, 100vw"/g) ?? []).length, 3)
-
-  const imageTags = [...resultBoxSource.matchAll(/<img\b[^>]*>/g)].map(
-    (match) => match[0],
-  )
-  assert.equal(imageTags.length, 5)
-  for (const tag of imageTags) {
-    assert.match(tag, /loading="lazy"/)
-    assert.match(tag, /decoding="async"/)
-    assert.match(tag, /width="320"/)
-    assert.match(tag, /height="96"/)
-  }
-
-  const backdropTags = imageTags.filter((tag) =>
-    tag.includes("mediaKind === 'backdrop'"),
-  )
-  assert.equal(backdropTags.length, 2)
-  for (const tag of backdropTags) {
-    assert.doesNotMatch(tag, /srcset/)
-    assert.doesNotMatch(tag, /sizes=/)
-  }
-})
-
-test('posters stay lazy while only film and cinema heroes receive high fetch priority', () => {
-  assert.doesNotMatch(combinedAppSource, /:loading=/)
-  assert.doesNotMatch(posterImageSource, /fetchpriority\s*=\s*["']high["']/i)
-  assert.doesNotMatch(resultBoxSource, /fetchpriority\s*=\s*["']high["']/i)
-
-  const images = vueSources.flatMap(({ path, source }) =>
-    [...source.matchAll(/<img\b[^>]*>/g)].map((match) => ({
-      path,
-      tag: match[0],
-    })),
-  )
-  const highPriorityImages = images.filter(({ tag }) =>
-    /fetchpriority\s*=\s*["']high["']/i.test(tag),
-  )
-  assert.equal(highPriorityImages.length, 2)
-  const filmBackdrop = highPriorityImages.find(({ path }) =>
-    path.endsWith(filmPagePath),
-  )
-  assert.ok(filmBackdrop)
-  assert.ok(filmBackdrop.path.endsWith(filmPagePath), filmBackdrop.path)
-  assert.match(filmBackdrop.tag, /v-if="backdropAvailable"/)
-  assert.match(filmBackdrop.tag, /:src="backdropUrl \?\? undefined"/)
-  assert.doesNotMatch(filmBackdrop.tag, /loading=/)
-
-  const cinemaHero = highPriorityImages.find(({ path }) =>
-    path.endsWith(cinemaPagePath),
-  )
-  assert.ok(cinemaHero)
-  assert.match(cinemaHero.tag, /v-if="hasCinemaImage"/)
-  assert.match(cinemaHero.tag, /:src="cinemaImageUrl"/)
-  assert.match(cinemaHero.tag, /loading="eager"/)
-  const eagerImages = images.filter(({ tag }) =>
-    /loading\s*=\s*["']eager["']/i.test(tag),
-  )
-  assert.deepEqual(eagerImages, [cinemaHero])
+  assert.match(provider, /<img\b/)
+  assert.doesNotMatch(provider, /srcset=/)
 })

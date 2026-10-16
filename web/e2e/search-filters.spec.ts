@@ -2,6 +2,77 @@ import type { Page } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
 import { date, movie, showtimes, theater } from './data.mjs'
 
+test('date controls defer calendar, keep unavailable quick dates keyboard reachable and constrain actual calendar selection', async ({
+  page,
+}) => {
+  const tomorrow = new Date(`${date}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const dayName = (value: string) =>
+    new Intl.DateTimeFormat('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Europe/Paris',
+    }).format(new Date(`${value}T12:00:00Z`))
+  await openPage(page, '/recherche')
+  const tabs = page.locator('[role="tablist"]:visible').getByRole('tab')
+  await expect(tabs).toHaveCount(2)
+  await expect(
+    page.getByRole('dialog', {
+      includeHidden: true,
+      name: 'Calendrier des dates disponibles',
+    }),
+  ).toHaveCount(0)
+  const today = tabs.filter({ hasText: 'Aujourd’hui' })
+  const next = tabs.filter({ hasText: 'Demain' })
+  await today.focus()
+  for (const [key, target] of [
+    ['ArrowLeft', next],
+    ['ArrowRight', today],
+    ['End', next],
+    ['Home', today],
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(target).toBeFocused()
+    await expect(target).toHaveAttribute('aria-selected', 'true')
+    await expect(target).toHaveAttribute('tabindex', '0')
+    expect(
+      await tabs.evaluateAll(
+        (nodes) =>
+          nodes.filter((node) => node.getAttribute('tabindex') === '0').length,
+      ),
+    ).toBe(1)
+  }
+  await next.click()
+  await expect(next).toBeEnabled()
+  const trigger = page.getByRole('button', { name: /Choisir une autre date/ })
+  await trigger.click()
+  const calendar = page.getByRole('dialog', {
+    name: 'Calendrier des dates disponibles',
+  })
+  await expect(calendar).toBeVisible()
+  await expect(
+    calendar.getByRole('gridcell', {
+      name: `Choisir ${dayName(tomorrow.toISOString().slice(0, 10))}`,
+      exact: true,
+    }),
+  ).toHaveAttribute('aria-disabled', 'true')
+  const availableDay = calendar.getByRole('gridcell', {
+    name: `Choisir ${dayName(date)}`,
+    exact: true,
+  })
+  await availableDay.focus()
+  await expect(availableDay).toBeFocused()
+  await availableDay.click()
+  await expect(calendar).toBeHidden()
+  await expect(today).toHaveAttribute('aria-selected', 'true')
+  await trigger.click()
+  await expect(calendar).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(calendar).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+})
+
 const account = {
   enabled: true,
   state: 'complete',

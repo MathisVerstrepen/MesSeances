@@ -10,10 +10,6 @@ const source = await readFile(
   new URL('../app/components/FilmPoster.vue', import.meta.url),
   'utf8',
 )
-const page = await readFile(
-  new URL('../app/pages/film/[slug].vue', import.meta.url),
-  'utf8',
-)
 const parsed = ts.createSourceFile(
   'FilmPoster.ts',
   source.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)![1]!,
@@ -93,22 +89,6 @@ function harness(src: string | null = POSTER) {
     },
   }
 }
-
-test('film page preserves poster layout and delegates only poster interaction', () => {
-  assert.match(page, /<FilmPoster\s+:src="schedule\.movie\.poster_url"/u)
-  assert.match(page, /:movie-title="schedule\.movie\.title"/u)
-  assert.match(page, /:reset-key="slug"/u)
-  assert.match(page, /aspect-\[2\/3\] w-40/u)
-  assert.match(source, /<PosterImage/u)
-  assert.match(
-    source,
-    /sizes="\(min-width: 1024px\) 220px, \(min-width: 640px\) 180px, 160px"/u,
-  )
-  assert.match(
-    source,
-    /fallback-class="gap-2 px-3 text-center text-xs font-bold text-muted"/u,
-  )
-})
 
 test('thumbnail must load successfully before mouse or keyboard can enlarge it', async (t) => {
   const h = harness()

@@ -1,127 +1,109 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
-import {
-  API_SITEMAP_CACHE_POLICIES,
-  API_SITEMAP_CACHE_POLICY,
-} from '../server/utils/sitemap.ts'
+import type { H3Event } from 'h3'
+import * as sitemap from '../server/utils/sitemap.ts'
+import * as internalApi from '../server/utils/internalApi.ts'
+import { executeModule } from './helpers/renderVue.ts'
 
-const handlerFixtures = [
-  {
-    route: 'films',
-    url: new URL('../server/routes/sitemaps/films.xml.ts', import.meta.url),
-    retryDeclarations: 1,
-  },
-  {
-    route: 'cinemas',
-    url: new URL('../server/routes/sitemaps/cinemas.xml.ts', import.meta.url),
-    retryDeclarations: 1,
-  },
-  {
-    route: 'cities',
-    url: new URL('../server/routes/sitemaps/cities.xml.ts', import.meta.url),
-    retryDeclarations: 1,
-  },
-]
-const handlerSources = await Promise.all(
-  handlerFixtures.map(({ url }) => readFile(url, 'utf8')),
-)
-const nitroCacheSource = await readFile(
-  new URL(
-    '../node_modules/nitropack/dist/runtime/internal/cache.mjs',
-    import.meta.url,
-  ),
-  'utf8',
-)
-
-test('all API-backed child sitemaps share immutable 300-second SWR policy', () => {
-  assert.deepEqual(API_SITEMAP_CACHE_POLICY, { maxAge: 300, swr: true })
-  assert(Object.isFrozen(API_SITEMAP_CACHE_POLICY))
-  for (const [{ route }, source] of handlerFixtures.map(
-    (fixture, index) => [fixture, handlerSources[index]] as const,
-  )) {
-    assert.match(
-      source,
-      new RegExp(
-        `defineCachedEventHandler\\([\\s\\S]*\\}, API_SITEMAP_CACHE_POLICIES\\.${route}\\)`,
-        'u',
-      ),
+test('child sitemap handlers share bounded cache keys and make one authenticated correlated read, failing closed', async () => {
+  const keys = new Set<string>()
+  for (const family of ['films', 'cinemas', 'cities'] as const) {
+    const source = await readFile(
+      new URL(`../server/routes/sitemaps/${family}.xml.ts`, import.meta.url),
+      'utf8',
     )
-    assert.doesNotMatch(source, /swr:\s*false/u)
-  }
-})
-
-test('query variants share one bounded route key and child route keys never collide', async () => {
-  const routeKeys = []
-  for (const route of ['films', 'cinemas', 'cities'] as const) {
-    const policy = API_SITEMAP_CACHE_POLICIES[route]
-    assert(Object.isFrozen(policy))
-    const firstKey = await policy.getKey({
-      path: `/sitemaps/${route}.xml?variant=one`,
+    const event = { context: {} }
+    // SAFETY: initializeRequestId only writes event.context; this fixture provides the same request-scoped context as H3Event.
+    const requestId = internalApi.initializeRequestId(event as H3Event)
+    const calls: Array<{
+      url: string
+      options: { headers: Record<string, string>; retry: boolean }
+    }> = []
+    const headers = new Headers()
+    let response: sitemap.SitemapDataPayload | Error = {
+      as_of: '2026-10-16T10:00:00Z',
+      revision: 'fixture:1',
+      movies: [],
+      movie_total: 0,
+      cities: { generated_at: '2026-10-16T10:00:00Z', items: [] },
+      upcoming_available: true,
+      lastmod_by_path: {},
+    }
+    const handler = executeModule<{
+      default: (request: typeof event) => Promise<string>
+    }>(
+      source,
+      {
+        defineCachedEventHandler: (
+          handler: (request: typeof event) => Promise<string>,
+          policy: typeof sitemap.API_SITEMAP_CACHE_POLICIES.films,
+        ) => {
+          assert.equal(policy, sitemap.API_SITEMAP_CACHE_POLICIES[family])
+          assert.equal(policy.maxAge, 300)
+          assert.equal(policy.swr, true)
+          const first = policy.getKey({ path: `/sitemaps/${family}.xml?one` })
+          assert.equal(
+            first,
+            policy.getKey({ path: `/sitemaps/${family}.xml?two` }),
+          )
+          keys.add(first)
+          return handler
+        },
+        useRuntimeConfig: () => ({
+          apiBase: 'http://api.test/',
+          internalApiSharedSecret: 'private-token',
+          public: { siteUrl: 'https://site.test' },
+        }),
+        $fetch: async (
+          url: string,
+          options: { headers: Record<string, string>; retry: boolean },
+        ) => {
+          calls.push({ url, options })
+          if (response instanceof Error) throw response
+          return response
+        },
+        setResponseHeader: (
+          _event: typeof event,
+          name: string,
+          value: string,
+        ) => headers.set(name, value),
+        createError: (error: { statusCode: number; statusMessage: string }) =>
+          Object.assign(new Error('Sitemap unavailable'), error),
+      },
+      {
+        '../../utils/sitemap': sitemap,
+        '../../utils/internalApi': internalApi,
+      },
+    ).default
+    const xml = await handler(event)
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0], {
+      url: 'http://api.test/api/v1/sitemap-data',
+      options: {
+        retry: false,
+        headers: {
+          'X-Request-ID': requestId,
+          'X-Messeances-Internal-Token': 'private-token',
+        },
+      },
     })
-    const secondKey = await policy.getKey({
-      path: `/sitemaps/${route}.xml?variant=two&arbitrary=value`,
-    })
-    assert.equal(firstKey, secondKey)
-    routeKeys.push(firstKey)
+    assert.equal(headers.get('Content-Type'), 'application/xml; charset=utf-8')
+    assert.match(xml, /<urlset\b/)
+    if (family === 'films')
+      assert.match(xml, /https:\/\/site.test\/films\/prochainement/)
+    assert.doesNotMatch(xml, /private-token/)
+    for (response of [
+      new Error('private upstream diagnostic'),
+      { movies: [] },
+    ]) {
+      calls.length = 0
+      await assert.rejects(handler(event), {
+        statusCode: 503,
+        message: 'Sitemap unavailable',
+      })
+      assert.equal(calls.length, 1, 'no retry or partial catalogue fallback')
+    }
   }
-  assert.equal(new Set(routeKeys).size, 3)
-})
-
-test('all sitemap API reads explicitly disable automatic GET retries', () => {
-  for (const [{ retryDeclarations }, source] of handlerFixtures.map(
-    (fixture, index) => [fixture, handlerSources[index]] as const,
-  )) {
-    assert.equal(source.match(/retry:\s*false/gu)?.length, retryDeclarations)
-  }
-})
-
-test('each child consumes exactly one coherent sitemap-data response without catalogue/global fallback', () => {
-  for (const source of handlerSources) {
-    assert.equal(source.match(/\$fetch</gu)?.length, 1)
-    assert.match(source, /\/api\/v1\/sitemap-data/u)
-    assert.match(source, /\$fetch<unknown>/u)
-    assert.match(source, /parseSitemapData\(payload\)/u)
-    assert.doesNotMatch(
-      source,
-      /\/api\/v1\/(?:movies|cities)\b|generated_at|updated_at|latestTimestamp/u,
-    )
-  }
-})
-
-test('all API-backed child sitemaps authenticate and correlate upstream requests', () => {
-  for (const source of handlerSources) {
-    assert.match(
-      source,
-      /internalApiHeaders\(event, config\.internalApiSharedSecret\)/u,
-    )
-    assert.match(source, /headers/u)
-  }
-})
-
-test('all child handlers preserve cold-failure 503 without partial XML', () => {
-  for (const source of handlerSources) {
-    assert.match(
-      source,
-      /catch\s*\{[\s\S]*createError\(\{\s*statusCode: 503,[\s\S]*Sitemap unavailable/u,
-    )
-  }
-})
-
-test('installed Nitro SWR implementation coalesces pending work and retains stale success on refresh errors', () => {
-  assert.match(nitroCacheSource, /const pending = \{\}/u)
-  assert.match(
-    nitroCacheSource,
-    /pending\[key\] = Promise\.resolve\(resolver\(\)\)/u,
-  )
-  assert.match(nitroCacheSource, /entry\.value = await pending\[key\]/u)
-  assert.match(
-    nitroCacheSource,
-    /if \(opts\.swr && validate\(entry\) !== false\)/u,
-  )
-  assert.match(nitroCacheSource, /_resolvePromise\.catch/u)
-  assert.match(
-    nitroCacheSource,
-    /if \(entry\.value === void 0\) \{\s*await _resolvePromise/u,
-  )
+  assert.equal(keys.size, 3)
 })

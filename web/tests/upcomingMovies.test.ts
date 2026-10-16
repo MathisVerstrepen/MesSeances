@@ -445,18 +445,6 @@ test('catalog-only SSR preserves upcoming and withdrawn states with no invented 
   }
 })
 
-test('sitemap keeps conditional canonical upcoming URL without unproven hub timestamp', async () => {
-  const sitemap = await readFile(
-    new URL('../server/utils/sitemap.ts', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    sitemap,
-    /data\.upcoming_available \? \[\{ path: '\/films\/prochainement' \}\] : \[\]/,
-  )
-  assert.doesNotMatch(sitemap, /lastmod:\s*[^\n]*(?:generated_at|updated_at)/)
-})
-
 test('SSR page and detail use exact states, shared cards and no catalog-only preference blocker', async () => {
   const page = await readFile(
     new URL('../app/pages/films/prochainement.vue', import.meta.url),

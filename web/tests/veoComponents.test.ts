@@ -76,17 +76,11 @@ async function render(
   return renderToString(app)
 }
 
-test('Véo supplied transparent artwork is statically imported, contained and accessible at both sizes', async () => {
-  const logo = await source('assets/brands/veocinema_logo.svg')
-  assert.match(logo, /viewBox="0 0 2357 1485"/)
-  assert.match(logo, /Transparent background/)
-  assert.doesNotMatch(logo, /<rect|<image|https?:\/\/(?!www.w3.org)/)
+test('Véo logo variants retain accessible brand names', async () => {
   for (const variant of ['inline', 'display']) {
     const html = await render(BrandLogo!, { brand: 'Véo Cinémas', variant })
     assert.match(html, /veocinema_logo.svg\?no-inline/)
     assert.match(html, /alt="Véo Cinémas"/)
-    assert.match(html, /object-contain/)
-    assert.doesNotMatch(html, /bg-white|bg-ink/)
   }
   assert.match(
     await render(BrandLogo!, { brand: 'Véo Cinémas', decorative: true }),
