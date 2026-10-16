@@ -398,6 +398,11 @@ function safeBackdropUrl(value) {
 }
 
 function reservationUrl(showtime) {
+  if (!showtime.provider || showtime.provider === 'majestic') {
+    const majestic = majesticReservationUrl(showtime)
+    if (majestic) return majestic
+  }
+  if (showtime.provider === 'majestic') return null
   // Match Véo original bytes and cinema-qualified identity before generic parsing.
   if (!showtime.provider || showtime.provider === 'veo') {
     const raw = String(showtime.booking_url ?? '')
@@ -583,6 +588,67 @@ function reservationUrl(showtime) {
   } catch {
     return null
   }
+}
+
+// Mirrored raw-byte policy from app/utils/majestic.ts and the backend.
+function majesticReservationUrl(showtime) {
+  const websites = {
+    EMS0700: 'majestic-compiegne.fr',
+    EMS0654: 'majestic-douai.com',
+    EMS1333: 'dole.majestic-cinemas.com',
+    EMS1212: 'vesoul.majestic-cinemas.com',
+    EMS1299: 'cinelaon.fr',
+    EMS1211: 'remiremont.majestic-cinemas.com',
+    EMS0957: 'cinevendome.fr',
+  }
+  const validSession = (value) => {
+    const match = /^emsx([0-9]{4})[0-9]{8}$/.exec(value)
+    return match?.[0] === value && Object.hasOwn(websites, `EMS${match[1]}`)
+  }
+  const raw = String(showtime.booking_url ?? '')
+  if (raw !== showtime.booking_url) return null
+  let site
+  if (showtime.theater_id !== undefined) {
+    const match = /^majestic-(EMS[0-9]{4})$/.exec(showtime.theater_id ?? '')
+    if (
+      !match ||
+      match[0] !== showtime.theater_id ||
+      !Object.hasOwn(websites, match[1])
+    )
+      return null
+    site = match[1]
+  }
+  if (showtime.id !== undefined) {
+    const match = /^majestic-showing-(emsx[0-9]{12})$/.exec(showtime.id ?? '')
+    if (!match || match[0] !== showtime.id || !validSession(match[1]))
+      return null
+    const session = match[1]
+    const showingSite = `EMS${session.slice(4, 8)}`
+    if (site && site !== showingSite) return null
+    site = showingSite
+  }
+  const ticket =
+    /^https:\/\/www\.ticketingcine\.com(?:\/(EMS[0-9]{4})\/FR[A-Z0-9]{5}|\?(EMS[0-9]{4}))#showsession\?id=(emsx[0-9]{12})(?:&ps=ticketingcine)?$/.exec(
+      raw,
+    )
+  if (ticket?.[0] === raw) {
+    const ticketSite = ticket[1] ?? ticket[2]
+    const session = ticket[3]
+    if (
+      !validSession(session) ||
+      ticketSite !== `EMS${session.slice(4, 8)}` ||
+      (site && site !== ticketSite) ||
+      (showtime.id !== undefined &&
+        showtime.id !== `majestic-showing-${session}`)
+    )
+      return null
+    return raw
+  }
+  for (const [websiteSite, host] of Object.entries(websites)) {
+    if ((!site || site === websiteSite) && raw === `https://${host}/`)
+      return raw
+  }
+  return null
 }
 
 // Structural only. Source acquisition binds start/tags; transport binds final D.

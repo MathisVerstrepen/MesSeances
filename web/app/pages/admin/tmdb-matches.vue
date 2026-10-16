@@ -1159,6 +1159,7 @@ function providerLabel(provider: Provider): string {
     grandecran: 'Grand Ecran',
     noecinemas: 'Noé Cinémas',
     veo: 'Véo Cinémas',
+    majestic: 'Majestic Cinémas',
   } satisfies Record<Provider, string>
   return labels[provider]
 }

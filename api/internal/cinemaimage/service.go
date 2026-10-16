@@ -60,7 +60,7 @@ func (q ListQuery) Valid() bool {
 		return false
 	}
 	switch q.Provider {
-	case "", "ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas", "veo":
+	case "", "ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas", "veo", "majestic":
 		return true
 	default:
 		return false

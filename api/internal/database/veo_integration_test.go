@@ -13,20 +13,21 @@ import (
 	"messeances/api/internal/schedule"
 )
 
-// Exact expected 063 CHECK deltas for legacy snapshot fixtures. Capture the
+// Exact expected 063 and 066 CHECK deltas for legacy snapshot fixtures. Capture the
 // original expression, then have PostgreSQL parse/deparse the expected amended
 // CHECK on an empty temporary table. This compares full predicates (including
 // their legacy branch), not just a provider name or a broad exclusion pattern.
-type veoConstraintChange struct {
+type providerConstraintChange struct {
 	table, name, addition, previous string
+	majesticAddition                string
 	newCheck, timing                bool
 }
 
-func captureVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []veoConstraintChange {
+func captureProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []providerConstraintChange {
 	t.Helper()
-	changes := []veoConstraintChange{}
+	changes := []providerConstraintChange{}
 	add := func(table, name, addition string) {
-		changes = append(changes, veoConstraintChange{table: table, name: name, addition: addition})
+		changes = append(changes, providerConstraintChange{table: table, name: name, addition: addition})
 	}
 	for _, table := range []string{"schedule_snapshot", "provider_snapshots", "theaters", "movies", "showtimes", "screening_history_providers", "theater_images", "cinema_activity_coverage"} {
 		add(table, table+"_provider_check", "provider = 'veo'")
@@ -50,7 +51,7 @@ func captureVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpoo
 	add("sync_runs", "sync_runs_trigger_occurrence_check", "trigger_source = 'scheduled' AND target = 'veo' AND schedule_id IS NOT NULL AND schedule_id > 0 AND schedule_revision IS NOT NULL AND schedule_revision > 0 AND scheduled_for IS NOT NULL AND schedule_attempt IS NOT NULL AND schedule_attempt BETWEEN 0 AND 2")
 	add("cinema_activity_coverage", "cinema_activity_coverage_check", "provider = 'veo' AND theater_id <> 'veo-EMS1361' AND status = 'complete' AND basis = 'date_response'")
 	// Migration 039 copied these CHECKs with their original names.
-	for _, change := range append([]veoConstraintChange(nil), changes...) {
+	for _, change := range append([]providerConstraintChange(nil), changes...) {
 		if change.table == "theaters" || change.table == "showtimes" {
 			add("screening_history_"+change.table, change.name, change.addition)
 		}
@@ -67,8 +68,8 @@ func captureVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpoo
 		add(item.table, item.name, fmt.Sprintf("%s = 'veo' AND veo_identity_valid('movie', %s)", item.provider, item.id))
 	}
 	for _, table := range []string{"showtimes", "screening_history_showtimes"} {
-		changes = append(changes, veoConstraintChange{table: table, name: "showtimes_time_check", timing: true})
-		changes = append(changes, veoConstraintChange{table: table, name: "showtimes_veo_shape_check", newCheck: true, addition: `provider <> 'veo' OR (
+		changes = append(changes, providerConstraintChange{table: table, name: "showtimes_time_check", timing: true})
+		changes = append(changes, providerConstraintChange{table: table, name: "showtimes_veo_shape_check", newCheck: true, addition: `provider <> 'veo' OR (
 theater_id = 'veo-' || split_part(provider_showing_id, '-', 1)
 AND veo_identity_valid('movie', movie_provider_id)
 AND ((theater_id = 'veo-EMS1361') = (movie_provider_id LIKE 'ticketingcine-%'))
@@ -81,9 +82,10 @@ AND veo_booking_valid(booking_url, split_part(provider_showing_id, '-', 1), prov
 		{"theater_locations", "theater_locations_veo_identity_check", "provider <> 'veo' OR veo_identity_valid('theater', provider_theater_id)"},
 		{"theater_images", "theater_images_veo_identity_check", "provider <> 'veo' OR veo_identity_valid('theater', provider_theater_id)"},
 	} {
-		changes = append(changes, veoConstraintChange{table: item.table, name: item.name, addition: item.expression, newCheck: true})
+		changes = append(changes, providerConstraintChange{table: item.table, name: item.name, addition: item.expression, newCheck: true})
 	}
-	baseline := []veoConstraintChange{}
+	changes = withMajesticConstraintChanges(t, changes)
+	baseline := []providerConstraintChange{}
 	for _, change := range changes {
 		var exists bool
 		if err := pool.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, change.table).Scan(&exists); err != nil {
@@ -95,7 +97,7 @@ AND veo_booking_valid(booking_url, split_part(provider_showing_id, '-', 1), prov
 		if change.newCheck {
 			var count int
 			if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_constraint WHERE conrelid=$1::regclass AND conname=$2`, change.table, change.name).Scan(&count); err != nil || count != 0 {
-				t.Fatal("unexpected baseline Véo CHECK", change.table, change.name, err)
+				t.Fatal("unexpected baseline provider CHECK", change.table, change.name, err)
 			}
 		} else if err := pool.QueryRow(ctx, `SELECT pg_get_expr(conbin,conrelid) FROM pg_constraint WHERE conrelid=$1::regclass AND conname=$2 AND contype='c' AND convalidated`, change.table, change.name).Scan(&change.previous); err != nil {
 			t.Fatal("missing legacy CHECK", change.table, change.name, err)
@@ -105,7 +107,7 @@ AND veo_booking_valid(booking_url, split_part(provider_showing_id, '-', 1), prov
 	return baseline
 }
 
-func veoConstraintKeys(changes []veoConstraintChange) []string {
+func providerConstraintKeys(changes []providerConstraintChange) []string {
 	keys := make([]string, 0, len(changes))
 	for _, change := range changes {
 		keys = append(keys, change.table+"."+change.name)
@@ -113,7 +115,7 @@ func veoConstraintKeys(changes []veoConstraintChange) []string {
 	return keys
 }
 
-func assertVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool.Pool, changes []veoConstraintChange) {
+func assertProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool.Pool, changes []providerConstraintChange) {
 	t.Helper()
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -124,11 +126,15 @@ func assertVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool
 		expression := change.addition
 		if change.timing {
 			expression = fmt.Sprintf("(provider <> 'veo' AND (%s)) OR (provider = 'veo' AND end_time >= start_time)", change.previous)
+			expression = fmt.Sprintf("(provider <> 'majestic' AND (%s)) OR (provider = 'majestic' AND end_time >= start_time)", expression)
 		} else if !change.newCheck {
 			expression = fmt.Sprintf("(%s) OR (%s)", change.previous, change.addition)
 		}
+		if change.majesticAddition != "" {
+			expression = fmt.Sprintf("(%s) OR (%s)", expression, change.majesticAddition)
+		}
 		// LIKE without INCLUDING CONSTRAINTS copies columns, not CHECKs/data.
-		query := fmt.Sprintf("CREATE TEMP TABLE veo_expected_check (LIKE %s) ON COMMIT DROP; ALTER TABLE veo_expected_check ADD CONSTRAINT expected CHECK (%s)", pgx.Identifier{change.table}.Sanitize(), expression)
+		query := fmt.Sprintf("CREATE TEMP TABLE provider_expected_check (LIKE %s) ON COMMIT DROP; ALTER TABLE provider_expected_check ADD CONSTRAINT expected CHECK (%s)", pgx.Identifier{change.table}.Sanitize(), expression)
 		if _, err := tx.Exec(ctx, query, pgx.QueryExecModeSimpleProtocol); err != nil {
 			t.Fatal("construct expected CHECK", change.table, change.name, err)
 		}
@@ -136,10 +142,10 @@ func assertVeoConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool
 		if err := tx.QueryRow(ctx, `SELECT actual.contype='c' AND actual.convalidated AND pg_get_constraintdef(actual.oid)=pg_get_constraintdef(expected.oid)
 FROM pg_constraint actual CROSS JOIN pg_constraint expected
 WHERE actual.conrelid=$1::regclass AND actual.conname=$2
-AND expected.conrelid='pg_temp.veo_expected_check'::regclass AND expected.conname='expected'`, change.table, change.name).Scan(&matches); err != nil || !matches {
-			t.Fatal("063 changed more than the expected Véo CHECK delta", change.table, change.name, err)
+AND expected.conrelid='pg_temp.provider_expected_check'::regclass AND expected.conname='expected'`, change.table, change.name).Scan(&matches); err != nil || !matches {
+			t.Fatal("schema differs from the exact 063/066 provider CHECK deltas", change.table, change.name, err)
 		}
-		if _, err := tx.Exec(ctx, `DROP TABLE pg_temp.veo_expected_check`); err != nil {
+		if _, err := tx.Exec(ctx, `DROP TABLE pg_temp.provider_expected_check`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -155,7 +161,7 @@ func TestVeoMigrationIntegration(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
 			pool, _ := newMigrationTestPool(t, ctx, "veo_migration_")
-			var changes []veoConstraintChange
+			var changes []providerConstraintChange
 			var watchedBefore string
 			if baseline != 0 {
 				throughName := "061_public_page_content.sql"
@@ -164,7 +170,7 @@ func TestVeoMigrationIntegration(t *testing.T) {
 				}
 				installMigrationPrefix(t, ctx, pool, baseline, throughName)
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Existing',90)`)
-				changes = captureVeoConstraintChanges(t, ctx, pool)
+				changes = captureProviderConstraintChanges(t, ctx, pool)
 				if baseline == 62 {
 					mustCinevilleSQL(t, ctx, pool, `INSERT INTO accounts(id,email,created_at,email_verified_at,verification_source) OVERRIDING SYSTEM VALUE VALUES(1,'watched@example.com','2026-09-01T12:00:00Z','2026-09-01T12:01:00Z','email');
 INSERT INTO public_movies(id,identity_anchor_tmdb_id,title,runtime_minutes) OVERRIDING SYSTEM VALUE VALUES(10,10,'Retained watched film',90);
@@ -179,7 +185,7 @@ INSERT INTO account_watched_items(account_id,public_movie_id,watched_at) VALUES(
 			assertCompleteMigrationHistory(t, ctx, pool, mustEmbeddedMigrations(t))
 			var n int
 			if baseline != 0 {
-				assertVeoConstraintChanges(t, ctx, pool, changes)
+				assertProviderConstraintChanges(t, ctx, pool, changes)
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE provider='ugc' AND title='Existing' AND runtime_minutes=90`).Scan(&n); err != nil || n != 1 {
 					t.Fatal("legacy changed", err)
 				}

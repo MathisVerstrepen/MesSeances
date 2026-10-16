@@ -236,7 +236,7 @@ test('Véo is exhaustive across public/admin registries, chain filters, statisti
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /veo: 'Véo Cinémas'/)
     if (page.startsWith('sync'))
-      assert.match(value, /'noecinemas',\s*'veo',\s*\] as const/)
+      assert.match(value, /'noecinemas',\s*'veo',\s*'majestic',\s*\] as const/)
   }
   assert.match(
     await source('pages/admin/sync-schedules.vue'),

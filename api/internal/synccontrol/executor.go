@@ -14,6 +14,7 @@ import (
 	"messeances/api/internal/enrichment"
 	"messeances/api/internal/grandecran"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/majestic"
 	"messeances/api/internal/megarama"
 	"messeances/api/internal/mk2"
 	"messeances/api/internal/noecinemas"
@@ -43,6 +44,7 @@ type ProductionExecutorOptions struct {
 	NewGrandEcran    func() (grandecran.Getter, error)
 	NewNoeCinemas    func() (noecinemas.Getter, error)
 	NewVeo           func() (veo.Getter, error)
+	NewMajestic      func() (majestic.Getter, error)
 	Enrich           EnrichFunc
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -63,6 +65,7 @@ type ProductionExecutor struct {
 	newGrandEcran    func() (grandecran.Getter, error)
 	newNoeCinemas    func() (noecinemas.Getter, error)
 	newVeo           func() (veo.Getter, error)
+	newMajestic      func() (majestic.Getter, error)
 	enrich           EnrichFunc
 	now              func() time.Time
 	logger           *slog.Logger
@@ -79,10 +82,11 @@ type ProductionExecutor struct {
 	syncGrandEcran   func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error)
 	syncNoeCinemas   func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error)
 	syncVeo          func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error)
+	syncMajestic     func(context.Context, majestic.Getter, majestic.SyncOptions) (schedule.Dataset, majestic.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil && options.NewVeo == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil && options.NewVeo == nil && options.NewMajestic == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
 	return &ProductionExecutor{
@@ -94,6 +98,7 @@ func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecut
 		newGrandEcran: options.NewGrandEcran, syncGrandEcran: grandecran.Sync,
 		newNoeCinemas: options.NewNoeCinemas, syncNoeCinemas: noecinemas.Sync,
 		newVeo: options.NewVeo, syncVeo: veo.Sync,
+		newMajestic: options.NewMajestic, syncMajestic: majestic.Sync,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
 		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
@@ -103,7 +108,7 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	started := time.Now()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo}
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic}
 	} else if !ValidTarget(target) {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
@@ -293,6 +298,18 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		if args := veoCheckoutRetryLogArgs(summary); len(args) != 0 {
 			e.logger.Info("veo_checkout_retry_summary", args...)
 		}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+	case TargetMajestic:
+		if e.newMajestic == nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+		}
+		client, clientErr := e.newMajestic()
+		if clientErr != nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
+		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
+		var summary majestic.SyncSummary
+		data, summary, err = e.syncMajestic(ctx, client, majestic.SyncOptions{From: window.From, Now: e.now()})
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetMK2:
 		if e.newMK2 == nil {
@@ -843,6 +860,13 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 			details.Category = safeMegaramaCategory(requestErr.Kind)
 			details.HTTPStatus = requestErr.StatusCode
 		}
+	case TargetMajestic:
+		var requestErr *majestic.RequestError
+		if errors.As(err, &requestErr) {
+			details.Operation = operationProgram
+			details.Category = safeMegaramaCategory(requestErr.Kind)
+			details.HTTPStatus = requestErr.StatusCode
+		}
 	case TargetMegarama:
 		var requestErr *megarama.RequestError
 		if errors.As(err, &requestErr) {
@@ -1024,7 +1048,7 @@ func safeCGRCategory(category cgr.ErrorCategory) logCategory {
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
-		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetCineville && provider != TargetMK2 && provider != TargetCinewest && provider != TargetGrandEcran && provider != TargetNoeCinemas && provider != TargetVeo {
+		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetMajestic && provider != TargetCineville && provider != TargetMK2 && provider != TargetCinewest && provider != TargetGrandEcran && provider != TargetNoeCinemas && provider != TargetVeo {
 			continue
 		}
 		movie, found := unique[showing.Movie.ProviderID]

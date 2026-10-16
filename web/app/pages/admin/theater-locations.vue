@@ -87,6 +87,7 @@ const providerLabels = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
 } satisfies Record<Provider, string>
 
 const geocodingFailureLabels = {

@@ -7,6 +7,7 @@ import type {
 } from '../types/showtimeResults'
 import { resolveShowtimeEnd } from './showtimeEnd.ts'
 import { isValidMk2ShowingId } from './mk2.ts'
+import { isValidMajesticSessionId } from './majestic.ts'
 
 export const resultGroupingOptions: [
   { value: ResultGrouping; label: string },
@@ -188,6 +189,11 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const majesticPrefix = 'majestic:majestic-showing-'
+  if (key.startsWith(majesticPrefix)) {
+    const session = key.slice(majesticPrefix.length)
+    return isValidMajesticSessionId(session) ? `j${session}` : null
+  }
   const veo = VEO_SELECTION_KEY_PATTERN.exec(key)
   if (veo?.[0] === key) return `e${veo[1]}-${hexToBase64Url(veo[2]!)}`
   const noeCinemas = NOE_CINEMAS_SELECTION_KEY_PATTERN.exec(key)
@@ -232,6 +238,12 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  if (token.startsWith('j')) {
+    const session = token.slice(1)
+    return isValidMajesticSessionId(session)
+      ? `majestic:majestic-showing-${session}`
+      : null
+  }
   const veo = VEO_TOKEN_PATTERN.exec(token)
   if (veo?.[0] === token) {
     const hash = base64UrlToHex(veo[2]!)

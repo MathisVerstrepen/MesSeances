@@ -58,6 +58,7 @@ function run(
       grandecran: { state: 'not_requested' },
       noecinemas: { state: 'not_requested' },
       veo: { state: 'not_requested' },
+      majestic: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -91,14 +92,16 @@ test('single-provider history shows new showtimes, ungrouped and spaced after pl
   assert.equal(summary(job), '+ 8395 séances')
 })
 
-test('Véo individual and all-run histories include published new sessions', () => {
-  const job = run({ veo: published(42) })
-  job.target = 'veo'
-  assert.equal(summary(job), '+ 42 séances')
-  assert.equal(
-    summary(run({ veo: published(42), ugc: published(8) })),
-    '+ 50 séances',
-  )
+test('Véo and Majestic individual and all-run histories include published new sessions', () => {
+  for (const provider of ['veo', 'majestic'] as const) {
+    const job = run({ [provider]: published(42) })
+    job.target = provider
+    assert.equal(summary(job), '+ 42 séances')
+    assert.equal(
+      summary(run({ [provider]: published(42), ugc: published(8) })),
+      '+ 50 séances',
+    )
+  }
 })
 
 test('multi-provider history sums requested outcomes, not total showtimes or unrequested providers', () => {
@@ -270,12 +273,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all eleven decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all twelve decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 12)
+  assert.equal(buttons.length, 13)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -292,6 +295,7 @@ test('idle launch buttons use all eleven decorative chain logos with visible nam
     'Grand Ecran',
     'Noé Cinémas',
     'Véo Cinémas',
+    'Majestic Cinémas',
   ]
   uiBindings.providers.forEach((provider: Provider, index: number) => {
     const button = buttons[index + 1]!

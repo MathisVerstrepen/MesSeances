@@ -23,6 +23,7 @@ export type Provider =
   | 'grandecran'
   | 'noecinemas'
   | 'veo'
+  | 'majestic'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'

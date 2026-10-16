@@ -22,6 +22,7 @@ const providerBrands = {
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
 } as const satisfies Record<Provider, string>
 
 // Normalize only for accessible-name detection, never for visible source text.

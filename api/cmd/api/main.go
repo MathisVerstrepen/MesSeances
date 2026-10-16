@@ -29,6 +29,7 @@ import (
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/majestic"
 	"messeances/api/internal/megarama"
 	"messeances/api/internal/mk2"
 	"messeances/api/internal/noecinemas"
@@ -551,6 +552,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewVeo: func() (veo.Getter, error) {
 			return veo.NewClient(veo.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewMajestic: func() (majestic.Getter, error) {
+			return majestic.NewClient(majestic.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }
