@@ -1,8 +1,246 @@
 import type { Locator } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
-import { date, movie, showtimes, theater, veoTheaters } from './data.mjs'
+import {
+  date,
+  movie,
+  movieSchedule,
+  showtimes,
+  theater,
+  veoTheaters,
+} from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
+
+test('cinema identity and programme render on the server', async ({
+  request,
+}) => {
+  const response = await request.get(path)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  expect(html).toContain(theater.name)
+  expect(html).toContain(theater.address)
+  expect(html).toContain(movie.title)
+  for (const viewport of ['mobile', 'desktop']) {
+    expect(html).toMatch(
+      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
+    )
+    const selector = html.match(
+      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
+    )![0]
+    expect(selector).toContain('Boîtes')
+    expect(selector).not.toContain('Lignes')
+  }
+  expect(html).toContain(
+    `/statistiques?period=all&amp;theater=${encodeURIComponent(theater.id)}`,
+  )
+})
+
+test('film synopsis resets on changed schedule and external menu keeps real keyboard focus and safe destinations', async ({
+  page,
+  isMobile,
+}) => {
+  const tomorrow = new Date(`${date}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const nextDate = tomorrow.toISOString().slice(0, 10)
+  const overview =
+    'Un synopsis volontairement long pour vérifier le déploiement du texte et son retour au mode réduit. '.repeat(
+      40,
+    )
+  await page.route('**/api/v1/movies/*/showtimes*', async (route) => {
+    const query = new URL(route.request().url()).searchParams
+    const payload = movieSchedule('film-playwright', query)
+    payload.available_dates = [date, nextDate]
+    Object.assign(payload.movie, {
+      overview: query.get('date') === nextDate ? 'Résumé court.' : overview,
+      tmdb_id: 123,
+      imdb_id: 'tt1234567',
+      metacritic_id: 'movie/fixture-film',
+    })
+    await route.fulfill({ json: payload })
+  })
+  await openPage(page, `/cinema/${theater.slug}`)
+  await page
+    .locator('a[href="/film/film-playwright?shared_theaters=fixture-cinema"]')
+    .click()
+  const synopsis = page.getByRole('button', {
+    name: overview.trim(),
+    exact: true,
+  })
+  await expect(synopsis).toHaveAttribute('aria-expanded', 'false')
+  await synopsis.press('Enter')
+  await expect(synopsis).toHaveAttribute('aria-expanded', 'true')
+  await expect(synopsis).toHaveJSProperty(
+    'scrollHeight',
+    await synopsis.evaluate((el) => el.clientHeight),
+  )
+  const menuTrigger = page.getByRole('button', {
+    name: 'Voir les liens externes de Film Playwright',
+  })
+  await menuTrigger.press('ArrowDown')
+  const menu = page.getByRole('menu', {
+    name: 'Liens externes de Film Playwright',
+  })
+  const links = menu.getByRole('menuitem')
+  await expect(links).toHaveCount(5)
+  await expect(links.first()).toBeFocused()
+  for (const [key, target] of [
+    ['ArrowUp', links.last()],
+    ['ArrowDown', links.first()],
+    ['End', links.last()],
+    ['Home', links.first()],
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(target).toBeFocused()
+  }
+  for (const link of await links.all()) {
+    await expect(link).toHaveAttribute('href', /^https:\/\//)
+    await expect(link).toHaveAttribute('target', '_blank')
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    await expect(link).toHaveAccessibleName(/nouvel onglet/)
+  }
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(menuTrigger).toBeFocused()
+  // Structured data belongs to nationwide SSR, not this client-side scoped view.
+  const document = await page.request.get('/film/film-playwright')
+  expect(document.ok()).toBe(true)
+  const schemas = [
+    ...(await document.text()).matchAll(
+      /<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g,
+    ),
+  ].map((match) => JSON.parse(match[1]))
+  expect(
+    schemas
+      .flatMap((schema) => schema['@graph'] || [schema])
+      .find((schema) => schema['@type'] === 'Movie').url,
+  ).toBe('http://127.0.0.1:13400/film/film-playwright')
+  if (isMobile) await page.locator('#mobile-date-trigger').click()
+  const tabs = page.locator('[role="tablist"]:visible').getByRole('tab')
+  await tabs.filter({ hasText: 'Demain' }).click()
+  await expect(page).toHaveURL(new RegExp(`date=${nextDate}`))
+  await expect(
+    page.getByRole('button', { name: 'Résumé court.', exact: true }),
+  ).toBeDisabled()
+  if (isMobile) await expect(page.locator('#mobile-date-panel')).toBeVisible()
+  await tabs.filter({ hasText: 'Aujourd’hui' }).click()
+  await expect(synopsis).toHaveAttribute('aria-expanded', 'false')
+  await expect
+    .poll(() => synopsis.evaluate((el) => el.scrollHeight > el.clientHeight))
+    .toBe(true)
+})
+
+test('estimated end descriptions have unique associations, focus/Escape behavior and never activate booking', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/movies/*/showtimes*', async (route) => {
+    const payload = movieSchedule(
+      'film-playwright',
+      new URL(route.request().url()).searchParams,
+    )
+    for (const theater of payload.theaters)
+      for (const session of theater.showtimes) {
+        session.end_time = session.start_time
+        session.estimated_end_time = `${date}T15:45:00+02:00`
+        session.estimated_end_ads_minutes = 15
+        session.booking_url = 'https://www.ugc.fr/reservation'
+      }
+    await route.fulfill({ json: payload })
+  })
+  await openPage(page, `/cinema/${theater.slug}`)
+  await page.locator('a[href="/film/film-playwright"]').click()
+  await expect(
+    page.locator('a[href="https://www.ugc.fr/reservation"]').first(),
+  ).toBeVisible()
+  const triggers = page.locator('span[tabindex="0"][aria-describedby]:visible')
+  await expect(triggers).toHaveCount(3)
+  const trigger = triggers.first()
+  const id = await trigger.getAttribute('aria-describedby')
+  const tooltip = page.locator(`[id="${id}"]`)
+  await expect(tooltip).toBeHidden()
+  await trigger.focus()
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toContainText(
+    /début annoncé à .* \+ 15 min de publicités \+ 90 min de film/,
+  )
+  const url = page.url()
+  await trigger.click()
+  await expect(page).toHaveURL(url)
+  expect(page.context().pages()).toHaveLength(1)
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toBeHidden()
+  await expect(trigger).toBeFocused()
+  const ids = await page
+    .locator('[role="tooltip"]')
+    .evaluateAll((nodes) => nodes.map((node) => node.id))
+  expect(new Set(ids).size).toBe(ids.length)
+})
+
+test('rendered legal pages retain privacy disclosures, credit links and canonical robots policy', async ({
+  page,
+}) => {
+  for (const [path, title, robots] of [
+    ['/confidentialite', 'Confidentialité', 'index,follow'],
+    ['/credits', 'Crédits', 'noindex,follow'],
+  ]) {
+    await openPage(page, path)
+    await expect(
+      page.getByRole('heading', { name: title, exact: true, level: 1 }),
+    ).toBeVisible()
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      'content',
+      robots,
+    )
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      `http://127.0.0.1:13400${path}`,
+    )
+    const content = page.getByRole('main')
+    if (path === '/confidentialite')
+      for (const disclosure of [
+        /messeances.favoriteTheaterIds.v1/,
+        /distincte de celle du compte/,
+        /enregistrés sur le serveur et associés à ce compte/,
+        /Ce sont des données personnelles/,
+        /sélection du compte prévaut sur celle de chaque appareil/,
+        /sans remplacer la sélection locale du navigateur/,
+        /importés une seule fois dans le compte/,
+        /aucun import n’a lieu et le compte attend un enregistrement explicite/,
+        /pas d’une synchronisation instantanée entre appareils/,
+        /changements non enregistrés doivent être réappliqués/,
+        /suppression du compte ne supprime pas la sélection locale/,
+        /supprime cette sélection locale, sans supprimer celle du compte/,
+        /Jusqu’à leur remplacement ou la suppression du compte dans la base active/,
+        /aucune suppression immédiate de ces copies n’est promise/,
+        /cette notice n’annonce pas leur activation en production/,
+        /efface cette liste et ses tags/,
+      ])
+        await expect(content).toContainText(disclosure)
+    else {
+      await expect(content).toContainText(
+        /uses the TMDB API but is not endorsed or certified by TMDB/,
+      )
+      for (const host of [
+        'themoviedb.org',
+        'infinityvisiontickets.com',
+        'ugc.fr',
+        'kinepolis.fr',
+        'pathe.fr',
+        'cgrcinemas.fr',
+        'openfreemap.org',
+        'openmaptiles.org',
+        'openstreetmap.org',
+        'cineville.fr',
+        'cinewest.fr',
+        'grandecran.fr',
+        'megarama.fr',
+        'mk2.com',
+      ])
+        await expect(
+          content.locator(`a[href*="${host}"]`).first(),
+        ).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+  }
+})
 
 async function expectHeaderLayout(
   header: Locator,
@@ -85,30 +323,6 @@ async function expectHeaderLayout(
     )
   }
 }
-
-test('cinema identity and programme render on the server', async ({
-  request,
-}) => {
-  const response = await request.get(path)
-  expect(response.status()).toBe(200)
-  const html = await response.text()
-  expect(html).toContain(theater.name)
-  expect(html).toContain(theater.address)
-  expect(html).toContain(movie.title)
-  for (const viewport of ['mobile', 'desktop']) {
-    expect(html).toMatch(
-      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
-    )
-    const selector = html.match(
-      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
-    )![0]
-    expect(selector).toContain('Boîtes')
-    expect(selector).not.toContain('Lignes')
-  }
-  expect(html).toContain(
-    `/statistiques?period=all&amp;theater=${encodeURIComponent(theater.id)}`,
-  )
-})
 
 test('cinema boxes default and explicit lines survive date, grouping, tabs and history', async ({
   page,

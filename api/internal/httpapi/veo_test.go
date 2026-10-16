@@ -19,15 +19,7 @@ func TestVeoPublicReadAPIsPreserveExactAndUnknownEnds(t *testing.T) {
 		if exact {
 			r.EndTime = start.Add(80 * time.Minute)
 		}
-		d := schedule.Dataset{SchemaVersion: schedule.SchemaVersion, Provider: schedule.ProviderCombined, Scope: schedule.ScopeAll, Timezone: schedule.Timezone, GeneratedAt: start.UTC(), Window: schedule.Window{From: r.ServiceDate, Through: r.ServiceDate}, Showtimes: []schedule.ShowtimeRecord{r}, Theaters: []schedule.TheaterRecord{{Provider: schedule.ProviderVeo, ID: r.TheaterID, ProviderID: "P1028", Slug: r.TheaterID, Name: "Véo", Address: "1 rue", City: "Paris", PostalCode: "75001", AvailableDates: []string{r.ServiceDate}, AcceptedPasses: []string{}}}, PublicMovies: []schedule.PublicMovieRecord{{ID: 1, IdentityAnchorProvider: schedule.ProviderVeo, IdentityAnchorSourceID: r.Movie.ProviderID, Title: r.Movie.Title, RuntimeMinutes: 120, UpdatedAt: start.UTC()}}, MovieSources: []schedule.PublicMovieSourceRecord{{Provider: schedule.ProviderVeo, SourceMovieID: r.Movie.ProviderID, SourceSlug: r.Movie.Slug, PublicMovieID: 1, Title: r.Movie.Title, RuntimeMinutes: 120}}, MovieAliases: []schedule.MovieSlugAliasRecord{{Slug: r.Movie.Slug, PublicMovieID: 1, Kind: "source", Provider: schedule.ProviderVeo, SourceMovieID: r.Movie.ProviderID}}}
-		if err := schedule.ValidateDataset(d, true); err != nil {
-			t.Fatal(err)
-		}
-		s, err := schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(d)}, schedule.ServiceOptions{Now: func() time.Time { return start.Add(-time.Hour) }})
-		if err != nil {
-			t.Fatal(err)
-		}
-		h := NewHandler(s, "http://localhost:3000")
+		h := newProviderReadHandler(t, schedule.ProviderCombined, r, []schedule.TheaterRecord{{Provider: schedule.ProviderVeo, ID: r.TheaterID, ProviderID: "P1028", Slug: r.TheaterID, Name: "Véo", Address: "1 rue", City: "Paris", PostalCode: "75001", AvailableDates: []string{r.ServiceDate}, AcceptedPasses: []string{}}}, 120, 0)
 		response := performRequest(t, h, "/api/v1/theaters?chain=veo")
 		var theaters []schedule.TheaterCatalogItem
 		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &theaters) != nil || len(theaters) != 1 || theaters[0].Provider != schedule.ProviderVeo {

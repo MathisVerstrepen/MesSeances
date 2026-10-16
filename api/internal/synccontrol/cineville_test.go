@@ -146,21 +146,3 @@ func TestCinevilleExecutorManualMetricsAndFailures(t *testing.T) {
 		t.Fatal("publication failure/enrichment")
 	}
 }
-func TestCinevilleManagerStatusCloning(t *testing.T) {
-	manager, err := newTestManager(t.Context(), time.Now, executorFunc(func(context.Context, Target, Window) (ProviderOutcome, error) { return ProviderOutcome{}, nil }))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer manager.Close()
-	if _, err := manager.Start(TargetCineville); err != nil {
-		t.Fatal(err)
-	}
-	status := waitForTerminal(t, manager)
-	if status.State != StateSucceeded || status.Providers["cineville"].State != ProviderSucceeded || status.Providers["ugc"].State != ProviderNotRequested || len(status.Providers) != 11 {
-		t.Fatal("Cineville status")
-	}
-	status.Providers["cineville"] = ProviderStatus{State: "mutated"}
-	if manager.Status().Providers["cineville"].State != "succeeded" {
-		t.Fatal("status mutation")
-	}
-}

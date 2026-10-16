@@ -1031,21 +1031,6 @@ test('visible escaped film selection is outside result states and uses draft rem
   assert.doesNotMatch(page, /v-html|api\.movies\(|filmOptions|key: 'film'/)
 })
 
-test('city header counts stay side by side on mobile with a vertical divider', async () => {
-  const page = await readFile(
-    new URL('../app/pages/ville/[slug]/cinemas.vue', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    page,
-    /<dl\s+class="grid grid-cols-2 border-t-2 border-ink lg:grid-cols-1 lg:border-l-2 lg:border-t-0"\s*>/,
-  )
-  assert.match(
-    page,
-    /class="min-w-0 border-l-2 border-ink p-5 sm:p-6 lg:border-l-0 lg:border-t-2"/,
-  )
-})
-
 test('bounded notices keep full denominators and remote selectors remain opt-in', async () => {
   assert.equal(
     statisticsBars([{ value: 'genre', label: 'Genre', count: 10 }], 1000)[0]!

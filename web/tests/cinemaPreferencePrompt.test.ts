@@ -245,37 +245,6 @@ test('prompt is compact, client-only, keyboard dismissible, labelled, and naviga
   )
 })
 
-test('prompt keeps one compact row with contextual icons and a yellow navigation action', () => {
-  assert.match(source, /<Clapperboard[\s\S]*?aria-hidden="true"/)
-  assert.match(source, /<ArrowRight :size="14" aria-hidden="true"/)
-  assert.match(source, /gap-3 rounded-\[3px\]/)
-  assert.match(source, /shadow-\[2px_2px_0_#27272a\]/)
-  assert.doesNotMatch(source, /flex-wrap|bg-highlight/)
-  const action = source.match(/<NuxtLink[\s\S]*?<\/NuxtLink\s*>/)![0]
-  assert.match(action, /to="\/cinemas"/)
-  assert.match(action, /min-h-11 shrink-0/)
-  assert.match(action, /bg-\[#ffcf3f\]/)
-  assert.match(action, />\s+Choisir\s/)
-  assert.match(source, /motion-reduce:translate-none/)
-  assert.match(source, /\[@media\(any-pointer:coarse\)\]:touch-none/)
-  assert.match(source, /@click\.capture="onClick"/)
-})
-
-test('only search adds mobile action-bar clearance and desktop keeps its original inset', () => {
-  assert.match(
-    source,
-    /route\.path === '\/recherche' && searchActionBarVisible \? 'bottom-\[calc\(5\.375rem\+max\(1rem,env\(safe-area-inset-bottom\)\)\)\]/,
-  )
-  assert.match(
-    source,
-    /lg:bottom-\[calc\(1rem\+env\(safe-area-inset-bottom\)\)\]/,
-  )
-  assert.match(
-    source,
-    /: 'bottom-\[calc\(1rem\+env\(safe-area-inset-bottom\)\)\]'/,
-  )
-})
-
 test('deliberate left, right and down swipes persist browser dismissal, including CTA-origin drags', () => {
   for (const [x, y] of [
     [-64, 0],

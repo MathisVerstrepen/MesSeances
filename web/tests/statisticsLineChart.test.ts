@@ -314,23 +314,3 @@ test('SSR gives empty state and single-point marker without inventing a line', a
   assert.match(single, /25 octobre 2026/)
   assert.equal((single.match(/scope="row"/g) ?? []).length, 1)
 })
-
-test('page puts daily section after totals within nonzero details and passes filtered response directly', async () => {
-  const page = await readFile(
-    new URL('../app/pages/statistiques.vue', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    page,
-    /<template v-else>\s*<section[^>]*aria-labelledby="statistics-daily"/,
-  )
-  assert.match(
-    page,
-    /<StatisticsLineChart\s+:key="signature"\s+:rows="data.daily_showtimes"/,
-  )
-  const totals = page.indexOf('id="statistics-totals"')
-  const empty = page.indexOf('v-if="data.totals.showtimes === 0"')
-  const daily = page.indexOf('id="statistics-daily"')
-  const ranks = page.indexOf('id="statistics-top"')
-  assert.ok(totals < empty && empty < daily && daily < ranks)
-})

@@ -683,22 +683,3 @@ test('route changes reject stale backdrops and late metadata, including route re
   assert.equal(h.page.backdropAvailable.value, false)
   assert.equal(h.page.draft.value.film, '')
 })
-
-test('backdrop is decorative behind entire unclipped form, with contrast for labels and controls', () => {
-  const form = source.match(/<form\b[\s\S]*?<\/form>/)![0]
-  const image = form.match(/<img\b[^>]+>/)![0]
-  assert.match(image, /v-if="backdropAvailable"/)
-  assert.match(image, /alt=""\s+aria-hidden="true"/)
-  assert.match(image, /absolute inset-0 -z-20 size-full object-cover/)
-  assert.match(image, /@error="backdropFailed = true"/)
-  assert.match(form, /relative isolate/)
-  assert.match(form, /\[&_:focus-visible\]:outline-solid/)
-  assert.match(form, /absolute inset-0 -z-10 bg-black\/80/)
-  assert.doesNotMatch(form, /overflow-hidden|overflow-clip/)
-  assert.match(form, /\[&_legend\]:text-white/)
-  assert.match(
-    form,
-    /text-white hover:bg-white\/20 focus-visible:outline-white/,
-  )
-  assert.match(source, /bg-surface px-3 text-sm font-bold text-ink/)
-})

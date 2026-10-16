@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { hasAdminSyncLog, joinAdminSyncLog } from '../app/utils/adminSyncLog.ts'
+import { renderPageTemplate } from './helpers/renderVue.ts'
 
 test('joins log lines in backend order with one newline', () => {
   const lines = [
@@ -26,15 +26,46 @@ test('keeps log text literal', () => {
   assert.equal(joinAdminSyncLog([line]), line)
 })
 
-test('renders the joined log through Vue interpolation without an HTML path', async () => {
-  const page = await readFile(
-    new URL('../app/pages/admin/sync.vue', import.meta.url),
-    'utf8',
-  )
-
+test('actual sync page escapes hostile operational log HTML', async () => {
+  const html = await renderPageTemplate('pages/admin/sync.vue', {
+    errorMessage: '',
+    initialPending: false,
+    targets: [],
+    activeJob: null,
+    history: [
+      {
+        id: 'run',
+        state: 'failed',
+        target: 'all',
+        providers: {
+          ugc: {
+            state: 'failed',
+            log: [
+              '<script>alert("journal")</script>',
+              '<img src=x onerror=alert(1)>',
+            ],
+          },
+        },
+      },
+    ],
+    requestedProviders: () => ['ugc'],
+    providerIcon: () => 'span',
+    providerIconClass: () => '',
+    providerLabels: {},
+    providerStateLabels: {},
+    stateLabels: {},
+    targetLabels: {},
+    triggerLabels: {},
+    formatDateTime: () => '',
+    formatDuration: () => '',
+    formatNewShowtimes: () => '',
+    X: 'span',
+    hasAdminSyncLog,
+    joinAdminSyncLog,
+  })
   assert.match(
-    page,
-    /<code>\{\{ joinAdminSyncLog\(run\.providers\[provider\]\.log\) \}\}<\/code>/,
+    html,
+    /<code>&lt;script&gt;alert\(&quot;journal&quot;\)&lt;\/script&gt;\n&lt;img src=x onerror=alert\(1\)&gt;<\/code>/,
   )
-  assert.doesNotMatch(page, /\bv-html\b/)
+  assert.doesNotMatch(html, /<script\b|<img\b/)
 })

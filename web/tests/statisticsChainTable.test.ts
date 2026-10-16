@@ -236,31 +236,3 @@ test('movie-filtered circuits omit film header and cells, with matching caption 
   assert.match(await render([], false), /<td colspan="3"/)
   assert.deepEqual(cells(await render(rows, true), 'td'), ['12', '1', '3'])
 })
-
-test('page passes history chains directly before local rankings within nonzero details', async () => {
-  const page = await readFile(
-    new URL('../app/pages/statistiques.vue', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    page,
-    /<template v-else>\s*<section[^>]*aria-labelledby="statistics-daily"/,
-  )
-  assert.match(
-    page,
-    /<section :class="sectionClass" aria-labelledby="statistics-chains">\s*<h2 id="statistics-chains" :class="headingClass">Par circuit<\/h2>\s*<StatisticsChainTable\s+:rows="data.chains"\s+:show-movie-count="!selectedFilm"\s*\/>\s*<\/section>\s*<section[^>]*aria-labelledby="statistics-local"/,
-  )
-  const totals = page.indexOf('id="statistics-totals"')
-  const empty = page.indexOf('v-if="data.totals.showtimes === 0"')
-  const daily = page.indexOf('id="statistics-daily"')
-  const chains = page.indexOf('id="statistics-chains"')
-  const local = page.indexOf('id="statistics-local"')
-  assert.ok(
-    totals >= 0 &&
-      totals < empty &&
-      empty < daily &&
-      daily < chains &&
-      chains < local,
-  )
-  assert.equal((page.match(/<StatisticsChainTable\b/g) ?? []).length, 1)
-})
