@@ -13,6 +13,7 @@ export const THEATER_PROVIDER_COLORS = {
   cinewest: '#15803d',
   grandecran: '#ec4899',
   noecinemas: '#795548',
+  veo: '#8e1a6f',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -26,6 +27,7 @@ export const THEATER_PROVIDER_LABELS = {
   cinewest: 'Cinewest',
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
+  veo: 'Véo Cinémas',
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {

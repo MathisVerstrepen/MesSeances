@@ -182,11 +182,14 @@ onBeforeUnmount(() => {
           Réinitialiser
         </button>
       </div>
-      <div class="relative min-h-0" :class="inSettings ? '' : 'flex-1'">
+      <div
+        class="relative min-h-0"
+        :class="inSettings ? '' : 'flex flex-1 flex-col'"
+      >
         <div
           ref="optionScroll"
           class="grid grid-cols-2 gap-2"
-          :class="inSettings ? '' : 'max-h-full overflow-y-auto overscroll-contain p-1'"
+          :class="inSettings ? '' : 'min-h-0 flex-1 overflow-y-auto overscroll-contain p-1'"
           @scroll="updateOverflow"
         >
           <label

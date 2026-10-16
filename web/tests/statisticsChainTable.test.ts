@@ -168,6 +168,7 @@ const providerLogos = {
   cinewest: ['CinéWest', 'cinewest_logo.svg'],
   grandecran: ['Grand Écran', 'grand_ecran_logo_small.webp'],
   noecinemas: ['Noé Cinémas', 'noe_cinema_logo_small.webp'],
+  veo: ['Véo Cinémas', 'veocinema_logo.svg'],
 } satisfies Record<Provider, [string, string]>
 
 // SAFETY: providerLogos is a local literal checked exhaustively against Provider above.
@@ -182,7 +183,8 @@ for (const provider of providers) {
     const header = html.match(/<th scope="row"[^>]*>(.*?)<\/th>/s)?.[1]
     assert.ok(header)
     assert.equal((html.match(/<img\b/g) ?? []).length, 1)
-    assert.ok(header.includes(`src="~/assets/imgs/${asset}?no-inline"`))
+    const directory = provider === 'veo' ? 'brands' : 'imgs'
+    assert.ok(header.includes(`src="~/assets/${directory}/${asset}?no-inline"`))
     assert.match(header, /<img\b[^>]*alt(?:="")? aria-hidden="true"/)
     assert.ok(header.endsWith(` ${label}</span></a>`))
     assert.match(header, new RegExp(`href="/cinemas\\?chains=${provider}"`))

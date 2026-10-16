@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"messeances/api/internal/cgr"
@@ -20,6 +21,7 @@ import (
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/syncproxy"
 	"messeances/api/internal/ugc"
+	"messeances/api/internal/veo"
 )
 
 type EnrichFunc func(context.Context, []enrichment.Movie) (*enrichment.Summary, error)
@@ -40,6 +42,7 @@ type ProductionExecutorOptions struct {
 	NewCinewest      func() (cinewest.Fetcher, error)
 	NewGrandEcran    func() (grandecran.Getter, error)
 	NewNoeCinemas    func() (noecinemas.Getter, error)
+	NewVeo           func() (veo.Getter, error)
 	Enrich           EnrichFunc
 	Now              func() time.Time
 	Logger           *slog.Logger
@@ -59,6 +62,7 @@ type ProductionExecutor struct {
 	newCinewest      func() (cinewest.Fetcher, error)
 	newGrandEcran    func() (grandecran.Getter, error)
 	newNoeCinemas    func() (noecinemas.Getter, error)
+	newVeo           func() (veo.Getter, error)
 	enrich           EnrichFunc
 	now              func() time.Time
 	logger           *slog.Logger
@@ -74,10 +78,11 @@ type ProductionExecutor struct {
 	syncCinewest     func(context.Context, cinewest.Fetcher, cinewest.SyncOptions) (schedule.Dataset, cinewest.SyncSummary, error)
 	syncGrandEcran   func(context.Context, grandecran.Getter, grandecran.SyncOptions) (schedule.Dataset, grandecran.SyncSummary, error)
 	syncNoeCinemas   func(context.Context, noecinemas.Getter, noecinemas.SyncOptions) (schedule.Dataset, noecinemas.SyncSummary, error)
+	syncVeo          func(context.Context, veo.Getter, veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error)
 }
 
 func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecutor, error) {
-	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil) {
+	if options.Writer == nil || options.Now == nil || options.Logger == nil || options.OperationTimeout <= 0 || (options.NewUGC == nil && options.NewKinepolis == nil && options.NewPathe == nil && options.NewCGR == nil && options.NewMegarama == nil && options.NewCineville == nil && options.NewMK2 == nil && options.NewCinewest == nil && options.NewGrandEcran == nil && options.NewNoeCinemas == nil && options.NewVeo == nil) {
 		return nil, fmt.Errorf("sync executor dependencies are required")
 	}
 	return &ProductionExecutor{
@@ -88,6 +93,7 @@ func NewProductionExecutor(options ProductionExecutorOptions) (*ProductionExecut
 		newCinewest: options.NewCinewest, syncCinewest: cinewest.Sync,
 		newGrandEcran: options.NewGrandEcran, syncGrandEcran: grandecran.Sync,
 		newNoeCinemas: options.NewNoeCinemas, syncNoeCinemas: noecinemas.Sync,
+		newVeo: options.NewVeo, syncVeo: veo.Sync,
 		enrich: options.Enrich, now: options.Now, logger: options.Logger, observer: options.Observer, operationTimeout: options.OperationTimeout,
 		syncUGC: ugc.Sync, syncKinepolis: kinepolis.Sync, syncPathe: pathe.Sync, syncCGR: cgr.Sync,
 	}, nil
@@ -97,7 +103,7 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 	started := time.Now()
 	providers := []Target{target}
 	if target == TargetAll {
-		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas}
+		providers = []Target{TargetUGC, TargetKinepolis, TargetPathe, TargetCGR, TargetMegarama, TargetCineville, TargetMK2, TargetCinewest, TargetGrandEcran, TargetNoeCinemas, TargetVeo}
 	} else if !ValidTarget(target) {
 		return nil, newProviderRunError("", StageOrchestration, FailureInternal, ErrInvalidTarget)
 	}
@@ -273,6 +279,21 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		var summary noecinemas.SyncSummary
 		data, summary, err = e.syncNoeCinemas(ctx, client, noecinemas.SyncOptions{From: window.From, Now: e.now()})
 		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
+	case TargetVeo:
+		if e.newVeo == nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
+		}
+		client, clientErr := e.newVeo()
+		if clientErr != nil {
+			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureClientCreation, clientErr)
+		}
+		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
+		var summary veo.SyncSummary
+		data, summary, err = e.syncVeo(ctx, client, veo.SyncOptions{From: window.From, Now: e.now()})
+		if args := veoCheckoutRetryLogArgs(summary); len(args) != 0 {
+			e.logger.Info("veo_checkout_retry_summary", args...)
+		}
+		outcome = SyncOutcome{Cinemas: summary.Cinemas, Movies: summary.Movies, Requests: max(summary.Requests, client.RequestCount()), Showtimes: summary.Showtimes, GeneratedAt: summary.GeneratedAt}
 	case TargetMK2:
 		if e.newMK2 == nil {
 			return data, outcome, newProviderRunError(provider, StageClientCreation, FailureInternal, nil)
@@ -399,7 +420,188 @@ func providerFetchLogArgs(provider Target, err error) []any {
 	if details.Attempt >= 1 && details.AttemptLimit >= details.Attempt && details.AttemptLimit <= 10 {
 		args = append(args, "attempt", details.Attempt, "attempt_limit", details.AttemptLimit)
 	}
+	if provider == TargetVeo && details.Category == categoryRedirect {
+		var rejected *veo.RequestError
+		if errors.As(err, &rejected) && rejected.Operation == veo.OperationCheckout && rejected.Kind == syncproxy.FailureRedirect {
+			if facts, ok := rejected.RedirectFacts(); ok {
+				args = append(args, safeVeoRedirectLogArgs(facts)...)
+			}
+		}
+	}
+	if provider == TargetVeo && details.Category == categoryInvalidPayload {
+		var rejected *veo.CheckoutParseError
+		if errors.As(err, &rejected) {
+			// Revalidate at the logging boundary, including errors constructed by
+			// callers. No provider strings or error/cause rendering is permitted.
+			switch rejected.Reason {
+			case veo.RejectRoom, veo.RejectBookingForm, veo.RejectClock, veo.RejectEndResolution:
+				args = append(args, "veo_checkout_reason", string(rejected.Reason))
+				if rejected.Reason == veo.RejectBookingForm {
+					if subreason := safeVeoFormSubreason(rejected.FormSubreason()); subreason != "" {
+						args = append(args, "veo_form_subreason", subreason)
+					}
+				}
+				if schedule.ValidVeoIdentity("theater", rejected.CinemaID) && schedule.ValidVeoIdentity("showing", rejected.ShowingID) && strings.HasPrefix(rejected.ShowingID, rejected.CinemaID+"-") {
+					args = append(args, "veo_cinema_id", rejected.CinemaID, "veo_showing_id", rejected.ShowingID)
+					if rejected.Reason == veo.RejectBookingForm && rejected.FormSubreason() == "action_mismatch" {
+						if names := safeVeoActionDifferences(rejected.ActionDifferences()); names != "" {
+							args = append(args, "veo_action_difference_bits", rejected.ActionDifferences(), "veo_action_differences", names)
+						}
+						if facts, ok := rejected.ActionPathFacts(); ok {
+							args = append(args, safeVeoActionPathLogArgs(facts)...)
+						}
+					}
+					index, count := rejected.ClientPoolPosition()
+					if validVeoClientPoolPosition(index, count) {
+						args = append(args, "veo_client_pool_position", index, "veo_client_pool_size", count)
+					}
+				}
+			}
+		}
+	}
 	return args
+}
+
+func validVeoClientPoolPosition(index, count int) bool {
+	return index >= 1 && index <= count && count <= 10000
+}
+
+func safeVeoRedirectLogArgs(d veo.CheckoutRedirectFacts) []any {
+	// Independent logger whitelist. Never render an error, supplied struct or
+	// unknown string, including when a getter constructs a forged typed error.
+	if !schedule.ValidVeoIdentity("theater", d.CinemaID) || !schedule.ValidVeoIdentity("showing", d.ShowingID) || !strings.HasPrefix(d.ShowingID, d.CinemaID+"-") || !validVeoClientPoolPosition(d.PoolPosition, d.PoolSize) {
+		return nil
+	}
+	switch d.Branch {
+	case "regular", "gueret":
+	default:
+		return nil
+	}
+	if d.Branch == "gueret" && d.CinemaID != "G06DB" {
+		return nil
+	}
+	switch d.Phase {
+	case "request", "response", "callback", "unknown":
+	default:
+		return nil
+	}
+	switch d.Reason {
+	case "unknown", "request_binding", "raw_location_parse", "unsafe_authority", "route", "query", "source_binding", "date_binding", "time_binding", "epoch_binding", "cinema_binding", "status", "location_count", "hop", "method", "response_binding", "representation", "response_identity_unknown":
+	default:
+		return nil
+	}
+	if d.Hop < 0 || d.Hop > 3 || !d.HopKnown && d.Hop != 0 || d.Branch == "regular" && d.Hop > 1 || d.HTTPStatus != 0 && (d.HTTPStatus < 100 || d.HTTPStatus > 599) || d.LocationCount < 0 || d.LocationCount > 4 || d.LocationCountTruncated && d.LocationCount != 4 {
+		return nil
+	}
+	for _, host := range []string{d.ExpectedHost, d.ObservedHost} {
+		switch host {
+		case "unknown", "regular", "relay", "dedicated", "relative", "other":
+		default:
+			return nil
+		}
+	}
+	for _, route := range []string{d.ExpectedRoute, d.ObservedRoute} {
+		switch route {
+		case "unknown", "source", "relay_source", "relay_root", "alias", "canonical", "other":
+		default:
+			return nil
+		}
+	}
+	return []any{
+		"veo_redirect_branch", d.Branch, "veo_redirect_phase", d.Phase, "veo_redirect_reason", d.Reason,
+		"veo_redirect_hop", d.Hop, "veo_redirect_hop_known", d.HopKnown,
+		"veo_redirect_http_status", d.HTTPStatus, "veo_redirect_location_count", d.LocationCount, "veo_redirect_location_count_truncated", d.LocationCountTruncated,
+		"veo_redirect_expected_host", d.ExpectedHost, "veo_redirect_expected_route", d.ExpectedRoute,
+		"veo_redirect_observed_host", d.ObservedHost, "veo_redirect_observed_route", d.ObservedRoute,
+		"veo_cinema_id", d.CinemaID, "veo_showing_id", d.ShowingID,
+		"veo_client_pool_position", d.PoolPosition, "veo_client_pool_size", d.PoolSize,
+	}
+}
+
+func safeVeoActionPathLogArgs(d veo.CheckoutActionPathFacts) []any {
+	// This independent boundary validates every provider-local enum, mask and
+	// collection. Never serialize the supplied struct or any unrecognized value.
+	switch d.Shape {
+	case "canonical_unavailable", "unparseable", "canonical_tokens", "canonical_prefix_extra", "generic_entry", "source_alias", "empty_segments", "missing_segments", "reordered_tokens", "different_shape":
+	default:
+		return nil
+	}
+	if len(d.Classes) > 32 || d.ExpectedPresentMask&^uint8(63) != 0 || d.ExpectedPositionMask&^d.ExpectedPresentMask != 0 {
+		return nil
+	}
+	for _, count := range []int{d.SegmentCount, d.EmptySegments, d.ExtraCount, d.MissingCount} {
+		if count < 0 || count > 1024 {
+			return nil
+		}
+	}
+	for _, class := range d.Classes {
+		switch class {
+		case "expected_slug", "route_reserver", "expected_film", "expected_epoch", "expected_version", "expected_tail", "route_source_r", "film_like", "epoch_like", "version_enum", "decimal", "empty", "other":
+		default:
+			return nil
+		}
+	}
+	for i, position := range d.ExpectedPositions {
+		if position < -1 || position > 1024 || (position >= 0) != (d.ExpectedPresentMask&(1<<i) != 0) || d.ExpectedAtPosition[i] != (d.ExpectedPositionMask&(1<<i) != 0) {
+			return nil
+		}
+	}
+	if !d.Parsed && (d.ExpectedPresentMask != 0 || d.ExpectedPositionMask != 0 || d.SegmentCount != 0 || len(d.Classes) != 0 || d.CanonicalPrefix || d.ExpectedTokensInOrder) {
+		return nil
+	}
+	return []any{
+		"veo_action_path_shape", d.Shape, "veo_action_path_parsed", d.Parsed, "veo_action_path_canonical_valid", d.CanonicalValid,
+		"veo_action_path_segments", d.SegmentCount, "veo_action_path_empty", d.EmptySegments,
+		"veo_action_path_extra", d.ExtraCount, "veo_action_path_missing", d.MissingCount,
+		"veo_action_path_counts_truncated", d.CountsTruncated, "veo_action_path_classes", strings.Join(d.Classes, ","),
+		"veo_action_path_classes_truncated", d.ClassesTruncated,
+		"veo_action_path_leading_slash", d.LeadingSlash, "veo_action_path_trailing_slash", d.TrailingSlash,
+		"veo_action_path_canonical_prefix", d.CanonicalPrefix, "veo_action_path_tokens_in_order", d.ExpectedTokensInOrder,
+		"veo_action_path_present_mask", d.ExpectedPresentMask, "veo_action_path_position_mask", d.ExpectedPositionMask,
+		"veo_action_path_expected_positions", d.ExpectedPositions,
+		"veo_action_path_absolute", d.Absolute, "veo_action_path_scheme_equal", d.SchemeEqual, "veo_action_path_authority_equal", d.AuthorityEqual,
+		"veo_action_path_query", d.QueryPresent, "veo_action_path_fragment", d.FragmentPresent,
+		"veo_action_path_userinfo", d.UserinfoPresent, "veo_action_path_escaping", d.EscapingPresent,
+	}
+}
+
+func veoCheckoutRetryLogArgs(summary veo.SyncSummary) []any {
+	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts || summary.ToulouseUnavailableCheckouts < 0 || summary.GueretUnavailableCheckouts < 0 {
+		return nil
+	}
+	args := []any{"component", "sync", "provider", "veo", "checkout_retry_attempts", summary.CheckoutRetryAttempts, "checkout_recoveries", summary.CheckoutRecoveries}
+	args = append(args, "toulouse_unavailable_checkouts", summary.ToulouseUnavailableCheckouts)
+	args = append(args, "gueret_unavailable_checkouts", summary.GueretUnavailableCheckouts)
+	if summary.CheckoutRetryAttempts > 0 && summary.FirstCheckoutRetry != nil {
+		args = append(args, "first_retry_recovered", summary.FirstCheckoutRetryRecovered)
+		// Use exactly the existing defensive reason/identity/bit/index whitelist.
+		args = append(args, providerFetchLogArgs(TargetVeo, newProviderRunError(TargetVeo, StageProviderFetch, FailureProviderSync, summary.FirstCheckoutRetry))...)
+	}
+	return args
+}
+
+func safeVeoActionDifferences(bits uint32) string {
+	// Independent logging whitelist. Unknown/forged bits suppress the entire set.
+	names := [...]string{"scheme", "authority", "path_shape", "slug", "film", "epoch", "version", "tail", "trailing_slash", "query", "fragment", "relative", "whitespace", "escaping", "userinfo", "unparseable", "representation"}
+	if bits == 0 || bits&^uint32((1<<len(names))-1) != 0 {
+		return ""
+	}
+	selected := []string{}
+	for i, name := range names {
+		if bits&(1<<i) != 0 {
+			selected = append(selected, name)
+		}
+	}
+	return strings.Join(selected, ",")
+}
+
+func safeVeoFormSubreason(reason string) string {
+	switch reason {
+	case "body_encoding", "html_parse", "canonical_missing", "canonical_invalid", "raw_form_count", "dom_form_count", "template_inert", "action_count", "action_mismatch", "method_count", "method_non_post", "login_password", "fronton_scope":
+		return reason
+	default:
+		return ""
+	}
 }
 
 func safePatheFetchCategory(category pathe.ErrorCategory) logCategory {
@@ -593,6 +795,27 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 			}
 			details.Category = safeMegaramaCategory(requestErr.Kind)
 			details.HTTPStatus = requestErr.StatusCode
+		}
+	case TargetVeo:
+		var requestErr *veo.RequestError
+		if errors.As(err, &requestErr) {
+			switch requestErr.Operation {
+			case veo.OperationCinemas:
+				details.Operation = operationCinemas
+			case veo.OperationProgram, veo.OperationCastelia:
+				details.Operation = operationProgram
+			case veo.OperationMovies:
+				details.Operation = operationMovies
+			case veo.OperationSchedule, veo.OperationCheckout:
+				details.Operation = operationShowings
+			}
+			details.Category = safeMegaramaCategory(requestErr.Kind)
+			details.HTTPStatus = requestErr.StatusCode
+		} else {
+			var rejected *veo.CheckoutParseError
+			if errors.As(err, &rejected) {
+				details.Operation, details.Category = operationShowings, categoryInvalidPayload
+			}
 		}
 	case TargetMK2:
 		var requestErr *mk2.RequestError
@@ -801,7 +1024,7 @@ func safeCGRCategory(category cgr.ErrorCategory) logCategory {
 func enrichmentMovies(provider Target, data schedule.Dataset) []enrichment.Movie {
 	unique := make(map[string]enrichment.Movie)
 	for _, showing := range data.Showtimes {
-		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetCineville && provider != TargetMK2 && provider != TargetCinewest && provider != TargetGrandEcran && provider != TargetNoeCinemas {
+		if showing.Movie.RuntimeMinutes == 0 && provider != TargetMegarama && provider != TargetCineville && provider != TargetMK2 && provider != TargetCinewest && provider != TargetGrandEcran && provider != TargetNoeCinemas && provider != TargetVeo {
 			continue
 		}
 		movie, found := unique[showing.Movie.ProviderID]

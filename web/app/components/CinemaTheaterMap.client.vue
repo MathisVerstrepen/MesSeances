@@ -392,6 +392,8 @@ function onMapLoad() {
           THEATER_PROVIDER_COLORS.grandecran,
           'noecinemas',
           THEATER_PROVIDER_COLORS.noecinemas,
+          'veo',
+          THEATER_PROVIDER_COLORS.veo,
           '#52525b',
         ],
         'circle-stroke-color': '#ffffff',

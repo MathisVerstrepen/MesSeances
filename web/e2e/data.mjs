@@ -1,4 +1,5 @@
 // Synthetic public inventory, shared by SSR mocks, browser tests and CLI sessions.
+import { createHash } from 'node:crypto'
 export const date = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Europe/Paris',
   year: 'numeric',
@@ -190,6 +191,61 @@ export const secondTheater = {
   name: 'Cinéma Seconde Salle',
   city: 'Roubaix',
   city_slug: 'roubaix',
+}
+
+// Opt-in Véo inventory: existing provider scenarios retain their original counts.
+export const veoTheaters = ['P1234', 'EMS1361'].map((id, index) => ({
+  ...theater,
+  provider: 'veo',
+  id: `veo-${id}`,
+  slug: `veo-${id}`,
+  name: index ? 'Véo Le Castelia' : 'Véo Cinémas Muret',
+  city: index ? 'Castelginest' : 'Muret',
+  city_slug: index ? 'castelginest' : 'muret',
+  available_dates: [
+    date,
+    new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+  ],
+}))
+export function veoShowtimes(venue, selectedDate = date) {
+  const castelia = venue.id === 'veo-EMS1361'
+  const rawTheater = venue.id.slice(4)
+  const id = (session) =>
+    `veo-showing-${rawTheater}-${createHash('sha256').update(`${rawTheater}\0${session}`).digest('hex')}`
+  const payload = showtimes(date)
+  return {
+    ...payload,
+    date: selectedDate,
+    theater: venue,
+    showtimes: [0, 1, 2].map((index) => ({
+      ...payload.showtimes[0],
+      provider: 'veo',
+      id: id(
+        castelia ? `emsx13610000000${index + 1}` : `Source_00${index + 1}`,
+      ),
+      movie: {
+        ...movie,
+        slug: `veo-film-${castelia ? 'ticketingcine-' : ''}Event_One`,
+        title: 'Événement Véo',
+        runtime_minutes: 0,
+      },
+      start_time: `${selectedDate}T${14 + index * 2}:00:00+02:00`,
+      end_time: `${selectedDate}T${14 + index * 2}:00:00+02:00`,
+      duration_minutes: 0,
+      language: 'VOSTFR',
+      room: '',
+      booking_url:
+        index === 2
+          ? 'https://achat.veocinemas.fr.evil.test/muret/r/1'
+          : castelia
+            ? index === 1
+              ? 'https://castelginest.miracinemas.fr/'
+              : 'https://castelginest.miracinemas.fr/#showsession?id=emsx136100000001'
+            : `https://achat.veocinemas.fr/muret-veo/r/${19 + index}`,
+    })),
+  }
 }
 
 export const alternativeTheater = {

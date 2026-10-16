@@ -118,6 +118,9 @@ const GRAND_ECRAN_TOKEN_PATTERN = /^g([A-Z0-9]{5})-([A-Za-z0-9_-]{43})$/
 const NOE_CINEMAS_SELECTION_KEY_PATTERN =
   /^noecinemas:noecinemas-showing-([A-Z0-9]{5})-([a-f0-9]{64})$/
 const NOE_CINEMAS_TOKEN_PATTERN = /^n([A-Z0-9]{5})-([A-Za-z0-9_-]{43})$/
+const VEO_SELECTION_KEY_PATTERN =
+  /^veo:veo-showing-([A-Z0-9]{5}|EMS1361)-([a-f0-9]{64})$/
+const VEO_TOKEN_PATTERN = /^e([A-Z0-9]{5}|EMS1361)-([A-Za-z0-9_-]{43})$/
 const KINEPOLIS_PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const PATHE_PROVIDER_ID_PATTERN = /^V[1-9][0-9]*S[1-9][0-9]*$/
 const CGR_TOKEN_PATTERN = /^c([A-Z][0-9]{4})-([A-Za-z0-9_-]{43})$/
@@ -185,6 +188,8 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const veo = VEO_SELECTION_KEY_PATTERN.exec(key)
+  if (veo?.[0] === key) return `e${veo[1]}-${hexToBase64Url(veo[2]!)}`
   const noeCinemas = NOE_CINEMAS_SELECTION_KEY_PATTERN.exec(key)
   if (noeCinemas?.[1] && noeCinemas[2] && noeCinemas[0] === key)
     return `n${noeCinemas[1]}-${hexToBase64Url(noeCinemas[2])}`
@@ -227,6 +232,13 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  const veo = VEO_TOKEN_PATTERN.exec(token)
+  if (veo?.[0] === token) {
+    const hash = base64UrlToHex(veo[2]!)
+    if (!hash || hash.length !== 64 || hexToBase64Url(hash) !== veo[2])
+      return null
+    return `veo:veo-showing-${veo[1]}-${hash}`
+  }
   const noeCinemas = NOE_CINEMAS_TOKEN_PATTERN.exec(token)
   if (noeCinemas?.[1] && noeCinemas[2] && noeCinemas[0] === token) {
     const hash = base64UrlToHex(noeCinemas[2])

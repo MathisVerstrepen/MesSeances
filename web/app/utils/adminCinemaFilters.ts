@@ -19,6 +19,7 @@ export const cinemaProviderLabels = {
   cinewest: 'Cinewest',
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
+  veo: 'Véo Cinémas',
 } satisfies Record<Provider, string>
 
 export interface AdminCinemaRouteState {

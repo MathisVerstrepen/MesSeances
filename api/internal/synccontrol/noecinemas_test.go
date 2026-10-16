@@ -76,7 +76,7 @@ func TestNoeCinemasExecutorAndScheduledManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	status := waitForTerminal(t, m)
-	if status.State != StateSucceeded || status.Providers["noecinemas"].State != ProviderSucceeded || len(status.Providers) != 10 {
+	if status.State != StateSucceeded || status.Providers["noecinemas"].State != ProviderSucceeded || len(status.Providers) != 11 {
 		t.Fatal("scheduled state")
 	}
 }

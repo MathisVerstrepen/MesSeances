@@ -42,6 +42,7 @@ import (
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
+	"messeances/api/internal/veo"
 	"messeances/api/internal/wikidata"
 )
 
@@ -547,6 +548,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewNoeCinemas: func() (noecinemas.Getter, error) {
 			return noecinemas.NewClient(noecinemas.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewVeo: func() (veo.Getter, error) {
+			return veo.NewClient(veo.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

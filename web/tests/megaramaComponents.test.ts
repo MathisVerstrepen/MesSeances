@@ -42,7 +42,7 @@ test('integrates Megarama into admin targets, labels, latest runs, and the label
     if (page.startsWith('sync'))
       assert.match(
         value,
-        /\[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',?\s*\]/,
+        /\[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',\s*'veo',?\s*\]/,
       )
   }
   assert.match(
@@ -60,7 +60,7 @@ test('website fallback overrides reservation aria text and all custom slots show
   const booking = await source('components/BookingLink.vue')
   assert.match(
     booking,
-    /booking\.kind === 'website'\s*\? booking\.provider === 'cinewest'\s*\? 'Site du cinéma Cinewest'\s*: 'Site du cinéma Megarama'/,
+    /booking\.kind === 'website'\s*\? booking\.provider === 'veo'\s*\? 'Site du cinéma Véo'\s*: booking\.provider === 'cinewest'\s*\? 'Site du cinéma Cinewest'\s*: 'Site du cinéma Megarama'/,
   )
   assert.match(
     booking,
