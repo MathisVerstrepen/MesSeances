@@ -603,6 +603,122 @@ for (const venue of veoTheaters) {
   })
 }
 
+test('Enseignes contains all chains with scrolling, keyboard access and mobile settings flow', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', {
+    data: { veo: true, allChains: true },
+  })
+  const mobile = info.project.name === 'mobile'
+  for (const height of mobile ? [844] : [900, 480]) {
+    await page.setViewportSize({ width: mobile ? 390 : 1440, height })
+    await openPage(page, '/cinemas')
+    const summary = page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+    if (mobile)
+      await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+    else {
+      if (height === 480) {
+        await summary.evaluate((element) =>
+          window.scrollTo(
+            0,
+            window.scrollY + element.getBoundingClientRect().top - 100,
+          ),
+        )
+        await expect
+          .poll(async () => (await summary.boundingBox())!.y)
+          .toBeCloseTo(100, 0)
+      }
+      await summary.click()
+    }
+    const panel = page.getByRole('group', {
+      name: 'Filtrer par enseigne',
+      exact: true,
+    })
+    const options = panel.getByRole('checkbox')
+    const last = options.last()
+    const card = last.locator('..')
+    await expect(options).toHaveCount(11)
+    await expect(last).toHaveAccessibleName('Véo Cinémas')
+    // Measure the real scroll container, not visibility (which allows overflow).
+    const grid = panel.locator('.grid')
+    await expect
+      .poll(async () =>
+        grid.evaluate((element) => {
+          const bounds = element.getBoundingClientRect()
+          const panelBounds = element
+            .closest('fieldset')!
+            .getBoundingClientRect()
+          return (
+            bounds.bottom <= panelBounds.bottom && bounds.top >= panelBounds.top
+          )
+        }),
+      )
+      .toBe(true)
+    await expect(grid).toHaveCSS('grid-template-columns', /^\S+ \S+$/)
+    if (!mobile) {
+      const bounds = (await panel.boundingBox())!
+      expect(bounds.y).toBeGreaterThanOrEqual(8)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(height - 8)
+      expect(bounds.height).toBeLessThanOrEqual(440)
+      const anchor = (await summary.boundingBox())!
+      if (height === 480)
+        expect(bounds.y).toBeGreaterThan(anchor.y + anchor.height)
+      else expect(bounds.y + bounds.height).toBeLessThan(anchor.y)
+      expect(
+        await grid.evaluate((element) => element.scrollHeight),
+      ).toBeGreaterThan(await grid.evaluate((element) => element.clientHeight))
+      // Tab through every option: focusing the sr-only input must reveal its card.
+      await options.first().focus()
+      for (let index = 1; index < (await options.count()); index++)
+        await page.keyboard.press('Tab')
+      await expect(last).toBeFocused()
+      expect(
+        await grid.evaluate((element) => element.scrollTop),
+      ).toBeGreaterThan(0)
+    } else {
+      await expect(panel).toHaveCSS('position', 'static')
+      expect(await grid.evaluate((element) => element.scrollHeight)).toBe(
+        await grid.evaluate((element) => element.clientHeight),
+      )
+      await card.scrollIntoViewIfNeeded()
+    }
+    const lastBounds = (await card.boundingBox())!
+    const panelBounds = (await panel.boundingBox())!
+    expect(lastBounds.y + lastBounds.height).toBeLessThanOrEqual(
+      panelBounds.y + panelBounds.height,
+    )
+    if (!mobile) {
+      const gridBounds = (await grid.boundingBox())!
+      expect(lastBounds.y).toBeGreaterThanOrEqual(gridBounds.y)
+      expect(lastBounds.y + lastBounds.height).toBeLessThanOrEqual(
+        gridBounds.y + gridBounds.height,
+      )
+      await page.keyboard.press('Space')
+    } else await card.click()
+    await expect(last).toBeChecked()
+    await expect(page).toHaveURL(/chains=veo/)
+    await page.screenshot({ path: info.outputPath(`enseignes-${height}.png`) })
+    await panel.getByRole('button', { name: 'Réinitialiser' }).click()
+    await expect(last).not.toBeChecked()
+    await expect(page).not.toHaveURL(/chains=/)
+    if (!mobile) {
+      await options.first().focus()
+      await page.keyboard.press('Escape')
+      await expect(panel).toBeHidden()
+      await expect(summary).toBeFocused()
+      await summary.click()
+      await page.getByRole('searchbox').click()
+      await expect(panel).toBeHidden()
+      await summary.click()
+      await page.getByRole('searchbox').focus()
+      await expect(panel).toBeHidden()
+    } else await page.getByRole('button', { name: /Fermer/ }).click()
+  }
+})
+
 test('Véo directory filtering and operator credit retain brand identity on desktop and mobile', async ({
   page,
   request,

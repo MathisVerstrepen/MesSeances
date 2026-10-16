@@ -228,6 +228,24 @@ const mock = createServer((request, response) => {
         theater,
         secondTheater,
         ...(scenario.veo ? veoTheaters : []),
+        ...(scenario.allChains
+          ? [
+              'cgr',
+              'cineville',
+              'cinewest',
+              'grandecran',
+              'kinepolis',
+              'megarama',
+              'mk2',
+              'noecinemas',
+              'pathe',
+            ].map((provider) => ({
+              ...theater,
+              provider,
+              id: `fixture-${provider}`,
+              slug: `cinema-${provider}`,
+            }))
+          : []),
       ])
     if (path === '/api/v1/cities')
       return json(response, {
