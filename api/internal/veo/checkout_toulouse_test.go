@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"net/url"
 	"reflect"
 	"strings"
 	"sync"
@@ -22,9 +23,48 @@ func toulouseEntryPage(start time.Time) CheckoutResult {
 	return p
 }
 
-func TestToulouseEntryUnavailableDiscardsAllPageFacts(t *testing.T) {
+// Run the same binding, parser-attestation and retry controls for each admitted
+// cinema. All pages remain synthetic; only the cinema identity differs.
+func TestBoundEntryCheckouts(t *testing.T) {
+	for _, cinema := range []struct{ id, slug string }{{"G0699", "toulouse"}, {"P0833", "saint-chamond"}} {
+		t.Run(cinema.id, func(t *testing.T) {
+			row := func(i int) schedule.ShowtimeRecord {
+				r := retryTestRow(i)
+				r.TheaterID = "veo-" + cinema.id
+				r.ProviderShowingID = schedule.VeoShowingID(cinema.id, fmt.Sprint(i))
+				r.ID = "veo-showing-" + r.ProviderShowingID
+				r.BookingURL = strings.ReplaceAll(r.BookingURL, "toulouse", cinema.slug)
+				return r
+			}
+			page := func(start time.Time, mismatch bool) CheckoutResult {
+				p := retryTestPage(start, mismatch)
+				p.canonicalURL = strings.ReplaceAll(p.canonicalURL, "toulouse", cinema.slug)
+				p.Body = []byte(strings.ReplaceAll(string(p.Body), "toulouse", cinema.slug))
+				return p
+			}
+			entry := func(start time.Time) CheckoutResult {
+				p := toulouseEntryPage(start)
+				p.canonicalURL = strings.ReplaceAll(p.canonicalURL, "toulouse", cinema.slug)
+				p.Body = []byte(strings.ReplaceAll(string(p.Body), "toulouse", cinema.slug))
+				return p
+			}
+			action := "https://achat.veocinemas.fr/" + cinema.slug + "/reserver/"
+			t.Run("discards all facts", func(t *testing.T) { testEntryUnavailableDiscardsAllPageFacts(t, row, entry, action) })
+			t.Run("identity", func(t *testing.T) { testEntryRequiresExactSourceAndCanonicalIdentity(t, row, entry, action) })
+			t.Run("near misses", func(t *testing.T) { testEntryNearMissesRemainStrict(t, row, entry, action, cinema.slug) })
+			t.Run("second response", func(t *testing.T) { testEntrySecondResponseCannotRecover(t, row, page, entry) })
+		})
+	}
+	t.Run("G06DB", testGueretBoundEntryCheckout)
+}
+
+func testEntryUnavailableDiscardsAllPageFacts(t *testing.T, retryTestRow func(int) schedule.ShowtimeRecord, toulouseEntryPage func(time.Time) CheckoutResult, toulouseEntryAction string) {
 	for _, room := range []string{"", "API room"} {
-		for _, segment := range []string{"r/", "reserver/r/"} {
+		segments := []string{"r/", "reserver/r/"}
+		if retryTestRow(901).TheaterID == "veo-G06DB" {
+			segments = []string{"relay"}
+		}
+		for _, segment := range segments {
 			t.Run(room+segment, func(t *testing.T) {
 				row := retryTestRow(901)
 				row.Room = room
@@ -39,7 +79,11 @@ func TestToulouseEntryUnavailableDiscardsAllPageFacts(t *testing.T) {
 				if err := enrichCheckouts(t.Context(), g, rows, &s, row.StartTime.Add(-time.Hour)); err != nil {
 					t.Fatal(err)
 				}
-				if !reflect.DeepEqual(rows[0], row) || s.ToulouseUnavailableCheckouts != 1 || s.Checkouts != 1 || s.ExactEnds != 0 || s.CheckoutRetryAttempts != 0 || s.CheckoutRecoveries != 0 || g.RequestCount() != 1 {
+				wantToulouse := 0
+				if row.TheaterID == "veo-G0699" {
+					wantToulouse = 1
+				}
+				if !reflect.DeepEqual(rows[0], row) || s.ToulouseUnavailableCheckouts != wantToulouse || s.Checkouts != 1 || s.ExactEnds != 0 || s.CheckoutRetryAttempts != 0 || s.CheckoutRecoveries != 0 || g.RequestCount() != 1 {
 					t.Fatal("generic-page facts retained or retry spent", s)
 				}
 				// The generic parser still rejects this page; only the bound first
@@ -54,32 +98,47 @@ func TestToulouseEntryUnavailableDiscardsAllPageFacts(t *testing.T) {
 	for _, body := range []string{
 		bookingFormFixture(toulouseEntryAction),
 		bookingFormFixture(toulouseEntryAction) + `{"auditorium_showtime":null}`,
-		strings.ReplaceAll(bookingFormFixture(toulouseEntryAction), "toulouse", "toul&#111;use"),
+		strings.ReplaceAll(bookingFormFixture(toulouseEntryAction), "reserver", "reser&#118;er"),
 	} {
 		row := retryTestRow(900)
 		p := toulouseEntryPage(row.StartTime)
 		p.Body = []byte(body)
 		got, err := resolveCheckout(row, p, false)
-		if err != nil || !got.toulouseUnavailable || !got.end.Equal(row.StartTime) || got.hasEnd || got.room != "" {
+		if err != nil || !got.entryUnavailable || !got.end.Equal(row.StartTime) || got.hasEnd || got.room != "" {
 			t.Fatal("missing optional metadata or literal decoded action rejected", err)
 		}
 	}
 }
 
-func TestToulouseEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T) {
+func testEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T, retryTestRow func(int) schedule.ShowtimeRecord, toulouseEntryPage func(time.Time) CheckoutResult, toulouseEntryAction string) {
+	slug := strings.Split(entryCheckoutAction(retryTestRow(902).TheaterID), "/")[3]
 	for _, tc := range []struct {
 		name   string
 		change func(*schedule.ShowtimeRecord, *CheckoutResult)
 	}{
 		{"other cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.TheaterID = "veo-P1028" }},
+		{"other admitted cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) {
+			if r.TheaterID == "veo-G0699" {
+				r.TheaterID = "veo-P0833"
+			} else {
+				r.TheaterID = "veo-G0699"
+			}
+		}},
 		{"gueret", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.TheaterID = "veo-G06DB" }},
 		{"showing namespace", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) {
 			r.ProviderShowingID = schedule.VeoShowingID("P1028", "fixture")
 		}},
-		{"showing malformed", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.ProviderShowingID = "G0699-forged" }},
+		{"showing malformed", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) {
+			r.ProviderShowingID = strings.TrimPrefix(r.TheaterID, "veo-") + "-forged"
+		}},
 		{"public id", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.ID = "veo-showing-forged" }},
 		{"source cinema", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) {
-			r.BookingURL = strings.ReplaceAll(r.BookingURL, "toulouse", "fronton")
+			r.BookingURL = strings.ReplaceAll(r.BookingURL, slug, "fronton")
+		}},
+		{"source and response slug", func(r *schedule.ShowtimeRecord, p *CheckoutResult) {
+			r.BookingURL = strings.ReplaceAll(r.BookingURL, slug, "fronton")
+			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, slug, "fronton")
+			p.Body = []byte(strings.ReplaceAll(string(p.Body), slug, "fronton"))
 		}},
 		{"source query", func(r *schedule.ShowtimeRecord, _ *CheckoutResult) { r.BookingURL += "?" }},
 		{"source canonical", func(r *schedule.ShowtimeRecord, p *CheckoutResult) { r.BookingURL = p.canonicalURL }},
@@ -91,7 +150,7 @@ func TestToulouseEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T) {
 		{"canonical missing", func(_ *schedule.ShowtimeRecord, p *CheckoutResult) { p.canonicalURL = "" }},
 		{"canonical alias", func(r *schedule.ShowtimeRecord, p *CheckoutResult) { p.canonicalURL = r.BookingURL }},
 		{"canonical wrong cinema", func(_ *schedule.ShowtimeRecord, p *CheckoutResult) {
-			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, "toulouse", "fronton")
+			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, slug, "fronton")
 		}},
 		{"canonical host case", func(_ *schedule.ShowtimeRecord, p *CheckoutResult) {
 			p.canonicalURL = strings.ReplaceAll(p.canonicalURL, "achat.", "ACHAT.")
@@ -114,7 +173,7 @@ func TestToulouseEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T) {
 			// No legacy numeric-room shortcut in this identity rejection test.
 			p.Body = []byte(bookingFormFixture(toulouseEntryAction))
 			tc.change(&row, &p)
-			if got, err := resolveCheckout(row, p, false); err == nil || got.toulouseUnavailable {
+			if got, err := resolveCheckout(row, p, false); err == nil || got.entryUnavailable {
 				t.Fatal("unbound page classified unavailable")
 			}
 		})
@@ -130,22 +189,23 @@ func TestToulouseEntryRequiresExactSourceAndCanonicalIdentity(t *testing.T) {
 	}
 }
 
-func TestToulouseEntryNearMissesRemainStrict(t *testing.T) {
+func testEntryNearMissesRemainStrict(t *testing.T, retryTestRow func(int) schedule.ShowtimeRecord, toulouseEntryPage func(time.Time) CheckoutResult, toulouseEntryAction, slug string) {
 	row := retryTestRow(904)
+	u, _ := url.Parse(toulouseEntryAction)
 	for i, action := range []string{
-		"/toulouse/reserver/", "//achat.veocinemas.fr/toulouse/reserver/",
+		u.Path, "//" + u.Host + u.Path,
 		strings.TrimSuffix(toulouseEntryAction, "/"), toulouseEntryAction + "/",
 		toulouseEntryAction + "?", toulouseEntryAction + "?x=1", toulouseEntryAction + "#", toulouseEntryAction + "#x",
 		strings.ReplaceAll(toulouseEntryAction, "https:", "http:"), strings.ReplaceAll(toulouseEntryAction, "https:", "HTTPS:"),
-		strings.ReplaceAll(toulouseEntryAction, "achat.", "ACHAT."), strings.ReplaceAll(toulouseEntryAction, ".fr/", ".fr:443/"),
-		strings.ReplaceAll(toulouseEntryAction, "https://", "https://user@"), strings.ReplaceAll(toulouseEntryAction, "toulouse", "%74oulouse"),
-		strings.ReplaceAll(toulouseEntryAction, "toulouse", "fronton"), strings.ReplaceAll(toulouseEntryAction, "toulouse", "Toulouse"),
+		strings.ReplaceAll(toulouseEntryAction, "achat.", "ACHAT."), strings.ReplaceAll(toulouseEntryAction, u.Host, u.Host+":443"),
+		strings.ReplaceAll(toulouseEntryAction, "https://", "https://user@"), strings.ReplaceAll(toulouseEntryAction, slug, fmt.Sprintf("%%%02x%s", slug[0], slug[1:])),
+		strings.ReplaceAll(toulouseEntryAction, slug, "fronton"), strings.ReplaceAll(toulouseEntryAction, slug, strings.ToUpper(slug)),
 		toulouseEntryAction + "r/1", toulouseEntryAction + "F123/", toulouseEntryAction + "../", " " + toulouseEntryAction,
 	} {
 		t.Run(fmt.Sprintf("action-%d", i), func(t *testing.T) {
 			p := toulouseEntryPage(row.StartTime)
 			p.Body = []byte(bookingFormFixture(html.EscapeString(action)) + `<script>{"auditorium_showtime":"salle-8"}</script>`)
-			if got, err := resolveCheckout(row, p, false); err == nil || got.toulouseUnavailable {
+			if got, err := resolveCheckout(row, p, false); err == nil || got.entryUnavailable {
 				t.Fatal("near-miss action accepted")
 			}
 		})
@@ -170,7 +230,7 @@ func TestToulouseEntryNearMissesRemainStrict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := toulouseEntryPage(row.StartTime)
 			p.Body = []byte(tc.body)
-			if got, err := resolveCheckout(row, p, false); err == nil || got.toulouseUnavailable {
+			if got, err := resolveCheckout(row, p, false); err == nil || got.entryUnavailable {
 				t.Fatal("other parser failure softened")
 			}
 		})
@@ -186,7 +246,7 @@ func TestToulouseEntryNearMissesRemainStrict(t *testing.T) {
 	}
 }
 
-func TestToulouseEntrySecondResponseCannotRecover(t *testing.T) {
+func testEntrySecondResponseCannotRecover(t *testing.T, retryTestRow func(int) schedule.ShowtimeRecord, retryTestPage func(time.Time, bool) CheckoutResult, toulouseEntryPage func(time.Time) CheckoutResult) {
 	row := retryTestRow(905)
 	g := &retryCheckoutGetter{fetch: func(_ context.Context, _ string, start time.Time, n int) (CheckoutResult, error) {
 		if n == 1 {

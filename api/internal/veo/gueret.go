@@ -129,8 +129,17 @@ func gueretRedirect(req *http.Request, via []*http.Request, b checkoutBinding) b
 }
 
 func gueretUnavailable(u *url.URL, r *http.Response, b checkoutBinding) bool {
-	if b.response == nil || gueretHop(u, b) != 1 || r.StatusCode != http.StatusFound || len(r.Header.Values("Location")) != 1 ||
+	hop := gueretHop(u, b)
+	if b.response == nil || hop < 0 ||
 		r.Request == nil || r.Request.Method != http.MethodGet || r.Request.URL == nil || r.Request.URL.String() != u.String() {
+		return false
+	}
+	// Only the validated chain's canonical destination may be missing. A
+	// terminal Location, even empty, is not an unambiguous unavailable result.
+	if hop == 3 && r.StatusCode == http.StatusNotFound {
+		return len(r.Header.Values("Location")) == 0
+	}
+	if hop != 1 || r.StatusCode != http.StatusFound || len(r.Header.Values("Location")) != 1 {
 		return false
 	}
 	raw := r.Header.Get("Location")
