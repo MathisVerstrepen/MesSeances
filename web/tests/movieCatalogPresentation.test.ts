@@ -494,16 +494,9 @@ test('cinema Films keeps aggregation and derives compact filtered shared cards',
   assert.ok(fetchMovies)
   assert.match(fetchMovies, /currently_screened: true,\s*theaters: theaterId/)
   assert.match(fetchMovies, /page_size: CATALOG_PAGE_SIZE/)
-  assert.match(fetchMovies, /api\.movies\(\{ \.\.\.query, page: 1 \}\)/)
-  assert.match(
-    fetchMovies,
-    /Math\.ceil\(firstPage\.total \/ CATALOG_PAGE_SIZE\)/,
-  )
-  assert.match(fetchMovies, /page: index \+ 2/)
-  assert.match(
-    fetchMovies,
-    /return \[firstPage, \.\.\.remainingPages\]\.flatMap\(\(page\) => page\.items\)/,
-  )
+  assert.match(fetchMovies, /collectPublicPages/)
+  assert.match(fetchMovies, /api\.movies\(\{ \.\.\.query, page \}, signal\)/)
+  assert.match(fetchMovies, /return result\.items/)
   assert.doesNotMatch(
     fetchMovies,
     /search:|filmSearch|compileMovieTitleSearch|filterAndSortCatalogMovies/,
@@ -513,10 +506,10 @@ test('cinema Films keeps aggregation and derives compact filtered shared cards',
     /singularQueryValue\(route\.query\.q\)\?\.trim\(\) \?\? ''/,
   )
   assert.match(cinema, /q: search \|\| undefined/)
-  assert.match(cinema, /const remainingPages = await Promise\.all/)
+  assert.match(cinema, /await collectPublicPages/)
   assert.match(
     cinema,
-    /filterAndSortCatalogMovies\(\s*cinemaMovies\.value,\s*filmSearch\.value,\s*filmSort\.value,?\s*\)/,
+    /filterAndSortCatalogMovies\(\s*discovery\.filter\(cinemaMovies\.value, \(?movie\)? => movie\.slug\),\s*filmSearch\.value,\s*filmSort\.value,?\s*\)/,
   )
   assert.match(cinema, /<MovieCatalogControls[^>]+compact/)
   assert.match(cinema, /v-for="movie in displayedCinemaMovies"/)

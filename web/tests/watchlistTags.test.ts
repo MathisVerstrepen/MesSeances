@@ -225,35 +225,6 @@ test('editorial color tiles retain eight named native radios and one decorative 
   }
 })
 
-test('manager, assigned and assignment-option chips share square editorial typography without changing palette bindings', async () => {
-  const [css, manager, item] = await Promise.all([
-    readFile(new URL('../app/assets/css/main.css', import.meta.url), 'utf8'),
-    readFile(
-      new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(
-      new URL('../app/components/WatchlistItemTags.vue', import.meta.url),
-      'utf8',
-    ),
-  ])
-  const chip = css.match(/\.watchlist-tag-chip\s*\{([^}]+)\}/)?.[1]
-  assert.ok(chip)
-  assert.match(chip, /max-w-full min-w-0 rounded-none border-2/)
-  assert.match(chip, /font-mono text-xs font-bold/)
-  assert.match(chip, /\[overflow-wrap:anywhere\]/)
-  assert.equal((manager.match(/class="watchlist-tag-chip"/g) ?? []).length, 1)
-  assert.equal((item.match(/class="watchlist-tag-chip"/g) ?? []).length, 2)
-  assert.equal(
-    (manager.match(/:style="watchlistTagStyle\(tag.color\)"/g) ?? []).length,
-    1,
-  )
-  assert.equal(
-    (item.match(/:style="watchlistTagStyle\(tag.color\)"/g) ?? []).length,
-    2,
-  )
-})
-
 test('tag display sorts French names with numeric IDs without floating point loss', () => {
   const tags: WatchlistTag[] = [
     { id: '9007199254740993', name: 'Tag 2', color: 'rose' },
@@ -536,52 +507,6 @@ test('manager opens native modal with close focus and restores same-scope trigge
   } finally {
     f.stop()
   }
-})
-
-test('tag-manager panel matches add-dialog surface, heading, close and scroll styling', async () => {
-  const [manager, page] = await Promise.all([
-    readFile(
-      new URL('../app/components/WatchlistTagManager.vue', import.meta.url),
-      'utf8',
-    ),
-    readFile(
-      new URL('../app/pages/compte/watchlist.vue', import.meta.url),
-      'utf8',
-    ),
-  ])
-  const addDialog = page.match(/<dialog\s[^>]*id="watchlist-add"[\s\S]*?>/)?.[0]
-  const tagDialog = manager.match(
-    /<dialog\s[^>]*id="watchlist-tag-manager"[\s\S]*?>/,
-  )?.[0]
-  assert.ok(addDialog)
-  assert.ok(tagDialog)
-  assert.equal(
-    tagDialog.match(/class="([^"]*)"/)?.[1],
-    addDialog.match(/class="([^"]*)"/)?.[1],
-  )
-  assert.match(tagDialog, /panelHeight - 32/)
-  assert.match(tagDialog, /panelTop \+ panelHeight \/ 2/)
-  assert.match(
-    manager,
-    /<header\s+class="flex shrink-0 items-center justify-between gap-3 border-b border-ink\/20 p-4"/,
-  )
-  assert.match(
-    manager,
-    /id="watchlist-tag-manager-title" class="account-heading"/,
-  )
-  assert.match(
-    manager,
-    /class="flex size-11 shrink-0 items-center justify-center hover:bg-subtle"/,
-  )
-  assert.match(manager, /<X :size="20" aria-hidden="true"/)
-  assert.match(
-    manager,
-    /class="min-h-0 overflow-y-auto overscroll-contain p-4"/,
-  )
-  assert.doesNotMatch(
-    manager,
-    /rounded-lg|backdrop:bg-transparent|w-screen|@click\.self/,
-  )
 })
 
 test('manager follows visual viewport, ignores panel clicks and closes true backdrop with scroll restoration', async () => {

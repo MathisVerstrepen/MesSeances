@@ -1,6 +1,11 @@
 import type { Provider } from '../types/api'
 import { isValidMk2ShowingId } from './mk2.ts'
 import { safeCinewestBooking } from './cinewest.ts'
+import { safeVeoBooking } from './veo.ts'
+import { safeMajesticBooking } from './majestic.ts'
+import { safeCineodeBooking } from './cineode.ts'
+import { safeCinemovidaBooking } from './cinemovida.ts'
+import { safeOcineBooking } from './ocine.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -174,6 +179,37 @@ export function safeBookingUrl(
   showtimeId?: string | null,
   theaterId?: string | null,
 ): SafeBookingUrl | null {
+  if (raw && (expectedProvider === 'ocine' || expectedProvider === undefined)) {
+    const ocine = safeOcineBooking(raw, showtimeId, theaterId)
+    if (ocine) return { provider: 'ocine', ...ocine }
+  }
+  if (expectedProvider === 'ocine') return null
+  if (
+    raw &&
+    (expectedProvider === 'cinemovida' || expectedProvider === undefined)
+  ) {
+    const cinemovida = safeCinemovidaBooking(raw, showtimeId, theaterId)
+    if (cinemovida) return { provider: 'cinemovida', ...cinemovida }
+  }
+  if (expectedProvider === 'cinemovida') return null
+  if (
+    raw &&
+    (expectedProvider === 'cineode' || expectedProvider === undefined)
+  ) {
+    const cineode = safeCineodeBooking(raw, showtimeId, theaterId)
+    if (cineode) return { provider: 'cineode', ...cineode }
+  }
+  if (expectedProvider === 'cineode') return null
+  if (raw && (expectedProvider === 'majestic' || !expectedProvider)) {
+    const majestic = safeMajesticBooking(raw, showtimeId, theaterId)
+    if (majestic) return { provider: 'majestic', ...majestic }
+  }
+  if (expectedProvider === 'majestic') return null
+  if (raw && (expectedProvider === 'veo' || !expectedProvider)) {
+    const veo = safeVeoBooking(raw, showtimeId, theaterId)
+    if (veo) return { provider: 'veo', ...veo }
+  }
+  if (expectedProvider === 'veo') return null
   // Validate original bytes before generic URL normalization or shared-platform inference.
   if (
     raw &&

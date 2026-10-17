@@ -44,15 +44,26 @@ const reservation = computed(() => {
     cinewest: 'Réserver sur Cinewest',
     grandecran: 'Réserver sur Grand Ecran',
     noecinemas: 'Réserver sur Noé Cinémas',
+    veo: 'Réserver sur Véo Cinémas',
+    majestic: 'Réserver sur Majestic Cinémas',
+    cineode: 'Site du cinéma Cinéode',
+    cinemovida: 'Réserver sur Ciné-Movida',
+    ocine: 'Réserver sur Ociné',
   } satisfies Record<Provider, string>
   return {
     url: booking.url,
     kind: booking.kind,
     label:
       booking.kind === 'website'
-        ? booking.provider === 'cinewest'
-          ? 'Site du cinéma Cinewest'
-          : 'Site du cinéma Megarama'
+        ? booking.provider === 'cineode'
+          ? 'Site du cinéma Cinéode'
+          : booking.provider === 'majestic'
+            ? 'Site du cinéma Majestic'
+            : booking.provider === 'veo'
+              ? 'Site du cinéma Véo'
+              : booking.provider === 'cinewest'
+                ? 'Site du cinéma Cinewest'
+                : 'Site du cinéma Megarama'
         : labels[booking.provider],
   }
 })

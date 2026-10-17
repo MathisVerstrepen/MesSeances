@@ -32,20 +32,23 @@ const frenchReleaseLabel = computed(() =>
     class="flex gap-3 border-b border-ink/20 py-4 sm:gap-4"
     :class="$slots.content ? 'items-start' : 'items-center'"
   >
-    <img
-      v-if="poster"
-      :src="poster"
-      alt=""
-      loading="lazy"
-      referrerpolicy="no-referrer"
-      class="h-24 w-16 shrink-0 object-cover"
-    >
-    <div
-      v-else
-      class="flex h-24 w-16 shrink-0 items-center justify-center bg-subtle"
-      aria-hidden="true"
-    >
-      <Film :size="24" />
+    <div class="relative shrink-0">
+      <img
+        v-if="poster"
+        :src="poster"
+        alt=""
+        loading="lazy"
+        referrerpolicy="no-referrer"
+        class="h-24 w-16 shrink-0 object-cover"
+      >
+      <div
+        v-else
+        class="flex h-24 w-16 shrink-0 items-center justify-center bg-subtle"
+        aria-hidden="true"
+      >
+        <Film :size="24" />
+      </div>
+      <WatchedBadge :slug="slug" />
     </div>
     <div class="min-w-0 flex-1">
       <NuxtLink

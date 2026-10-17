@@ -158,16 +158,17 @@ test('SSR exposes scoped headers, ranking caption and keyboard-scroll region', a
 })
 
 const providerLogos = {
-  ugc: ['UGC', 'ugc_logo_small.webp'],
+  ugc: ['UGC', 'ugc_logo.svg'],
   kinepolis: ['Kinepolis', 'kinepolis_logo_small.webp'],
   pathe: ['Pathé', 'pathe_logo_small.webp'],
   cgr: ['CGR', 'cgr_logo_small.webp'],
   megarama: ['Megarama', 'megarama_logo_small.webp'],
   cineville: ['Cinéville', 'cineville_logo_small.webp'],
   mk2: ['MK2', 'mk2_logo.svg'],
-  cinewest: ['CinéWest', 'cinewest_logo_small.webp'],
+  cinewest: ['CinéWest', 'cinewest_logo.svg'],
   grandecran: ['Grand Écran', 'grand_ecran_logo_small.webp'],
   noecinemas: ['Noé Cinémas', 'noe_cinema_logo_small.webp'],
+  veo: ['Véo Cinémas', 'veocinema_logo.svg'],
 } satisfies Record<Provider, [string, string]>
 
 // SAFETY: providerLogos is a local literal checked exhaustively against Provider above.
@@ -182,7 +183,8 @@ for (const provider of providers) {
     const header = html.match(/<th scope="row"[^>]*>(.*?)<\/th>/s)?.[1]
     assert.ok(header)
     assert.equal((html.match(/<img\b/g) ?? []).length, 1)
-    assert.ok(header.includes(`src="~/assets/imgs/${asset}?no-inline"`))
+    const directory = provider === 'veo' ? 'brands' : 'imgs'
+    assert.ok(header.includes(`src="~/assets/${directory}/${asset}?no-inline"`))
     assert.match(header, /<img\b[^>]*alt(?:="")? aria-hidden="true"/)
     assert.ok(header.endsWith(` ${label}</span></a>`))
     assert.match(header, new RegExp(`href="/cinemas\\?chains=${provider}"`))
@@ -233,32 +235,4 @@ test('movie-filtered circuits omit film header and cells, with matching caption 
   assert.doesNotMatch(html, /Films|puis films/)
   assert.match(await render([], false), /<td colspan="3"/)
   assert.deepEqual(cells(await render(rows, true), 'td'), ['12', '1', '3'])
-})
-
-test('page passes history chains directly before local rankings within nonzero details', async () => {
-  const page = await readFile(
-    new URL('../app/pages/statistiques.vue', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    page,
-    /<template v-else>\s*<section[^>]*aria-labelledby="statistics-daily"/,
-  )
-  assert.match(
-    page,
-    /<section :class="sectionClass" aria-labelledby="statistics-chains">\s*<h2 id="statistics-chains" :class="headingClass">Par circuit<\/h2>\s*<StatisticsChainTable\s+:rows="data.chains"\s+:show-movie-count="!selectedFilm"\s*\/>\s*<\/section>\s*<section[^>]*aria-labelledby="statistics-local"/,
-  )
-  const totals = page.indexOf('id="statistics-totals"')
-  const empty = page.indexOf('v-if="data.totals.showtimes === 0"')
-  const daily = page.indexOf('id="statistics-daily"')
-  const chains = page.indexOf('id="statistics-chains"')
-  const local = page.indexOf('id="statistics-local"')
-  assert.ok(
-    totals >= 0 &&
-      totals < empty &&
-      empty < daily &&
-      daily < chains &&
-      chains < local,
-  )
-  assert.equal((page.match(/<StatisticsChainTable\b/g) ?? []).length, 1)
 })

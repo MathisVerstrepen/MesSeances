@@ -111,7 +111,7 @@ func MegaramaEnd(start time.Time, runtime, firstPart int) (time.Time, bool) {
 
 func effectiveRecordEnd(view *SnapshotView, record ShowtimeRecord) time.Time {
 	provider := recordProvider(record.Provider, record.ID)
-	if provider != ProviderMegarama && (provider != ProviderCinewest || !strings.HasPrefix(record.ProviderShowingID, "ticketingcine-")) {
+	if provider != ProviderMegarama && provider != ProviderMajestic && (provider != ProviderCinewest || !strings.HasPrefix(record.ProviderShowingID, "ticketingcine-")) && (provider != ProviderVeo || record.TheaterID != "veo-EMS1361") {
 		return record.EndTime
 	}
 	runtime := record.Movie.RuntimeMinutes

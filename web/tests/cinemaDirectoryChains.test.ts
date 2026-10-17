@@ -62,6 +62,7 @@ test('chain query accepts all allowed identifiers, normalizes case, whitespace a
     'cinewest',
     'grandecran',
     'noecinemas',
+    'veo',
   ]
   assert.deepEqual(normalizeCinemaChains(providers), providers)
   assert.deepEqual(
@@ -277,7 +278,8 @@ test('filter renders real checkbox boxes, existing logos and readable labels wit
   assert.equal((html.match(/<img /g) ?? []).length, 3)
   assert.match(html, /value="ugc" checked/)
   assert.doesNotMatch(html, /value="(?:cgr|pathe)" checked/)
-  for (const provider of ['ugc', 'cgr', 'pathe'])
+  assert.ok(html.includes('ugc_logo.svg'))
+  for (const provider of ['cgr', 'pathe'])
     assert.ok(html.includes(`${provider}_logo_small.webp`))
   assert.match(html, /alt(?:="")? aria-hidden="true"/)
   assert.match(html, /Pathé/)

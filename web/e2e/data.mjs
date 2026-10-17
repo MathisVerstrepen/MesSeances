@@ -1,4 +1,5 @@
 // Synthetic public inventory, shared by SSR mocks, browser tests and CLI sessions.
+import { createHash } from 'node:crypto'
 export const date = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Europe/Paris',
   year: 'numeric',
@@ -190,6 +191,361 @@ export const secondTheater = {
   name: 'Cinéma Seconde Salle',
   city: 'Roubaix',
   city_slug: 'roubaix',
+}
+
+// Opt-in Véo inventory: existing provider scenarios retain their original counts.
+export const veoTheaters = ['P1234', 'EMS1361'].map((id, index) => ({
+  ...theater,
+  provider: 'veo',
+  id: `veo-${id}`,
+  slug: `veo-${id}`,
+  name: index ? 'Véo Le Castelia' : 'Véo Cinémas Muret',
+  city: index ? 'Castelginest' : 'Muret',
+  city_slug: index ? 'castelginest' : 'muret',
+  available_dates: [
+    date,
+    new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+  ],
+}))
+export function veoShowtimes(venue, selectedDate = date) {
+  const castelia = venue.id === 'veo-EMS1361'
+  const rawTheater = venue.id.slice(4)
+  const id = (session) =>
+    `veo-showing-${rawTheater}-${createHash('sha256').update(`${rawTheater}\0${session}`).digest('hex')}`
+  const payload = showtimes(date)
+  return {
+    ...payload,
+    date: selectedDate,
+    theater: venue,
+    showtimes: [0, 1, 2].map((index) => ({
+      ...payload.showtimes[0],
+      provider: 'veo',
+      id: id(
+        castelia ? `emsx13610000000${index + 1}` : `Source_00${index + 1}`,
+      ),
+      movie: {
+        ...movie,
+        slug: `veo-film-${castelia ? 'ticketingcine-' : ''}Event_One`,
+        title: 'Événement Véo',
+        runtime_minutes: 0,
+      },
+      start_time: `${selectedDate}T${14 + index * 2}:00:00+02:00`,
+      end_time: `${selectedDate}T${14 + index * 2}:00:00+02:00`,
+      duration_minutes: 0,
+      language: 'VOSTFR',
+      room: '',
+      booking_url:
+        index === 2
+          ? 'https://achat.veocinemas.fr.evil.test/muret/r/1'
+          : castelia
+            ? index === 1
+              ? 'https://castelginest.miracinemas.fr/'
+              : 'https://castelginest.miracinemas.fr/#showsession?id=emsx136100000001'
+            : `https://achat.veocinemas.fr/muret-veo/r/${19 + index}`,
+    })),
+  }
+}
+
+// Opt-in Ociné inventory, shared by SSR and hydrated requests. No provider egress.
+export const ocineTheaters = [
+  ['309', 'Maubeuge', 'maubeuge'],
+  ['310', 'Saint-Omer', 'st-omer'],
+  ['461', 'Dunkerque', 'dunkerque'],
+].map(([id, city, sourceSlug], index) => ({
+  ...theater,
+  provider: 'ocine',
+  id: `ocine-${id}`,
+  slug: `ocine-${id}`,
+  sourceSlug,
+  name: `Ociné ${city}`,
+  city,
+  city_slug: sourceSlug,
+  address: index === 2 ? '' : `1 rue du cinéma`,
+  postal_code: index === 2 ? '' : '59000',
+  accepted_passes: [],
+  available_dates: [
+    date,
+    new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+  ],
+}))
+export function ocineShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  const cinema = venue.id.slice('ocine-'.length)
+  const offset = new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Paris',
+    timeZoneName: 'longOffset',
+  })
+    .formatToParts(new Date(`${selectedDate}T12:00:00Z`))
+    .find((part) => part.type === 'timeZoneName')
+    .value.replace('GMT', '')
+  return {
+    ...payload,
+    discovery: { window: null, movies: [], other_theaters: [] },
+    date: selectedDate,
+    theater: venue,
+    showtimes: [0, 1, 2, 3].map((index) => {
+      const start = `${selectedDate}T${14 + index * 2}:00:00${offset}`
+      const epoch = Date.parse(start) / 1000
+      const film = index < 2 ? '631242' : 'atelier-local'
+      return {
+        ...payload.showtimes[0],
+        provider: 'ocine',
+        id: `ocine-showing-${cinema}-${film}-${epoch}-${index === 3 ? 'past' : '9586'}`,
+        movie: {
+          ...movie,
+          slug: `ocine-film-${film}`,
+          title: index < 2 ? 'Programme Ociné' : 'Rencontre Ociné',
+          original_language: 'en',
+          runtime_minutes: index < 2 ? 100 : 0,
+        },
+        start_time: start,
+        end_time: index === 0 ? `${selectedDate}T15:45:00${offset}` : start,
+        estimated_end_time:
+          index === 1 ? `${selectedDate}T17:55:00${offset}` : null,
+        estimated_end_ads_minutes: index === 1 ? 15 : null,
+        duration_minutes: index === 0 ? 105 : 0,
+        start_offset_minutes: (14 + index * 2) * 60,
+        language: ['VOSTFR', 'VF', 'VF', ''][index],
+        format: index === 1 ? '3D' : '2D',
+        room: index === 3 ? '' : 'Salle 4',
+        booking_url:
+          index === 3
+            ? ''
+            : `https://www.ocine.fr/${venue.sourceSlug}/reserver/F${index < 2 ? '631242' : '636416'}/D${epoch}/${index === 0 ? 'VO' : 'VF'}/9586/`,
+        poster_url: null,
+        backdrop_url: null,
+      }
+    }),
+  }
+}
+export function ocineMovieSchedule(slug, query) {
+  if (!['ocine-film-631242', 'ocine-film-atelier-local'].includes(slug))
+    return null
+  const payloads = ocineTheaters.map((venue) =>
+    ocineShowtimes(venue, query.get('date') || date),
+  )
+  const sessions = payloads[0].showtimes.filter(
+    (item) => item.movie.slug === slug,
+  )
+  return {
+    ...movieSchedule(movie.slug, query),
+    movie: sessions[0].movie,
+    theaters: payloads.map((payload) => ({
+      ...payload.theater,
+      showtimes: payload.showtimes.filter((item) => item.movie.slug === slug),
+    })),
+    available_dates: payloads[0].theater.available_dates,
+    date: payloads[0].date,
+    available_languages: [...new Set(sessions.map((item) => item.language))],
+    available_formats: [...new Set(sessions.map((item) => item.format))],
+    pagination: { page: 1, page_size: 10, total: 3, has_more: false },
+    discovery: { window: null, cities: [] },
+  }
+}
+
+// Opt-in manifest-bound Cinéode inventory. Never contacts provider websites.
+export const cineodeTheaters = [
+  {
+    id: '991',
+    name: 'Le Don Camillo',
+    city: 'Montmirail',
+    city_slug: 'montmirail',
+  },
+  {
+    id: '3955',
+    name: 'La Grange',
+    city: 'Vaux-le-Pénil',
+    city_slug: 'vaux-le-penil',
+  },
+].map((venue, index) => ({
+  ...theater,
+  ...venue,
+  provider: 'cineode',
+  id: `cineode-${venue.id}`,
+  slug: `cineode-${venue.id}`,
+  address: '',
+  postal_code: '',
+  accepted_passes: [],
+  available_dates: index
+    ? []
+    : [
+        date,
+        new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+          .toISOString()
+          .slice(0, 10),
+      ],
+}))
+export function cineodeShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  return {
+    ...payload,
+    discovery: { window: null, movies: [], other_theaters: [] },
+    date: selectedDate,
+    theater: venue,
+    showtimes:
+      venue.id === 'cineode-3955'
+        ? []
+        : [0, 1, 2].map((index) => {
+            const start = `${selectedDate}T${14 + index * 2}:00:00+02:00`
+            const film = index ? '631242' : 'atelier-local'
+            return {
+              ...payload.showtimes[0],
+              provider: 'cineode',
+              id: `cineode-showing-991-${film}-${Date.parse(start) / 1000}`,
+              movie: {
+                ...movie,
+                slug: `cineode-film-${film}`,
+                title: index ? 'Programme Cinéode' : "L'été",
+                runtime_minutes: index ? 100 : 0,
+              },
+              start_time: start,
+              end_time: start,
+              estimated_end_time:
+                index === 1 ? `${selectedDate}T17:55:00+02:00` : null,
+              estimated_end_ads_minutes: index === 1 ? 15 : null,
+              duration_minutes: 0,
+              start_offset_minutes: (14 + index * 2) * 60,
+              language: index ? 'VF' : 'VOSTFR',
+              format: index === 1 ? '3D' : '2D',
+              room: '',
+              booking_url:
+                index === 2
+                  ? 'https://www.cineode.fr/la-grange/seances/'
+                  : 'https://www.cineode.fr/le-don-camillo/seances/',
+              poster_url: null,
+              backdrop_url: null,
+            }
+          }),
+  }
+}
+
+export function cineodeMovieSchedule(slug, query) {
+  if (!['cineode-film-atelier-local', 'cineode-film-631242'].includes(slug))
+    return null
+  const payload = cineodeShowtimes(
+    cineodeTheaters[0],
+    query.get('date') || date,
+  )
+  const sessions = payload.showtimes.filter((item) => item.movie.slug === slug)
+  return {
+    ...movieSchedule(movie.slug, query),
+    movie: sessions[0].movie,
+    theaters: [{ ...payload.theater, showtimes: sessions }],
+    available_dates: payload.theater.available_dates,
+    date: payload.date,
+    available_languages: [...new Set(sessions.map((item) => item.language))],
+    available_formats: [...new Set(sessions.map((item) => item.format))],
+    pagination: { page: 1, page_size: 10, total: 1, has_more: false },
+    discovery: { window: null, cities: [] },
+  }
+}
+
+// Opt-in Ciné-Movida inventory, shared by SSR and hydrated requests.
+export const cinemovidaTheaters = [
+  ['P0176', 'Perpignan - Castillet', 'Perpignan', 'perpignan'],
+  ['P0218', 'Perpignan - Méga Castillet', 'Perpignan', 'perpignan'],
+  ['P7951', 'Granville - Le Sélect', 'Granville', 'granville'],
+  ['P0876', 'Moissac - Concorde', 'Moissac', 'moissac'],
+].map(([id, name, city, city_slug], index) => ({
+  ...theater,
+  provider: 'cinemovida',
+  id: `cinemovida-${id}`,
+  slug: `cinemovida-${id}`,
+  name,
+  city,
+  city_slug,
+  accepted_passes: [],
+  available_dates:
+    index === 3
+      ? []
+      : [
+          date,
+          new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+            .toISOString()
+            .slice(0, 10),
+        ],
+}))
+export function cinemovidaShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  const rawTheater = venue.id.slice('cinemovida-'.length)
+  const hosts = {
+    P0176: 'achat.cinema-castillet.com',
+    P0218: 'achat.cinema-megacastillet.com',
+    P7951: 'achat.cinemaleselect-granville.com',
+    P0876: 'achat.concordecinema.com',
+  }
+  return {
+    ...payload,
+    discovery: { window: null, movies: [], other_theaters: [] },
+    date: selectedDate,
+    theater: venue,
+    showtimes:
+      rawTheater === 'P0876'
+        ? []
+        : [0, 1, 2].map((index) => {
+            const start = `${selectedDate}T${14 + index * 2}:00:00+02:00`
+            return {
+              ...payload.showtimes[0],
+              provider: 'cinemovida',
+              id: `cinemovida-showing-${rawTheater}-${createHash('sha256').update(`${rawTheater}\0${selectedDate}-${index}`).digest('hex')}`,
+              movie: {
+                ...movie,
+                slug: `cinemovida-film-${index === 2 ? 'c123' : '269068'}`,
+                title:
+                  index === 2
+                    ? 'Rencontre Ciné-Movida'
+                    : 'Programme Ciné-Movida',
+                runtime_minutes: index === 2 ? 0 : 100,
+              },
+              start_time: start,
+              end_time: index === 0 ? `${selectedDate}T15:07:00+02:00` : start,
+              estimated_end_time:
+                index === 2
+                  ? null
+                  : `${selectedDate}T${15 + index * 2}:55:00+02:00`,
+              estimated_end_ads_minutes: index === 2 ? null : 15,
+              duration_minutes: index === 0 ? 67 : 0,
+              start_offset_minutes: (14 + index * 2) * 60,
+              language: ['VOSTFR', 'VFSTF', 'VF'][index],
+              format: index === 0 ? '4DX' : '2D',
+              room: [
+                'Salle 10 PREMIUM MX4D',
+                'Salle 6 PREMIUM ICE',
+                'CASTILLET 2',
+              ][index],
+              booking_url:
+                index === 2
+                  ? 'https://relay.mvtx.us/unsafe'
+                  : `https://${hosts[rawTheater]}/reserver/r/${123 + index}`,
+              poster_url: null,
+              backdrop_url: null,
+            }
+          }),
+  }
+}
+export function cinemovidaMovieSchedule(slug, query) {
+  if (!['cinemovida-film-269068', 'cinemovida-film-c123'].includes(slug))
+    return null
+  const payload = cinemovidaShowtimes(
+    cinemovidaTheaters[0],
+    query.get('date') || date,
+  )
+  const sessions = payload.showtimes.filter((item) => item.movie.slug === slug)
+  return {
+    ...movieSchedule(movie.slug, query),
+    movie: sessions[0].movie,
+    theaters: [{ ...payload.theater, showtimes: sessions }],
+    available_dates: payload.theater.available_dates,
+    date: payload.date,
+    available_languages: [...new Set(sessions.map((item) => item.language))],
+    available_formats: [...new Set(sessions.map((item) => item.format))],
+    pagination: { page: 1, page_size: 10, total: 1, has_more: false },
+    discovery: { window: null, cities: [] },
+  }
 }
 
 export const alternativeTheater = {
@@ -725,6 +1081,115 @@ export const upcomingReleases = [
   releaseMovie(304, 'Les films de décembre', '2026-12-02'),
   releaseMovie(305, 'Une sortie plus lointaine', '2026-12-16'),
 ]
+
+export const watchedDefaults = {
+  default_visibility: 'hide',
+  search_visibility: 'inherit',
+  planning_visibility: 'inherit',
+  films_visibility: 'inherit',
+  upcoming_visibility: 'inherit',
+  home_visibility: 'inherit',
+  cinema_city_visibility: 'inherit',
+  auto_remove_watchlist: false,
+}
+export const watchedMovies = Array.from({ length: 230 }, (_, index) => ({
+  ...movie,
+  slug: index === 0 ? movie.slug : `film-watched-${index}`,
+  title: index < 100 || index >= 130 ? `Vu ${index}` : `Inédit ${index - 99}`,
+}))
+export const hiddenWatchedSlugs = watchedMovies
+  .filter((_, index) => index < 100 || index >= 130)
+  .map((item) => item.slug)
+export function syntheticWatched(username, slugs = [], preferences = {}) {
+  const inventory = [
+    ...watchedMovies,
+    ...discoveryMovies,
+    ...releaseHistory,
+    ...upcomingReleases,
+  ]
+  return {
+    username,
+    revision: slugs.length || Object.keys(preferences).length ? '1' : '0',
+    items: slugs.map((slug) => ({
+      ...(inventory.find((item) => item.slug === slug) ?? { ...movie, slug }),
+      watched_at: generatedAt,
+    })),
+    preferences: { ...watchedDefaults, ...preferences },
+  }
+}
+export function watchedCatalog(query, size = watchedMovies.length) {
+  const page = Number(query.get('page') || 1)
+  const pageSize = Math.min(100, Number(query.get('page_size') || 24))
+  const search = (query.get('search') || '').toLocaleLowerCase('fr')
+  const inventory = Array.from(
+    { length: size },
+    (_, index) =>
+      watchedMovies[index] ?? {
+        ...movie,
+        slug: `film-watched-${index}`,
+        title: `Vu ${index}`,
+      },
+  )
+  const items = inventory.filter((item) =>
+    item.title.toLocaleLowerCase('fr').includes(search),
+  )
+  return {
+    items: items.slice((page - 1) * pageSize, page * pageSize),
+    total: items.length,
+    page,
+    page_size: pageSize,
+    available_genres: [],
+    generated_at: generatedAt,
+    catalog_revision: 'watched-fixture-1',
+  }
+}
+export const watchedVenues = Array.from({ length: 12 }, (_, index) => ({
+  ...theater,
+  id: index === 0 ? theater.id : `fixture-watched-${index}`,
+  slug: `cinema-watched-${index}`,
+  name: `Salle ${index + 1}`,
+}))
+export function watchedShowtimes(query, timeline = false) {
+  const requested =
+    query.get('theaters')?.split(',') ?? watchedVenues.map((item) => item.id)
+  const venues = watchedVenues.filter((item) => requested.includes(item.id))
+  const rows = venues.map((venue) => {
+    const visible =
+      watchedVenues.findIndex((item) => item.id === venue.id) >= 10
+    const film = visible ? watchedMovies[100] : movie
+    const base = showtimes().showtimes[0]
+    return {
+      theater: venue,
+      showtime: {
+        ...base,
+        id: `ugc-showing-${800000 + watchedVenues.findIndex((item) => item.id === venue.id)}`,
+        movie: film,
+        start_offset_minutes: 120,
+        poster_url: null,
+      },
+      poster_url: null,
+      backdrop_url: null,
+      effective_start_time: base.start_time,
+      effective_end_time: base.end_time,
+      buffer_ads_minutes: 15,
+      slack_before_minutes: 120,
+      slack_after_minutes: 150,
+    }
+  })
+  if (!timeline) return rows
+  return {
+    generated_at: generatedAt,
+    timezone: 'Europe/Paris',
+    date: query.get('date') || date,
+    window_start_time: `${date}T12:00:00+02:00`,
+    window_end_time: `${date}T23:59:00+02:00`,
+    window_minutes: 719,
+    theaters: rows.map((row) => ({
+      ...row.theater,
+      showtimes: [row.showtime],
+    })),
+  }
+}
 function releaseWeek(value) {
   const day = new Date(`${value}T12:00:00Z`)
   day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 4) % 7))

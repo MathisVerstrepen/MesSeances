@@ -3,10 +3,15 @@ import cgrLogoLarge from '~/assets/imgs/cgr_logo_large.webp?no-inline'
 import cgrLogoSmall from '~/assets/imgs/cgr_logo_small.webp?no-inline'
 import cinevilleLogoLarge from '~/assets/imgs/cineville_logo_large.webp?no-inline'
 import cinevilleLogoSmall from '~/assets/imgs/cineville_logo_small.webp?no-inline'
-import cinewestLogoSmall from '~/assets/imgs/cinewest_logo_small.webp?no-inline'
+import cinewestLogo from '~/assets/imgs/cinewest_logo.svg?no-inline'
 import mk2Logo from '~/assets/imgs/mk2_logo.svg?no-inline'
 import grandEcranLogoSmall from '~/assets/imgs/grand_ecran_logo_small.webp?no-inline'
 import noeCinemasLogoSmall from '~/assets/imgs/noe_cinema_logo_small.webp?no-inline'
+import veoLogo from '~/assets/brands/veocinema_logo.svg?no-inline'
+import majesticLogo from '~/assets/brands/majestic_logo.svg?no-inline'
+import cineodeLogo from '~/assets/brands/cineode_logo.svg?no-inline'
+import cinemovidaLogo from '~/assets/brands/cinemovida_logo.svg?no-inline'
+import ocineLogo from '~/assets/brands/ocine_logo.svg?no-inline'
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
@@ -26,8 +31,7 @@ import patheLogoLarge from '~/assets/imgs/pathe_logo_large.webp?no-inline'
 import patheLogoSmall from '~/assets/imgs/pathe_logo_small.webp?no-inline'
 import screenXLogoLarge from '~/assets/imgs/logo_screenx_large.webp?no-inline'
 import screenXLogoSmall from '~/assets/imgs/logo_screenx_small.webp?no-inline'
-import ugcLogoLarge from '~/assets/imgs/ugc_logo_large.webp?no-inline'
-import ugcLogoSmall from '~/assets/imgs/ugc_logo_small.webp?no-inline'
+import ugcLogo from '~/assets/imgs/ugc_logo.svg?no-inline'
 
 type Brand =
   | 'UGC'
@@ -38,6 +42,11 @@ type Brand =
   | 'CINEWEST'
   | 'Grand Ecran'
   | 'Noé Cinémas'
+  | 'Véo Cinémas'
+  | 'Majestic Cinémas'
+  | 'Cinéode'
+  | 'Ciné-Movida'
+  | 'Ociné'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -62,14 +71,19 @@ const props = withDefaults(
 )
 
 const sources = {
-  UGC: { inline: ugcLogoSmall, display: ugcLogoLarge },
+  UGC: { inline: ugcLogo, display: ugcLogo },
   CGR: { inline: cgrLogoSmall, display: cgrLogoLarge },
   MEGARAMA: { inline: megaramaLogoSmall, display: megaramaLogoSmall },
   CINEVILLE: { inline: cinevilleLogoSmall, display: cinevilleLogoLarge },
   MK2: { inline: mk2Logo, display: mk2Logo },
-  CINEWEST: { inline: cinewestLogoSmall, display: cinewestLogoSmall },
+  CINEWEST: { inline: cinewestLogo, display: cinewestLogo },
   'Grand Ecran': { inline: grandEcranLogoSmall, display: grandEcranLogoSmall },
   'Noé Cinémas': { inline: noeCinemasLogoSmall, display: noeCinemasLogoSmall },
+  'Véo Cinémas': { inline: veoLogo, display: veoLogo },
+  'Majestic Cinémas': { inline: majesticLogo, display: majesticLogo },
+  Cinéode: { inline: cineodeLogo, display: cineodeLogo },
+  'Ciné-Movida': { inline: cinemovidaLogo, display: cinemovidaLogo },
+  Ociné: { inline: ocineLogo, display: ocineLogo },
   IMAX: { inline: imaxLogoSmall, display: imaxLogoLarge },
   KINEPOLIS: { inline: kinepolisLogoSmall, display: kinepolisLogoLarge },
   PATHE: { inline: patheLogoSmall, display: patheLogoLarge },
@@ -96,6 +110,11 @@ const accessibleNames = {
   CINEWEST: 'Cinewest',
   'Grand Ecran': 'Grand Ecran',
   'Noé Cinémas': 'Noé Cinémas',
+  'Véo Cinémas': 'Véo Cinémas',
+  'Majestic Cinémas': 'Majestic Cinémas',
+  Cinéode: 'Cinéode',
+  'Ciné-Movida': 'Ciné-Movida',
+  Ociné: 'Ociné',
   IMAX: 'IMAX',
   KINEPOLIS: 'Kinepolis',
   PATHE: 'Pathé',
@@ -119,10 +138,14 @@ const accessibleNames = {
     :alt="decorative ? '' : accessibleNames[brand]"
     :aria-hidden="decorative ? 'true' : undefined"
     class="inline-block max-w-full shrink-0 select-none object-contain"
-    :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'ICE'
+    :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'Ociné'
+      ? (variant === 'display' ? 'w-24 sm:w-28' : 'h-[1.6em] w-auto align-middle')
+      : brand === 'Ciné-Movida'
+      ? (variant === 'display' ? 'aspect-square w-20 sm:w-24' : 'h-[2em] w-[2em] align-middle')
+      : brand === 'ICE'
       ? (variant === 'display' ? 'h-16 w-auto sm:h-20' : 'h-[2em] w-auto align-middle')
       : variant === 'display'
-      ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
-      : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')]"
+      ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' || brand === 'Majestic Cinémas' || brand === 'Cinéode' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')
+      : (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' || brand === 'Majestic Cinémas' || brand === 'Cinéode' ? 'h-[1.15em] w-auto align-[-0.18em]' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'h-[0.9em] w-auto align-[-0.12em]' : 'h-[0.68em] w-auto align-[-0.06em]')]"
   >
 </template>

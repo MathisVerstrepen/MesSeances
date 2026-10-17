@@ -513,6 +513,25 @@ async function fixture(client = true) {
     movie_slug: 'film-12',
   })
   const context = {
+    useCollectionWrite: (() => {
+      const busy = ref(false)
+      let generation = 0
+      return () => ({
+        busy,
+        wait: () => Promise.resolve(),
+        reset() {
+          generation++
+          busy.value = false
+        },
+        acquire() {
+          const lease = ++generation
+          busy.value = true
+          return () => {
+            if (lease === generation) busy.value = false
+          }
+        },
+      })
+    })(),
     ref,
     computed,
     readonly,

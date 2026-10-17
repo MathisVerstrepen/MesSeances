@@ -19,6 +19,8 @@ import (
 	"messeances/api/internal/accountmail"
 	"messeances/api/internal/accounts"
 	"messeances/api/internal/cgr"
+	"messeances/api/internal/cinemovida"
+	"messeances/api/internal/cineode"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
 	runtimeconfig "messeances/api/internal/config"
@@ -29,10 +31,12 @@ import (
 	"messeances/api/internal/httpapi"
 	"messeances/api/internal/ign"
 	"messeances/api/internal/kinepolis"
+	"messeances/api/internal/majestic"
 	"messeances/api/internal/megarama"
 	"messeances/api/internal/mk2"
 	"messeances/api/internal/noecinemas"
 	"messeances/api/internal/observability"
+	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/schedulepg"
@@ -42,6 +46,7 @@ import (
 	"messeances/api/internal/syncschedule"
 	"messeances/api/internal/tmdb"
 	"messeances/api/internal/ugc"
+	"messeances/api/internal/veo"
 	"messeances/api/internal/wikidata"
 )
 
@@ -547,6 +552,21 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewNoeCinemas: func() (noecinemas.Getter, error) {
 			return noecinemas.NewClient(noecinemas.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewVeo: func() (veo.Getter, error) {
+			return veo.NewClient(veo.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewMajestic: func() (majestic.Getter, error) {
+			return majestic.NewClient(majestic.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCineode: func() (cineode.Getter, error) {
+			return cineode.NewClient(cineode.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCinemovida: func() (cinemovida.Getter, error) {
+			return cinemovida.NewClient(cinemovida.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewOcine: func() (ocine.Getter, error) {
+			return ocine.NewClient(ocine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

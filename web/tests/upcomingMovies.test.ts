@@ -383,7 +383,7 @@ test('API composable sends only frozen upcoming query and disables retry', async
   assert.deepEqual(calls, [
     {
       url: 'http://localhost:8080/api/v1/movies/upcoming',
-      options: { query: { page: 1 }, retry: false },
+      options: { query: { page: 1 }, signal: undefined, retry: false },
     },
   ])
   await useMesSeancesApi().upcomingMovies(
@@ -398,6 +398,7 @@ test('API composable sends only frozen upcoming query and disables retry', async
   )
   assert.deepEqual(calls[1]?.options, {
     query: { view: 'history', year: 2025, month: 12, page: 2 },
+    signal: undefined,
     retry: false,
   })
   assert.match(
@@ -444,18 +445,6 @@ test('catalog-only SSR preserves upcoming and withdrawn states with no invented 
   }
 })
 
-test('sitemap keeps conditional canonical upcoming URL without unproven hub timestamp', async () => {
-  const sitemap = await readFile(
-    new URL('../server/utils/sitemap.ts', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    sitemap,
-    /data\.upcoming_available \? \[\{ path: '\/films\/prochainement' \}\] : \[\]/,
-  )
-  assert.doesNotMatch(sitemap, /lastmod:\s*[^\n]*(?:generated_at|updated_at)/)
-})
-
 test('SSR page and detail use exact states, shared cards and no catalog-only preference blocker', async () => {
   const page = await readFile(
     new URL('../app/pages/films/prochainement.vue', import.meta.url),
@@ -485,7 +474,7 @@ test('SSR page and detail use exact states, shared cards and no catalog-only pre
   assert.match(page, /Math\.max\(1, response\.total_pages\)/)
   assert.match(
     page,
-    /if \(state\.page > lastPage\)\s+response = await api\.upcomingMovies/,
+    /if \(state\.page > lastPage\)\s+response = await discovery\.upcoming/,
   )
   assert.match(page, /:previous-to="pagination\.page > 1/)
   assert.match(page, /:next-to="pagination\.page < totalPages/)

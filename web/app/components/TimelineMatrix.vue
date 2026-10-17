@@ -571,7 +571,7 @@ onBeforeUnmount(() => {
 
         <div class="relative flex-1 px-5 pb-6 sm:px-6">
           <div
-            class="-mt-16 mb-5 h-40 w-[108px] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]"
+            class="relative -mt-16 mb-5 h-40 w-[108px] overflow-hidden border-2 border-ink bg-[#e8e6de] shadow-[5px_5px_0_#27272a]"
           >
             <PosterImage
               :src="selected.showtime.poster_url"
@@ -583,6 +583,7 @@ onBeforeUnmount(() => {
               fallback-class="gap-2 px-2 text-center text-xs font-medium text-muted"
               :fallback-icon-size="28"
             />
+            <WatchedBadge :slug="selected.showtime.movie.slug" />
           </div>
 
           <p

@@ -1,8 +1,249 @@
 import type { Locator } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
-import { date, movie, showtimes, theater } from './data.mjs'
+import {
+  date,
+  movie,
+  movieSchedule,
+  showtimes,
+  theater,
+  veoTheaters,
+  cineodeTheaters,
+  cinemovidaTheaters,
+  ocineTheaters,
+} from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
+
+test('cinema identity and programme render on the server', async ({
+  request,
+}) => {
+  const response = await request.get(path)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  expect(html).toContain(theater.name)
+  expect(html).toContain(theater.address)
+  expect(html).toContain(movie.title)
+  for (const viewport of ['mobile', 'desktop']) {
+    expect(html).toMatch(
+      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
+    )
+    const selector = html.match(
+      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
+    )![0]
+    expect(selector).toContain('Boîtes')
+    expect(selector).not.toContain('Lignes')
+  }
+  expect(html).toContain(
+    `/statistiques?period=all&amp;theater=${encodeURIComponent(theater.id)}`,
+  )
+})
+
+test('film synopsis resets on changed schedule and external menu keeps real keyboard focus and safe destinations', async ({
+  page,
+  isMobile,
+}) => {
+  const tomorrow = new Date(`${date}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const nextDate = tomorrow.toISOString().slice(0, 10)
+  const overview =
+    'Un synopsis volontairement long pour vérifier le déploiement du texte et son retour au mode réduit. '.repeat(
+      40,
+    )
+  await page.route('**/api/v1/movies/*/showtimes*', async (route) => {
+    const query = new URL(route.request().url()).searchParams
+    const payload = movieSchedule('film-playwright', query)
+    payload.available_dates = [date, nextDate]
+    Object.assign(payload.movie, {
+      overview: query.get('date') === nextDate ? 'Résumé court.' : overview,
+      tmdb_id: 123,
+      imdb_id: 'tt1234567',
+      metacritic_id: 'movie/fixture-film',
+    })
+    await route.fulfill({ json: payload })
+  })
+  await openPage(page, `/cinema/${theater.slug}`)
+  await page
+    .locator('a[href="/film/film-playwright?shared_theaters=fixture-cinema"]')
+    .click()
+  const synopsis = page.getByRole('button', {
+    name: overview.trim(),
+    exact: true,
+  })
+  await expect(synopsis).toHaveAttribute('aria-expanded', 'false')
+  await synopsis.press('Enter')
+  await expect(synopsis).toHaveAttribute('aria-expanded', 'true')
+  await expect(synopsis).toHaveJSProperty(
+    'scrollHeight',
+    await synopsis.evaluate((el) => el.clientHeight),
+  )
+  const menuTrigger = page.getByRole('button', {
+    name: 'Voir les liens externes de Film Playwright',
+  })
+  await menuTrigger.press('ArrowDown')
+  const menu = page.getByRole('menu', {
+    name: 'Liens externes de Film Playwright',
+  })
+  const links = menu.getByRole('menuitem')
+  await expect(links).toHaveCount(5)
+  await expect(links.first()).toBeFocused()
+  for (const [key, target] of [
+    ['ArrowUp', links.last()],
+    ['ArrowDown', links.first()],
+    ['End', links.last()],
+    ['Home', links.first()],
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(target).toBeFocused()
+  }
+  for (const link of await links.all()) {
+    await expect(link).toHaveAttribute('href', /^https:\/\//)
+    await expect(link).toHaveAttribute('target', '_blank')
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    await expect(link).toHaveAccessibleName(/nouvel onglet/)
+  }
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(menuTrigger).toBeFocused()
+  // Structured data belongs to nationwide SSR, not this client-side scoped view.
+  const document = await page.request.get('/film/film-playwright')
+  expect(document.ok()).toBe(true)
+  const schemas = [
+    ...(await document.text()).matchAll(
+      /<script\b[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g,
+    ),
+  ].map((match) => JSON.parse(match[1]))
+  expect(
+    schemas
+      .flatMap((schema) => schema['@graph'] || [schema])
+      .find((schema) => schema['@type'] === 'Movie').url,
+  ).toBe('http://127.0.0.1:13400/film/film-playwright')
+  if (isMobile) await page.locator('#mobile-date-trigger').click()
+  const tabs = page.locator('[role="tablist"]:visible').getByRole('tab')
+  await tabs.filter({ hasText: 'Demain' }).click()
+  await expect(page).toHaveURL(new RegExp(`date=${nextDate}`))
+  await expect(
+    page.getByRole('button', { name: 'Résumé court.', exact: true }),
+  ).toBeDisabled()
+  if (isMobile) await expect(page.locator('#mobile-date-panel')).toBeVisible()
+  await tabs.filter({ hasText: 'Aujourd’hui' }).click()
+  await expect(synopsis).toHaveAttribute('aria-expanded', 'false')
+  await expect
+    .poll(() => synopsis.evaluate((el) => el.scrollHeight > el.clientHeight))
+    .toBe(true)
+})
+
+test('estimated end descriptions have unique associations, focus/Escape behavior and never activate booking', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/movies/*/showtimes*', async (route) => {
+    const payload = movieSchedule(
+      'film-playwright',
+      new URL(route.request().url()).searchParams,
+    )
+    for (const theater of payload.theaters)
+      for (const session of theater.showtimes) {
+        session.end_time = session.start_time
+        session.estimated_end_time = `${date}T15:45:00+02:00`
+        session.estimated_end_ads_minutes = 15
+        session.booking_url = 'https://www.ugc.fr/reservation'
+      }
+    await route.fulfill({ json: payload })
+  })
+  await openPage(page, `/cinema/${theater.slug}`)
+  await page.locator('a[href="/film/film-playwright"]').click()
+  await expect(
+    page.locator('a[href="https://www.ugc.fr/reservation"]').first(),
+  ).toBeVisible()
+  const triggers = page.locator('span[tabindex="0"][aria-describedby]:visible')
+  await expect(triggers).toHaveCount(3)
+  const trigger = triggers.first()
+  const id = await trigger.getAttribute('aria-describedby')
+  const tooltip = page.locator(`[id="${id}"]`)
+  await expect(tooltip).toBeHidden()
+  await trigger.focus()
+  await expect(tooltip).toBeVisible()
+  await expect(tooltip).toContainText(
+    /début annoncé à .* \+ 15 min de publicités \+ 90 min de film/,
+  )
+  const url = page.url()
+  await trigger.click()
+  await expect(page).toHaveURL(url)
+  expect(page.context().pages()).toHaveLength(1)
+  await page.keyboard.press('Escape')
+  await expect(tooltip).toBeHidden()
+  await expect(trigger).toBeFocused()
+  const ids = await page
+    .locator('[role="tooltip"]')
+    .evaluateAll((nodes) => nodes.map((node) => node.id))
+  expect(new Set(ids).size).toBe(ids.length)
+})
+
+test('rendered legal pages retain privacy disclosures, credit links and canonical robots policy', async ({
+  page,
+}) => {
+  for (const [path, title, robots] of [
+    ['/confidentialite', 'Confidentialité', 'index,follow'],
+    ['/credits', 'Crédits', 'noindex,follow'],
+  ]) {
+    await openPage(page, path)
+    await expect(
+      page.getByRole('heading', { name: title, exact: true, level: 1 }),
+    ).toBeVisible()
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute(
+      'content',
+      robots,
+    )
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+      'href',
+      `http://127.0.0.1:13400${path}`,
+    )
+    const content = page.getByRole('main')
+    if (path === '/confidentialite')
+      for (const disclosure of [
+        /messeances.favoriteTheaterIds.v1/,
+        /distincte de celle du compte/,
+        /enregistrés sur le serveur et associés à ce compte/,
+        /Ce sont des données personnelles/,
+        /sélection du compte prévaut sur celle de chaque appareil/,
+        /sans remplacer la sélection locale du navigateur/,
+        /importés une seule fois dans le compte/,
+        /aucun import n’a lieu et le compte attend un enregistrement explicite/,
+        /pas d’une synchronisation instantanée entre appareils/,
+        /changements non enregistrés doivent être réappliqués/,
+        /suppression du compte ne supprime pas la sélection locale/,
+        /supprime cette sélection locale, sans supprimer celle du compte/,
+        /Jusqu’à leur remplacement ou la suppression du compte dans la base active/,
+        /aucune suppression immédiate de ces copies n’est promise/,
+        /cette notice n’annonce pas leur activation en production/,
+        /efface cette liste et ses tags/,
+      ])
+        await expect(content).toContainText(disclosure)
+    else {
+      await expect(content).toContainText(
+        /uses the TMDB API but is not endorsed or certified by TMDB/,
+      )
+      for (const host of [
+        'themoviedb.org',
+        'infinityvisiontickets.com',
+        'ugc.fr',
+        'kinepolis.fr',
+        'pathe.fr',
+        'cgrcinemas.fr',
+        'openfreemap.org',
+        'openmaptiles.org',
+        'openstreetmap.org',
+        'cineville.fr',
+        'cinewest.fr',
+        'grandecran.fr',
+        'megarama.fr',
+        'mk2.com',
+      ])
+        await expect(
+          content.locator(`a[href*="${host}"]`).first(),
+        ).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+  }
+})
 
 async function expectHeaderLayout(
   header: Locator,
@@ -85,30 +326,6 @@ async function expectHeaderLayout(
     )
   }
 }
-
-test('cinema identity and programme render on the server', async ({
-  request,
-}) => {
-  const response = await request.get(path)
-  expect(response.status()).toBe(200)
-  const html = await response.text()
-  expect(html).toContain(theater.name)
-  expect(html).toContain(theater.address)
-  expect(html).toContain(movie.title)
-  for (const viewport of ['mobile', 'desktop']) {
-    expect(html).toMatch(
-      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
-    )
-    const selector = html.match(
-      new RegExp(`id="cinema-${viewport}-result-layout"[\\s\\S]*?</button>`),
-    )![0]
-    expect(selector).toContain('Boîtes')
-    expect(selector).not.toContain('Lignes')
-  }
-  expect(html).toContain(
-    `/statistiques?period=all&amp;theater=${encodeURIComponent(theater.id)}`,
-  )
-})
 
 test('cinema boxes default and explicit lines survive date, grouping, tabs and history', async ({
   page,
@@ -510,4 +727,928 @@ test('ICE technology credit uses supplied display logo and official attribution'
     ),
   ).toBe(true)
   await credit.screenshot({ path: info.outputPath('ice-credit.png') })
+})
+
+test('Ciné-Movida SSR and hydrated programme preserve source ends, premium rooms, booking and square logo', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  const url = `/cinema/${cinemovidaTheaters[0].slug}?date=${date}`
+  const response = await request.get(url)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  for (const value of [
+    'cinemovida_logo',
+    'Perpignan - Castillet',
+    'PREMIUM MX4D',
+    'PREMIUM ICE',
+    'VOSTFR',
+    'VFSTF',
+    '15:07',
+    'Fin estimée',
+  ])
+    expect(html).toContain(value)
+  expect(html).not.toContain('href="https://relay.mvtx.us/')
+  await openPage(page, url)
+  const logo = page.locator('main > header img[src*="cinemovida_logo"]')
+  await expect(logo).toHaveAttribute('alt', 'Ciné-Movida')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+  ).toBe(1)
+  await expect(logo).toHaveCSS('object-fit', 'contain')
+  const logoBox = (await logo.boundingBox())!
+  const frameBox = (await logo.locator('..').boundingBox())!
+  expect(logoBox.width / logoBox.height).toBeCloseTo(1, 2)
+  expect(logoBox.height).toBeGreaterThanOrEqual(60)
+  expect(logoBox.y).toBeGreaterThanOrEqual(frameBox.y)
+  expect(logoBox.y + logoBox.height).toBeLessThanOrEqual(
+    frameBox.y + frameBox.height,
+  )
+  async function checkProgramme() {
+    const links = page.locator('main a[data-showtime-id]')
+    await expect(links).toHaveCount(2)
+    for (const link of await links.all()) {
+      await expect(link).toHaveAttribute(
+        'href',
+        /^https:\/\/achat\.cinema-castillet\.com\/reserver\/r\/12[34]$/,
+      )
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      await expect(link).toHaveAttribute(
+        'aria-label',
+        /ouverture dans un nouvel onglet/,
+      )
+    }
+    await expect(links.first()).toContainText('15h07')
+    await expect(links.first()).not.toContainText('Fin estimée')
+    await expect(links.first()).toContainText('PREMIUM MX4D')
+    await expect(links.first()).toContainText('4DX')
+    await expect(links.nth(1)).toContainText('PREMIUM ICE')
+    await expect(links.nth(1)).toContainText('2D')
+    await expect(links.nth(1)).toContainText('VFSTF')
+    const disabled = page.locator(
+      'main [aria-disabled="true"][data-showtime-id]',
+    )
+    await expect(disabled).toHaveCount(1)
+    await expect(disabled).not.toHaveAttribute('href')
+    await expect(disabled).toContainText('Réservation indisponible')
+    await expect(disabled).not.toContainText(/fin|0 min/i)
+    await expect(
+      page.locator('main [data-movie-slug="cinemovida-film-c123"] header'),
+    ).not.toContainText(/\b0\s*min/)
+    const estimate = page
+      .locator('main [tabindex="0"][aria-describedby]')
+      .filter({ hasText: 'Fin estimée' })
+    await expect(estimate).toHaveCount(1)
+    await estimate.focus()
+    await expect(page.getByRole('tooltip')).toContainText('100 min de film')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tooltip')).toBeHidden()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  }
+  await checkProgramme()
+  await page.screenshot({
+    path: info.outputPath('cinemovida-cinema.png'),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+  await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+  await page.setViewportSize(info.project.use.viewport!)
+  await checkProgramme()
+})
+
+test('Ciné-Movida film SSR and hydration retain canonical/estimated ends and unknown metadata', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  for (const film of ['269068', 'c123']) {
+    const url = `/film/cinemovida-film-${film}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('cinemovida_logo')
+    expect(html).not.toMatch(/>\s*0\s*min/)
+    await openPage(page, url)
+    if (film === '269068') {
+      await expect(page.locator('main')).toContainText('15h07')
+      await expect(page.locator('main')).toContainText('Fin estimée')
+      const booking = page.getByRole('link', {
+        name: /^Séance de .*réserver, ouverture dans un nouvel onglet$/,
+      })
+      await expect(booking).toHaveCount(2)
+      await expect(booking.first()).toHaveAttribute(
+        'href',
+        'https://achat.cinema-castillet.com/reserver/r/123',
+      )
+      await expect(booking.first()).toHaveAccessibleName(
+        /Perpignan - Castillet.*réserver.*nouvel onglet/,
+      )
+      await booking.first().focus()
+      await expect(booking.first()).toBeFocused()
+    } else {
+      await expect(page.locator('main a[href*="/reserver/"]')).toHaveCount(0)
+      await expect(page.locator('main')).toContainText(
+        'Réservation indisponible',
+      )
+      await expect(page.locator('main')).not.toContainText(/Fin estimée|0 min/)
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`cinemovida-film-${film}.png`),
+      fullPage: true,
+    })
+  }
+})
+
+test('Ciné-Movida directory chain/theater persistence, empty venue and credit stay accessible', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  await openPage(page, '/cinemas')
+  const mobile = info.project.name === 'mobile'
+  if (mobile)
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const choice = page.getByRole('checkbox', {
+    name: 'Ciné-Movida',
+    exact: true,
+  })
+  await choice.focus()
+  await page.keyboard.press('Space')
+  await expect(choice).toBeChecked()
+  await expect(page).toHaveURL(/chains=cinemovida/)
+  if (mobile) await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(page).toHaveURL(/chains=cinemovida/)
+  const selected = page
+    .getByRole('checkbox', { name: /Sélectionner Perpignan - Castillet/ })
+    .first()
+  await expect(selected).toBeEnabled()
+  await selected.focus()
+  await page.keyboard.press('Space')
+  await page.reload()
+  await expect(
+    page
+      .getByRole('checkbox', { name: /Sélectionner Perpignan - Castillet/ })
+      .first(),
+  ).toBeChecked()
+  const empty = cinemovidaTheaters[3]
+  await openPage(page, `/cinema/${empty.slug}?date=${date}`)
+  await expect(page.locator('main')).toContainText(empty.name)
+  await expect(
+    page.getByRole('heading', {
+      name: 'Aucune séance à cette date',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.locator('main a[data-showtime-id]')).toHaveCount(0)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('cinemovida-empty.png'),
+    fullPage: true,
+  })
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Ciné-Movida, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://www.cine-movida.com/')
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(credit.locator('img')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('Ciné-Movida search selection and selected-only shared URL survive reload', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  await openPage(
+    page,
+    `/recherche?theaters=cinemovida-P0176&date=${date}&start_after=12:00&finish_before=23:00`,
+  )
+  const add = page.getByRole('button', {
+    name: /^Ajouter la séance de Programme Ciné-Movida/,
+  })
+  await expect(add).toHaveCount(2)
+  await add.first().click()
+  await expect(page).toHaveURL(/selected=dP0176-/)
+  const shared = new URL(page.url())
+  shared.searchParams.set('selected_only', '1')
+  await openPage(page, shared.pathname + shared.search)
+  await expect(
+    page.getByRole('button', {
+      name: /^Retirer la séance de Programme Ciné-Movida/,
+    }),
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole('button', { name: /^Ajouter la séance/ }),
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(
+    page.getByRole('button', {
+      name: /^Retirer la séance de Programme Ciné-Movida/,
+    }),
+  ).toHaveCount(1)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+})
+
+for (const venue of ocineTheaters) {
+  test(`Ociné ${venue.id} SSR and hydrated programme preserve session checkout and source versus estimated ends`, async ({
+    page,
+    request,
+  }, info) => {
+    await request.post('/__playwright/scenario', { data: { ocine: true } })
+    const url = `/cinema/${venue.slug}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain(venue.name)
+    expect(html).toContain('ocine_logo')
+    expect(html).toContain('VOSTFR')
+    expect(html).toContain('Salle 4')
+    expect(html).toContain(`/reserver/F631242/`)
+    await openPage(page, url)
+    const logo = page.locator('main > header img[src*="ocine_logo"]')
+    await expect(logo).toHaveAttribute('alt', '')
+    await expect(logo).toHaveAttribute('aria-hidden', 'true')
+    await expect(logo).toHaveJSProperty('complete', true)
+    await expect(logo).toHaveCSS('object-fit', 'contain')
+    expect(
+      await logo.evaluate(
+        (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+      ),
+    ).toBeCloseTo(369 / 261, 2)
+    const bounds = (await logo.boundingBox())!
+    const frame = (await logo.locator('..').boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(frame.x)
+    expect(bounds.y).toBeGreaterThanOrEqual(frame.y)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(frame.x + frame.width)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(frame.y + frame.height)
+    async function checkProgramme() {
+      const links = page.locator('main a[data-showtime-id]')
+      await expect(links).toHaveCount(3)
+      for (const link of await links.all()) {
+        const id = (await link.getAttribute('data-showtime-id'))!
+        const identity = /^ocine-showing-(309|310|461)-(.+)-(\d+)-(\d+)$/.exec(
+          id,
+        )!
+        const film = identity[2] === 'atelier-local' ? '636416' : identity[2]
+        await expect(link).toHaveAttribute(
+          'href',
+          new RegExp(
+            `^https://www\\.ocine\\.fr/${venue.sourceSlug}/reserver/F${film}/D${identity[3]}/(VF|VO)/${identity[4]}/$`,
+          ),
+        )
+        await expect(link).toHaveAttribute('target', '_blank')
+        await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+        await expect(link).toHaveAttribute(
+          'aria-label',
+          /ouverture dans un nouvel onglet/,
+        )
+      }
+      const canonical = links.filter({ hasText: '14h00' })
+      await expect(canonical).toContainText('15h45')
+      await expect(canonical).toContainText('VOSTFR')
+      await expect(canonical).not.toContainText('Fin estimée')
+      const vf = links.filter({ hasText: '16h00' })
+      await expect(vf).toContainText('VF')
+      await expect(vf).toContainText('3D')
+      const estimate = page
+        .locator('main [tabindex="0"][aria-describedby]')
+        .filter({ hasText: 'Fin estimée' })
+      await expect(estimate).toHaveCount(1)
+      await estimate.focus()
+      await expect(page.getByRole('tooltip')).toContainText('100 min de film')
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('tooltip')).toBeHidden()
+      const unknown = links.filter({ hasText: '18h00' })
+      await expect(unknown).not.toContainText(/fin|0 min/i)
+      const past = page.locator('main [data-showtime-id$="-past"]')
+      await expect(past).toHaveCount(1)
+      await expect(past).toHaveAttribute('aria-disabled', 'true')
+      await expect(past).not.toHaveAttribute('href')
+      await expect(past).toContainText('Réservation indisponible')
+      await expect(past).not.toContainText(/VF|VO|Muet|Salle|fin|0 min/i)
+      await expect(
+        page.locator(
+          'main [data-movie-slug="ocine-film-atelier-local"] header',
+        ),
+      ).not.toContainText(/\b0\s*min/i)
+      if (venue.id === 'ocine-461')
+        await expect(page.locator('main > header')).not.toContainText(
+          /59000|rue du cinéma/,
+        )
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+    }
+    await checkProgramme()
+    await page.screenshot({
+      path: info.outputPath(`${venue.id}-cinema.png`),
+      fullPage: true,
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+    await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+    await page.setViewportSize(info.project.use.viewport!)
+    await checkProgramme()
+  })
+}
+
+test('Ociné film SSR and hydrated mixed-language programme preserve all cinemas and missing metadata', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { ocine: true } })
+  for (const film of ['631242', 'atelier-local']) {
+    const url = `/film/ocine-film-${film}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    for (const venue of ocineTheaters) expect(html).toContain(venue.name)
+    expect(html).toContain('ocine_logo')
+    await openPage(page, url)
+    const links = page.locator('main a[href^="https://www.ocine.fr/"]')
+    await expect(links).toHaveCount(film === '631242' ? 6 : 3)
+    await expect(page.locator('main [aria-disabled="true"]')).toHaveCount(
+      film === '631242' ? 0 : 3,
+    )
+    if (film === 'atelier-local') {
+      await expect(page.locator('main')).not.toContainText(/\b0\s*min|Muet/)
+      for (const past of await page
+        .locator('main [aria-disabled="true"]')
+        .all()) {
+        await expect(past).not.toContainText(/VF|VO|Salle|fin/i)
+        await expect(past).not.toHaveAttribute('href')
+      }
+    } else {
+      await expect(page.locator('main')).toContainText('VOSTFR')
+      await expect(page.locator('main')).toContainText('VF')
+      await expect(page.locator('main')).toContainText('15h45')
+      await expect(page.locator('main')).toContainText('17h55')
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`ocine-film-${film}.png`),
+      fullPage: true,
+    })
+  }
+})
+
+test('Ociné directory chain keyboard selection, URL reload and official credit remain accessible', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { ocine: true } })
+  await openPage(page, '/cinemas')
+  const mobile = info.project.name === 'mobile'
+  if (mobile)
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const choice = page.getByRole('checkbox', { name: 'Ociné', exact: true })
+  await choice.focus()
+  await page.keyboard.press('Space')
+  await expect(choice).toBeChecked()
+  await expect(page).toHaveURL(/chains=ocine/)
+  if (mobile) await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  for (const venue of ocineTheaters)
+    await expect(
+      page.getByRole('link', { name: new RegExp(venue.name) }).first(),
+    ).toBeVisible()
+  await page.reload()
+  await expect(page).toHaveURL(/chains=ocine/)
+  await expect(
+    page.getByRole('link', { name: /Cinéma Playwright/ }),
+  ).toHaveCount(0)
+  await page.screenshot({
+    path: info.outputPath('ocine-directory.png'),
+    fullPage: true,
+  })
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Ociné, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://www.ocine.fr')
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(credit.locator('img')).toHaveAttribute('aria-hidden', 'true')
+  await expect(credit.locator('img')).toHaveAttribute('src', /ocine_logo/)
+})
+
+test('Ociné search selection and selected-only shared URL round-trip composite session identity', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', { data: { ocine: true } })
+  await openPage(
+    page,
+    `/recherche?theaters=ocine-309&date=${date}&start_after=12:00&finish_before=23:00`,
+  )
+  const add = page.getByRole('button', {
+    name: /^Ajouter la séance de Programme Ociné/,
+  })
+  await expect(add).toHaveCount(2)
+  await add.first().click()
+  await expect(page).toHaveURL(/selected=q309-631242-/)
+  const shared = new URL(page.url())
+  shared.searchParams.set('selected_only', '1')
+  await openPage(page, shared.pathname + shared.search)
+  await expect(
+    page.getByRole('button', { name: /^Retirer la séance de Programme Ociné/ }),
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole('button', { name: /^Ajouter la séance/ }),
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(
+    page.getByRole('button', { name: /^Retirer la séance de Programme Ociné/ }),
+  ).toHaveCount(1)
+})
+
+test('Cinéode SSR and hydrated cinema programme preserve website links, missing metadata and estimated ends', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cineode: true } })
+  const venue = cineodeTheaters[0]
+  const url = `/cinema/${venue.slug}?date=${date}`
+  const response = await request.get(url)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  expect(html).toContain(venue.name)
+  expect(html).toContain('cineode_logo')
+  expect(html).toContain('L&#39;été')
+  expect(html).toContain('VOSTFR')
+  expect(html).toContain(
+    'aria-label="Site du cinéma Cinéode, ouverture dans un nouvel onglet"',
+  )
+  expect(html).not.toMatch(/>\s*Site du cinéma Cinéode\s*</)
+  expect(html).not.toContain('href="https://www.cineode.fr/la-grange/seances/"')
+  await openPage(page, url)
+  const logo = page.locator('main > header img[src*="cineode_logo"]')
+  await expect(logo).toHaveAttribute('alt', 'Cinéode')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+  ).toBeCloseTo(310 / 139, 2)
+  await expect(logo).toHaveCSS('object-fit', 'contain')
+  async function checkProgramme() {
+    const links = page.locator('main a[data-showtime-id]')
+    await expect(links).toHaveCount(2)
+    for (const link of await links.all()) {
+      await expect(link).toHaveAttribute(
+        'href',
+        'https://www.cineode.fr/le-don-camillo/seances/',
+      )
+      await expect(link).toHaveAttribute(
+        'aria-label',
+        'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
+      )
+      await expect(link).toHaveAccessibleName(
+        'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
+      )
+      await expect(link).not.toContainText(/Site du cinéma|Réserver/)
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+    const disabled = page.locator(
+      'main [aria-disabled="true"][data-showtime-id]',
+    )
+    await expect(disabled).toHaveCount(1)
+    await expect(disabled).not.toHaveAttribute('href')
+    await expect(disabled).toContainText('Réservation indisponible')
+    const unknown = page.locator('main [data-showtime-id*="atelier-local"]')
+    await expect(unknown).toContainText('VOSTFR')
+    await expect(unknown).not.toContainText(/fin|Salle|0 min/i)
+    await expect(
+      page.locator(
+        'main [data-movie-slug="cineode-film-atelier-local"] header',
+      ),
+    ).not.toContainText(/\b0\s*min/i)
+    await expect(page.locator('main').getByText(/^Salle(?:\s|$)/)).toHaveCount(
+      0,
+    )
+    const estimate = page
+      .locator('main [tabindex="0"][aria-describedby]')
+      .filter({ hasText: 'Fin estimée' })
+    await expect(estimate).toHaveCount(1)
+    await estimate.focus()
+    await expect(estimate).toBeFocused()
+    await expect(page.getByRole('tooltip')).toContainText('Fin estimée')
+    await expect(page.getByRole('tooltip')).toContainText('100 min de film')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tooltip')).toBeHidden()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  }
+  await checkProgramme()
+  await page.screenshot({
+    path: info.outputPath('cineode-cinema.png'),
+    fullPage: true,
+  })
+  // Same owned synthetic transport serves SSR and dated client fetches.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+  await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+  await page.setViewportSize(info.project.use.viewport!)
+  await checkProgramme()
+})
+
+test('Cinéode film SSR and hydrated programme keep local IDs, unknown metadata and safe website labeling', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cineode: true } })
+  const url = `/film/cineode-film-atelier-local?date=${date}`
+  const response = await request.get(url)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  expect(html).toContain('Le Don Camillo')
+  expect(html).toContain('cineode_logo')
+  expect(html).toContain('VOSTFR')
+  expect(html).not.toMatch(/>0\s*min/)
+  await openPage(page, url)
+  const website = page.getByRole('link', {
+    name: 'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(website).toHaveCount(1)
+  await expect(website).toHaveAttribute(
+    'href',
+    'https://www.cineode.fr/le-don-camillo/seances/',
+  )
+  await expect(website).toContainText('Site du cinéma Cinéode')
+  await expect(website).not.toContainText(/fin|Salle/i)
+  await website.focus()
+  await expect(website).toBeFocused()
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('cineode-film.png'),
+    fullPage: true,
+  })
+})
+
+test('Cinéode directory keyboard selection, URL state, empty programme and official credit remain accessible', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cineode: true } })
+  await openPage(page, '/cinemas')
+  const mobile = info.project.name === 'mobile'
+  if (mobile)
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const choice = page.getByRole('checkbox', { name: 'Cinéode', exact: true })
+  await choice.focus()
+  await page.keyboard.press('Space')
+  await expect(choice).toBeChecked()
+  await expect(page).toHaveURL(/chains=cineode/)
+  if (mobile) await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  const empty = cineodeTheaters[1]
+  await expect(
+    page.getByRole('link', { name: new RegExp(empty.name) }).first(),
+  ).toBeVisible()
+  await page.reload()
+  await expect(page).toHaveURL(/chains=cineode/)
+  await openPage(page, `/cinema/${empty.slug}?date=${date}`)
+  await expect(page.locator('main')).toContainText(empty.name)
+  await expect(
+    page.getByRole('heading', {
+      name: 'Aucune séance à cette date',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.locator('main a[data-showtime-id]')).toHaveCount(0)
+  await expect(page.locator('main')).not.toContainText('02300')
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('cineode-empty.png'),
+    fullPage: true,
+  })
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Cinéode, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://www.cineode.fr/')
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(credit.locator('img')).toHaveAttribute('aria-hidden', 'true')
+  await expect(credit.locator('img')).toHaveAttribute('src', /cineode_logo/)
+})
+
+for (const venue of veoTheaters) {
+  test(`Véo ${venue.id} SSR and hydrated reservations preserve missing metadata and safe links`, async ({
+    page,
+    request,
+  }, info) => {
+    await request.post('/__playwright/scenario', { data: { veo: true } })
+    const url = `/cinema/${venue.slug}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain(venue.name)
+    expect(html).toContain('veocinema_logo')
+    expect(html).toContain('Événement Véo')
+    expect(html).toContain('VOSTFR')
+    expect(html).not.toMatch(/>\s*Site du cinéma Véo\s*</)
+    expect(html).not.toContain('href="https://achat.veocinemas.fr.evil.test')
+    expect(html).toContain(
+      venue.id === 'veo-EMS1361'
+        ? 'href="https://castelginest.miracinemas.fr/#showsession?id=emsx136100000001"'
+        : 'href="https://achat.veocinemas.fr/muret-veo/r/19"',
+    )
+    await openPage(page, url)
+    const logo = page.locator('main > header img[src*="veocinema_logo"]')
+    await expect(logo).toHaveCount(1)
+    await expect(logo).toHaveAttribute('alt', '')
+    await expect(logo).toHaveAttribute('aria-hidden', 'true')
+    await expect(logo).toHaveJSProperty('complete', true)
+    expect(
+      await logo.evaluate((image: HTMLImageElement) => image.naturalWidth),
+    ).toBeGreaterThan(0)
+    // Hero constrains its image box in both axes; contain preserves artwork ratio.
+    await expect(logo).toHaveCSS('object-fit', 'contain')
+    expect(
+      await logo.evaluate(
+        (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+      ),
+    ).toBeCloseTo(2357 / 1485, 2)
+    async function checkProgramme() {
+      const booking = page.locator('main a[data-showtime-id]').first()
+      await expect(booking).toHaveAttribute(
+        'href',
+        venue.id === 'veo-EMS1361'
+          ? 'https://castelginest.miracinemas.fr/#showsession?id=emsx136100000001'
+          : 'https://achat.veocinemas.fr/muret-veo/r/19',
+      )
+      await expect(booking).toHaveAttribute('target', '_blank')
+      await expect(booking).toHaveAttribute('rel', 'noopener noreferrer')
+      await expect(booking).toHaveAttribute(
+        'aria-label',
+        /ouverture dans un nouvel onglet/,
+      )
+      await expect(
+        page.locator('main [aria-disabled="true"][data-showtime-id]'),
+      ).toHaveCount(1)
+      await expect(page.locator('main a[href*="evil.test"]')).toHaveCount(0)
+      await expect(
+        page.locator('main').getByText(/^Salle(?:\s|$)/),
+      ).toHaveCount(0)
+      await expect(page.locator('main').getByText(/^fin(?:\s|$)/i)).toHaveCount(
+        0,
+      )
+      if (venue.id === 'veo-EMS1361') {
+        const website = page.getByRole('link', {
+          name: 'Site du cinéma Véo, ouverture dans un nouvel onglet',
+          exact: true,
+        })
+        await expect(website).toHaveAttribute(
+          'href',
+          'https://castelginest.miracinemas.fr/',
+        )
+        await expect(website).toHaveAccessibleName(
+          'Site du cinéma Véo, ouverture dans un nouvel onglet',
+        )
+        await expect(website).not.toContainText(/Site du cinéma|Réserver/)
+        await expect(website).toHaveAttribute('target', '_blank')
+        await expect(website).toHaveAttribute('rel', 'noopener noreferrer')
+      }
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+    }
+    await checkProgramme()
+    await page.screenshot({
+      path: info.outputPath(`${venue.id}.png`),
+      fullPage: true,
+    })
+    // Exercise a real client fetch after SSR, without replacing server responses by routes.
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+    await page.setViewportSize(info.project.use.viewport!)
+    await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+    await checkProgramme()
+  })
+}
+
+test('Enseignes contains all chains with scrolling, keyboard access and mobile settings flow', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', {
+    data: { veo: true, allChains: true },
+  })
+  const mobile = info.project.name === 'mobile'
+  for (const height of mobile ? [844] : [900, 480]) {
+    await page.setViewportSize({ width: mobile ? 390 : 1440, height })
+    await openPage(page, '/cinemas')
+    const summary = page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+    if (mobile)
+      await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+    else {
+      if (height === 480) {
+        await summary.evaluate((element) =>
+          window.scrollTo(
+            0,
+            window.scrollY + element.getBoundingClientRect().top - 100,
+          ),
+        )
+        await expect
+          .poll(async () => (await summary.boundingBox())!.y)
+          .toBeCloseTo(100, 0)
+      }
+      await summary.click()
+    }
+    const panel = page.getByRole('group', {
+      name: 'Filtrer par enseigne',
+      exact: true,
+    })
+    const options = panel.getByRole('checkbox')
+    const last = options.last()
+    const card = last.locator('..')
+    await expect(options).toHaveCount(11)
+    await expect(last).toHaveAccessibleName('Véo Cinémas')
+    // Measure the real scroll container, not visibility (which allows overflow).
+    const grid = panel.locator('.grid')
+    await expect
+      .poll(async () =>
+        grid.evaluate((element) => {
+          const bounds = element.getBoundingClientRect()
+          const panelBounds = element
+            .closest('fieldset')!
+            .getBoundingClientRect()
+          return (
+            bounds.bottom <= panelBounds.bottom && bounds.top >= panelBounds.top
+          )
+        }),
+      )
+      .toBe(true)
+    await expect(grid).toHaveCSS('grid-template-columns', /^\S+ \S+$/)
+    if (!mobile) {
+      const bounds = (await panel.boundingBox())!
+      expect(bounds.y).toBeGreaterThanOrEqual(8)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(height - 8)
+      expect(bounds.height).toBeLessThanOrEqual(440)
+      const anchor = (await summary.boundingBox())!
+      if (height === 480)
+        expect(bounds.y).toBeGreaterThan(anchor.y + anchor.height)
+      else expect(bounds.y + bounds.height).toBeLessThan(anchor.y)
+      expect(
+        await grid.evaluate((element) => element.scrollHeight),
+      ).toBeGreaterThan(await grid.evaluate((element) => element.clientHeight))
+      // Tab through every option: focusing the sr-only input must reveal its card.
+      await options.first().focus()
+      for (let index = 1; index < (await options.count()); index++)
+        await page.keyboard.press('Tab')
+      await expect(last).toBeFocused()
+      expect(
+        await grid.evaluate((element) => element.scrollTop),
+      ).toBeGreaterThan(0)
+    } else {
+      await expect(panel).toHaveCSS('position', 'static')
+      expect(await grid.evaluate((element) => element.scrollHeight)).toBe(
+        await grid.evaluate((element) => element.clientHeight),
+      )
+      await card.scrollIntoViewIfNeeded()
+    }
+    const lastBounds = (await card.boundingBox())!
+    const panelBounds = (await panel.boundingBox())!
+    expect(lastBounds.y + lastBounds.height).toBeLessThanOrEqual(
+      panelBounds.y + panelBounds.height,
+    )
+    if (!mobile) {
+      const gridBounds = (await grid.boundingBox())!
+      expect(lastBounds.y).toBeGreaterThanOrEqual(gridBounds.y)
+      expect(lastBounds.y + lastBounds.height).toBeLessThanOrEqual(
+        gridBounds.y + gridBounds.height,
+      )
+      await page.keyboard.press('Space')
+    } else await card.click()
+    await expect(last).toBeChecked()
+    await expect(page).toHaveURL(/chains=veo/)
+    await page.screenshot({ path: info.outputPath(`enseignes-${height}.png`) })
+    await panel.getByRole('button', { name: 'Réinitialiser' }).click()
+    await expect(last).not.toBeChecked()
+    await expect(page).not.toHaveURL(/chains=/)
+    if (!mobile) {
+      await options.first().focus()
+      await page.keyboard.press('Escape')
+      await expect(panel).toBeHidden()
+      await expect(summary).toBeFocused()
+      await summary.click()
+      await page.getByRole('searchbox').click()
+      await expect(panel).toBeHidden()
+      await summary.click()
+      await page.getByRole('searchbox').focus()
+      await expect(panel).toBeHidden()
+    } else await page.getByRole('button', { name: /Fermer/ }).click()
+  }
+})
+
+test('Véo directory filtering and operator credit retain brand identity on desktop and mobile', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { veo: true } })
+  await openPage(page, '/cinemas')
+  // The responsive directory exposes the same chain control inside mobile settings.
+  if (info.project.name === 'mobile')
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const chain = page.getByRole('checkbox', { name: 'Véo Cinémas', exact: true })
+  await chain.locator('..').click()
+  await expect(chain).toBeChecked()
+  await expect(page).toHaveURL(/chains=veo/)
+  if (info.project.name === 'mobile')
+    await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  for (const venue of veoTheaters)
+    await expect(
+      page.getByRole('link', { name: new RegExp(venue.name) }).first(),
+    ).toBeVisible()
+  await expect(
+    page.getByRole('link', { name: /Cinéma Playwright/ }),
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-playwright-ready',
+    'true',
+  )
+  await expect(page).toHaveURL(/chains=veo/)
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Véo Cinémas, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://veocinemas.fr')
+  await expect(credit.locator('img')).toHaveAttribute('alt', '')
+  await expect(credit.locator('img')).toHaveJSProperty('complete', true)
 })

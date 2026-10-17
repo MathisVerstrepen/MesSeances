@@ -10,6 +10,11 @@ type CreditBrand =
   | 'CINEWEST'
   | 'Grand Ecran'
   | 'Noé Cinémas'
+  | 'Véo Cinémas'
+  | 'Majestic Cinémas'
+  | 'Cinéode'
+  | 'Ciné-Movida'
+  | 'Ociné'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -62,6 +67,31 @@ const creditSections: Array<{
         brand: 'Noé Cinémas',
         name: 'Noé Cinémas',
         url: 'https://www.noecinemas.com/',
+      },
+      {
+        brand: 'Véo Cinémas',
+        name: 'Véo Cinémas',
+        url: 'https://veocinemas.fr',
+      },
+      {
+        brand: 'Majestic Cinémas',
+        name: 'Majestic Cinémas',
+        url: 'https://www.majestic-cinemas.com/',
+      },
+      {
+        brand: 'Cinéode',
+        name: 'Cinéode',
+        url: 'https://www.cineode.fr/',
+      },
+      {
+        brand: 'Ciné-Movida',
+        name: 'Ciné-Movida',
+        url: 'https://www.cine-movida.com/',
+      },
+      {
+        brand: 'Ociné',
+        name: 'Ociné',
+        url: 'https://www.ocine.fr',
       },
     ],
   },

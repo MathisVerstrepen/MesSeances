@@ -22,6 +22,11 @@ export type Provider =
   | 'cinewest'
   | 'grandecran'
   | 'noecinemas'
+  | 'veo'
+  | 'majestic'
+  | 'cineode'
+  | 'cinemovida'
+  | 'ocine'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'

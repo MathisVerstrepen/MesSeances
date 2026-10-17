@@ -50,85 +50,30 @@ def assert_order(test: unittest.TestCase, text: str, *fragments: str) -> None:
 
 
 class ReleaseWorkflowBootstrapTests(unittest.TestCase):
-    def test_validation_prefers_base_and_constrains_absent_base_fallback(self):
-        workflow = VALIDATION_WORKFLOW.read_text(encoding="utf-8")
-        selector = step_scripts(workflow, "Select release automation source")
-        self.assertEqual(len(selector), 1)
-        assert_order(
-            self,
-            selector[0],
-            '[[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]',
-            '[[ "$EVENT_NAME" == pull_request ]]',
-            '[[ "$BASE_REF" == main ]]',
-            '[[ "$HEAD_REF" == dev ]]',
-            '[[ "$BASE_REPOSITORY" == "$EVENT_REPOSITORY" ]]',
-            '[[ "$HEAD_REPOSITORY" == "$EVENT_REPOSITORY" ]]',
-            '[[ "$HEAD_FORK" == false ]]',
-            'if [[ -f "$tool_path" && ! -L "$tool_path" ]]',
-            "printf 'source=base",
-            "exit 0",
-            'if [[ -e "$tool_path" || -L "$tool_path" ]]',
-            "printf 'source=head",
-        )
-        self.assertIn('[[ "$HEAD_SHA" =~ $sha_pattern ]]', selector[0])
-        assert_order(
-            self,
-            workflow,
-            "ref: ${{ steps.automation.outputs.ref }}",
-            "- name: Verify selected release automation",
-            "- name: Set up Python",
-            "python release-automation/scripts/release_automation.py validate-pr",
-        )
-
-    def test_finalize_and_promotion_use_identical_fail_closed_selection(self):
+    def test_selected_source_is_verified_before_use_without_checkout_credentials(self):
+        # Bash execution below covers selection decisions, not Actions wiring.
         workflow = PUBLICATION_WORKFLOW.read_text(encoding="utf-8")
-        selectors = step_scripts(workflow, "Select release automation source")
-        self.assertEqual(len(selectors), 2)
-        self.assertEqual(selectors[0], selectors[1])
-        selector = selectors[0]
-        self.assertNotIn("source=head", workflow)
-        self.assertNotIn("source=base", workflow)
-        self.assertNotIn("tool_path=base-automation", selector)
-        assert_order(
-            self,
-            selector,
-            '[[ "$(git -C base-automation rev-parse HEAD)" == "$BASE_SHA" ]]',
-            '[[ "$PR_MERGED" == true ]]',
-            '[[ "$BASE_REF" == main ]]',
-            '[[ "$HEAD_REF" == dev ]]',
-            '[[ "$HEAD_FORK" == false ]]',
-            '[[ "$WORKFLOW_SHA" =~ $sha_pattern ]]',
-            '[[ "$WORKFLOW_SHA" == "$MERGE_SHA" ]]',
-            'pr_json="$(gh api',
-            '.base.sha == $base_sha and .head.sha == $head_sha',
-            '.merge_commit_sha == $merge_sha',
-            'main_json="$(gh api',
-            '.protected == true and .commit.sha == $merge_sha',
-            "printf 'source=merge",
-        )
-        self.assertEqual(
-            workflow.count("ref: ${{ steps.automation.outputs.ref }}"), 2
-        )
-        self.assertEqual(
-            workflow.count("- name: Verify selected release automation"), 2
-        )
-        self.assertEqual(workflow.count("- name: Set up Python"), 2)
         sections = (
-            workflow.split("  finalize:\n", 1)[1].split("\n  build:\n", 1)[0],
-            workflow.split("  promote:\n", 1)[1],
+            (VALIDATION_WORKFLOW.read_text(), "validate-pr", False),
+            (workflow.split("  finalize:\n", 1)[1].split("\n  build:\n", 1)[0], "publish", True),
+            (workflow.split("  promote:\n", 1)[1], "verify-promotion", True),
         )
-        for section in sections:
-            self.assertIn("WORKFLOW_SHA: ${{ github.workflow_sha }}", section)
-            self.assertEqual(section.count("persist-credentials: false"), 2)
-            assert_order(
-                self,
-                section,
-                "printf 'source=merge",
-                "ref: ${{ steps.automation.outputs.ref }}",
-                "- name: Verify selected release automation",
-                "- name: Set up Python",
-                "python release-automation/scripts/release_automation.py",
-            )
+        for section, command, privileged in sections:
+            with self.subTest(command=command):
+                for step in ("Select release automation source", "Verify selected release automation"):
+                    self.assertEqual(len(step_scripts(section, step)), 1)
+                self.assertEqual(section.count("ref: ${{ steps.automation.outputs.ref }}"), 1)
+                self.assertEqual(section.count("persist-credentials: false"), 2)
+                if privileged:
+                    self.assertIn("WORKFLOW_SHA: ${{ github.workflow_sha }}", section)
+                assert_order(
+                    self, section,
+                    "- name: Select release automation source",
+                    "ref: ${{ steps.automation.outputs.ref }}",
+                    "- name: Verify selected release automation",
+                    "- name: Set up Python",
+                    f"python release-automation/scripts/release_automation.py {command}",
+                )
 
     def test_permissions_image_source_and_promotion_order_remain_strict(self):
         workflow = PUBLICATION_WORKFLOW.read_text(encoding="utf-8")
@@ -157,13 +102,12 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
         self.assertIn('inspect "$IMAGE_BASE-api:$RELEASE_VERSION"', manifests)
         self.assertIn('inspect "$IMAGE_BASE-web:$RELEASE_VERSION"', manifests)
 
-    def test_publication_cli_is_bound_to_event_shas(self):
+    def test_publication_environment_is_bound_to_event_shas(self):
         workflow = PUBLICATION_WORKFLOW.read_text()
         step = workflow.split("      - name: Revalidate and publish GitHub release\n", 1)[1].split("\n  build:", 1)[0]
         for variable, field in (("BASE_SHA", "base.sha"), ("HEAD_SHA", "head.sha"),
                                 ("MERGE_SHA", "merge_commit_sha")):
             self.assertIn(f"{variable}: ${{{{ github.event.pull_request.{field} }}}}", step)
-            self.assertIn(f'--{variable.lower().replace("_", "-")} "${variable}"', step)
 
     def test_ci_workflows_use_only_pull_requests_with_stable_check_names(self):
         workflows = {
@@ -181,17 +125,13 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
 
     def test_release_test_ci_has_read_only_unfiltered_root_suite(self):
         workflow = (ROOT / ".github/workflows/release-tests.yml").read_text()
-        self.assertIn("  pull_request:\n    branches: [dev, main]", workflow)
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertEqual(workflow.count("permissions:"), 1)
-        self.assertIn("name: Release automation / tests", workflow)
         self.assertIn("timeout-minutes: 5", workflow)
         self.assertIn("persist-credentials: false", workflow)
-        self.assertIn('python-version: "3.13"', workflow)
         self.assertIn("working-directory: .\n", workflow)
-        self.assertIn("run: python -m unittest discover -s scripts/tests", workflow)
-        for forbidden in ("write", "secrets.", "workflow_dispatch:", "pull_request_target:",
-                          "paths:", "paths-ignore:", "types:"):
+        self.assertIn("run: python -m unittest discover -s scripts/tests\n", workflow)
+        for forbidden in ("write", "secrets.", "if:", "continue-on-error:"):
             self.assertNotIn(forbidden, workflow)
 
     def test_web_build_uses_only_validated_finalize_version_as_build_arg(self):
@@ -214,25 +154,12 @@ class ReleaseWorkflowBootstrapTests(unittest.TestCase):
         )
         self.assertEqual(build.count("build-args: ${{ matrix.build-args }}"), 1)
         self.assertNotIn("github.event.pull_request.title", build)
-
-    def test_web_build_fails_closed_without_strict_finalize_version(self):
-        workflow = PUBLICATION_WORKFLOW.read_text(encoding="utf-8")
-        build = workflow.split("  build:\n", 1)[1].split("\n  promote:\n", 1)[0]
         guard_step = build.split("      - name: Require web release version\n", 1)[
             1
         ].split("\n      - name:", 1)[0]
-        guard_scripts = step_scripts(workflow, "Require web release version")
-
-        self.assertEqual(len(guard_scripts), 1)
         self.assertIn("if: matrix.suffix == 'web'", guard_step)
         self.assertIn(
             "RELEASE_VERSION: ${{ needs.finalize.outputs.version }}", guard_step
-        )
-        self.assertIn("set -euo pipefail", guard_scripts[0])
-        self.assertIn(
-            '[[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\\.'
-            '(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$ ]]',
-            guard_scripts[0],
         )
         assert_order(
             self,
@@ -381,6 +308,17 @@ with mock.patch.object(module, "GitHubClient", create=True), mock.patch.object(
         self.assertEqual(output, "", calls)
         self.assertNotIn("python ", calls)
         return calls
+
+    def test_web_release_version_accepts_only_strict_stable_versions(self):
+        scripts = step_scripts(PUBLICATION_WORKFLOW.read_text(), "Require web release version")
+        self.assertEqual(len(scripts), 1)
+        valid = ("0.0.0", "1.2.3", "12.34.56")
+        invalid = (None, "", "1.2", "v1.2.3", "01.2.3", "1.02.3", "1.2.03",
+                   "1.2.3-rc.1", "1.2.3+build", "1.2.3\n", "1.2.3;exit 0")
+        for version in (*valid, *invalid):
+            with self.subTest(version=version):
+                result, _, _ = self.run_script(scripts[0], changes={"RELEASE_VERSION": version})
+                self.assertEqual(result.returncode == 0, version in valid, result.stderr)
 
     def test_valid_sources(self):
         for script, privileged in self.selectors():

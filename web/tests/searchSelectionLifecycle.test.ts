@@ -50,17 +50,6 @@ const evaluateSubmitDisabled = new Function(
   `return (${submitDisabledExpression})`,
 )
 
-test('all-cinema label uses neutral ink while selection errors retain alert styling', () => {
-  assert.match(
-    source,
-    /<p\s+v-else\s+class="[^"]*\btext-ink"\s*>\s*Tous les cinémas\s*<\/p>/,
-  )
-  assert.match(
-    source,
-    /id="theater-selection-message"\s+class="[^"]*\btext-red-700"\s+role="alert"/,
-  )
-})
-
 interface PageState {
   form: { language: string; date: string }
   draftTheaterIds: Ref<string[]>
@@ -154,6 +143,13 @@ function harness(
     slugs: ref(new Set<string>()),
   }
   const bindings = {
+    useWatchedDiscovery: () => ({
+      key: ref('public'),
+      personal: ref(false),
+      blocked: ref(false),
+      hide: ref(false),
+      filter: <T>(items: T[]) => items,
+    }),
     isBroadTheaterSelection,
     ...date,
     ...routeQuery,

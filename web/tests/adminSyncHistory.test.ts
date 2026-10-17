@@ -57,6 +57,11 @@ function run(
       cinewest: { state: 'not_requested' },
       grandecran: { state: 'not_requested' },
       noecinemas: { state: 'not_requested' },
+      veo: { state: 'not_requested' },
+      majestic: { state: 'not_requested' },
+      cineode: { state: 'not_requested' },
+      cinemovida: { state: 'not_requested' },
+      ocine: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -88,6 +93,18 @@ test('single-provider history shows new showtimes, ungrouped and spaced after pl
   const job = run({ ugc: published(8395) })
   job.target = 'ugc'
   assert.equal(summary(job), '+ 8395 séances')
+})
+
+test('Véo, Majestic, Cinéode and Ociné individual and all-run histories include published new sessions', () => {
+  for (const provider of ['veo', 'majestic', 'cineode', 'ocine'] as const) {
+    const job = run({ [provider]: published(42) })
+    job.target = provider
+    assert.equal(summary(job), '+ 42 séances')
+    assert.equal(
+      summary(run({ [provider]: published(42), ugc: published(8) })),
+      '+ 50 séances',
+    )
+  }
 })
 
 test('multi-provider history sums requested outcomes, not total showtimes or unrequested providers', () => {
@@ -259,12 +276,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all ten decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all fifteen decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 11)
+  assert.equal(buttons.length, 16)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -280,6 +297,11 @@ test('idle launch buttons use all ten decorative chain logos with visible names;
     'CINEWEST',
     'Grand Ecran',
     'Noé Cinémas',
+    'Véo Cinémas',
+    'Majestic Cinémas',
+    'Cinéode',
+    'Ciné-Movida',
+    'Ociné',
   ]
   uiBindings.providers.forEach((provider: Provider, index: number) => {
     const button = buttons[index + 1]!
@@ -292,12 +314,13 @@ test('idle launch buttons use all ten decorative chain logos with visible names;
 })
 
 test('pending launch preserves loader, label and disabled controls', async () => {
-  for (const target of ['ugc', 'all'] as const) {
+  for (const target of ['ugc', 'cineode', 'all'] as const) {
     const html = await renderPage([], target)
     const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
       (match) => match[0],
     )
-    const button = buttons[target === 'all' ? 0 : 1]!
+    const button =
+      buttons[target === 'all' ? 0 : uiBindings.providers.indexOf(target) + 1]!
     assert.match(button, /data-component="LoaderCircle"/)
     assert.ok(button.includes(uiBindings.targetLabels[target]))
     assert.doesNotMatch(button, /data-brand|data-component="RefreshCw"/)

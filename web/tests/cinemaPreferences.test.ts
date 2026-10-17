@@ -227,6 +227,7 @@ async function focusPlugin(f: Awaited<ReturnType<typeof fixture>>) {
     useAccountSession: () => f.account,
     useCinemaPreferences: () => f.preferences,
     useWatchlist: () => ({ startSynchronization() {} }),
+    useWatched: () => ({ startSynchronization() {} }),
     useCinemaFollows: () => ({ startSynchronization() {} }),
     defineNuxtPlugin: (
       plugin: (app: {
@@ -1168,6 +1169,7 @@ test('account plugin revalidates theater notifications and revisit events withou
         },
       }),
       useWatchlist: () => ({ startSynchronization() {} }),
+      useWatched: () => ({ startSynchronization() {} }),
       useCinemaFollows: () => ({ startSynchronization() {} }),
       useAccountSession: () => ({
         status: ref('ready'),
@@ -1198,6 +1200,7 @@ test('account plugin revalidates theater notifications and revisit events withou
       },
     },
   )
+  assert.equal(starts, 0, 'private refs must not load before hydration')
   hooks.get('app:mounted')!()
   channels[0]!.onmessage!({ data: 'theaters-changed' })
   for (const name of ['focus', 'online', 'visibilitychange'])
@@ -1205,13 +1208,22 @@ test('account plugin revalidates theater notifications and revisit events withou
   assert.equal(revalidations, 4)
   channels[0]!.onmessage!({ data: 'watchlist-changed' })
   assert.equal(revalidations, 5)
+  channels[0]!.onmessage!({ data: 'watched-changed' })
+  assert.equal(revalidations, 6)
+  listeners.get('offline')!({})
+  assert.equal(clears, 1)
+  assert.equal(
+    refreshes,
+    0,
+    'offline clears without starting a replacement GET',
+  )
   assert.equal(refreshes, 0)
   channels[0]!.onmessage!({ data: 'changed' })
   assert.equal(refreshes, 1)
   listeners.get('pagehide')!({})
   listeners.get('focus')!({})
-  assert.equal(clears, 1)
-  assert.equal(revalidations, 5)
+  assert.equal(clears, 2)
+  assert.equal(revalidations, 6)
   listeners.get('pageshow')!({ persisted: true })
   assert.equal(refreshes, 2)
   assert.equal(starts, 1)

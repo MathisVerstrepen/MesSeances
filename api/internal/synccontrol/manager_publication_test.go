@@ -95,6 +95,11 @@ func TestManagerAllPublishesSuccessfulProvidersIndependently(t *testing.T) {
 			configureCinewestTestExecutor(t, executor, window)
 			configureGrandEcranTestExecutor(t, executor, window)
 			configureNoeCinemasTestExecutor(t, executor, window)
+			configureVeoTestExecutor(t, executor, window)
+			configureMajesticTestExecutor(t, executor, window)
+			configureCineodeTestExecutor(t, executor, window)
+			configureCinemovidaTestExecutor(t, executor, window)
+			configureOcineTestExecutor(t, executor, window)
 			manager, err := newTestManager(t.Context(), executor.now, executor)
 			if err != nil {
 				t.Fatal(err)

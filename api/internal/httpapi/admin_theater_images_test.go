@@ -152,7 +152,7 @@ func TestAdminTheaterImagesListFilters(t *testing.T) {
 			}
 		})
 	}
-	for _, provider := range []string{"ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas"} {
+	for _, provider := range []string{"ugc", "kinepolis", "pathe", "cgr", "megarama", "cineville", "mk2", "cinewest", "grandecran", "noecinemas", "cinemovida"} {
 		t.Run(provider, func(t *testing.T) {
 			w := adminRequest(h, http.MethodGet, "/api/v1/admin/theaters?provider="+provider, "", "", cookie)
 			if w.Code != 200 || f.query.Provider != provider {

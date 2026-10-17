@@ -7,6 +7,9 @@ import type {
 } from '../types/showtimeResults'
 import { resolveShowtimeEnd } from './showtimeEnd.ts'
 import { isValidMk2ShowingId } from './mk2.ts'
+import { isValidMajesticSessionId } from './majestic.ts'
+import { cineodeShowingParts } from './cineode.ts'
+import { ocineShowingParts } from './ocine.ts'
 
 export const resultGroupingOptions: [
   { value: ResultGrouping; label: string },
@@ -118,6 +121,13 @@ const GRAND_ECRAN_TOKEN_PATTERN = /^g([A-Z0-9]{5})-([A-Za-z0-9_-]{43})$/
 const NOE_CINEMAS_SELECTION_KEY_PATTERN =
   /^noecinemas:noecinemas-showing-([A-Z0-9]{5})-([a-f0-9]{64})$/
 const NOE_CINEMAS_TOKEN_PATTERN = /^n([A-Z0-9]{5})-([A-Za-z0-9_-]{43})$/
+const VEO_SELECTION_KEY_PATTERN =
+  /^veo:veo-showing-([A-Z0-9]{5}|EMS1361)-([a-f0-9]{64})$/
+const VEO_TOKEN_PATTERN = /^e([A-Z0-9]{5}|EMS1361)-([A-Za-z0-9_-]{43})$/
+const CINEMOVIDA_SELECTION_KEY_PATTERN =
+  /^cinemovida:cinemovida-showing-(P0176|P0218|P7951|P0876)-([a-f0-9]{64})$/
+const CINEMOVIDA_TOKEN_PATTERN =
+  /^d(P0176|P0218|P7951|P0876)-([A-Za-z0-9_-]{43})$/
 const KINEPOLIS_PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const PATHE_PROVIDER_ID_PATTERN = /^V[1-9][0-9]*S[1-9][0-9]*$/
 const CGR_TOKEN_PATTERN = /^c([A-Z][0-9]{4})-([A-Za-z0-9_-]{43})$/
@@ -185,6 +195,26 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const ocinePrefix = 'ocine:ocine-showing-'
+  if (key.startsWith(ocinePrefix)) {
+    const showing = key.slice(ocinePrefix.length)
+    return ocineShowingParts(showing) ? `q${showing}` : null
+  }
+  const cinemovida = CINEMOVIDA_SELECTION_KEY_PATTERN.exec(key)
+  if (cinemovida?.[0] === key)
+    return `d${cinemovida[1]}-${hexToBase64Url(cinemovida[2]!)}`
+  const cineodePrefix = 'cineode:cineode-showing-'
+  if (key.startsWith(cineodePrefix)) {
+    const showing = key.slice(cineodePrefix.length)
+    return cineodeShowingParts(showing) ? `o${showing}` : null
+  }
+  const majesticPrefix = 'majestic:majestic-showing-'
+  if (key.startsWith(majesticPrefix)) {
+    const session = key.slice(majesticPrefix.length)
+    return isValidMajesticSessionId(session) ? `j${session}` : null
+  }
+  const veo = VEO_SELECTION_KEY_PATTERN.exec(key)
+  if (veo?.[0] === key) return `e${veo[1]}-${hexToBase64Url(veo[2]!)}`
   const noeCinemas = NOE_CINEMAS_SELECTION_KEY_PATTERN.exec(key)
   if (noeCinemas?.[1] && noeCinemas[2] && noeCinemas[0] === key)
     return `n${noeCinemas[1]}-${hexToBase64Url(noeCinemas[2])}`
@@ -227,6 +257,36 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  if (token.startsWith('q')) {
+    const showing = token.slice(1)
+    return ocineShowingParts(showing) ? `ocine:ocine-showing-${showing}` : null
+  }
+  const cinemovida = CINEMOVIDA_TOKEN_PATTERN.exec(token)
+  if (cinemovida?.[0] === token) {
+    const hash = base64UrlToHex(cinemovida[2]!)
+    if (!hash || hash.length !== 64 || hexToBase64Url(hash) !== cinemovida[2])
+      return null
+    return `cinemovida:cinemovida-showing-${cinemovida[1]}-${hash}`
+  }
+  if (token.startsWith('o')) {
+    const showing = token.slice(1)
+    return cineodeShowingParts(showing)
+      ? `cineode:cineode-showing-${showing}`
+      : null
+  }
+  if (token.startsWith('j')) {
+    const session = token.slice(1)
+    return isValidMajesticSessionId(session)
+      ? `majestic:majestic-showing-${session}`
+      : null
+  }
+  const veo = VEO_TOKEN_PATTERN.exec(token)
+  if (veo?.[0] === token) {
+    const hash = base64UrlToHex(veo[2]!)
+    if (!hash || hash.length !== 64 || hexToBase64Url(hash) !== veo[2])
+      return null
+    return `veo:veo-showing-${veo[1]}-${hash}`
+  }
   const noeCinemas = NOE_CINEMAS_TOKEN_PATTERN.exec(token)
   if (noeCinemas?.[1] && noeCinemas[2] && noeCinemas[0] === token) {
     const hash = base64UrlToHex(noeCinemas[2])

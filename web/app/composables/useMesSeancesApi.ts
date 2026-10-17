@@ -208,10 +208,10 @@ export function useMesSeancesApi() {
         signal,
       })
     },
-    upcomingMovies(query: UpcomingMoviesQuery = {}) {
+    upcomingMovies(query: UpcomingMoviesQuery = {}, signal?: AbortSignal) {
       return apiFetch<UpcomingMoviesResponse>(
         `${apiBase}/api/v1/movies/upcoming`,
-        { query: queryValues(query), retry: false },
+        { query: queryValues(query), signal, retry: false },
       )
     },
     movieShowtimes(slug: string, query: MovieShowtimesQuery) {

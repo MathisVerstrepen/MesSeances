@@ -137,6 +137,18 @@ func validUGCPosterURL(raw string) bool {
 }
 
 func validSourcePosterURL(provider, raw string) bool {
+	if provider == SourceOcine {
+		return raw == "" || schedule.ValidOcinePosterURL(raw)
+	}
+	if provider == SourceCinemovida {
+		return raw == "" || schedule.ValidCinemovidaPosterURL(raw)
+	}
+	if provider == SourceCineode {
+		return raw == "" || schedule.ValidCineodePosterURL(raw)
+	}
+	if provider == SourceMajestic {
+		return raw == "" || schedule.ValidMajesticPosterURL(raw)
+	}
 	if provider == SourceCinewest {
 		return raw == "" || schedule.ValidCinewestPosterURL(raw)
 	}
@@ -145,6 +157,9 @@ func validSourcePosterURL(provider, raw string) bool {
 	}
 	if provider == SourceNoeCinemas {
 		return raw == "" || schedule.ValidNoeCinemasPosterURL(raw)
+	}
+	if provider == SourceVeo {
+		return raw == "" || schedule.ValidVeoPosterURL(raw)
 	}
 	if provider == SourceMK2 {
 		return raw == "" || schedule.ValidMK2PosterURL(raw)

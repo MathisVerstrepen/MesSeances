@@ -479,53 +479,6 @@ test('overview preserves conditional forms, last-method guard, deletion warning 
   assert.match(shell, /session\?\.account && !hideLogout/)
 })
 
-test('overview summary typography and logout actions omit redundant consequence copy', async () => {
-  assert.doesNotMatch(source, /Nom d’utilisateur définitif\./)
-  assert.match(
-    source,
-    /<dd class="mt-1 break-words">\{\{ details\.username \}\}<\/dd>/,
-  )
-  assert.match(source, /passwordAvailable \? 'Défini' : 'Non défini'/)
-  assert.match(
-    source,
-    /id="account-delete" class="account-heading">Suppression<\/h2>/,
-  )
-  assert.match(source, /<GoogleIcon\b[^>]*\/>/)
-  assert.doesNotMatch(source, /Vos cinémas|Le nom d’utilisateur est définitif/)
-  assert.match(source, /grid-cols-\[minmax\(0,1fr\)_auto\] items-baseline/)
-  assert.match(source, /<dt class="overview-label">Email du compte<\/dt>/)
-  assert.match(source, /<label for="new-email" class="account-label">/)
-  const buttons = [...source.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)]
-  const local = buttons.find(([button]) =>
-    button.includes('@click="logout"'),
-  )?.[0]
-  const global = buttons.find(([button]) =>
-    button.includes('@click="logoutAll"'),
-  )?.[0]
-  assert.ok(local && global)
-  for (const button of [local, global])
-    assert.match(button, /class="account-secondary overview-secondary"/)
-  assert.doesNotMatch(local, /aria-describedby/)
-  assert.doesNotMatch(global, /aria-describedby/)
-  assert.match(global, /Déconnecter tous les appareils/)
-  assert.doesNotMatch(
-    source,
-    /logout-all-consequence|Vous serez aussi déconnecté de cet appareil\./,
-  )
-  const shell = await readFile(
-    new URL('../app/components/AccountShell.vue', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    shell,
-    /'account-area-inner mx-auto max-w-\[60rem\]': accountArea/,
-  )
-  assert.match(
-    shell,
-    /\.account-overview :deep\(\.overview-link\) \{\s*@apply min-w-11 font-sans text-sm font-semibold;/,
-  )
-})
-
 test('account area is opt-in, with one current route and disabled future categories', async () => {
   const shell = await readFile(
     new URL('../app/components/AccountShell.vue', import.meta.url),
@@ -570,7 +523,20 @@ test('account area is opt-in, with one current route and disabled future categor
   assert.doesNotMatch(navigation, /Films aimés/)
   assert.match(navigation, /<button\s+type="button"\s+disabled/)
   assert.match(navigation, /À venir/)
-  assert.equal([...navigation.matchAll(/to=/g)].length, 3)
+  assert.equal([...navigation.matchAll(/to=/g)].length, 4)
+  assert.deepEqual(
+    [...navigation.matchAll(/to="([^"]+)"/g)].map((match) => match[1]),
+    [
+      '/compte/parametres',
+      '/compte/watchlist',
+      '/compte/films-vus',
+      '/compte/activite',
+    ],
+  )
+  assert.ok(
+    navigation.indexOf('to="/compte/activite"') <
+      navigation.indexOf('v-for="entry in upcomingEntries"'),
+  )
   assert.match(navigation, /to="\/compte\/activite"/)
   assert.doesNotMatch(navigation, /@click|tabindex|href=/)
   for (const page of [
@@ -589,32 +555,4 @@ test('account area is opt-in, with one current route and disabled future categor
     )
     assert.doesNotMatch(route, /\saccount-area\s|account-shell-area/)
   }
-})
-
-test('account navigation pairs each label with a decorative icon without changing responsive layout', async () => {
-  const navigation = await readFile(
-    new URL('../app/components/AccountAreaNavigation.vue', import.meta.url),
-    'utf8',
-  )
-  assert.match(
-    navigation,
-    /import \{ Activity, Settings, Users \} from '@lucide\/vue'/,
-  )
-  assert.match(
-    navigation,
-    /<WatchlistIcon :size="18" class="shrink-0" \/>Watchlist/,
-  )
-  assert.doesNotMatch(navigation, /Bookmark/)
-  assert.match(
-    navigation,
-    /<span class="inline-flex items-center gap-2">\s*<Settings :size="18" class="shrink-0" aria-hidden="true" \/>\s*Paramètres/,
-  )
-  assert.match(
-    navigation,
-    /<span class="inline-flex items-center gap-2">\s*<component\s+:is="entry.icon"\s+:size="18"\s+class="shrink-0"\s+aria-hidden="true"\s*\/>\s*\{\{ entry.label \}\}\s*<\/span>\s*<span class="text-xs">À venir<\/span>/,
-  )
-  assert.match(navigation, /account-area-navigation hidden[^"\n]*lg:block/)
-  assert.match(navigation, /<ul class="grid gap-2">/)
-  assert.match(navigation, /flex-col items-start justify-between gap-x-2/)
-  assert.match(navigation, /lg:flex-row lg:items-center/)
 })

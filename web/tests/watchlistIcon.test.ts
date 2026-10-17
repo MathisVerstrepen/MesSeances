@@ -128,6 +128,11 @@ test('button keeps labels, 48px target and busy/pressed semantics across clock s
         ready: ref(state.ready),
         slugs: ref(new Set(state.saved ? ['film-1'] : [])),
         saving: ref(state.saving),
+        writesBlocked: ref(
+          state.saving ||
+            !state.ready ||
+            ('revalidating' in state && state.revalidating),
+        ),
         error: ref(''),
       }),
     })

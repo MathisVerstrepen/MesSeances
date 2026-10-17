@@ -24,6 +24,11 @@ const (
 	SourceCinewest   = "cinewest"
 	SourceGrandEcran = "grandecran"
 	SourceNoeCinemas = "noecinemas"
+	SourceVeo        = "veo"
+	SourceMajestic   = "majestic"
+	SourceCineode    = "cineode"
+	SourceCinemovida = "cinemovida"
+	SourceOcine      = "ocine"
 	ProviderTMDB     = "tmdb"
 	LocaleFrench     = "fr-FR"
 
@@ -145,6 +150,18 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceOcine {
+		return schedule.ValidOcineIdentity("movie", id)
+	}
+	if provider == SourceCinemovida {
+		return schedule.ValidCinemovidaIdentity("movie", id)
+	}
+	if provider == SourceCineode {
+		return schedule.ValidCineodeIdentity("movie", id)
+	}
+	if provider == SourceMajestic {
+		return schedule.ValidMajesticIdentity("movie", id)
+	}
 	if provider == SourceCinewest {
 		return schedule.ValidCinewestIdentity("movie", id)
 	}
@@ -153,6 +170,9 @@ func validSourceIdentity(provider, id string) bool {
 	}
 	if provider == SourceNoeCinemas {
 		return schedule.ValidNoeCinemasIdentity("movie", id)
+	}
+	if provider == SourceVeo {
+		return schedule.ValidVeoIdentity("movie", id)
 	}
 	if provider == SourceMK2 {
 		return schedule.ValidMK2Identity("movie", id)

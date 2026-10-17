@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { access } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
@@ -397,6 +398,59 @@ function safeBackdropUrl(value) {
 }
 
 function reservationUrl(showtime) {
+  if (!showtime.provider || showtime.provider === 'majestic') {
+    const majestic = majesticReservationUrl(showtime)
+    if (majestic) return majestic
+  }
+  if (showtime.provider === 'majestic') return null
+  // Match Véo original bytes and cinema-qualified identity before generic parsing.
+  if (!showtime.provider || showtime.provider === 'veo') {
+    const raw = String(showtime.booking_url ?? '')
+    if (raw === showtime.booking_url && raw.length <= 4096) {
+      let theater
+      let validIdentity = true
+      if (showtime.theater_id !== undefined) {
+        const match = /^veo-([A-Z0-9]{5}|EMS1361)$/.exec(
+          showtime.theater_id ?? '',
+        )
+        if (!match || match[0] !== showtime.theater_id) validIdentity = false
+        else theater = match[1]
+      }
+      if (showtime.id !== undefined) {
+        const match = /^veo-showing-([A-Z0-9]{5}|EMS1361)-[a-f0-9]{64}$/.exec(
+          showtime.id ?? '',
+        )
+        if (
+          !match ||
+          match[0] !== showtime.id ||
+          (theater && theater !== match[1])
+        )
+          validIdentity = false
+        else theater = match[1]
+      }
+      if (validIdentity) {
+        const checkout =
+          /^https:\/\/achat\.veocinemas\.fr\/[a-z0-9]+(?:-[a-z0-9]+)*\/(?:reserver\/)?r\/[1-9][0-9]*$/.exec(
+            raw,
+          )
+        if (checkout?.[0] === raw && theater !== 'EMS1361') return raw
+        if (theater === 'G06DB' && validGueretRelay(raw)) return raw
+        if (!theater || theater === 'EMS1361') {
+          const root = /^https:\/\/castelginest\.miracinemas\.fr\/?$/.exec(raw)
+          if (root?.[0] === raw) return raw
+          const session =
+            /^https:\/\/castelginest\.miracinemas\.fr\/?#showsession\?id=(emsx1361[0-9]{8})$/.exec(
+              raw,
+            )
+          if (session?.[0] === raw) {
+            const id = `veo-showing-EMS1361-${createHash('sha256').update(`EMS1361\0${session[1]}`).digest('hex')}`
+            if (showtime.id === undefined || showtime.id === id) return raw
+          }
+        }
+      }
+    }
+  }
+  if (showtime.provider === 'veo') return null
   // Mirror the finite default:DESKTOP policy, never the room-only redirect grammar.
   const noePrefixes = {
     B0158: 'https://achat.noecinemas.com/domont-ermitage/r/',
@@ -534,6 +588,138 @@ function reservationUrl(showtime) {
   } catch {
     return null
   }
+}
+
+// Mirrored raw-byte policy from app/utils/majestic.ts and the backend.
+function majesticReservationUrl(showtime) {
+  const websites = {
+    EMS0700: 'majestic-compiegne.fr',
+    EMS0654: 'majestic-douai.com',
+    EMS1333: 'dole.majestic-cinemas.com',
+    EMS1212: 'vesoul.majestic-cinemas.com',
+    EMS1299: 'cinelaon.fr',
+    EMS1211: 'remiremont.majestic-cinemas.com',
+    EMS0957: 'cinevendome.fr',
+  }
+  const validSession = (value) => {
+    const match = /^emsx([0-9]{4})[0-9]{8}$/.exec(value)
+    return match?.[0] === value && Object.hasOwn(websites, `EMS${match[1]}`)
+  }
+  const raw = String(showtime.booking_url ?? '')
+  if (raw !== showtime.booking_url) return null
+  let site
+  if (showtime.theater_id !== undefined) {
+    const match = /^majestic-(EMS[0-9]{4})$/.exec(showtime.theater_id ?? '')
+    if (
+      !match ||
+      match[0] !== showtime.theater_id ||
+      !Object.hasOwn(websites, match[1])
+    )
+      return null
+    site = match[1]
+  }
+  if (showtime.id !== undefined) {
+    const match = /^majestic-showing-(emsx[0-9]{12})$/.exec(showtime.id ?? '')
+    if (!match || match[0] !== showtime.id || !validSession(match[1]))
+      return null
+    const session = match[1]
+    const showingSite = `EMS${session.slice(4, 8)}`
+    if (site && site !== showingSite) return null
+    site = showingSite
+  }
+  const ticket =
+    /^https:\/\/www\.ticketingcine\.com(?:\/(EMS[0-9]{4})\/FR[A-Z0-9]{5}|\?(EMS[0-9]{4}))#showsession\?id=(emsx[0-9]{12})(?:&ps=ticketingcine)?$/.exec(
+      raw,
+    )
+  if (ticket?.[0] === raw) {
+    const ticketSite = ticket[1] ?? ticket[2]
+    const session = ticket[3]
+    if (
+      !validSession(session) ||
+      ticketSite !== `EMS${session.slice(4, 8)}` ||
+      (site && site !== ticketSite) ||
+      (showtime.id !== undefined &&
+        showtime.id !== `majestic-showing-${session}`)
+    )
+      return null
+    return raw
+  }
+  for (const [websiteSite, host] of Object.entries(websites)) {
+    if ((!site || site === websiteSite) && raw === `https://${host}/`)
+      return raw
+  }
+  return null
+}
+
+// Structural only. Source acquisition binds start/tags; transport binds final D.
+// Single ASCII decode, mirrored by Go, SQL 065 and the frontend policy.
+function validGueretRelay(raw) {
+  const prefix = 'https://relay.mvtx.us/ticketing/dbz?'
+  if (raw.length > 4096 || !raw.startsWith(prefix)) return false
+  const values = new Map()
+  for (const pair of raw.slice(prefix.length).split('&')) {
+    const parts = pair.split('=')
+    const key = parts[0]
+    const value = parts[1] ?? ''
+    if (
+      parts.length !== 2 ||
+      values.has(key) ||
+      !['code_theater', 'gid_entity', 'tags', 'perfd', 'perft'].includes(key)
+    )
+      return false
+    if (
+      !/^[A-Za-z0-9._~,:%-]{1,3072}$/.test(value) ||
+      /[^A-Za-z0-9._~,:%-]/.test(value)
+    )
+      return false
+    let decoded
+    try {
+      decoded = decodeURIComponent(value)
+    } catch {
+      return false
+    }
+    if (
+      !/^[A-Za-z0-9._~,:-]{1,1024}$/.test(decoded) ||
+      /[^A-Za-z0-9._~,:-]/.test(decoded)
+    )
+      return false
+    values.set(key, decoded)
+  }
+  const day = values.get('perfd') ?? ''
+  const clock = values.get('perft') ?? ''
+  if (
+    values.size !== 5 ||
+    values.get('code_theater') !== 'P1394' ||
+    !/^[0-9]{8}$/.test(day) ||
+    day.length !== 8 ||
+    !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(clock) ||
+    clock.length !== 5
+  )
+    return false
+  const year = Number(day.slice(0, 4)),
+    month = Number(day.slice(4, 6)),
+    date = Number(day.slice(6))
+  const days = [
+    31,
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ]
+  return (
+    year >= 1 &&
+    month >= 1 &&
+    month <= 12 &&
+    date >= 1 &&
+    date <= days[month - 1]
+  )
 }
 
 async function get(url, accept = 'text/html,application/json', headers = {}) {

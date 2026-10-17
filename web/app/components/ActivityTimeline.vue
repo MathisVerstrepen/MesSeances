@@ -83,7 +83,7 @@ function eventTheaterId(item: TheaterActivityItem | AccountActivityItem) {
           <NuxtLink
             :to="cinemaMovieTarget(item.movie.slug, eventTheaterId(item))"
             :aria-label="item.movie.title"
-            class="block w-18 shrink-0 focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink sm:w-24 lg:w-28"
+            class="relative block w-18 shrink-0 focus-visible:outline-solid focus-visible:outline-3 focus-visible:outline-offset-4 focus-visible:outline-ink sm:w-24 lg:w-28"
           >
             <PosterImage
               :src="item.movie.poster_url"
@@ -97,6 +97,7 @@ function eventTheaterId(item: TheaterActivityItem | AccountActivityItem) {
               image-class="size-full object-cover"
               fallback-class="text-zinc-600"
             />
+            <WatchedBadge :slug="item.movie.slug" />
           </NuxtLink>
           <div class="min-w-0 flex-1">
             <NuxtLink

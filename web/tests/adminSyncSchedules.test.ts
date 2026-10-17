@@ -131,9 +131,24 @@ function job(
             ? 'succeeded'
             : 'not_requested'),
       },
+      veo: {
+        state:
+          states.veo ??
+          (target === 'veo' || target === 'all'
+            ? 'succeeded'
+            : 'not_requested'),
+      },
     },
   }
 }
+
+test('Véo latest runs select individual and all-provider executions without seeding an enabled schedule', () => {
+  const individual = job('veo-individual', 'veo', '2026-10-15T10:00:00Z')
+  const all = job('all-later', 'all', '2026-10-15T11:00:00Z')
+  assert.equal(selectLatestProviderRun('veo', null, [individual]), individual)
+  assert.equal(selectLatestProviderRun('veo', null, [individual, all]), all)
+  assert.equal(blankAdminSyncScheduleDraft().enabled, false)
+})
 
 test('validates daily and weekly drafts without requiring inactive fields', () => {
   assert.deepEqual(validateAdminSyncScheduleDraft(draft()), {

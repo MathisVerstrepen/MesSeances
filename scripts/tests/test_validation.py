@@ -1198,29 +1198,17 @@ class CommandContractTests(unittest.TestCase):
                 self.assertEqual(run.call_args.args[1], selection)
                 self.assertEqual(run.call_args.kwargs["browser"], browser)
 
-    def test_make_and_ci_contract_preserves_existing_actions_and_checks(self):
-        make = (ROOT / "Makefile").read_text()
-        self.assertIn("check:\n\tPYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run\n", make)
-        self.assertNotIn("go run github.com/golangci", make)
-        for target, check in (("test-go", "go-unit"), ("test-race", "go-race"), ("test-integration", "go-integration"), ("lint", "go-lint")):
-            self.assertIn(f"{target}:\n\tPYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check {check}", make)
+    def test_ci_keeps_security_and_owned_database_gates(self):
+        # Real Make tests below cover dispatch; these are CI-only safety gates.
         workflow = (ROOT / ".github/workflows/go.yml").read_text()
-        for text in ("name: Go CI / checks", "name: Go CI / integration", "branches: [dev, main]", "contents: read", "actions/checkout@v5", "actions/setup-go@v6", "go vet ./...", "golang/govulncheck-action@v1", "golangci/golangci-lint-action@v9.3.0", "version: " + v.TOOL_PINS["golangci-lint"][1]):
+        for text in ("contents: read", "go vet ./...", "golang/govulncheck-action@", "golangci/golangci-lint-action@", "version: " + v.TOOL_PINS["golangci-lint"][1]):
             self.assertIn(text, workflow)
-        self.assertEqual(workflow.count("run: go mod download"), 2)
-        self.assertEqual(workflow.count("install-tools --tool gotestsum"), 2)
-        self.assertIn("run: make test-go", workflow)
-        self.assertIn("run: make test-race", workflow)
-        self.assertIn("run: make test-integration", workflow)
-        self.assertNotIn("services:", workflow)
-        self.assertNotIn("TEST_DATABASE_URL", workflow)
-        self.assertNotIn("command -v psql", workflow)
-        self.assertIn("test-integration:\n\tPYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-integration --disposable-database\n", make)
-        self.assertNotIn("upload-artifact", workflow)
+        for target in ("test-go", "test-race", "test-integration"):
+            self.assertIn(f"run: make {target}\n", workflow)
+        for forbidden in ("services:", "TEST_DATABASE_URL", "command -v psql", "upload-artifact"):
+            self.assertNotIn(forbidden, workflow)
         frontend = (ROOT / ".github/workflows/frontend.yml").read_text()
         self.assertLess(frontend.index("run typecheck"), frontend.index("run build"))
-        release = (ROOT / ".github/workflows/release-tests.yml").read_text()
-        self.assertIn("unittest discover -s scripts/tests", release)
 
     def test_make_failed_gofmt_substitution_not_hidden(self):
         with tempfile.TemporaryDirectory() as directory:

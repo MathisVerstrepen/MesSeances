@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { collectPublicPages } from '~/utils/watchedDiscovery'
 import {
   AlertTriangle,
   Building2,
@@ -65,6 +66,15 @@ const pending = ref(true)
 const errorMessage = ref('')
 const notFound = ref(false)
 const cinemaMovies = ref<CatalogMovie[]>([])
+const discovery = useWatchedCatalog('cinema_city')
+let moviesController: AbortController | undefined
+onBeforeUnmount(() => moviesController?.abort())
+const discoveryMovies = computed(() =>
+  discovery.filter(
+    response.value?.discovery.movies ?? [],
+    (movie) => movie.slug,
+  ),
+)
 const moviesPending = ref(false)
 const moviesErrorMessage = ref('')
 let requestId = 0
@@ -116,7 +126,7 @@ const filmSort = computed<MovieSort>(() =>
 )
 const displayedCinemaMovies = computed(() =>
   filterAndSortCatalogMovies(
-    cinemaMovies.value,
+    discovery.filter(cinemaMovies.value, (movie) => movie.slug),
     filmSearch.value,
     filmSort.value,
   ),
@@ -233,19 +243,14 @@ async function fetchMovies(theaterId: string): Promise<CatalogMovie[]> {
     sort: 'showtimes_desc' as const,
     page_size: CATALOG_PAGE_SIZE,
   }
-  const firstPage = await api.movies({ ...query, page: 1 })
-  const pageCount = Math.ceil(firstPage.total / CATALOG_PAGE_SIZE)
-  if (pageCount <= 1) return firstPage.items
-
-  const remainingPages = await Promise.all(
-    Array.from({ length: pageCount - 1 }, (_, index) =>
-      api.movies({
-        ...query,
-        page: index + 2,
-      }),
-    ),
+  moviesController?.abort()
+  moviesController = new AbortController()
+  const result = await collectPublicPages(
+    (page, signal) => api.movies({ ...query, page }, signal),
+    moviesController.signal,
   )
-  return [firstPage, ...remainingPages].flatMap((page) => page.items)
+  await discovery.observeCatalog(result.catalog_revision)
+  return result.items
 }
 
 async function fetchMoviesState(theaterId: string) {
@@ -393,7 +398,10 @@ watch(
 onMounted(() => void applyFilmsRoute())
 
 const normalizedResults = computed(() =>
-  response.value ? toTheaterShowtimeResults(response.value) : [],
+  discovery.filter(
+    response.value ? toTheaterShowtimeResults(response.value) : [],
+    (item) => item.movieSlug,
+  ),
 )
 const movieGroups = computed(() =>
   groupShowtimeResults(sortShowtimeResults(normalizedResults.value)),
@@ -895,9 +903,12 @@ useHead(() => ({
           </div>
         </div>
 
-        <template v-if="currentView === 'showtimes'">
+        <WatchedReadiness
+          v-if="currentView !== 'activity' && discovery.blocked.value"
+        />
+        <template v-else-if="currentView === 'showtimes'">
           <section
-            v-if="response.discovery.window && response.discovery.movies.length"
+            v-if="response.discovery.window && discoveryMovies.length"
             class="mt-6"
             aria-labelledby="cinema-discovery-films-heading"
           >
@@ -912,7 +923,7 @@ useHead(() => ({
               class="-mx-2 mt-5 flex snap-x snap-mandatory scroll-p-2 gap-4 overflow-x-auto p-2 focus-within:snap-none sm:gap-6 lg:mx-0 lg:grid lg:snap-none lg:grid-cols-6 lg:overflow-visible lg:p-0"
             >
               <li
-                v-for="movie in response.discovery.movies"
+                v-for="movie in discoveryMovies"
                 :key="movie.slug"
                 class="w-40 min-w-0 shrink-0 snap-start sm:w-48 lg:w-auto"
                 @focusin="

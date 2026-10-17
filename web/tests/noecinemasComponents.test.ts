@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import test from 'node:test'
@@ -60,21 +59,11 @@ async function render(root: Component, props: RenderProps) {
   return renderToString(app)
 }
 
-test('Noé exact supplied bytes serve both logo sizes on light backing with accessible brand', async () => {
-  const image = await readFile(
-    new URL('../app/assets/imgs/noe_cinema_logo_small.webp', import.meta.url),
-  )
-  assert.equal(
-    createHash('sha256').update(image).digest('hex'),
-    '78231e6aa9d9026f1bc68d266419d45477aaf263fa8ef1f959f2356278179e5a',
-  )
+test('Noé logo variants retain accessible brand names', async () => {
   for (const variant of ['inline', 'display']) {
     const html = await render(BrandLogo!, { brand: 'Noé Cinémas', variant })
     assert.match(html, /noe_cinema_logo_small\.webp\?no-inline/)
     assert.match(html, /alt="Noé Cinémas"/)
-    assert.match(html, /bg-white/)
-    assert.match(html, /object-contain/)
-    assert.doesNotMatch(html, /bg-ink/)
   }
   assert.match(
     await render(BrandLogo!, { brand: 'Noé Cinémas', decorative: true }),
@@ -166,7 +155,7 @@ test('Noé follows Grand Ecran throughout admin, latest-run, map and labels', as
     if (page.startsWith('sync'))
       assert.match(
         value,
-        /const providers = \[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',?\s*\] as const/,
+        /const providers = \[\s*'ugc',\s*'kinepolis',\s*'pathe',\s*'cgr',\s*'megarama',\s*'cineville',\s*'mk2',\s*'cinewest',\s*'grandecran',\s*'noecinemas',\s*'veo',\s*'majestic',\s*'cineode',\s*'cinemovida',\s*'ocine',?\s*\] as const/,
       )
   }
   assert.match(

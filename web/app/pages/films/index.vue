@@ -75,6 +75,7 @@ const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
 const preferences = useCinemaPreferences()
+const discovery = useWatchedCatalog('films')
 const appliedSearch = ref('')
 const sort = ref<MovieSort>(DEFAULT_SORT)
 const page = ref(1)
@@ -220,6 +221,10 @@ async function loadMovies() {
   const currentRequest = ++requestId
   pending.value = true
   errorMessage.value = ''
+  if (discovery.blocked.value) {
+    catalog.value = null
+    return
+  }
 
   if (!appliedFilters.value.allTheaters && preferences.error.value) {
     catalog.value = null
@@ -244,7 +249,7 @@ async function loadMovies() {
 
   try {
     const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
-    const response = await api.movies({
+    const response = await discovery.movies({
       currently_screened: true,
       theaters: theaterIds,
       search: appliedSearch.value || undefined,
@@ -549,6 +554,12 @@ watch(
   },
   { flush: 'sync' },
 )
+watch(discovery.key, () => {
+  if (isMounted && !isInitializing) {
+    lastLoadKey = ''
+    void loadMovies()
+  }
+})
 onMounted(async () => {
   isMounted = true
   isInitializing = true
@@ -972,7 +983,7 @@ useHead(() => ({
         ></div>
 
         <div
-          v-if="catalog && !pending"
+          v-if="catalog && !pending && !discovery.blocked.value"
           class="results-bar mt-10 flex items-center justify-between gap-3 border-y-2 border-ink py-4 sm:items-end sm:gap-6"
         >
           <h2
@@ -992,8 +1003,9 @@ useHead(() => ({
           </div>
         </div>
 
+        <WatchedReadiness v-if="discovery.blocked.value" />
         <EditorialStatePanel
-          v-if="pending"
+          v-else-if="pending"
           semantic="status"
           live="polite"
           size="tall"

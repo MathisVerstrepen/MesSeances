@@ -2,6 +2,131 @@ import type { Page } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
 import { date, movie, showtimes, theater } from './data.mjs'
 
+test('date controls defer calendar, keep unavailable quick dates keyboard reachable and constrain actual calendar selection', async ({
+  page,
+}) => {
+  const tomorrow = new Date(`${date}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const dayName = (value: string) =>
+    new Intl.DateTimeFormat('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      timeZone: 'Europe/Paris',
+    }).format(new Date(`${value}T12:00:00Z`))
+  await openPage(page, '/recherche')
+  const tabs = page.locator('[role="tablist"]:visible').getByRole('tab')
+  await expect(tabs).toHaveCount(2)
+  await expect(
+    page.getByRole('dialog', {
+      includeHidden: true,
+      name: 'Calendrier des dates disponibles',
+    }),
+  ).toHaveCount(0)
+  const today = tabs.filter({ hasText: 'Aujourd’hui' })
+  const next = tabs.filter({ hasText: 'Demain' })
+  await today.focus()
+  for (const [key, target] of [
+    ['ArrowLeft', next],
+    ['ArrowRight', today],
+    ['End', next],
+    ['Home', today],
+  ] as const) {
+    await page.keyboard.press(key)
+    await expect(target).toBeFocused()
+    await expect(target).toHaveAttribute('aria-selected', 'true')
+    await expect(target).toHaveAttribute('tabindex', '0')
+    expect(
+      await tabs.evaluateAll(
+        (nodes) =>
+          nodes.filter((node) => node.getAttribute('tabindex') === '0').length,
+      ),
+    ).toBe(1)
+  }
+  await next.click()
+  await expect(next).toBeEnabled()
+  const trigger = page.getByRole('button', { name: /Choisir une autre date/ })
+  await trigger.click()
+  const calendar = page.getByRole('dialog', {
+    name: 'Calendrier des dates disponibles',
+  })
+  await expect(calendar).toBeVisible()
+  await expect(
+    calendar.getByRole('gridcell', {
+      name: `Choisir ${dayName(tomorrow.toISOString().slice(0, 10))}`,
+      exact: true,
+    }),
+  ).toHaveAttribute('aria-disabled', 'true')
+  const availableDay = calendar.getByRole('gridcell', {
+    name: `Choisir ${dayName(date)}`,
+    exact: true,
+  })
+  await availableDay.focus()
+  await expect(availableDay).toBeFocused()
+  await availableDay.click()
+  await expect(calendar).toBeHidden()
+  await expect(today).toHaveAttribute('aria-selected', 'true')
+  const beforeEscape = page.url()
+  const reopenWithImmediateEscape = async () => {
+    // Start at the trigger, never move focus into the menu to avoid the race.
+    // Replay activation and Escape in one JS turn, before scheduled menu focus.
+    await trigger.focus()
+    await trigger.evaluate((button) => {
+      button.click()
+      if (document.activeElement !== button)
+        throw new Error('Calendar trigger must retain focus during reopening')
+      button.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+    })
+  }
+  await reopenWithImmediateEscape()
+  await expect(calendar).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(trigger).toBeFocused()
+  await expect(today).toHaveAttribute('aria-selected', 'true')
+  expect(page.url()).toBe(beforeEscape)
+
+  // The same Escape must not dismiss the containing mobile filter sheet.
+  const searches = await mockSlotSearch(page)
+  await page.getByRole('button', { name: 'Trouver une séance' }).click()
+  await expect(page).toHaveURL((url) => url.searchParams.get('date') === date)
+  await expect.poll(() => searches.length).toBe(1)
+  const form = await openFilters(page)
+  const readValues = () =>
+    form.locator('input, select').evaluateAll((controls) =>
+      controls.map((control) => {
+        if (
+          !(
+            control instanceof HTMLInputElement ||
+            control instanceof HTMLSelectElement
+          )
+        )
+          throw new Error('Expected a filter control')
+        return {
+          value: control.value,
+          checked:
+            control instanceof HTMLInputElement ? control.checked : false,
+        }
+      }),
+    )
+  const values = await readValues()
+  const beforeSheetEscape = page.url()
+  await reopenWithImmediateEscape()
+  await expect(calendar).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(trigger).toBeFocused()
+  await expect(form).toBeVisible()
+  await expect(today).toHaveAttribute('aria-selected', 'true')
+  expect(page.url()).toBe(beforeSheetEscape)
+  expect(await readValues()).toEqual(values)
+  await trigger.click()
+  await expect(calendar).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(calendar).toBeHidden()
+  await expect(form).toBeVisible()
+})
+
 const account = {
   enabled: true,
   state: 'complete',
@@ -730,10 +855,12 @@ for (const mode of ['initial', 'edit'] as const) {
     await form.getByLabel('Inclure les publicités (+15 min)').uncheck()
     const watchlist = form.getByLabel('Ma watchlist uniquement')
     await watchlist.check()
+    const watched = form.getByLabel('Afficher les films vus')
+    await expect(watched).toBeEnabled()
     const finalSetting =
       mode === 'edit'
         ? form.getByLabel('Afficher uniquement les séances sélectionnées')
-        : watchlist
+        : watched
     await form
       .getByRole('combobox', { name: 'À partir de' })
       .selectOption('12:00')
@@ -773,6 +900,8 @@ for (const mode of ['initial', 'edit'] as const) {
             rect.y + rect.height / 2,
           )
           return (
+            rect.width >= 44 &&
+            rect.height >= 44 &&
             rect.top >= 0 &&
             rect.bottom <= window.innerHeight &&
             rect.left >= 0 &&
@@ -800,8 +929,16 @@ for (const mode of ['initial', 'edit'] as const) {
     const lastControl = await finalSetting.locator('..').boundingBox()
     const action = await submit.locator('..').boundingBox()
     expect(lastControl).not.toBeNull()
+    expect(lastControl!.height).toBeGreaterThanOrEqual(44)
     expect(action).not.toBeNull()
     expect(lastControl!.y + lastControl!.height).toBeLessThanOrEqual(action!.y)
+    await watchlist.focus()
+    await page.keyboard.press('Tab')
+    await expect(watched).toBeFocused()
+    if (mode === 'edit') {
+      await page.keyboard.press('Tab')
+      await expect(finalSetting).toBeFocused()
+    }
     await finalSetting.focus()
     await page.keyboard.press('Tab')
     await expect(submit).toBeFocused()

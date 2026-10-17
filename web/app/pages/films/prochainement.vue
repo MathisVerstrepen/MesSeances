@@ -23,6 +23,7 @@ import type { UpcomingRouteState } from '~/utils/upcomingMovies'
 const api = useMesSeancesApi()
 const route = useRoute()
 const router = useRouter()
+const discovery = useWatchedCatalog('upcoming')
 const pagination = ref(parseUpcomingRoute(route.query))
 const catalog = ref<UpcomingMoviesResponse | null>(null)
 const pending = ref(false)
@@ -55,10 +56,10 @@ const monthOptions = computed(() =>
 )
 
 async function fetchCatalog(state: UpcomingRouteState) {
-  let response = await api.upcomingMovies(upcomingApiQuery(state))
+  let response = await discovery.upcoming(upcomingApiQuery(state))
   const lastPage = Math.max(1, response.total_pages)
   if (state.page > lastPage)
-    response = await api.upcomingMovies(
+    response = await discovery.upcoming(
       upcomingApiQuery({ ...resolvedUpcomingRoute(response), page: lastPage }),
     )
   // Validate verified dates before committing a response. Never substitute the general release date.
@@ -94,6 +95,11 @@ if (import.meta.server && errorMessage.value) {
 
 async function loadCatalog() {
   const currentRequest = ++requestId
+  if (discovery.blocked.value) {
+    catalog.value = null
+    pending.value = true
+    return
+  }
   const state = { ...pagination.value }
   const scrollIntent = scrollAfterLoad
   let loaded = false
@@ -212,6 +218,9 @@ watch(
     if (changed) await loadCatalog()
   },
 )
+watch(discovery.key, () => {
+  if (mounted) void loadCatalog()
+})
 onMounted(async () => {
   removeNavigationFailureHook = router.afterEach((_to, _from, failure) => {
     if (failure) scrollAfterLoad = null
@@ -222,6 +231,7 @@ onMounted(async () => {
   const query = upcomingRouteQuery(pagination.value)
   if (!queriesEqual(route.query, query)) await router.replace({ query })
   mounted = true
+  if (discovery.personal.value) void loadCatalog()
 })
 onBeforeUnmount(() => {
   mounted = false
@@ -364,8 +374,9 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
     </header>
     <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
       <div aria-live="polite" :aria-busy="pending">
+        <WatchedReadiness v-if="discovery.blocked.value" />
         <EditorialStatePanel
-          v-if="pending"
+          v-else-if="pending"
           semantic="status"
           size="tall"
           class="mt-8 font-bold"

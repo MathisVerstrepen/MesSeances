@@ -22,17 +22,20 @@ func TestVOFLanguageMigrationIntegration(t *testing.T) {
 			pool := historyMigrationPool(t, ctx)
 			var before string
 			var relations []uint32
+			var providerChanges []providerConstraintChange
 			if upgrade {
 				installMigrationPrefix(t, ctx, pool, 41, "041_movie_original_language.sql")
 				seedVOFLanguageMigration(t, ctx, pool)
 				relations = vofLanguageMigrationRelations(t, ctx, pool)
-				before = vofLanguageMigrationState(t, ctx, pool, relations)
+				providerChanges = captureProviderConstraintChanges(t, ctx, pool)
+				before = vofLanguageMigrationState(t, ctx, pool, relations, providerChanges...)
 			}
 			if err := RunMigrations(ctx, pool); err != nil {
 				t.Fatal(err)
 			}
 			if upgrade {
-				if got := vofLanguageMigrationState(t, ctx, pool, relations); got != before {
+				assertProviderConstraintChanges(t, ctx, pool, providerChanges)
+				if got := vofLanguageMigrationState(t, ctx, pool, relations, providerChanges...); got != before {
 					t.Fatal("migration changed existing metadata, rows, identities, timestamps, or unrelated constraints")
 				}
 			} else {
@@ -179,12 +182,15 @@ func vofLanguageMigrationRelations(t *testing.T, ctx context.Context, pool *pgxp
 	return relations
 }
 
-func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, relations []uint32) string {
+func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.Pool, relations []uint32, providerChanges ...providerConstraintChange) string {
 	t.Helper()
 	var state string
 	// Preserve original_language too: unlike the 040-to-041 snapshot, no metadata changes are expected.
 	// Compare constraints only on the captured baseline relations, not tables added by later migrations.
 	// Migration 060 deliberately changes the Cinewest historical shape exception.
+	// Only successful upgrades exclude 063's exact table/name pairs here; each
+	// is independently checked against its full expected expression. Rollback,
+	// scope and rerun snapshots continue comparing every such constraint.
 	if err := pool.QueryRow(ctx, `SELECT jsonb_build_array(
     (SELECT jsonb_agg(to_jsonb(m)-'metacritic_id' ORDER BY id) FROM public_movies m),
     (SELECT jsonb_agg(to_jsonb(m)-'metacritic_id' ORDER BY provider,provider_movie_id,locale) FROM movie_metadata_cache m),
@@ -200,8 +206,9 @@ func vofLanguageMigrationState(t *testing.T, ctx context.Context, pool *pgxpool.
      FROM pg_constraint WHERE connamespace=current_schema()::regnamespace
      AND conrelid = ANY($1::oid[])
       AND conname NOT IN ('showtimes_language_vof_check','screening_history_showtimes_language_vof_check',
-           'public_movies_metacritic_id_check','movie_metadata_cache_metacritic_id_check','showtimes_cinewest_shape_check'))
-)::text`, relations).Scan(&state); err != nil {
+            'public_movies_metacritic_id_check','movie_metadata_cache_metacritic_id_check','showtimes_cinewest_shape_check')
+       AND (conrelid::regclass::text || '.' || conname) <> ALL($2::text[]))
+)::text`, relations, providerConstraintKeys(providerChanges)).Scan(&state); err != nil {
 		t.Fatal(err)
 	}
 	return state

@@ -5,6 +5,7 @@ import { posterImageSources } from '~/utils/safeImageUrl'
 const props = defineProps<{
   src: string | null | undefined
   movieTitle: string
+  movieSlug?: string
   resetKey: string
 }>()
 
@@ -73,7 +74,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
 </script>
 
 <template>
-  <div class="h-full w-full">
+  <div class="relative h-full w-full">
     <button
       ref="trigger"
       type="button"
@@ -98,6 +99,7 @@ onBeforeUnmount(() => closeModal({ restoreFocus: false }))
         @error="handleImageError"
       />
     </button>
+    <WatchedBadge :slug="movieSlug" />
 
     <dialog
       v-if="isOpen && imageSources.src"
