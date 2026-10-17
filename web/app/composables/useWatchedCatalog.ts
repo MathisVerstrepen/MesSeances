@@ -6,9 +6,11 @@ import type {
 } from '~/types/api'
 import type { WatchedSection } from '~/types/watched'
 import {
+  collectMoviePreview,
   collectPublicPages,
   localMoviePage,
   localUpcomingPage,
+  type MoviePreview,
 } from '~/utils/watchedDiscovery'
 
 // Scope-local public collection. Private projection never enters a Nuxt payload/cache.
@@ -78,6 +80,30 @@ export function useWatchedCatalog(section: WatchedSection) {
       query.page_size ?? 24,
     )
   }
+  async function moviePreview(
+    query: Omit<MoviesQuery, 'page' | 'page_size'>,
+    size: number,
+  ): Promise<MoviePreview> {
+    cancel()
+    const current = generation
+    controller = new AbortController()
+    const signal = controller.signal
+    const result = discovery.hide.value
+      ? await collectMoviePreview(
+          (page, signal) =>
+            api.movies({ ...query, page, page_size: 12 }, signal),
+          discovery.watched.slugs.value,
+          size,
+          signal,
+        )
+      : await api.movies({ ...query, page: 1, page_size: size }, signal)
+    await observeCatalog(result.catalog_revision)
+    if (current !== generation) throw new Error('Catalog cancelled')
+    return {
+      items: result.items.slice(0, size),
+      catalog_revision: result.catalog_revision,
+    }
+  }
   async function upcoming(
     query: UpcomingMoviesQuery,
   ): Promise<UpcomingMoviesResponse> {
@@ -111,5 +137,12 @@ export function useWatchedCatalog(section: WatchedSection) {
       query.page ?? 1,
     )
   }
-  return { ...discovery, movies, upcoming, observeCatalog, cancel }
+  return {
+    ...discovery,
+    movies,
+    moviePreview,
+    upcoming,
+    observeCatalog,
+    cancel,
+  }
 }

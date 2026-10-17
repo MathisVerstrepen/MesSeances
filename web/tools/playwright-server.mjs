@@ -144,7 +144,10 @@ const mock = createServer((request, response) => {
         path === '/api/v1/movies' &&
         url.searchParams.get('screening_summary') !== 'true'
       )
-        return json(response, watchedCatalog(url.searchParams))
+        return json(
+          response,
+          watchedCatalog(url.searchParams, scenario.watchedCatalogSize),
+        )
     }
     if (scenario.scrollRoute) {
       const mode = scenario.scrollRoute

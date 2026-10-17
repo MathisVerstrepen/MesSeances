@@ -105,6 +105,62 @@ function boundary(value: PublicPage) {
         value.available_genres,
       ])
 }
+export type MoviePreview = Pick<MoviesResponse, 'items' | 'catalog_revision'>
+
+// A prefix has no complete total and must never enter the full-catalog cache.
+export async function collectMoviePreview(
+  fetchPage: (page: number, signal: AbortSignal) => Promise<MoviesResponse>,
+  slugs: ReadonlySet<string>,
+  size: number,
+  signal: AbortSignal,
+): Promise<MoviePreview> {
+  if (!Number.isSafeInteger(size) || size < 1)
+    throw new Error('Invalid preview size')
+  const check = () => {
+    if (signal.aborted) throw new Error('Catalog walk cancelled')
+  }
+  check()
+  const first = await fetchPage(1, signal)
+  check()
+  if (
+    first.page !== 1 ||
+    !Number.isSafeInteger(first.page_size) ||
+    first.page_size < 1 ||
+    first.page_size > 100 ||
+    !Number.isSafeInteger(first.total) ||
+    first.total < 0
+  )
+    throw new Error('Invalid catalog page')
+  const pages = Math.max(1, Math.ceil(first.total / first.page_size))
+  const expected = boundary(first)
+  const items: MoviesResponse['items'] = []
+  const seen = new Set<string>()
+  let received = 0
+  for (let page = 1; page <= pages; page++) {
+    check()
+    const next = page === 1 ? first : await fetchPage(page, signal)
+    check()
+    if (
+      next.page !== page ||
+      boundary(next) !== expected ||
+      next.page_size !== first.page_size
+    )
+      throw new Error('Catalog changed during pagination')
+    if (first.total > 0 && !next.items.length)
+      throw new Error('Incomplete catalog walk')
+    received += next.items.length
+    for (const item of next.items) {
+      if (seen.has(item.slug) || slugs.has(item.slug)) continue
+      seen.add(item.slug)
+      items.push(item)
+      if (items.length === size)
+        return { items, catalog_revision: first.catalog_revision }
+    }
+  }
+  if (received < first.total) throw new Error('Incomplete catalog walk')
+  return { items, catalog_revision: first.catalog_revision }
+}
+
 // Complete, sequential, finite walks. Public totals enumerate, never describe a private projection.
 export async function collectPublicPages<T extends PublicPage>(
   fetchPage: (page: number, signal: AbortSignal) => Promise<T>,

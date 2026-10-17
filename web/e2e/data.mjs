@@ -914,11 +914,20 @@ export function syntheticWatched(username, slugs = [], preferences = {}) {
     preferences: { ...watchedDefaults, ...preferences },
   }
 }
-export function watchedCatalog(query) {
+export function watchedCatalog(query, size = watchedMovies.length) {
   const page = Number(query.get('page') || 1)
   const pageSize = Math.min(100, Number(query.get('page_size') || 24))
   const search = (query.get('search') || '').toLocaleLowerCase('fr')
-  const items = watchedMovies.filter((item) =>
+  const inventory = Array.from(
+    { length: size },
+    (_, index) =>
+      watchedMovies[index] ?? {
+        ...movie,
+        slug: `film-watched-${index}`,
+        title: `Vu ${index}`,
+      },
+  )
+  const items = inventory.filter((item) =>
     item.title.toLocaleLowerCase('fr').includes(search),
   )
   return {
