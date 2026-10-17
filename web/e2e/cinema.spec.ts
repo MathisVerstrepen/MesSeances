@@ -7,6 +7,7 @@ import {
   showtimes,
   theater,
   veoTheaters,
+  cineodeTheaters,
 } from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
@@ -724,6 +725,190 @@ test('ICE technology credit uses supplied display logo and official attribution'
     ),
   ).toBe(true)
   await credit.screenshot({ path: info.outputPath('ice-credit.png') })
+})
+
+test('Cinéode SSR and hydrated cinema programme preserve website links, missing metadata and estimated ends', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cineode: true } })
+  const venue = cineodeTheaters[0]
+  const url = `/cinema/${venue.slug}?date=${date}`
+  const response = await request.get(url)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  expect(html).toContain(venue.name)
+  expect(html).toContain('cineode_logo')
+  expect(html).toContain('L&#39;été')
+  expect(html).toContain('VOSTFR')
+  expect(html).toContain('Site du cinéma Cinéode')
+  expect(html).not.toContain('href="https://www.cineode.fr/la-grange/seances/"')
+  await openPage(page, url)
+  const logo = page.locator('main > header img[src*="cineode_logo"]')
+  await expect(logo).toHaveAttribute('alt', 'Cinéode')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+  ).toBeCloseTo(310 / 139, 2)
+  await expect(logo).toHaveCSS('object-fit', 'contain')
+  async function checkProgramme() {
+    const links = page.locator('main a[data-showtime-id]')
+    await expect(links).toHaveCount(2)
+    for (const link of await links.all()) {
+      await expect(link).toHaveAttribute(
+        'href',
+        'https://www.cineode.fr/le-don-camillo/seances/',
+      )
+      await expect(link).toHaveAttribute(
+        'aria-label',
+        'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
+      )
+      await expect(link).toContainText('Site du cinéma Cinéode')
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+    const disabled = page.locator(
+      'main [aria-disabled="true"][data-showtime-id]',
+    )
+    await expect(disabled).toHaveCount(1)
+    await expect(disabled).not.toHaveAttribute('href')
+    await expect(disabled).toContainText('Réservation indisponible')
+    const unknown = page.locator('main [data-showtime-id*="atelier-local"]')
+    await expect(unknown).toContainText('VOSTFR')
+    await expect(unknown).not.toContainText(/fin|Salle|0 min/i)
+    await expect(
+      page.locator(
+        'main [data-movie-slug="cineode-film-atelier-local"] header',
+      ),
+    ).not.toContainText(/\b0\s*min/i)
+    await expect(page.locator('main').getByText(/^Salle(?:\s|$)/)).toHaveCount(
+      0,
+    )
+    const estimate = page
+      .locator('main [tabindex="0"][aria-describedby]')
+      .filter({ hasText: 'Fin estimée' })
+    await expect(estimate).toHaveCount(1)
+    await estimate.focus()
+    await expect(estimate).toBeFocused()
+    await expect(page.getByRole('tooltip')).toContainText('Fin estimée')
+    await expect(page.getByRole('tooltip')).toContainText('100 min de film')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tooltip')).toBeHidden()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  }
+  await checkProgramme()
+  await page.screenshot({
+    path: info.outputPath('cineode-cinema.png'),
+    fullPage: true,
+  })
+  // Same owned synthetic transport serves SSR and dated client fetches.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+  await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+  await page.setViewportSize(info.project.use.viewport!)
+  await checkProgramme()
+})
+
+test('Cinéode film SSR and hydrated programme keep local IDs, unknown metadata and safe website labeling', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cineode: true } })
+  const url = `/film/cineode-film-atelier-local?date=${date}`
+  const response = await request.get(url)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  expect(html).toContain('Le Don Camillo')
+  expect(html).toContain('cineode_logo')
+  expect(html).toContain('VOSTFR')
+  expect(html).not.toMatch(/>0\s*min/)
+  await openPage(page, url)
+  const website = page.getByRole('link', {
+    name: 'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(website).toHaveCount(1)
+  await expect(website).toHaveAttribute(
+    'href',
+    'https://www.cineode.fr/le-don-camillo/seances/',
+  )
+  await expect(website).toContainText('Site du cinéma Cinéode')
+  await expect(website).not.toContainText(/fin|Salle/i)
+  await website.focus()
+  await expect(website).toBeFocused()
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('cineode-film.png'),
+    fullPage: true,
+  })
+})
+
+test('Cinéode directory keyboard selection, URL state, empty programme and official credit remain accessible', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cineode: true } })
+  await openPage(page, '/cinemas')
+  const mobile = info.project.name === 'mobile'
+  if (mobile)
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const choice = page.getByRole('checkbox', { name: 'Cinéode', exact: true })
+  await choice.focus()
+  await page.keyboard.press('Space')
+  await expect(choice).toBeChecked()
+  await expect(page).toHaveURL(/chains=cineode/)
+  if (mobile) await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  const empty = cineodeTheaters[1]
+  await expect(
+    page.getByRole('link', { name: new RegExp(empty.name) }).first(),
+  ).toBeVisible()
+  await page.reload()
+  await expect(page).toHaveURL(/chains=cineode/)
+  await openPage(page, `/cinema/${empty.slug}?date=${date}`)
+  await expect(page.locator('main')).toContainText(empty.name)
+  await expect(
+    page.getByRole('heading', {
+      name: 'Aucune séance à cette date',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.locator('main a[data-showtime-id]')).toHaveCount(0)
+  await expect(page.locator('main')).not.toContainText('02300')
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('cineode-empty.png'),
+    fullPage: true,
+  })
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Cinéode, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://www.cineode.fr/')
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(credit.locator('img')).toHaveAttribute('aria-hidden', 'true')
+  await expect(credit.locator('img')).toHaveAttribute('src', /cineode_logo/)
 })
 
 for (const venue of veoTheaters) {

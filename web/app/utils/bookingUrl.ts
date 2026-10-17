@@ -3,6 +3,7 @@ import { isValidMk2ShowingId } from './mk2.ts'
 import { safeCinewestBooking } from './cinewest.ts'
 import { safeVeoBooking } from './veo.ts'
 import { safeMajesticBooking } from './majestic.ts'
+import { safeCineodeBooking } from './cineode.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -176,6 +177,14 @@ export function safeBookingUrl(
   showtimeId?: string | null,
   theaterId?: string | null,
 ): SafeBookingUrl | null {
+  if (
+    raw &&
+    (expectedProvider === 'cineode' || expectedProvider === undefined)
+  ) {
+    const cineode = safeCineodeBooking(raw, showtimeId, theaterId)
+    if (cineode) return { provider: 'cineode', ...cineode }
+  }
+  if (expectedProvider === 'cineode') return null
   if (raw && (expectedProvider === 'majestic' || !expectedProvider)) {
     const majestic = safeMajesticBooking(raw, showtimeId, theaterId)
     if (majestic) return { provider: 'majestic', ...majestic }

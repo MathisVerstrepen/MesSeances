@@ -8,6 +8,7 @@ import type {
 import { resolveShowtimeEnd } from './showtimeEnd.ts'
 import { isValidMk2ShowingId } from './mk2.ts'
 import { isValidMajesticSessionId } from './majestic.ts'
+import { cineodeShowingParts } from './cineode.ts'
 
 export const resultGroupingOptions: [
   { value: ResultGrouping; label: string },
@@ -189,6 +190,11 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const cineodePrefix = 'cineode:cineode-showing-'
+  if (key.startsWith(cineodePrefix)) {
+    const showing = key.slice(cineodePrefix.length)
+    return cineodeShowingParts(showing) ? `o${showing}` : null
+  }
   const majesticPrefix = 'majestic:majestic-showing-'
   if (key.startsWith(majesticPrefix)) {
     const session = key.slice(majesticPrefix.length)
@@ -238,6 +244,12 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  if (token.startsWith('o')) {
+    const showing = token.slice(1)
+    return cineodeShowingParts(showing)
+      ? `cineode:cineode-showing-${showing}`
+      : null
+  }
   if (token.startsWith('j')) {
     const session = token.slice(1)
     return isValidMajesticSessionId(session)

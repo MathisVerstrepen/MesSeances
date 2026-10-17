@@ -15,6 +15,7 @@ const props = withDefaults(
 
 interface DatePickerExposed {
   openMenu: () => void
+  closeMenu: () => void
   inputRef: () => { $el?: Element } | undefined
 }
 
@@ -61,6 +62,10 @@ function activate() {
 function loadWhenActive() {
   void ensureLoaded().catch(() => undefined)
 }
+
+defineExpose({
+  closeMenu: () => datePicker.value?.closeMenu(),
+})
 
 onMounted(() => {
   if (props.active) loadWhenActive()

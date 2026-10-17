@@ -19,6 +19,7 @@ import (
 	"messeances/api/internal/accountmail"
 	"messeances/api/internal/accounts"
 	"messeances/api/internal/cgr"
+	"messeances/api/internal/cineode"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
 	runtimeconfig "messeances/api/internal/config"
@@ -555,6 +556,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewMajestic: func() (majestic.Getter, error) {
 			return majestic.NewClient(majestic.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCineode: func() (cineode.Getter, error) {
+			return cineode.NewClient(cineode.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

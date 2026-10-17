@@ -125,6 +125,7 @@ func TestEmbeddedMigrations(t *testing.T) {
 		{64, "064_veo_checkout_source_paths.sql"},
 		{65, "065_veo_gueret_relay.sql"},
 		{66, "066_majestic_provider.sql"},
+		{67, "067_cineode_provider.sql"},
 	}
 
 	items, err := embeddedMigrations()
@@ -157,7 +158,7 @@ func TestPublishedWatchedMigrationPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(available) != 66 || available[61].name != "062_account_watched.sql" || available[62].name != "063_veo_provider.sql" {
+	if len(available) != 67 || available[61].name != "062_account_watched.sql" || available[62].name != "063_veo_provider.sql" {
 		t.Fatal("published watched062 must precede pending Véo063")
 	}
 	// Pin the published watched body and the pre-renumbering Véo body. This is

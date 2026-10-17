@@ -248,6 +248,103 @@ export function veoShowtimes(venue, selectedDate = date) {
   }
 }
 
+// Opt-in manifest-bound Cinéode inventory. Never contacts provider websites.
+export const cineodeTheaters = [
+  {
+    id: '991',
+    name: 'Le Don Camillo',
+    city: 'Montmirail',
+    city_slug: 'montmirail',
+  },
+  {
+    id: '3955',
+    name: 'La Grange',
+    city: 'Vaux-le-Pénil',
+    city_slug: 'vaux-le-penil',
+  },
+].map((venue, index) => ({
+  ...theater,
+  ...venue,
+  provider: 'cineode',
+  id: `cineode-${venue.id}`,
+  slug: `cineode-${venue.id}`,
+  address: '',
+  postal_code: '',
+  accepted_passes: [],
+  available_dates: index
+    ? []
+    : [
+        date,
+        new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+          .toISOString()
+          .slice(0, 10),
+      ],
+}))
+export function cineodeShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  return {
+    ...payload,
+    discovery: { window: null, movies: [], other_theaters: [] },
+    date: selectedDate,
+    theater: venue,
+    showtimes:
+      venue.id === 'cineode-3955'
+        ? []
+        : [0, 1, 2].map((index) => {
+            const start = `${selectedDate}T${14 + index * 2}:00:00+02:00`
+            const film = index ? '631242' : 'atelier-local'
+            return {
+              ...payload.showtimes[0],
+              provider: 'cineode',
+              id: `cineode-showing-991-${film}-${Date.parse(start) / 1000}`,
+              movie: {
+                ...movie,
+                slug: `cineode-film-${film}`,
+                title: index ? 'Programme Cinéode' : "L'été",
+                runtime_minutes: index ? 100 : 0,
+              },
+              start_time: start,
+              end_time: start,
+              estimated_end_time:
+                index === 1 ? `${selectedDate}T17:55:00+02:00` : null,
+              estimated_end_ads_minutes: index === 1 ? 15 : null,
+              duration_minutes: 0,
+              start_offset_minutes: (14 + index * 2) * 60,
+              language: index ? 'VF' : 'VOSTFR',
+              format: index === 1 ? '3D' : '2D',
+              room: '',
+              booking_url:
+                index === 2
+                  ? 'https://www.cineode.fr/la-grange/seances/'
+                  : 'https://www.cineode.fr/le-don-camillo/seances/',
+              poster_url: null,
+              backdrop_url: null,
+            }
+          }),
+  }
+}
+
+export function cineodeMovieSchedule(slug, query) {
+  if (!['cineode-film-atelier-local', 'cineode-film-631242'].includes(slug))
+    return null
+  const payload = cineodeShowtimes(
+    cineodeTheaters[0],
+    query.get('date') || date,
+  )
+  const sessions = payload.showtimes.filter((item) => item.movie.slug === slug)
+  return {
+    ...movieSchedule(movie.slug, query),
+    movie: sessions[0].movie,
+    theaters: [{ ...payload.theater, showtimes: sessions }],
+    available_dates: payload.theater.available_dates,
+    date: payload.date,
+    available_languages: [...new Set(sessions.map((item) => item.language))],
+    available_formats: [...new Set(sessions.map((item) => item.format))],
+    pagination: { page: 1, page_size: 10, total: 1, has_more: false },
+    discovery: { window: null, cities: [] },
+  }
+}
+
 export const alternativeTheater = {
   ...theater,
   id: 'fixture-alternative',

@@ -66,11 +66,65 @@ test('date controls defer calendar, keep unavailable quick dates keyboard reacha
   await availableDay.click()
   await expect(calendar).toBeHidden()
   await expect(today).toHaveAttribute('aria-selected', 'true')
+  const beforeEscape = page.url()
+  const reopenWithImmediateEscape = async () => {
+    // Start at the trigger, never move focus into the menu to avoid the race.
+    // Replay activation and Escape in one JS turn, before scheduled menu focus.
+    await trigger.focus()
+    await trigger.evaluate((button) => {
+      button.click()
+      if (document.activeElement !== button)
+        throw new Error('Calendar trigger must retain focus during reopening')
+      button.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      )
+    })
+  }
+  await reopenWithImmediateEscape()
+  await expect(calendar).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(trigger).toBeFocused()
+  await expect(today).toHaveAttribute('aria-selected', 'true')
+  expect(page.url()).toBe(beforeEscape)
+
+  // The same Escape must not dismiss the containing mobile filter sheet.
+  const searches = await mockSlotSearch(page)
+  await page.getByRole('button', { name: 'Trouver une séance' }).click()
+  await expect(page).toHaveURL((url) => url.searchParams.get('date') === date)
+  await expect.poll(() => searches.length).toBe(1)
+  const form = await openFilters(page)
+  const readValues = () =>
+    form.locator('input, select').evaluateAll((controls) =>
+      controls.map((control) => {
+        if (
+          !(
+            control instanceof HTMLInputElement ||
+            control instanceof HTMLSelectElement
+          )
+        )
+          throw new Error('Expected a filter control')
+        return {
+          value: control.value,
+          checked:
+            control instanceof HTMLInputElement ? control.checked : false,
+        }
+      }),
+    )
+  const values = await readValues()
+  const beforeSheetEscape = page.url()
+  await reopenWithImmediateEscape()
+  await expect(calendar).toBeHidden()
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(trigger).toBeFocused()
+  await expect(form).toBeVisible()
+  await expect(today).toHaveAttribute('aria-selected', 'true')
+  expect(page.url()).toBe(beforeSheetEscape)
+  expect(await readValues()).toEqual(values)
   await trigger.click()
   await expect(calendar).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(calendar).toBeHidden()
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  await expect(form).toBeVisible()
 })
 
 const account = {

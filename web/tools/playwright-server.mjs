@@ -23,6 +23,9 @@ import {
   theater,
   veoTheaters,
   veoShowtimes,
+  cineodeTheaters,
+  cineodeShowtimes,
+  cineodeMovieSchedule,
   syntheticWatchlist,
   syntheticWatched,
   watchedCatalog,
@@ -228,6 +231,7 @@ const mock = createServer((request, response) => {
         theater,
         secondTheater,
         ...(scenario.veo ? veoTheaters : []),
+        ...(scenario.cineode ? cineodeTheaters : []),
         ...(scenario.allChains
           ? [
               'cgr',
@@ -269,6 +273,13 @@ const mock = createServer((request, response) => {
     }
     const filmRoute = /^\/api\/v1\/movies\/([^/]+)\/showtimes$/.exec(path)
     if (filmRoute) {
+      if (scenario.cineode) {
+        const detail = cineodeMovieSchedule(
+          decodeURIComponent(filmRoute[1]),
+          url.searchParams,
+        )
+        if (detail) return json(response, detail)
+      }
       if (scenario.discovery === 'error')
         return json(response, { error: { code: 'schedule_unavailable' } }, 503)
       const detail = movieSchedule(
@@ -301,6 +312,14 @@ const mock = createServer((request, response) => {
     }
     const cinemaRoute = /^\/api\/v1\/theaters\/([^/]+)\/showtimes$/.exec(path)
     if (cinemaRoute && cinemaRoute[1] !== 'missing') {
+      const cineodeVenue =
+        scenario.cineode &&
+        cineodeTheaters.find((item) => item.slug === cinemaRoute[1])
+      if (cineodeVenue)
+        return json(
+          response,
+          cineodeShowtimes(cineodeVenue, url.searchParams.get('date') || date),
+        )
       const veoVenue =
         scenario.veo && veoTheaters.find((item) => item.slug === cinemaRoute[1])
       if (veoVenue)

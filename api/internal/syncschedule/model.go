@@ -28,6 +28,7 @@ const (
 	TargetNoeCinemas      Target = "noecinemas"
 	TargetVeo             Target = "veo"
 	TargetMajestic        Target = "majestic"
+	TargetCineode         Target = "cineode"
 	TargetMetadataRefresh Target = "tmdb_metadata_refresh"
 	TargetUpcomingMovies  Target = "tmdb_upcoming_movies"
 )
@@ -77,7 +78,7 @@ func cloneSchedule(schedule Schedule) Schedule {
 }
 
 func ValidTarget(target Target) bool {
-	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran || target == TargetNoeCinemas || target == TargetVeo || target == TargetMajestic || target == TargetMetadataRefresh || target == TargetUpcomingMovies
+	return target == TargetUGC || target == TargetKinepolis || target == TargetPathe || target == TargetCGR || target == TargetMegarama || target == TargetCineville || target == TargetMK2 || target == TargetCinewest || target == TargetGrandEcran || target == TargetNoeCinemas || target == TargetVeo || target == TargetMajestic || target == TargetCineode || target == TargetMetadataRefresh || target == TargetUpcomingMovies
 }
 
 func TargetOrder(target Target) int {
@@ -105,12 +106,14 @@ func TargetOrder(target Target) int {
 	case TargetVeo:
 		return 10
 	case TargetMetadataRefresh:
-		return 12
-	case TargetUpcomingMovies:
 		return 13
+	case TargetUpcomingMovies:
+		return 14
 	case TargetMajestic:
 		return 11
+	case TargetCineode:
+		return 12
 	default:
-		return 14
+		return 15
 	}
 }

@@ -30,6 +30,7 @@ const emit = defineEmits<{
 }>()
 
 const isOpen = ref(false)
+const datePicker = ref<{ closeMenu: () => void } | null>(null)
 
 const allowedDateValues = computed(() =>
   props.allowedDates
@@ -76,10 +77,18 @@ function handleClosed() {
   isOpen.value = false
   emit('closed')
 }
+
+function handleTriggerKeydown(event: KeyboardEvent) {
+  if (event.key !== 'Escape' || !isOpen.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  datePicker.value?.closeMenu()
+}
 </script>
 
 <template>
   <DeferredVueDatePicker
+    ref="datePicker"
     v-model="pickerDate"
     class="min-w-0 shrink-0"
     :allowed-dates="allowedDateValues"
@@ -97,6 +106,7 @@ function handleClosed() {
     prevent-min-max-navigation
     @open="handleOpen"
     @closed="handleClosed"
+    @keydown="handleTriggerKeydown"
     @menu-mounted="emit('menuMounted', $event)"
     @menu-unmounted="emit('menuUnmounted', $event)"
   >

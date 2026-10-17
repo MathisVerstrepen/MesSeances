@@ -396,6 +396,8 @@ function onMapLoad() {
           THEATER_PROVIDER_COLORS.veo,
           'majestic',
           THEATER_PROVIDER_COLORS.majestic,
+          'cineode',
+          THEATER_PROVIDER_COLORS.cineode,
           '#52525b',
         ],
         'circle-stroke-color': '#ffffff',

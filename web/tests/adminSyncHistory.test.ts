@@ -59,6 +59,7 @@ function run(
       noecinemas: { state: 'not_requested' },
       veo: { state: 'not_requested' },
       majestic: { state: 'not_requested' },
+      cineode: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -92,8 +93,8 @@ test('single-provider history shows new showtimes, ungrouped and spaced after pl
   assert.equal(summary(job), '+ 8395 séances')
 })
 
-test('Véo and Majestic individual and all-run histories include published new sessions', () => {
-  for (const provider of ['veo', 'majestic'] as const) {
+test('Véo, Majestic and Cinéode individual and all-run histories include published new sessions', () => {
+  for (const provider of ['veo', 'majestic', 'cineode'] as const) {
     const job = run({ [provider]: published(42) })
     job.target = provider
     assert.equal(summary(job), '+ 42 séances')
@@ -273,12 +274,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all twelve decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all thirteen decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 13)
+  assert.equal(buttons.length, 14)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -296,6 +297,7 @@ test('idle launch buttons use all twelve decorative chain logos with visible nam
     'Noé Cinémas',
     'Véo Cinémas',
     'Majestic Cinémas',
+    'Cinéode',
   ]
   uiBindings.providers.forEach((provider: Provider, index: number) => {
     const button = buttons[index + 1]!
@@ -308,12 +310,13 @@ test('idle launch buttons use all twelve decorative chain logos with visible nam
 })
 
 test('pending launch preserves loader, label and disabled controls', async () => {
-  for (const target of ['ugc', 'all'] as const) {
+  for (const target of ['ugc', 'cineode', 'all'] as const) {
     const html = await renderPage([], target)
     const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
       (match) => match[0],
     )
-    const button = buttons[target === 'all' ? 0 : 1]!
+    const button =
+      buttons[target === 'all' ? 0 : uiBindings.providers.indexOf(target) + 1]!
     assert.match(button, /data-component="LoaderCircle"/)
     assert.ok(button.includes(uiBindings.targetLabels[target]))
     assert.doesNotMatch(button, /data-brand|data-component="RefreshCw"/)
