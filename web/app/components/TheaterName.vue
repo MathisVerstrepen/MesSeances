@@ -25,6 +25,7 @@ const providerBrands = {
   majestic: 'Majestic Cinémas',
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
+  ocine: 'Ociné',
 } as const satisfies Record<Provider, string>
 
 // Normalize only for accessible-name detection, never for visible source text.
@@ -51,14 +52,14 @@ const nameIncludesProvider = computed(() => {
   >
     <span
       class="mb-4 flex max-w-full items-center justify-center border-2 border-ink bg-white p-2"
-      :class="provider === 'cinemovida' ? 'h-20 w-20 lg:h-24 lg:w-24' : 'h-[52px] w-[130px] lg:h-14 lg:w-36'"
+      :class="provider === 'ocine' ? 'h-20 w-28 lg:h-24 lg:w-32' : provider === 'cinemovida' ? 'h-20 w-20 lg:h-24 lg:w-24' : 'h-[52px] w-[130px] lg:h-14 lg:w-36'"
     >
       <BrandLogo
         :brand="providerBrands[provider]"
         variant="display"
         :decorative="decorative || nameIncludesProvider"
         class="max-w-full object-contain"
-        :class="[provider === 'cinemovida' ? 'h-full w-full' : 'h-8 lg:h-9', logoClass]"
+        :class="[provider === 'cinemovida' || provider === 'ocine' ? 'h-full w-full' : 'h-8 lg:h-9', logoClass]"
       />
     </span>
     <span class="block break-words [overflow-wrap:anywhere]">{{ name }}</span>

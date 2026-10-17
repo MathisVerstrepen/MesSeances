@@ -29,6 +29,9 @@ import {
   cinemovidaTheaters,
   cinemovidaShowtimes,
   cinemovidaMovieSchedule,
+  ocineTheaters,
+  ocineShowtimes,
+  ocineMovieSchedule,
   syntheticWatchlist,
   syntheticWatched,
   watchedCatalog,
@@ -124,14 +127,17 @@ const mock = createServer((request, response) => {
   const url = new URL(request.url, origin)
   const path = url.pathname
   if (request.method === 'GET') {
-    if (scenario.cinemovida && path === '/api/v1/search/slot') {
+    if (
+      (scenario.cinemovida || scenario.ocine) &&
+      path === '/api/v1/search/slot'
+    ) {
       const requested = url.searchParams.get('theaters')?.split(',') || []
       return json(
         response,
-        cinemovidaTheaters
+        (scenario.ocine ? ocineTheaters : cinemovidaTheaters)
           .filter((venue) => requested.includes(venue.id))
           .flatMap((venue) =>
-            cinemovidaShowtimes(
+            (scenario.ocine ? ocineShowtimes : cinemovidaShowtimes)(
               venue,
               url.searchParams.get('date') || date,
             ).showtimes.map((showtime) => ({
@@ -263,6 +269,7 @@ const mock = createServer((request, response) => {
         ...(scenario.veo ? veoTheaters : []),
         ...(scenario.cineode ? cineodeTheaters : []),
         ...(scenario.cinemovida ? cinemovidaTheaters : []),
+        ...(scenario.ocine ? ocineTheaters : []),
         ...(scenario.allChains
           ? [
               'cgr',
@@ -304,6 +311,13 @@ const mock = createServer((request, response) => {
     }
     const filmRoute = /^\/api\/v1\/movies\/([^/]+)\/showtimes$/.exec(path)
     if (filmRoute) {
+      if (scenario.ocine) {
+        const detail = ocineMovieSchedule(
+          decodeURIComponent(filmRoute[1]),
+          url.searchParams,
+        )
+        if (detail) return json(response, detail)
+      }
       if (scenario.cinemovida) {
         const detail = cinemovidaMovieSchedule(
           decodeURIComponent(filmRoute[1]),
@@ -350,6 +364,14 @@ const mock = createServer((request, response) => {
     }
     const cinemaRoute = /^\/api\/v1\/theaters\/([^/]+)\/showtimes$/.exec(path)
     if (cinemaRoute && cinemaRoute[1] !== 'missing') {
+      const ocineVenue =
+        scenario.ocine &&
+        ocineTheaters.find((item) => item.slug === cinemaRoute[1])
+      if (ocineVenue)
+        return json(
+          response,
+          ocineShowtimes(ocineVenue, url.searchParams.get('date') || date),
+        )
       const cinemovidaVenue =
         scenario.cinemovida &&
         cinemovidaTheaters.find((item) => item.slug === cinemaRoute[1])

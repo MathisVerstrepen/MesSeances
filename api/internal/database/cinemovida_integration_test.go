@@ -23,6 +23,7 @@ func TestCinemovidaMigrationIdentityBookingAndUpgradeIntegration(t *testing.T) {
 				installMigrationPrefix(t, ctx, pool, 67, "067_cineode_provider.sql")
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'ugc','10','ugc-film-10','Retained',90)`)
 				changes = withCinemovidaConstraintChanges(t, nil)
+				changes = withOcineConstraintChanges(t, changes)
 				for i := range changes {
 					if !changes[i].newCheck {
 						if err := pool.QueryRow(ctx, `SELECT pg_get_expr(conbin,conrelid) FROM pg_constraint WHERE conrelid=$1::regclass AND conname=$2`, changes[i].table, changes[i].name).Scan(&changes[i].previous); err != nil {
@@ -34,8 +35,16 @@ func TestCinemovidaMigrationIdentityBookingAndUpgradeIntegration(t *testing.T) {
 			}
 			if baseline == 68 {
 				installMigrationPrefix(t, ctx, pool, 68, "068_cinemovida_provider.sql")
+				changes = withOcineConstraintChanges(t, nil)
+				for i := range changes {
+					if !changes[i].newCheck {
+						if err := pool.QueryRow(ctx, `SELECT pg_get_expr(conbin,conrelid) FROM pg_constraint WHERE conrelid=$1::regclass AND conname=$2`, changes[i].table, changes[i].name).Scan(&changes[i].previous); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
 				mustCinevilleSQL(t, ctx, pool, `INSERT INTO movies(generation_id,provider,provider_id,slug,title,runtime_minutes) VALUES(1,'cinemovida','123','cinemovida-film-123','Retained Concorde',0)`)
-				before = cinemovidaUnchangedConstraints(t, ctx, pool, []string{})
+				before = cinemovidaUnchangedConstraints(t, ctx, pool, providerConstraintKeys(changes))
 				var accepted bool
 				if err := pool.QueryRow(ctx, `SELECT cinemovida_booking_valid('https://achat.concordecinema.com/r/123','P0876',$1)`, schedule.CinemovidaShowingID("P0876", "source")).Scan(&accepted); err != nil || accepted {
 					t.Fatal("068 unexpectedly accepts new route", err)
@@ -56,8 +65,9 @@ func TestCinemovidaMigrationIdentityBookingAndUpgradeIntegration(t *testing.T) {
 				}
 			}
 			if baseline == 68 {
-				if cinemovidaUnchangedConstraints(t, ctx, pool, []string{}) != before {
-					t.Fatal("069 changed CHECK definitions or foreign keys")
+				assertProviderConstraintChanges(t, ctx, pool, changes)
+				if cinemovidaUnchangedConstraints(t, ctx, pool, providerConstraintKeys(changes)) != before {
+					t.Fatal("069/070 changed unrelated CHECK definitions or foreign keys")
 				}
 				var retained int
 				if err := pool.QueryRow(ctx, `SELECT count(*) FROM movies WHERE provider='cinemovida' AND title='Retained Concorde' AND runtime_minutes=0`).Scan(&retained); err != nil || retained != 1 {

@@ -5,6 +5,7 @@ import { safeVeoBooking } from './veo.ts'
 import { safeMajesticBooking } from './majestic.ts'
 import { safeCineodeBooking } from './cineode.ts'
 import { safeCinemovidaBooking } from './cinemovida.ts'
+import { safeOcineBooking } from './ocine.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -178,6 +179,11 @@ export function safeBookingUrl(
   showtimeId?: string | null,
   theaterId?: string | null,
 ): SafeBookingUrl | null {
+  if (raw && (expectedProvider === 'ocine' || expectedProvider === undefined)) {
+    const ocine = safeOcineBooking(raw, showtimeId, theaterId)
+    if (ocine) return { provider: 'ocine', ...ocine }
+  }
+  if (expectedProvider === 'ocine') return null
   if (
     raw &&
     (expectedProvider === 'cinemovida' || expectedProvider === undefined)

@@ -9,6 +9,7 @@ import { resolveShowtimeEnd } from './showtimeEnd.ts'
 import { isValidMk2ShowingId } from './mk2.ts'
 import { isValidMajesticSessionId } from './majestic.ts'
 import { cineodeShowingParts } from './cineode.ts'
+import { ocineShowingParts } from './ocine.ts'
 
 export const resultGroupingOptions: [
   { value: ResultGrouping; label: string },
@@ -194,6 +195,11 @@ function base64UrlToHex(value: string): string | null {
 }
 
 function encodeShowtimeSelectionKey(key: string): string | null {
+  const ocinePrefix = 'ocine:ocine-showing-'
+  if (key.startsWith(ocinePrefix)) {
+    const showing = key.slice(ocinePrefix.length)
+    return ocineShowingParts(showing) ? `q${showing}` : null
+  }
   const cinemovida = CINEMOVIDA_SELECTION_KEY_PATTERN.exec(key)
   if (cinemovida?.[0] === key)
     return `d${cinemovida[1]}-${hexToBase64Url(cinemovida[2]!)}`
@@ -251,6 +257,10 @@ function encodeShowtimeSelectionKey(key: string): string | null {
 }
 
 function decodeShowtimeSelectionToken(token: string): string | null {
+  if (token.startsWith('q')) {
+    const showing = token.slice(1)
+    return ocineShowingParts(showing) ? `ocine:ocine-showing-${showing}` : null
+  }
   const cinemovida = CINEMOVIDA_TOKEN_PATTERN.exec(token)
   if (cinemovida?.[0] === token) {
     const hash = base64UrlToHex(cinemovida[2]!)

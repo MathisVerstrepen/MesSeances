@@ -36,6 +36,7 @@ import (
 	"messeances/api/internal/mk2"
 	"messeances/api/internal/noecinemas"
 	"messeances/api/internal/observability"
+	"messeances/api/internal/ocine"
 	"messeances/api/internal/pathe"
 	"messeances/api/internal/schedule"
 	"messeances/api/internal/schedulepg"
@@ -563,6 +564,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewCinemovida: func() (cinemovida.Getter, error) {
 			return cinemovida.NewClient(cinemovida.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewOcine: func() (ocine.Getter, error) {
+			return ocine.NewClient(ocine.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

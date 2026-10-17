@@ -9,6 +9,7 @@ import {
   veoTheaters,
   cineodeTheaters,
   cinemovidaTheaters,
+  ocineTheaters,
 } from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
@@ -978,6 +979,231 @@ test('Ciné-Movida search selection and selected-only shared URL survive reload'
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true)
+})
+
+for (const venue of ocineTheaters) {
+  test(`Ociné ${venue.id} SSR and hydrated programme preserve session checkout and source versus estimated ends`, async ({
+    page,
+    request,
+  }, info) => {
+    await request.post('/__playwright/scenario', { data: { ocine: true } })
+    const url = `/cinema/${venue.slug}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain(venue.name)
+    expect(html).toContain('ocine_logo')
+    expect(html).toContain('VOSTFR')
+    expect(html).toContain('Salle 4')
+    expect(html).toContain(`/reserver/F631242/`)
+    await openPage(page, url)
+    const logo = page.locator('main > header img[src*="ocine_logo"]')
+    await expect(logo).toHaveAttribute('alt', '')
+    await expect(logo).toHaveAttribute('aria-hidden', 'true')
+    await expect(logo).toHaveJSProperty('complete', true)
+    await expect(logo).toHaveCSS('object-fit', 'contain')
+    expect(
+      await logo.evaluate(
+        (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+      ),
+    ).toBeCloseTo(369 / 261, 2)
+    const bounds = (await logo.boundingBox())!
+    const frame = (await logo.locator('..').boundingBox())!
+    expect(bounds.x).toBeGreaterThanOrEqual(frame.x)
+    expect(bounds.y).toBeGreaterThanOrEqual(frame.y)
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(frame.x + frame.width)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(frame.y + frame.height)
+    async function checkProgramme() {
+      const links = page.locator('main a[data-showtime-id]')
+      await expect(links).toHaveCount(3)
+      for (const link of await links.all()) {
+        const id = (await link.getAttribute('data-showtime-id'))!
+        const identity = /^ocine-showing-(309|310|461)-(.+)-(\d+)-(\d+)$/.exec(
+          id,
+        )!
+        const film = identity[2] === 'atelier-local' ? '636416' : identity[2]
+        await expect(link).toHaveAttribute(
+          'href',
+          new RegExp(
+            `^https://www\\.ocine\\.fr/${venue.sourceSlug}/reserver/F${film}/D${identity[3]}/(VF|VO)/${identity[4]}/$`,
+          ),
+        )
+        await expect(link).toHaveAttribute('target', '_blank')
+        await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+        await expect(link).toHaveAttribute(
+          'aria-label',
+          /ouverture dans un nouvel onglet/,
+        )
+      }
+      const canonical = links.filter({ hasText: '14h00' })
+      await expect(canonical).toContainText('15h45')
+      await expect(canonical).toContainText('VOSTFR')
+      await expect(canonical).not.toContainText('Fin estimée')
+      const vf = links.filter({ hasText: '16h00' })
+      await expect(vf).toContainText('VF')
+      await expect(vf).toContainText('3D')
+      const estimate = page
+        .locator('main [tabindex="0"][aria-describedby]')
+        .filter({ hasText: 'Fin estimée' })
+      await expect(estimate).toHaveCount(1)
+      await estimate.focus()
+      await expect(page.getByRole('tooltip')).toContainText('100 min de film')
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('tooltip')).toBeHidden()
+      const unknown = links.filter({ hasText: '18h00' })
+      await expect(unknown).not.toContainText(/fin|0 min/i)
+      const past = page.locator('main [data-showtime-id$="-past"]')
+      await expect(past).toHaveCount(1)
+      await expect(past).toHaveAttribute('aria-disabled', 'true')
+      await expect(past).not.toHaveAttribute('href')
+      await expect(past).toContainText('Réservation indisponible')
+      await expect(past).not.toContainText(/VF|VO|Muet|Salle|fin|0 min/i)
+      await expect(
+        page.locator(
+          'main [data-movie-slug="ocine-film-atelier-local"] header',
+        ),
+      ).not.toContainText(/\b0\s*min/i)
+      if (venue.id === 'ocine-461')
+        await expect(page.locator('main > header')).not.toContainText(
+          /59000|rue du cinéma/,
+        )
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true)
+    }
+    await checkProgramme()
+    await page.screenshot({
+      path: info.outputPath(`${venue.id}-cinema.png`),
+      fullPage: true,
+    })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+    await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+    await page.setViewportSize(info.project.use.viewport!)
+    await checkProgramme()
+  })
+}
+
+test('Ociné film SSR and hydrated mixed-language programme preserve all cinemas and missing metadata', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { ocine: true } })
+  for (const film of ['631242', 'atelier-local']) {
+    const url = `/film/ocine-film-${film}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    for (const venue of ocineTheaters) expect(html).toContain(venue.name)
+    expect(html).toContain('ocine_logo')
+    await openPage(page, url)
+    const links = page.locator('main a[href^="https://www.ocine.fr/"]')
+    await expect(links).toHaveCount(film === '631242' ? 6 : 3)
+    await expect(page.locator('main [aria-disabled="true"]')).toHaveCount(
+      film === '631242' ? 0 : 3,
+    )
+    if (film === 'atelier-local') {
+      await expect(page.locator('main')).not.toContainText(/\b0\s*min|Muet/)
+      for (const past of await page
+        .locator('main [aria-disabled="true"]')
+        .all()) {
+        await expect(past).not.toContainText(/VF|VO|Salle|fin/i)
+        await expect(past).not.toHaveAttribute('href')
+      }
+    } else {
+      await expect(page.locator('main')).toContainText('VOSTFR')
+      await expect(page.locator('main')).toContainText('VF')
+      await expect(page.locator('main')).toContainText('15h45')
+      await expect(page.locator('main')).toContainText('17h55')
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`ocine-film-${film}.png`),
+      fullPage: true,
+    })
+  }
+})
+
+test('Ociné directory chain keyboard selection, URL reload and official credit remain accessible', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { ocine: true } })
+  await openPage(page, '/cinemas')
+  const mobile = info.project.name === 'mobile'
+  if (mobile)
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const choice = page.getByRole('checkbox', { name: 'Ociné', exact: true })
+  await choice.focus()
+  await page.keyboard.press('Space')
+  await expect(choice).toBeChecked()
+  await expect(page).toHaveURL(/chains=ocine/)
+  if (mobile) await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  for (const venue of ocineTheaters)
+    await expect(
+      page.getByRole('link', { name: new RegExp(venue.name) }).first(),
+    ).toBeVisible()
+  await page.reload()
+  await expect(page).toHaveURL(/chains=ocine/)
+  await expect(
+    page.getByRole('link', { name: /Cinéma Playwright/ }),
+  ).toHaveCount(0)
+  await page.screenshot({
+    path: info.outputPath('ocine-directory.png'),
+    fullPage: true,
+  })
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Ociné, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://www.ocine.fr')
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(credit.locator('img')).toHaveAttribute('aria-hidden', 'true')
+  await expect(credit.locator('img')).toHaveAttribute('src', /ocine_logo/)
+})
+
+test('Ociné search selection and selected-only shared URL round-trip composite session identity', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', { data: { ocine: true } })
+  await openPage(
+    page,
+    `/recherche?theaters=ocine-309&date=${date}&start_after=12:00&finish_before=23:00`,
+  )
+  const add = page.getByRole('button', {
+    name: /^Ajouter la séance de Programme Ociné/,
+  })
+  await expect(add).toHaveCount(2)
+  await add.first().click()
+  await expect(page).toHaveURL(/selected=q309-631242-/)
+  const shared = new URL(page.url())
+  shared.searchParams.set('selected_only', '1')
+  await openPage(page, shared.pathname + shared.search)
+  await expect(
+    page.getByRole('button', { name: /^Retirer la séance de Programme Ociné/ }),
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole('button', { name: /^Ajouter la séance/ }),
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(
+    page.getByRole('button', { name: /^Retirer la séance de Programme Ociné/ }),
+  ).toHaveCount(1)
 })
 
 test('Cinéode SSR and hydrated cinema programme preserve website links, missing metadata and estimated ends', async ({

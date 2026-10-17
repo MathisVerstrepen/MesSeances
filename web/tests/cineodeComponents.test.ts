@@ -45,6 +45,13 @@ import { selectLatestProviderRun } from '../app/utils/adminSyncSchedules.ts'
 import { publicCinemaImageUrl } from '../app/utils/cinemaImage.ts'
 import { cinemaDescription } from '../app/utils/entityDescriptions.ts'
 import type { Theater } from '../app/types/api.ts'
+import { ocineShowingParts, ocineSlugs } from '../app/utils/ocine.ts'
+import {
+  parseShowtimeSelection,
+  serializeShowtimeSelection,
+  toTheaterShowtimeResults,
+} from '../app/utils/showtimeResults.ts'
+import { ocineTheaters, ocineShowtimes } from '../e2e/data.mjs'
 
 const source = (path: string) =>
   readFile(new URL(`../app/${path}`, import.meta.url), 'utf8')
@@ -364,12 +371,315 @@ test('Cinéode schedule target availability and latest all-run status use existi
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
-    result.targets.indexOf('cinemovida') + 1,
+    result.targets.indexOf('ocine') + 1,
   )
   assert.equal(result.targetLabels.cineode, 'Cinéode')
   assert.equal(result.latest, job)
   for (const name of ['theater-locations', 'tmdb-matches'])
     assert.match(await source(`pages/admin/${name}.vue`), /cineode: 'Cinéode'/)
+})
+
+test('Ociné supplied safe SVG preserves artwork, ratio, sizing and one accessible brand announcement', async () => {
+  const asset = await readFile(
+    new URL('../app/assets/brands/ocine_logo.svg', import.meta.url),
+  )
+  assert.equal(
+    createHash('sha256').update(asset).digest('hex'),
+    '6d6e4ac875fd8828184731f3cd62d29620ac459d62927e0aec16a2658312cc22',
+  )
+  assert.match(
+    asset.toString(),
+    /width="369" height="261" viewBox="0 0 369 261"/,
+  )
+  assert.doesNotMatch(
+    asset.toString(),
+    /<script|<foreignObject|\bon\w+=|href="(?!#)|url\((?!#)/i,
+  )
+  for (const variant of ['inline', 'display']) {
+    const html = await render(BrandLogo!, { brand: 'Ociné', variant })
+    assert.match(html, /ocine_logo.svg\?no-inline/)
+    assert.match(html, /alt="Ociné"/)
+    assert.match(html, /object-contain/)
+    assert.match(
+      html,
+      variant === 'inline' ? /h-\[1.6em\] w-auto/ : /w-24 sm:w-28/,
+    )
+  }
+  for (const brand of ['Ociné', 'Ocine', 'OCINÉ', 'Ociné'.normalize('NFD')]) {
+    const name = `${brand} Maubeuge`
+    const html = await render(BrandedText!, { text: name })
+    assert.equal((html.match(/<img /g) || []).length, 1)
+    assert.ok(html.includes(`class="sr-only">${name}`))
+    for (const variant of ['inline', 'hero']) {
+      const html = await render(TheaterName!, {
+        name,
+        provider: 'ocine',
+        variant,
+      })
+      assert.equal((html.match(/<img /g) || []).length, 1)
+      assert.match(html, /alt(?:="")? aria-hidden="true"/)
+      assert.ok(html.includes(name))
+    }
+  }
+  for (const text of ['Ocinément', 'éOciné', 'Ocine2', 'Ocine_centre'])
+    assert.doesNotMatch(await render(BrandedText!, { text }), /<img /)
+  assert.match(
+    await source('pages/credits.vue'),
+    /brand: 'Ociné',\s*name: 'Ociné',\s*url: 'https:\/\/www\.ocine\.fr'/,
+  )
+})
+
+test('Ociné checkout binds original URL bytes to manifest cinema, film, epoch and repeated hall', async () => {
+  for (const [cinema, slug] of Object.entries(ocineSlugs)) {
+    for (const film of ['631242', '636416', 'atelier-local', 'cars-2006']) {
+      const id = `ocine-showing-${cinema}-${film}-1792238400-9586`
+      const numericFilm = /^\d+$/.test(film) ? film : '636416'
+      const url = `https://www.ocine.fr/${slug}/reserver/F${numericFilm}/D1792238400/VO/9586/`
+      const expected = { provider: 'ocine', url, kind: 'booking' }
+      assert.deepEqual(
+        safeBookingUrl(url, 'ocine', id, `ocine-${cinema}`),
+        expected,
+      )
+      assert.deepEqual(
+        safeBookingUrl(url, undefined, id, `ocine-${cinema}`),
+        expected,
+      )
+      for (const bad of [
+        url + '?x=1',
+        url + '#x',
+        url + '\n',
+        ' ' + url,
+        url.replace('https:', 'http:'),
+        url.replace('www.ocine.fr', 'ocine.fr'),
+        url.replace('www.ocine.fr', 'WWW.ocine.fr'),
+        url.replace('www.ocine.fr', 'www.ocine.fr:443'),
+        url.replace('www.ocine.fr', 'user@www.ocine.fr'),
+        url.replace('www.ocine.fr', 'www.ocine.fr.evil.test'),
+        url.replace(`/${slug}/`, `/other/../${slug}/`),
+        url.replace('/reserver/', '//reserver/'),
+        url.replace('/reserver/', '/%72eserver/'),
+        url.replace('D1792238400', 'D1792238401'),
+        url.replace('/9586/', '/9587/'),
+        url.replace('/VO/', '/VOSTFR/'),
+        url.replace('/F', '/F0'),
+        'https://www.ugc.fr/',
+        'https://www.ocine.fr/' + slug + '/seances/',
+      ])
+        assert.equal(
+          safeBookingUrl(bad, 'ocine', id, `ocine-${cinema}`),
+          null,
+          bad,
+        )
+      for (const [showing, theater] of [
+        [id, null],
+        [null, `ocine-${cinema}`],
+        [id, 'ocine-999'],
+        [id.replace('-9586', '-past'), `ocine-${cinema}`],
+        [id.replace('1792238400', '0'), `ocine-${cinema}`],
+      ])
+        assert.equal(safeBookingUrl(url, 'ocine', showing, theater), null)
+      if (/^\d+$/.test(film))
+        assert.equal(
+          safeBookingUrl(
+            url.replace(`/F${film}/`, '/F123/'),
+            'ocine',
+            id,
+            `ocine-${cinema}`,
+          ),
+          null,
+        )
+      assert.equal(safeBookingUrl(url, 'cineode', id, `ocine-${cinema}`), null)
+    }
+  }
+  const props = {
+    provider: 'ocine',
+    theaterId: 'ocine-309',
+    showtimeId: 'ocine-showing-309-631242-1792238400-9586',
+    url: 'https://www.ocine.fr/maubeuge/reserver/F631242/D1792238400/VF/9586/',
+  }
+  const html = await render(BookingLink!, props)
+  assert.match(
+    html,
+    /aria-label="Réserver sur Ociné, ouverture dans un nouvel onglet"/,
+  )
+  assert.match(html, /target="_blank" rel="noopener noreferrer"/)
+  const unavailable = await render(BookingLink!, {
+    ...props,
+    url: '',
+    showtimeId: props.showtimeId.replace('-9586', '-past'),
+  })
+  assert.doesNotMatch(unavailable, /href=/)
+  assert.match(unavailable, /aria-disabled="true"/)
+  assert.match(unavailable, /Réservation indisponible/)
+})
+
+test('Ociné compact selections round-trip full composite identities without accepting malformed or oversized tokens', () => {
+  const parts = [
+    '309-631242-1792238400-9586',
+    '309-636416-1792238400-9586',
+    '310-cars-2006-1792238400-9586',
+    '461-atelier-local-1792238400-past',
+  ]
+  const keys = parts.map((id) => `ocine:ocine-showing-${id}`).sort()
+  assert.equal(
+    serializeShowtimeSelection(keys),
+    parts
+      .sort()
+      .map((id) => `q${id}`)
+      .join(','),
+  )
+  assert.deepEqual(
+    parseShowtimeSelection(serializeShowtimeSelection(keys)),
+    keys,
+  )
+  for (const bad of [
+    '999-631242-1792238400-9586',
+    '309-01-1792238400-9586',
+    '309-film--local-1792238400-9586',
+    '309-film-0-9586',
+    '309-film-9223372036854775808-9586',
+    '309-film-1792238400-0',
+    '309-film-1792238400-9586\n',
+    `309-${'x'.repeat(120)}-1792238400-9586`,
+  ]) {
+    assert.equal(ocineShowingParts(bad), null, bad)
+    assert.deepEqual(parseShowtimeSelection(`q${bad}`), [])
+    assert.equal(
+      serializeShowtimeSelection([`ocine:ocine-showing-${bad}`]),
+      undefined,
+    )
+  }
+})
+
+test('Ociné all identities flow through provider maps, directory, URL filters, images and canonical timing', async () => {
+  assert.equal(THEATER_PROVIDER_LABELS.ocine, 'Ociné')
+  assert.equal(THEATER_PROVIDER_COLORS.ocine, '#172983')
+  assert.equal(cinemaProviderLabels.ocine, 'Ociné')
+  assert.equal(statisticsChainLabels.ocine, 'Ociné')
+  assert.deepEqual(normalizeCinemaChains(['OCINE', 'unknown', 'ocine']), [
+    'ocine',
+  ])
+  assert.deepEqual(toggleCinemaChain([], 'ocine'), ['ocine'])
+  assert.equal(
+    cinemaApiQuery(parseCinemaRoute({ provider: 'ocine' })).provider,
+    'ocine',
+  )
+  assert.equal(parseStatisticsQuery({ chain: 'ocine' }).query.chain, 'ocine')
+  for (const [day, offset] of [
+    ['2026-01-15', '+01:00'],
+    ['2026-07-15', '+02:00'],
+  ]) {
+    const session = ocineShowtimes(ocineTheaters[0], day).showtimes[0]
+    assert.equal(session.start_time, `${day}T14:00:00${offset}`)
+    assert.equal(session.end_time, `${day}T15:45:00${offset}`)
+  }
+  for (const venue of ocineTheaters) {
+    assert.deepEqual(cinemaDirectoryChains([venue]), ['ocine'])
+    assert.deepEqual(filterCinemaDirectory([venue], '', ['ocine']), [venue])
+    assert.deepEqual(filterCinemaDirectory([venue], '', ['ugc']), [])
+    assert.equal(
+      buildTheaterFeatureCollection(
+        [{ ...venue, latitude: 50.2, longitude: 3.9 }],
+        new Set(),
+      ).features[0]!.properties.provider,
+      'ocine',
+    )
+    assert.match(
+      cinemaDescription({
+        provider: 'ocine',
+        name: venue.name,
+        city: venue.city,
+        availableDateCount: 2,
+      }),
+      /Ociné/,
+    )
+    const results = toTheaterShowtimeResults(ocineShowtimes(venue))
+    assert.equal(results[0]!.end?.estimated, false)
+    assert.equal(results[1]!.end?.estimated, true)
+    assert.equal(results[2]!.end, null)
+    assert.equal(results[3]!.end, null)
+    assert.equal(results[3]!.language, '')
+    assert.equal(results[3]!.room, '')
+    assert.equal(results[3]!.movieRuntimeMinutes, 0)
+    assert.equal(results[3]!.posterUrl, null)
+  }
+  assert.equal(
+    publicCinemaImageUrl(
+      { url: '/api/v1/theaters/ocine/309/image/1', width: 800, height: 600 },
+      '',
+    ),
+    '/api/v1/theaters/ocine/309/image/1',
+  )
+  for (const url of [
+    '/api/v1/theaters/ocine/../309/image/1',
+    '/api/v1/theaters/ocine/%33309/image/1',
+    '/api/v1/theaters/ocine/309/image/1?x=1',
+    '/api/v1/theaters/ocine/309/anything',
+  ])
+    assert.equal(publicCinemaImageUrl({ url, width: 800, height: 600 }, ''), '')
+})
+
+test('Ociné admin ordering, latest all-run status and public statistics use coherent provider admission', async () => {
+  const { descriptor } = parse(await source('pages/admin/sync-schedules.vue'))
+  const script = descriptor.scriptSetup!.content
+  const declarations = [
+    'providers',
+    'targets',
+    'targetLabels',
+    'latestRuns',
+  ].map((name) => {
+    const declaration = script.match(
+      new RegExp(`const ${name} = [\\s\\S]*?(?=\\n\\n|\\nconst )`),
+    )?.[0]
+    assert.ok(declaration, name)
+    return declaration
+  })
+  const job = {
+    id: 'ocine-run',
+    target: 'all',
+    state: 'succeeded',
+    started_at: '2026-10-17T12:00:00Z',
+    providers: Object.fromEntries(
+      Object.keys(THEATER_PROVIDER_LABELS).map((provider) => [
+        provider,
+        { state: provider === 'ocine' ? 'succeeded' : 'not_requested' },
+      ]),
+    ),
+  }
+  const compiled = ts.transpileModule(declarations.join('\n'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  const result = runInNewContext(
+    `${compiled}; ({targets, targetLabels, latest: latestRuns.value.ocine})`,
+    {
+      computed,
+      selectLatestProviderRun,
+      syncStatus: { value: { job, runs: [] } },
+    },
+  )
+  assert.equal(
+    result.targets.indexOf('ocine'),
+    result.targets.indexOf('cinemovida') + 1,
+  )
+  assert.equal(
+    result.targets.indexOf('tmdb_metadata_refresh'),
+    result.targets.indexOf('ocine') + 1,
+  )
+  assert.equal(result.targetLabels.ocine, 'Ociné')
+  assert.equal(result.latest, job)
+  for (const name of ['sync', 'theater-locations', 'tmdb-matches'])
+    assert.match(await source(`pages/admin/${name}.vue`), /ocine: 'Ociné'/)
+  assert.match(
+    await source('components/CinemaTheaterMap.client.vue'),
+    /'ocine',\s*THEATER_PROVIDER_COLORS.ocine/,
+  )
+  const table = await render(StatisticsChainTable!, {
+    rows: [
+      { chain: 'ocine', showtime_count: 4, movie_count: 2, theater_count: 3 },
+    ],
+  })
+  assert.match(table, /href="\/cinemas\?chains=ocine"/)
+  assert.match(table, /ocine_logo/)
 })
 
 test('Cinéode grouped programme suppresses unknown runtime in single and multi-cinema headers', async () => {

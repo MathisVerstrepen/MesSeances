@@ -248,6 +248,105 @@ export function veoShowtimes(venue, selectedDate = date) {
   }
 }
 
+// Opt-in Ociné inventory, shared by SSR and hydrated requests. No provider egress.
+export const ocineTheaters = [
+  ['309', 'Maubeuge', 'maubeuge'],
+  ['310', 'Saint-Omer', 'st-omer'],
+  ['461', 'Dunkerque', 'dunkerque'],
+].map(([id, city, sourceSlug], index) => ({
+  ...theater,
+  provider: 'ocine',
+  id: `ocine-${id}`,
+  slug: `ocine-${id}`,
+  sourceSlug,
+  name: `Ociné ${city}`,
+  city,
+  city_slug: sourceSlug,
+  address: index === 2 ? '' : `1 rue du cinéma`,
+  postal_code: index === 2 ? '' : '59000',
+  accepted_passes: [],
+  available_dates: [
+    date,
+    new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+      .toISOString()
+      .slice(0, 10),
+  ],
+}))
+export function ocineShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  const cinema = venue.id.slice('ocine-'.length)
+  const offset = new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Paris',
+    timeZoneName: 'longOffset',
+  })
+    .formatToParts(new Date(`${selectedDate}T12:00:00Z`))
+    .find((part) => part.type === 'timeZoneName')
+    .value.replace('GMT', '')
+  return {
+    ...payload,
+    discovery: { window: null, movies: [], other_theaters: [] },
+    date: selectedDate,
+    theater: venue,
+    showtimes: [0, 1, 2, 3].map((index) => {
+      const start = `${selectedDate}T${14 + index * 2}:00:00${offset}`
+      const epoch = Date.parse(start) / 1000
+      const film = index < 2 ? '631242' : 'atelier-local'
+      return {
+        ...payload.showtimes[0],
+        provider: 'ocine',
+        id: `ocine-showing-${cinema}-${film}-${epoch}-${index === 3 ? 'past' : '9586'}`,
+        movie: {
+          ...movie,
+          slug: `ocine-film-${film}`,
+          title: index < 2 ? 'Programme Ociné' : 'Rencontre Ociné',
+          original_language: 'en',
+          runtime_minutes: index < 2 ? 100 : 0,
+        },
+        start_time: start,
+        end_time: index === 0 ? `${selectedDate}T15:45:00${offset}` : start,
+        estimated_end_time:
+          index === 1 ? `${selectedDate}T17:55:00${offset}` : null,
+        estimated_end_ads_minutes: index === 1 ? 15 : null,
+        duration_minutes: index === 0 ? 105 : 0,
+        start_offset_minutes: (14 + index * 2) * 60,
+        language: ['VOSTFR', 'VF', 'VF', ''][index],
+        format: index === 1 ? '3D' : '2D',
+        room: index === 3 ? '' : 'Salle 4',
+        booking_url:
+          index === 3
+            ? ''
+            : `https://www.ocine.fr/${venue.sourceSlug}/reserver/F${index < 2 ? '631242' : '636416'}/D${epoch}/${index === 0 ? 'VO' : 'VF'}/9586/`,
+        poster_url: null,
+        backdrop_url: null,
+      }
+    }),
+  }
+}
+export function ocineMovieSchedule(slug, query) {
+  if (!['ocine-film-631242', 'ocine-film-atelier-local'].includes(slug))
+    return null
+  const payloads = ocineTheaters.map((venue) =>
+    ocineShowtimes(venue, query.get('date') || date),
+  )
+  const sessions = payloads[0].showtimes.filter(
+    (item) => item.movie.slug === slug,
+  )
+  return {
+    ...movieSchedule(movie.slug, query),
+    movie: sessions[0].movie,
+    theaters: payloads.map((payload) => ({
+      ...payload.theater,
+      showtimes: payload.showtimes.filter((item) => item.movie.slug === slug),
+    })),
+    available_dates: payloads[0].theater.available_dates,
+    date: payloads[0].date,
+    available_languages: [...new Set(sessions.map((item) => item.language))],
+    available_formats: [...new Set(sessions.map((item) => item.format))],
+    pagination: { page: 1, page_size: 10, total: 3, has_more: false },
+    discovery: { window: null, cities: [] },
+  }
+}
+
 // Opt-in manifest-bound Cinéode inventory. Never contacts provider websites.
 export const cineodeTheaters = [
   {
