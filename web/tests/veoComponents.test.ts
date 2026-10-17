@@ -184,7 +184,7 @@ test('Véo is exhaustive across public/admin registries, chain filters, statisti
     longitude: 1.33,
   }
   assert.equal(THEATER_PROVIDER_LABELS.veo, 'Véo Cinémas')
-  assert.equal(THEATER_PROVIDER_COLORS.veo, '#8e1a6f')
+  assert.equal(THEATER_PROVIDER_COLORS.veo, '#a3e635')
   assert.equal(cinemaProviderLabels.veo, 'Véo Cinémas')
   assert.equal(statisticsChainLabels.veo, 'Véo Cinémas')
   assert.deepEqual(cinemaDirectoryChains([theater]), ['veo'])

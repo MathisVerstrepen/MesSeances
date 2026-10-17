@@ -478,7 +478,7 @@ test('cinemas page scopes city and global actions to displayed draft results', a
   assert.match(page, /class="view-switch [^"]*max-sm:w-full/)
 })
 
-test('client map source contract covers clustering, accessible Vue details, privacy, and cleanup', async () => {
+test('client map keeps individual points at every zoom, accessible Vue details, privacy, and cleanup', async () => {
   const component = await readFile(
     new URL('../app/components/CinemaTheaterMap.client.vue', import.meta.url),
     'utf8',
@@ -496,10 +496,32 @@ test('client map source contract covers clustering, accessible Vue details, priv
       component.indexOf('new maplibregl.Map'),
   )
   assert.match(component, /https:\/\/tiles\.openfreemap\.org\/styles\/liberty/)
-  assert.match(component, /cluster:\s*true/)
-  assert.match(component, /clusterRadius:\s*50/)
-  assert.match(component, /clusterMaxZoom:\s*14/)
-  assert.match(component, /getClusterExpansionZoom/)
+  assert.match(
+    component,
+    /map\.addSource\(THEATER_SOURCE_ID, \{\s*type: 'geojson',\s*data: theaterData\.value,?\s*\}\)/,
+  )
+  assert.doesNotMatch(component, /cluster|point_count/i)
+  const mapLoad = component.slice(
+    component.indexOf('function onMapLoad()'),
+    component.indexOf('\nwatch('),
+  )
+  assert.doesNotMatch(mapLoad, /minzoom|maxzoom/i)
+  assert.match(
+    component,
+    /id: THEATER_LAYER_ID,\s*type: 'circle',\s*source: THEATER_SOURCE_ID,\s*paint:/,
+  )
+  assert.match(
+    component,
+    /id: FAVORITE_LAYER_ID,\s*type: 'circle',\s*source: THEATER_SOURCE_ID,\s*filter: \['==', \['get', 'favorite'\], true\]/,
+  )
+  assert.match(
+    component,
+    /map\.on\('click', THEATER_LAYER_ID, onTheaterClick\)/,
+  )
+  assert.match(
+    component,
+    /map\.off\('click', THEATER_LAYER_ID, onTheaterClick\)/,
+  )
   assert.match(component, /USER_SOURCE_ID/)
   assert.doesNotMatch(component, /GeolocateControl|navigator\.geolocation/)
   assert.match(component, /<article\s+v-if="selectedTheater"/)
@@ -575,14 +597,12 @@ test('client map removes theater selector and uses accessible fullscreen lifecyc
   assert.match(component, /\.map-layout:fullscreen[\s\S]*\.theater-details/)
 })
 
-test('client map uses supported cluster glyphs and reports localized theater coverage', async () => {
+test('client map reports localized theater coverage', async () => {
   const component = await readFile(
     new URL('../app/components/CinemaTheaterMap.client.vue', import.meta.url),
     'utf8',
   )
 
-  assert.match(component, /'text-font': \['Noto Sans Regular'\]/)
-  assert.doesNotMatch(component, /Open Sans Regular|Arial Unicode MS Regular/)
   assert.match(component, /const mappedCount = mappedTheaters\.value\.length/)
   assert.match(component, /const resultCount = props\.theaters\.length/)
   assert.match(component, /mappedCount === 1 \? '' : 's'/)

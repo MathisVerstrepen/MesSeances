@@ -210,7 +210,7 @@ test('Majestic public filters, image routes, map, descriptions and admin registr
     longitude: 3.62,
   }
   assert.equal(THEATER_PROVIDER_LABELS.majestic, 'Majestic Cinémas')
-  assert.equal(THEATER_PROVIDER_COLORS.majestic, '#bb1837')
+  assert.equal(THEATER_PROVIDER_COLORS.majestic, '#fb8c73')
   assert.equal(cinemaProviderLabels.majestic, 'Majestic Cinémas')
   assert.equal(statisticsChainLabels.majestic, 'Majestic Cinémas')
   assert.deepEqual(cinemaDirectoryChains([theater]), ['majestic'])

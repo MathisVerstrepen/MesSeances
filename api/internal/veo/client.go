@@ -105,18 +105,20 @@ type checkoutBinding struct {
 // CheckoutResult keeps trusted response identity separate from untrusted HTML.
 // Only this provider's transport can supply the canonical URL.
 type CheckoutResult struct {
-	Body                  []byte
-	canonicalURL          string
-	unavailableEnrichment bool
-	pool                  clientPoolPosition
+	Body                       []byte
+	canonicalURL               string
+	unavailableEnrichment      bool
+	regularFinal404Unavailable bool
+	pool                       clientPoolPosition
 }
 
 type checkoutResponse struct {
-	canonicalURL          string
-	unavailableEnrichment bool
-	pool                  clientPoolPosition
-	transportPool         clientPoolPosition
-	redirect              *checkoutRedirectDiagnostic
+	canonicalURL               string
+	unavailableEnrichment      bool
+	regularFinal404Unavailable bool
+	pool                       clientPoolPosition
+	transportPool              clientPoolPosition
+	redirect                   *checkoutRedirectDiagnostic
 }
 
 // Only this observed canonicalization is internal fetch authority. It is never
@@ -170,6 +172,27 @@ func checkoutRedirect(request *http.Request, via []*http.Request) error {
 	return syncproxy.NewRedirectChecker(func(*url.URL) bool { return valid })(request, via)
 }
 
+func regularFinal404Unavailable(req *http.Request, r *http.Response, b checkoutBinding) bool {
+	if b.response == nil || b.start.IsZero() || b.start.Nanosecond() != 0 || req == nil || req.Method != http.MethodGet ||
+		r == nil || r.StatusCode != http.StatusNotFound || len(r.Header.Values("Location")) != 0 ||
+		r.Request == nil || r.Request.Method != http.MethodGet || r.Request.URL == nil ||
+		!canonicalCheckoutURL(req.URL) || req.URL.Host != "achat.veocinemas.fr" || !boundCheckoutURL(req.URL, b) ||
+		r.Request.URL.String() != req.URL.String() {
+		return false
+	}
+	source, err := url.Parse(b.source)
+	if err != nil || !checkoutURLAllowed(source) || source.Host != "achat.veocinemas.fr" {
+		return false
+	}
+	// Attest the actual one-hop redirect, not just a plausible final URL. The
+	// literal absolute Location must be this exact validated destination.
+	previous := req.Response
+	return previous != nil && previous.StatusCode == http.StatusTemporaryRedirect &&
+		previous.Request != nil && previous.Request.Method == http.MethodGet && previous.Request.URL != nil &&
+		previous.Request.URL.String() == b.source && previous.Request.Response == nil &&
+		len(previous.Header.Values("Location")) == 1 && previous.Header.Get("Location") == req.URL.String()
+}
+
 func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	binding, bound := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
 	if bound && binding.response != nil {
@@ -177,6 +200,7 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		// never reuse metadata from an earlier response/attempt.
 		binding.response.canonicalURL = ""
 		binding.response.unavailableEnrichment = false
+		binding.response.regularFinal404Unavailable = false
 		binding.response.pool = clientPoolPosition{}
 		binding.response.transportPool = clientPoolPosition{}
 		binding.response.redirect = nil
@@ -193,16 +217,19 @@ func (t htmlTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	if bound && schedule.ValidVeoGueretRelayURL(binding.source) {
-		if req.Method == http.MethodGet && gueretUnavailable(req.URL, r, binding) {
-			// The exact bound relay-root response is unavailable enrichment. Close
-			// unread, never follow /noweb, and consume only the redirect sentinel.
-			if r.Body != nil {
-				_ = r.Body.Close()
-			}
-			binding.response.unavailableEnrichment = true
-			return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
+	regularUnavailable := bound && regularFinal404Unavailable(req, r, binding)
+	gueretBound := bound && schedule.ValidVeoGueretRelayURL(binding.source)
+	if bound && req.Method == http.MethodGet && (regularUnavailable || gueretBound && gueretUnavailable(req.URL, r, binding)) {
+		// Exact bound unavailable responses carry no trusted page facts. Close
+		// unread and stop through the existing non-retryable redirect sentinel.
+		if r.Body != nil {
+			_ = r.Body.Close()
 		}
+		binding.response.unavailableEnrichment = true
+		binding.response.regularFinal404Unavailable = regularUnavailable
+		return nil, syncproxy.NewRedirectChecker(func(*url.URL) bool { return false })(req, nil)
+	}
+	if gueretBound {
 		if !gueretResponseAllowed(req.URL, r, binding) {
 			recordCheckoutRedirect(binding, req.URL, r, t.pool, "response", gueretResponseReason(req.URL, r, binding))
 			if r.Body != nil {
@@ -329,7 +356,7 @@ func (c *Client) Checkout(ctx context.Context, raw string, start time.Time) (Che
 	if err != nil {
 		var failure *RequestError
 		if response.unavailableEnrichment && errors.As(err, &failure) && failure.Kind == syncproxy.FailureRedirect {
-			return CheckoutResult{unavailableEnrichment: true}, nil
+			return CheckoutResult{unavailableEnrichment: true, regularFinal404Unavailable: response.regularFinal404Unavailable}, nil
 		}
 		return CheckoutResult{}, err
 	}

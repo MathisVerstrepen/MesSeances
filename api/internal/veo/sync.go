@@ -31,6 +31,7 @@ type SyncSummary struct {
 	FirstCheckoutRetryRecovered               bool
 	ToulouseUnavailableCheckouts              int
 	GueretUnavailableCheckouts                int
+	RegularFinal404UnavailableCheckouts       int
 }
 
 func Sync(ctx context.Context, g Getter, o SyncOptions) (schedule.Dataset, SyncSummary, error) {
