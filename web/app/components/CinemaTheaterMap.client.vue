@@ -37,8 +37,6 @@ const FRANCE_BOUNDS: [[number, number], [number, number]] = [
   [10, 51.5],
 ]
 const THEATER_SOURCE_ID = 'cinema-theaters'
-const CLUSTER_LAYER_ID = 'cinema-clusters'
-const CLUSTER_COUNT_LAYER_ID = 'cinema-cluster-count'
 const FAVORITE_LAYER_ID = 'cinema-favorites'
 const THEATER_LAYER_ID = 'cinema-points'
 const USER_SOURCE_ID = 'cinema-user-position'
@@ -233,28 +231,6 @@ function onTheaterClick(event: MapLayerMouseEvent) {
   selectTheater(theaterId)
 }
 
-async function onClusterClick(event: MapLayerMouseEvent) {
-  if (!map || runtimeFailed.value || destroyed) return
-  const feature = event.features?.[0]
-  const clusterId = Number(feature?.properties?.cluster_id)
-  if (!Number.isSafeInteger(clusterId) || feature?.geometry.type !== 'Point')
-    return
-  const source = map.getSource(THEATER_SOURCE_ID)
-  if (!(source instanceof maplibregl.GeoJSONSource)) return
-  try {
-    const zoom = await source.getClusterExpansionZoom(clusterId)
-    if (!map || runtimeFailed.value || destroyed) return
-    const [longitude = Number.NaN, latitude = Number.NaN] =
-      feature.geometry.coordinates
-    if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return
-    const center: [number, number] = [longitude, latitude]
-    if (isReducedMotion()) map.jumpTo({ center, zoom })
-    else map.easeTo({ center, zoom, duration: 350 })
-  } catch {
-    failRuntime()
-  }
-}
-
 function showPointer() {
   if (map) map.getCanvas().style.cursor = 'pointer'
 }
@@ -285,11 +261,8 @@ function detachRuntime() {
   map.off('error', onMapError)
   if (layerListenersRegistered) {
     map.off('click', THEATER_LAYER_ID, onTheaterClick)
-    map.off('click', CLUSTER_LAYER_ID, onClusterClick)
     map.off('mouseenter', THEATER_LAYER_ID, showPointer)
     map.off('mouseleave', THEATER_LAYER_ID, hidePointer)
-    map.off('mouseenter', CLUSTER_LAYER_ID, showPointer)
-    map.off('mouseleave', CLUSTER_LAYER_ID, hidePointer)
     layerListenersRegistered = false
   }
   const mapToRemove = map
@@ -318,43 +291,12 @@ function onMapLoad() {
     map.addSource(THEATER_SOURCE_ID, {
       type: 'geojson',
       data: theaterData.value,
-      cluster: true,
-      clusterRadius: 50,
-      clusterMaxZoom: 14,
-    })
-    map.addLayer({
-      id: CLUSTER_LAYER_ID,
-      type: 'circle',
-      source: THEATER_SOURCE_ID,
-      filter: ['has', 'point_count'],
-      paint: {
-        'circle-color': '#27272a',
-        'circle-radius': ['step', ['get', 'point_count'], 18, 20, 22, 75, 27],
-        'circle-stroke-color': '#ffffff',
-        'circle-stroke-width': 2,
-      },
-    })
-    map.addLayer({
-      id: CLUSTER_COUNT_LAYER_ID,
-      type: 'symbol',
-      source: THEATER_SOURCE_ID,
-      filter: ['has', 'point_count'],
-      layout: {
-        'text-field': '{point_count_abbreviated}',
-        'text-font': ['Noto Sans Regular'],
-        'text-size': 12,
-      },
-      paint: { 'text-color': '#ffffff' },
     })
     map.addLayer({
       id: FAVORITE_LAYER_ID,
       type: 'circle',
       source: THEATER_SOURCE_ID,
-      filter: [
-        'all',
-        ['!', ['has', 'point_count']],
-        ['==', ['get', 'favorite'], true],
-      ],
+      filter: ['==', ['get', 'favorite'], true],
       paint: {
         'circle-radius': 12,
         'circle-color': 'rgba(255, 255, 255, 0)',
@@ -366,7 +308,6 @@ function onMapLoad() {
       id: THEATER_LAYER_ID,
       type: 'circle',
       source: THEATER_SOURCE_ID,
-      filter: ['!', ['has', 'point_count']],
       paint: {
         'circle-radius': 7,
         'circle-color': [
@@ -409,11 +350,8 @@ function onMapLoad() {
       },
     })
     map.on('click', THEATER_LAYER_ID, onTheaterClick)
-    map.on('click', CLUSTER_LAYER_ID, onClusterClick)
     map.on('mouseenter', THEATER_LAYER_ID, showPointer)
     map.on('mouseleave', THEATER_LAYER_ID, hidePointer)
-    map.on('mouseenter', CLUSTER_LAYER_ID, showPointer)
-    map.on('mouseleave', CLUSTER_LAYER_ID, hidePointer)
     layerListenersRegistered = true
     mapReady.value = true
     updateTheaterSource(true)
