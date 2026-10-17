@@ -189,11 +189,14 @@ func TestGueretUnavailableConcurrentRetriesAndCancellation(t *testing.T) {
 			}
 		}
 		if hop == 3 {
+			if b.start.Minute()%3 == 1 {
+				return fixtureResponse(404, "synthetic", "text/html"), nil
+			}
 			return fixtureResponse(200, gueretTestPage(chain[3]), "text/html"), nil
 		}
 		r := fixtureResponse([]int{302, 302, 307}[hop], "", "text/html")
 		r.Header.Set("Location", chain[hop+1])
-		if hop == 1 && b.start.Minute()%2 != 0 {
+		if hop == 1 && b.start.Minute()%3 == 2 {
 			r.Header.Set("Location", gueretTestUnavailable(b.start))
 		}
 		return r, nil
@@ -210,11 +213,11 @@ func TestGueretUnavailableConcurrentRetriesAndCancellation(t *testing.T) {
 		wg.Go(func() {
 			start := gueretTestStart().Add(time.Duration(i) * time.Minute)
 			result, err := c.Checkout(t.Context(), gueretTestChain(start)[0], start)
-			if err != nil || result.unavailableEnrichment != (i%2 != 0) {
+			if err != nil || result.unavailableEnrichment != (i%3 != 0) {
 				t.Error("worker/retry outcome crossed", err)
 				return
 			}
-			if i%2 != 0 {
+			if i%3 != 0 {
 				if len(result.Body) != 0 || result.canonicalURL != "" || result.pool != (clientPoolPosition{}) {
 					t.Error("unavailable retained other response metadata")
 				}
@@ -252,86 +255,108 @@ func TestGueretUnavailableConcurrentRetriesAndCancellation(t *testing.T) {
 }
 
 func TestGueretUnavailableCannotRepairActionRetry(t *testing.T) {
-	start := gueretTestStart()
-	chain := gueretTestChain(start)
-	row := retryTestRow(990)
-	row.TheaterID, row.ProviderShowingID = "veo-G06DB", schedule.VeoShowingID("G06DB", "retry-fixture")
-	row.ID, row.BookingURL, row.StartTime, row.EndTime = "veo-showing-"+row.ProviderShowingID, chain[0], start, start
-	row.Room = "API room"
-	calls, attempt := 0, 0
-	c := testClient(t, func(req *http.Request) (*http.Response, error) {
-		b := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
-		hop := gueretHop(req.URL, b)
-		calls++
-		if hop == 0 {
-			attempt++
-		}
-		if hop == 3 {
-			return fixtureResponse(200, strings.Replace(gueretTestPage(chain[3]), "/F34/", "/F35/", 1), "text/html"), nil
-		}
-		r := fixtureResponse([]int{302, 302, 307}[hop], "", "text/html")
-		r.Header.Set("Location", chain[hop+1])
-		if hop == 1 && attempt == 2 {
-			r.Header.Set("Location", gueretTestUnavailable(start))
-		}
-		return r, nil
-	})
-	rows, summary := []schedule.ShowtimeRecord{row}, SyncSummary{}
-	err := enrichCheckouts(t.Context(), c, rows, &summary, start.Add(-time.Hour))
-	var failure *CheckoutParseError
-	if !errors.As(err, &failure) || failure.Reason != RejectBookingForm || calls != 6 || c.RequestCount() != 2 || summary.CheckoutRetryAttempts != 1 || summary.CheckoutRecoveries != 0 || summary.GueretUnavailableCheckouts != 0 || !reflect.DeepEqual(rows[0], row) {
-		t.Fatal("unavailable repaired mismatch or applied partial facts", calls, summary, err)
+	for _, final404 := range []bool{false, true} {
+		t.Run(fmt.Sprint("final404-", final404), func(t *testing.T) {
+			start := gueretTestStart()
+			chain := gueretTestChain(start)
+			row := retryTestRow(990)
+			row.TheaterID, row.ProviderShowingID = "veo-G06DB", schedule.VeoShowingID("G06DB", "retry-fixture")
+			row.ID, row.BookingURL, row.StartTime, row.EndTime = "veo-showing-"+row.ProviderShowingID, chain[0], start, start
+			row.Room = "API room"
+			calls, attempt := 0, 0
+			c := testClient(t, func(req *http.Request) (*http.Response, error) {
+				b := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
+				hop := gueretHop(req.URL, b)
+				calls++
+				if hop == 0 {
+					attempt++
+				}
+				if hop == 3 {
+					if final404 && attempt == 2 {
+						return fixtureResponse(404, "synthetic", "text/html"), nil
+					}
+					return fixtureResponse(200, strings.Replace(gueretTestPage(chain[3]), "/F34/", "/F35/", 1), "text/html"), nil
+				}
+				r := fixtureResponse([]int{302, 302, 307}[hop], "", "text/html")
+				r.Header.Set("Location", chain[hop+1])
+				if !final404 && hop == 1 && attempt == 2 {
+					r.Header.Set("Location", gueretTestUnavailable(start))
+				}
+				return r, nil
+			})
+			rows, summary := []schedule.ShowtimeRecord{row}, SyncSummary{}
+			err := enrichCheckouts(t.Context(), c, rows, &summary, start.Add(-time.Hour))
+			var failure *CheckoutParseError
+			wantCalls := 6
+			if final404 {
+				wantCalls = 8
+			}
+			if !errors.As(err, &failure) || failure.Reason != RejectBookingForm || calls != wantCalls || c.RequestCount() != 2 || summary.CheckoutRetryAttempts != 1 || summary.CheckoutRecoveries != 0 || summary.GueretUnavailableCheckouts != 0 || !reflect.DeepEqual(rows[0], row) {
+				t.Fatal("unavailable repaired mismatch or applied partial facts", calls, summary, err)
+			}
+		})
 	}
 }
 
 func TestGueretUnavailablePreservesFullDatasetAndAtomicFailure(t *testing.T) {
-	for _, room := range []string{"SENECHAL5", ""} {
-		g := newGueretFixture(t, nil)
-		if room == "" {
-			g = newGueretFixture(t, func(_ Operation, _ string, b []byte) []byte {
-				return []byte(strings.ReplaceAll(string(b), "SENECHAL5", ""))
+	for _, final404 := range []bool{false, true} {
+		for _, room := range []string{"SENECHAL5", ""} {
+			t.Run(fmt.Sprint("final404-", final404, "/room-", room), func(t *testing.T) {
+				g := newGueretFixture(t, nil)
+				if room == "" {
+					g = newGueretFixture(t, func(_ Operation, _ string, b []byte) []byte {
+						return []byte(strings.ReplaceAll(string(b), "SENECHAL5", ""))
+					})
+				}
+				want, err := acquire(t.Context(), g, fixtureOptions(), &SyncSummary{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				fail := false
+				c := testClient(t, func(req *http.Request) (*http.Response, error) {
+					b := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
+					hop := gueretHop(req.URL, b)
+					if fail && b.start.Day() == 28 && hop == 1 {
+						return fixtureResponse(403, "synthetic", "text/html"), nil
+					}
+					if hop == 3 {
+						return fixtureResponse(404, "synthetic", "text/html"), nil
+					}
+					r := fixtureResponse([]int{302, 302, 307}[hop], "", "text/html")
+					r.Header.Set("Location", gueretTestChain(b.start)[hop+1])
+					if !final404 && hop == 1 {
+						r.Header.Set("Location", gueretTestUnavailable(b.start))
+					}
+					return r, nil
+				})
+				g.checkout = func(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
+					if schedule.ValidVeoGueretRelayURL(raw) {
+						return c.Checkout(ctx, raw, start)
+					}
+					return g.fixtureGetter.Checkout(ctx, raw, start)
+				}
+				d, s, err := Sync(t.Context(), g, fixtureOptions())
+				if err != nil || len(d.Theaters) != 20 || len(d.Showtimes) != len(want.Showtimes) || s.GueretUnavailableCheckouts != 2 || s.ToulouseUnavailableCheckouts != 0 || s.CheckoutRetryAttempts != 0 || s.CheckoutRecoveries != 0 || s.Checkouts != len(d.Showtimes)-1 || s.ExactEnds != s.Checkouts-2 || d.Window.Through != "2026-10-28" || !reflect.DeepEqual(d.Coverage, want.Coverage) || c.RequestCount() != 2 {
+					t.Fatal("full dataset lost", s, err)
+				}
+				for i, r := range d.Showtimes {
+					if r.TheaterID == "veo-G06DB" && (r.Room != room || !r.EndTime.Equal(r.StartTime) || !reflect.DeepEqual(r, want.Showtimes[i])) {
+						t.Fatal("gap changed source row or invented facts")
+					}
+				}
+				for _, cv := range d.Coverage {
+					if cv.TheaterID == "veo-G06DB" && cv.Status != schedule.CoverageComplete {
+						t.Fatal("advertised coverage lost")
+					}
+				}
+				// A different row's failure still discards the ENTIRE acquired snapshot.
+				fail = true
+				d, _, err = Sync(t.Context(), g, fixtureOptions())
+				var failure *RequestError
+				if !errors.As(err, &failure) || failure.Kind != syncproxy.FailureChallenge || failure.StatusCode != 403 || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
+					t.Fatal("other failure published partial dataset")
+				}
 			})
-		}
-		c := testClient(t, func(req *http.Request) (*http.Response, error) {
-			b := req.Context().Value(checkoutBindingKey{}).(checkoutBinding)
-			r := fixtureResponse(302, "", "text/html")
-			if gueretHop(req.URL, b) == 0 {
-				r.Header.Set("Location", gueretTestChain(b.start)[1])
-			} else {
-				r.Header.Set("Location", gueretTestUnavailable(b.start))
-			}
-			return r, nil
-		})
-		g.checkout = func(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
-			if schedule.ValidVeoGueretRelayURL(raw) {
-				return c.Checkout(ctx, raw, start)
-			}
-			return g.fixtureGetter.Checkout(ctx, raw, start)
-		}
-		d, s, err := Sync(t.Context(), g, fixtureOptions())
-		if err != nil || len(d.Theaters) != 20 || s.GueretUnavailableCheckouts != 2 || s.ToulouseUnavailableCheckouts != 0 || s.CheckoutRetryAttempts != 0 || d.Window.Through != "2026-10-28" {
-			t.Fatal("full dataset lost", s, err)
-		}
-		for _, r := range d.Showtimes {
-			if r.TheaterID == "veo-G06DB" && (r.Room != room || !r.EndTime.Equal(r.StartTime) || !schedule.ValidVeoGueretRelayURL(r.BookingURL) || r.ProviderShowingID != schedule.VeoShowingID("G06DB", "gueret-"+r.ServiceDate)) {
-				t.Fatal("gap changed source row or invented facts")
-			}
-		}
-		for _, cv := range d.Coverage {
-			if cv.TheaterID == "veo-G06DB" && cv.Status != schedule.CoverageComplete {
-				t.Fatal("advertised coverage lost")
-			}
-		}
-		// A different row's failure still discards the ENTIRE acquired snapshot.
-		g.checkout = func(ctx context.Context, raw string, start time.Time) (CheckoutResult, error) {
-			if schedule.ValidVeoGueretRelayURL(raw) {
-				return c.Checkout(ctx, raw, start)
-			}
-			return CheckoutResult{}, &RequestError{Operation: OperationCheckout, Kind: syncproxy.FailureChallenge, StatusCode: 403}
-		}
-		d, _, err = Sync(t.Context(), g, fixtureOptions())
-		if err == nil || len(d.Theaters) != 0 || len(d.Showtimes) != 0 {
-			t.Fatal("other failure published partial dataset")
 		}
 	}
 }

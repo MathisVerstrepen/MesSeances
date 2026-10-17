@@ -640,11 +640,13 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 	budget := checkoutRetryBudget{}
 	var unavailable atomic.Int64
 	var gueretUnavailable atomic.Int64
+	var regularFinal404Unavailable atomic.Int64
 	defer func() {
 		summary.CheckoutRetryAttempts, summary.CheckoutRecoveries = budget.attempts, budget.recoveries
 		summary.FirstCheckoutRetry, summary.FirstCheckoutRetryRecovered = budget.first, budget.firstOK
 		summary.ToulouseUnavailableCheckouts = int(unavailable.Load())
 		summary.GueretUnavailableCheckouts = int(gueretUnavailable.Load())
+		summary.RegularFinal404UnavailableCheckouts = int(regularFinal404Unavailable.Load())
 	}()
 	facts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: min(WorkerCount, len(indices))}, func(ctx context.Context, index int) (resolvedCheckout, error) {
 		if err := ctx.Err(); err != nil {
@@ -659,6 +661,9 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 		}
 		resolved, err := resolveCheckout(rows[index], b, false)
 		if err == nil {
+			if b.unavailableEnrichment && b.regularFinal404Unavailable {
+				regularFinal404Unavailable.Add(1)
+			}
 			if b.unavailableEnrichment && rows[index].TheaterID == "veo-G06DB" && schedule.ValidVeoGueretRelayURL(rows[index].BookingURL) {
 				gueretUnavailable.Add(1)
 			}
