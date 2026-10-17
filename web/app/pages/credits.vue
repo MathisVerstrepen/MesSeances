@@ -14,6 +14,7 @@ type CreditBrand =
   | 'Majestic Cinémas'
   | 'Cinéode'
   | 'Ciné-Movida'
+  | 'Ociné'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -86,6 +87,11 @@ const creditSections: Array<{
         brand: 'Ciné-Movida',
         name: 'Ciné-Movida',
         url: 'https://www.cine-movida.com/',
+      },
+      {
+        brand: 'Ociné',
+        name: 'Ociné',
+        url: 'https://www.ocine.fr',
       },
     ],
   },

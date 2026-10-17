@@ -142,6 +142,8 @@ func ValidProviderTheaterID(provider, providerTheaterID string) bool {
 		return schedule.ValidCineodeIdentity("theater", providerTheaterID)
 	case "cinemovida":
 		return schedule.ValidCinemovidaIdentity("theater", providerTheaterID)
+	case "ocine":
+		return schedule.ValidOcineIdentity("theater", providerTheaterID)
 	default:
 		return false
 	}

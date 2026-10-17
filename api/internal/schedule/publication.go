@@ -12,6 +12,13 @@ type Publication struct {
 }
 
 func PreparePublication(data Dataset) (Publication, error) {
+	// Only Ociné's complete validated three-site census can authorize an empty
+	// provider replacement. Preserve other providers' existing receipt rules.
+	if data.Provider == ProviderOcine && len(data.Showtimes) == 0 {
+		if err := ValidateDataset(data, true); err != nil {
+			return Publication{}, err
+		}
+	}
 	// A successful empty publication is still a receipt, but ordinary dataset
 	// validation keeps its nonempty guard for provider ingestion and snapshots.
 	if err := validateDataset(data, true, len(data.Showtimes) == 0); err != nil {

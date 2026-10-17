@@ -107,6 +107,7 @@ const providers = {
   majestic: 'Majestic Cinémas',
   cineode: 'Cinéode',
   cinemovida: 'Ciné-Movida',
+  ocine: 'Ociné',
 } satisfies Record<Provider, string>
 
 // SAFETY: providers is a local literal exhaustively checked against Record<Provider, string> above.
@@ -123,11 +124,13 @@ test('hero uses one white logo tile and a separate full source name for every pr
       html,
       provider === 'cinemovida'
         ? /h-20 w-20 lg:h-24 lg:w-24/
-        : /h-\[52px\] w-\[130px\] lg:h-14 lg:w-36/,
+        : provider === 'ocine'
+          ? /h-20 w-28 lg:h-24 lg:w-32/
+          : /h-\[52px\] w-\[130px\] lg:h-14 lg:w-36/,
     )
     assert.match(
       html,
-      provider === 'cinemovida'
+      provider === 'cinemovida' || provider === 'ocine'
         ? /object-contain h-full w-full/
         : /object-contain h-8 lg:h-9/,
     )
@@ -165,7 +168,8 @@ for (const provider of providerKeys) {
           provider === 'cinewest' ||
           provider === 'majestic' ||
           provider === 'cineode' ||
-          provider === 'cinemovida'
+          provider === 'cinemovida' ||
+          provider === 'ocine'
         ? `${provider}_logo.svg`
         : provider === 'grandecran'
           ? 'grand_ecran_logo_small.webp'

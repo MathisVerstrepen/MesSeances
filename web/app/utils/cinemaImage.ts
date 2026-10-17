@@ -1,7 +1,7 @@
 import type { PublicTheaterImage } from '../types/api.ts'
 
 const publicImagePath =
-  /^\/api\/v1\/theaters\/(?:ugc|kinepolis|pathe|cgr|megarama|cineville|mk2|cinewest|grandecran|noecinemas|veo|majestic|cineode|cinemovida)\/[A-Za-z0-9_-]{1,128}\/image\/([1-9][0-9]*)$/
+  /^\/api\/v1\/theaters\/(?:ugc|kinepolis|pathe|cgr|megarama|cineville|mk2|cinewest|grandecran|noecinemas|veo|majestic|cineode|cinemovida|ocine)\/[A-Za-z0-9_-]{1,128}\/image\/([1-9][0-9]*)$/
 
 export function publicCinemaImageUrl(
   image: PublicTheaterImage | null,

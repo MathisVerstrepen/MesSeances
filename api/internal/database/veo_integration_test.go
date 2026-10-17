@@ -22,6 +22,8 @@ type providerConstraintChange struct {
 	majesticAddition, cineodeAddition string
 	cinemovidaAddition                string
 	cinemovidaTiming                  bool
+	ocineAddition                     string
+	ocineTiming                       bool
 	newCheck, timing                  bool
 }
 
@@ -89,6 +91,7 @@ AND veo_booking_valid(booking_url, split_part(provider_showing_id, '-', 1), prov
 	changes = withMajesticConstraintChanges(t, changes)
 	changes = withCineodeConstraintChanges(t, changes)
 	changes = withCinemovidaConstraintChanges(t, changes)
+	changes = withOcineConstraintChanges(t, changes)
 	baseline := []providerConstraintChange{}
 	for _, change := range changes {
 		var exists bool
@@ -148,6 +151,12 @@ func assertProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pg
 		}
 		if change.cinemovidaTiming {
 			expression = fmt.Sprintf("(provider <> 'cinemovida' AND (%s)) OR (provider = 'cinemovida' AND end_time >= start_time)", expression)
+		}
+		if change.ocineAddition != "" {
+			expression = fmt.Sprintf("(%s) OR (%s)", expression, change.ocineAddition)
+		}
+		if change.ocineTiming {
+			expression = fmt.Sprintf("(provider <> 'ocine' AND (%s)) OR (provider = 'ocine' AND end_time >= start_time)", expression)
 		}
 		// LIKE without INCLUDING CONSTRAINTS copies columns, not CHECKs/data.
 		query := fmt.Sprintf("CREATE TEMP TABLE provider_expected_check (LIKE %s) ON COMMIT DROP; ALTER TABLE provider_expected_check ADD CONSTRAINT expected CHECK (%s)", pgx.Identifier{change.table}.Sanitize(), expression)

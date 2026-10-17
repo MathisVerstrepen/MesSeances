@@ -86,11 +86,11 @@ func TestProviderExecutorMetricsFailuresAndNonfatalEnrichment(t *testing.T) {
 }
 
 func TestProviderManagerSelectionAndStatusCloning(t *testing.T) {
-	for _, provider := range []Target{TargetMK2, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetCinewest, TargetCineville} {
+	for _, provider := range []Target{TargetMK2, TargetGrandEcran, TargetNoeCinemas, TargetVeo, TargetMajestic, TargetCineode, TargetCinemovida, TargetOcine, TargetCinewest, TargetCineville} {
 		t.Run(string(provider), func(t *testing.T) {
 			for _, mode := range []string{"manual", "scheduled"} {
 				t.Run(mode, func(t *testing.T) {
-					calls := make(chan Target, 14)
+					calls := make(chan Target, 15)
 					m, err := newTestManager(t.Context(), time.Now, executorFunc(func(_ context.Context, target Target, _ Window) (ProviderOutcome, error) {
 						calls <- target
 						return ProviderOutcome{}, nil
@@ -108,7 +108,7 @@ func TestProviderManagerSelectionAndStatusCloning(t *testing.T) {
 						t.Fatal(err)
 					}
 					status := waitForTerminal(t, m)
-					if status.State != StateSucceeded || len(status.Providers) != 14 || len(calls) != 1 || <-calls != provider {
+					if status.State != StateSucceeded || len(status.Providers) != 15 || len(calls) != 1 || <-calls != provider {
 						t.Fatalf("status=%+v", status)
 					}
 					if mode == "scheduled" && (status.Occurrence == nil || status.Occurrence.Provider != provider) {

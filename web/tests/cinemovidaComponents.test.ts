@@ -322,7 +322,7 @@ test('Ciné-Movida manual/scheduled targets and latest all-run exposure follow e
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
-    result.targets.indexOf('cinemovida') + 1,
+    result.targets.indexOf('ocine') + 1,
   )
   assert.equal(result.targetLabels.cinemovida, 'Ciné-Movida')
   assert.equal(result.latest, job)

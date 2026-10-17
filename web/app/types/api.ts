@@ -26,6 +26,7 @@ export type Provider =
   | 'majestic'
   | 'cineode'
   | 'cinemovida'
+  | 'ocine'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'

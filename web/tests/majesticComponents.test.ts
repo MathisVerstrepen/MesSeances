@@ -279,7 +279,7 @@ test('Majestic public filters, image routes, map, descriptions and admin registr
     if (page.startsWith('sync'))
       assert.match(
         value,
-        /'veo',\s*'majestic',\s*'cineode',\s*'cinemovida',\s*\] as const/,
+        /'veo',\s*'majestic',\s*'cineode',\s*'cinemovida',\s*'ocine',\s*\] as const/,
       )
   }
   assert.match(
