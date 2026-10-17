@@ -10,6 +10,7 @@ type Brand =
   | 'Noé Cinémas'
   | 'Véo Cinémas'
   | 'Majestic Cinémas'
+  | 'Cinéode'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -30,11 +31,12 @@ const props = withDefaults(
 const segments = computed<Segment[]>(() =>
   props.text
     .split(
-      /(?<![\p{L}\p{N}_])(UGC|CGR|Megarama|IMAX|Kinepolis|Pathé|Pathe|Cinéville|Cineville|MK2|Cinewest|Grand [EÉ]cran|No[eé](?:\u0301)?\s+Cin[eé](?:\u0301)?mas|V[eé](?:\u0301)?o(?:\s+Cin[eé](?:\u0301)?mas)?|Majestic(?:\s+Cin[eé](?:\u0301)?mas)?)(?![\p{L}\p{N}_])/giu,
+      /(?<![\p{L}\p{N}_])(UGC|CGR|Megarama|IMAX|Kinepolis|Pathé|Pathe|Cinéville|Cineville|MK2|Cinewest|Grand [EÉ]cran|No[eé](?:\u0301)?\s+Cin[eé](?:\u0301)?mas|V[eé](?:\u0301)?o(?:\s+Cin[eé](?:\u0301)?mas)?|Majestic(?:\s+Cin[eé](?:\u0301)?mas)?|Cin[eé](?:\u0301)?ode)(?![\p{L}\p{N}_])/giu,
     )
     .filter(Boolean)
     .map((value) => {
       const brand = value.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase()
+      if (brand === 'CINEODE') return { value, brand: 'Cinéode' }
       if (brand === 'GRAND ECRAN') return { value, brand: 'Grand Ecran' }
       if (/^NOE\s+CINEMAS$/.test(brand)) return { value, brand: 'Noé Cinémas' }
       if (/^VEO(?:\s+CINEMAS)?$/.test(brand))

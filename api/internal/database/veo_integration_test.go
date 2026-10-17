@@ -18,9 +18,9 @@ import (
 // CHECK on an empty temporary table. This compares full predicates (including
 // their legacy branch), not just a provider name or a broad exclusion pattern.
 type providerConstraintChange struct {
-	table, name, addition, previous string
-	majesticAddition                string
-	newCheck, timing                bool
+	table, name, addition, previous   string
+	majesticAddition, cineodeAddition string
+	newCheck, timing                  bool
 }
 
 func captureProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pgxpool.Pool) []providerConstraintChange {
@@ -85,6 +85,7 @@ AND veo_booking_valid(booking_url, split_part(provider_showing_id, '-', 1), prov
 		changes = append(changes, providerConstraintChange{table: item.table, name: item.name, addition: item.expression, newCheck: true})
 	}
 	changes = withMajesticConstraintChanges(t, changes)
+	changes = withCineodeConstraintChanges(t, changes)
 	baseline := []providerConstraintChange{}
 	for _, change := range changes {
 		var exists bool
@@ -127,11 +128,17 @@ func assertProviderConstraintChanges(t *testing.T, ctx context.Context, pool *pg
 		if change.timing {
 			expression = fmt.Sprintf("(provider <> 'veo' AND (%s)) OR (provider = 'veo' AND end_time >= start_time)", change.previous)
 			expression = fmt.Sprintf("(provider <> 'majestic' AND (%s)) OR (provider = 'majestic' AND end_time >= start_time)", expression)
-		} else if !change.newCheck {
+			expression = fmt.Sprintf("(provider <> 'cineode' AND (%s)) OR (provider = 'cineode' AND end_time = start_time)", expression)
+		} else if !change.newCheck && change.addition != "" {
 			expression = fmt.Sprintf("(%s) OR (%s)", change.previous, change.addition)
+		} else if !change.newCheck {
+			expression = change.previous
 		}
 		if change.majesticAddition != "" {
 			expression = fmt.Sprintf("(%s) OR (%s)", expression, change.majesticAddition)
+		}
+		if change.cineodeAddition != "" {
+			expression = fmt.Sprintf("(%s) OR (%s)", expression, change.cineodeAddition)
 		}
 		// LIKE without INCLUDING CONSTRAINTS copies columns, not CHECKs/data.
 		query := fmt.Sprintf("CREATE TEMP TABLE provider_expected_check (LIKE %s) ON COMMIT DROP; ALTER TABLE provider_expected_check ADD CONSTRAINT expected CHECK (%s)", pgx.Identifier{change.table}.Sanitize(), expression)

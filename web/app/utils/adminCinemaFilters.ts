@@ -21,6 +21,7 @@ export const cinemaProviderLabels = {
   noecinemas: 'Noé Cinémas',
   veo: 'Véo Cinémas',
   majestic: 'Majestic Cinémas',
+  cineode: 'Cinéode',
 } satisfies Record<Provider, string>
 
 export interface AdminCinemaRouteState {

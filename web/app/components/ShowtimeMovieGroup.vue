@@ -112,6 +112,7 @@ onMounted(() =>
           >
         </h3>
         <p
+          v-if="movie.movieRuntimeMinutes > 0"
           class="mt-1 font-mono text-[0.68rem] font-black uppercase tracking-[0.1em]"
           :class="backdropUrl && !backdropFailed ? 'text-white' : undefined"
         >
@@ -171,6 +172,7 @@ onMounted(() =>
               >
             </h3>
             <p
+              v-if="movie.movieRuntimeMinutes > 0"
               class="mt-1 font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-white"
             >
               {{ movie.movieRuntimeMinutes }} min

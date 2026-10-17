@@ -26,6 +26,7 @@ const (
 	SourceNoeCinemas = "noecinemas"
 	SourceVeo        = "veo"
 	SourceMajestic   = "majestic"
+	SourceCineode    = "cineode"
 	ProviderTMDB     = "tmdb"
 	LocaleFrench     = "fr-FR"
 
@@ -147,6 +148,9 @@ func validateMatch(match Match) error {
 }
 
 func validSourceIdentity(provider, id string) bool {
+	if provider == SourceCineode {
+		return schedule.ValidCineodeIdentity("movie", id)
+	}
 	if provider == SourceMajestic {
 		return schedule.ValidMajesticIdentity("movie", id)
 	}

@@ -40,6 +40,7 @@ test('defines an exhaustive provider palette', () => {
     'noecinemas',
     'veo',
     'majestic',
+    'cineode',
   ]
   assert.deepEqual(Object.keys(THEATER_PROVIDER_COLORS), providers)
   assert.deepEqual(THEATER_PROVIDER_COLORS, {
@@ -55,6 +56,7 @@ test('defines an exhaustive provider palette', () => {
     noecinemas: '#795548',
     veo: '#8e1a6f',
     majestic: '#bb1837',
+    cineode: '#000000',
   })
   assert.deepEqual(Object.keys(THEATER_PROVIDER_LABELS), providers)
   assert.equal(THEATER_PROVIDER_LABELS.cinewest, 'Cinewest')

@@ -24,6 +24,7 @@ export type Provider =
   | 'noecinemas'
   | 'veo'
   | 'majestic'
+  | 'cineode'
 export type MovieSort =
   | 'title_asc'
   | 'title_desc'

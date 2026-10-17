@@ -18,6 +18,7 @@ const (
 	ProviderNoeCinemas Provider = "noecinemas"
 	ProviderVeo        Provider = "veo"
 	ProviderMajestic   Provider = "majestic"
+	ProviderCineode    Provider = "cineode"
 	ProviderCombined   Provider = "combined"
 
 	ScopeAll    Scope = "all_cinemas"
