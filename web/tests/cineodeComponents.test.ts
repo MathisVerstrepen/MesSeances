@@ -256,7 +256,7 @@ test('Cinéode empty venues remain in chain directory, maps, admin filters, stat
     longitude: 2.68,
   }
   assert.equal(THEATER_PROVIDER_LABELS.cineode, 'Cinéode')
-  assert.equal(THEATER_PROVIDER_COLORS.cineode, '#000000')
+  assert.equal(THEATER_PROVIDER_COLORS.cineode, '#06b6d4')
   assert.equal(cinemaProviderLabels.cineode, 'Cinéode')
   assert.equal(statisticsChainLabels.cineode, 'Cinéode')
   assert.deepEqual(cinemaDirectoryChains([theater]), ['cineode'])
@@ -553,7 +553,7 @@ test('Ociné compact selections round-trip full composite identities without acc
 
 test('Ociné all identities flow through provider maps, directory, URL filters, images and canonical timing', async () => {
   assert.equal(THEATER_PROVIDER_LABELS.ocine, 'Ociné')
-  assert.equal(THEATER_PROVIDER_COLORS.ocine, '#172983')
+  assert.equal(THEATER_PROVIDER_COLORS.ocine, '#a5b4fc')
   assert.equal(cinemaProviderLabels.ocine, 'Ociné')
   assert.equal(statisticsChainLabels.ocine, 'Ociné')
   assert.deepEqual(normalizeCinemaChains(['OCINE', 'unknown', 'ocine']), [

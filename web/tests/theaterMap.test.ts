@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import type { Provider, Theater } from '../app/types/api.ts'
 import {
@@ -56,14 +57,37 @@ test('defines an exhaustive provider palette', () => {
     cinewest: '#15803d',
     grandecran: '#ec4899',
     noecinemas: '#795548',
-    veo: '#8e1a6f',
-    majestic: '#bb1837',
-    cineode: '#000000',
-    cinemovida: '#cb1730',
-    ocine: '#172983',
+    veo: '#a3e635',
+    majestic: '#fb8c73',
+    cineode: '#06b6d4',
+    cinemovida: '#4c0519',
+    ocine: '#a5b4fc',
   })
   assert.deepEqual(Object.keys(THEATER_PROVIDER_LABELS), providers)
   assert.equal(THEATER_PROVIDER_LABELS.cinewest, 'Cinewest')
+})
+
+test('markers and legend share the distinct provider palette', async () => {
+  const component = await readFile(
+    new URL('../app/components/CinemaTheaterMap.client.vue', import.meta.url),
+    'utf8',
+  )
+  const colors = Object.values(THEATER_PROVIDER_COLORS)
+  assert.equal(new Set(colors).size, colors.length)
+  for (const provider of Object.keys(THEATER_PROVIDER_COLORS)) {
+    assert.match(
+      component,
+      new RegExp(`'${provider}',\\s*THEATER_PROVIDER_COLORS\\.${provider}`),
+    )
+  }
+  assert.match(
+    component,
+    /v-for="\(label, provider\) in THEATER_PROVIDER_LABELS"/,
+  )
+  assert.match(
+    component,
+    /backgroundColor: THEATER_PROVIDER_COLORS\[provider\]/,
+  )
 })
 
 test('Cinewest partners keep their provider and namespaced map identity', () => {

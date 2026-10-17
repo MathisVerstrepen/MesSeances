@@ -13,11 +13,11 @@ export const THEATER_PROVIDER_COLORS = {
   cinewest: '#15803d',
   grandecran: '#ec4899',
   noecinemas: '#795548',
-  veo: '#8e1a6f',
-  majestic: '#bb1837',
-  cineode: '#000000',
-  cinemovida: '#cb1730',
-  ocine: '#172983',
+  veo: '#a3e635',
+  majestic: '#fb8c73',
+  cineode: '#06b6d4',
+  cinemovida: '#4c0519',
+  ocine: '#a5b4fc',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {

@@ -205,7 +205,7 @@ test('Ciné-Movida booking link stays safe, labeled and unavailable for invalid 
 test('Ciné-Movida empty venue participates in directory, maps, images, admin and statistics', async () => {
   const theater = { ...cinemovidaTheaters[3], latitude: 44.1, longitude: 1.08 }
   assert.equal(THEATER_PROVIDER_LABELS.cinemovida, 'Ciné-Movida')
-  assert.equal(THEATER_PROVIDER_COLORS.cinemovida, '#cb1730')
+  assert.equal(THEATER_PROVIDER_COLORS.cinemovida, '#4c0519')
   assert.equal(cinemaProviderLabels.cinemovida, 'Ciné-Movida')
   assert.equal(statisticsChainLabels.cinemovida, 'Ciné-Movida')
   assert.deepEqual(cinemaDirectoryChains([theater]), ['cinemovida'])
