@@ -47,6 +47,7 @@ const reservation = computed(() => {
     veo: 'Réserver sur Véo Cinémas',
     majestic: 'Réserver sur Majestic Cinémas',
     cineode: 'Site du cinéma Cinéode',
+    cinemovida: 'Réserver sur Ciné-Movida',
   } satisfies Record<Provider, string>
   return {
     url: booking.url,

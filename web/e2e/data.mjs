@@ -345,6 +345,110 @@ export function cineodeMovieSchedule(slug, query) {
   }
 }
 
+// Opt-in Ciné-Movida inventory, shared by SSR and hydrated requests.
+export const cinemovidaTheaters = [
+  ['P0176', 'Perpignan - Castillet', 'Perpignan', 'perpignan'],
+  ['P0218', 'Perpignan - Méga Castillet', 'Perpignan', 'perpignan'],
+  ['P7951', 'Granville - Le Sélect', 'Granville', 'granville'],
+  ['P0876', 'Moissac - Concorde', 'Moissac', 'moissac'],
+].map(([id, name, city, city_slug], index) => ({
+  ...theater,
+  provider: 'cinemovida',
+  id: `cinemovida-${id}`,
+  slug: `cinemovida-${id}`,
+  name,
+  city,
+  city_slug,
+  accepted_passes: [],
+  available_dates:
+    index === 3
+      ? []
+      : [
+          date,
+          new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000)
+            .toISOString()
+            .slice(0, 10),
+        ],
+}))
+export function cinemovidaShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  const rawTheater = venue.id.slice('cinemovida-'.length)
+  const hosts = {
+    P0176: 'achat.cinema-castillet.com',
+    P0218: 'achat.cinema-megacastillet.com',
+    P7951: 'achat.cinemaleselect-granville.com',
+    P0876: 'achat.concordecinema.com',
+  }
+  return {
+    ...payload,
+    discovery: { window: null, movies: [], other_theaters: [] },
+    date: selectedDate,
+    theater: venue,
+    showtimes:
+      rawTheater === 'P0876'
+        ? []
+        : [0, 1, 2].map((index) => {
+            const start = `${selectedDate}T${14 + index * 2}:00:00+02:00`
+            return {
+              ...payload.showtimes[0],
+              provider: 'cinemovida',
+              id: `cinemovida-showing-${rawTheater}-${createHash('sha256').update(`${rawTheater}\0${selectedDate}-${index}`).digest('hex')}`,
+              movie: {
+                ...movie,
+                slug: `cinemovida-film-${index === 2 ? 'c123' : '269068'}`,
+                title:
+                  index === 2
+                    ? 'Rencontre Ciné-Movida'
+                    : 'Programme Ciné-Movida',
+                runtime_minutes: index === 2 ? 0 : 100,
+              },
+              start_time: start,
+              end_time: index === 0 ? `${selectedDate}T15:07:00+02:00` : start,
+              estimated_end_time:
+                index === 2
+                  ? null
+                  : `${selectedDate}T${15 + index * 2}:55:00+02:00`,
+              estimated_end_ads_minutes: index === 2 ? null : 15,
+              duration_minutes: index === 0 ? 67 : 0,
+              start_offset_minutes: (14 + index * 2) * 60,
+              language: ['VOSTFR', 'VFSTF', 'VF'][index],
+              format: index === 0 ? '4DX' : '2D',
+              room: [
+                'Salle 10 PREMIUM MX4D',
+                'Salle 6 PREMIUM ICE',
+                'CASTILLET 2',
+              ][index],
+              booking_url:
+                index === 2
+                  ? 'https://relay.mvtx.us/unsafe'
+                  : `https://${hosts[rawTheater]}/reserver/r/${123 + index}`,
+              poster_url: null,
+              backdrop_url: null,
+            }
+          }),
+  }
+}
+export function cinemovidaMovieSchedule(slug, query) {
+  if (!['cinemovida-film-269068', 'cinemovida-film-c123'].includes(slug))
+    return null
+  const payload = cinemovidaShowtimes(
+    cinemovidaTheaters[0],
+    query.get('date') || date,
+  )
+  const sessions = payload.showtimes.filter((item) => item.movie.slug === slug)
+  return {
+    ...movieSchedule(movie.slug, query),
+    movie: sessions[0].movie,
+    theaters: [{ ...payload.theater, showtimes: sessions }],
+    available_dates: payload.theater.available_dates,
+    date: payload.date,
+    available_languages: [...new Set(sessions.map((item) => item.language))],
+    available_formats: [...new Set(sessions.map((item) => item.format))],
+    pagination: { page: 1, page_size: 10, total: 1, has_more: false },
+    discovery: { window: null, cities: [] },
+  }
+}
+
 export const alternativeTheater = {
   ...theater,
   id: 'fixture-alternative',

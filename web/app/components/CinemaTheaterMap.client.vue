@@ -398,6 +398,8 @@ function onMapLoad() {
           THEATER_PROVIDER_COLORS.majestic,
           'cineode',
           THEATER_PROVIDER_COLORS.cineode,
+          'cinemovida',
+          THEATER_PROVIDER_COLORS.cinemovida,
           '#52525b',
         ],
         'circle-stroke-color': '#ffffff',

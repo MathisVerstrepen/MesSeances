@@ -19,6 +19,7 @@ import (
 	"messeances/api/internal/accountmail"
 	"messeances/api/internal/accounts"
 	"messeances/api/internal/cgr"
+	"messeances/api/internal/cinemovida"
 	"messeances/api/internal/cineode"
 	"messeances/api/internal/cineville"
 	"messeances/api/internal/cinewest"
@@ -559,6 +560,9 @@ func newSyncExecutorOptions(writer schedule.SnapshotWriter, proxies []syncproxy.
 		},
 		NewCineode: func() (cineode.Getter, error) {
 			return cineode.NewClient(cineode.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
+		},
+		NewCinemovida: func() (cinemovida.Getter, error) {
+			return cinemovida.NewClient(cinemovida.ClientConfig{Proxies: proxies, Timeout: cfg.Sync.RequestTimeout})
 		},
 	}
 }

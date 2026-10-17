@@ -12,7 +12,7 @@ func TestMajesticScheduleStarterDispatch(t *testing.T) {
 	provider := &fakeProviderScheduleStarter{}
 	s := syncScheduleStarter{providers: provider}
 	targets := s.AvailableTargets()
-	if len(targets) != 13 || targets[10] != syncschedule.TargetVeo || targets[11] != syncschedule.TargetMajestic || targets[12] != syncschedule.TargetCineode {
+	if len(targets) != 14 || targets[10] != syncschedule.TargetVeo || targets[11] != syncschedule.TargetMajestic || targets[12] != syncschedule.TargetCineode || targets[13] != syncschedule.TargetCinemovida {
 		t.Fatal(targets)
 	}
 	result, err := s.StartScheduled(syncschedule.Occurrence{ScheduleID: 1, Target: syncschedule.TargetMajestic, Revision: 1, ScheduledFor: time.Now()})
@@ -22,5 +22,9 @@ func TestMajesticScheduleStarterDispatch(t *testing.T) {
 	result, err = s.StartScheduled(syncschedule.Occurrence{ScheduleID: 2, Target: syncschedule.TargetCineode, Revision: 3, ScheduledFor: time.Now(), Attempt: 1})
 	if err != nil || !(<-result).Succeeded || provider.occurrence.Provider != synccontrol.TargetCineode || provider.occurrence.ScheduleID != 2 || provider.occurrence.Revision != 3 || provider.occurrence.Attempt != 1 {
 		t.Fatal("Cineode dispatch", err)
+	}
+	result, err = s.StartScheduled(syncschedule.Occurrence{ScheduleID: 3, Target: syncschedule.TargetCinemovida, Revision: 4, ScheduledFor: time.Now(), Attempt: 1})
+	if err != nil || !(<-result).Succeeded || provider.occurrence.Provider != synccontrol.TargetCinemovida || provider.occurrence.ScheduleID != 3 || provider.occurrence.Revision != 4 || provider.occurrence.Attempt != 1 {
+		t.Fatal("Ciné-Movida dispatch", err)
 	}
 }

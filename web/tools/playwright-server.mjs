@@ -26,6 +26,9 @@ import {
   cineodeTheaters,
   cineodeShowtimes,
   cineodeMovieSchedule,
+  cinemovidaTheaters,
+  cinemovidaShowtimes,
+  cinemovidaMovieSchedule,
   syntheticWatchlist,
   syntheticWatched,
   watchedCatalog,
@@ -121,6 +124,30 @@ const mock = createServer((request, response) => {
   const url = new URL(request.url, origin)
   const path = url.pathname
   if (request.method === 'GET') {
+    if (scenario.cinemovida && path === '/api/v1/search/slot') {
+      const requested = url.searchParams.get('theaters')?.split(',') || []
+      return json(
+        response,
+        cinemovidaTheaters
+          .filter((venue) => requested.includes(venue.id))
+          .flatMap((venue) =>
+            cinemovidaShowtimes(
+              venue,
+              url.searchParams.get('date') || date,
+            ).showtimes.map((showtime) => ({
+              theater: venue,
+              showtime,
+              poster_url: null,
+              backdrop_url: null,
+              effective_start_time: showtime.start_time,
+              effective_end_time: showtime.end_time,
+              buffer_ads_minutes: 15,
+              slack_before_minutes: 0,
+              slack_after_minutes: 0,
+            })),
+          ),
+      )
+    }
     if (
       path.startsWith('/api/v1/') &&
       !/\/account\/|\/auth\/|\/admin\//.test(path)
@@ -232,6 +259,7 @@ const mock = createServer((request, response) => {
         secondTheater,
         ...(scenario.veo ? veoTheaters : []),
         ...(scenario.cineode ? cineodeTheaters : []),
+        ...(scenario.cinemovida ? cinemovidaTheaters : []),
         ...(scenario.allChains
           ? [
               'cgr',
@@ -273,6 +301,13 @@ const mock = createServer((request, response) => {
     }
     const filmRoute = /^\/api\/v1\/movies\/([^/]+)\/showtimes$/.exec(path)
     if (filmRoute) {
+      if (scenario.cinemovida) {
+        const detail = cinemovidaMovieSchedule(
+          decodeURIComponent(filmRoute[1]),
+          url.searchParams,
+        )
+        if (detail) return json(response, detail)
+      }
       if (scenario.cineode) {
         const detail = cineodeMovieSchedule(
           decodeURIComponent(filmRoute[1]),
@@ -312,6 +347,17 @@ const mock = createServer((request, response) => {
     }
     const cinemaRoute = /^\/api\/v1\/theaters\/([^/]+)\/showtimes$/.exec(path)
     if (cinemaRoute && cinemaRoute[1] !== 'missing') {
+      const cinemovidaVenue =
+        scenario.cinemovida &&
+        cinemovidaTheaters.find((item) => item.slug === cinemaRoute[1])
+      if (cinemovidaVenue)
+        return json(
+          response,
+          cinemovidaShowtimes(
+            cinemovidaVenue,
+            url.searchParams.get('date') || date,
+          ),
+        )
       const cineodeVenue =
         scenario.cineode &&
         cineodeTheaters.find((item) => item.slug === cinemaRoute[1])

@@ -10,6 +10,7 @@ import noeCinemasLogoSmall from '~/assets/imgs/noe_cinema_logo_small.webp?no-inl
 import veoLogo from '~/assets/brands/veocinema_logo.svg?no-inline'
 import majesticLogo from '~/assets/brands/majestic_logo.svg?no-inline'
 import cineodeLogo from '~/assets/brands/cineode_logo.svg?no-inline'
+import cinemovidaLogo from '~/assets/brands/cinemovida_logo.svg?no-inline'
 import megaramaLogoSmall from '~/assets/imgs/megarama_logo_small.webp?no-inline'
 import imaxLogoLarge from '~/assets/imgs/imax_logo_large.webp?no-inline'
 import imaxLogoSmall from '~/assets/imgs/imax_logo_small.webp?no-inline'
@@ -43,6 +44,7 @@ type Brand =
   | 'Véo Cinémas'
   | 'Majestic Cinémas'
   | 'Cinéode'
+  | 'Ciné-Movida'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -78,6 +80,7 @@ const sources = {
   'Véo Cinémas': { inline: veoLogo, display: veoLogo },
   'Majestic Cinémas': { inline: majesticLogo, display: majesticLogo },
   Cinéode: { inline: cineodeLogo, display: cineodeLogo },
+  'Ciné-Movida': { inline: cinemovidaLogo, display: cinemovidaLogo },
   IMAX: { inline: imaxLogoSmall, display: imaxLogoLarge },
   KINEPOLIS: { inline: kinepolisLogoSmall, display: kinepolisLogoLarge },
   PATHE: { inline: patheLogoSmall, display: patheLogoLarge },
@@ -107,6 +110,7 @@ const accessibleNames = {
   'Véo Cinémas': 'Véo Cinémas',
   'Majestic Cinémas': 'Majestic Cinémas',
   Cinéode: 'Cinéode',
+  'Ciné-Movida': 'Ciné-Movida',
   IMAX: 'IMAX',
   KINEPOLIS: 'Kinepolis',
   PATHE: 'Pathé',
@@ -130,7 +134,9 @@ const accessibleNames = {
     :alt="decorative ? '' : accessibleNames[brand]"
     :aria-hidden="decorative ? 'true' : undefined"
     class="inline-block max-w-full shrink-0 select-none object-contain"
-    :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'ICE'
+    :class="[brand === 'Grand Ecran' ? 'bg-ink' : brand === 'Noé Cinémas' ? 'bg-white' : '', brand === 'Ciné-Movida'
+      ? (variant === 'display' ? 'aspect-square w-20 sm:w-24' : 'h-[2em] w-[2em] align-middle')
+      : brand === 'ICE'
       ? (variant === 'display' ? 'h-16 w-auto sm:h-20' : 'h-[2em] w-auto align-middle')
       : variant === 'display'
       ? (brand === 'UGC' || brand === 'MEGARAMA' || brand === 'CINEVILLE' || brand === 'MK2' || brand === 'CINEWEST' || brand === 'Grand Ecran' || brand === 'Noé Cinémas' || brand === 'Véo Cinémas' || brand === 'Majestic Cinémas' || brand === 'Cinéode' ? 'w-36 sm:w-40' : brand === 'CGR' || brand === 'KINEPOLIS' || brand === 'PATHE' ? 'w-44 sm:w-48' : 'w-44 sm:w-52')

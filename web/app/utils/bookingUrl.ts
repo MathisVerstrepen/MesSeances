@@ -4,6 +4,7 @@ import { safeCinewestBooking } from './cinewest.ts'
 import { safeVeoBooking } from './veo.ts'
 import { safeMajesticBooking } from './majestic.ts'
 import { safeCineodeBooking } from './cineode.ts'
+import { safeCinemovidaBooking } from './cinemovida.ts'
 
 export interface SafeBookingUrl {
   provider: Provider
@@ -177,6 +178,14 @@ export function safeBookingUrl(
   showtimeId?: string | null,
   theaterId?: string | null,
 ): SafeBookingUrl | null {
+  if (
+    raw &&
+    (expectedProvider === 'cinemovida' || expectedProvider === undefined)
+  ) {
+    const cinemovida = safeCinemovidaBooking(raw, showtimeId, theaterId)
+    if (cinemovida) return { provider: 'cinemovida', ...cinemovida }
+  }
+  if (expectedProvider === 'cinemovida') return null
   if (
     raw &&
     (expectedProvider === 'cineode' || expectedProvider === undefined)

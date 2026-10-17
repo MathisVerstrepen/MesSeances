@@ -8,6 +8,7 @@ import {
   theater,
   veoTheaters,
   cineodeTheaters,
+  cinemovidaTheaters,
 } from './data.mjs'
 
 const path = `/cinema/${theater.slug}?date=${date}`
@@ -725,6 +726,258 @@ test('ICE technology credit uses supplied display logo and official attribution'
     ),
   ).toBe(true)
   await credit.screenshot({ path: info.outputPath('ice-credit.png') })
+})
+
+test('Ciné-Movida SSR and hydrated programme preserve source ends, premium rooms, booking and square logo', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  const url = `/cinema/${cinemovidaTheaters[0].slug}?date=${date}`
+  const response = await request.get(url)
+  expect(response.status()).toBe(200)
+  const html = await response.text()
+  for (const value of [
+    'cinemovida_logo',
+    'Perpignan - Castillet',
+    'PREMIUM MX4D',
+    'PREMIUM ICE',
+    'VOSTFR',
+    'VFSTF',
+    '15:07',
+    'Fin estimée',
+  ])
+    expect(html).toContain(value)
+  expect(html).not.toContain('href="https://relay.mvtx.us/')
+  await openPage(page, url)
+  const logo = page.locator('main > header img[src*="cinemovida_logo"]')
+  await expect(logo).toHaveAttribute('alt', 'Ciné-Movida')
+  await expect(logo).toHaveJSProperty('complete', true)
+  expect(
+    await logo.evaluate(
+      (image: HTMLImageElement) => image.naturalWidth / image.naturalHeight,
+    ),
+  ).toBe(1)
+  await expect(logo).toHaveCSS('object-fit', 'contain')
+  const logoBox = (await logo.boundingBox())!
+  const frameBox = (await logo.locator('..').boundingBox())!
+  expect(logoBox.width / logoBox.height).toBeCloseTo(1, 2)
+  expect(logoBox.height).toBeGreaterThanOrEqual(60)
+  expect(logoBox.y).toBeGreaterThanOrEqual(frameBox.y)
+  expect(logoBox.y + logoBox.height).toBeLessThanOrEqual(
+    frameBox.y + frameBox.height,
+  )
+  async function checkProgramme() {
+    const links = page.locator('main a[data-showtime-id]')
+    await expect(links).toHaveCount(2)
+    for (const link of await links.all()) {
+      await expect(link).toHaveAttribute(
+        'href',
+        /^https:\/\/achat\.cinema-castillet\.com\/reserver\/r\/12[34]$/,
+      )
+      await expect(link).toHaveAttribute('target', '_blank')
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+      await expect(link).toHaveAttribute(
+        'aria-label',
+        /ouverture dans un nouvel onglet/,
+      )
+    }
+    await expect(links.first()).toContainText('15h07')
+    await expect(links.first()).not.toContainText('Fin estimée')
+    await expect(links.first()).toContainText('PREMIUM MX4D')
+    await expect(links.first()).toContainText('4DX')
+    await expect(links.nth(1)).toContainText('PREMIUM ICE')
+    await expect(links.nth(1)).toContainText('2D')
+    await expect(links.nth(1)).toContainText('VFSTF')
+    const disabled = page.locator(
+      'main [aria-disabled="true"][data-showtime-id]',
+    )
+    await expect(disabled).toHaveCount(1)
+    await expect(disabled).not.toHaveAttribute('href')
+    await expect(disabled).toContainText('Réservation indisponible')
+    await expect(disabled).not.toContainText(/fin|0 min/i)
+    await expect(
+      page.locator('main [data-movie-slug="cinemovida-film-c123"] header'),
+    ).not.toContainText(/\b0\s*min/)
+    const estimate = page
+      .locator('main [tabindex="0"][aria-describedby]')
+      .filter({ hasText: 'Fin estimée' })
+    await expect(estimate).toHaveCount(1)
+    await estimate.focus()
+    await expect(page.getByRole('tooltip')).toContainText('100 min de film')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('tooltip')).toBeHidden()
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+  }
+  await checkProgramme()
+  await page.screenshot({
+    path: info.outputPath('cinemovida-cinema.png'),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('tab', { name: 'Demain', exact: true }).click()
+  await expect(page).not.toHaveURL(new RegExp(`date=${date}`))
+  await page.setViewportSize(info.project.use.viewport!)
+  await checkProgramme()
+})
+
+test('Ciné-Movida film SSR and hydration retain canonical/estimated ends and unknown metadata', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  for (const film of ['269068', 'c123']) {
+    const url = `/film/cinemovida-film-${film}?date=${date}`
+    const response = await request.get(url)
+    expect(response.status()).toBe(200)
+    const html = await response.text()
+    expect(html).toContain('cinemovida_logo')
+    expect(html).not.toMatch(/>\s*0\s*min/)
+    await openPage(page, url)
+    if (film === '269068') {
+      await expect(page.locator('main')).toContainText('15h07')
+      await expect(page.locator('main')).toContainText('Fin estimée')
+      const booking = page.getByRole('link', {
+        name: /^Séance de .*réserver, ouverture dans un nouvel onglet$/,
+      })
+      await expect(booking).toHaveCount(2)
+      await expect(booking.first()).toHaveAttribute(
+        'href',
+        'https://achat.cinema-castillet.com/reserver/r/123',
+      )
+      await expect(booking.first()).toHaveAccessibleName(
+        /Perpignan - Castillet.*réserver.*nouvel onglet/,
+      )
+      await booking.first().focus()
+      await expect(booking.first()).toBeFocused()
+    } else {
+      await expect(page.locator('main a[href*="/reserver/"]')).toHaveCount(0)
+      await expect(page.locator('main')).toContainText(
+        'Réservation indisponible',
+      )
+      await expect(page.locator('main')).not.toContainText(/Fin estimée|0 min/)
+    }
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true)
+    await page.screenshot({
+      path: info.outputPath(`cinemovida-film-${film}.png`),
+      fullPage: true,
+    })
+  }
+})
+
+test('Ciné-Movida directory chain/theater persistence, empty venue and credit stay accessible', async ({
+  page,
+  request,
+}, info) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  await openPage(page, '/cinemas')
+  const mobile = info.project.name === 'mobile'
+  if (mobile)
+    await page.getByRole('button', { name: /Réglages|Paramètres/ }).click()
+  else
+    await page
+      .locator('summary')
+      .filter({ hasText: 'Toutes les enseignes' })
+      .click()
+  const choice = page.getByRole('checkbox', {
+    name: 'Ciné-Movida',
+    exact: true,
+  })
+  await choice.focus()
+  await page.keyboard.press('Space')
+  await expect(choice).toBeChecked()
+  await expect(page).toHaveURL(/chains=cinemovida/)
+  if (mobile) await page.getByRole('button', { name: /Fermer/ }).click()
+  else await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(page).toHaveURL(/chains=cinemovida/)
+  const selected = page
+    .getByRole('checkbox', { name: /Sélectionner Perpignan - Castillet/ })
+    .first()
+  await expect(selected).toBeEnabled()
+  await selected.focus()
+  await page.keyboard.press('Space')
+  await page.reload()
+  await expect(
+    page
+      .getByRole('checkbox', { name: /Sélectionner Perpignan - Castillet/ })
+      .first(),
+  ).toBeChecked()
+  const empty = cinemovidaTheaters[3]
+  await openPage(page, `/cinema/${empty.slug}?date=${date}`)
+  await expect(page.locator('main')).toContainText(empty.name)
+  await expect(
+    page.getByRole('heading', {
+      name: 'Aucune séance à cette date',
+      exact: true,
+    }),
+  ).toBeVisible()
+  await expect(page.locator('main a[data-showtime-id]')).toHaveCount(0)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
+  await page.screenshot({
+    path: info.outputPath('cinemovida-empty.png'),
+    fullPage: true,
+  })
+  await openPage(page, '/credits')
+  const credit = page.getByRole('link', {
+    name: 'Site officiel Ciné-Movida, ouverture dans un nouvel onglet',
+    exact: true,
+  })
+  await expect(credit).toHaveAttribute('href', 'https://www.cine-movida.com/')
+  await expect(credit).toHaveAttribute('target', '_blank')
+  await expect(credit).toHaveAttribute('rel', 'noopener noreferrer')
+  await expect(credit.locator('img')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('Ciné-Movida search selection and selected-only shared URL survive reload', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', { data: { cinemovida: true } })
+  await openPage(
+    page,
+    `/recherche?theaters=cinemovida-P0176&date=${date}&start_after=12:00&finish_before=23:00`,
+  )
+  const add = page.getByRole('button', {
+    name: /^Ajouter la séance de Programme Ciné-Movida/,
+  })
+  await expect(add).toHaveCount(2)
+  await add.first().click()
+  await expect(page).toHaveURL(/selected=dP0176-/)
+  const shared = new URL(page.url())
+  shared.searchParams.set('selected_only', '1')
+  await openPage(page, shared.pathname + shared.search)
+  await expect(
+    page.getByRole('button', {
+      name: /^Retirer la séance de Programme Ciné-Movida/,
+    }),
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole('button', { name: /^Ajouter la séance/ }),
+  ).toHaveCount(0)
+  await page.reload()
+  await expect(
+    page.getByRole('button', {
+      name: /^Retirer la séance de Programme Ciné-Movida/,
+    }),
+  ).toHaveCount(1)
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true)
 })
 
 test('Cinéode SSR and hydrated cinema programme preserve website links, missing metadata and estimated ends', async ({

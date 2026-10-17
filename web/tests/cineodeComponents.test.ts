@@ -364,7 +364,7 @@ test('Cinéode schedule target availability and latest all-run status use existi
   )
   assert.equal(
     result.targets.indexOf('tmdb_metadata_refresh'),
-    result.targets.indexOf('cineode') + 1,
+    result.targets.indexOf('cinemovida') + 1,
   )
   assert.equal(result.targetLabels.cineode, 'Cinéode')
   assert.equal(result.latest, job)
