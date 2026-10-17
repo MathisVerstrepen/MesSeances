@@ -367,6 +367,70 @@ test('films and city walk hidden-only first and final public pages before local 
     ),
   ).toBe(true)
 })
+test('home preview stops after one public page for 2140 movies and preserves Show and anonymous results', async ({
+  page,
+  request,
+}, info) => {
+  await seed(request, {
+    watchedCatalog: true,
+    watchedCatalogSize: 2140,
+    watchedSlugs: [movie.slug],
+  })
+  await openPage(page, '/')
+  const preview = page.getByRole('list', { name: 'Films à l’affiche' })
+  await expect(preview.locator('li')).toHaveCount(6)
+  await expect(preview.locator('a')).toHaveCount(6)
+  expect(
+    await preview
+      .locator('a')
+      .evaluateAll((links) => links.map((link) => link.getAttribute('href'))),
+  ).toEqual(
+    Array.from({ length: 6 }, (_, index) => `/film/film-watched-${index + 1}`),
+  )
+  const queries = (await state(request)).publicQueries.filter(
+    (entry: { path: string; query: Record<string, string> }) =>
+      entry.path === '/api/v1/movies' && entry.query.page_size !== '6',
+  )
+  expect(
+    queries.map((entry: { query: Record<string, string> }) => entry.query),
+  ).toEqual([
+    {
+      currently_screened: 'true',
+      sort: 'showtimes_desc',
+      page: '1',
+      page_size: '12',
+    },
+  ])
+  await overflow(page)
+  await page.screenshot({
+    path: info.outputPath('home-preview.png'),
+    fullPage: true,
+  })
+  for (const extra of [
+    { watchedPreferences: { home_visibility: 'show' } },
+    { state: 'anonymous' },
+  ]) {
+    await seed(request, {
+      watchedCatalog: true,
+      watchedCatalogSize: 2140,
+      watchedSlugs: [movie.slug],
+      ...extra,
+    })
+    await openPage(page, '/')
+    await expect(preview.locator(`a[href="${detail}"]`)).toBeVisible()
+    const publicQueries = (await state(request)).publicQueries.filter(
+      (entry: { path: string }) => entry.path === '/api/v1/movies',
+    )
+    expect(publicQueries.length).toBeGreaterThan(0)
+    expect(
+      publicQueries.every(
+        (entry: { query: Record<string, string> }) =>
+          entry.query.page_size === '6' && entry.query.page === '1',
+      ),
+    ).toBe(true)
+  }
+})
+
 test('home refills six and cinema all-page films filter before counts', async ({
   page,
   request,
@@ -382,6 +446,22 @@ test('home refills six and cinema all-page films filter before counts', async ({
   await expect(
     page.getByRole('list', { name: 'Films à l’affiche' }),
   ).toContainText('Inédit 1')
+  expect(
+    (await state(request)).publicQueries
+      .filter(
+        (entry: { path: string; query: Record<string, string> }) =>
+          entry.path === '/api/v1/movies' && entry.query.page_size !== '6',
+      )
+      .map((entry: { query: Record<string, string> }) => ({
+        page: entry.query.page,
+        page_size: entry.query.page_size,
+      })),
+  ).toEqual(
+    Array.from({ length: 9 }, (_, index) => ({
+      page: String(index + 1),
+      page_size: '12',
+    })),
+  )
   await openPage(page, `/cinema/${theater.slug}?view=films`)
   await expect(page.locator('[data-catalog-movie]')).toHaveCount(30)
   await expect(

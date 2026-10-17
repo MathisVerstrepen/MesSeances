@@ -70,12 +70,10 @@ async function loadMovies() {
   errorMessage.value = ''
 
   try {
-    const response = await discovery.movies({
-      currently_screened: true,
-      sort: 'showtimes_desc',
-      page: 1,
-      page_size: 6,
-    })
+    const response = await discovery.moviePreview(
+      { currently_screened: true, sort: 'showtimes_desc' },
+      6,
+    )
     if (currentRequest === requestId) movies.value = response.items.slice(0, 6)
   } catch (error) {
     if (currentRequest === requestId) {
