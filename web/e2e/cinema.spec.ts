@@ -931,6 +931,7 @@ for (const venue of veoTheaters) {
     expect(html).toContain('veocinema_logo')
     expect(html).toContain('Événement Véo')
     expect(html).toContain('VOSTFR')
+    expect(html).not.toMatch(/>\s*Site du cinéma Véo\s*</)
     expect(html).not.toContain('href="https://achat.veocinemas.fr.evil.test')
     expect(html).toContain(
       venue.id === 'veo-EMS1361'
@@ -986,7 +987,12 @@ for (const venue of veoTheaters) {
           'href',
           'https://castelginest.miracinemas.fr/',
         )
-        await expect(website).toContainText('Site du cinéma Véo')
+        await expect(website).toHaveAccessibleName(
+          'Site du cinéma Véo, ouverture dans un nouvel onglet',
+        )
+        await expect(website).not.toContainText(/Site du cinéma|Réserver/)
+        await expect(website).toHaveAttribute('target', '_blank')
+        await expect(website).toHaveAttribute('rel', 'noopener noreferrer')
       }
       expect(
         await page.evaluate(
