@@ -13,6 +13,7 @@ type CreditBrand =
   | 'Véo Cinémas'
   | 'Majestic Cinémas'
   | 'Cinéode'
+  | 'Ciné-Movida'
   | 'IMAX'
   | 'KINEPOLIS'
   | 'PATHE'
@@ -80,6 +81,11 @@ const creditSections: Array<{
         brand: 'Cinéode',
         name: 'Cinéode',
         url: 'https://www.cineode.fr/',
+      },
+      {
+        brand: 'Ciné-Movida',
+        name: 'Ciné-Movida',
+        url: 'https://www.cine-movida.com/',
       },
     ],
   },

@@ -20,6 +20,9 @@ func recordProvider(explicit Provider, identity string) Provider {
 	if strings.HasPrefix(identity, string(ProviderCineode)+"-") {
 		return ProviderCineode
 	}
+	if strings.HasPrefix(identity, string(ProviderCinemovida)+"-") {
+		return ProviderCinemovida
+	}
 	if strings.HasPrefix(identity, string(ProviderCinewest)+"-") {
 		return ProviderCinewest
 	}

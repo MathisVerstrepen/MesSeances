@@ -60,6 +60,7 @@ function run(
       veo: { state: 'not_requested' },
       majestic: { state: 'not_requested' },
       cineode: { state: 'not_requested' },
+      cinemovida: { state: 'not_requested' },
       ...statuses,
     },
   }
@@ -274,12 +275,12 @@ async function renderPage(
   return renderToString(app)
 }
 
-test('idle launch buttons use all thirteen decorative chain logos with visible names; Tous keeps refresh', async () => {
+test('idle launch buttons use all fourteen decorative chain logos with visible names; Tous keeps refresh', async () => {
   const html = await renderPage()
   const buttons = [...html.matchAll(/<button\b[\s\S]*?<\/button>/g)].map(
     (match) => match[0],
   )
-  assert.equal(buttons.length, 14)
+  assert.equal(buttons.length, 15)
   assert.match(buttons[0]!, /data-component="RefreshCw"/)
   assert.match(buttons[0]!, />\s*Tous</)
   assert.doesNotMatch(buttons[0]!, /data-brand/)
@@ -298,6 +299,7 @@ test('idle launch buttons use all thirteen decorative chain logos with visible n
     'Véo Cinémas',
     'Majestic Cinémas',
     'Cinéode',
+    'Ciné-Movida',
   ]
   uiBindings.providers.forEach((provider: Provider, index: number) => {
     const button = buttons[index + 1]!

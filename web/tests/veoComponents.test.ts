@@ -238,7 +238,7 @@ test('Véo is exhaustive across public/admin registries, chain filters, statisti
     if (page.startsWith('sync'))
       assert.match(
         value,
-        /'noecinemas',\s*'veo',\s*'majestic',\s*'cineode',\s*\] as const/,
+        /'noecinemas',\s*'veo',\s*'majestic',\s*'cineode',\s*'cinemovida',\s*\] as const/,
       )
   }
   assert.match(

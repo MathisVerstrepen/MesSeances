@@ -53,6 +53,7 @@ export const statisticsChainLabels = {
   veo: 'Véo Cinémas',
   majestic: 'Majestic Cinémas',
   cineode: 'Cinéode',
+  cinemovida: 'Ciné-Movida',
 } as const satisfies Record<Provider, string>
 const chains = Object.keys(statisticsChainLabels)
 const languages = [...showtimeLanguageValues, 'VOF', 'unknown'] as const
@@ -161,6 +162,7 @@ export function parseStatisticsQuery(
       'veo',
       'majestic',
       'cineode',
+      'cinemovida',
     ])
   if (values.language)
     query.language = enumQueryValue(values.language, languages)

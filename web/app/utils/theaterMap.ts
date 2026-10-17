@@ -16,6 +16,7 @@ export const THEATER_PROVIDER_COLORS = {
   veo: '#8e1a6f',
   majestic: '#bb1837',
   cineode: '#000000',
+  cinemovida: '#cb1730',
 } satisfies Record<Provider, string>
 
 export const THEATER_PROVIDER_LABELS = {
@@ -32,6 +33,7 @@ export const THEATER_PROVIDER_LABELS = {
   veo: 'Véo Cinémas',
   majestic: 'Majestic Cinémas',
   cineode: 'Cinéode',
+  cinemovida: 'Ciné-Movida',
 } satisfies Record<Provider, string>
 
 export interface TheaterMapProperties {

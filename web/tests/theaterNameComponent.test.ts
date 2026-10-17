@@ -103,6 +103,10 @@ const providers = {
   cinewest: 'Cinewest',
   grandecran: 'Grand Ecran',
   noecinemas: 'Noé Cinémas',
+  veo: 'Véo Cinémas',
+  majestic: 'Majestic Cinémas',
+  cineode: 'Cinéode',
+  cinemovida: 'Ciné-Movida',
 } satisfies Record<Provider, string>
 
 // SAFETY: providers is a local literal exhaustively checked against Record<Provider, string> above.
@@ -113,9 +117,20 @@ test('hero uses one white logo tile and a separate full source name for every pr
   for (const provider of providerKeys) {
     const html = await render(name, provider, { variant: 'hero' })
     assert.equal((html.match(/<img /g) || []).length, 1)
-    assert.match(html, /mb-4 flex h-\[52px\] w-\[130px\] max-w-full/)
-    assert.match(html, /border-2 border-ink bg-white p-2 lg:h-14 lg:w-36/)
-    assert.match(html, /h-8 max-w-full object-contain lg:h-9/)
+    assert.match(html, /mb-4 flex max-w-full/)
+    assert.match(html, /border-2 border-ink bg-white p-2/)
+    assert.match(
+      html,
+      provider === 'cinemovida'
+        ? /h-20 w-20 lg:h-24 lg:w-24/
+        : /h-\[52px\] w-\[130px\] lg:h-14 lg:w-36/,
+    )
+    assert.match(
+      html,
+      provider === 'cinemovida'
+        ? /object-contain h-full w-full/
+        : /object-contain h-8 lg:h-9/,
+    )
     assert.ok(html.includes(`alt="${providers[provider]}"`), html)
     assert.ok(html.includes(`[overflow-wrap:anywhere]">${name}</span>`), html)
     assert.doesNotMatch(html, /truncate|line-clamp/)
@@ -143,13 +158,20 @@ test('hero retains nonduplicated accessible branding and inline remains the defa
 
 for (const provider of providerKeys) {
   const asset =
-    provider === 'mk2' || provider === 'ugc' || provider === 'cinewest'
-      ? `${provider}_logo.svg`
-      : provider === 'grandecran'
-        ? 'grand_ecran_logo_small.webp'
-        : provider === 'noecinemas'
-          ? 'noe_cinema_logo_small.webp'
-          : `${provider}_logo_small.webp`
+    provider === 'veo'
+      ? 'veocinema_logo.svg'
+      : provider === 'mk2' ||
+          provider === 'ugc' ||
+          provider === 'cinewest' ||
+          provider === 'majestic' ||
+          provider === 'cineode' ||
+          provider === 'cinemovida'
+        ? `${provider}_logo.svg`
+        : provider === 'grandecran'
+          ? 'grand_ecran_logo_small.webp'
+          : provider === 'noecinemas'
+            ? 'noe_cinema_logo_small.webp'
+            : `${provider}_logo_small.webp`
   test(`${provider}: provider logo is unique and source name stays exact with or without its brand`, async () => {
     for (const name of [
       'Cinéma GALAXY',

@@ -277,7 +277,10 @@ test('Majestic public filters, image routes, map, descriptions and admin registr
     const value = await source(`pages/admin/${page}.vue`)
     assert.match(value, /majestic: 'Majestic Cinémas'/)
     if (page.startsWith('sync'))
-      assert.match(value, /'veo',\s*'majestic',\s*'cineode',\s*\] as const/)
+      assert.match(
+        value,
+        /'veo',\s*'majestic',\s*'cineode',\s*'cinemovida',\s*\] as const/,
+      )
   }
   assert.match(
     await source('pages/admin/sync-schedules.vue'),

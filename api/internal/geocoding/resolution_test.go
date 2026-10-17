@@ -102,7 +102,7 @@ func TestResolutionServiceValidatesKeysCoordinatesAndVersionToken(t *testing.T) 
 }
 
 func TestValidProviderTheaterIDMirrorsCurrentProviderIdentities(t *testing.T) {
-	for _, input := range []struct{ provider, id string }{{"ugc", "25"}, {"kinepolis", "FR-Lomme_1"}, {"pathe", "lille"}, {"cgr", "A1234"}, {"megarama", "EMS0565"}, {"cineville", "639"}, {"mk2", "0004"}, {"cinewest", "ticketingcine-EMS1378"}, {"grandecran", "G028P"}, {"noecinemas", "P8088"}} {
+	for _, input := range []struct{ provider, id string }{{"ugc", "25"}, {"kinepolis", "FR-Lomme_1"}, {"pathe", "lille"}, {"cgr", "A1234"}, {"megarama", "EMS0565"}, {"cineville", "639"}, {"mk2", "0004"}, {"cinewest", "ticketingcine-EMS1378"}, {"grandecran", "G028P"}, {"noecinemas", "P8088"}, {"cinemovida", "P0176"}, {"cinemovida", "P0218"}, {"cinemovida", "P7951"}, {"cinemovida", "P0876"}} {
 		if !ValidProviderTheaterID(input.provider, input.id) {
 			t.Fatalf("valid key rejected: %+v", input)
 		}
