@@ -250,7 +250,7 @@ func parseSchedule(b []byte, c cinema, p map[string][]string, movies map[string]
 	}
 	rows := []schedule.ShowtimeRecord{}
 	unknown := map[string]bool{}
-	seen := map[string]schedule.ShowtimeRecord{}
+	groups := map[string][]int{}
 	for id, dates := range p {
 		m, ok := movies[id]
 		if !ok && len(dates) > 0 {
@@ -270,15 +270,41 @@ func parseSchedule(b []byte, c cinema, p map[string][]string, movies map[string]
 				if err != nil {
 					return nil, nil, err
 				}
-				if prior, ok := seen[row.ID]; ok {
+				duplicate := false
+				for _, index := range groups[s.ID] {
+					prior := rows[index]
+					if reflect.DeepEqual(prior, row) {
+						duplicate = true
+						continue
+					}
+					// Only distinct, known rooms with distinct ticket sessions may
+					// share a room-blind source ID. Every other showing fact agrees.
+					if prior.Room == "" || row.Room == "" || prior.Room == row.Room || prior.BookingURL == row.BookingURL {
+						return nil, nil, errShape
+					}
+					prior.Room, prior.BookingURL = row.Room, row.BookingURL
 					if !reflect.DeepEqual(prior, row) {
 						return nil, nil, errShape
 					}
+				}
+				if duplicate {
 					continue
 				}
-				seen[row.ID] = row
+				groups[s.ID] = append(groups[s.ID], len(rows))
 				rows = append(rows, row)
 			}
+		}
+	}
+	// Assign every collision member, including the first, only after the whole
+	// group is validated. Ordinary source identities remain unchanged.
+	for rawID, indices := range groups {
+		if len(indices) < 2 {
+			continue
+		}
+		for _, index := range indices {
+			row := &rows[index]
+			row.ProviderShowingID = schedule.VeoShowingID(c.ID, rawID+"\x00"+row.BookingURL)
+			row.ID = "veo-showing-" + row.ProviderShowingID
 		}
 	}
 	return rows, unknown, nil

@@ -32,7 +32,7 @@ type checkoutFacts struct {
 	hasEnd       bool
 	room         string
 	// Parser-private attestation, never inferred from diagnostic shape or errors.
-	toulouseEntry bool
+	genericEntry bool
 }
 
 func parseCheckout(body []byte, canonicalURL string) (checkoutFacts, error) {
@@ -130,7 +130,7 @@ func parseCheckoutPage(body []byte, canonicalURL, theaterID string, requireForm 
 		rejected.actionOnly = actionOnly
 		rejected.path = path
 		if actionOnly {
-			facts.toulouseEntry = exactToulouseEntryAction(root)
+			facts.genericEntry = exactEntryAction(root, entryCheckoutAction(theaterID))
 			// Only the orchestrator may inspect these discarded first-page clocks
 			// to rule out end-resolution failures before spending a retry.
 			return facts, rejected
@@ -171,16 +171,19 @@ func parseCheckoutPage(body []byte, canonicalURL, theaterID string, requireForm 
 
 // Called only after the parser attests every raw/DOM form check except action
 // equality. Compare the decoded literal, not URL normalization or diagnostics.
-func exactToulouseEntryAction(root *xhtml.Node) bool {
+func exactEntryAction(root *xhtml.Node, action string) bool {
+	if action == "" {
+		return false
+	}
 	if root.Type == xhtml.ElementNode && root.Data == "form" {
 		for _, a := range root.Attr {
 			if a.Key == "action" {
-				return a.Val == "https://achat.veocinemas.fr/toulouse/reserver/"
+				return a.Val == action
 			}
 		}
 	}
 	for c := root.FirstChild; c != nil; c = c.NextSibling {
-		if exactToulouseEntryAction(c) {
+		if exactEntryAction(c, action) {
 			return true
 		}
 	}
@@ -548,19 +551,37 @@ func (b *checkoutRetryBudget) recovered(rejected *CheckoutParseError) {
 
 type resolvedCheckout struct {
 	checkoutFacts
-	end                 time.Time
-	toulouseUnavailable bool
+	end              time.Time
+	entryUnavailable bool
 }
 
-func boundToulouseCheckout(row schedule.ShowtimeRecord, canonical string) bool {
-	if row.TheaterID != "veo-G0699" || !schedule.ValidVeoIdentity("showing", row.ProviderShowingID) ||
-		!strings.HasPrefix(row.ProviderShowingID, "G0699-") || row.ID != "veo-showing-"+row.ProviderShowingID ||
-		!schedule.ValidVeoBookingURL(row.BookingURL, "G0699", row.ProviderShowingID) {
+func entryCheckoutAction(theaterID string) string {
+	switch theaterID {
+	case "veo-G0699":
+		return "https://achat.veocinemas.fr/toulouse/reserver/"
+	case "veo-P0833":
+		return "https://achat.veocinemas.fr/saint-chamond/reserver/"
+	case "veo-G06DB":
+		return "https://achat.cinema-senechal.com/reserver/"
+	default:
+		return ""
+	}
+}
+
+func boundEntryCheckout(row schedule.ShowtimeRecord, canonical string) bool {
+	action := entryCheckoutAction(row.TheaterID)
+	cinemaID := strings.TrimPrefix(row.TheaterID, "veo-")
+	if action == "" || !schedule.ValidVeoIdentity("showing", row.ProviderShowingID) ||
+		!strings.HasPrefix(row.ProviderShowingID, cinemaID+"-") || row.ID != "veo-showing-"+row.ProviderShowingID ||
+		!schedule.ValidVeoBookingURL(row.BookingURL, cinemaID, row.ProviderShowingID) {
+		return false
+	}
+	if row.TheaterID == "veo-G06DB" && !schedule.ValidVeoGueretRelayURL(row.BookingURL) {
 		return false
 	}
 	u, err := url.Parse(canonical)
 	return err == nil && canonicalCheckoutURL(u) && u.String() == canonical &&
-		strings.HasPrefix(canonical, "https://achat.veocinemas.fr/toulouse/reserver/") &&
+		strings.HasPrefix(canonical, action) &&
 		boundCheckoutURL(u, checkoutBinding{source: row.BookingURL, start: row.StartTime})
 }
 
@@ -568,9 +589,9 @@ func resolveCheckout(row schedule.ShowtimeRecord, response CheckoutResult, requi
 	f := checkoutFacts{}
 	var err error
 	if !response.unavailableEnrichment {
-		// G0699's observed general-entry form is an unavailable enrichment, not
-		// session identity. Inspect its form even when a room marker is present.
-		f, err = parseCheckoutPage(response.Body, response.canonicalURL, row.TheaterID, requireForm || row.TheaterID == "veo-G0699")
+		// Observed cinema-bound entry forms are unavailable enrichment, not
+		// session identity. Inspect their form even when a room marker is present.
+		f, err = parseCheckoutPage(response.Body, response.canonicalURL, row.TheaterID, requireForm || entryCheckoutAction(row.TheaterID) != "")
 		if err != nil {
 			var rejected *CheckoutParseError
 			if errors.As(err, &rejected) && rejected.actionOnly {
@@ -578,10 +599,10 @@ func resolveCheckout(row schedule.ShowtimeRecord, response CheckoutResult, requi
 				// the first form subreason. Never use these first-page facts.
 				if _, endErr := exactEnd(row.StartTime, f); endErr != nil {
 					rejected.actionOnly = false
-				} else if !requireForm && f.toulouseEntry && boundToulouseCheckout(row, response.canonicalURL) {
+				} else if !requireForm && f.genericEntry && boundEntryCheckout(row, response.canonicalURL) {
 					// First normal response only. Discard ALL page facts, even
 					// plausible clocks/rooms. Never follow the general-entry action.
-					return resolvedCheckout{end: row.StartTime, toulouseUnavailable: true}, nil
+					return resolvedCheckout{end: row.StartTime, entryUnavailable: true}, nil
 				}
 			}
 			return resolvedCheckout{}, identifyCheckoutError(err, row, response)
@@ -641,7 +662,7 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 			if b.unavailableEnrichment && rows[index].TheaterID == "veo-G06DB" && schedule.ValidVeoGueretRelayURL(rows[index].BookingURL) {
 				gueretUnavailable.Add(1)
 			}
-			if resolved.toulouseUnavailable {
+			if resolved.entryUnavailable && rows[index].TheaterID == "veo-G0699" {
 				unavailable.Add(1)
 			}
 			return resolved, nil
