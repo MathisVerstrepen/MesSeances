@@ -90,7 +90,7 @@ function formatRoom(room: string) {
 <template>
   <div v-if="scope === 'single-theater' && !showMovie" class="relative h-full">
     <BookingLink
-      v-slot="{ available, kind, label }"
+      v-slot="{ available }"
       :url="result.bookingUrl"
       :provider="result.provider"
       :showtime-id="result.showtimeId"
@@ -132,9 +132,6 @@ function formatRoom(room: string) {
       <span v-if="!available" class="mt-2 text-xs font-black"
         >Réservation indisponible</span
       >
-      <span v-else-if="kind === 'website'" class="mt-2 text-xs font-black">{{
-        label
-      }}</span>
     </BookingLink>
     <span
       v-if="result.end?.estimated"

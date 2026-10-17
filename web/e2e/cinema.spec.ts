@@ -741,7 +741,10 @@ test('Cinéode SSR and hydrated cinema programme preserve website links, missing
   expect(html).toContain('cineode_logo')
   expect(html).toContain('L&#39;été')
   expect(html).toContain('VOSTFR')
-  expect(html).toContain('Site du cinéma Cinéode')
+  expect(html).toContain(
+    'aria-label="Site du cinéma Cinéode, ouverture dans un nouvel onglet"',
+  )
+  expect(html).not.toMatch(/>\s*Site du cinéma Cinéode\s*</)
   expect(html).not.toContain('href="https://www.cineode.fr/la-grange/seances/"')
   await openPage(page, url)
   const logo = page.locator('main > header img[src*="cineode_logo"]')
@@ -765,7 +768,10 @@ test('Cinéode SSR and hydrated cinema programme preserve website links, missing
         'aria-label',
         'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
       )
-      await expect(link).toContainText('Site du cinéma Cinéode')
+      await expect(link).toHaveAccessibleName(
+        'Site du cinéma Cinéode, ouverture dans un nouvel onglet',
+      )
+      await expect(link).not.toContainText(/Site du cinéma|Réserver/)
       await expect(link).toHaveAttribute('target', '_blank')
       await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     }
