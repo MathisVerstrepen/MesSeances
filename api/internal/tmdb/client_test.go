@@ -36,7 +36,7 @@ func TestClientSearchAndDetails(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"results":[{"id":42,"title":"Amélie","original_title":"Le Fabuleux Destin d'Amélie Poulain","poster_path":"/poster.jpg"}]}`))
 		case "/3/movie/42":
-			appendResponse := "videos,external_ids"
+			appendResponse := "videos,external_ids,translations"
 			if r.URL.Query().Get("include_video_language") == "en" {
 				appendResponse = "videos"
 			}

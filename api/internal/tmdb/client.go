@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"messeances/api/internal/wikidata"
 )
@@ -64,6 +65,7 @@ type video struct {
 
 type movieDetailsResponse struct {
 	ExternalIDs      json.RawMessage `json:"external_ids"`
+	Translations     json.RawMessage `json:"translations"`
 	Adult            *bool           `json:"adult"`
 	ID               int64           `json:"id"`
 	IMDBID           string          `json:"imdb_id"`
@@ -204,7 +206,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 	}
 	var response movieDetailsResponse
 	query := url.Values{
-		"append_to_response":     {"videos,external_ids"},
+		"append_to_response":     {"videos,external_ids,translations"},
 		"include_video_language": {"fr"},
 		"language":               {"fr-FR"},
 	}
@@ -219,7 +221,7 @@ func (c *Client) Details(ctx context.Context, id int64) (Details, error) {
 			return Details{}, fmt.Errorf("tmdb movie response is invalid")
 		}
 	}
-	details := Details{ID: response.ID, IMDBID: response.IMDBID, Title: response.Title, OriginalTitle: response.OriginalTitle, OriginalLanguage: response.OriginalLanguage, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerVFYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results, "fr"), Runtime: response.Runtime, Genres: []string{}}
+	details := Details{ID: response.ID, IMDBID: response.IMDBID, Title: selectDisplayTitle(response), OriginalTitle: response.OriginalTitle, OriginalLanguage: response.OriginalLanguage, Overview: response.Overview, ReleaseDate: response.ReleaseDate, TrailerVFYouTubeKey: selectTrailerYouTubeKey(response.Videos.Results, "fr"), Runtime: response.Runtime, Genres: []string{}}
 	details.Adult = response.Adult
 	var externalIDs struct {
 		ID         *int64 `json:"id"`
@@ -285,6 +287,64 @@ func validMovieDetailsResponse(response movieDetailsResponse, expectedID int64) 
 		response.Runtime >= 0 &&
 		response.Runtime <= 600 &&
 		len(response.Overview) <= 10000
+}
+
+func selectDisplayTitle(response movieDetailsResponse) string {
+	// TMDB can return original script when no French title exists. Do not
+	// replace an existing Latin-script title, including numeric-only titles.
+	if !strings.ContainsFunc(response.Title, func(character rune) bool {
+		return unicode.IsLetter(character) && !unicode.In(character, unicode.Latin)
+	}) {
+		return response.Title
+	}
+	var translations struct {
+		ID           *int64 `json:"id"`
+		Translations []struct {
+			Language string `json:"iso_639_1"`
+			Country  string `json:"iso_3166_1"`
+			Data     struct {
+				Title string `json:"title"`
+			} `json:"data"`
+		} `json:"translations"`
+	}
+	// Translations are optional. Keep the validated French response when this
+	// appended block is missing, malformed or explicitly belongs to another movie.
+	if json.Unmarshal(response.Translations, &translations) != nil || translations.ID != nil && *translations.ID != response.ID {
+		return response.Title
+	}
+	fallback := ""
+	for _, translation := range translations.Translations {
+		title := strings.TrimSpace(translation.Data.Title)
+		if translation.Language != "en" || !readableTitle(title) {
+			continue
+		}
+		if translation.Country == "US" {
+			return title
+		}
+		if fallback == "" {
+			fallback = title
+		}
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return response.Title
+}
+
+func readableTitle(title string) bool {
+	if !validText(title, 1024) {
+		return false
+	}
+	hasText := false
+	for _, character := range title {
+		if unicode.IsControl(character) || unicode.IsLetter(character) && !unicode.In(character, unicode.Latin) {
+			return false
+		}
+		if unicode.IsLetter(character) || unicode.IsDigit(character) {
+			hasText = true
+		}
+	}
+	return hasText
 }
 
 func selectTrailerYouTubeKey(videos []video, language string) string {
