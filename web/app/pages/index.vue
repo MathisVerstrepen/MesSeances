@@ -215,9 +215,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           </NuxtLink>
         </div>
 
-        <WatchedReadiness v-if="discovery.blocked.value" />
+        <WatchedReadiness
+          v-if="discovery.blocked.value && movies.length === 0"
+        />
         <ul
-          v-else-if="pending"
+          v-else-if="pending && movies.length === 0"
           class="relative min-h-[35rem] max-md:grid max-md:min-h-0 max-md:grid-cols-2 max-md:gap-x-5 max-md:gap-y-8 max-md:px-0 max-md:pt-12 max-md:pb-6"
           aria-hidden="true"
         >

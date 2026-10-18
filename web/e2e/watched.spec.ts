@@ -367,6 +367,98 @@ test('films and city walk hidden-only first and final public pages before local 
     ),
   ).toBe(true)
 })
+test('home retains its SSR poster list during watched readiness and personalized movie refresh', async ({
+  page,
+  request,
+}) => {
+  await seed(request, {
+    watchedCatalog: true,
+    watchedSlugs: [movie.slug],
+  })
+  function gate() {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    return { held, release }
+  }
+  const scripts = gate()
+  const watched = gate()
+  const watchedEntered = gate()
+  const movies = gate()
+  const moviesEntered = gate()
+  // Capture the server-rendered node before hydration can replace it.
+  await page.route('**/_nuxt/**', async (route) => {
+    if (route.request().resourceType() === 'script') await scripts.held
+    await route.continue()
+  })
+  await page.route('**/api/v1/account/watched', async (route) => {
+    const response = await route.fetch()
+    watchedEntered.release()
+    await watched.held
+    await route.fulfill({ response })
+  })
+  await page.route('**/api/v1/movies?**', async (route) => {
+    // Only the personalized preview uses 12-item refill pages.
+    if (new URL(route.request().url()).searchParams.get('page_size') !== '12')
+      return route.continue()
+    const response = await route.fetch()
+    moviesEntered.release()
+    await movies.held
+    await route.fulfill({ response })
+  })
+  try {
+    await page.goto('/', { waitUntil: 'commit' })
+    const preview = page.getByRole('list', { name: 'Films à l’affiche' })
+    await expect(preview.locator('li')).toHaveCount(6)
+    await expect(preview.locator(`a[href="${detail}"]`)).toBeVisible()
+    const original = await preview.elementHandle()
+    expect(original).not.toBeNull()
+    const retained = () =>
+      original!.evaluate(
+        (node) =>
+          node.isConnected &&
+          node === document.querySelector('ul[aria-label="Films à l’affiche"]'),
+      )
+    scripts.release()
+    await watchedEntered.held
+    await expect(page.locator('html')).toHaveAttribute(
+      'data-playwright-ready',
+      'true',
+    )
+    expect(await retained(), 'watched readiness must retain the SSR list').toBe(
+      true,
+    )
+    await expect(preview.locator(`a[href="${detail}"]`)).toBeVisible()
+    watched.release()
+    await moviesEntered.held
+    const section = page.locator('section[aria-labelledby="now-showing-title"]')
+    await expect(section).toHaveAttribute('aria-busy', 'true')
+    expect(
+      await retained(),
+      'background refresh must retain the SSR list',
+    ).toBe(true)
+    await expect(preview.locator(`a[href="${detail}"]`)).toBeVisible()
+    await expect(section.locator('.poster-frame--skeleton')).toHaveCount(0)
+    movies.release()
+    await expect(section).toHaveAttribute('aria-busy', 'false')
+    await expect(preview.locator(`a[href="${detail}"]`)).toHaveCount(0)
+    await expect(preview.locator('li')).toHaveCount(6)
+    await expect(preview.locator('a').first()).toHaveAttribute(
+      'href',
+      '/film/film-watched-1',
+    )
+    expect(
+      await retained(),
+      'personalized results must update the same list',
+    ).toBe(true)
+  } finally {
+    scripts.release()
+    watched.release()
+    movies.release()
+  }
+})
+
 test('home preview stops after one public page for 2140 movies and preserves Show and anonymous results', async ({
   page,
   request,
