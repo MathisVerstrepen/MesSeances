@@ -178,7 +178,7 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 	}
 	for id, embedded := range embeddedMovies {
 		canonical := movies[id]
-		// Complex pages can use event labels, runtimes and release dates that
+		// Complex pages can use event labels, runtimes, release dates and genres that
 		// differ from the catalog. Prefer nonempty catalog values only at this join.
 		if canonical.Title != "" {
 			embedded.Title = canonical.Title
@@ -188,6 +188,9 @@ func normalize(ctx context.Context, catalog map[string]cinema, movies map[string
 		}
 		if canonical.ReleaseDate != "" {
 			embedded.ReleaseDate = canonical.ReleaseDate
+		}
+		if len(canonical.Genres) != 0 {
+			embedded.Genres = canonical.Genres
 		}
 		merged, err := mergeMovie(canonical, embedded)
 		if err != nil {
