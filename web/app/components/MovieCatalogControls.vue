@@ -9,11 +9,13 @@ const props = withDefaults(
     sort: MovieSort
     pending?: boolean
     compact?: boolean
+    showSort?: boolean
     inputId?: string
   }>(),
   {
     pending: false,
     compact: false,
+    showSort: true,
     inputId: 'movie-catalog-search',
   },
 )
@@ -48,19 +50,20 @@ function changeSort(event: Event) {
 
 <template>
   <div
-    :class="compact ? 'grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]' : 'grid grid-cols-[minmax(0,1fr)_3.25rem] items-end gap-4 lg:grid-cols-[minmax(0,1fr)_14rem_3.25rem] lg:gap-5'"
+    :class="!showSort ? 'grid grid-cols-[minmax(0,1fr)_3.25rem] items-end gap-3 lg:gap-5' : compact ? 'grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]' : 'grid grid-cols-[minmax(0,1fr)_3.25rem] items-end gap-4 lg:grid-cols-[minmax(0,1fr)_14rem_3.25rem] lg:gap-5'"
   >
     <form
-      :class="compact ? 'min-w-0' : 'col-span-2 min-w-0 lg:col-span-1'"
+      :class="compact || !showSort ? 'min-w-0' : 'col-span-2 min-w-0 lg:col-span-1'"
       role="search"
       @submit.prevent="submitSearch"
     >
       <label
         class="block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+        :class="!showSort ? 'sr-only sm:not-sr-only' : ''"
         :for="inputId"
         >Rechercher un film</label
       >
-      <div class="mt-2 flex min-w-0">
+      <div class="flex min-w-0" :class="showSort ? 'mt-2' : 'sm:mt-2'">
         <input
           :id="inputId"
           v-model="searchInput"
@@ -82,7 +85,7 @@ function changeSort(event: Event) {
       </div>
     </form>
 
-    <label class="block min-w-0">
+    <label v-if="showSort" class="block min-w-0">
       <span
         class="block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
         >Trier par</span

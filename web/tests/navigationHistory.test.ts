@@ -80,7 +80,6 @@ function assertRouterMethod(
 test('catalog search, sorting, and filters replace history while pagination stays push navigation', () => {
   for (const name of [
     'submitSearch',
-    'changeSort',
     'applyAdvancedFilters',
     'clearAdvancedFilters',
   ]) {

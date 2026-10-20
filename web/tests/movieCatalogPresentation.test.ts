@@ -112,10 +112,7 @@ test('movie detail genre chips link to the filtered film catalog', () => {
   assert.match(genres, /v-for="genre in schedule\.movie\.genres"/)
   assert.match(genres, /path: '\/films',\s*query: \{ genres: genre \}/)
   assert.match(genres, /hash: isUpcomingFilm \? undefined : '#tous-les-films'/)
-  assert.match(
-    films,
-    /id="tous-les-films"\s+ref="resultsSection"\s+class="scroll-mt-4"/,
-  )
+  assert.match(films, /id="tous-les-films"\s+class="scroll-mt-4"/)
   assert.match(genres, /focus-visible:outline-2/)
   assert.match(genres, /\{\{ genre \}\}[\s\S]*<\/NuxtLink>/)
 })
