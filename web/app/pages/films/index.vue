@@ -1376,6 +1376,11 @@ useHead(() => ({
 </template>
 
 <style scoped>
+.search-workspace :deep(#film-search:focus) {
+  box-shadow: none;
+  outline: none;
+}
+
 :global(.catalog-datepicker.dp--main) {
   --dp-background-color: #fff;
   --dp-border-color: #27272a;
