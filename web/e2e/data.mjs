@@ -54,9 +54,25 @@ export const statisticsWednesday = statisticsDay(0)
 export const statisticsRelease = statisticsDay(-14)
 export const statisticsFrom = statisticsDay(-7)
 export const statisticsThrough = statisticsDay(21)
-export function historyStatistics(query) {
-  const from = query.get('date') || statisticsFrom
-  const through = query.get('date_to') || statisticsThrough
+export function historyStatistics(query, collection = 'default') {
+  const shift = (day, days) =>
+    new Date(Date.parse(`${day}T12:00:00Z`) + days * 86_400_000)
+      .toISOString()
+      .slice(0, 10)
+  const collected = {
+    default: [statisticsFrom, statisticsThrough],
+    dense: ['2025-01-01', '2026-12-31'],
+    today: [date, date],
+    singleWednesday: [statisticsWednesday, statisticsWednesday],
+    pastWednesday: ['2020-01-01', '2020-01-01'],
+  }[collection]
+  const ranges = {
+    next7: [date, shift(date, 6)],
+    next30: [date, shift(date, 29)],
+    week: [statisticsWednesday, shift(statisticsWednesday, 6)],
+    all: collected,
+  }
+  const [from, through] = ranges[query.get('period') || 'next7']
   const first = Date.parse(`${from}T00:00:00Z`)
   const last = Date.parse(`${through}T00:00:00Z`)
   const rows = Array.from(
@@ -84,8 +100,8 @@ export function historyStatistics(query) {
     options: {
       cities: [],
       theaters: [],
-      chains: [],
-      languages: [],
+      chains: ['ugc', 'mk2', 'kinepolis'],
+      languages: ['VF', 'VOF'],
       formats: [],
       genres: [],
       passes: [],

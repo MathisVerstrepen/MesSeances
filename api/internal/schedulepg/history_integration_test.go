@@ -521,7 +521,7 @@ func TestHistoryBudgetsIntegration(t *testing.T) {
 	if _, err := s.HistoryOptions(t.Context(), schedule.HistoryOptionsQuery{Kind: "city"}); !errors.Is(err, schedule.ErrHistoryBusy) {
 		t.Fatal("shared options admission", err)
 	}
-	if _, err := s.AllTimeHistoryStatistics(t.Context()); !errors.Is(err, schedule.ErrHistoryBusy) {
+	if _, err := s.BackgroundHistoryStatistics(t.Context(), schedule.StatisticsQuery{}); !errors.Is(err, schedule.ErrHistoryBusy) {
 		t.Fatal("shared cache admission", err)
 	}
 	close(release)

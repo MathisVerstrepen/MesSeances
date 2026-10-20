@@ -13,16 +13,20 @@ type historySnapshot struct {
 	json []byte
 }
 
-// HistoryCache holds one immutable, pre-encoded all-time response. Its zero
+// HistoryCache holds independent immutable, pre-encoded preset responses. Its zero
 // value is cold. Requests never populate it or expose its shared bytes.
 type HistoryCache struct {
-	snapshot   atomic.Pointer[historySnapshot]
+	snapshots  [4]atomic.Pointer[historySnapshot]
 	refreshing atomic.Bool
 }
 
 // Refresh replaces the snapshot only after a complete successful calculation
 // and encoding. Concurrent refreshes are rejected without waiting.
-func (c *HistoryCache) Refresh(ctx context.Context, load func(context.Context) (schedule.HistoryStatistics, error)) error {
+func (c *HistoryCache) Refresh(ctx context.Context, period schedule.HistoryPeriod, load func(context.Context) (schedule.HistoryStatistics, error)) error {
+	index := historyPeriodIndex(period)
+	if index < 0 {
+		return &schedule.ValidationError{Message: "La période est invalide."}
+	}
 	if !c.refreshing.CompareAndSwap(false, true) {
 		return schedule.ErrHistoryBusy
 	}
@@ -41,16 +45,17 @@ func (c *HistoryCache) Refresh(ctx context.Context, load func(context.Context) (
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	c.snapshot.Store(&historySnapshot{json: append(data, '\n')})
+	c.snapshots[index].Store(&historySnapshot{json: append(data, '\n')})
 	return nil
 }
 
-func (c *HistoryCache) write(w http.ResponseWriter) {
-	if c == nil {
+func (c *HistoryCache) write(w http.ResponseWriter, period schedule.HistoryPeriod) {
+	index := historyPeriodIndex(period)
+	if c == nil || index < 0 {
 		writeHistoryError(w, schedule.ErrHistoryUnavailable)
 		return
 	}
-	snapshot := c.snapshot.Load()
+	snapshot := c.snapshots[index].Load()
 	if snapshot == nil {
 		writeHistoryError(w, schedule.ErrHistoryUnavailable)
 		return
@@ -59,7 +64,16 @@ func (c *HistoryCache) write(w http.ResponseWriter) {
 	_, _ = w.Write(snapshot.json)
 }
 
-func isAllTimeHistory(query schedule.StatisticsQuery) bool {
-	return query.Date == "" && query.DateTo == "" && len(query.City) == 0 && len(query.Theater) == 0 &&
+func isUnfilteredHistory(query schedule.StatisticsQuery) bool {
+	return len(query.City) == 0 && len(query.Theater) == 0 &&
 		query.Chain == "" && query.Language == "" && query.Format == "" && query.Genre == "" && query.Pass == "" && query.Film == ""
+}
+
+func historyPeriodIndex(period schedule.HistoryPeriod) int {
+	for i, candidate := range schedule.HistoryPeriods() {
+		if period == candidate {
+			return i
+		}
+	}
+	return -1
 }

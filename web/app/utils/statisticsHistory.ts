@@ -1,8 +1,7 @@
 import type { LocationQuery } from 'vue-router'
 import type {
   HistoryOptionsResponse,
-  StatisticsDateRange,
-  StatisticsQuery,
+  HistoryStatisticsQuery,
 } from '../types/api.ts'
 import {
   createStatisticsRequest,
@@ -18,11 +17,14 @@ import {
 export const statisticsPeriods = [
   { value: 'next7', label: '7 prochains jours' },
   { value: 'next30', label: '30 prochains jours' },
+  { value: 'week', label: 'Semaine courante' },
   { value: 'all', label: 'Depuis le début de la collecte' },
-  { value: 'custom', label: 'Période personnalisée' },
 ] as const
 export type StatisticsPeriod = (typeof statisticsPeriods)[number]['value']
-export type StatisticsPageDraft = StatisticsDraft & { period: StatisticsPeriod }
+export type StatisticsPageDraft = Omit<
+  StatisticsDraft,
+  'date' | 'date_to' | 'explicitDates'
+> & { period: StatisticsPeriod }
 export function statisticsPeriod(route: LocationQuery) {
   if (route.period === undefined) return { period: 'next7' as const, error: '' }
   const choice = statisticsPeriods.find(
@@ -44,122 +46,60 @@ export function statisticsParisToday(now = new Date()) {
     day: '2-digit',
   }).format(now)
 }
-export function statisticsPeriodRange(
-  period: StatisticsPeriod,
-  today: string,
-): StatisticsDateRange | null {
-  // UTC arithmetic counts calendar days, not elapsed Paris hours across DST.
-  const shift = (days: number) => {
-    const date = new Date(`${today}T12:00:00Z`)
-    date.setUTCDate(date.getUTCDate() + days)
-    return date.toISOString().slice(0, 10)
-  }
-  if (period === 'next7') return { from: today, through: shift(6) }
-  if (period === 'next30') return { from: today, through: shift(29) }
-  return null
-}
-export function historyDateError(date?: string, through?: string) {
-  if (date === undefined && through === undefined) return ''
-  const valid = (value?: string) => {
-    if (!value || !/^(?!0000)\d{4}-\d{2}-\d{2}$/.test(value)) return false
-    const parsed = new Date(`${value}T12:00:00Z`)
-    return (
-      Number.isFinite(parsed.getTime()) &&
-      parsed.toISOString().slice(0, 10) === value
-    )
-  }
-  if (!valid(date) || (through !== undefined && !valid(through)))
-    return 'Choisissez des dates valides au format jour, mois, année.'
-  if (through && date && through < date)
-    return 'La date de fin doit suivre la date de début.'
-  return ''
-}
-export function parseHistoryStatisticsQuery(route: LocationQuery) {
-  return parseStatisticsQuery(route, undefined, historyDateError)
+interface ParsedStatisticsPageQuery {
+  query: HistoryStatisticsQuery
+  error: string
 }
 export function parseStatisticsPageQuery(
   route: LocationQuery,
-  today = statisticsParisToday(),
-) {
+): ParsedStatisticsPageQuery {
   const { period, error } = statisticsPeriod(route)
-  if (error) return { query: {}, error }
+  if (error) return { query: { period }, error }
   const values = { ...route }
-  if (period === 'custom') {
-    if (values.date === undefined || values.date_to === undefined)
-      return {
-        query: {},
-        error: 'Choisissez une date de début et une date de fin.',
-      }
-  } else {
-    delete values.date
-    delete values.date_to
-    const range = statisticsPeriodRange(period, today)
-    if (range) {
-      values.date = range.from
-      values.date_to = range.through
-    }
-  }
-  return parseHistoryStatisticsQuery(values)
+  delete values.date
+  delete values.date_to
+  const parsed = parseStatisticsQuery(values)
+  return { query: { ...parsed.query, period }, error: parsed.error }
 }
 export function statisticsPageSignature(route: LocationQuery) {
   return JSON.stringify([route.period, statisticsQuerySignature(route)])
 }
-export function statisticsPageDraft(
-  route: LocationQuery,
-  today = statisticsParisToday(),
-): StatisticsPageDraft {
+export function statisticsPageDraft(route: LocationQuery): StatisticsPageDraft {
   const { period } = statisticsPeriod(route)
   const values = { ...route }
-  if (period !== 'custom') {
-    delete values.date
-    delete values.date_to
-  }
-  const draft = statisticsDraft(
-    values,
-    statisticsPeriodRange(period, today),
-    parseHistoryStatisticsQuery,
-  )
-  // Unlike the API's single-day shorthand, custom UI requires both explicit endpoints.
-  if (period === 'custom' && route.date_to === undefined) draft.date_to = ''
+  delete values.date
+  delete values.date_to
+  const {
+    date: _date,
+    date_to: _through,
+    explicitDates: _explicit,
+    ...draft
+  } = statisticsDraft(values)
   return { ...draft, period }
 }
-export function statisticsCustomDraft(
-  draft: StatisticsPageDraft,
-  displayed: StatisticsDateRange | null | undefined,
-  today = statisticsParisToday(),
-): StatisticsPageDraft {
-  const range = displayed ?? statisticsPeriodRange('next7', today)!
-  return {
+export function statisticsPageDraftQuery(draft: StatisticsPageDraft) {
+  const parsed = statisticsDraftQuery({
     ...draft,
-    period: 'custom',
-    date: range.from,
-    date_to: range.through,
+    date: '',
+    date_to: '',
+    explicitDates: false,
+  })
+  return {
+    query: { ...parsed.query, period: draft.period },
+    error: parsed.error,
   }
-}
-export function statisticsPageDraftQuery(
-  draft: StatisticsPageDraft,
-  today = statisticsParisToday(),
-) {
-  return statisticsDraftQuery(
-    { ...draft, explicitDates: draft.period === 'custom' },
-    today,
-    (values) =>
-      parseStatisticsPageQuery({ ...values, period: draft.period }, today),
-  )
 }
 export function statisticsPageRoute(
   route: LocationQuery,
   period: StatisticsPeriod = 'next7',
-  query: StatisticsQuery = {},
+  query: Partial<HistoryStatisticsQuery> = {},
 ) {
   const next = statisticsRouteQuery(route, query)
   delete next.mode
   delete next.period
   if (period !== 'next7') next.period = period
-  if (period !== 'custom') {
-    delete next.date
-    delete next.date_to
-  }
+  delete next.date
+  delete next.date_to
   return next
 }
 

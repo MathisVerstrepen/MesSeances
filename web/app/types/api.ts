@@ -51,6 +51,14 @@ export interface StatisticsQuery {
   pass?: string
 }
 
+export type HistoryStatisticsPeriod = 'next7' | 'next30' | 'week' | 'all'
+export type HistoryStatisticsQuery = Omit<
+  StatisticsQuery,
+  'date' | 'date_to'
+> & {
+  period: HistoryStatisticsPeriod
+}
+
 export interface StatisticsDateRange {
   from: string
   through: string

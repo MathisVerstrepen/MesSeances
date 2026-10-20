@@ -54,6 +54,7 @@ import type {
   SlotResult,
   ShortLinkResponse,
   StatisticsQuery,
+  HistoryStatisticsQuery,
   StatisticsResponse,
   HistoryStatisticsResponse,
   HistoryOptionsQuery,
@@ -137,7 +138,7 @@ export function useMesSeancesApi() {
         retry: false,
       })
     },
-    historyStatistics(query: StatisticsQuery = {}, signal?: AbortSignal) {
+    historyStatistics(query: HistoryStatisticsQuery, signal?: AbortSignal) {
       const values = Object.fromEntries(
         Object.entries(query).filter(
           ([, value]) =>

@@ -17,17 +17,17 @@ import (
 	"messeances/api/internal/schedulepg"
 )
 
-type testHistoryCacheReader func(context.Context) (schedule.HistoryStatistics, error)
+type testHistoryCacheReader func(context.Context, schedule.StatisticsQuery) (schedule.HistoryStatistics, error)
 
-func (read testHistoryCacheReader) AllTimeHistoryStatistics(ctx context.Context) (schedule.HistoryStatistics, error) {
-	return read(ctx)
+func (read testHistoryCacheReader) BackgroundHistoryStatistics(ctx context.Context, query schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
+	return read(ctx, query)
 }
 
-func historyCacheResponse(t *testing.T, cache *httpapi.HistoryCache) *httptest.ResponseRecorder {
+func historyCacheResponse(t *testing.T, cache *httpapi.HistoryCache, period schedule.HistoryPeriod) *httptest.ResponseRecorder {
 	t.Helper()
 	handler := httpapi.NewHandlerWithOptions(nil, "", httpapi.HandlerOptions{HistoryCache: cache})
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/statistics/history", nil))
+	handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/statistics/history?period="+string(period), nil))
 	return response
 }
 
@@ -35,17 +35,27 @@ func TestHistoryCacheWorkerImmediatePeriodicAndFailure(t *testing.T) {
 	if historyCacheRefreshInterval != 15*time.Minute || schedulepg.HistoryCacheTimeout != 2*time.Minute {
 		t.Fatal("cache cadence or budget changed")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	cache := &httpapi.HistoryCache{}
 	calls := make(chan int, 1)
 	release := make(chan struct{})
 	count := 0
-	reader := testHistoryCacheReader(func(ctx context.Context) (schedule.HistoryStatistics, error) {
+	var previous context.Context
+	reader := testHistoryCacheReader(func(ctx context.Context, query schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
 		count++
 		deadline, ok := ctx.Deadline()
-		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > schedulepg.HistoryCacheTimeout {
+		if !ok || time.Until(deadline) < schedulepg.HistoryCacheTimeout-time.Second || time.Until(deadline) > schedulepg.HistoryCacheTimeout {
 			t.Error("worker did not bound refresh")
+		}
+		if previous != nil && !errors.Is(previous.Err(), context.Canceled) {
+			t.Error("previous attempt context not released")
+		}
+		previous = ctx
+		periods := schedule.HistoryPeriods()
+		want, err := schedule.HistoryPeriodQuery(periods[(count-1)%4], time.Now())
+		if err != nil || query.Date != want.Date || query.DateTo != want.DateTo {
+			t.Error("wrong preset bounds", query, want, err)
 		}
 		calls <- count
 		select {
@@ -53,10 +63,10 @@ func TestHistoryCacheWorkerImmediatePeriodicAndFailure(t *testing.T) {
 		case <-ctx.Done():
 			return schedule.HistoryStatistics{}, ctx.Err()
 		}
-		if count == 1 || count == 3 {
+		if count == 1 || count == 6 || count == 9 {
 			return schedule.HistoryStatistics{}, errors.New("secret database detail")
 		}
-		return schedule.HistoryStatistics{Mode: "history", GeneratedAt: time.Date(2026, 10, 2, 0, count, 0, 0, time.UTC)}, nil
+		return schedule.HistoryStatistics{Mode: "history", GeneratedAt: time.Date(2026, 10, 2, 0, count, 0, 0, time.UTC), Range: &schedule.Window{From: query.Date, Through: query.DateTo}}, nil
 	})
 	var logs bytes.Buffer
 	ticks := make(chan time.Time)
@@ -72,48 +82,62 @@ func TestHistoryCacheWorkerImmediatePeriodicAndFailure(t *testing.T) {
 			if got != want {
 				t.Fatalf("call=%d want=%d", got, want)
 			}
-		case <-ctx.Done():
+		case <-time.After(3 * time.Second):
 			t.Fatal("refresh did not start")
 		}
 	}
-	advance := func() {
+	finish := func() {
 		t.Helper()
 		select {
 		case release <- struct{}{}:
-		case <-ctx.Done():
+		case <-time.After(3 * time.Second):
 			t.Fatal("refresh did not finish")
 		}
+	}
+	previousBodies := make(map[schedule.HistoryPeriod]string)
+	for round := range 3 {
+		for i, period := range schedule.HistoryPeriods() {
+			waitCall(round*4 + i + 1) // First cycle starts without a tick.
+			got := historyCacheResponse(t, cache, period)
+			if round == 0 && got.Code != http.StatusServiceUnavailable {
+				t.Fatal("preset not independently cold while warming", period)
+			}
+			// Reads during refresh retain the preceding response, never block.
+			if old, ok := previousBodies[period]; ok && got.Body.String() != old {
+				t.Fatal("in-progress refresh changed previous snapshot", period)
+			}
+			select {
+			case ticks <- time.Now():
+				t.Fatal("worker accepted overlapping cycle")
+			default:
+			}
+			finish()
+		}
+		// Tick handshake proves the entire previous cycle finished.
 		select {
 		case ticks <- time.Now():
-		case <-ctx.Done():
-			t.Fatal("worker did not accept tick")
+		case <-time.After(3 * time.Second):
+			t.Fatal("worker did not finish all presets")
 		}
-	}
-	waitCall(1) // No tick sent: immediate startup warming.
-	if historyCacheResponse(t, cache).Code != http.StatusServiceUnavailable {
-		t.Fatal("cache not cold while warming")
-	}
-	advance()
-	waitCall(2)
-	if historyCacheResponse(t, cache).Code != http.StatusServiceUnavailable {
-		t.Fatal("failed first refresh must leave cold cache")
-	}
-	advance()
-	waitCall(3)
-	good := historyCacheResponse(t, cache)
-	if good.Code != http.StatusOK {
-		t.Fatal("successful retry did not warm cache")
-	}
-	advance()
-	waitCall(4)
-	if got := historyCacheResponse(t, cache); got.Body.String() != good.Body.String() {
-		t.Fatal("failed refresh replaced last good response")
-	}
-	// An unbuffered tick cannot be accepted while loading.
-	select {
-	case ticks <- time.Now():
-		t.Fatal("worker accepted overlapping refresh")
-	default:
+		// Next cycle blocks in its first loader, so snapshots are stable here.
+		for _, period := range schedule.HistoryPeriods() {
+			got := historyCacheResponse(t, cache, period)
+			if round == 0 && period == schedule.HistoryNext7 {
+				if got.Code != http.StatusServiceUnavailable {
+					t.Fatal("failed preset did not stay cold")
+				}
+				continue
+			}
+			if got.Code != http.StatusOK {
+				t.Fatal("one failure skipped another preset", period)
+			}
+			if round == 1 && period == schedule.HistoryNext30 || round == 2 && period == schedule.HistoryNext7 {
+				if got.Body.String() != previousBodies[period] {
+					t.Fatal("failed refresh replaced last successful bytes", period)
+				}
+			}
+			previousBodies[period] = got.Body.String()
+		}
 	}
 	cancel()
 	select {
@@ -121,7 +145,7 @@ func TestHistoryCacheWorkerImmediatePeriodicAndFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("worker did not stop")
 	}
-	if strings.Contains(logs.String(), "secret") || strings.Count(logs.String(), "history_cache_refresh_failed") != 2 || !strings.Contains(logs.String(), "history_cache_refreshed") {
+	if strings.Contains(logs.String(), "secret") || strings.Count(logs.String(), "history_cache_refresh_failed") != 3 || !strings.Contains(logs.String(), "history_cache_refreshed") {
 		t.Fatal("refresh events missing or unsafe")
 	}
 }
@@ -133,7 +157,7 @@ func TestHistoryCacheWorkerCancellationAndShutdownJoin(t *testing.T) {
 	entered := make(chan struct{})
 	canceled := make(chan struct{})
 	release := make(chan struct{})
-	reader := testHistoryCacheReader(func(ctx context.Context) (schedule.HistoryStatistics, error) {
+	reader := testHistoryCacheReader(func(ctx context.Context, _ schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
 		close(entered)
 		<-ctx.Done()
 		close(canceled)
@@ -172,14 +196,14 @@ func TestHistoryCacheWorkerCancellationAndShutdownJoin(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("shutdown did not join cache worker")
 	}
-	if historyCacheResponse(t, cache).Code != http.StatusServiceUnavailable {
+	if historyCacheResponse(t, cache, schedule.HistoryNext7).Code != http.StatusServiceUnavailable {
 		t.Fatal("canceled calculation published response")
 	}
 }
 
 func TestHistoryCacheWorkerCanceledStartupAndClosedTicks(t *testing.T) {
 	calls := 0
-	reader := testHistoryCacheReader(func(ctx context.Context) (schedule.HistoryStatistics, error) {
+	reader := testHistoryCacheReader(func(ctx context.Context, _ schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
 		calls++
 		deadline, ok := ctx.Deadline()
 		if !ok || time.Until(deadline) < schedulepg.HistoryCacheTimeout-time.Second || time.Until(deadline) > schedulepg.HistoryCacheTimeout {
@@ -197,7 +221,7 @@ func TestHistoryCacheWorkerCanceledStartupAndClosedTicks(t *testing.T) {
 	ticks := make(chan time.Time)
 	close(ticks)
 	runHistoryCacheTicks(t.Context(), reader, &httpapi.HistoryCache{}, logger, ticks)
-	if calls != 1 {
+	if calls != 4 {
 		t.Fatal("closed ticks spun worker")
 	}
 }

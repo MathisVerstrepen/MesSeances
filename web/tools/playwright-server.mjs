@@ -193,7 +193,10 @@ const mock = createServer((request, response) => {
       if (path === `/api/v1/movies/${movie.slug}/showtimes`)
         value = inventory.film
       if (path === '/api/v1/statistics/history') {
-        value = historyStatistics(url.searchParams)
+        value = historyStatistics(
+          url.searchParams,
+          scenario.statisticsCollection,
+        )
         if (mode === 'empty') {
           value.totals = { showtimes: 0, movies: 0, theaters: 0, cities: 0 }
           value.daily_showtimes = []
@@ -221,8 +224,34 @@ const mock = createServer((request, response) => {
         return
       }
     }
-    if (path === '/api/v1/statistics/history')
-      return json(response, historyStatistics(url.searchParams))
+    if (path === '/api/v1/statistics/history') {
+      const periods = url.searchParams.getAll('period')
+      if (
+        periods.length !== 1 ||
+        !['next7', 'next30', 'week', 'all'].includes(periods[0]) ||
+        url.searchParams.has('date') ||
+        url.searchParams.has('date_to')
+      ) {
+        unexpected.push('Invalid history preset request')
+        return json(response, { error: { code: 'invalid_query' } }, 400)
+      }
+      if (scenario.statisticsState === 'unavailable')
+        return json(response, { error: { code: 'history_unavailable' } }, 503)
+      const value = historyStatistics(
+        url.searchParams,
+        scenario.statisticsCollection,
+      )
+      if (scenario.statisticsState === 'empty') {
+        value.totals = { showtimes: 0, movies: 0, theaters: 0, cities: 0 }
+        value.daily_showtimes = value.daily_showtimes.map((row) => ({
+          ...row,
+          showtime_count: 0,
+        }))
+        value.chains = []
+        value.local = { cities: [], theaters: [] }
+      }
+      return json(response, value)
+    }
     if (path === '/api/v1/auth/session')
       return json(response, syntheticSession())
     if (path === '/api/v1/account/theater-follows') {

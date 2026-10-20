@@ -85,20 +85,22 @@ func (testHistoryReader) HistoryOptions(context.Context, schedule.HistoryOptions
 
 func TestAPIHistoryRuntimeInjection(t *testing.T) {
 	cache := &httpapi.HistoryCache{}
-	if err := cache.Refresh(t.Context(), func(context.Context) (schedule.HistoryStatistics, error) {
-		return schedule.HistoryStatistics{Mode: "history", Timezone: schedule.Timezone}, nil
-	}); err != nil {
-		t.Fatal(err)
+	for _, period := range schedule.HistoryPeriods() {
+		if err := cache.Refresh(t.Context(), period, func(context.Context) (schedule.HistoryStatistics, error) {
+			return schedule.HistoryStatistics{Mode: "history", Timezone: schedule.Timezone}, nil
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	handler := newAPIHandler(nil, runtimeconfig.Config{}, httpapi.AdminOptions{}, nil, testHistoryReader{}, cache, nil, httpapi.ReadinessOptions{}, nil, nil, nil)
-	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history?date=2026-01-01", "/api/v1/statistics/history/options?kind=city"} {
+	for _, path := range []string{"/api/v1/statistics/history", "/api/v1/statistics/history?period=next7", "/api/v1/statistics/history?period=next30", "/api/v1/statistics/history?period=week", "/api/v1/statistics/history?period=all", "/api/v1/statistics/history?date=2026-01-01", "/api/v1/statistics/history/options?kind=city"} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
 		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("history runtime injection %s: %d %s", path, response.Code, response.Body.String())
 		}
-		if path == "/api/v1/statistics/history" && !strings.Contains(response.Body.String(), `"timezone":"Europe/Paris"`) {
-			t.Fatal("all-time request did not use injected cache")
+		if (path == "/api/v1/statistics/history" || strings.Contains(path, "period=")) && !strings.Contains(response.Body.String(), `"timezone":"Europe/Paris"`) {
+			t.Fatal("unfiltered preset did not use injected cache")
 		}
 	}
 }
