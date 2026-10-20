@@ -431,7 +431,7 @@ test('server-backed catalogs preserve raw trimmed route queries and server pagin
   )
   assert.match(films, /appliedSearch\.value = nextSearch/)
   assert.match(films, /q: state\.search \|\| undefined/)
-  assert.match(films, /theaters: theaterIds/)
+  assert.match(films, /discovery\.movies\(buildMoviesQuery\(theaterIds\)\)/)
   assert.match(films, /Aucun film ne correspond à cette recherche/)
   assert.match(
     city,

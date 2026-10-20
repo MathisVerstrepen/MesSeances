@@ -9,7 +9,7 @@ import {
   SlidersHorizontal,
 } from '@lucide/vue'
 import { fr } from 'date-fns/locale/fr'
-import type { MoviesResponse, MovieSort } from '~/types/api'
+import type { MoviesQuery, MoviesResponse, MovieSort } from '~/types/api'
 import {
   addCalendarDays,
   calendarDateFromDate,
@@ -217,6 +217,27 @@ async function finishAdvancedApplyNavigation() {
   target.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+function usesCinemaPreferences() {
+  return !appliedFilters.value.allTheaters
+}
+
+function buildMoviesQuery(theaters?: string): MoviesQuery {
+  const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
+  const includeEnded = Boolean(appliedSearch.value)
+  return {
+    ...(includeEnded ? { include_ended: true } : { currently_screened: true }),
+    theaters,
+    search: appliedSearch.value || undefined,
+    genres: filterQuery.genres,
+    duration: appliedFilters.value.duration,
+    date: filterQuery.date,
+    date_to: filterQuery.date_to,
+    sort: sort.value,
+    page: page.value,
+    page_size: PAGE_SIZE,
+  }
+}
+
 async function loadMovies() {
   const currentRequest = ++requestId
   pending.value = true
@@ -226,19 +247,19 @@ async function loadMovies() {
     return
   }
 
-  if (!appliedFilters.value.allTheaters && preferences.error.value) {
+  if (usesCinemaPreferences() && preferences.error.value) {
     catalog.value = null
     errorMessage.value = preferences.error.value
     pending.value = false
     await finishAdvancedApplyNavigation()
     return
   }
-  if (!appliedFilters.value.allTheaters && !preferences.isInitialized.value) {
+  if (usesCinemaPreferences() && !preferences.isInitialized.value) {
     catalog.value = null
     return
   }
   const theaterIds =
-    appliedFilters.value.allTheaters ||
+    !usesCinemaPreferences() ||
     isBroadTheaterSelection(
       preferences.favoriteTheaterIds.value,
       preferences.theaters.value,
@@ -248,19 +269,7 @@ async function loadMovies() {
   let shouldFinishAdvancedApplyNavigation = false
 
   try {
-    const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
-    const response = await discovery.movies({
-      currently_screened: true,
-      theaters: theaterIds,
-      search: appliedSearch.value || undefined,
-      genres: filterQuery.genres,
-      duration: appliedFilters.value.duration,
-      date: filterQuery.date,
-      date_to: filterQuery.date_to,
-      sort: sort.value,
-      page: page.value,
-      page_size: PAGE_SIZE,
-    })
+    const response = await discovery.movies(buildMoviesQuery(theaterIds))
     if (currentRequest === requestId) {
       const lastPage = Math.max(1, Math.ceil(response.total / PAGE_SIZE))
       if (page.value > lastPage) {
@@ -295,8 +304,8 @@ async function loadMovies() {
 async function retryMovies() {
   pending.value = true
   errorMessage.value = ''
-  await preferences.retrySynchronization()
-  if (!preferences.isInitialized.value) {
+  if (usesCinemaPreferences()) await preferences.retrySynchronization()
+  if (usesCinemaPreferences() && !preferences.isInitialized.value) {
     await loadMovies()
     return
   }
@@ -357,7 +366,10 @@ async function applyRoute() {
     await router.replace({ query: canonicalQuery })
     return
   }
-  const key = `${appliedSearch.value}|${sort.value}|${page.value}|${movieCatalogFiltersKey(appliedFilters.value)}|${preferences.favoriteTheaterIds.value.join(',')}`
+  const theaterKey = usesCinemaPreferences()
+    ? preferences.favoriteTheaterIds.value.join(',')
+    : ''
+  const key = `${appliedSearch.value}|${sort.value}|${page.value}|${movieCatalogFiltersKey(appliedFilters.value)}|${theaterKey}`
   if (key === lastLoadKey) return
   lastLoadKey = key
   await loadMovies()
@@ -498,18 +510,7 @@ const initialResult = await useAsyncData(
   initialCatalogKey,
   async () => {
     try {
-      const filterQuery = serializeMovieCatalogFilters(appliedFilters.value)
-      const response = await api.movies({
-        currently_screened: true,
-        search: appliedSearch.value || undefined,
-        genres: filterQuery.genres,
-        duration: appliedFilters.value.duration,
-        date: filterQuery.date,
-        date_to: filterQuery.date_to,
-        sort: sort.value,
-        page: page.value,
-        page_size: PAGE_SIZE,
-      })
+      const response = await api.movies(buildMoviesQuery())
       return { kind: 'success' as const, catalog: response, errorMessage: '' }
     } catch (error) {
       return {
@@ -546,7 +547,7 @@ watch(
     preferences.error,
   ],
   () => {
-    if (appliedFilters.value.allTheaters) return
+    if (!usesCinemaPreferences()) return
     requestId++
     catalog.value = null
     lastLoadKey = ''
@@ -566,10 +567,10 @@ onMounted(async () => {
   const canonicalQuery = hydrateRoute()
   if (!queriesEqual(route.query, canonicalQuery))
     await router.replace({ query: canonicalQuery })
-  await preferences.initialize()
+  const preferenceInitialization = preferences.initialize()
   isInitializing = false
-  if (preferences.isInitialized.value) await applyRoute()
-  else await loadMovies()
+  await applyRoute()
+  await preferenceInitialization
 })
 onBeforeUnmount(() => {
   isMounted = false

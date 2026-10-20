@@ -274,9 +274,10 @@ async function selectionWatcher(
   )
   const resetFunctions = parsed.statements.filter(
     (node) =>
-      path === 'planning' &&
       ts.isFunctionDeclaration(node) &&
-      node.name?.text === 'resetTimeline',
+      ((path === 'planning' && node.name?.text === 'resetTimeline') ||
+        (path === 'films/index' &&
+          node.name?.text === 'usesCinemaPreferences')),
   )
   assert.equal(
     watchers.length,
