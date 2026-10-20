@@ -161,8 +161,8 @@ func TestSyncRejectsOtherMovieConflictsDespiteSynopsisDifference(t *testing.T) {
 		"genres":                    func(f *film) { f.Genres[0].Name = "Comedy" },
 	} {
 		for _, source := range []string{"catalog", "embedded duplicate", "catalog versus embedded"} {
-			if source == "catalog versus embedded" && (strings.HasPrefix(name, "title") || name == "runtime" || name == "release date") {
-				continue // Cross-source titles, runtimes and release dates have catalog precedence tests.
+			if source == "catalog versus embedded" && (strings.HasPrefix(name, "title") || name == "runtime" || name == "release date" || name == "genres") {
+				continue // Cross-source metadata has catalog precedence tests.
 			}
 			t.Run(name+"/"+source, func(t *testing.T) {
 				f, p, options := fixture(t)
@@ -342,6 +342,43 @@ func TestSyncCatalogReleaseDatePrecedence(t *testing.T) {
 			want.ReleaseDate = tc.want
 			if !reflect.DeepEqual(d.Showtimes[0].Movie, want) {
 				t.Fatalf("movie=%+v want=%+v", d.Showtimes[0].Movie, want)
+			}
+		})
+	}
+}
+
+func TestSyncCatalogGenrePrecedence(t *testing.T) {
+	for _, tc := range []struct {
+		name                    string
+		catalog, embedded, want []string
+	}{
+		{"live embedded superset", []string{"Epouvante-horreur"}, []string{"Comédie", "Epouvante-horreur"}, []string{"Epouvante-horreur"}},
+		{"disjoint genres", []string{"Drama"}, []string{"Comedy"}, []string{"Drama"}},
+		{"missing catalog genres", nil, []string{"Drama"}, []string{"Drama"}},
+		{"missing embedded genres", []string{"Drama"}, nil, []string{"Drama"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, p, options := fixture(t)
+			canonical := p.Types[0].Groups[0].Film
+			for _, name := range tc.catalog {
+				canonical.Genres = append(canonical.Genres, struct {
+					Name string `json:"name"`
+				}{Name: name})
+			}
+			for _, name := range tc.embedded {
+				p.Types[0].Groups[0].Film.Genres = append(p.Types[0].Groups[0].Film.Genres, struct {
+					Name string `json:"name"`
+				}{Name: name})
+			}
+			p.Types = append(p.Types, p.Types[0])
+			f.films = encode(t, map[string]any{"data": []film{canonical}})
+			f.pages[p.Slug] = encode(t, p)
+			d, summary, err := Sync(t.Context(), f, options)
+			if err != nil || summary.Showtimes != 1 || len(d.Showtimes) != 1 {
+				t.Fatalf("summary=%+v err=%v", summary, err)
+			}
+			if got := d.Showtimes[0].Movie.Genres; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("genres=%v want=%v", got, tc.want)
 			}
 		})
 	}
@@ -545,15 +582,18 @@ func TestSyncCancellationIsTypedAndEmpty(t *testing.T) {
 	}
 }
 
-func TestSyncMuetPrecedence(t *testing.T) {
+func TestSyncLanguageAttributes(t *testing.T) {
 	for _, tc := range []struct {
 		tokens   []string
 		language schedule.Language
 		version  string
 	}{
+		{[]string{"2D", "STFR"}, schedule.LanguageVOSTFR, "VO+STFR"},
 		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR"},
 		{[]string{"2D", "Muet"}, "", "Muet"},
+		{[]string{"2D", "Muet", "STFR"}, "", ""},
 		{[]string{"2D", "Muet", "VF", "VO"}, "", ""},
+		{[]string{"2D", "STFR", "VF", "VO"}, "", ""},
 	} {
 		t.Run(strings.Join(tc.tokens, "+"), func(t *testing.T) {
 			f, p, options := fixture(t)
@@ -589,6 +629,7 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 		format   schedule.Format
 	}{
 		{[]string{"VF", "2D"}, "VF", "VF", "2D"},
+		{[]string{"2D", "STFR"}, "VOSTFR", "VO+STFR", "2D"},
 		{[]string{"3D", "STFR", "VO"}, "VOSTFR", "VO+STFR", "3D"},
 		{[]string{"STFR", "VF", "2D"}, "VFSTF", "VF+STFR", "2D"},
 		{[]string{"VO", "IMAX", "3D"}, "VO", "VO", "IMAX"},
