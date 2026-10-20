@@ -193,10 +193,10 @@ func (s *Store) HistoryStatistics(ctx context.Context, query schedule.Statistics
 	return s.historyStatistics(ctx, query, 3*time.Second, "2s")
 }
 
-// AllTimeHistoryStatistics uses the same aggregation and admission as live
+// BackgroundHistoryStatistics uses the same aggregation and admission as live
 // reads, but with a longer bounded budget for the background cache worker.
-func (s *Store) AllTimeHistoryStatistics(ctx context.Context) (schedule.HistoryStatistics, error) {
-	return s.historyStatistics(ctx, schedule.StatisticsQuery{}, HistoryCacheTimeout, "120s")
+func (s *Store) BackgroundHistoryStatistics(ctx context.Context, query schedule.StatisticsQuery) (schedule.HistoryStatistics, error) {
+	return s.historyStatistics(ctx, query, HistoryCacheTimeout, "120s")
 }
 
 func (s *Store) historyStatistics(ctx context.Context, query schedule.StatisticsQuery, timeout time.Duration, statementTimeout string) (schedule.HistoryStatistics, error) {

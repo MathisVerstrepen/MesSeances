@@ -17,14 +17,10 @@ import {
 } from '../app/utils/statistics.ts'
 import {
   createHistoryOptionsRequest,
-  historyDateError,
   historySelectionOptions,
-  parseHistoryStatisticsQuery,
   parseStatisticsPageQuery,
-  statisticsCustomDraft,
   statisticsParisToday,
   statisticsPeriod,
-  statisticsPeriodRange,
   statisticsPeriods,
   statisticsPageDraft,
   statisticsPageDraftQuery,
@@ -32,38 +28,63 @@ import {
   statisticsPageSignature,
 } from '../app/utils/statisticsHistory.ts'
 
-test('four named presets resolve inclusive Paris calendar dates across DST, leap days and years', () => {
+test('exactly four presets send explicit server-owned periods, filters and no dates', () => {
   assert.deepEqual(
     statisticsPeriods.map((choice) => choice.label),
     [
       '7 prochains jours',
       '30 prochains jours',
+      'Semaine courante',
       'Depuis le début de la collecte',
-      'Période personnalisée',
     ],
   )
   assert.deepEqual(statisticsPeriod({}), { period: 'next7', error: '' })
-  for (const [today, nextEnd, next30End] of [
-    ['2026-03-27', '2026-04-02', '2026-04-25'],
-    ['2026-10-23', '2026-10-29', '2026-11-21'],
-    ['2028-02-27', '2028-03-04', '2028-03-27'],
-    ['2028-03-01', '2028-03-07', '2028-03-30'],
-    ['2026-12-29', '2027-01-04', '2027-01-27'],
-    ['2027-01-02', '2027-01-08', '2027-01-31'],
-  ] as const) {
-    assert.deepEqual(statisticsPeriodRange('next7', today), {
-      from: today,
-      through: nextEnd,
-    })
-    assert.deepEqual(parseStatisticsPageQuery({}, today), {
-      query: { date: today, date_to: nextEnd },
+  assert.deepEqual(
+    statisticsPeriods.map(({ value }) => value),
+    ['next7', 'next30', 'week', 'all'],
+  )
+  assert.deepEqual(parseStatisticsPageQuery({}), {
+    query: { period: 'next7' },
+    error: '',
+  })
+  for (const { value: period } of statisticsPeriods) {
+    assert.deepEqual(parseStatisticsPageQuery({ period }), {
+      query: { period },
       error: '',
     })
     assert.deepEqual(
-      parseStatisticsPageQuery({ period: 'next30' }, today).query,
-      { date: today, date_to: next30End },
+      parseStatisticsPageQuery({
+        period,
+        date: 'stale',
+        date_to: ['ignored'],
+        city: ['paris'],
+        theater: ['ugc-1'],
+        chain: 'ugc',
+        language: 'VF',
+        format: 'IMAX',
+        genre: 'drame',
+        pass: 'UGC Illimité',
+        film: 'film-42',
+      }),
+      {
+        query: {
+          period,
+          city: ['paris'],
+          theater: ['ugc-1'],
+          chain: 'ugc',
+          language: 'VF',
+          format: 'IMAX',
+          genre: 'drame',
+          pass: 'UGC Illimité',
+          film: 'film-42',
+        },
+        error: '',
+      },
     )
   }
+})
+
+test('Paris today remains correct across midnight, DST and year rollover for chart and refresh', () => {
   for (const [instant, day] of [
     ['2026-03-28T23:30:00Z', '2026-03-29'],
     ['2026-03-29T22:30:00Z', '2026-03-30'],
@@ -72,66 +93,6 @@ test('four named presets resolve inclusive Paris calendar dates across DST, leap
     ['2026-12-31T23:30:00Z', '2027-01-01'],
   ])
     assert.equal(statisticsParisToday(new Date(instant!)), day)
-  assert.deepEqual(
-    parseStatisticsPageQuery({
-      period: 'all',
-      date: 'stale',
-      date_to: ['ignored'],
-      city: 'paris',
-    }).query,
-    { city: ['paris'] },
-  )
-  assert.equal(statisticsPeriodRange('all', '2026-09-15'), null)
-})
-
-test('custom requires both valid ordered dates without past, future or length limits', () => {
-  for (const date of [
-    '0001-01-01',
-    '0099-12-31',
-    '0100-01-01',
-    '2024-02-29',
-    '9999-12-31',
-  ])
-    assert.equal(historyDateError(date), '', date)
-  for (const date of [
-    '0000-01-01',
-    '10000-01-01',
-    '2026-02-29',
-    '2026-02-30',
-    '2026-13-01',
-    '2026-1-01',
-    ' 2026-01-01',
-  ])
-    assert.ok(historyDateError(date), date)
-  assert.ok(historyDateError(undefined, '2026-09-15'))
-  assert.ok(historyDateError('2026-09-15', '2025-01-01'))
-  const query = { date: '2020-01-01', date_to: '2030-12-31' }
-  assert.deepEqual(
-    parseStatisticsPageQuery({ ...query, period: 'custom' }, '2026-09-15'),
-    { query, error: '' },
-  )
-  const draft = statisticsPageDraft({ ...query, period: 'custom' })
-  assert.deepEqual(statisticsPageDraftQuery(draft).query, query)
-  for (const invalid of [
-    {},
-    { date: '2020-01-01' },
-    { date_to: '2020-01-01' },
-    { date: '', date_to: '' },
-    { date: ['2020-01-01'], date_to: '2020-01-01' },
-    { date: '2020-01-02', date_to: '2020-01-01' },
-  ])
-    assert.ok(parseStatisticsPageQuery({ ...invalid, period: 'custom' }).error)
-  const missing = statisticsPageDraft({ period: 'custom', date: '2020-01-01' })
-  assert.equal(missing.date_to, '')
-  assert.ok(statisticsPageDraftQuery(missing).error)
-  assert.equal(
-    parseStatisticsPageQuery({
-      period: 'custom',
-      date: '0001-01-01',
-      date_to: '9999-12-31',
-    }).error,
-    '',
-  )
 })
 
 test('period drafts, reset and back/forward preserve filters, strip obsolete mode and never emit preset dates', () => {
@@ -142,13 +103,13 @@ test('period drafts, reset and back/forward preserve filters, strip obsolete mod
     ['all'],
     ['next7', 'all'],
     'invalid',
+    'custom',
     'NEXT7',
     ' all ',
   ])
     assert.ok(parseStatisticsPageQuery({ period }).error)
-  const today = '2026-09-15'
   const route = {
-    period: 'custom',
+    period: 'week',
     date: '2020-01-01',
     date_to: '2030-01-01',
     city: ['paris', 'unknown'],
@@ -157,12 +118,13 @@ test('period drafts, reset and back/forward preserve filters, strip obsolete mod
     mode: 'history',
   }
   const before = structuredClone(route)
-  const draft = statisticsPageDraft(route, today)
+  const draft = statisticsPageDraft(route)
+  assert.equal('date' in draft, false)
+  assert.equal('date_to' in draft, false)
   draft.period = 'next30'
-  const parsed = statisticsPageDraftQuery(draft, today)
+  const parsed = statisticsPageDraftQuery(draft)
   assert.deepEqual(parsed.query, {
-    date: today,
-    date_to: '2026-10-14',
+    period: 'next30',
     city: ['paris', 'unknown'],
     theater: ['other'],
   })
@@ -180,8 +142,8 @@ test('period drafts, reset and back/forward preserve filters, strip obsolete mod
     {},
   )
   assert.deepEqual(
-    parseStatisticsPageQuery({ mode: 'history' }, today),
-    parseStatisticsPageQuery({}, today),
+    parseStatisticsPageQuery({ mode: 'history' }),
+    parseStatisticsPageQuery({}),
   )
   assert.deepEqual(statisticsPageRoute({}, 'next7', parsed.query), {
     city: ['paris', 'unknown'],
@@ -195,8 +157,8 @@ test('period drafts, reset and back/forward preserve filters, strip obsolete mod
   ]
   for (const route of [...routes, ...routes.toReversed()]) {
     assert.deepEqual(
-      statisticsPageDraftQuery(statisticsPageDraft(route, today), today),
-      parseStatisticsPageQuery(route, today),
+      statisticsPageDraftQuery(statisticsPageDraft(route)),
+      parseStatisticsPageQuery(route),
     )
   }
   assert.notEqual(
@@ -213,42 +175,20 @@ test('period drafts, reset and back/forward preserve filters, strip obsolete mod
     { language: ['VF'] },
     { chain: 'invalid' },
   ])
-    assert.ok(parseHistoryStatisticsQuery(query).error)
+    assert.ok(parseStatisticsPageQuery(query).error)
 })
 
-test('custom initializes displayed envelope or next7; rolling drafts resolve at each apply/request', () => {
-  const draft = statisticsPageDraft(
-    { period: 'all', city: ['paris'] },
-    '2026-09-15',
-  )
-  const displayed = { from: '2020-01-01', through: '2030-01-01' }
-  const custom = statisticsCustomDraft(draft, displayed, '2026-09-15')
-  assert.equal(custom.date, displayed.from)
-  assert.equal(custom.date_to, displayed.through)
-  assert.deepEqual(custom.city, ['paris'])
-  assert.equal(draft.period, 'all')
-  assert.deepEqual(
-    statisticsPageDraftQuery(statisticsCustomDraft(draft, null, '2026-09-15'))
-      .query,
-    { date: '2026-09-15', date_to: '2026-09-21', city: ['paris'] },
-  )
-  const rolling = statisticsPageDraft({}, '2026-12-31')
-  assert.deepEqual(statisticsPageDraftQuery(rolling, '2027-01-01').query, {
-    date: '2027-01-01',
-    date_to: '2027-01-07',
-  })
-  const recovery = statisticsPageDraft(
-    { period: ['bad'], city: ['paris'] },
-    '2026-09-15',
-  )
+test('invalid period recovery retains filters without falling back to all', () => {
+  const recovery = statisticsPageDraft({ period: ['bad'], city: ['paris'] })
+  assert.equal(recovery.period, 'next7')
   recovery.period = 'all'
   assert.deepEqual(statisticsPageDraftQuery(recovery).query, {
+    period: 'all',
     city: ['paris'],
   })
 })
 
 test('film survives hydration, every period and intersecting edits; removal is draft-only until Apply', () => {
-  const today = '2026-09-15'
   const route = {
     period: 'all',
     film: 'unknown-film',
@@ -260,27 +200,20 @@ test('film survives hydration, every period and intersecting edits; removal is d
     mode: 'history',
   }
   const before = structuredClone(route)
-  const draft = statisticsPageDraft(route, today)
+  const draft = statisticsPageDraft(route)
   assert.equal(draft.film, route.film)
   for (const { value: period } of statisticsPeriods) {
-    const edited =
-      period === 'custom'
-        ? statisticsCustomDraft(
-            draft,
-            { from: '2020-01-01', through: '2030-01-01' },
-            today,
-          )
-        : { ...draft, period }
+    const edited = { ...draft, period }
     edited.language = 'VF'
     edited.genre = 'drame'
-    const parsed = statisticsPageDraftQuery(edited, today)
+    const parsed = statisticsPageDraftQuery(edited)
     assert.equal(parsed.error, '')
     assert.equal(parsed.query.film, route.film)
     const applied = statisticsPageRoute(route, period, parsed.query)
     assert.equal(applied.film, route.film)
     assert.deepEqual(applied.campaign, route.campaign)
     assert.deepEqual(
-      statisticsPageDraftQuery(statisticsPageDraft(applied, today), today),
+      statisticsPageDraftQuery(statisticsPageDraft(applied)),
       parsed,
     )
   }
@@ -290,7 +223,7 @@ test('film survives hydration, every period and intersecting edits; removal is d
   const removed = statisticsPageRoute(
     route,
     draft.period,
-    statisticsPageDraftQuery(draft, today).query,
+    statisticsPageDraftQuery(draft).query,
   )
   assert.deepEqual(removed, {
     period: 'all',
@@ -299,11 +232,8 @@ test('film survives hydration, every period and intersecting edits; removal is d
     campaign: ['footer', 'test'],
   })
   assert.deepEqual(statisticsPageRoute(route), { campaign: ['footer', 'test'] })
-  assert.equal(
-    statisticsPageDraft(statisticsPageRoute(route), today).period,
-    'next7',
-  )
-  assert.equal(statisticsPageDraft(statisticsPageRoute(route), today).film, '')
+  assert.equal(statisticsPageDraft(statisticsPageRoute(route)).period, 'next7')
+  assert.equal(statisticsPageDraft(statisticsPageRoute(route)).film, '')
 })
 
 function statisticsRouter() {
@@ -317,7 +247,6 @@ function statisticsRouter() {
 }
 
 test('VOF survives every period, shared reload, API transport and router back/forward', async () => {
-  const today = '2026-09-15'
   const router = statisticsRouter()
   const urls: URL[] = []
   Object.assign(globalThis, {
@@ -341,11 +270,11 @@ test('VOF survives every period, shared reload, API transport and router back/fo
       campaign: ['footer', 'test'],
     },
   })
-  let draft = statisticsPageDraft(router.currentRoute.value.query, today)
+  let draft = statisticsPageDraft(router.currentRoute.value.query)
   const stop = watch(
     () => statisticsPageSignature(router.currentRoute.value.query),
     () => {
-      draft = statisticsPageDraft(router.currentRoute.value.query, today)
+      draft = statisticsPageDraft(router.currentRoute.value.query)
     },
     { flush: 'sync' },
   )
@@ -353,15 +282,8 @@ test('VOF survives every period, shared reload, API transport and router back/fo
   try {
     const api = useMesSeancesApi()
     for (const { value: period } of statisticsPeriods) {
-      draft =
-        period === 'custom'
-          ? statisticsCustomDraft(
-              draft,
-              { from: '2020-01-01', through: '2030-01-01' },
-              today,
-            )
-          : { ...draft, period }
-      const parsed = statisticsPageDraftQuery(draft, today)
+      draft = { ...draft, period }
+      const parsed = statisticsPageDraftQuery(draft)
       assert.equal(parsed.error, '')
       assert.equal(parsed.query.language, 'VOF')
       await router.push({
@@ -379,33 +301,26 @@ test('VOF survives every period, shared reload, API transport and router back/fo
       assert.equal(route.query.film, 'missing-film')
       const shared = new URL(route.fullPath, 'http://fixture.invalid')
       assert.deepEqual(shared.searchParams.getAll('language'), ['VOF'])
-      assert.equal(shared.searchParams.has('date'), period === 'custom')
+      assert.equal(shared.searchParams.has('date'), false)
       const reloaded = router.resolve(shared.pathname + shared.search)
-      assert.deepEqual(parseStatisticsPageQuery(reloaded.query, today), parsed)
+      assert.deepEqual(parseStatisticsPageQuery(reloaded.query), parsed)
       assert.deepEqual(
-        statisticsPageDraftQuery(
-          statisticsPageDraft(reloaded.query, today),
-          today,
-        ),
+        statisticsPageDraftQuery(statisticsPageDraft(reloaded.query)),
         parsed,
       )
       await api.historyStatistics(parsed.query)
       const request = urls.at(-1)!
       assert.equal(request.pathname, '/api/v1/statistics/history')
       assert.deepEqual(request.searchParams.getAll('language'), ['VOF'])
-      assert.equal(request.searchParams.get('date'), parsed.query.date ?? null)
-      assert.equal(
-        request.searchParams.get('date_to'),
-        parsed.query.date_to ?? null,
-      )
-      for (const key of ['campaign', 'period', 'mode'])
+      assert.equal(request.searchParams.get('period'), period)
+      for (const key of ['date', 'date_to', 'campaign', 'mode'])
         assert.equal(request.searchParams.has(key), false)
       // An empty intersection or absent inventory option must not clear the applied VOF draft.
       assert.deepEqual(statisticsBars([], 0), [])
       assert.deepEqual(statisticsOptionsWithSelection([], [draft.language]), [
         { value: 'VOF', label: 'VOF (indisponible)' },
       ])
-      assert.equal(statisticsPageDraftQuery(draft, today).query.language, 'VOF')
+      assert.equal(statisticsPageDraftQuery(draft).query.language, 'VOF')
     }
     const go = (delta: number) =>
       new Promise<void>((resolve) => {
@@ -425,8 +340,8 @@ test('VOF survives every period, shared reload, API transport and router back/fo
         assert.equal(draft.language, 'VOF')
         assert.equal(draft.period, statisticsPeriods[index]!.value)
         assert.deepEqual(
-          statisticsPageDraftQuery(draft, today),
-          parseStatisticsPageQuery(router.currentRoute.value.query, today),
+          statisticsPageDraftQuery(draft),
+          parseStatisticsPageQuery(router.currentRoute.value.query),
         )
       }
     }
@@ -436,7 +351,7 @@ test('VOF survives every period, shared reload, API transport and router back/fo
       query: statisticsPageRoute(
         router.currentRoute.value.query,
         draft.period,
-        statisticsPageDraftQuery(draft, today).query,
+        statisticsPageDraftQuery(draft).query,
       ),
     })
     assert.equal(draft.language, 'VF')
@@ -513,6 +428,7 @@ test('installed router resolves fresh all-history entity links and round-trips r
       assert.deepEqual(url.searchParams.getAll(key), [value])
       const roundTrip = router.resolve(resolved.href)
       assert.deepEqual(parseStatisticsPageQuery(roundTrip.query).query, {
+        period: 'all',
         [key]: key === 'film' ? value : [value],
       })
       assert.deepEqual(location.query, {
@@ -525,17 +441,16 @@ test('installed router resolves fresh all-history entity links and round-trips r
 
 test('router back/forward rebuilds film draft, removal and reset from authoritative URL', async () => {
   const router = statisticsRouter()
-  const today = '2026-09-15'
   await router.push({
     path: '/statistiques',
     query: { period: 'all', film: 'film-42', campaign: 'footer' },
   })
   const original = router.currentRoute.value.fullPath
-  let draft = statisticsPageDraft(router.currentRoute.value.query, today)
+  let draft = statisticsPageDraft(router.currentRoute.value.query)
   const stop = watch(
     () => statisticsPageSignature(router.currentRoute.value.query),
     () => {
-      draft = statisticsPageDraft(router.currentRoute.value.query, today)
+      draft = statisticsPageDraft(router.currentRoute.value.query)
     },
     { flush: 'sync' },
   )
@@ -546,7 +461,7 @@ test('router back/forward rebuilds film draft, removal and reset from authoritat
       query: statisticsPageRoute(
         router.currentRoute.value.query,
         draft.period,
-        statisticsPageDraftQuery(draft, today).query,
+        statisticsPageDraftQuery(draft).query,
       ),
     })
     const removed = router.currentRoute.value.fullPath
@@ -626,6 +541,7 @@ test('installed fetch serializes history arrays and selected lookup; mode never 
       format: 'IMAX',
       genre: 'drame',
       pass: 'UGC Illimité',
+      period: 'all',
     }))
       assert.equal(requests[0]!.url.searchParams.get(key), value)
     assert.deepEqual(
@@ -642,6 +558,7 @@ test('installed fetch serializes history arrays and selected lookup; mode never 
         'format',
         'genre',
         'pass',
+        'period',
       ].sort(),
     )
     assert.equal(requests[0]!.signal, signal)
@@ -656,8 +573,8 @@ test('installed fetch serializes history arrays and selected lookup; mode never 
     assert.equal(requests[1]!.url.searchParams.get('q'), 'Écran %_ &')
     assert.deepEqual(requests[1]!.url.searchParams.getAll('selected'), theater)
     assert.equal(requests[1]!.signal, signal)
-    await api.historyStatistics({ city: [], theater: [] })
-    assert.equal(requests[2]!.url.search, '')
+    await api.historyStatistics({ period: 'next7', city: [], theater: [] })
+    assert.equal(requests[2]!.url.search, '?period=next7')
     await api.historyStatisticsOptions({ kind: 'city', selected: [] })
     assert.equal(requests[3]!.url.search, '?kind=city')
   } finally {
@@ -1009,7 +926,7 @@ test('visible escaped film selection is outside result states and uses draft rem
   assert.ok(selectionStart < page.indexOf('</form>'))
   assert.ok(page.indexOf('</form>') < page.indexOf(':aria-busy="pending"'))
   assert.match(page, /@submit.prevent="apply"/)
-  assert.match(page, /statisticsPageDraftQuery\(draft.value, current\)/)
+  assert.match(page, /statisticsPageDraftQuery\(draft.value\)/)
   assert.match(
     page,
     /watch\(\s*signature,\s*\(\) => \{\s*draft.value = statisticsPageDraft/,

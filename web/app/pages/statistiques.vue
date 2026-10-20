@@ -24,7 +24,6 @@ import {
 } from '~/utils/statistics'
 import {
   parseStatisticsPageQuery,
-  statisticsCustomDraft,
   statisticsParisToday,
   statisticsPeriod,
   statisticsPeriods,
@@ -49,7 +48,7 @@ function errorMessage(cause: unknown) {
   if (getApiErrorCode(cause) === 'history_unavailable')
     return 'L’historique est temporairement indisponible. Réessayez plus tard.'
   if (status === 400)
-    return 'Filtres invalides. Vérifiez les dates et les sélections, ou réinitialisez les filtres.'
+    return 'Filtres invalides. Vérifiez les sélections, ou réinitialisez les filtres.'
   if (status === 429)
     return 'Trop de demandes. Patientez un instant avant de réessayer.'
   if (status === 503)
@@ -61,7 +60,7 @@ function errorMessage(cause: unknown) {
 
 async function fetchStatistics(signal?: AbortSignal) {
   today.value = statisticsParisToday()
-  const parsed = parseStatisticsPageQuery(route.query, today.value)
+  const parsed = parseStatisticsPageQuery(route.query)
   if (parsed.error)
     return { response: null, message: parsed.error, status: 400 }
   try {
@@ -93,7 +92,7 @@ const error = ref(initial.data.value?.message ?? '')
 const options = shallowRef<StatisticsOptions | null>(
   data.value?.options ?? null,
 )
-const draft = ref(statisticsPageDraft(route.query, today.value))
+const draft = ref(statisticsPageDraft(route.query))
 const optionLimits = shallowRef<
   HistoryStatisticsResponse['limits']['options'] | undefined
 >(historyData.value?.limits.options)
@@ -159,7 +158,7 @@ function reload() {
 watch(
   signature,
   () => {
-    draft.value = statisticsPageDraft(route.query, statisticsParisToday())
+    draft.value = statisticsPageDraft(route.query)
     validationError.value = ''
     void reload()
   },
@@ -171,7 +170,7 @@ function refreshCalendarDay() {
   if (today.value === current) return
   today.value = current
   const { period } = statisticsPeriod(route.query)
-  if (period === 'next7' || period === 'next30') void reload()
+  if (period !== 'all') void reload()
 }
 onMounted(() => {
   document.addEventListener('visibilitychange', refreshCalendarDay)
@@ -188,7 +187,7 @@ onBeforeUnmount(() => {
 async function apply() {
   const current = statisticsParisToday()
   const dayChanged = today.value !== current
-  const parsed = statisticsPageDraftQuery(draft.value, current)
+  const parsed = statisticsPageDraftQuery(draft.value)
   validationError.value = parsed.error
   if (parsed.error) return
   const query = statisticsPageRoute(
@@ -198,26 +197,16 @@ async function apply() {
   )
   const changed = statisticsPageSignature(query) !== signature.value
   if (!queriesEqual(route.query, query)) await router.push({ query })
-  if (
-    !changed &&
-    (error.value ||
-      (dayChanged &&
-        (draft.value.period === 'next7' || draft.value.period === 'next30')))
-  )
+  if (!changed && (error.value || (dayChanged && draft.value.period !== 'all')))
     await reload()
 }
 async function reset() {
   const query = statisticsPageRoute(route.query)
   const changed = statisticsPageSignature(query) !== signature.value
-  draft.value = statisticsPageDraft(query, statisticsParisToday())
+  draft.value = statisticsPageDraft(query)
   validationError.value = ''
   if (!queriesEqual(route.query, query)) await router.push({ query })
   if (!changed) await reload()
-}
-function changePeriod() {
-  validationError.value = ''
-  if (draft.value.period === 'custom')
-    draft.value = statisticsCustomDraft(draft.value, data.value?.range)
 }
 
 // Resolve the film independently of history rows, dates and intersecting filters.
@@ -533,7 +522,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             <select
               v-model="draft.period"
               :class="controlClass"
-              @change="changePeriod"
+              @change="validationError = ''"
             >
               <option
                 v-for="choice in statisticsPeriods"
@@ -544,30 +533,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
               </option>
             </select>
           </label>
-          <template v-if="draft.period === 'custom'">
-            <label :class="labelClass"
-              >Du
-              <input
-                v-model="draft.date"
-                type="date"
-                required
-                :class="controlClass"
-                :aria-invalid="Boolean(validationError)"
-                :aria-describedby="validationError ? 'statistics-date-error' : undefined"
-              >
-            </label>
-            <label :class="labelClass"
-              >Au
-              <input
-                v-model="draft.date_to"
-                type="date"
-                required
-                :class="controlClass"
-                :aria-invalid="Boolean(validationError)"
-                :aria-describedby="validationError ? 'statistics-date-error' : undefined"
-              >
-            </label>
-          </template>
           <StatisticsHistorySelect
             v-for="filter in primaryFilters"
             :id="`statistics-${filter.key}`"
@@ -624,7 +589,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
         </details>
         <p
           v-if="validationError"
-          id="statistics-date-error"
+          id="statistics-filter-error"
           role="alert"
           class="mt-4 font-bold text-primary-hover"
           :class="backdropAvailable ? 'w-fit bg-surface px-3 py-2' : undefined"

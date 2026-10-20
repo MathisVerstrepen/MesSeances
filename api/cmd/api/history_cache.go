@@ -13,7 +13,7 @@ import (
 const historyCacheRefreshInterval = 15 * time.Minute
 
 type historyCacheReader interface {
-	AllTimeHistoryStatistics(context.Context) (schedule.HistoryStatistics, error)
+	BackgroundHistoryStatistics(context.Context, schedule.StatisticsQuery) (schedule.HistoryStatistics, error)
 }
 
 func runHistoryCache(ctx context.Context, reader historyCacheReader, cache *httpapi.HistoryCache, logger *slog.Logger) {
@@ -24,16 +24,24 @@ func runHistoryCache(ctx context.Context, reader historyCacheReader, cache *http
 
 func runHistoryCacheTicks(ctx context.Context, reader historyCacheReader, cache *httpapi.HistoryCache, logger *slog.Logger, ticks <-chan time.Time) {
 	for ctx.Err() == nil {
-		refreshCtx, cancel := context.WithTimeout(ctx, schedulepg.HistoryCacheTimeout)
-		err := cache.Refresh(refreshCtx, reader.AllTimeHistoryStatistics)
-		cancel()
-		if ctx.Err() != nil {
-			return
-		}
-		if err != nil {
-			logger.Warn("history_cache_refresh_failed", "component", "history")
-		} else {
-			logger.Info("history_cache_refreshed", "component", "history")
+		for _, period := range schedule.HistoryPeriods() {
+			refreshCtx, cancel := context.WithTimeout(ctx, schedulepg.HistoryCacheTimeout)
+			err := cache.Refresh(refreshCtx, period, func(ctx context.Context) (schedule.HistoryStatistics, error) {
+				query, err := schedule.HistoryPeriodQuery(period, time.Now())
+				if err != nil {
+					return schedule.HistoryStatistics{}, err
+				}
+				return reader.BackgroundHistoryStatistics(ctx, query)
+			})
+			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				logger.Warn("history_cache_refresh_failed", "component", "history", "period", period)
+			} else {
+				logger.Info("history_cache_refreshed", "component", "history", "period", period)
+			}
 		}
 		select {
 		case <-ctx.Done():

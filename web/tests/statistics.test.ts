@@ -1085,14 +1085,15 @@ test('typed client uses one statistics endpoint, query-only fields, abort signal
       parseStatisticsQuery({ format: 'INFINITY_VISION' }).query,
     )
     assert.deepEqual(calls[4]?.options.query, { format: 'INFINITY_VISION' })
-    await api.historyStatistics(
-      parseStatisticsQuery({ format: 'INFINITY_VISION' }).query,
-    )
+    await api.historyStatistics({ period: 'week', format: 'INFINITY_VISION' })
     assert.equal(
       calls[5]?.url,
       'http://localhost:8080/api/v1/statistics/history',
     )
-    assert.deepEqual(calls[5]?.options.query, { format: 'INFINITY_VISION' })
+    assert.deepEqual(calls[5]?.options.query, {
+      period: 'week',
+      format: 'INFINITY_VISION',
+    })
   } finally {
     Reflect.deleteProperty(globalThis, '$fetch')
     Reflect.deleteProperty(globalThis, 'useRuntimeConfig')
@@ -1163,8 +1164,7 @@ test('two draft multi-controls use native disclosure, labeled search and checkbo
   assert.match(page, /@submit.prevent="apply"/)
   assert.match(page, /if \(\s*!changed &&\s*\(error.value/)
   assert.match(page, /<select\s+v-model="draft.period"/)
-  assert.match(page, /v-if="draft.period === 'custom'"/)
-  assert.match(page, /type="date"\s+required/)
+  assert.doesNotMatch(page, /custom|type="date"|draft\.date/)
   assert.doesNotMatch(
     page,
     /statistics-mode|switchMode|À venir|api\.statistics\(|:min=/,
