@@ -17,7 +17,7 @@ import (
 func warmHistoryCache(t *testing.T, result schedule.HistoryStatistics) *HistoryCache {
 	t.Helper()
 	cache := &HistoryCache{}
-	if err := cache.Refresh(t.Context(), func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
+	if err := cache.Refresh(t.Context(), schedule.HistoryAll, func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
 		t.Fatal(err)
 	}
 	return cache
@@ -25,7 +25,7 @@ func warmHistoryCache(t *testing.T, result schedule.HistoryStatistics) *HistoryC
 
 func cachedHistoryBody(cache *HistoryCache) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
-	cache.write(w)
+	cache.write(w, schedule.HistoryAll)
 	return w
 }
 
@@ -119,7 +119,7 @@ func TestHistoryCacheRefreshPreservesImmutableSnapshot(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if err := cache.Refresh(t.Context(), tc.load); err == nil {
+			if err := cache.Refresh(t.Context(), schedule.HistoryAll, tc.load); err == nil {
 				t.Fatal("failed refresh accepted")
 			}
 			if cachedHistoryBody(cache).Body.String() != initial {
@@ -128,18 +128,18 @@ func TestHistoryCacheRefreshPreservesImmutableSnapshot(t *testing.T) {
 		})
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	if err := cache.Refresh(ctx, func(context.Context) (schedule.HistoryStatistics, error) { cancel(); return result, nil }); !errors.Is(err, context.Canceled) {
+	if err := cache.Refresh(ctx, schedule.HistoryAll, func(context.Context) (schedule.HistoryStatistics, error) { cancel(); return result, nil }); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancellation not honored", err)
 	}
 	if cachedHistoryBody(cache).Body.String() != initial {
 		t.Fatal("canceled refresh published")
 	}
 	called := false
-	if err := cache.Refresh(ctx, func(context.Context) (schedule.HistoryStatistics, error) { called = true; return result, nil }); !errors.Is(err, context.Canceled) || called {
+	if err := cache.Refresh(ctx, schedule.HistoryAll, func(context.Context) (schedule.HistoryStatistics, error) { called = true; return result, nil }); !errors.Is(err, context.Canceled) || called {
 		t.Fatal("canceled refresh called loader", err, called)
 	}
 	result.GeneratedAt = result.GeneratedAt.Add(time.Minute)
-	if err := cache.Refresh(t.Context(), func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
+	if err := cache.Refresh(t.Context(), schedule.HistoryAll, func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
 		t.Fatal(err)
 	}
 	if cachedHistoryBody(cache).Body.String() == initial {
@@ -154,7 +154,7 @@ func TestHistoryCacheRefreshNoOverlap(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- cache.Refresh(ctx, func(ctx context.Context) (schedule.HistoryStatistics, error) {
+		done <- cache.Refresh(ctx, schedule.HistoryAll, func(ctx context.Context) (schedule.HistoryStatistics, error) {
 			close(started)
 			<-ctx.Done()
 			return schedule.HistoryStatistics{}, ctx.Err()
@@ -166,7 +166,7 @@ func TestHistoryCacheRefreshNoOverlap(t *testing.T) {
 		t.Fatal("refresh did not start")
 	}
 	called := false
-	err := cache.Refresh(ctx, func(context.Context) (schedule.HistoryStatistics, error) {
+	err := cache.Refresh(ctx, schedule.HistoryNext7, func(context.Context) (schedule.HistoryStatistics, error) {
 		called = true
 		return schedule.HistoryStatistics{}, nil
 	})
@@ -180,7 +180,7 @@ func TestHistoryCacheRefreshNoOverlap(t *testing.T) {
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
-	if err := cache.Refresh(t.Context(), func(context.Context) (schedule.HistoryStatistics, error) { return schedule.HistoryStatistics{}, nil }); err != nil {
+	if err := cache.Refresh(t.Context(), schedule.HistoryAll, func(context.Context) (schedule.HistoryStatistics, error) { return schedule.HistoryStatistics{}, nil }); err != nil {
 		t.Fatal("refresh admission leaked", err)
 	}
 }
@@ -211,10 +211,72 @@ func TestHistoryCacheConcurrentReadsAndRefresh(t *testing.T) {
 		if i%2 == 0 {
 			result = second
 		}
-		if err := cache.Refresh(t.Context(), func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
+		if err := cache.Refresh(t.Context(), schedule.HistoryAll, func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
 			t.Error(err)
 			break
 		}
+	}
+	wg.Wait()
+}
+
+func TestHistoryCacheIndependentPresetsAndRollover(t *testing.T) {
+	cache := &HistoryCache{}
+	oldTime := time.Date(2026, 10, 20, 21, 59, 0, 0, time.UTC)
+	newTime := oldTime.Add(2 * time.Minute) // Paris Wednesday, still UTC Tuesday.
+	bodies := make(map[schedule.HistoryPeriod]string)
+	for _, period := range schedule.HistoryPeriods() {
+		reader := &fakeHistoryReader{}
+		h := NewHandlerWithOptions(nil, "", HandlerOptions{History: reader, HistoryCache: cache})
+		path := "/api/v1/statistics/history?period=" + string(period)
+		cold := performRequest(t, h, path)
+		if cold.Code != http.StatusServiceUnavailable || reader.calls != 0 || !strings.Contains(cold.Body.String(), "history_unavailable") {
+			t.Fatal("unfiltered cold preset used live reader", period, cold.Code, reader.calls)
+		}
+		query, err := schedule.HistoryPeriodQuery(period, oldTime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := schedule.HistoryStatistics{Mode: "history", Timezone: schedule.Timezone, GeneratedAt: oldTime,
+			Range: &schedule.Window{From: query.Date, Through: query.DateTo}, DailyShowtimes: []schedule.HistoryDailyShowtimes{}}
+		if err := cache.Refresh(t.Context(), period, func(context.Context) (schedule.HistoryStatistics, error) { return result, nil }); err != nil {
+			t.Fatal(err)
+		}
+		hit := performRequest(t, h, path)
+		if hit.Code != http.StatusOK || reader.calls != 0 || !strings.Contains(hit.Body.String(), `"daily_showtimes":[]`) {
+			t.Fatal("empty cached preset not served", period, hit.Code, reader.calls)
+		}
+		bodies[period] = hit.Body.String()
+		result.Range.From = "mutated"
+	}
+	// Failed calculations or encoding after rollover cannot relabel old bytes.
+	for _, period := range schedule.HistoryPeriods() {
+		query, err := schedule.HistoryPeriodQuery(period, newTime)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, encodeFailure := range []bool{false, true} {
+			err := cache.Refresh(t.Context(), period, func(context.Context) (schedule.HistoryStatistics, error) {
+				if !encodeFailure {
+					return schedule.HistoryStatistics{}, errors.New("failed refresh")
+				}
+				return schedule.HistoryStatistics{Range: &schedule.Window{From: query.Date, Through: query.DateTo}, GeneratedAt: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)}, nil
+			})
+			if err == nil {
+				t.Fatal("failed refresh published", period)
+			}
+		}
+	}
+	var wg sync.WaitGroup
+	for _, period := range schedule.HistoryPeriods() {
+		wg.Go(func() {
+			for range 100 {
+				w := httptest.NewRecorder()
+				cache.write(w, period)
+				if w.Code != http.StatusOK || w.Body.String() != bodies[period] {
+					t.Error("snapshot lost original range/generated_at", period)
+				}
+			}
+		})
 	}
 	wg.Wait()
 }

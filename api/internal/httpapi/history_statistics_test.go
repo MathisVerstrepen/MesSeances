@@ -222,3 +222,75 @@ func TestHistoryHTTPErrorsAndRateLimit(t *testing.T) {
 	}
 	assertRateLimited(t, requestFrom(t, h, "GET", "/api/v1/statistics/history", "192.0.2.1:1234", nil), "1")
 }
+
+func TestHistoryPeriodParsingAndFilteredDispatch(t *testing.T) {
+	now := time.Date(2026, 10, 20, 22, 0, 0, 0, time.UTC)
+	for _, period := range schedule.HistoryPeriods() {
+		bounds, err := schedule.HistoryPeriodQuery(period, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, filter := range []string{"city=lille", "theater=ugc-25", "chain=ugc", "language=VOF", "format=IMAX", "genre=drame", "pass=ugc-illimite", "film=film-1"} {
+			t.Run(string(period)+"/"+filter, func(t *testing.T) {
+				raw := "period=" + string(period) + "&" + filter
+				query, parsed, err := parseHistoryRequest(raw, now)
+				if err != nil || parsed != period || query.Date != bounds.Date || query.DateTo != bounds.DateTo || isUnfilteredHistory(query) {
+					t.Fatal(query, parsed, err)
+				}
+				reader := &fakeHistoryReader{}
+				h := NewHandlerWithOptions(nil, "", HandlerOptions{History: reader, HistoryCache: &HistoryCache{}})
+				before := time.Now()
+				response := performRequest(t, h, "/api/v1/statistics/history?"+raw)
+				after := time.Now()
+				wantBefore, errBefore := schedule.HistoryPeriodQuery(period, before)
+				wantAfter, errAfter := schedule.HistoryPeriodQuery(period, after)
+				if errBefore != nil || errAfter != nil || response.Code != http.StatusOK || reader.calls != 1 || isUnfilteredHistory(reader.stats) ||
+					(reader.stats.Date != wantBefore.Date || reader.stats.DateTo != wantBefore.DateTo) && (reader.stats.Date != wantAfter.Date || reader.stats.DateTo != wantAfter.DateTo) {
+					t.Fatal("filtered preset did not use bounded live path", response.Code, reader.calls, reader.stats)
+				}
+			})
+		}
+	}
+}
+
+func TestHistoryPeriodValidationBeforeReads(t *testing.T) {
+	queries := []string{"period=", "period=custom", "period=NEXT7", "period=+next7+", "period=next7&period=next7", "period=next7&period=all", "period=%FF", "period=%zz", "period=next7&chain=other", "period=all&city=", "period=week&film=%00", "period=next30&language="}
+	for _, period := range schedule.HistoryPeriods() {
+		for _, dates := range []string{"date=2026-01-01", "date_to=2026-01-01", "date=", "date_to=", "date=2026-01-01&date_to=2026-01-02"} {
+			queries = append(queries, "period="+string(period)+"&"+dates)
+		}
+	}
+	cache := warmHistoryCache(t, schedule.HistoryStatistics{Mode: "must-not-read"})
+	for _, raw := range queries {
+		t.Run(raw, func(t *testing.T) {
+			reader := &fakeHistoryReader{}
+			h := NewHandlerWithOptions(nil, "", HandlerOptions{History: reader, HistoryCache: cache})
+			response := performRequest(t, h, "/api/v1/statistics/history?"+raw)
+			if response.Code != http.StatusBadRequest || reader.calls != 0 || !strings.Contains(response.Body.String(), `"code":"invalid_query"`) {
+				t.Fatal(response.Code, response.Body.String(), reader.calls)
+			}
+		})
+	}
+	for _, path := range []string{"/api/v1/statistics?period=next7", "/api/v1/statistics/history/options?kind=city&period=all"} {
+		reader := &fakeHistoryReader{}
+		handler := NewHandlerWithOptions(nil, "", HandlerOptions{History: reader})
+		if strings.HasPrefix(path, "/api/v1/statistics?") {
+			handler = testHandler(t)
+		}
+		response := performRequest(t, handler, path)
+		if response.Code != http.StatusBadRequest || reader.calls != 0 {
+			t.Fatal("period leaked into upcoming/options", path, response.Code, reader.calls)
+		}
+	}
+}
+
+func TestHistoryPeriodRawQueryLimits(t *testing.T) {
+	for _, raw := range []string{"per%69od=next7&genre=" + strings.Repeat("é", 100), "period=all&city=lille"} {
+		for _, size := range []int{4096, 4097} {
+			_, _, err := parseHistoryRequest(raw+strings.Repeat("&", size-len(raw)), time.Now())
+			if (err != nil) != (size > 4096) {
+				t.Fatal("preset changed existing raw byte limit", size, err)
+			}
+		}
+	}
+}

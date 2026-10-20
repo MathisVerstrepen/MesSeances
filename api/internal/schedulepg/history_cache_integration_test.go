@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ func TestHistoryCacheAggregationIntegration(t *testing.T) {
 	s := NewStore(pool)
 	historyPublish(t, s, testDataset(), kinepolisTestDataset())
 	live := historyGet(t, s, schedule.StatisticsQuery{})
-	background, err := s.AllTimeHistoryStatistics(t.Context())
+	background, err := s.BackgroundHistoryStatistics(t.Context(), schedule.StatisticsQuery{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func TestHistoryCacheAggregationIntegration(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := s.AllTimeHistoryStatistics(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := s.BackgroundHistoryStatistics(ctx, schedule.StatisticsQuery{}); !errors.Is(err, context.Canceled) {
 		t.Fatal("background cancellation", err)
 	}
 	ctx, cancel = context.WithTimeout(t.Context(), 20*time.Millisecond)
@@ -77,5 +78,83 @@ func TestHistoryCacheAggregationIntegration(t *testing.T) {
 	})
 	if !errors.Is(err, schedule.ErrHistoryQueryTimeout) {
 		t.Fatal("parent deadline did not bound background query", err)
+	}
+}
+
+func TestHistoryCachePresetBoundariesIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	s := NewStore(pool)
+	location, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dates := []string{"2026-10-13", "2026-10-14", "2026-10-19", "2026-10-20", "2026-10-21", "2026-10-26", "2026-10-27", "2026-10-28", "2026-11-18", "2026-11-19"}
+	for _, date := range dates {
+		data := testDataset()
+		data.Window = Window{From: date, Through: date}
+		for i := range data.Theaters {
+			data.Theaters[i].AvailableDates = []string{date}
+		}
+		showing := data.Showtimes[0]
+		showing.ServiceDate = date
+		showing.StartTime, err = time.ParseInLocation("2006-01-02 15:04", date+" 12:00", location)
+		if err != nil {
+			t.Fatal(err)
+		}
+		showing.EndTime = showing.StartTime.Add(100 * time.Minute)
+		data.Showtimes = []ShowtimeRecord{showing}
+		historyPublish(t, s, data)
+	}
+	for _, tc := range []struct {
+		name, now string
+		counts    [4]int
+	}{
+		{"Tuesday", "2026-10-20T12:00:00Z", [4]int{3, 6, 3, 10}},
+		{"ParisWednesday", "2026-10-20T22:00:00Z", [4]int{3, 6, 3, 10}},
+		{"emptyPeriods", "2026-12-01T12:00:00Z", [4]int{0, 0, 0, 10}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, tc.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, period := range schedule.HistoryPeriods() {
+				t.Run(string(period), func(t *testing.T) {
+					query, err := schedule.HistoryPeriodQuery(period, now)
+					if err != nil {
+						t.Fatal(err)
+					}
+					background, err := s.BackgroundHistoryStatistics(t.Context(), query)
+					if err != nil {
+						t.Fatal(err)
+					}
+					live := historyGet(t, s, query)
+					if background.GeneratedAt.IsZero() || background.Totals.Showtimes != tc.counts[i] {
+						t.Fatal("wrong preset count", background.Totals, tc.counts[i])
+					}
+					if query.Date != "" && (background.Range == nil || background.Range.From != query.Date || background.Range.Through != query.DateTo) {
+						t.Fatal("preset response lost inclusive range", background.Range, query)
+					}
+					var gotDates, wantDates []string
+					for _, day := range background.DailyShowtimes {
+						if day.ShowtimeCount != 0 {
+							gotDates = append(gotDates, day.Date)
+						}
+					}
+					for _, date := range dates {
+						if query.Date == "" || date >= query.Date && date <= query.DateTo {
+							wantDates = append(wantDates, date)
+						}
+					}
+					if !slices.Equal(gotDates, wantDates) {
+						t.Fatal("included or excluded wrong boundary screening", gotDates, wantDates)
+					}
+					background.GeneratedAt = live.GeneratedAt
+					if !reflect.DeepEqual(background, live) {
+						t.Fatal("preset background differs from equivalent live aggregation")
+					}
+				})
+			}
+		})
 	}
 }

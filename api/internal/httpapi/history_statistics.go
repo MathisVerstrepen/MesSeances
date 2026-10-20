@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"messeances/api/internal/schedule"
@@ -17,13 +18,13 @@ type HistoryReader interface {
 }
 
 func (api *API) historyStatistics(w http.ResponseWriter, r *http.Request) {
-	query, err := parseHistoryStatisticsQuery(r.URL.RawQuery)
+	query, period, err := parseHistoryRequest(r.URL.RawQuery, time.Now())
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
-	if isAllTimeHistory(query) {
-		api.historyCache.write(w)
+	if period != "" && isUnfilteredHistory(query) {
+		api.historyCache.write(w, period)
 		return
 	}
 	if api.history == nil {
@@ -78,6 +79,57 @@ func parseHistoryStatisticsQuery(raw string) (schedule.StatisticsQuery, error) {
 		return query, err
 	}
 	return schedule.NormalizeHistoryQuery(query)
+}
+
+// Presets belong only to history, not the shared upcoming/options parsers.
+func parseHistoryRequest(raw string, now time.Time) (schedule.StatisticsQuery, schedule.HistoryPeriod, error) {
+	invalid := func() (schedule.StatisticsQuery, schedule.HistoryPeriod, error) {
+		return schedule.StatisticsQuery{}, "", &schedule.ValidationError{Message: "La période est invalide."}
+	}
+	if len(raw) > 4096 || !utf8.ValidString(raw) {
+		return invalid()
+	}
+	values, err := url.ParseQuery(raw)
+	if err != nil {
+		return invalid()
+	}
+	entries, supplied := values["period"]
+	var period schedule.HistoryPeriod
+	var bounds schedule.StatisticsQuery
+	if supplied {
+		if len(entries) != 1 || values.Has("date") || values.Has("date_to") {
+			return invalid()
+		}
+		period = schedule.HistoryPeriod(entries[0])
+		bounds, err = schedule.HistoryPeriodQuery(period, now)
+		if err != nil {
+			return invalid()
+		}
+	}
+	queryRaw := raw
+	if supplied {
+		// Preserve original encoding and byte limits for all existing filters.
+		parts := strings.Split(raw, "&")
+		filters := parts[:0]
+		for _, part := range parts {
+			key, _, _ := strings.Cut(part, "=")
+			key, _ = url.QueryUnescape(key) // ParseQuery above already validated encoding.
+			if key != "period" {
+				filters = append(filters, part)
+			}
+		}
+		queryRaw = strings.Join(filters, "&")
+	}
+	query, err := parseHistoryStatisticsQuery(queryRaw)
+	if err != nil {
+		return query, "", err
+	}
+	if supplied {
+		query.Date, query.DateTo = bounds.Date, bounds.DateTo
+	} else if query.Date == "" {
+		period = schedule.HistoryAll
+	}
+	return query, period, nil
 }
 
 func parseHistoryOptionsQuery(raw string) (schedule.HistoryOptionsQuery, error) {

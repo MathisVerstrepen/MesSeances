@@ -1,6 +1,6 @@
 import type { Page, TestInfo } from '@playwright/test'
 import { test, expect, openPage } from './fixtures'
-import { date, movie, statisticsFrom, statisticsThrough } from './data.mjs'
+import { date, movie } from './data.mjs'
 
 const cases = [
   {
@@ -32,7 +32,7 @@ const cases = [
   },
   {
     name: 'statistics',
-    path: `/statistiques?period=custom&date=${statisticsFrom}&date_to=${statisticsThrough}&film=${movie.slug}`,
+    path: `/statistiques?period=all&film=${movie.slug}`,
     signal: '#statistics-catalog',
     endpoint: '/api/v1/statistics/history',
     ready: 'section[aria-labelledby="statistics-chains"]',

@@ -20,7 +20,10 @@ import {
   type RenderFunction,
 } from 'vue'
 import type { LocationQuery } from 'vue-router'
-import type { MovieShowtimesQuery, StatisticsQuery } from '../app/types/api.ts'
+import type {
+  MovieShowtimesQuery,
+  HistoryStatisticsQuery,
+} from '../app/types/api.ts'
 import { queriesEqual } from '../app/utils/routeQuery.ts'
 import * as statistics from '../app/utils/statistics.ts'
 import * as history from '../app/utils/statisticsHistory.ts'
@@ -76,6 +79,7 @@ interface Page {
   error: Ref<string>
   apply: () => Promise<void>
   reset: () => Promise<void>
+  refreshCalendarDay: () => void
 }
 
 function movie(title = 'Le Voyage de Chihiro', slug = 'film-230'): MovieResult {
@@ -93,17 +97,20 @@ async function harness(
     showtimes?: number
     movies?: number
     lookup?: (film: string) => Promise<MovieResult>
+    today?: () => string
+    metadata?: boolean
   } = {},
 ) {
   const scope = effectScope()
   const route = reactive({ query })
   const movieCalls: { film: string; query: MovieShowtimesQuery }[] = []
-  const historyCalls: StatisticsQuery[] = []
+  const historyCalls: HistoryStatisticsQuery[] = []
   let unmount = () => {}
   let titleData: Ref<TitleResult | undefined> | undefined
   const bindings = {
     ...statistics,
     ...history,
+    statisticsParisToday: options.today ?? history.statisticsParisToday,
     queriesEqual,
     safeBackdropUrl,
     computed,
@@ -119,7 +126,7 @@ async function harness(
     }),
     useState: (_key: string, initialize: () => string) => ref(initialize()),
     useMesSeancesApi: () => ({
-      historyStatistics: async (query: StatisticsQuery) => {
+      historyStatistics: async (query: HistoryStatisticsQuery) => {
         historyCalls.push(query)
         if (options.historyError) throw new Error('history unavailable')
         return {
@@ -132,7 +139,17 @@ async function harness(
             cities: 1,
           },
           generated_at: '2026-09-15T10:00:00Z',
-          coverage: { collection_started_at: null },
+          range: options.metadata
+            ? { from: '2026-09-09', through: '2026-09-15' }
+            : null,
+          coverage: {
+            collection_started_at: options.metadata
+              ? '2026-09-01T08:00:00Z'
+              : null,
+            last_publication_at: options.metadata
+              ? '2026-09-15T08:00:00Z'
+              : null,
+          },
           concentration: {
             top_movie_count: 1,
             top_showtime_count: 12,
@@ -190,12 +207,12 @@ async function harness(
     getApiErrorStatus: () => 503,
     getApiErrorCode: () => 'history_unavailable',
     getFrenchApiError: () => 'Indisponible',
-    document: { removeEventListener: () => {} },
+    document: { visibilityState: 'visible', removeEventListener: () => {} },
   }
   // SAFETY: The wrapper explicitly returns these actual page setup bindings.
   const page = (await new Function(
     ...Object.keys(bindings),
-    `return (async () => { ${compiled}\nreturn { selectedFilm, totals, selectedFilmLabel, selectedFrenchReleaseDate, today, backdropUrl, backdropAvailable, backdropFailed, draft, error, apply, reset, data, historyData, pending, showSkeleton, buttonClass, headingClass, sectionClass, dateLabel, timestampLabel, generatedLabel, statisticsCount, statisticsShare, statisticsChainLabels, signature, movieBars, buckets, concentration, reload } })()`,
+    `return (async () => { ${compiled}\nreturn { selectedFilm, totals, selectedFilmLabel, selectedFrenchReleaseDate, today, backdropUrl, backdropAvailable, backdropFailed, draft, error, apply, reset, data, historyData, pending, showSkeleton, buttonClass, headingClass, sectionClass, dateLabel, timestampLabel, generatedLabel, statisticsCount, statisticsShare, statisticsChainLabels, signature, movieBars, buckets, concentration, reload, refreshCalendarDay } })()`,
   )(...Object.values(bindings))) as Page
   return {
     page,
@@ -265,6 +282,40 @@ const renderResults = async (page: Page) => {
     })
   return renderToString(app)
 }
+
+test('invalid removed and repeated periods never call page history transport', async (context) => {
+  for (const period of ['custom', 'bad', '', ['week', 'all']]) {
+    const h = await harness({
+      period,
+      date: '2020-01-01',
+      date_to: '2030-01-01',
+    })
+    context.after(h.stop)
+    assert.deepEqual(h.historyCalls, [])
+    assert.match(h.page.error.value, /Période invalide/)
+  }
+})
+
+test('Paris rollover refreshes every bounded preset on visibility and Apply without relabeling old snapshots', async (context) => {
+  for (const { value: period } of history.statisticsPeriods) {
+    let today = '2026-09-15'
+    const h = await harness({ period }, { today: () => today, metadata: true })
+    context.after(h.stop)
+    today = '2026-09-16'
+    h.page.refreshCalendarDay()
+    await settle()
+    assert.equal(h.historyCalls.length, period === 'all' ? 1 : 2)
+    today = '2026-09-17'
+    await h.page.apply()
+    await settle()
+    assert.equal(h.historyCalls.length, period === 'all' ? 1 : 3)
+    for (const query of h.historyCalls) assert.deepEqual(query, { period })
+    const html = await renderResults(h.page)
+    assert.match(html, /Du 9 septembre 2026 au 15 septembre 2026/)
+    assert.match(html, /datetime="2026-09-15T10:00:00Z"/)
+    assert.doesNotMatch(html, /Du 16 septembre|Du 17 septembre/)
+  }
+})
 
 test('applied movie hides only requested result sections and metric across every period and intersection', async (context) => {
   for (const { value: period } of history.statisticsPeriods) {
