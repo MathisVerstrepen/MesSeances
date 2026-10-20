@@ -156,6 +156,8 @@ test('planning clears old result and fences pending request before unresolved an
 
 test('movie catalog invalidates personalized requests but still permits explicit all-theater browsing', async () => {
   const code = await functionsFromPage('../app/pages/films/index.vue', [
+    'usesCinemaPreferences',
+    'buildMoviesQuery',
     'loadMovies',
   ])
   const response = deferred<{ total: number }>()

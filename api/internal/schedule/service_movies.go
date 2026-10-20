@@ -66,15 +66,12 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 		result.ScreeningWindow = &window
 		screeningEnd = &end
 	}
-	if query.IncludeEnded && (query.Date != nil || query.DateTo != nil) {
-		return MovieCatalog{}, invalid("Le paramètre include_ended est incompatible avec date ou date_to.")
-	}
 	dateWindow, err := s.resolveMovieCatalogDateWindow(query.Date, query.DateTo, now)
 	if err != nil {
 		return MovieCatalog{}, err
 	}
-	if query.IncludeEnded && (query.TheaterIDs != nil || query.CurrentlyScreened != nil && *query.CurrentlyScreened) {
-		return MovieCatalog{}, invalid("Le paramètre include_ended est incompatible avec currently_screened=true ou theaters.")
+	if query.IncludeEnded && query.CurrentlyScreened != nil && *query.CurrentlyScreened {
+		return MovieCatalog{}, invalid("Le paramètre include_ended est incompatible avec currently_screened=true.")
 	}
 	var selectedTheaters []int
 	if query.TheaterIDs != nil {
@@ -93,6 +90,9 @@ func (s *Service) Movies(query MovieCatalogQuery) (MovieCatalog, error) {
 	sortMode := normalizeMovieCatalogSort(query.Sort)
 	sort.Slice(grouped, func(i, j int) bool {
 		left, right := grouped[i], grouped[j]
+		if query.IncludeEnded && !search.Blank() && (left.showtimeCount > 0) != (right.showtimeCount > 0) {
+			return left.showtimeCount > 0
+		}
 		switch sortMode {
 		case MovieCatalogSortTitleAsc:
 			return compareMovieCatalogTitle(left.item, right.item, false)

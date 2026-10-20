@@ -970,10 +970,10 @@ func TestMoviesCatalogAdvancedFilterValidation(t *testing.T) {
 		{name: "date to without date", query: MovieCatalogQuery{DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
 		{name: "date to with preset", query: MovieCatalogQuery{Date: date("today"), DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
 		{name: "date to with malformed start", query: MovieCatalogQuery{Date: date("15-08-2026"), DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
-		{name: "date with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, Date: date("today")}, message: "Le paramètre include_ended est incompatible avec date ou date_to."},
-		{name: "date to with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, Date: date("2026-08-15"), DateTo: date("2026-08-16")}, message: "Le paramètre include_ended est incompatible avec date ou date_to."},
-		{name: "date to alone with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, DateTo: date("2026-08-16")}, message: "Le paramètre include_ended est incompatible avec date ou date_to."},
-		{name: "existing ended conflict", query: MovieCatalogQuery{IncludeEnded: true, CurrentlyScreened: &truth}, message: "Le paramètre include_ended est incompatible avec currently_screened=true ou theaters."},
+		{name: "invalid date with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, Date: date("invalid")}, message: "Le paramètre date doit être today, tomorrow, weekend ou respecter le format YYYY-MM-DD."},
+		{name: "date to alone with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, DateTo: date("2026-08-16")}, message: "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{name: "unknown theater with ended inventory", query: MovieCatalogQuery{IncludeEnded: true, TheaterIDs: []string{"unknown"}}, message: "Le paramètre theaters contient un identifiant de cinéma inconnu."},
+		{name: "existing ended conflict", query: MovieCatalogQuery{IncludeEnded: true, CurrentlyScreened: &truth}, message: "Le paramètre include_ended est incompatible avec currently_screened=true."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := service.Movies(test.query)

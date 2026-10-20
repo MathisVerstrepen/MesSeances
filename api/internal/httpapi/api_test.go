@@ -1128,11 +1128,69 @@ func TestCanonicalMoviesTransportEndedAliasesAndValidation(t *testing.T) {
 		t.Fatalf("past status=%d body=%s", past.Code, past.Body.String())
 	}
 	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=1"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended doit être true ou false.")
-	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=true&currently_screened=true"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended est incompatible avec currently_screened=true ou theaters.")
-	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=true&theaters=ugc-25"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended est incompatible avec currently_screened=true ou theaters.")
+	assertAPIError(t, performRequest(t, handler, "/api/v1/movies?include_ended=true&currently_screened=true"), http.StatusBadRequest, "invalid_query", "Le paramètre include_ended est incompatible avec currently_screened=true.")
 	allWithFalse := performRequest(t, handler, "/api/v1/movies?include_ended=true&currently_screened=false&page_size=10")
 	if allWithFalse.Code != http.StatusOK || !strings.Contains(allWithFalse.Body.String(), `"total":2`) {
 		t.Fatalf("all with false status=%d body=%s", allWithFalse.Code, allWithFalse.Body.String())
+	}
+
+	data.Window.Through = "2026-08-16"
+	for i := range data.Theaters {
+		data.Theaters[i].AvailableDates = []string{"2026-08-15", "2026-08-16"}
+	}
+	data.PublicMovies[0].Title, data.PublicMovies[2].Title = "Film Z canonique", "Film A terminé"
+	nextDay := data.Showtimes[0]
+	nextDay.ID, nextDay.ProviderShowingID, nextDay.ServiceDate = "ugc-showing-2", "2", "2026-08-16"
+	nextDay.BookingURL = "https://www.ugc.fr/reservationSeances.html?id=2"
+	nextDay.StartTime, nextDay.EndTime = start.Add(24*time.Hour), start.Add(24*time.Hour+90*time.Minute)
+	elsewhere := data.Showtimes[0]
+	elsewhere.ID, elsewhere.ProviderShowingID, elsewhere.TheaterID = "ugc-showing-3", "3", "ugc-99"
+	elsewhere.BookingURL = "https://www.ugc.fr/reservationSeances.html?id=3"
+	data.Showtimes = append(data.Showtimes, nextDay, elsewhere)
+	service, err = schedule.NewService(fixtureSource{view: schedule.NewSnapshotView(data)}, schedule.ServiceOptions{Now: func() time.Time { return start.Add(-time.Hour) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler = NewHandler(service, "http://localhost:3000")
+	for _, tc := range []struct {
+		name, scope string
+		count       int
+	}{
+		{"selected inclusive range", "&theaters=ugc-25&date=2026-08-15&date_to=2026-08-16", 2},
+		{"nationwide inclusive range", "&date=2026-08-15&date_to=2026-08-16", 3},
+		{"selected today", "&theaters=ugc-25&date=today", 1},
+		{"zero selected tomorrow", "&theaters=ugc-99&date=tomorrow", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := performRequest(t, handler, "/api/v1/movies?include_ended=true&search=film&sort=title_asc&page_size=10"+tc.scope)
+			var catalog schedule.MovieCatalog
+			if err := json.Unmarshal(response.Body.Bytes(), &catalog); err != nil || response.Code != http.StatusOK || catalog.Total != 2 || len(catalog.Items) != 2 {
+				t.Fatalf("status=%d catalog=%+v err=%v", response.Code, catalog, err)
+			}
+			var raw struct {
+				Items []map[string]json.RawMessage `json:"items"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &raw); err != nil {
+				t.Fatal(err)
+			}
+			for i, item := range catalog.Items {
+				want := 0
+				if item.Slug == "film-1" {
+					want = tc.count
+				}
+				_, hasCount := raw.Items[i]["showtime_count"]
+				if item.ShowtimeCount != want || hasCount != (want > 0) {
+					t.Fatalf("item=%+v count present=%v want=%d", item, hasCount, want)
+				}
+			}
+			first := "film-1"
+			if tc.count == 0 {
+				first = "film-3"
+			}
+			if catalog.Items[0].Slug != first {
+				t.Fatalf("scoped order=%+v want first=%s", catalog.Items, first)
+			}
+		})
 	}
 }
 
@@ -1518,8 +1576,13 @@ func TestInvalidQueriesTransport(t *testing.T) {
 		{"movies date to without date", "/api/v1/movies?date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
 		{"movies date to with preset", "/api/v1/movies?date=today&date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
 		{"movies date to with malformed start", "/api/v1/movies?date=15-08-2026&date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
-		{"movies ended date", "/api/v1/movies?include_ended=true&date=today", "Le paramètre include_ended est incompatible avec date ou date_to."},
-		{"movies ended date to", "/api/v1/movies?include_ended=true&date_to=2026-08-16", "Le paramètre include_ended est incompatible avec date ou date_to."},
+		{"movies ended invalid date", "/api/v1/movies?include_ended=true&date=invalid", "Le paramètre date doit être today, tomorrow, weekend ou respecter le format YYYY-MM-DD."},
+		{"movies ended date to", "/api/v1/movies?include_ended=true&date_to=2026-08-16", "Le paramètre date_to nécessite une date personnalisée au format YYYY-MM-DD."},
+		{"movies ended invalid date to", "/api/v1/movies?include_ended=true&date=2026-08-15&date_to=invalid", "Le paramètre date_to doit respecter le format YYYY-MM-DD."},
+		{"movies ended inverted dates", "/api/v1/movies?include_ended=true&date=2026-08-17&date_to=2026-08-16", "Le paramètre date_to doit être supérieur ou égal au paramètre date."},
+		{"movies ended unknown theater", "/api/v1/movies?include_ended=true&theaters=inconnu", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
+		{"movies ended empty theater", "/api/v1/movies?include_ended=true&theaters=", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
+		{"movies ended invalid screened", "/api/v1/movies?include_ended=true&currently_screened=1", "Le paramètre currently_screened doit être true ou false."},
 		{"movies empty theater", "/api/v1/movies?theaters=", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"movies unknown theater", "/api/v1/movies?theaters=inconnu", "Le paramètre theaters contient un identifiant de cinéma inconnu."},
 		{"showtimes date required", "/api/v1/movies/tmdb-film-42/showtimes", "Le paramètre date est requis."},
