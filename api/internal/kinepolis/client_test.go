@@ -140,6 +140,24 @@ func TestReadBoundedLimitAndReadErrors(t *testing.T) {
 	}
 }
 
+func TestClientAndParserAcceptScheduleBeyondFormerBodyLimit(t *testing.T) {
+	// A synthetic catalog with the size of the October 2026 live page must
+	// survive both the HTTP reader and the parser's independent size guard.
+	source := string(fixture(t)) + strings.Repeat(" ", 36<<20)
+	client := testClient(t)
+	client.clients[0].Transport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return testResponse(http.StatusOK, source), nil
+	})
+	body, err := client.Fetch(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataset, _, err := parseSchedule(body, "2026-08-15", time.Date(2026, 8, 14, 12, 0, 0, 0, time.UTC))
+	if err != nil || len(dataset.Showtimes) != 2 {
+		t.Fatalf("sessions=%d err=%v", len(dataset.Showtimes), err)
+	}
+}
+
 func TestClientReadFailureRotatesAndCanSucceed(t *testing.T) {
 	newClient := func(t *testing.T) *Client {
 		t.Helper()
