@@ -40,12 +40,14 @@ test('delayed catalog restores Back position and query; fresh detail and paginat
   await expect(catalog(page).getByRole('link')).toHaveCount(24)
   await restored(page, 0)
   await page.evaluate(() => window.scrollTo({ top: 150 }))
-  await page.getByRole('combobox', { name: 'Trier par' }).evaluate((select) => {
-    if (!(select instanceof HTMLSelectElement))
-      throw new Error('Expected sort select')
-    select.value = 'title_desc'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
+  await page
+    .getByRole('button', { name: /Afficher les filtres avancés/ })
+    .click()
+  const filters = page.getByRole('dialog', { name: 'Filtres avancés' })
+  await filters
+    .getByRole('combobox', { name: 'Trier par' })
+    .selectOption('title_desc')
+  await filters.getByRole('button', { name: 'Appliquer', exact: true }).click()
   await expect(page).toHaveURL(/sort=title_desc/)
   await expect(page.locator('#films-catalog')).toHaveAttribute(
     'aria-busy',

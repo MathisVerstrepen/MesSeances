@@ -6,7 +6,9 @@ import {
   Film,
   LoaderCircle,
   RefreshCw,
+  Search,
   SlidersHorizontal,
+  X,
 } from '@lucide/vue'
 import { fr } from 'date-fns/locale/fr'
 import type { MoviesQuery, MoviesResponse, MovieSort } from '~/types/api'
@@ -32,7 +34,10 @@ import type {
   MovieCatalogFilters,
   MovieDateMode,
 } from '~/utils/movieCatalogFilters'
-import { movieCatalogSortValues } from '~/utils/movieCatalogPresentation'
+import {
+  movieCatalogSortOptions,
+  movieCatalogSortValues,
+} from '~/utils/movieCatalogPresentation'
 import {
   enumQueryValue,
   mergeOwnedQuery,
@@ -45,7 +50,6 @@ import { absoluteSiteUrl } from '~/utils/siteUrl'
 
 const PAGE_SIZE = 24
 const DEFAULT_SORT: MovieSort = 'showtimes_desc'
-const LG_MEDIA_QUERY = '(min-width: 1024px)'
 const OWNED_QUERY_KEYS = [
   'q',
   'sort',
@@ -58,9 +62,9 @@ const OWNED_QUERY_KEYS = [
 ] as const
 const EMPTY_FILTERS: MovieCatalogFilters = { genres: [] }
 const DURATION_OPTIONS = [
-  { value: 'short', label: 'Moins de 1h30' },
-  { value: 'medium', label: 'De 1h30 à 2h' },
-  { value: 'long', label: 'Plus de 2h' },
+  { value: 'short', label: 'Moins de 1h30', shortLabel: '< 1h30' },
+  { value: 'medium', label: 'De 1h30 à 2h', shortLabel: '1h30–2h' },
+  { value: 'long', label: 'Plus de 2h', shortLabel: '> 2h' },
 ] as const
 const DATE_OPTIONS = [
   { value: 'none', label: 'Toutes les dates' },
@@ -78,6 +82,7 @@ const preferences = useCinemaPreferences()
 const discovery = useWatchedCatalog('films')
 const appliedSearch = ref('')
 const sort = ref<MovieSort>(DEFAULT_SORT)
+const draftSort = ref<MovieSort>(DEFAULT_SORT)
 const page = ref(1)
 const todayDate = ref(todayInParis())
 const appliedFilters = ref<MovieCatalogFilters>({ genres: [] })
@@ -86,14 +91,24 @@ const draftFilters = ref<MovieCatalogFilterDraft>(
 )
 const isAdvancedFiltersOpen = ref(false)
 const advancedFiltersTrigger = ref<HTMLButtonElement | null>(null)
-const resultsSection = ref<HTMLElement | null>(null)
+const advancedFiltersDialog = ref<HTMLDialogElement | null>(null)
+const advancedFiltersCloseButton = ref<HTMLButtonElement | null>(null)
+const genreSearch = ref('')
+const genreChips = ref<HTMLElement | null>(null)
+const genreExpandButton = ref<HTMLButtonElement | null>(null)
+const areGenresExpanded = ref(false)
+const collapsedGenreCount = ref(Number.POSITIVE_INFINITY)
+const genreActionNeedsRow = ref(false)
+const isCalendarOpen = ref(false)
+const catalogDatePicker = ref<{ closeMenu: () => void } | null>(null)
+let previousScrollStyles: { overflow: string; scrollbarGutter: string } | null =
+  null
 const catalog = ref<MoviesResponse | null>(null)
 const pending = ref(true)
 const errorMessage = ref('')
 let requestId = 0
 let isMounted = false
 let isInitializing = false
-let advancedApplyNavigation: 'none' | 'collapse' | 'scroll' = 'none'
 let scrollAfterLoad = false
 let lastLoadKey = ''
 
@@ -113,6 +128,108 @@ const availableGenres = computed(() =>
     ...appliedFilters.value.genres,
   ]),
 )
+const filteredGenres = computed(() => {
+  const normalize = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLocaleLowerCase('fr-FR')
+  const search = normalize(genreSearch.value.trim())
+  return availableGenres.value.filter((genre) =>
+    normalize(genre).includes(search),
+  )
+})
+const isGenreSearchActive = computed(() => Boolean(genreSearch.value.trim()))
+const hasMoreGenres = computed(
+  () => collapsedGenreCount.value < filteredGenres.value.length,
+)
+const visibleGenreCount = computed(() =>
+  areGenresExpanded.value || isGenreSearchActive.value
+    ? filteredGenres.value.length
+    : collapsedGenreCount.value,
+)
+
+function measureGenreRows() {
+  const container = genreChips.value
+  const button = genreExpandButton.value
+  if (!container || !button || !container.clientWidth) return
+  const widths = [
+    ...container.querySelectorAll<HTMLElement>('[data-genre-chip]'),
+  ].map((chip) => chip.getBoundingClientRect().width)
+  const gap = Number.parseFloat(getComputedStyle(container).columnGap) || 0
+  const availableWidth = container.clientWidth
+  let row = 1
+  let usedWidth = 0
+  let count = 0
+  const firstRowCount = () => {
+    let used = 0
+    let items = 0
+    for (const width of widths) {
+      const next = used ? used + gap + width : width
+      if (next > availableWidth + 0.5) break
+      used = next
+      items++
+    }
+    return items
+  }
+  const firstCount = firstRowCount()
+  for (const width of widths) {
+    const next = usedWidth ? usedWidth + gap + width : width
+    if (next > availableWidth + 0.5) {
+      row++
+      usedWidth = width
+    } else usedWidth = next
+    if (row > 2) break
+    count++
+  }
+  if (count === widths.length) {
+    collapsedGenreCount.value = count
+    genreActionNeedsRow.value = false
+    return
+  }
+  const buttonWidth = Number.parseFloat(getComputedStyle(button).minWidth)
+  // Leave room for the action at the end of the second row.
+  usedWidth = widths
+    .slice(firstCount, count)
+    .reduce((total, width, index) => total + width + (index ? gap : 0), 0)
+  while (
+    count > firstCount &&
+    usedWidth + gap + buttonWidth > availableWidth + 0.5
+  ) {
+    count--
+    usedWidth -= widths[count]! + (count > firstCount ? gap : 0)
+  }
+  collapsedGenreCount.value = count
+  genreActionNeedsRow.value = count === firstCount
+}
+
+watch(filteredGenres, () => measureGenreRows(), { flush: 'post' })
+watch(
+  genreChips,
+  (container, _previous, onCleanup) => {
+    if (!container) return
+    let measuredWidth = 0
+    let resizeFrame = 0
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry || entry.contentRect.width === measuredWidth) return
+      measuredWidth = entry.contentRect.width
+      cancelAnimationFrame(resizeFrame)
+      resizeFrame = requestAnimationFrame(measureGenreRows)
+    })
+    observer.observe(container)
+    let active = true
+    void document.fonts.ready.then(() => {
+      if (active) measureGenreRows()
+    })
+    onCleanup(() => {
+      active = false
+      cancelAnimationFrame(resizeFrame)
+      observer.disconnect()
+    })
+  },
+  { flush: 'post' },
+)
+
 const advancedFilterCount = computed(
   () =>
     appliedFilters.value.genres.length +
@@ -193,30 +310,6 @@ const appliedFilterSummary = computed(() => {
   return items
 })
 
-function prepareAdvancedApplyNavigation() {
-  if (!isMounted) return
-  if (window.matchMedia(LG_MEDIA_QUERY).matches) {
-    advancedApplyNavigation = 'scroll'
-    return
-  }
-  advancedApplyNavigation = 'collapse'
-  isAdvancedFiltersOpen.value = false
-}
-
-async function finishAdvancedApplyNavigation() {
-  if (!isMounted || advancedApplyNavigation === 'none') return
-  if (advancedApplyNavigation === 'collapse') {
-    advancedApplyNavigation = 'none'
-    isAdvancedFiltersOpen.value = false
-    return
-  }
-  await nextTick()
-  const target = resultsSection.value
-  if (!target) return
-  advancedApplyNavigation = 'none'
-  target.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 function usesCinemaPreferences() {
   return !appliedFilters.value.allTheaters
 }
@@ -251,7 +344,6 @@ async function loadMovies() {
     catalog.value = null
     errorMessage.value = preferences.error.value
     pending.value = false
-    await finishAdvancedApplyNavigation()
     return
   }
   if (usesCinemaPreferences() && !preferences.isInitialized.value) {
@@ -266,7 +358,6 @@ async function loadMovies() {
     )
       ? undefined
       : preferences.favoriteTheaterIds.value.join(',')
-  let shouldFinishAdvancedApplyNavigation = false
 
   try {
     const response = await discovery.movies(buildMoviesQuery(theaterIds))
@@ -283,7 +374,6 @@ async function loadMovies() {
         return
       }
       catalog.value = response
-      shouldFinishAdvancedApplyNavigation = true
       if (scrollAfterLoad) {
         scrollAfterLoad = false
         window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -293,12 +383,10 @@ async function loadMovies() {
     if (currentRequest === requestId) {
       catalog.value = null
       errorMessage.value = getFrenchApiError(error)
-      shouldFinishAdvancedApplyNavigation = true
     }
   } finally {
     if (currentRequest === requestId) pending.value = false
   }
-  if (shouldFinishAdvancedApplyNavigation) await finishAdvancedApplyNavigation()
 }
 
 async function retryMovies() {
@@ -344,14 +432,10 @@ function hydrateRoute() {
   const nextFilters = parseMovieCatalogFilters(route.query, todayDate.value)
   appliedSearch.value = nextSearch
   sort.value = nextSort
+  draftSort.value = nextSort
   page.value = nextPage
   appliedFilters.value = nextFilters
   draftFilters.value = movieCatalogFilterDraft(nextFilters, todayDate.value)
-  if (
-    hasMovieCatalogFilters(nextFilters) &&
-    advancedApplyNavigation !== 'collapse'
-  )
-    isAdvancedFiltersOpen.value = true
   return filmQuery({
     search: nextSearch,
     page: nextPage,
@@ -389,27 +473,73 @@ function submitSearch(nextSearch: string) {
   router.replace({ query })
 }
 
-function changeSort(value: MovieSort) {
-  const nextSort = enumQueryValue(value, movieCatalogSortValues)
-  if (!nextSort || nextSort === sort.value) return
-  router.replace({
-    query: filmQuery({
-      search: appliedSearch.value,
-      page: 1,
-      sort: nextSort,
-      filters: appliedFilters.value,
-    }),
-  })
+async function openAdvancedFilters() {
+  if (isAdvancedFiltersOpen.value) return
+  genreSearch.value = ''
+  areGenresExpanded.value = false
+  isAdvancedFiltersOpen.value = true
+  await nextTick()
+  if (!isAdvancedFiltersOpen.value || !advancedFiltersDialog.value) return
+  const root = document.documentElement
+  previousScrollStyles = {
+    overflow: root.style.overflow,
+    scrollbarGutter: root.style.scrollbarGutter,
+  }
+  // Reserve the existing scrollbar space so the catalogue stays in place.
+  if (window.innerWidth > root.clientWidth)
+    root.style.scrollbarGutter = 'stable'
+  root.style.overflow = 'hidden'
+  advancedFiltersDialog.value.showModal()
+  measureGenreRows()
+  advancedFiltersCloseButton.value?.focus({ preventScroll: true })
 }
 
-function toggleAdvancedFilters() {
-  isAdvancedFiltersOpen.value = !isAdvancedFiltersOpen.value
-}
-
-function closeAdvancedFilters() {
+function closeAdvancedFilters({ restoreFocus = true } = {}) {
   if (!isAdvancedFiltersOpen.value) return
+  advancedFiltersDialog.value?.close()
   isAdvancedFiltersOpen.value = false
-  nextTick(() => advancedFiltersTrigger.value?.focus())
+  isCalendarOpen.value = false
+  if (previousScrollStyles) {
+    Object.assign(document.documentElement.style, previousScrollStyles)
+    previousScrollStyles = null
+  }
+  if (restoreFocus)
+    nextTick(() => advancedFiltersTrigger.value?.focus({ preventScroll: true }))
+}
+
+function trapAdvancedFiltersFocus(event: KeyboardEvent) {
+  const elements = [
+    ...(advancedFiltersDialog.value?.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, a[href], [tabindex="0"]',
+    ) ?? []),
+  ].filter(
+    (element) =>
+      !element.hasAttribute('disabled') && element.getClientRects().length > 0,
+  )
+  const first = elements[0]
+  const last = elements.at(-1)
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last?.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first?.focus()
+  }
+}
+
+function handleCalendarEscape(event: KeyboardEvent) {
+  if (!isCalendarOpen.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  catalogDatePicker.value?.closeMenu()
+}
+
+function cancelAdvancedFilters() {
+  if (isCalendarOpen.value) {
+    catalogDatePicker.value?.closeMenu()
+    return
+  }
+  closeAdvancedFilters()
 }
 
 function selectDateMode(mode: MovieDateMode) {
@@ -467,13 +597,12 @@ async function applyAdvancedFilters() {
   const query = filmQuery({
     search: appliedSearch.value,
     page: 1,
-    sort: sort.value,
+    sort: draftSort.value,
     filters,
   })
-  prepareAdvancedApplyNavigation()
+  closeAdvancedFilters()
   if (queriesEqual(route.query, query)) {
     if (errorMessage.value) await loadMovies()
-    else if (!pending.value) await finishAdvancedApplyNavigation()
     return
   }
   await router.replace({ query })
@@ -488,6 +617,7 @@ function clearAdvancedFilters() {
   })
   if (queriesEqual(route.query, query)) {
     appliedFilters.value = { genres: [] }
+    draftSort.value = sort.value
     draftFilters.value = movieCatalogFilterDraft(EMPTY_FILTERS, todayDate.value)
     return
   }
@@ -573,6 +703,7 @@ onMounted(async () => {
   await preferenceInitialization
 })
 onBeforeUnmount(() => {
+  closeAdvancedFilters({ restoreFocus: false })
   isMounted = false
   requestId++
 })
@@ -688,7 +819,7 @@ useHead(() => ({
       aria-labelledby="catalog-title"
     >
       <div
-        class="relative mx-auto max-w-[1440px] overflow-hidden px-4 pb-10 pt-12 sm:px-6 sm:pb-14 sm:pt-16 lg:px-10 lg:pb-16 lg:pt-20"
+        class="relative mx-auto max-w-[1440px] overflow-hidden px-4 py-8 sm:px-6 sm:py-10 lg:px-10 lg:py-12"
       >
         <p
           class="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-muted"
@@ -697,9 +828,9 @@ useHead(() => ({
         </p>
         <h1
           id="catalog-title"
-          class="mt-5 max-w-6xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(4rem,11.7vw,10.5rem)] font-black uppercase leading-[0.75] tracking-[-0.085em] [&>span:first-of-type]:text-transparent [&>span:first-of-type]:[-webkit-text-stroke:2px_#27272a]"
+          class="mt-4 max-w-6xl [font-family:'Noto_Sans_Variable',sans-serif] text-[clamp(4rem,11.7vw,10.5rem)] font-black uppercase leading-[0.85] tracking-[-0.085em]"
         >
-          Films<br><span>à l’affiche</span><span class="text-primary">.</span>
+          Films<span class="text-primary">.</span>
         </h1>
         <span
           class="absolute right-[8%] bottom-[20%] aspect-square w-[clamp(2.25rem,5vw,4.5rem)] rotate-[8deg] border-2 border-ink bg-highlight shadow-[5px_5px_0_#27272a] max-sm:right-5 max-sm:bottom-6"
@@ -720,10 +851,10 @@ useHead(() => ({
           <MovieCatalogControls
             :search="appliedSearch"
             :sort="sort"
+            :show-sort="false"
             :pending="pending"
             input-id="film-search"
             @search="submitSearch"
-            @sort="changeSort"
           >
             <template #actions>
               <button
@@ -733,9 +864,10 @@ useHead(() => ({
                 :class="{ 'not-aria-expanded:shadow-[inset_0_-4px_0_var(--color-highlight)]': advancedFilterCount > 0 }"
                 :aria-label="advancedFiltersButtonLabel"
                 aria-controls="advanced-film-filters"
+                aria-haspopup="dialog"
                 :aria-expanded="isAdvancedFiltersOpen"
-                @click="toggleAdvancedFilters"
-                @keydown.esc.stop.prevent="closeAdvancedFilters"
+                @click="openAdvancedFilters"
+                @keydown.esc.stop.prevent="closeAdvancedFilters()"
               >
                 <SlidersHorizontal
                   :size="20"
@@ -754,238 +886,373 @@ useHead(() => ({
             </template>
           </MovieCatalogControls>
 
-          <form
-            v-show="isAdvancedFiltersOpen"
+          <dialog
+            v-if="isAdvancedFiltersOpen"
             id="advanced-film-filters"
-            class="mt-6 border-t-2 border-ink pt-6"
-            aria-label="Filtres avancés des films"
-            @submit.prevent="applyAdvancedFilters"
-            @keydown.esc.stop.prevent="closeAdvancedFilters"
+            ref="advancedFiltersDialog"
+            class="fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none overflow-hidden border-0 bg-transparent p-0 text-ink backdrop:bg-black/60 open:flex open:items-end open:justify-end lg:open:items-stretch"
+            aria-labelledby="advanced-film-filters-title"
+            @cancel.prevent="cancelAdvancedFilters"
+            @keydown.esc.capture="handleCalendarEscape"
+            @keydown.tab="trapAdvancedFiltersFocus"
+            @click.self="closeAdvancedFilters()"
           >
-            <div class="grid gap-7 lg:grid-cols-3">
-              <fieldset class="min-w-0">
-                <legend
-                  class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+            <form
+              class="flex h-[calc(100dvh-1rem)] min-h-0 w-full flex-col overflow-hidden border-2 border-b-0 border-ink bg-[#f8f7f2] shadow-[0_-8px_0_#27272a] lg:h-full lg:max-h-none lg:w-[32rem] lg:border-y-0 lg:border-r-0 lg:shadow-[-8px_0_0_#27272a]"
+              @submit.prevent="applyAdvancedFilters"
+            >
+              <header
+                class="flex shrink-0 items-center gap-3 border-b-2 border-ink bg-[#ffcf3f] px-4 py-4 sm:px-6"
+              >
+                <SlidersHorizontal :size="20" aria-hidden="true" />
+                <h2
+                  id="advanced-film-filters-title"
+                  class="text-xl font-black tracking-[-0.035em]"
                 >
-                  Genres
-                </legend>
-                <div
-                  v-if="availableGenres.length"
-                  class="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2"
+                  Filtres avancés
+                </h2>
+                <button
+                  ref="advancedFiltersCloseButton"
+                  type="button"
+                  class="ml-auto grid size-11 shrink-0 place-items-center border-2 border-ink bg-surface hover:bg-highlight focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                  aria-label="Fermer les filtres"
+                  @click="closeAdvancedFilters()"
                 >
-                  <label
-                    v-for="genre in availableGenres"
-                    :key="genre"
-                    class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]"
+                  <X :size="20" aria-hidden="true" />
+                </button>
+              </header>
+              <div
+                class="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 py-6 sm:px-6"
+              >
+                <label class="block min-w-0">
+                  <span
+                    class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                    >Trier par</span
                   >
-                    <input
-                      v-model="draftFilters.genres"
-                      type="checkbox"
-                      :value="genre"
-                      class="size-4 shrink-0 accent-primary"
+                  <select
+                    v-model="draftSort"
+                    class="h-[3.25rem] w-full rounded-none border-2 border-ink bg-surface px-3 text-sm font-bold text-ink focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                  >
+                    <option
+                      v-for="option in movieCatalogSortOptions"
+                      :key="option.value"
+                      :value="option.value"
                     >
-                    <span>{{ genre }}</span>
-                  </label>
-                </div>
-                <p
-                  v-else
-                  class="border-2 border-ink bg-surface px-3 py-3 text-sm font-semibold"
-                >
-                  Aucun genre disponible.
-                </p>
-              </fieldset>
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+                <fieldset class="min-w-0" aria-labelledby="film-genres-title">
+                  <legend class="mb-3 w-full">
+                    <span
+                      class="flex min-h-8 items-center justify-between gap-3"
+                    >
+                      <span
+                        id="film-genres-title"
+                        class="font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                        >Genres</span
+                      >
+                      <button
+                        v-if="draftFilters.genres.length"
+                        type="button"
+                        class="min-h-8 text-xs font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                        @click="draftFilters.genres = []"
+                      >
+                        Tout désélectionner
+                      </button>
+                    </span>
+                  </legend>
+                  <div v-if="availableGenres.length" class="space-y-3">
+                    <div class="relative">
+                      <Search
+                        :size="17"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+                        aria-hidden="true"
+                      />
+                      <input
+                        v-model="genreSearch"
+                        type="search"
+                        aria-label="Rechercher un genre"
+                        placeholder="Rechercher un genre"
+                        class="min-h-11 w-full border-2 border-ink bg-surface py-2 pl-10 pr-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                      >
+                    </div>
+                    <div
+                      id="film-genre-options"
+                      ref="genreChips"
+                      class="relative flex flex-wrap gap-2"
+                    >
+                      <label
+                        v-for="(genre, index) in filteredGenres"
+                        :key="genre"
+                        data-genre-chip
+                        class="w-max max-w-full cursor-pointer"
+                        :class="index < visibleGenreCount ? 'relative' : 'invisible absolute top-0 left-0 pointer-events-none'"
+                        :inert="index >= visibleGenreCount"
+                        :aria-hidden="index >= visibleGenreCount ? 'true' : undefined"
+                      >
+                        <input
+                          v-model="draftFilters.genres"
+                          type="checkbox"
+                          :value="genre"
+                          class="peer sr-only"
+                        >
+                        <span
+                          class="inline-flex min-h-11 items-center border-2 border-ink bg-surface px-3 py-2 text-[0.82rem] font-bold transition-colors hover:bg-[#e8e6de] peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[inset_0_-4px_0_var(--color-highlight)] peer-focus-visible:outline-2 peer-focus-visible:outline-offset-3 peer-focus-visible:outline-ink motion-reduce:transition-none"
+                        >
+                          {{ genre }}
+                        </span>
+                      </label>
+                      <button
+                        ref="genreExpandButton"
+                        type="button"
+                        class="min-h-11 min-w-20 px-1 text-sm font-bold underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink"
+                        :class="[
+                          hasMoreGenres && !isGenreSearchActive ? 'relative' : 'invisible absolute top-0 left-0 pointer-events-none',
+                          !areGenresExpanded && genreActionNeedsRow ? 'basis-full text-right' : '',
+                        ]"
+                        :inert="!hasMoreGenres || isGenreSearchActive"
+                        :aria-hidden="!hasMoreGenres || isGenreSearchActive ? 'true' : undefined"
+                        :aria-expanded="areGenresExpanded"
+                        aria-controls="film-genre-options"
+                        @click="areGenresExpanded = !areGenresExpanded"
+                      >
+                        {{ areGenresExpanded ? 'Voir moins' : 'Voir plus' }}
+                      </button>
+                    </div>
+                    <p
+                      v-if="!filteredGenres.length"
+                      class="py-2 text-sm text-muted"
+                      role="status"
+                    >
+                      Aucun genre ne correspond à votre recherche.
+                    </p>
+                  </div>
+                  <p v-else class="text-sm text-muted">
+                    Aucun genre disponible.
+                  </p>
+                </fieldset>
 
-              <div>
-                <fieldset>
+                <div>
+                  <fieldset>
+                    <legend
+                      class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                    >
+                      Durée
+                    </legend>
+                    <div
+                      class="grid grid-cols-4 border-2 border-ink bg-surface"
+                    >
+                      <label
+                        v-for="option in [{ value: '', label: 'Toutes les durées', shortLabel: 'Toutes' }, ...DURATION_OPTIONS]"
+                        :key="option.value"
+                        class="relative min-w-0 cursor-pointer border-r-2 border-ink last:border-r-0"
+                      >
+                        <input
+                          v-model="draftFilters.duration"
+                          type="radio"
+                          name="film-duration"
+                          :value="option.value"
+                          :aria-label="option.label"
+                          class="peer sr-only"
+                        >
+                        <span
+                          class="flex min-h-12 items-center justify-center whitespace-nowrap px-1 py-3 font-mono text-[0.65rem] font-black uppercase tracking-[0.02em] hover:bg-[#e8e6de] peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[inset_0_-4px_0_var(--color-highlight)] peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-4 peer-focus-visible:outline-highlight sm:text-xs"
+                          >{{
+                            option.shortLabel
+                          }}</span
+                        >
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="mt-6">
+                    <legend
+                      class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                    >
+                      Cinémas
+                    </legend>
+                    <div
+                      class="grid grid-cols-2 border-2 border-ink bg-surface"
+                    >
+                      <label
+                        v-for="option in [{ value: false, label: 'Cinémas sélectionnés' }, { value: true, label: 'Tous les cinémas' }]"
+                        :key="String(option.value)"
+                        class="relative min-w-0 cursor-pointer border-r-2 border-ink last:border-r-0"
+                      >
+                        <input
+                          v-model="draftFilters.allTheaters"
+                          type="radio"
+                          name="film-theaters"
+                          :value="option.value"
+                          class="peer sr-only"
+                        >
+                        <span
+                          class="flex min-h-12 items-center justify-center px-2 py-3 text-center font-mono text-[0.65rem] font-black uppercase tracking-[0.02em] hover:bg-[#e8e6de] peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[inset_0_-4px_0_var(--color-highlight)] peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-4 peer-focus-visible:outline-highlight sm:text-xs"
+                          >{{
+                            option.label
+                          }}</span
+                        >
+                      </label>
+                    </div>
+                  </fieldset>
+                </div>
+
+                <fieldset
+                  class="min-w-0"
+                  :aria-invalid="draftError ? 'true' : undefined"
+                  :aria-describedby="draftError ? 'film-date-error' : undefined"
+                >
                   <legend
                     class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
                   >
-                    Durée
+                    Date de séance
                   </legend>
-                  <div class="grid gap-2">
+                  <div
+                    class="grid grid-cols-2 gap-0.5 border-2 border-ink bg-ink sm:grid-cols-3"
+                  >
                     <label
-                      class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]"
-                    >
-                      <input
-                        v-model="draftFilters.duration"
-                        type="radio"
-                        name="film-duration"
-                        value=""
-                        class="size-4 shrink-0 accent-primary"
-                      >
-                      <span>Toutes les durées</span>
-                    </label>
-                    <label
-                      v-for="option in DURATION_OPTIONS"
+                      v-for="option in DATE_OPTIONS"
                       :key="option.value"
-                      class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]"
+                      class="relative min-w-0 cursor-pointer bg-surface"
                     >
                       <input
-                        v-model="draftFilters.duration"
                         type="radio"
-                        name="film-duration"
+                        name="film-date-mode"
                         :value="option.value"
-                        class="size-4 shrink-0 accent-primary"
+                        :checked="draftFilters.dateMode === option.value"
+                        class="peer sr-only"
+                        @change="selectDateMode(option.value)"
                       >
-                      <span>{{ option.label }}</span>
+                      <span
+                        class="flex min-h-12 items-center justify-center px-2 py-3 text-center font-mono text-[0.65rem] font-black uppercase tracking-[0.02em] hover:bg-[#e8e6de] peer-checked:bg-ink peer-checked:text-white peer-checked:shadow-[inset_0_-4px_0_var(--color-highlight)] peer-focus-visible:outline-2 peer-focus-visible:-outline-offset-4 peer-focus-visible:outline-highlight sm:text-xs"
+                        >{{
+                          option.label
+                        }}</span
+                      >
                     </label>
                   </div>
-                </fieldset>
-                <fieldset class="mt-6">
-                  <legend
-                    class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
-                  >
-                    Cinémas
-                  </legend>
-                  <label
-                    class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]"
-                  >
-                    <input
-                      v-model="draftFilters.allTheaters"
-                      type="checkbox"
-                      class="size-4 shrink-0 accent-primary"
+
+                  <div v-if="draftFilters.dateMode === 'custom'" class="mt-3">
+                    <label
+                      for="film-custom-date"
+                      class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                      >Date précise</label
                     >
-                    <span>Tous les cinémas</span>
-                  </label>
+                    <DeferredVueDatePicker
+                      v-model="singlePickerDate"
+                      ref="catalogDatePicker"
+                      active
+                      class="catalog-datepicker"
+                      :aria-labels="calendarAriaLabels"
+                      :formats="datePickerFormats"
+                      placeholder="JJ-MM-AA"
+                      :input-attrs="{ id: 'film-custom-date', autocomplete: 'off', clearable: true }"
+                      :locale="fr"
+                      :min-date="minPickerDate"
+                      :text-input="datePickerTextInput"
+                      :time-config="{ enableTimePicker: false }"
+                      :transitions="false"
+                      :floating="{ arrow: false, offset: 6 }"
+                      :ui="{ menu: 'catalog-calendar-menu' }"
+                      teleport="#advanced-film-filters"
+                      @open="isCalendarOpen = true"
+                      @closed="isCalendarOpen = false"
+                      auto-apply
+                      arrow-navigation
+                      prevent-min-max-navigation
+                      @text-input="handleSingleDateTextInput"
+                      @cleared="draftFilters.customDate = ''"
+                    >
+                      <template #input-icon
+                        ><CalendarDays
+                          :size="18"
+                          aria-hidden="true"
+                        /></template
+                      >
+                    </DeferredVueDatePicker>
+                  </div>
+
+                  <div
+                    v-else-if="draftFilters.dateMode === 'range'"
+                    class="mt-3"
+                  >
+                    <label
+                      for="film-custom-range"
+                      class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                      >Période</label
+                    >
+                    <DeferredVueDatePicker
+                      v-model="rangePickerDates"
+                      ref="catalogDatePicker"
+                      active
+                      class="catalog-datepicker"
+                      :aria-labels="calendarAriaLabels"
+                      :formats="datePickerFormats"
+                      placeholder="JJ-MM-AA au JJ-MM-AA"
+                      :input-attrs="{ id: 'film-custom-range', autocomplete: 'off', clearable: true }"
+                      :locale="fr"
+                      :min-date="minPickerDate"
+                      :range="{ partialRange: false, autoSwitchStartEnd: false }"
+                      :text-input="datePickerTextInput"
+                      :time-config="{ enableTimePicker: false }"
+                      :transitions="false"
+                      :floating="{ arrow: false, offset: 6 }"
+                      :ui="{ menu: 'catalog-calendar-menu' }"
+                      teleport="#advanced-film-filters"
+                      @open="isCalendarOpen = true"
+                      @closed="isCalendarOpen = false"
+                      auto-apply
+                      arrow-navigation
+                      prevent-min-max-navigation
+                      @text-input="handleRangeDateTextInput"
+                      @cleared="draftFilters.rangeStart = ''; draftFilters.rangeEnd = ''"
+                    >
+                      <template #input-icon
+                        ><CalendarDays
+                          :size="18"
+                          aria-hidden="true"
+                        /></template
+                      >
+                    </DeferredVueDatePicker>
+                  </div>
+                  <p
+                    v-if="draftError"
+                    id="film-date-error"
+                    class="mt-2 text-sm font-bold text-red-800"
+                    role="alert"
+                  >
+                    {{ draftError }}
+                  </p>
                 </fieldset>
               </div>
 
-              <fieldset
-                class="min-w-0"
-                :aria-invalid="draftError ? 'true' : undefined"
-                :aria-describedby="draftError ? 'film-date-error' : undefined"
+              <footer
+                class="sticky bottom-0 z-10 mt-auto flex shrink-0 flex-col-reverse gap-3 border-t-2 border-ink bg-[#f8f7f2] px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:flex-row sm:px-6 [&>button]:flex-1"
               >
-                <legend
-                  class="mb-3 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
+                <button
+                  type="button"
+                  class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-surface px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] hover:bg-primary hover:text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink motion-reduce:transition-none"
+                  @click="clearAdvancedFilters"
                 >
-                  Date de séance
-                </legend>
-                <div class="grid grid-cols-2 gap-2">
-                  <label
-                    v-for="option in DATE_OPTIONS"
-                    :key="option.value"
-                    class="flex min-h-11 cursor-pointer items-center gap-[0.65rem] border-2 border-ink bg-surface px-[0.7rem] py-[0.55rem] text-[0.82rem] font-[750] hover:bg-[#f8f7f2] focus-within:outline-2 focus-within:outline-offset-3 focus-within:outline-ink has-[input:checked]:bg-highlight has-[input:checked]:shadow-[inset_0_-3px_0_#27272a]"
-                  >
-                    <input
-                      type="radio"
-                      name="film-date-mode"
-                      :value="option.value"
-                      :checked="draftFilters.dateMode === option.value"
-                      class="size-4 shrink-0 accent-primary"
-                      @change="selectDateMode(option.value)"
-                    >
-                    <span>{{ option.label }}</span>
-                  </label>
-                </div>
-
-                <div v-if="draftFilters.dateMode === 'custom'" class="mt-3">
-                  <label
-                    for="film-custom-date"
-                    class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
-                    >Date (dd-MM-yy)</label
-                  >
-                  <DeferredVueDatePicker
-                    v-model="singlePickerDate"
-                    active
-                    class="catalog-datepicker [--dp-background-color:#fff] [--dp-border-color-focus:#27272a] [--dp-border-color-hover:#27272a] [--dp-border-color:#27272a] [--dp-border-radius:0] [--dp-cell-border-radius:0] [--dp-font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] [--dp-font-size:0.82rem] [--dp-icon-color:#27272a] [--dp-primary-color:#27272a] [--dp-primary-text-color:#fff] [--dp-text-color:#27272a]"
-                    :aria-labels="calendarAriaLabels"
-                    :formats="datePickerFormats"
-                    :input-attrs="{ id: 'film-custom-date', autocomplete: 'off', clearable: true }"
-                    :locale="fr"
-                    :min-date="minPickerDate"
-                    :text-input="datePickerTextInput"
-                    :time-config="{ enableTimePicker: false }"
-                    :transitions="false"
-                    :floating="{ arrow: false, offset: 6 }"
-                    :ui="{ menu: 'catalog-calendar-menu' }"
-                    teleport="body"
-                    auto-apply
-                    arrow-navigation
-                    prevent-min-max-navigation
-                    @text-input="handleSingleDateTextInput"
-                    @cleared="draftFilters.customDate = ''"
-                  >
-                    <template #input-icon
-                      ><CalendarDays :size="18" aria-hidden="true" /></template
-                    >
-                  </DeferredVueDatePicker>
-                </div>
-
-                <div v-else-if="draftFilters.dateMode === 'range'" class="mt-3">
-                  <label
-                    for="film-custom-range"
-                    class="mb-2 block font-mono text-[0.65rem] font-extrabold uppercase tracking-[0.16em]"
-                    >Période (dd-MM-yy)</label
-                  >
-                  <DeferredVueDatePicker
-                    v-model="rangePickerDates"
-                    active
-                    class="catalog-datepicker [--dp-background-color:#fff] [--dp-border-color-focus:#27272a] [--dp-border-color-hover:#27272a] [--dp-border-color:#27272a] [--dp-border-radius:0] [--dp-cell-border-radius:0] [--dp-font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace] [--dp-font-size:0.82rem] [--dp-icon-color:#27272a] [--dp-primary-color:#27272a] [--dp-primary-text-color:#fff] [--dp-text-color:#27272a]"
-                    :aria-labels="calendarAriaLabels"
-                    :formats="datePickerFormats"
-                    :input-attrs="{ id: 'film-custom-range', autocomplete: 'off', clearable: true }"
-                    :locale="fr"
-                    :min-date="minPickerDate"
-                    :range="{ partialRange: false, autoSwitchStartEnd: false }"
-                    :text-input="datePickerTextInput"
-                    :time-config="{ enableTimePicker: false }"
-                    :transitions="false"
-                    :floating="{ arrow: false, offset: 6 }"
-                    :ui="{ menu: 'catalog-calendar-menu' }"
-                    teleport="body"
-                    auto-apply
-                    arrow-navigation
-                    prevent-min-max-navigation
-                    @text-input="handleRangeDateTextInput"
-                    @cleared="draftFilters.rangeStart = ''; draftFilters.rangeEnd = ''"
-                  >
-                    <template #input-icon
-                      ><CalendarDays :size="18" aria-hidden="true" /></template
-                    >
-                  </DeferredVueDatePicker>
-                </div>
-                <p
-                  v-if="draftError"
-                  id="film-date-error"
-                  class="mt-2 text-sm font-bold text-red-800"
-                  role="alert"
+                  Effacer les filtres
+                </button>
+                <button
+                  type="submit"
+                  class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transition-none"
+                  :disabled="Boolean(draftError)"
                 >
-                  {{ draftError }}
-                </p>
-              </fieldset>
-            </div>
-
-            <div
-              class="mt-7 flex flex-col-reverse gap-3 border-t-2 border-ink pt-5 sm:flex-row sm:justify-end"
-            >
-              <button
-                type="button"
-                class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-surface px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] hover:bg-primary hover:text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink motion-reduce:transition-none"
-                @click="clearAdvancedFilters"
-              >
-                Effacer les filtres
-              </button>
-              <button
-                type="submit"
-                class="inline-flex min-h-11 items-center justify-center border-2 border-ink bg-ink px-4 py-[0.65rem] font-mono text-[0.68rem] font-black uppercase tracking-[0.08em] text-white enabled:hover:bg-primary focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-55 motion-reduce:transition-none"
-                :disabled="Boolean(draftError)"
-              >
-                Appliquer
-              </button>
-            </div>
-          </form>
+                  Appliquer
+                </button>
+              </footer>
+            </form>
+          </dialog>
         </div>
 
-        <div
-          id="tous-les-films"
-          ref="resultsSection"
-          class="scroll-mt-4"
-          aria-hidden="true"
-        ></div>
+        <div id="tous-les-films" class="scroll-mt-4" aria-hidden="true"></div>
 
         <div
           v-if="catalog && !pending && !discovery.blocked.value"
-          class="results-bar mt-10 flex items-center justify-between gap-3 border-y-2 border-ink py-4 sm:items-end sm:gap-6"
+          class="results-bar mt-6 flex items-center justify-between gap-3 border-b-2 border-ink py-4 sm:items-end sm:gap-6"
         >
           <h2
             class="min-w-0 flex-1 text-xl font-black tracking-[-0.035em] max-sm:truncate sm:text-2xl"
@@ -1109,15 +1376,51 @@ useHead(() => ({
 </template>
 
 <style scoped>
-.catalog-datepicker :deep(.dp--input) {
+.search-workspace :deep(#film-search:focus) {
+  box-shadow: none;
+  outline: none;
+}
+
+:global(.catalog-datepicker.dp--main) {
+  --dp-background-color: #fff;
+  --dp-border-color: #27272a;
+  --dp-border-color-hover: #27272a;
+  --dp-border-color-focus: #27272a;
+  --dp-border-radius: 0;
+  --dp-cell-border-radius: 0;
+  --dp-font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --dp-font-size: 0.82rem;
+  --dp-icon-color: #27272a;
+  --dp-primary-color: #27272a;
+  --dp-primary-text-color: #fff;
+  --dp-text-color: #27272a;
+}
+
+:global(.catalog-datepicker .dp--input) {
   min-height: 3.25rem;
-  border-width: 2px;
+  border: 2px solid var(--color-ink);
   border-radius: 0;
+  padding: 0.75rem 2.75rem;
   font-weight: 800;
 }
 
-.catalog-datepicker :deep(.dp--input-focus) {
+:global(.catalog-datepicker .dp--input-focus) {
   box-shadow: inset 0 0 0 2px var(--color-highlight);
+}
+
+:global(.catalog-datepicker .dp--input-icon),
+:global(.catalog-datepicker .dp--clear-btn) {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+}
+
+:global(.catalog-datepicker .dp--clear-btn .dp--input-icons) {
+  width: 1.125rem;
+  height: 1.125rem;
+  padding: 0;
 }
 
 :global(.dp--menu.catalog-calendar-menu) {
