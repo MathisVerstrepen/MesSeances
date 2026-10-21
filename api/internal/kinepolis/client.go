@@ -18,7 +18,9 @@ import (
 
 const (
 	ScheduleURL = "https://kinepolis.fr/?main_section=tous+les+films"
-	MaxBodySize = 32 << 20
+	// The full advertised schedule exceeded 32 MiB in October 2026.
+	// Bound decoded HTML with room for catalog growth, without truncating it.
+	MaxBodySize = 64 << 20
 	userAgent   = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	accept      = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
 	acceptLang  = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"

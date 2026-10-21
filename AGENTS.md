@@ -10,7 +10,6 @@
 - For an explicit feature PR merge request, load project skill `merge-pull-request` from `.opencode/skills/merge-pull-request/SKILL.md`. For an explicit release or publish request, load project skill `publish-new-release` from `.opencode/skills/publish-new-release/SKILL.md`. Never run either mutation procedure from an inferred request.
 - Go 1.26.0 API in `api/` (`module messeances/api`), Nuxt 4 / Vue 3 / TypeScript / Tailwind frontend in `web/`.
 - PostgreSQL 18 Alpine via `deploy/compose.yaml` (`movieflow_postgres_data` volume). Node 22.23.1 / npm 10.9.8 verified (see `README.md`).
-- Product requirements: `.agents/PRD.md`. Do not duplicate PRD here; optimize for agent execution.
 - Production url is `https://messeances.fr` and you can connect to production vps with `ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -i "$HOME/.ssh/github" hogwarts@65.109.65.105`.
 - Use Tailwind unless you have a strong reason to override.
 - Codebase Memory projet name is `movieflow`.
