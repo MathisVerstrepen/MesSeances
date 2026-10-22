@@ -563,6 +563,8 @@ func entryCheckoutAction(theaterID string) string {
 		return "https://achat.veocinemas.fr/saint-chamond/reserver/"
 	case "veo-W0065":
 		return "https://achat.veocinemas.fr/caussade/reserver/"
+	case "veo-P6864":
+		return "https://achat.veocinemas.fr/colomiers/reserver/"
 	case "veo-G06DB":
 		return "https://achat.cinema-senechal.com/reserver/"
 	default:

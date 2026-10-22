@@ -20,7 +20,7 @@ func TestParserBoundaries(t *testing.T) {
 			t.Fatal("invalid program")
 		}
 	}
-	for _, runtime := range []string{"-1", "0", "1.5", "\"120\""} {
+	for _, runtime := range []string{"-1", "1", "59", "1.5", "\"120\""} {
 		raw := `[{"id":"1","title":"Test","runtime":` + runtime + `}]`
 		if _, err := parseMovies([]byte(raw)); err == nil {
 			t.Fatalf("runtime %s accepted", runtime)
@@ -35,6 +35,42 @@ func TestParserBoundaries(t *testing.T) {
 		if _, ok := parseStartTime(raw, l); !ok {
 			t.Fatalf("valid time %s rejected", raw)
 		}
+	}
+}
+
+func TestUnknownRuntimePreservesMovieAndShowing(t *testing.T) {
+	for _, runtime := range []string{"null", "0"} {
+		t.Run(runtime, func(t *testing.T) {
+			f := fixture(t)
+			var movies []map[string]any
+			if err := json.Unmarshal(f.movies, &movies); err != nil {
+				t.Fatal(err)
+			}
+			for _, movie := range movies {
+				if runtime == "null" {
+					movie["runtime"] = nil
+				} else {
+					movie["runtime"] = 0
+				}
+			}
+			var err error
+			f.movies, err = json.Marshal(movies)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d, _, err := Sync(t.Context(), f, SyncOptions{From: "2026-09-14", Now: time.Date(2026, 9, 14, 10, 0, 0, 0, time.UTC)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(d.Showtimes) == 0 {
+				t.Fatal("sessions lost")
+			}
+			for _, row := range d.Showtimes {
+				if row.Movie.RuntimeMinutes != 0 || !row.EndTime.Equal(row.StartTime) {
+					t.Fatal("unknown runtime/end invented")
+				}
+			}
+		})
 	}
 }
 func TestScheduleDuplicatesIdentityAndUnsafeRecords(t *testing.T) {
