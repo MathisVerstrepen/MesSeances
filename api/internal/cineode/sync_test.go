@@ -303,3 +303,50 @@ func TestHeaderSequenceFilmBoundaryRolloverAndDST(t *testing.T) {
 		}
 	}
 }
+
+func TestFourteenDayProgramme(t *testing.T) {
+	loc, err := time.LoadLocation(schedule.Timezone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, loc)
+	first := now.AddDate(0, 0, -1)
+	weekdays := []string{"Dim.", "Lun.", "Mar.", "Mer.", "Jeu.", "Ven.", "Sam."}
+	for _, days := range []int{14, 15} {
+		t.Run(fmt.Sprint(days), func(t *testing.T) {
+			prefix, _, ok := strings.Cut(film("4640"), `<div class="hr_tablehor">`)
+			if !ok {
+				t.Fatal("fixture table missing")
+			}
+			var table strings.Builder
+			table.WriteString(prefix + `<div class="hr_tablehor">`)
+			for i := 0; i < days; i++ {
+				day := first.AddDate(0, 0, i)
+				fmt.Fprintf(&table, `<a class="hr_jour"><span class="nom_jour">%s</span>%d</a>`, weekdays[day.Weekday()], day.Day())
+			}
+			for i := 1; i <= days; i++ {
+				fmt.Fprintf(&table, `<div class="tab_seances jour%d"><div class="frow"><div class="celtags"><img src="tag_vf_new.png"></div><span class="hor">20h30</span></div></div>`, i)
+			}
+			table.WriteString(`</div></div>`)
+			p, err := parseProgramme(fixturePage("4640", table.String(), "1 rue, 59000 Lille"), "4640", "2026-10-22", now, loc)
+			if days == 15 {
+				if err == nil {
+					t.Fatal("oversized grid accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.showtimes) != 13 || p.through != "2026-11-03" {
+				t.Fatal("two-week horizon truncated")
+			}
+			for i, row := range p.showtimes {
+				date := first.AddDate(0, 0, i+1)
+				if row.ServiceDate != date.Format(time.DateOnly) || row.StartTime.In(loc).Hour() != 20 || !row.EndTime.Equal(row.StartTime) {
+					t.Fatal("calendar or unknown end changed")
+				}
+			}
+		})
+	}
+}

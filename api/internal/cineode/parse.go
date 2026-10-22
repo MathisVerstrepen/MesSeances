@@ -188,7 +188,7 @@ func parseProgramme(body []byte, id, from string, now time.Time, location *time.
 
 func readHeaders(block *html.Node) ([]string, error) {
 	ns := byClass(block, "nom_jour")
-	if len(ns) < 1 || len(ns) > 13 {
+	if len(ns) < 1 || len(ns) > 14 {
 		return nil, fmt.Errorf("%w: headers", errShape)
 	}
 	result := make([]string, 0, len(ns))
