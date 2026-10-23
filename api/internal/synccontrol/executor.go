@@ -180,6 +180,9 @@ func (e *ProductionExecutor) Run(ctx context.Context, target Target, window Wind
 		syncOutcome.Showtimes = metrics.Showtimes
 		syncOutcome.NewShowtimes = metrics.NewShowtimes
 		outcome := ProviderOutcome{Sync: syncOutcome, Enrichment: e.runEnrichment(ctx, provider, datasets[i])}
+		if provider == TargetVeo {
+			outcome.logs = append([]string(nil), providerLogs[provider]...)
+		}
 		outcomes[provider] = outcome
 		e.observe(provider, outcome, nil, time.Since(started))
 	}
@@ -325,6 +328,22 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 		*lines = append(*lines, lifecycleLog(e.now().UTC(), provider, eventClientReady), lifecycleLog(e.now().UTC(), provider, eventFetchStarted))
 		var summary veo.SyncSummary
 		data, summary, err = e.syncVeo(ctx, client, veo.SyncOptions{From: window.From, Now: e.now()})
+		if err == nil {
+			for _, entry := range []struct {
+				count    int
+				category logCategory
+			}{
+				{summary.CheckoutTransientFailures, categoryTransport},
+				{summary.CheckoutBudgetSkipped, categoryCanceled},
+			} {
+				if entry.count > 0 {
+					line, ok := serializeLogRecord(logRecord{Timestamp: e.now().UTC(), Provider: TargetVeo, Event: eventCheckoutEnrichmentIncomplete, Stage: StageProviderFetch, Operation: operationShowings, Category: entry.category, Progress: logProgress{Skipped: &entry.count}})
+					if ok {
+						*lines = append(*lines, line)
+					}
+				}
+			}
+		}
 		if args := veoCheckoutRetryLogArgs(summary); len(args) != 0 {
 			e.logger.Info("veo_checkout_retry_summary", args...)
 		}
@@ -643,13 +662,14 @@ func safeVeoActionPathLogArgs(d veo.CheckoutActionPathFacts) []any {
 }
 
 func veoCheckoutRetryLogArgs(summary veo.SyncSummary) []any {
-	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts || summary.ToulouseUnavailableCheckouts < 0 || summary.GueretUnavailableCheckouts < 0 || summary.RegularFinal404UnavailableCheckouts < 0 {
+	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts || summary.ToulouseUnavailableCheckouts < 0 || summary.GueretUnavailableCheckouts < 0 || summary.RegularFinal404UnavailableCheckouts < 0 || summary.CheckoutTransientFailures < 0 || summary.CheckoutBudgetSkipped < 0 {
 		return nil
 	}
 	args := []any{"component", "sync", "provider", "veo", "checkout_retry_attempts", summary.CheckoutRetryAttempts, "checkout_recoveries", summary.CheckoutRecoveries}
 	args = append(args, "toulouse_unavailable_checkouts", summary.ToulouseUnavailableCheckouts)
 	args = append(args, "gueret_unavailable_checkouts", summary.GueretUnavailableCheckouts)
 	args = append(args, "regular_final404_unavailable_checkouts", summary.RegularFinal404UnavailableCheckouts)
+	args = append(args, "checkout_transient_failures", summary.CheckoutTransientFailures, "checkout_budget_skipped", summary.CheckoutBudgetSkipped)
 	if summary.CheckoutRetryAttempts > 0 && summary.FirstCheckoutRetry != nil {
 		args = append(args, "first_retry_recovered", summary.FirstCheckoutRetryRecovered)
 		// Use exactly the existing defensive reason/identity/bit/index whitelist.

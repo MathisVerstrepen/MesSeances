@@ -35,8 +35,6 @@ const (
 	WorkerCount        = 16
 )
 
-const CheckoutWorkerCount = 2
-
 type Operation string
 
 const (

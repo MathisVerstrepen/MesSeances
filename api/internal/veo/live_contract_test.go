@@ -232,7 +232,7 @@ func TestProxyConcurrentCheckoutPrefixDiagnosticIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal("main_reason=source_or_budget_blocked prefix_selected=false")
 	}
-	t.Logf("cinema_id=G0699 target_showing_id=%s prefix_sessions=%d worker_limit=%d client_pool_size=%d", diagnosticShowing, len(prefix), CheckoutWorkerCount, len(clients))
+	t.Logf("cinema_id=G0699 target_showing_id=%s prefix_sessions=%d worker_limit=%d client_pool_size=%d", diagnosticShowing, len(prefix), WorkerCount, len(clients))
 	summary := SyncSummary{}
 	if err := enrichCheckouts(ctx, c, prefix, &summary, now); err != nil {
 		var rejected *CheckoutParseError

@@ -39,6 +39,7 @@ func TestProxyFullSyncContractIntegration(t *testing.T) {
 	g := &fullSyncProgressGetter{Getter: c, t: t}
 	d, s, err := Sync(ctx, g, SyncOptions{From: serviceDate(now.In(loc)), Now: now})
 	t.Logf("requests=%d cinemas=%d movies=%d sessions=%d checkouts=%d checkout_fetches=%d exact_ends=%d retries=%d recoveries=%d", s.Requests, s.Cinemas, s.Movies, s.Showtimes, s.Checkouts, g.completed.Load(), s.ExactEnds, s.CheckoutRetryAttempts, s.CheckoutRecoveries)
+	t.Logf("checkout_transient_failures=%d checkout_budget_skipped=%d", s.CheckoutTransientFailures, s.CheckoutBudgetSkipped)
 	if err != nil {
 		var requestErr *RequestError
 		if errors.As(err, &requestErr) {

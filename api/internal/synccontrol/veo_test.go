@@ -52,6 +52,9 @@ func TestVeoActualPathLoggingWhitelist(t *testing.T) {
 }
 
 func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
+	if veoCheckoutRetryLogArgs(veo.SyncSummary{CheckoutTransientFailures: -1}) != nil || veoCheckoutRetryLogArgs(veo.SyncSummary{CheckoutBudgetSkipped: -1}) != nil {
+		t.Fatal("negative optional enrichment counters logged")
+	}
 	if veoCheckoutRetryLogArgs(veo.SyncSummary{ToulouseUnavailableCheckouts: -1}) != nil {
 		t.Fatal("negative unavailable count logged")
 	}
@@ -97,6 +100,55 @@ func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
 	zero := fmt.Sprint(veoCheckoutRetryLogArgs(veo.SyncSummary{}))
 	if !strings.Contains(zero, "checkout_retry_attempts 0") || !strings.Contains(zero, "checkout_recoveries 0") || !strings.Contains(zero, "gueret_unavailable_checkouts 0") || !strings.Contains(zero, "regular_final404_unavailable_checkouts 0") {
 		t.Fatal("unexercised mitigation not observable")
+	}
+}
+
+func TestVeoOptionalCheckoutWarningsSurviveSuccessfulPublication(t *testing.T) {
+	now := func() time.Time { return time.Date(2026, 8, 17, 10, 0, 0, 0, time.UTC) }
+	var backend bytes.Buffer
+	writes := 0
+	e := &ProductionExecutor{now: now, logger: slog.New(slog.NewJSONHandler(&backend, nil)), operationTimeout: time.Second,
+		writer: writerFunc(func(context.Context, []schedule.Dataset) (int64, error) { writes++; return 1, nil })}
+	w := Window{From: "2026-08-17"}
+	configureVeoTestExecutor(t, e, w)
+	base := e.syncVeo
+	e.syncVeo = func(ctx context.Context, g veo.Getter, o veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
+		d, s, err := base(ctx, g, o)
+		s.CheckoutTransientFailures, s.CheckoutBudgetSkipped = 7, 3
+		return d, s, err
+	}
+	m, err := newTestManager(t.Context(), now, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := m.executeProvider(TargetVeo, w)
+	if status.State != ProviderSucceeded || status.Outcome == nil || writes != 1 || status.Outcome.logs != nil {
+		t.Fatal("optional enrichment blocked publication", status)
+	}
+	log := strings.Join(status.Log, "\n")
+	for _, want := range []string{"event=checkout_enrichment_incomplete", "category=transport skipped=7", "category=canceled skipped=3", "fin inconnue"} {
+		if !strings.Contains(log, want) {
+			t.Fatal("journal warning lost", want, log)
+		}
+	}
+	if strings.Contains(log, "provider_failed") || strings.Contains(log, "log_truncated") {
+		t.Fatal("successful warnings were rejected or marked as failure", log)
+	}
+	if !strings.Contains(backend.String(), `"checkout_transient_failures":7`) || !strings.Contains(backend.String(), `"checkout_budget_skipped":3`) {
+		t.Fatal("backend counters missing")
+	}
+	// Status persistence uses JSON; the safe journal must survive that boundary.
+	wire, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProviderStatus
+	if err := json.Unmarshal(wire, &restored); err != nil {
+		t.Fatal(err)
+	}
+	finished := now()
+	if len(normalizeProviderLog(TargetVeo, restored.Log, now(), &finished)) != len(status.Log) {
+		t.Fatal("journal did not survive persistence")
 	}
 }
 
