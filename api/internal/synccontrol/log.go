@@ -21,14 +21,15 @@ type logCategory string
 type logParseReason string
 
 const (
-	eventProviderStarted     logEvent = "provider_started"
-	eventClientReady         logEvent = "client_ready"
-	eventFetchStarted        logEvent = "fetch_started"
-	eventFetchSucceeded      logEvent = "fetch_succeeded"
-	eventValidationSucceeded logEvent = "validation_succeeded"
-	eventPublicationStarted  logEvent = "publication_started"
-	eventProviderFailed      logEvent = "provider_failed"
-	eventLogTruncated        logEvent = "log_truncated"
+	eventProviderStarted              logEvent = "provider_started"
+	eventClientReady                  logEvent = "client_ready"
+	eventFetchStarted                 logEvent = "fetch_started"
+	eventFetchSucceeded               logEvent = "fetch_succeeded"
+	eventValidationSucceeded          logEvent = "validation_succeeded"
+	eventPublicationStarted           logEvent = "publication_started"
+	eventProviderFailed               logEvent = "provider_failed"
+	eventLogTruncated                 logEvent = "log_truncated"
+	eventCheckoutEnrichmentIncomplete logEvent = "checkout_enrichment_incomplete"
 
 	operationClient            logOperation = "client"
 	operationSitemap           logOperation = "sitemap"
@@ -209,6 +210,9 @@ func truncationLog(timestamp time.Time, provider Target) string {
 }
 
 func serializeLogRecord(record logRecord) (string, bool) {
+	if record.Event == eventCheckoutEnrichmentIncomplete && (record.Provider != TargetVeo || record.Operation != operationShowings || record.Progress.Skipped == nil || *record.Progress.Skipped <= 0) {
+		return "", false
+	}
 	if !validLogProvider(record.Provider) || record.Timestamp.IsZero() || record.Timestamp.Location() != time.UTC {
 		return "", false
 	}
@@ -292,6 +296,11 @@ func serializeLogRecord(record logRecord) (string, bool) {
 
 func logMessage(event logEvent, stage FailureStage, category logCategory) (string, string, bool) {
 	switch event {
+	case eventCheckoutEnrichmentIncomplete:
+		if category == categoryTransport {
+			return "warn", "Certaines pages de réservation sont inaccessibles ; les séances sont conservées avec une fin inconnue.", stage == StageProviderFetch
+		}
+		return "warn", "Le budget d’enrichissement est épuisé ; les séances restantes sont conservées avec une fin inconnue.", stage == StageProviderFetch && category == categoryCanceled
 	case eventProviderStarted:
 		return "info", "Synchronisation fournisseur démarrée.", stage == StageOrchestration && category == categoryStarted
 	case eventClientReady:

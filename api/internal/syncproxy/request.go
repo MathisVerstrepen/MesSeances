@@ -63,6 +63,10 @@ type RetryPolicy struct {
 	Sleep                    func(context.Context, time.Duration) error
 	RetireFinalFailure       bool
 	PreserveFailureAfterWait bool
+	// RequestScopedFailures keeps a transient failure from retiring a proxy for
+	// unrelated requests. Healthy proxies are preferred; failed ones remain
+	// fallbacks and recover after success. Requests try at most four distinct proxies.
+	RequestScopedFailures bool
 }
 
 type ExecutorConfig struct {
@@ -164,20 +168,27 @@ func (e *Executor) Do(ctx context.Context, input Request, policy ResponsePolicy)
 
 		body, failure, retry := e.attempt(ctx, e.clients[ordinal], input, policy)
 		if failure == nil {
+			if e.proxyBacked && e.retry.RequestScopedFailures {
+				e.restore(ordinal)
+			}
 			return body, nil
 		}
 		failure.Attempt = attempt + 1
 		if !retry {
 			return nil, failure
 		}
+		if e.proxyBacked && e.retry.RequestScopedFailures {
+			// A soft failure changes preference, never request eligibility.
+			e.retire(ordinal)
+		}
 		prior = failure
 		if attempt == 3 {
-			if e.proxyBacked && e.retry.RetireFinalFailure {
+			if e.proxyBacked && e.retry.RetireFinalFailure && !e.retry.RequestScopedFailures {
 				e.retire(ordinal)
 			}
 			return nil, failure
 		}
-		if e.proxyBacked {
+		if e.proxyBacked && !e.retry.RequestScopedFailures {
 			e.retire(ordinal)
 		}
 		if !e.hasCandidate(attempted) {
@@ -290,9 +301,16 @@ func (e *Executor) acquire(previous int, attempted []bool) int {
 	if previous >= 0 && !e.advanceNextOnRetry {
 		start = (previous + 1) % len(e.clients)
 	}
+	fallback := -1
 	for offset := 0; offset < len(e.clients); offset++ {
 		ordinal := (start + offset) % len(e.clients)
-		if e.unavailable[ordinal] || e.proxyBacked && attempted[ordinal] {
+		if e.proxyBacked && attempted[ordinal] {
+			continue
+		}
+		if e.unavailable[ordinal] {
+			if e.retry.RequestScopedFailures && fallback < 0 {
+				fallback = ordinal
+			}
 			continue
 		}
 		if advance {
@@ -300,12 +318,21 @@ func (e *Executor) acquire(previous int, attempted []bool) int {
 		}
 		return ordinal
 	}
-	return -1
+	if fallback >= 0 && advance {
+		e.next = (fallback + 1) % len(e.clients)
+	}
+	return fallback
 }
 
 func (e *Executor) retire(ordinal int) {
 	e.mu.Lock()
 	e.unavailable[ordinal] = true
+	e.mu.Unlock()
+}
+
+func (e *Executor) restore(ordinal int) {
+	e.mu.Lock()
+	e.unavailable[ordinal] = false
 	e.mu.Unlock()
 }
 
@@ -316,7 +343,7 @@ func (e *Executor) hasCandidate(attempted []bool) bool {
 		return len(e.clients) > 0
 	}
 	for ordinal := range e.clients {
-		if !e.unavailable[ordinal] && !attempted[ordinal] {
+		if (!e.unavailable[ordinal] || e.retry.RequestScopedFailures) && !attempted[ordinal] {
 			return true
 		}
 	}

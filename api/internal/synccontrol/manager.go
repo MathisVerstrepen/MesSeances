@@ -425,6 +425,7 @@ func (m *Manager) execute(target Target, window Window) (terminal Status) {
 }
 
 func (m *Manager) executeProvider(provider Target, window Window) (result ProviderStatus) {
+	started := m.now().UTC()
 	defer func() {
 		if recover() != nil {
 			result = m.providerFailure(provider, NewRunError(FailureInternal, nil))
@@ -438,7 +439,10 @@ func (m *Manager) executeProvider(provider Target, window Window) (result Provid
 	if !ok || !validDiscoveredThrough(window.From, outcome.Sync.Through) {
 		return m.providerFailure(provider, NewRunError(FailureInternal, nil))
 	}
-	return ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome)}
+	finished := m.now().UTC()
+	lines := normalizeProviderLog(provider, outcome.logs, started, &finished)
+	outcome.logs = nil
+	return ProviderStatus{State: ProviderSucceeded, Outcome: cloneOutcome(&outcome), Log: lines}
 }
 
 func (m *Manager) providerFailure(provider Target, err error) ProviderStatus {

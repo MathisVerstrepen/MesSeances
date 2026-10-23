@@ -65,6 +65,7 @@ type EnrichmentOutcome struct {
 type ProviderOutcome struct {
 	Sync       SyncOutcome       `json:"sync"`
 	Enrichment EnrichmentOutcome `json:"enrichment"`
+	logs       []string
 }
 
 type RunError struct {
