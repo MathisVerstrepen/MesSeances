@@ -127,7 +127,7 @@ const historyWhitespace = `U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000
 // schedule.statisticsGenre before per-film deduplication. This read-only
 // projection also supplies history options/filters.
 const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
- SELECT DISTINCT provider,movie_provider_id FROM screening_history_showtimes
+ SELECT DISTINCT provider,movie_provider_id FROM screening_statistics_memberships
 ), source_movies AS MATERIALIZED (
  SELECT s.source_provider provider,s.source_movie_id movie_provider_id,c.id movie_id,c.original_language
  FROM retained_sources h JOIN public_movie_sources s ON (s.source_provider,s.source_movie_id)=(h.provider,h.movie_provider_id)
@@ -159,17 +159,17 @@ const historyCanonicalCTE = `WITH retained_sources AS MATERIALIZED (
   ) g ON true
  GROUP BY m.id,lower(g.label COLLATE pg_catalog.pg_c_utf8)
 ), theaters AS MATERIALIZED (
- SELECT t.* FROM screening_history_theaters t WHERE EXISTS (SELECT 1 FROM screening_history_showtimes h WHERE h.theater_id=t.id)
+ SELECT t.* FROM screening_history_theaters t WHERE EXISTS (SELECT 1 FROM screening_statistics_memberships h WHERE h.theater_id=t.id)
 )`
 
 // Validate each retained association once rather than joining every screening.
 // Source and movie keys are unique, so absence of a valid one-hop canonical
 // target is equivalent to any broken association in the original screening set.
 const historyIntegritySQL = `SELECT EXISTS (
- SELECT 1 FROM (SELECT DISTINCT provider,theater_id FROM screening_history_showtimes) h
+ SELECT 1 FROM (SELECT DISTINCT provider,theater_id FROM screening_statistics_memberships) h
  WHERE NOT EXISTS (SELECT 1 FROM screening_history_theaters t WHERE (t.provider,t.id)=(h.provider,h.theater_id))
 ) OR EXISTS (
- SELECT 1 FROM (SELECT DISTINCT provider,movie_provider_id FROM screening_history_showtimes) h
+ SELECT 1 FROM (SELECT DISTINCT provider,movie_provider_id FROM screening_statistics_memberships) h
  WHERE NOT EXISTS (
   SELECT 1 FROM public_movie_sources s
   JOIN public_movies p ON p.id=s.public_movie_id
@@ -179,6 +179,13 @@ const historyIntegritySQL = `SELECT EXISTS (
 )`
 
 func checkHistoryIntegrity(ctx context.Context, tx pgx.Tx) error {
+	var ready bool
+	if err := tx.QueryRow(ctx, `SELECT ready FROM screening_statistics_state WHERE singleton`).Scan(&ready); err != nil {
+		return err
+	}
+	if !ready {
+		return schedule.ErrHistoryUnavailable
+	}
 	var broken bool
 	if err := tx.QueryRow(ctx, historyIntegritySQL).Scan(&broken); err != nil {
 		return err
@@ -210,7 +217,7 @@ func (s *Store) historyStatistics(ctx context.Context, query schedule.Statistics
 			return err
 		}
 		var data []byte
-		if err := tx.QueryRow(ctx, historyCoverageSQL).Scan(&result.GeneratedAt, &data); err != nil {
+		if err := tx.QueryRow(ctx, historyCoverageSQL).Scan(&result.GeneratedAt, &result.StatisticsRevision, &result.StatisticsUpdatedAt, &data); err != nil {
 			return err
 		}
 		if err := decodeHistoryJSON(data, &result.Coverage); err != nil {
@@ -258,11 +265,8 @@ func historyFilmID(ctx context.Context, tx pgx.Tx, slug string) (*int64, error) 
 	return &id, err
 }
 
-const historyCoverageSQL = `SELECT transaction_timestamp(),jsonb_build_object(
- 'collection_started_at',(SELECT min(collection_started_at) FROM screening_history_providers),
- 'last_publication_at',(SELECT max(last_publication_at) FROM screening_history_providers),
- 'recorded_window',(SELECT CASE WHEN min(service_date) IS NULL THEN NULL ELSE jsonb_build_object('from',min(service_date)::text,'through',max(service_date)::text) END FROM screening_history_showtimes),
- 'completeness','unknown','bootstrap','none','providers',coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY provider) FROM (SELECT provider,collection_started_at,last_publication_at,source_generated_at FROM screening_history_providers ORDER BY provider LIMIT 10) p),'[]'))`
+const historyCoverageSQL = `SELECT transaction_timestamp(),applied_revision,processed_at,coverage
+ FROM screening_statistics_state WHERE singleton AND ready`
 
 // Mirror schedule.statisticsEffectiveLanguage using current canonical metadata,
 // never the redirected movie or source cache, even when canonical language is NULL.
@@ -275,30 +279,40 @@ const historyEffectiveLanguageSQL = `CASE WHEN h.language='VF' AND s.original_la
 // Count narrow canonical movie/theater pairs before joining display metadata.
 // Reuse their weights for rankings without multiplying screenings by genres,
 // passes or the number of source identities mapped to one public movie.
+// Shared predicates preserve exact cross-filter semantics for both time grains.
+const historyMatchedFiltersSQL = `h.theater_id IN (SELECT id FROM matched_theaters)
+ AND ($10::bigint IS NULL OR s.movie_id=$10)
+ AND ($6='' OR ` + historyEffectiveLanguageSQL + `=$6)
+ AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END=$7)
+ AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))`
+
 const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERIALIZED (
  SELECT t.id FROM theaters t
  WHERE (coalesce(cardinality($3::text[]),0)=0 OR t.city_slug=ANY($3)) AND (coalesce(cardinality($4::text[]),0)=0 OR t.id=ANY($4))
  AND ($5='' OR t.provider=$5) AND ($9='' OR $9=ANY(t.passes))
+), facts AS NOT MATERIALIZED (
+ SELECT NULL::date service_date,weekday,hour,provider,movie_provider_id,theater_id,language,format,showtime_count FROM screening_statistics_all_time WHERE $1::text=''
+ UNION ALL
+ SELECT service_date,extract(isodow FROM service_date)::smallint AS weekday,hour,provider,movie_provider_id,theater_id,language,format,showtime_count
+ FROM screening_statistics_hourly WHERE $1::text<>'' AND service_date>=nullif($1,'')::date AND service_date<=nullif($2,'')::date
 ), matched AS MATERIALIZED (
- SELECT h.service_date,h.start_time,h.theater_id,s.movie_id,
+ SELECT h.service_date,h.weekday,h.hour,h.theater_id,s.movie_id,h.showtime_count,
  ` + historyEffectiveLanguageSQL + ` language,
  CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END format
- FROM screening_history_showtimes h JOIN source_movies s USING(provider,movie_provider_id)
- WHERE ($1::text='' OR h.service_date>=nullif($1,'')::date) AND ($2::text='' OR h.service_date<=nullif($2,'')::date)
- AND h.theater_id IN (SELECT id FROM matched_theaters)
- AND ($10::bigint IS NULL OR s.movie_id=$10)
- AND ($6='' OR ` + historyEffectiveLanguageSQL + `=$6)
- AND ($7='' OR CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END=$7)
- AND ($8='' OR EXISTS (SELECT 1 FROM movie_genres g WHERE g.id=s.movie_id AND g.value=$8))
+ FROM facts h JOIN source_movies s USING(provider,movie_provider_id)
+ WHERE ` + historyMatchedFiltersSQL + `
 ), daily_counts AS MATERIALIZED (
- SELECT service_date,count(*) showtime_count FROM matched GROUP BY service_date
+ SELECT service_date,sum(showtime_count) showtime_count FROM matched WHERE $1::text<>'' GROUP BY service_date
+ UNION ALL
+ SELECT h.service_date,sum(h.showtime_count) showtime_count FROM screening_statistics_daily h JOIN source_movies s USING(provider,movie_provider_id)
+ WHERE $1::text='' AND ` + historyMatchedFiltersSQL + ` GROUP BY h.service_date
 ), daily_showtimes AS (
  SELECT (b.first_date+d.day_offset)::text date,coalesce(c.showtime_count,0) showtime_count
  FROM (SELECT min(service_date) first_date,max(service_date) last_date FROM daily_counts) b
  CROSS JOIN LATERAL generate_series(0,b.last_date-b.first_date) d(day_offset)
  LEFT JOIN daily_counts c ON c.service_date=b.first_date+d.day_offset
 ), movie_theaters AS MATERIALIZED (
- SELECT movie_id,theater_id,count(*) showtime_count FROM matched GROUP BY movie_id,theater_id
+ SELECT movie_id,theater_id,sum(showtime_count) showtime_count FROM matched GROUP BY movie_id,theater_id
 ), chain_counts AS (
  SELECT t.provider chain,sum(h.showtime_count) showtime_count,count(DISTINCT h.movie_id) movie_count,count(DISTINCT h.theater_id) theater_count
  FROM movie_theaters h JOIN theaters t ON t.id=h.theater_id GROUP BY t.provider
@@ -327,16 +341,16 @@ const historyStatisticsSQL = historyCanonicalCTE + `, matched_theaters AS MATERI
 ), genre_ranks AS (
  SELECT * FROM genre_counts ORDER BY count DESC,lower(btrim(label,` + historyWhitespace + `) COLLATE pg_catalog.pg_c_utf8) COLLATE "C",value COLLATE "C" LIMIT 100
 ), heat AS (
- SELECT extract(isodow FROM service_date)::int weekday,extract(hour FROM start_time AT TIME ZONE 'Europe/Paris')::int AS hour,count(*) showtime_count FROM matched GROUP BY 1,2
+ SELECT weekday,hour,sum(showtime_count) showtime_count FROM matched GROUP BY weekday,hour
 ), versions AS (
- SELECT language value,CASE WHEN language='unknown' THEN 'Non renseigné' ELSE language END label,count(*) count FROM matched GROUP BY language ORDER BY count DESC,lower(CASE WHEN language='unknown' THEN 'Non renseigné' ELSE language END) COLLATE "C",language COLLATE "C"
+ SELECT language value,CASE WHEN language='unknown' THEN 'Non renseigné' ELSE language END label,sum(showtime_count) count FROM matched GROUP BY language ORDER BY count DESC,lower(CASE WHEN language='unknown' THEN 'Non renseigné' ELSE language END) COLLATE "C",language COLLATE "C"
 ), formats AS (
- SELECT format value,CASE WHEN format='unknown' THEN 'Non renseigné' ELSE format END label,count(*) count FROM matched GROUP BY format ORDER BY count DESC,lower(CASE WHEN format='unknown' THEN 'Non renseigné' ELSE format END) COLLATE "C",format COLLATE "C"
+ SELECT format value,CASE WHEN format='unknown' THEN 'Non renseigné' ELSE format END label,sum(showtime_count) count FROM matched GROUP BY format ORDER BY count DESC,lower(CASE WHEN format='unknown' THEN 'Non renseigné' ELSE format END) COLLATE "C",format COLLATE "C"
 ), runtime_counts AS (
  SELECT CASE WHEN runtime<=0 OR runtime>153722867 THEN 'unknown' WHEN runtime<90 THEN 'short' WHEN runtime<=120 THEN 'medium' ELSE 'long' END value,count(*) count FROM movie_counts GROUP BY 1
 )
 SELECT jsonb_build_object(
- 'totals',jsonb_build_object('showtimes',(SELECT count(*) FROM matched),'movies',(SELECT count(*) FROM movie_counts),'cities',(SELECT count(*) FROM city_counts),'theaters',(SELECT count(*) FROM theater_counts)),
+ 'totals',jsonb_build_object('showtimes',(SELECT coalesce(sum(showtime_count),0) FROM matched),'movies',(SELECT count(*) FROM movie_counts),'cities',(SELECT count(*) FROM city_counts),'theaters',(SELECT count(*) FROM theater_counts)),
  'daily_showtimes',coalesce((SELECT jsonb_agg(d ORDER BY d.date) FROM daily_showtimes d),'[]'),
  'chains',coalesce((SELECT jsonb_agg(c ORDER BY c.showtime_count DESC,c.movie_count DESC,c.chain COLLATE "C" ASC) FROM chain_counts c),'[]'),
  'top_movies',jsonb_build_object('by_showtimes',coalesce((SELECT jsonb_agg(t) FROM top_showtimes t),'[]'),'by_theaters',coalesce((SELECT jsonb_agg(t) FROM top_theaters t),'[]')),
@@ -345,6 +359,6 @@ SELECT jsonb_build_object(
  'genres',coalesce((SELECT jsonb_agg(g) FROM genre_ranks g),'[]'),
  'runtimes',(SELECT jsonb_agg(jsonb_build_object('value',r.value,'label',r.label,'count',coalesce(c.count,0)) ORDER BY r.position) FROM (VALUES (1,'short','Moins de 1h30'),(2,'medium','De 1h30 à 2h'),(3,'long','Plus de 2h'),(4,'unknown','Non renseignée')) r(position,value,label) LEFT JOIN runtime_counts c USING(value)),
  'local',jsonb_build_object('cities',coalesce((SELECT jsonb_agg(c) FROM city_ranks c),'[]'),'theaters',coalesce((SELECT jsonb_agg(t) FROM theater_ranks t),'[]')),
- 'concentration',jsonb_build_object('top_movie_count',(SELECT count(*) FROM top_showtimes),'top_showtime_count',coalesce((SELECT sum(showtime_count) FROM top_showtimes),0),'other_showtime_count',(SELECT count(*) FROM matched)-coalesce((SELECT sum(showtime_count) FROM top_showtimes),0)),
+ 'concentration',jsonb_build_object('top_movie_count',(SELECT count(*) FROM top_showtimes),'top_showtime_count',coalesce((SELECT sum(showtime_count) FROM top_showtimes),0),'other_showtime_count',(SELECT coalesce(sum(showtime_count),0) FROM matched)-coalesce((SELECT sum(showtime_count) FROM top_showtimes),0)),
  'limits',jsonb_build_object('genres',(SELECT count(*)>100 FROM genre_counts),'local',jsonb_build_object('cities',(SELECT count(*)>100 FROM city_counts),'theaters',(SELECT count(*)>100 FROM theater_counts)))
 )`

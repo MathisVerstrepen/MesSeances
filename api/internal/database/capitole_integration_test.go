@@ -153,6 +153,7 @@ func assertCapitoleAdditiveBaselines(t *testing.T, ctx context.Context, pool *pg
 	}
 	delete(facts, "public_page_content_state")
 	delete(facts, "public_page_content")
+	assertHistoryStatisticsBaseline(t, ctx, pool, facts)
 }
 
 func TestCapitoleContinuityMigrationIntegration(t *testing.T) {
