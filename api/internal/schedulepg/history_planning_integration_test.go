@@ -98,6 +98,8 @@ func TestHistoryIntegrityParityIntegration(t *testing.T) {
 	pool := newHistoryPool(t)
 	const fixtures = `WITH screening_history_showtimes(provider,theater_id,movie_provider_id) AS (
  SELECT * FROM (VALUES ('ugc','ugc-1','1'),('ugc','ugc-1','1'),('ugc','ugc-2','2')) h WHERE NOT $1::boolean
+), screening_statistics_memberships AS (
+ SELECT provider,theater_id,movie_provider_id FROM screening_history_showtimes
 ), screening_history_theaters(provider,id) AS (
  VALUES ('ugc','ugc-1'),($2::text,$3::text)
 ), public_movie_sources(source_provider,source_movie_id,public_movie_id) AS (

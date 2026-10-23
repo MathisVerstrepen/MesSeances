@@ -14,24 +14,26 @@ var (
 )
 
 type HistoryStatistics struct {
-	Mode           string                  `json:"mode"`
-	GeneratedAt    time.Time               `json:"generated_at"`
-	Timezone       string                  `json:"timezone"`
-	Range          *Window                 `json:"range"`
-	Coverage       HistoryCoverage         `json:"coverage"`
-	Options        StatisticsOptions       `json:"options"`
-	Totals         StatisticsTotals        `json:"totals"`
-	DailyShowtimes []HistoryDailyShowtimes `json:"daily_showtimes"`
-	Chains         []HistoryChainRank      `json:"chains"`
-	TopMovies      StatisticsTopMovies     `json:"top_movies"`
-	Heatmap        []StatisticsHeatmapCell `json:"heatmap"`
-	Versions       []StatisticsCountBucket `json:"versions"`
-	Formats        []StatisticsCountBucket `json:"formats"`
-	Genres         []StatisticsCountBucket `json:"genres"`
-	Runtimes       []StatisticsCountBucket `json:"runtimes"`
-	Local          StatisticsLocal         `json:"local"`
-	Concentration  StatisticsConcentration `json:"concentration"`
-	Limits         HistoryLimits           `json:"limits"`
+	StatisticsRevision  int64                   `json:"statistics_revision"`
+	StatisticsUpdatedAt *time.Time              `json:"statistics_updated_at"`
+	Mode                string                  `json:"mode"`
+	GeneratedAt         time.Time               `json:"generated_at"`
+	Timezone            string                  `json:"timezone"`
+	Range               *Window                 `json:"range"`
+	Coverage            HistoryCoverage         `json:"coverage"`
+	Options             StatisticsOptions       `json:"options"`
+	Totals              StatisticsTotals        `json:"totals"`
+	DailyShowtimes      []HistoryDailyShowtimes `json:"daily_showtimes"`
+	Chains              []HistoryChainRank      `json:"chains"`
+	TopMovies           StatisticsTopMovies     `json:"top_movies"`
+	Heatmap             []StatisticsHeatmapCell `json:"heatmap"`
+	Versions            []StatisticsCountBucket `json:"versions"`
+	Formats             []StatisticsCountBucket `json:"formats"`
+	Genres              []StatisticsCountBucket `json:"genres"`
+	Runtimes            []StatisticsCountBucket `json:"runtimes"`
+	Local               StatisticsLocal         `json:"local"`
+	Concentration       StatisticsConcentration `json:"concentration"`
+	Limits              HistoryLimits           `json:"limits"`
 }
 
 type HistoryDailyShowtimes struct {

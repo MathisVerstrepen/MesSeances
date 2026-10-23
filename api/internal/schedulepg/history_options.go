@@ -64,7 +64,7 @@ const historyStatisticsOptionsSQL = historyOptionsCTE + `, ranked AS MATERIALIZE
 ), observed AS MATERIALIZED (
  SELECT DISTINCT ` + historyEffectiveLanguageSQL + ` language,
  CASE WHEN h.format IN ('2D','3D','IMAX','DOLBY','SCREENX','LASER_ULTRA','4DX','ICE','INFINITY_VISION') THEN h.format ELSE 'unknown' END format
- FROM screening_history_showtimes h JOIN source_movies s USING(provider,movie_provider_id)
+ FROM screening_statistics_memberships h JOIN source_movies s USING(provider,movie_provider_id)
 )
 SELECT jsonb_build_object('options',jsonb_build_object(
  'cities',coalesce((SELECT jsonb_agg(item ORDER BY position) FROM chosen WHERE kind='city'),'[]'),
