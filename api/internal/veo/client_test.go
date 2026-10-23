@@ -93,6 +93,53 @@ func TestClientRetainsTransportCauseForAdminJournal(t *testing.T) {
 		t.Fatal("diagnostic changed generic error behavior")
 	}
 }
+
+func TestClientTimeoutDoesNotDrainSharedProxyPool(t *testing.T) {
+	for _, op := range []Operation{OperationCinemas, OperationCheckout} {
+		t.Run(string(op), func(t *testing.T) {
+			start := time.Unix(1792832400, 0)
+			source := "https://achat.veocinemas.fr/toulouse/r/8185"
+			canonical := "https://achat.veocinemas.fr/toulouse/reserver/F615930/D1792832400/VF/2238336/"
+			phase := 0
+			transports := make([]roundTripFunc, 2)
+			for ordinal := range transports {
+				transports[ordinal] = func(r *http.Request) (*http.Response, error) {
+					if ordinal == phase {
+						// A client timeout is retryable while the crawl context is alive.
+						return nil, context.DeadlineExceeded
+					}
+					if op != OperationCheckout {
+						return fixtureResponse(http.StatusOK, `{}`, "application/json"), nil
+					}
+					if r.URL.String() == source {
+						response := fixtureResponse(http.StatusTemporaryRedirect, "", "text/html")
+						response.Header.Set("Location", canonical)
+						return response, nil
+					}
+					return fixtureResponse(http.StatusOK, bookingFormFixture(canonical), "text/html"), nil
+				}
+			}
+			c := testClient(t, transports...)
+			for phase = 0; phase < 3; phase++ {
+				if op == OperationCheckout {
+					result, err := c.Checkout(t.Context(), source, start)
+					wantPool := 2
+					if phase > 0 {
+						wantPool = 1
+					}
+					if err != nil || result.canonicalURL != canonical || result.pool.index != wantPool {
+						t.Fatalf("phase=%d pool=%d err=%v", phase, result.pool.index, err)
+					}
+				} else if _, err := c.Get(t.Context(), op, MainOrigin+CatalogPath); err != nil {
+					t.Fatalf("phase=%d err=%v", phase, err)
+				}
+			}
+			if c.RequestCount() != 5 {
+				t.Fatalf("attempts=%d", c.RequestCount())
+			}
+		})
+	}
+}
 func TestClientRequestBodyContentTypesAndCharsets(t *testing.T) {
 	c := testClient(t, func(r *http.Request) (*http.Response, error) {
 		if r.Method != http.MethodPost || r.Header.Get("Referer") != CasteliaURL || r.Header.Get("Content-Type") != "application/json" {

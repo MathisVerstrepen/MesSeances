@@ -35,6 +35,8 @@ const (
 	WorkerCount        = 16
 )
 
+const CheckoutWorkerCount = 2
+
 type Operation string
 
 const (
@@ -330,7 +332,9 @@ func newClient(clients []*http.Client, sleep func(context.Context, time.Duration
 		if checkout {
 			valid = checkoutFetchURLAllowed
 		}
-		return syncproxy.NewExecutor(syncproxy.ExecutorConfig{Clients: copies, ProxyBacked: true, ValidURL: valid, MaxResponseBytes: limit, Headers: http.Header{"User-Agent": {"Mozilla/5.0"}, "Accept": {"application/json"}}, AdvanceNextOnRetry: true, CancelReadOnContext: true, Retry: syncproxy.RetryPolicy{Sleep: sleep, PreserveFailureAfterWait: true}})
+		// Catalogs and thousands of independent checkout pages share these pools.
+		// A timeout or server error must not drain them for every remaining request.
+		return syncproxy.NewExecutor(syncproxy.ExecutorConfig{Clients: copies, ProxyBacked: true, ValidURL: valid, MaxResponseBytes: limit, Headers: http.Header{"User-Agent": {"Mozilla/5.0"}, "Accept": {"application/json"}}, AdvanceNextOnRetry: true, CancelReadOnContext: true, Retry: syncproxy.RetryPolicy{Sleep: sleep, PreserveFailureAfterWait: true, RequestScopedFailures: true}})
 	}
 	j, err := makeExecutor(MaxResponseBytes, false)
 	if err != nil {

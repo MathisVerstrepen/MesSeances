@@ -652,7 +652,9 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 		summary.GueretUnavailableCheckouts = int(gueretUnavailable.Load())
 		summary.RegularFinal404UnavailableCheckouts = int(regularFinal404Unavailable.Load())
 	}()
-	facts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: min(WorkerCount, len(indices))}, func(ctx context.Context, index int) (resolvedCheckout, error) {
+	// Checkout redirects and pages share a small proxy pool. Keep this phase
+	// bounded separately from the lightweight catalog requests.
+	facts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: min(CheckoutWorkerCount, len(indices))}, func(ctx context.Context, index int) (resolvedCheckout, error) {
 		if err := ctx.Err(); err != nil {
 			return resolvedCheckout{}, err
 		}
