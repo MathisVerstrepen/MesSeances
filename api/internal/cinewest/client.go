@@ -23,9 +23,10 @@ type Fetcher interface {
 	RequestCount() int
 }
 
-// RequestError contains only bounded categories, never URLs, tokens, response
-// bodies or transport errors. Only context cancellation is retained.
+// RequestError keeps request diagnostics for the admin journal separately from
+// its generic Error text and context cancellation chain.
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Operation  string
 	Kind       syncproxy.FailureKind
 	StatusCode int
@@ -112,7 +113,7 @@ func (c *Client) request(ctx context.Context, operation string, request syncprox
 	if failure == nil {
 		return body, nil
 	}
-	err := &RequestError{Operation: operation, Kind: failure.Kind, StatusCode: failure.StatusCode}
+	err := &RequestError{Operation: operation, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(request.Method, request.URL, failure)}
 	if failure.Kind == syncproxy.FailureCanceled {
 		err.cause = failure.Cause
 	}

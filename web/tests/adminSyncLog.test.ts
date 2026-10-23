@@ -43,6 +43,7 @@ test('actual sync page escapes hostile operational log HTML', async () => {
             log: [
               '<script>alert("journal")</script>',
               '<img src=x onerror=alert(1)>',
+              'event=provider_failed category=transport detail="GET https://www.ocine.fr/maubeuge/seances/; attempt 4/4; proxyconnect tcp: connection refused"',
             ],
           },
         },
@@ -65,7 +66,11 @@ test('actual sync page escapes hostile operational log HTML', async () => {
   })
   assert.match(
     html,
-    /<code>&lt;script&gt;alert\(&quot;journal&quot;\)&lt;\/script&gt;\n&lt;img src=x onerror=alert\(1\)&gt;<\/code>/,
+    /<code>&lt;script&gt;alert\(&quot;journal&quot;\)&lt;\/script&gt;\n&lt;img src=x onerror=alert\(1\)&gt;\nevent=provider_failed/,
+  )
+  assert.match(
+    html,
+    /detail=&quot;GET https:\/\/www\.ocine\.fr\/maubeuge\/seances\/; attempt 4\/4; proxyconnect tcp: connection refused&quot;<\/code>/,
   )
   assert.doesNotMatch(html, /<script\b|<img\b/)
 })

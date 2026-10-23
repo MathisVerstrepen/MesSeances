@@ -783,6 +783,7 @@ func attachRunLogs(err error, logs map[Target][]string) error {
 func failureDetails(provider Target, stage FailureStage, err error, outcome SyncOutcome) logFailure {
 	details := fallbackFailure(stage, FailureInternal)
 	details.Progress = outcomeProgress(outcome)
+	details.Cause = err
 	var kinepolisErr *kinepolis.RequestError
 	hasTypedKinepolisFetchError := provider == TargetKinepolis && stage == StageProviderFetch && errors.As(err, &kinepolisErr)
 	if !hasTypedKinepolisFetchError && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
@@ -792,7 +793,7 @@ func failureDetails(provider Target, stage FailureStage, err error, outcome Sync
 	if stage != StageProviderFetch {
 		return details
 	}
-	details = logFailure{Operation: operationUnknown, Category: categoryUnknown, Progress: outcomeProgress(outcome)}
+	details = logFailure{Cause: err, Operation: operationUnknown, Category: categoryUnknown, Progress: outcomeProgress(outcome)}
 	switch provider {
 	case TargetUGC:
 		var requestErr *ugc.RequestError

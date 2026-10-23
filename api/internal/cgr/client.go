@@ -48,6 +48,7 @@ const (
 )
 
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Operation  Operation
 	Category   ErrorCategory
 	StatusCode int
@@ -133,7 +134,9 @@ func (c *Client) Get(ctx context.Context, operation Operation, rawURL string) ([
 		},
 	})
 	if failure != nil {
-		return nil, mapFailure(operation, failure)
+		mapped := mapFailure(operation, failure)
+		mapped.RequestDiagnostic = syncproxy.NewRequestDiagnostic(http.MethodGet, rawURL, failure)
+		return nil, mapped
 	}
 	return body, nil
 }

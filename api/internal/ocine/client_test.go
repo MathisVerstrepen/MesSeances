@@ -106,6 +106,19 @@ func TestClientSafeRoutesRetriesAndRedaction(t *testing.T) {
 			if !errors.As(err, &requestErr) {
 				t.Fatal("lost request category")
 			}
+			detail := requestErr.SyncFailureDetail()
+			if !strings.Contains(detail, "GET https://www.ocine.fr/maubeuge/seances/") {
+				t.Fatal("missing failed request", detail)
+			}
+			if kind == "transport" && (!strings.Contains(detail, "private-proxy-secret") || !strings.Contains(detail, "attempt 4/4")) {
+				t.Fatal("lost transport cause or retry count", detail)
+			}
+			if kind == "challenge" && !strings.Contains(detail, "HTTP 403") {
+				t.Fatal("lost challenge status", detail)
+			}
+			if kind == "transport" && errors.Unwrap(err) != nil {
+				t.Fatal("diagnostic changed error classification")
+			}
 			if kind == "cancel" && (requestErr.Kind != syncproxy.FailureCanceled || !errors.Is(err, context.Canceled)) {
 				t.Fatal("lost cancellation")
 			}

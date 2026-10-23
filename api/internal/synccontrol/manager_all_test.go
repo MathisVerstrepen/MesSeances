@@ -98,7 +98,7 @@ func TestManagerAllIsolatesProviderFailures(t *testing.T) {
 					if test.mode != "" {
 						code = FailureInternal
 					}
-					if got.State != ProviderFailed || got.ErrorCode != code || got.Outcome != nil || len(got.Log) == 0 || strings.Contains(strings.Join(got.Log, "\n"), "secret") {
+					if got.State != ProviderFailed || got.ErrorCode != code || got.Outcome != nil || len(got.Log) == 0 || (test.mode == "") != strings.Contains(strings.Join(got.Log, "\n"), `detail="secret"`) {
 						t.Errorf("failed provider=%s status=%+v", provider, got)
 					}
 				} else if want := outcomes[provider]; got.State != ProviderSucceeded || got.ErrorCode != "" || !reflect.DeepEqual(got.Outcome, &want) {

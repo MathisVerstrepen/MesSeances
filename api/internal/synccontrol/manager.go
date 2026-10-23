@@ -455,7 +455,9 @@ func (m *Manager) providerFailure(provider Target, err error) ProviderStatus {
 	defer m.mu.Unlock()
 	finished := m.now().UTC()
 	if len(lines) == 0 {
-		lines = []string{failureLog(finished, provider, stage, fallbackFailure(stage, code))}
+		failure := fallbackFailure(stage, code)
+		failure.Cause = err
+		lines = []string{failureLog(finished, provider, stage, failure)}
 	}
 	lines = normalizeProviderLog(provider, lines, m.status.StartedAt, &finished)
 	return ProviderStatus{State: ProviderFailed, ErrorCode: code, Log: lines}

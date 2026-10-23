@@ -252,7 +252,11 @@ func TestProductionExecutorLogsSanitizedKinepolisFetchDiagnostics(t *testing.T) 
 			if !errors.As(err, &runErr) || runErr.Stage != StageProviderFetch || runErr.Code != FailureProviderSync {
 				t.Fatalf("err=%v", err)
 			}
-			combined := strings.Join(runErr.logs[TargetKinepolis], "\n") + logs.String()
+			journal := strings.Join(runErr.logs[TargetKinepolis], "\n")
+			if !strings.Contains(journal, " detail=") || !strings.Contains(journal, sensitive) {
+				t.Fatalf("admin journal lost original error: %s", journal)
+			}
+			combined := journal + logs.String()
 			for _, want := range []string{"operation=" + test.wantOperation, "category=" + test.wantCategory, `"request_operation":"` + test.wantOperation + `"`, `"fetch_category":"` + test.wantCategory + `"`, "requests=1"} {
 				if !strings.Contains(combined, want) {
 					t.Fatalf("output missing %q: %s", want, combined)
@@ -262,8 +266,8 @@ func TestProductionExecutorLogsSanitizedKinepolisFetchDiagnostics(t *testing.T) 
 				t.Fatalf("status mismatch: %s", combined)
 			}
 			for _, forbidden := range []string{sensitive, "proxy-password", "proxy.example", "token-secret", "session-secret", "provider-body-secret", "transport-secret"} {
-				if strings.Contains(combined, forbidden) {
-					t.Fatalf("output leaked %q: %s", forbidden, combined)
+				if strings.Contains(logs.String(), forbidden) {
+					t.Fatalf("process log leaked %q: %s", forbidden, logs.String())
 				}
 			}
 		})
@@ -527,7 +531,7 @@ func TestProductionExecutorRetainsPatheParserFailureDiagnostics(t *testing.T) {
 			t.Fatalf("canonical log missing %q: %s", want, canonical)
 		}
 	}
-	if strings.Contains(canonical+logs.String(), "synthetic-secret") || !strings.Contains(logs.String(), `"requests":660`) {
+	if !strings.Contains(canonical, `detail="synthetic-secret:`) || strings.Contains(logs.String(), "synthetic-secret") || !strings.Contains(logs.String(), `"requests":660`) {
 		t.Fatalf("unsafe or missing diagnostic: %s", canonical)
 	}
 }
@@ -571,13 +575,12 @@ func TestProductionExecutorBuildsCanonicalUGCFailureLog(t *testing.T) {
 		t.Fatalf("lines=%q", lines)
 	}
 	wantTerminal := `ts=2026-08-26T07:57:06Z level=error provider=ugc event=provider_failed stage=provider_fetch operation=showings category=http_status http_status=403 attempt=1/4 requests=26 message="Le fournisseur a renvoyé un statut HTTP inattendu."`
-	if lines[3] != wantTerminal || !strings.Contains(lines[0], "event=provider_started") || !strings.Contains(lines[1], "event=client_ready") || !strings.Contains(lines[2], "event=fetch_started") {
+	if lines[3] != wantTerminal+` detail="`+secret+`: UGC request failed"` || !strings.Contains(lines[0], "event=provider_started") || !strings.Contains(lines[1], "event=client_ready") || !strings.Contains(lines[2], "event=fetch_started") {
 		t.Fatalf("lines=%q", lines)
 	}
-	combined := strings.Join(lines, "\n") + slogOutput.String()
 	for _, forbidden := range []string{secret, "proxy-password", "proxy.example", "token-secret", "session-secret", "provider-body-secret", "underlying-secret"} {
-		if strings.Contains(combined, forbidden) {
-			t.Fatalf("output leaked %q: %s", forbidden, combined)
+		if strings.Contains(slogOutput.String(), forbidden) {
+			t.Fatalf("process log leaked %q: %s", forbidden, slogOutput.String())
 		}
 	}
 	for _, want := range []string{`"fetch_category":"http_status"`, `"request_operation":"showings"`, `"http_status":403`, `"attempt":1`, `"attempt_limit":4`, `"requests":26`} {
@@ -615,8 +618,7 @@ func TestProductionExecutorBoundsUGCParseReason(t *testing.T) {
 			}
 			lines := runErr.logs[TargetUGC]
 			wantTerminal := `ts=2026-08-26T09:09:51Z level=error provider=ugc event=provider_failed stage=provider_fetch operation=showings category=invalid_payload parse_reason=` + test.want + ` requests=64 message="La réponse du fournisseur n’a pas pu être interprétée."`
-			combined := strings.Join(lines, "\n") + slogOutput.String()
-			if len(lines) != 4 || lines[3] != wantTerminal || strings.Contains(combined, secret) || strings.Contains(combined, "proxy-password") || strings.Contains(combined, "provider-body-secret") {
+			if len(lines) != 4 || lines[3] != wantTerminal+` detail="`+secret+`: UGC request failed"` || strings.Contains(slogOutput.String(), "proxy-password") || strings.Contains(slogOutput.String(), "provider-body-secret") {
 				t.Fatalf("lines=%q slog=%q", lines, slogOutput.String())
 			}
 		})

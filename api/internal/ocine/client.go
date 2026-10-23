@@ -16,6 +16,7 @@ const MaxResponseBytes = 16 << 20
 var cinemaIDs = [...]string{"309", "310", "461"}
 
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Kind       syncproxy.FailureKind
 	StatusCode int
 	cause      error
@@ -106,7 +107,7 @@ func (c *Client) get(ctx context.Context, raw string) ([]byte, error) {
 	if failure == nil {
 		return body, nil
 	}
-	e := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode}
+	e := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, raw, failure)}
 	if failure.Kind == syncproxy.FailureCanceled {
 		e.cause = failure.Cause
 	}
