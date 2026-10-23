@@ -26,8 +26,10 @@ const (
 	OperationCinema    Operation = "cinema"
 )
 
-// RequestError retains only bounded classifications and context cancellation.
+// RequestError keeps request diagnostics for the admin journal separately from
+// its generic Error text and context cancellation chain.
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Operation  Operation
 	Kind       syncproxy.FailureKind
 	StatusCode int
@@ -155,7 +157,7 @@ func (c *Client) request(ctx context.Context, op Operation, target string, media
 		}
 		return body, nil
 	}
-	err := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode}
+	err := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, target, failure)}
 	if failure.Kind == syncproxy.FailureCanceled {
 		err.cause = ctx.Err()
 	}

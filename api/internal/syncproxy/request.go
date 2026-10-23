@@ -35,6 +35,7 @@ const (
 )
 
 type Failure struct {
+	Attempt    int
 	Kind       FailureKind
 	StatusCode int
 	Cause      error
@@ -165,6 +166,7 @@ func (e *Executor) Do(ctx context.Context, input Request, policy ResponsePolicy)
 		if failure == nil {
 			return body, nil
 		}
+		failure.Attempt = attempt + 1
 		if !retry {
 			return nil, failure
 		}

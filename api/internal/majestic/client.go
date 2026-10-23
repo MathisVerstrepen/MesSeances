@@ -16,6 +16,7 @@ const ProgramURL = "https://ws.ticketingcine.com/site"
 const MaxResponseBytes = 16 << 20
 
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Kind       syncproxy.FailureKind
 	StatusCode int
 	cause      error
@@ -84,7 +85,7 @@ func (c *Client) Program(ctx context.Context, id string) ([]byte, error) {
 	if failure == nil {
 		return body, nil
 	}
-	err := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode}
+	err := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodPost, ProgramURL, failure)}
 	if failure.Kind == syncproxy.FailureCanceled {
 		err.cause = failure.Cause
 	}

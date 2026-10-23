@@ -207,6 +207,8 @@ After both services are healthy, request `/sitemaps/films.xml`, `/sitemaps/cinem
 
 Production example sets `TRUSTED_PROXY_CIDRS=127.0.0.1/32` only for operator-managed Nginx connecting directly to API through its IPv4 loopback binding. This is safe only when Nginx is the immediate socket peer and every API proxy location overwrites `X-Forwarded-For` from verified client data, or constructs a chain using only explicitly trusted upstream proxies. Otherwise leave the variable empty. Never trust `127.0.0.0/8`, Docker or private network ranges, or `::1/128` without evidence for the exact immediate peer. Repository Compose binds services to loopback but does not install, inspect, test, reload, or manage external Nginx; those host changes remain a separate operator action. See [Nginx admin login rate limiting](docs/nginx-admin-login-rate-limit.md) for the matching forwarding contract.
 
+The authenticated `/admin/sync` operational journal retains the original failure messages and wrapped causes. Provider request failures also include the request method/URL, actual attempt count and HTTP status when available. These details are saved only for failed runs, escaped as literal text, and bounded to 20 lines, 2048 bytes per line and 8192 bytes per journal. Existing saved runs cannot recover details that were previously discarded.
+
 Backend operational logs use JSON on stderr. Prometheus metrics are available without application authentication at `GET /metrics` on the API listener. Restrict this endpoint with deployment network or reverse-proxy controls; production Compose keeps the API host binding on loopback.
 
 ## Production analytics

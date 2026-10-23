@@ -37,8 +37,10 @@ const (
 	OperationRoom      Operation = "room"
 )
 
-// RequestError never retains transport URLs, proxy credentials, or response bodies.
+// RequestError keeps request diagnostics for the admin journal separately from
+// its generic Error text and context cancellation chain.
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Operation  Operation
 	Kind       syncproxy.FailureKind
 	StatusCode int
@@ -139,7 +141,7 @@ func (c *Client) Get(ctx context.Context, op Operation, raw string) ([]byte, err
 	if failure == nil {
 		return body, nil
 	}
-	result := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode}
+	result := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(r.Method, r.URL, failure)}
 	if failure.Kind == syncproxy.FailureCanceled {
 		result.cause = ctx.Err()
 	}

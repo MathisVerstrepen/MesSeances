@@ -17,6 +17,7 @@ const MaxResponseBytes = 16 << 20
 var cinemaIDs = [...]string{"4640", "597", "4077", "593", "4626", "592", "4388", "4582", "4622", "3524", "981", "3955", "4426", "991", "600", "595", "636", "4420", "603", "601", "594", "3859", "4444", "4624", "4638", "4277", "4386", "4384", "3064", "4075", "3074", "4592", "4181", "4281", "3857", "3945", "3104"}
 
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Kind       syncproxy.FailureKind
 	StatusCode int
 	cause      error
@@ -99,7 +100,7 @@ func (c *Client) Page(ctx context.Context, id, route string) ([]byte, error) {
 	if route != "seances" && failure.Kind == syncproxy.FailureStatus && failure.StatusCode == 404 {
 		return nil, nil
 	}
-	e := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode}
+	e := &RequestError{Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(http.MethodGet, raw, failure)}
 	if failure.Kind == syncproxy.FailureCanceled {
 		e.cause = failure.Cause
 	}

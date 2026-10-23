@@ -1,11 +1,80 @@
 package synccontrol
 
 import (
+	"encoding/json"
+	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
+
+	"messeances/api/internal/ocine"
+	"messeances/api/internal/syncproxy"
 )
+
+func TestAdminFailureDetailSurvivesStatusPersistence(t *testing.T) {
+	started := time.Date(2026, 10, 23, 1, 30, 0, 0, time.UTC)
+	finished := started.Add(time.Minute)
+	cause := &ocine.RequestError{
+		Kind: syncproxy.FailureTransport,
+		RequestDiagnostic: syncproxy.NewRequestDiagnostic("GET", "https://www.ocine.fr/maubeuge/seances/", &syncproxy.Failure{
+			Attempt: 4, Cause: errors.New("proxyconnect tcp: connection refused"),
+		}),
+	}
+	line := failureLog(finished, TargetOcine, StageProviderFetch, failureDetails(TargetOcine, StageProviderFetch,
+		newProviderRunError(TargetOcine, StageProviderFetch, FailureProviderSync, cause), SyncOutcome{Requests: 32}))
+	status := SanitizeStatus(Status{StartedAt: started, FinishedAt: &finished, Providers: map[string]ProviderStatus{
+		"ocine": {State: ProviderFailed, ErrorCode: FailureProviderSync, Log: []string{line}},
+	}})
+	encoded, err := json.Marshal(status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Status
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	journal := strings.Join(SanitizeStatus(restored).Providers["ocine"].Log, "\n")
+	for _, want := range []string{"category=transport", "requests=32", " detail=", "GET https://www.ocine.fr/maubeuge/seances/", "attempt 4/4", "proxyconnect tcp: connection refused"} {
+		if !strings.Contains(journal, want) {
+			t.Fatalf("missing %q in persisted admin journal: %s", want, journal)
+		}
+	}
+}
+
+func TestProviderLogDetailsAreEscapedBoundedAndBackwardCompatible(t *testing.T) {
+	started := time.Date(2026, 10, 23, 1, 30, 0, 0, time.UTC)
+	finished := started.Add(time.Minute)
+	for _, detail := range []string{
+		`GET https://example.test/path?message="failed"&detail=1: connection reset`,
+		"bad \"response\"\nlevel=info event=provider_succeeded\r\t\x00<script>alert(1)</script>",
+		strings.Repeat("échec\n", 2000),
+		"invalid UTF-8: \xff",
+	} {
+		line := failureLog(finished, TargetOcine, StageProviderFetch, logFailure{Operation: operationProgram, Category: categoryTransport, Cause: errors.New(detail)})
+		if line == "" || len(line) > maxProviderLogLine || !utf8.ValidString(line) || strings.ContainsAny(line, "\r\n\t\x00") {
+			t.Fatalf("invalid journal line: %q", line)
+		}
+		_, quoted, ok := strings.Cut(line, " detail=")
+		if !ok {
+			t.Fatal("missing detail")
+		}
+		decoded, err := strconv.Unquote(quoted)
+		if err != nil || decoded == "" || (len(detail) > maxProviderLogLine && !strings.HasSuffix(decoded, "…")) {
+			t.Fatalf("invalid/truncated detail: %q, %v", decoded, err)
+		}
+		normalized := normalizeProviderLog(TargetOcine, []string{line}, started, &finished)
+		if len(normalized) != 1 || normalized[0] != line {
+			t.Fatalf("detail lost on normalization: %q", normalized)
+		}
+	}
+	legacy := failureLog(finished, TargetOcine, StageProviderFetch, logFailure{Operation: operationProgram, Category: categoryTransport})
+	if normalized := normalizeProviderLog(TargetOcine, []string{legacy}, started, &finished); len(normalized) != 1 || normalized[0] != legacy {
+		t.Fatal("legacy journal rejected", normalized)
+	}
+}
 
 func TestProviderLogCanonicalFormat(t *testing.T) {
 	timestamp := time.Date(2026, 8, 26, 7, 57, 6, 123456789, time.UTC)
