@@ -176,6 +176,8 @@ export interface HistoryChainRank {
 }
 export interface HistoryStatisticsResponse
   extends Omit<StatisticsResponse, 'range' | 'coverage'> {
+  statistics_revision?: number
+  statistics_updated_at?: string | null
   mode: 'history'
   daily_showtimes: StatisticsDailyShowtimes[]
   chains: HistoryChainRank[]

@@ -1,6 +1,6 @@
 # Database schema
 
-This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [070_ocine_provider.sql](070_ocine_provider.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
+This document describes the PostgreSQL schema after applying migrations `001_initial.sql` through [071_incremental_history_statistics.sql](071_incremental_history_statistics.sql). The SQL files are the source of truth. Update this document when adding a migration; this is the resulting schema, not a migration-by-migration changelog or a report of a deployed database.
 
 ## Migration execution
 
@@ -310,6 +310,21 @@ The migration uses `LIKE ... INCLUDING CONSTRAINTS` to preserve all 038 scalar/i
 Both showtime tables accept the same scalar formats, including `INFINITY_VISION`. Explicit session certification takes priority over other formats during ingestion; existing rows are not reclassified or backfilled.
 
 Both showtime tables explicitly reject the query-only `ORIGINAL` and `VOF` language tokens. Separate validated checks `showtimes_language_vof_check` and `screening_history_showtimes_language_vof_check` exclude `VOF`; existing provider language tokens and silent-screening exceptions remain unchanged. Existing literal `VOF` rows cause migration 042 to fail transactionally without data conversion or backfill. Resolve such data only through a separately approved decision, not by weakening the checks or editing migration history.
+
+Migration 071 adds an incrementally maintained statistics read model. Statement-level transition-table triggers on retained showtimes enqueue signed changes by `(provider,movie_provider_id,theater_id,language,format,service_date,Paris hour)`. Unchanged statistical fields cancel out, including receipt/booking/room-only updates. INSERT/UPDATE/DELETE and TRUNCATE are covered; absent provider screenings remain retained. Provider publication changes also advance the pending revision, including successful empty publications.
+
+| Table | Purpose and key |
+| --- | --- |
+| `screening_statistics_state` | Singleton pending/applied nonnegative bigint revisions (`applied <= pending`), readiness flag, processed timestamp and JSON coverage. Starts unready. |
+| `screening_statistics_pending` | Durable coalesced signed bigint deltas; primary key is the full statistical tuple above. |
+| `screening_statistics_hourly` | Nonnegative bigint counts by that tuple; date index for bounded periods. |
+| `screening_statistics_daily` | Same dimensions without hour; date index for coverage bounds and daily charts. |
+| `screening_statistics_all_time` | Same dimensions with weekday/hour instead of service date; all-time totals, rankings and heatmaps do not scan historical days. |
+| `screening_statistics_memberships` | Counts by source film, cinema, raw language and format; supports options, source/theater inventories and exact canonical distinct counts. Additional theater index. |
+
+The API's cancellable background worker initially backfills in its own transaction, never inside migrations or HTTP requests. It locks the statistics state before reading history and rebuilds all summaries from the same snapshot, then discards already represented queued changes. This one-time operation temporarily serializes history publications at the state lock. Subsequent processing locks state, applies only queued counter deltas, removes zero-count memberships/buckets, captures coverage and acknowledges the queue atomically. Failure or cancellation rolls everything back; restart resumes the durable queue. Readers use a repeatable-read snapshot of the last committed revision; cold/unready statistics return unavailable, never incomplete totals. Responses expose `statistics_revision` and `statistics_updated_at`. Preset caches refresh after successful counter processing as well as periodically.
+
+Summaries retain source identities and raw classifications, so reads resolve current canonical identities, original language, overrides and current theater metadata without rewriting raw history on merges/splits. Distinct film/cinema counts are computed from memberships/pairs, never summed across days. Integrity reads inspect these retained associations rather than screenings. Raw screenings are read only during initial backfill/rebuild. Summary rows grow with distinct dimensions/date buckets, and daily output still grows with the requested date span; query cost is independent of additional screenings within existing buckets, not constant under unlimited dimension growth.
 
 Receipt timestamps describe successful database publication, not scraping freshness or proof that a screening occurred. Repeated identities preserve first receipt and replace mutable fields; missing identities remain. Latest retained theater metadata applies to all its history. City identities use the same inventory-based Go algorithm as upcoming cities. Films resolve through durable source keys to current canonical public metadata, so merges, splits and overrides can reclassify past counts. Booking URLs stay internal. There is no edit log, bootstrap, cancellation inference or reconstruction of pruned data.
 

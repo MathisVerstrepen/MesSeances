@@ -16,13 +16,17 @@ type historyCacheReader interface {
 	BackgroundHistoryStatistics(context.Context, schedule.StatisticsQuery) (schedule.HistoryStatistics, error)
 }
 
-func runHistoryCache(ctx context.Context, reader historyCacheReader, cache *httpapi.HistoryCache, logger *slog.Logger) {
+func runHistoryCache(ctx context.Context, reader historyCacheReader, cache *httpapi.HistoryCache, logger *slog.Logger, updates <-chan time.Time) {
 	ticker := time.NewTicker(historyCacheRefreshInterval)
 	defer ticker.Stop()
-	runHistoryCacheTicks(ctx, reader, cache, logger, ticker.C)
+	runHistoryCacheEvents(ctx, reader, cache, logger, ticker.C, updates)
 }
 
 func runHistoryCacheTicks(ctx context.Context, reader historyCacheReader, cache *httpapi.HistoryCache, logger *slog.Logger, ticks <-chan time.Time) {
+	runHistoryCacheEvents(ctx, reader, cache, logger, ticks, nil)
+}
+
+func runHistoryCacheEvents(ctx context.Context, reader historyCacheReader, cache *httpapi.HistoryCache, logger *slog.Logger, ticks, updates <-chan time.Time) {
 	for ctx.Err() == nil {
 		for _, period := range schedule.HistoryPeriods() {
 			refreshCtx, cancel := context.WithTimeout(ctx, schedulepg.HistoryCacheTimeout)
@@ -46,6 +50,7 @@ func runHistoryCacheTicks(ctx context.Context, reader historyCacheReader, cache 
 		select {
 		case <-ctx.Done():
 			return
+		case <-updates:
 		case _, ok := <-ticks:
 			if !ok {
 				return

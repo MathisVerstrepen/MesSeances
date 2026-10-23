@@ -251,10 +251,15 @@ func run(ctx context.Context) error {
 		return err
 	}
 	historyCache := &httpapi.HistoryCache{}
-	polling.Add(4)
+	historyUpdates := make(chan time.Time, 1)
+	polling.Add(5)
 	go func() {
 		defer polling.Done()
-		runHistoryCache(workerCtx, schedules.store, historyCache, logger)
+		runHistoryStatistics(workerCtx, schedules.store, historyUpdates, logger)
+	}()
+	go func() {
+		defer polling.Done()
+		runHistoryCache(workerCtx, schedules.store, historyCache, logger, historyUpdates)
 	}()
 	go func() {
 		defer polling.Done()

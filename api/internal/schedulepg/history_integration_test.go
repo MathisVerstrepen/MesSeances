@@ -76,7 +76,15 @@ func newHistoryPool(t *testing.T, tracers ...pgx.QueryTracer) *pgxpool.Pool {
 	if err := database.RunMigrations(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	historyProcess(t, NewStore(pool))
 	return pool
+}
+
+func historyProcess(t *testing.T, s *Store) {
+	t.Helper()
+	if _, err := s.ProcessHistoryStatistics(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func historyExec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
@@ -84,6 +92,7 @@ func historyExec(t *testing.T, pool *pgxpool.Pool, sql string, args ...any) {
 	if _, err := pool.Exec(t.Context(), sql, args...); err != nil {
 		t.Fatal(err)
 	}
+	historyProcess(t, NewStore(pool))
 }
 func historyCount(t *testing.T, pool *pgxpool.Pool, sql string, want int) {
 	t.Helper()
@@ -97,6 +106,7 @@ func historyPublish(t *testing.T, s *Store, datasets ...Dataset) {
 	if _, err := s.Replace(t.Context(), datasets); err != nil {
 		t.Fatal(err)
 	}
+	historyProcess(t, s)
 }
 func historyGet(t *testing.T, s *Store, q schedule.StatisticsQuery) schedule.HistoryStatistics {
 	t.Helper()
