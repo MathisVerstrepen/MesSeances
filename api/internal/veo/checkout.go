@@ -21,6 +21,7 @@ import (
 
 	"messeances/api/internal/parallel"
 	"messeances/api/internal/schedule"
+	"messeances/api/internal/syncproxy"
 )
 
 var checkoutEnd = regexp.MustCompile(`(?i)fin\s+prévue\s+à\s+([0-9]{1,2})h([0-5][0-9])\b`)
@@ -620,6 +621,10 @@ func resolveCheckout(row schedule.ShowtimeRecord, response CheckoutResult, requi
 }
 
 func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeRecord, summary *SyncSummary, now time.Time) error {
+	return enrichCheckoutsWithinBudget(parent, g, rows, summary, now, 5*time.Minute)
+}
+
+func enrichCheckoutsWithinBudget(parent context.Context, g Getter, rows []schedule.ShowtimeRecord, summary *SyncSummary, now time.Time, limit time.Duration) error {
 	if now.IsZero() {
 		return errShape
 	}
@@ -639,7 +644,7 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 	if len(indices) == 0 {
 		return parent.Err()
 	}
-	ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
+	ctx, cancel := context.WithTimeout(parent, limit)
 	defer cancel()
 	budget := checkoutRetryBudget{}
 	var unavailable atomic.Int64
@@ -652,12 +657,30 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 		summary.GueretUnavailableCheckouts = int(gueretUnavailable.Load())
 		summary.RegularFinal404UnavailableCheckouts = int(regularFinal404Unavailable.Load())
 	}()
-	facts, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: min(WorkerCount, len(indices))}, func(ctx context.Context, index int) (resolvedCheckout, error) {
+	type outcome struct {
+		facts                          resolvedCheckout
+		attempted, resolved, transient bool
+	}
+	// Each worker owns one index. Preserve completed facts on budget expiry;
+	// MapOrdered joins all workers before the results are read or applied.
+	results := make([]outcome, len(rows))
+	fetch := func(ctx context.Context, index int) (resolvedCheckout, error) {
 		if err := ctx.Err(); err != nil {
 			return resolvedCheckout{}, err
 		}
+		results[index].attempted = true
 		b, err := g.Checkout(ctx, rows[index].BookingURL, rows[index].StartTime)
 		if err != nil {
+			if transientCheckoutFailure(err) {
+				results[index].transient = true
+				return resolvedCheckout{end: rows[index].StartTime}, nil
+			}
+			if ctx.Err() != nil {
+				var canceled *RequestError
+				if err == ctx.Err() || errors.As(err, &canceled) && canceled.Operation == OperationCheckout && canceled.Kind == syncproxy.FailureCanceled && errors.Is(err, ctx.Err()) { //nolint:errorlint // Exact context sentinels are optional; arbitrary wrappers can carry unsafe provider failures.
+					return resolvedCheckout{}, ctx.Err()
+				}
+			}
 			return resolvedCheckout{}, identifyCheckoutRequestError(err, rows[index])
 		}
 		if err := ctx.Err(); err != nil {
@@ -678,19 +701,21 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 		}
 		var rejected *CheckoutParseError
 		if !errors.As(err, &rejected) || !budget.reserve(ctx, rejected, rows[index]) {
-			if ctx.Err() != nil {
-				return resolvedCheckout{}, ctx.Err()
-			}
 			return resolvedCheckout{}, err
 		}
 		// Only an actual parser-result attestation reaches here, never a typed
 		// error supplied by a getter. Re-fetch the ORIGINAL source/start once.
 		b, retryErr := g.Checkout(ctx, rows[index].BookingURL, rows[index].StartTime)
 		if retryErr != nil {
+			// A failed retry cannot validate an already rejected page, even when
+			// its failure is transient or the enrichment budget has expired.
+			if transientCheckoutFailure(retryErr) || ctx.Err() != nil {
+				return resolvedCheckout{}, err
+			}
 			return resolvedCheckout{}, identifyCheckoutRequestError(retryErr, rows[index])
 		}
 		if ctx.Err() != nil {
-			return resolvedCheckout{}, ctx.Err()
+			return resolvedCheckout{}, err
 		}
 		if b.unavailableEnrichment {
 			// This outcome has no validated page and cannot repair a mismatch.
@@ -702,13 +727,37 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 		}
 		budget.recovered(rejected)
 		return resolved, nil
+	}
+	_, err := parallel.MapOrdered(ctx, indices, parallel.Options{Workers: min(WorkerCount, len(indices))}, func(ctx context.Context, index int) (struct{}, error) {
+		facts, err := fetch(ctx, index)
+		if err == nil {
+			results[index].facts = facts
+			results[index].resolved = !results[index].transient
+		}
+		return struct{}{}, err
 	})
-	if err != nil {
+	if parent.Err() != nil {
+		return parent.Err()
+	}
+	if err != nil && (err != context.DeadlineExceeded || !errors.Is(ctx.Err(), context.DeadlineExceeded)) { //nolint:errorlint // Only the worker's exact deadline is optional; wrapped parse/request errors remain fatal.
 		return err
 	}
-	for i, f := range facts {
-		index := indices[i]
+	for _, index := range indices {
+		result := results[index]
 		r := &rows[index]
+		r.EndTime = r.StartTime
+		if result.attempted {
+			summary.Checkouts++
+		}
+		if result.transient {
+			summary.CheckoutTransientFailures++
+			continue
+		}
+		if !result.resolved {
+			summary.CheckoutBudgetSkipped++
+			continue
+		}
+		f := result.facts
 		r.EndTime = f.end
 		if f.hasEnd {
 			summary.ExactEnds++
@@ -717,6 +766,20 @@ func enrichCheckouts(parent context.Context, g Getter, rows []schedule.ShowtimeR
 			r.Room = f.room
 		}
 	}
-	summary.Checkouts = len(indices)
-	return ctx.Err()
+	return nil
+}
+
+func transientCheckoutFailure(err error) bool {
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Operation != OperationCheckout {
+		return false
+	}
+	switch requestErr.Kind {
+	case syncproxy.FailureTransport, syncproxy.FailureResponseRead:
+		return true
+	case syncproxy.FailureServer:
+		return requestErr.StatusCode >= 500 && requestErr.StatusCode <= 599
+	default:
+		return false
+	}
 }

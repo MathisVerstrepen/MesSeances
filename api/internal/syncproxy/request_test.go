@@ -344,6 +344,69 @@ func TestExecutorExhaustionModes(t *testing.T) {
 	}
 }
 
+func TestExecutorRequestScopedFailures(t *testing.T) {
+	for _, scoped := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default retirement", true: "request scoped"}[scoped], func(t *testing.T) {
+			for _, transportFailure := range []bool{false, true} {
+				phase := 0
+				order := []int{}
+				clients := make([]*http.Client, 2)
+				for ordinal := range clients {
+					clients[ordinal] = requestClient(requestRoundTripFunc(func(*http.Request) (*http.Response, error) {
+						order = append(order, ordinal)
+						if ordinal == phase {
+							if transportFailure {
+								return nil, context.DeadlineExceeded
+							}
+							return requestJSONResponse(http.StatusServiceUnavailable, `{}`), nil
+						}
+						return requestJSONResponse(http.StatusOK, `{}`), nil
+					}))
+				}
+				executor := newRequestExecutor(t, ExecutorConfig{Clients: clients, ProxyBacked: true, Retry: RetryPolicy{Sleep: noRequestWait, RequestScopedFailures: scoped}})
+				if _, failure := executor.Get(t.Context(), requestTestURL, requestPolicy()); failure != nil {
+					t.Fatal(failure)
+				}
+				phase = 1
+				_, failure := executor.Get(t.Context(), requestTestURL, requestPolicy())
+				want := []int{0, 1, 1}
+				if scoped {
+					want = append(want, 0)
+				}
+				if (failure == nil) != scoped || !slices.Equal(order, want) {
+					t.Fatalf("scoped=%t transport=%t order=%v failure=%+v", scoped, transportFailure, order, failure)
+				}
+			}
+		})
+	}
+
+	for _, poolSize := range []int{1, 2, 5} {
+		calls := []int{}
+		clients := make([]*http.Client, poolSize)
+		for ordinal := range clients {
+			clients[ordinal] = requestClient(requestRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				calls = append(calls, ordinal)
+				return nil, context.DeadlineExceeded
+			}))
+		}
+		executor := newRequestExecutor(t, ExecutorConfig{Clients: clients, ProxyBacked: true, Retry: RetryPolicy{Sleep: noRequestWait, RetireFinalFailure: true, RequestScopedFailures: true}})
+		for range 2 {
+			calls = nil
+			_, failure := executor.Get(t.Context(), requestTestURL, requestPolicy())
+			if failure == nil || failure.Kind != FailureTransport || failure.Attempt != min(poolSize, 4) || len(calls) != min(poolSize, 4) {
+				t.Fatalf("pool=%d calls=%v failure=%+v", poolSize, calls, failure)
+			}
+			seen := map[int]bool{}
+			for _, ordinal := range calls {
+				if seen[ordinal] {
+					t.Fatalf("retried the same proxy: %v", calls)
+				}
+				seen[ordinal] = true
+			}
+		}
+	}
+}
+
 func TestExecutorCancellation(t *testing.T) {
 	t.Run("Do", func(t *testing.T) {
 		entered := make(chan struct{})
