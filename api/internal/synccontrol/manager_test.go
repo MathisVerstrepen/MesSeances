@@ -307,8 +307,8 @@ func TestManagerFailurePanicCancellationAndTargets(t *testing.T) {
 				t.Fatalf("status=%+v", status)
 			}
 			for provider, providerStatus := range status.Providers {
-				if providerStatus.State == ProviderFailed && (len(providerStatus.Log) == 0 || strings.Contains(strings.Join(providerStatus.Log, "\n"), "secret")) {
-					t.Fatalf("provider=%s unsafe failure log=%q", provider, providerStatus.Log)
+				if providerStatus.State == ProviderFailed && (len(providerStatus.Log) == 0 || (test.name == "single provider fails") != strings.Contains(strings.Join(providerStatus.Log, "\n"), `detail="secret"`)) {
+					t.Fatalf("provider=%s missing failure diagnostic=%q", provider, providerStatus.Log)
 				}
 			}
 		})
@@ -458,7 +458,7 @@ func TestManagerPublishesTypedOutcomeAndStableFailureCode(t *testing.T) {
 	}
 	_, _ = manager.Start(TargetKinepolis)
 	provider = waitForTerminal(t, manager).Providers[string(TargetKinepolis)]
-	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil || len(provider.Log) != 1 || !strings.Contains(provider.Log[0], "event=provider_failed") || strings.Contains(provider.Log[0], "secret") {
+	if provider.State != ProviderFailed || provider.ErrorCode != FailureDatasetRejected || provider.Outcome != nil || len(provider.Log) != 1 || !strings.Contains(provider.Log[0], "event=provider_failed") || !strings.Contains(provider.Log[0], `detail="secret"`) {
 		t.Fatalf("provider=%+v", provider)
 	}
 }
@@ -534,7 +534,7 @@ func TestManagerMarksEveryProviderFailedWhenEveryPublicationFails(t *testing.T) 
 	status := waitForTerminal(t, manager)
 	for _, provider := range []string{string(TargetUGC), string(TargetKinepolis), string(TargetPathe), string(TargetCGR), string(TargetMegarama), string(TargetCineville), string(TargetMK2), string(TargetCinewest), string(TargetGrandEcran), string(TargetNoeCinemas), string(TargetVeo), string(TargetMajestic), string(TargetCineode), string(TargetCinemovida), string(TargetOcine)} {
 		got := status.Providers[provider]
-		if got.State != ProviderFailed || got.ErrorCode != FailureReplacement || got.Outcome != nil || len(got.Log) != 1 || !strings.Contains(got.Log[0], "stage=publication") || !strings.Contains(got.Log[0], "category=publication") || strings.Contains(got.Log[0], "secret") {
+		if got.State != ProviderFailed || got.ErrorCode != FailureReplacement || got.Outcome != nil || len(got.Log) != 1 || !strings.Contains(got.Log[0], "stage=publication") || !strings.Contains(got.Log[0], "category=publication") || !strings.Contains(got.Log[0], `detail="secret"`) {
 			t.Fatalf("provider=%s status=%+v", provider, got)
 		}
 	}

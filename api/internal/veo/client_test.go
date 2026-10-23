@@ -58,6 +58,11 @@ func TestClientProxyOnlyRetriesAndGenericErrors(t *testing.T) {
 	if !errors.As(err, &req) || req.Kind != syncproxy.FailureServer || calls != 4 || strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), MainOrigin) {
 		t.Fatal(calls, err)
 	}
+	for _, want := range []string{"GET " + MainOrigin + CatalogPath, "attempt 4/4", "HTTP 503"} {
+		if !strings.Contains(req.SyncFailureDetail(), want) {
+			t.Fatal("missing admin diagnostic", req.SyncFailureDetail())
+		}
+	}
 	for _, status := range []int{403, 429} {
 		calls = 0
 		c := testClient(t, func(*http.Request) (*http.Response, error) {
@@ -67,6 +72,25 @@ func TestClientProxyOnlyRetriesAndGenericErrors(t *testing.T) {
 		if _, err := c.Get(t.Context(), OperationCinemas, MainOrigin+CatalogPath); err == nil || calls != 1 {
 			t.Fatal(err, calls)
 		}
+	}
+}
+
+func TestClientRetainsTransportCauseForAdminJournal(t *testing.T) {
+	client := testClient(t, func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("proxyconnect tcp: dial tcp 192.0.2.10:8080: connection refused")
+	})
+	_, err := client.Get(t.Context(), OperationCinemas, MainOrigin+CatalogPath)
+	var requestErr *RequestError
+	if !errors.As(err, &requestErr) || requestErr.Kind != syncproxy.FailureTransport {
+		t.Fatal("lost transport category", err)
+	}
+	for _, want := range []string{"GET " + MainOrigin + CatalogPath, "attempt 1/4", "proxyconnect tcp", "connection refused"} {
+		if !strings.Contains(requestErr.SyncFailureDetail(), want) {
+			t.Fatal("lost transport diagnostic", requestErr.SyncFailureDetail())
+		}
+	}
+	if errors.Unwrap(err) != nil || strings.Contains(err.Error(), "192.0.2.10") {
+		t.Fatal("diagnostic changed generic error behavior")
 	}
 }
 func TestClientRequestBodyContentTypesAndCharsets(t *testing.T) {

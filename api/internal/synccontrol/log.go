@@ -1,6 +1,7 @@
 package synccontrol
 
 import (
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,7 +11,7 @@ import (
 
 const (
 	maxProviderLogLines = 20
-	maxProviderLogLine  = 512
+	maxProviderLogLine  = 2048
 	maxProviderLogBytes = 8192
 )
 
@@ -95,6 +96,7 @@ type logProgress struct {
 }
 
 type logRecord struct {
+	Detail       string
 	Timestamp    time.Time
 	Provider     Target
 	Event        logEvent
@@ -109,6 +111,7 @@ type logRecord struct {
 }
 
 type logFailure struct {
+	Cause        error
 	Operation    logOperation
 	Category     logCategory
 	ParseReason  logParseReason
@@ -143,6 +146,7 @@ func lifecycleLog(timestamp time.Time, provider Target, event logEvent) string {
 func failureLog(timestamp time.Time, provider Target, stage FailureStage, failure logFailure) string {
 	record := logRecord{
 		Timestamp: timestamp, Provider: provider, Event: eventProviderFailed, Stage: stage,
+		Detail:    adminFailureDetail(failure.Cause),
 		Operation: failure.Operation, Category: failure.Category, ParseReason: failure.ParseReason, HTTPStatus: failure.HTTPStatus,
 		Attempt: failure.Attempt, AttemptLimit: failure.AttemptLimit, Progress: failure.Progress,
 	}
@@ -157,6 +161,46 @@ func failureLog(timestamp time.Time, provider Target, stage FailureStage, failur
 	}
 	line, _ := serializeLogRecord(record)
 	return line
+}
+
+// Error strings often hide wrapped causes. Keep those causes and any request
+// diagnostic in the admin journal, independently of the process log allowlist.
+func adminFailureDetail(err error) string {
+	var parts []string
+	for depth := 0; err != nil && depth < 10; depth++ {
+		if _, orchestration := err.(*RunError); !orchestration { //nolint:errorlint // Skip only this wrapper, not its underlying error.
+			if message := err.Error(); message != "" && !strings.Contains(strings.Join(parts, ": "), message) {
+				parts = append(parts, message)
+			}
+		}
+		if diagnostic, ok := err.(interface{ SyncFailureDetail() string }); ok { //nolint:errorlint // Read diagnostics at each layer of the error chain.
+			if detail := diagnostic.SyncFailureDetail(); detail != "" {
+				parts = append(parts, detail)
+			}
+		}
+		err = errors.Unwrap(err)
+	}
+	return strings.Join(parts, ": ")
+}
+
+// Quote and bound details without dropping the terminal failure record. Escaped
+// newlines/quotes cannot forge additional journal entries.
+func quoteLogDetail(detail string, budget int) string {
+	detail = strings.ToValidUTF8(detail, "�")
+	if len(detail) <= budget && len(strconv.Quote(detail)) <= budget {
+		return strconv.Quote(detail)
+	}
+	if len(detail) > budget {
+		detail = detail[:budget]
+		for !utf8.ValidString(detail) {
+			detail = detail[:len(detail)-1]
+		}
+	}
+	for len(strconv.Quote(detail+"…")) > budget {
+		_, size := utf8.DecodeLastRuneInString(detail)
+		detail = detail[:len(detail)-size]
+	}
+	return strconv.Quote(detail + "…")
 }
 
 func truncationLog(timestamp time.Time, provider Target) string {
@@ -232,6 +276,13 @@ func serializeLogRecord(record logRecord) (string, bool) {
 	}
 	line.WriteString(" message=")
 	line.WriteString(strconv.Quote(message))
+	if record.Detail != "" {
+		if record.Event != eventProviderFailed {
+			return "", false
+		}
+		line.WriteString(" detail=")
+		line.WriteString(quoteLogDetail(record.Detail, maxProviderLogLine-line.Len()))
+	}
 	result := line.String()
 	if len(result) > maxProviderLogLine || !utf8.ValidString(result) || strings.IndexFunc(result, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 		return "", false
@@ -370,9 +421,24 @@ func parseLogLine(line string, provider Target, startedAt time.Time, finishedAt 
 	if !found {
 		return parsedLogLine{}, false
 	}
-	message, err := strconv.Unquote(quotedMessage)
+	messageToken, err := strconv.QuotedPrefix(quotedMessage)
 	if err != nil {
 		return parsedLogLine{}, false
+	}
+	message, err := strconv.Unquote(messageToken)
+	if err != nil {
+		return parsedLogLine{}, false
+	}
+	var detail string
+	if remainder := strings.TrimPrefix(quotedMessage, messageToken); remainder != "" {
+		value, ok := strings.CutPrefix(remainder, " detail=")
+		if !ok {
+			return parsedLogLine{}, false
+		}
+		detail, err = strconv.Unquote(value)
+		if err != nil || detail == "" {
+			return parsedLogLine{}, false
+		}
 	}
 	fields := strings.Fields(left)
 	if len(fields) < 7 {
@@ -390,7 +456,7 @@ func parseLogLine(line string, provider Target, startedAt time.Time, finishedAt 
 	if err != nil || timestamp.Location() != time.UTC || timestamp.Before(startedAt.UTC()) || timestamp.After(finishedAt.UTC()) || values["provider"] != string(provider) {
 		return parsedLogLine{}, false
 	}
-	record := logRecord{Timestamp: timestamp, Provider: provider, Event: logEvent(values["event"]), Stage: FailureStage(values["stage"]), Operation: logOperation(values["operation"]), Category: logCategory(values["category"]), ParseReason: logParseReason(values["parse_reason"])}
+	record := logRecord{Detail: detail, Timestamp: timestamp, Provider: provider, Event: logEvent(values["event"]), Stage: FailureStage(values["stage"]), Operation: logOperation(values["operation"]), Category: logCategory(values["category"]), ParseReason: logParseReason(values["parse_reason"])}
 	if value := values["http_status"]; value != "" {
 		record.HTTPStatus, err = strconv.Atoi(value)
 		if err != nil {
@@ -492,7 +558,8 @@ func sanitizeStatusLogs(status Status) Status {
 	return copy
 }
 
-// SanitizeStatus returns a detached status safe for persistence or API output.
+// SanitizeStatus returns a detached status with normalized logs for persistence
+// or authenticated admin API output.
 func SanitizeStatus(status Status) Status { return cloneStatus(status) }
 
 func intPointer(value int) *int { return &value }

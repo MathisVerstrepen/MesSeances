@@ -50,6 +50,7 @@ const (
 )
 
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Operation  Operation
 	Category   ErrorCategory
 	StatusCode int
@@ -139,12 +140,14 @@ func (c *Client) Get(ctx context.Context, operation Operation, rawURL string) ([
 		},
 	})
 	if failure != nil {
-		return nil, mapFailure(operation, failure)
+		mapped := mapFailure(operation, failure)
+		mapped.RequestDiagnostic = syncproxy.NewRequestDiagnostic(http.MethodGet, rawURL, failure)
+		return nil, mapped
 	}
 	return body, nil
 }
 
-func mapFailure(operation Operation, failure *syncproxy.Failure) error {
+func mapFailure(operation Operation, failure *syncproxy.Failure) *RequestError {
 	category := CategoryTransport
 	switch failure.Kind {
 	case syncproxy.FailureCanceled:
@@ -181,7 +184,7 @@ func mapFailure(operation Operation, failure *syncproxy.Failure) error {
 	return requestError(operation, category, failure.StatusCode, cause)
 }
 
-func requestError(operation Operation, category ErrorCategory, status int, cause error) error {
+func requestError(operation Operation, category ErrorCategory, status int, cause error) *RequestError {
 	if !validOperation(operation) {
 		operation = "unknown"
 	}

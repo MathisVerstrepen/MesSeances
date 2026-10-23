@@ -46,8 +46,10 @@ const (
 	OperationCastelia Operation = "castelia"
 )
 
-// RequestError deliberately excludes transport URLs, credentials and bodies.
+// RequestError keeps request diagnostics for the admin journal separately from
+// its generic Error text and context cancellation chain.
 type RequestError struct {
+	syncproxy.RequestDiagnostic
 	Operation  Operation
 	Kind       syncproxy.FailureKind
 	StatusCode int
@@ -407,7 +409,7 @@ func (c *Client) Get(ctx context.Context, op Operation, raw string) ([]byte, err
 	if failure == nil {
 		return body, nil
 	}
-	rerr := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode}
+	rerr := &RequestError{Operation: op, Kind: failure.Kind, StatusCode: failure.StatusCode, RequestDiagnostic: syncproxy.NewRequestDiagnostic(r.Method, r.URL, failure)}
 	if failure.Kind == syncproxy.FailureRedirect {
 		if b, ok := ctx.Value(checkoutBindingKey{}).(checkoutBinding); ok && b.response != nil {
 			rerr.redirect = b.response.redirect
