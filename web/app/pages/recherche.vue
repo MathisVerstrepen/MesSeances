@@ -60,9 +60,14 @@ const OWNED_QUERY_KEYS = [
   'format',
   'include_ads',
   'buffer_ads',
+  'allow_overlap',
 ] as const
 const DISPLAY_QUERY_KEYS = ['grouping', 'layout', 'view'] as const
 const SELECTION_QUERY_KEYS = ['selected', 'selected_only'] as const
+const PROJECTION_QUERY_KEYS = [
+  ...SELECTION_QUERY_KEYS,
+  'allow_overlap',
+] as const
 const REQUIRED_QUERY_KEYS = [
   'theaters',
   'date',
@@ -107,6 +112,7 @@ interface SearchForm {
   language: Language
   format: QueryFormat
   includeAds: boolean
+  allowOverlap: boolean
 }
 
 const form = reactive<SearchForm>({
@@ -116,6 +122,7 @@ const form = reactive<SearchForm>({
   language: 'ALL',
   format: 'ALL',
   includeAds: true,
+  allowOverlap: false,
 })
 const timeOptions = createServiceTimeOptions()
 const validTimes = new Set(timeOptions.map((option) => option.value))
@@ -208,10 +215,12 @@ const compatibleResults = computed(() =>
         policyResults.value,
         selectedShowtimeKeys.value,
       )
-    : filterCompatibleShowtimeResults(
-        policyResults.value,
-        selectedShowtimeKeys.value,
-      ),
+    : appliedSearch.value?.allowOverlap
+      ? policyResults.value
+      : filterCompatibleShowtimeResults(
+          policyResults.value,
+          selectedShowtimeKeys.value,
+        ),
 )
 const personalizedPending = computed(
   () =>
@@ -258,12 +267,11 @@ const activeFilterSummary = computed(() => {
     search.theaterIds.length
       ? `${search.theaterIds.length} cinéma${search.theaterIds.length > 1 ? 's' : ''}`
       : 'Tous les cinémas',
-    search.includeAds
-      ? 'Publicités incluses'
-      : `Publicités exclues · arrivée +${search.bufferAds} min`,
   ]
+  if (!search.includeAds) items.push('Publicités non incluses')
   if (search.language !== 'ALL') items.push(languageLabel(search.language))
   if (search.format !== 'ALL') items.push(formatLabel(search.format))
+  if (search.allowOverlap) items.push('Chevauchement autorisé')
   return items
 })
 const compactFilterSummary = computed(() => {
@@ -313,6 +321,7 @@ interface AppliedSearch {
   language: Language
   format: QueryFormat
   includeAds: boolean
+  allowOverlap: boolean
   bufferAds: number
 }
 
@@ -428,6 +437,7 @@ function submittedQuery(search: AppliedSearch, preserveSelection = true) {
     language: search.language === 'ALL' ? undefined : search.language,
     format: search.format === 'ALL' ? undefined : search.format,
     include_ads: search.includeAds ? undefined : '0',
+    allow_overlap: search.allowOverlap ? '1' : undefined,
     buffer_ads:
       search.bufferAds === ADS_BUFFER_MINUTES
         ? undefined
@@ -439,6 +449,7 @@ function submittedQuery(search: AppliedSearch, preserveSelection = true) {
 }
 
 function searchKey(search: AppliedSearch) {
+  // Overlap only changes the local projection; retain loaded results and selection.
   return [
     search.theaterIds.join(','),
     search.date,
@@ -484,6 +495,15 @@ async function setSelectedOnly(event: Event) {
     SELECTION_QUERY_KEYS,
     showtimeSelectionQueryValues(selectedShowtimeKeys.value, checked),
   )
+  if (!queriesEqual(route.query, query)) await router.replace({ query })
+}
+
+async function setAllowOverlap() {
+  if (!appliedSearch.value) return
+  appliedSearch.value.allowOverlap = form.allowOverlap
+  const query = mergeOwnedQuery(route.query, ['allow_overlap'], {
+    allow_overlap: form.allowOverlap ? '1' : undefined,
+  })
   if (!queriesEqual(route.query, query)) await router.replace({ query })
 }
 
@@ -706,6 +726,7 @@ function resetBareState() {
   form.language = 'ALL'
   form.format = 'ALL'
   form.includeAds = true
+  form.allowOverlap = false
   results.value = null
   appliedSearch.value = null
   searchedDate.value = ''
@@ -770,6 +791,7 @@ function parseAppliedSearch(): AppliedSearch | null | 'bare' {
     language: enumQueryValue(languageValue, queryLanguageValues) ?? 'ALL',
     format: enumQueryValue(formatValue, queryFormatValues) ?? 'ALL',
     includeAds: includeAdsValue !== '0',
+    allowOverlap: singularQueryValue(route.query.allow_overlap) === '1',
     bufferAds,
   }
 }
@@ -783,6 +805,7 @@ function hydrateAppliedSearch(search: AppliedSearch) {
   form.language = search.language
   form.format = search.format
   form.includeAds = search.includeAds
+  form.allowOverlap = search.allowOverlap
 }
 
 async function runSearch(search: AppliedSearch) {
@@ -882,16 +905,24 @@ watch(isCenteredCalendar, () => {
 
 watch(
   () => route.query,
-  (query, previousQuery) => {
+  async (query, previousQuery) => {
     if (!isReady) return
-    // Selection-only navigation must not reset draft filters or close the mobile sheet.
+    // Local result filters must not reset draft filters or close the mobile sheet.
     if (
       appliedSearch.value &&
       queriesEqual(
-        mergeOwnedQuery(query, SELECTION_QUERY_KEYS, {}),
-        mergeOwnedQuery(previousQuery, SELECTION_QUERY_KEYS, {}),
+        mergeOwnedQuery(query, PROJECTION_QUERY_KEYS, {}),
+        mergeOwnedQuery(previousQuery, PROJECTION_QUERY_KEYS, {}),
       )
     ) {
+      const allowOverlap = singularQueryValue(query.allow_overlap) === '1'
+      form.allowOverlap = allowOverlap
+      appliedSearch.value.allowOverlap = allowOverlap
+      const canonicalQuery = mergeOwnedQuery(query, ['allow_overlap'], {
+        allow_overlap: allowOverlap ? '1' : undefined,
+      })
+      if (!queriesEqual(query, canonicalQuery))
+        await router.replace({ query: canonicalQuery })
       canonicalizeShowtimeSelection()
       return
     }
@@ -967,6 +998,7 @@ async function submitSearch() {
     language: form.language,
     format: form.format,
     includeAds: form.includeAds,
+    allowOverlap: form.allowOverlap,
     bufferAds: ADS_BUFFER_MINUTES,
   }
   if (isMobileViewport()) {
@@ -1295,6 +1327,31 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 </label>
 
                 <label
+                  class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
+                >
+                  <input
+                    v-model="form.allowOverlap"
+                    type="checkbox"
+                    class="mt-0.5 size-4 accent-primary"
+                    @change="setAllowOverlap"
+                  >
+                  <span>Autoriser le chevauchement des séances</span>
+                </label>
+
+                <label
+                  class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
+                >
+                  <input
+                    :checked="selectedOnly"
+                    :disabled="selectedCount === 0"
+                    type="checkbox"
+                    class="mt-0.5 size-4 accent-primary"
+                    @change="setSelectedOnly"
+                  >
+                  <span>Afficher uniquement les séances sélectionnées</span>
+                </label>
+
+                <label
                   v-if="watchlist.owner.value"
                   class="flex min-h-12 cursor-pointer items-center gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink"
                 >
@@ -1321,19 +1378,6 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
                 </label>
               </div>
             </div>
-
-            <label
-              v-if="selectedCount"
-              class="flex cursor-pointer items-start gap-3 border-2 border-ink bg-surface p-3 text-sm font-medium text-ink hover:bg-[#e8e6de]"
-            >
-              <input
-                :checked="selectedOnly"
-                type="checkbox"
-                class="mt-0.5 size-4 accent-primary"
-                @change="setSelectedOnly"
-              >
-              <span>Afficher uniquement les séances sélectionnées</span>
-            </label>
           </div>
         </div>
 
