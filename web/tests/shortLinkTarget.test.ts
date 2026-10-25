@@ -57,6 +57,20 @@ test('accepts cinema films view and its display query', () => {
   )
 })
 
+test('accepts overlap search links while rejecting duplicates and other routes', () => {
+  assert.equal(
+    isValidShortLinkTarget(
+      '/recherche?selected=u12,u13&allow_overlap=1&selected_only=1',
+    ),
+    true,
+  )
+  assert.equal(isValidShortLinkTarget('/films?allow_overlap=1'), false)
+  assert.equal(
+    isValidShortLinkTarget('/recherche?allow_overlap=1&allow_overlap=0'),
+    false,
+  )
+})
+
 test('rejects unsafe, malformed, and unsupported targets', () => {
   const targets = [
     '',

@@ -38,6 +38,7 @@ const QUERY_KEYS = {
     'layout',
     'selected',
     'selected_only',
+    'allow_overlap',
     SHARED_THEATERS_KEY,
   ]),
   '/films': new Set([
