@@ -90,3 +90,13 @@ jobs:
         run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py install-tools --tool gotestsum
       - name: PostgreSQL integration tests
         run: make test-integration
+
+  umami-retention:
+    name: Umami retention / schema contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Umami retention schema contract tests
+        run: make test-umami-retention

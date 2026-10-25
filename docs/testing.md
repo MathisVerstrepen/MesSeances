@@ -59,6 +59,29 @@ Go execution fixes `GOENV=off`, `GOTOOLCHAIN=local`, `GOPROXY=off`, `GOSUMDB=off
 
 ## Integration and browser boundaries
 
+### Umami retention schema contract
+
+Run `make test-umami-retention` for the independent analytics retention suite.
+It requires Python 3.12+ and reachable local Docker, prepares `postgres:15-alpine`
+only if absent, and creates a uniquely named and labelled container with tmpfs
+data, no published ports and no external network. Generated credentials stay in
+the child environment. The suite never uses `DATABASE_URL`, `TEST_DATABASE_URL`,
+Compose resources, persistent volumes or production data. Cleanup verifies test
+ownership before removal and verifies absence afterwards, including on test
+failure and SIGINT/SIGTERM. SIGKILL or Docker/host failure can leave a resource;
+inspect its `messeances.umami-retention-test` ownership label before removal.
+
+The suite executes the real `deploy/umami-retention.sql` against an independent
+minimal fixture. It covers compatible column/nullability changes, optional
+preserved tables, unknown-table/missing-column/type diagnostics, cleanup and
+preservation across all nine analytics tables, inherited expiration, idempotence,
+and transaction rollback on a later deletion failure. It is separate from
+`make check` and runs in the `Umami retention / schema contract` CI job. Before an
+Umami upgrade, also test the candidate's actual migrated schema in a disposable
+database; the fixture verifies contract behavior rather than upstream migrations.
+
+### Application PostgreSQL integration
+
 Run canonical integration with an automatically owned disposable database:
 
 ```sh

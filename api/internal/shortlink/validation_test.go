@@ -61,6 +61,26 @@ func TestValidTargetSelectedOnly(t *testing.T) {
 	}
 }
 
+func TestValidTargetAllowOverlap(t *testing.T) {
+	for _, test := range []struct {
+		target string
+		want   bool
+	}{
+		{target: "/recherche?selected=u12,u13&allow_overlap=1", want: true},
+		{target: "/recherche?selected=u12,u13&allow_overlap=1&selected_only=1", want: true},
+		{target: "/films?allow_overlap=1"},
+		{target: "/recherche?allow_overlap=1&allow_overlap=0"},
+		{target: "/recherche?allow_overlap=1&allow%5Foverlap=1"},
+		{target: "/recherche?allow_overlap=1%0A"},
+	} {
+		t.Run(test.target, func(t *testing.T) {
+			if got := ValidTarget(test.target); got != test.want {
+				t.Fatalf("ValidTarget(%q)=%v want=%v", test.target, got, test.want)
+			}
+		})
+	}
+}
+
 func TestValidTargetRejectsUnsupportedOrUnsafeTargets(t *testing.T) {
 	for _, target := range []string{
 		"", "planning", "//evil.example/x", "/\\evil", "https://evil.example/", "/films#x",

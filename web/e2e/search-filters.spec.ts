@@ -268,11 +268,11 @@ test('watchlist empty recovery preserves selection and keeps other-film fallback
     .getByRole('button', { name: /^Ajouter la séance de Autre film/ })
     .click()
   const form = await openFilters(page)
+  await form.getByRole('button', { name: 'Options avancées' }).click()
   const selected = form.getByLabel(
     'Afficher uniquement les séances sélectionnées',
   )
   await selected.check()
-  await form.getByRole('button', { name: 'Options avancées' }).click()
   const watchlist = form.getByLabel('Ma watchlist uniquement')
   await watchlist.check()
   if (info.project.name === 'mobile') await page.keyboard.press('Escape')
@@ -616,6 +616,9 @@ test('advanced filters start collapsed, support keyboard and preserve hidden val
   const format = form.getByLabel(/^Format/)
   const ads = form.getByLabel('Inclure les publicités (+15 min)')
   const watchlist = form.getByLabel('Ma watchlist uniquement')
+  const selectedOnly = panel.getByLabel(
+    'Afficher uniquement les séances sélectionnées',
+  )
   const submit = form.getByRole('button', { name: 'Trouver une séance' })
 
   await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
@@ -628,6 +631,8 @@ test('advanced filters start collapsed, support keyboard and preserve hidden val
   await expect(format).toBeHidden()
   await expect(ads).toBeHidden()
   await expect(watchlist).toBeHidden()
+  await expect(selectedOnly).toHaveCount(1)
+  await expect(selectedOnly).toBeHidden()
   await expect(
     form.getByRole('combobox', { name: 'Langue', exact: true }),
   ).toBeVisible()
@@ -658,6 +663,8 @@ test('advanced filters start collapsed, support keyboard and preserve hidden val
   await expect(ads).toBeChecked()
   await expect(watchlist).not.toBeChecked()
   await expect(watchlist).toBeEnabled()
+  await expect(selectedOnly).toBeVisible()
+  await expect(selectedOnly).toBeDisabled()
   await page.keyboard.press('Tab')
   await expect(format).toBeFocused()
   await format.selectOption('2D')
@@ -719,11 +726,11 @@ test('advanced filters start collapsed, support keyboard and preserve hidden val
     .getByRole('button', { name: /^Ajouter la séance de Film Playwright/ })
     .click()
   await openFilters(page)
-  const selectedOnly = form.getByLabel(
-    'Afficher uniquement les séances sélectionnées',
-  )
-  await expect(selectedOnly).toBeVisible()
   await expect(panel).toBeHidden()
+  await expect(selectedOnly).toBeHidden()
+  await disclosure.click()
+  await expect(selectedOnly).toBeVisible()
+  await expect(selectedOnly).toBeEnabled()
   await selectedOnly.check()
   await expect(page).toHaveURL(/selected_only=1/)
   expect(searches).toHaveLength(1)
@@ -732,6 +739,55 @@ test('advanced filters start collapsed, support keyboard and preserve hidden val
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBe(true)
+})
+
+test('overlap option restores conflicting screenings and survives reopening a shared search', async ({
+  page,
+}, info) => {
+  const searches = await mockSlotSearch(page)
+  await openPage(page, `/recherche?${query}&selected=u100`)
+  const other = page.getByRole('button', {
+    name: /^Ajouter la séance de Autre film/,
+  })
+  await expect(other).toHaveCount(0)
+  const form = await openFilters(page)
+  await form.getByRole('button', { name: 'Options avancées' }).click()
+  const overlap = form.getByRole('checkbox', {
+    name: /^Autoriser le chevauchement des séances/,
+  })
+  await expect(overlap).not.toBeChecked()
+  await overlap.check()
+  await expect(page).toHaveURL(/allow_overlap=1/)
+  await expect(page).toHaveURL(/selected=u100/)
+  await expect(form).toBeVisible()
+  if (info.project.name === 'mobile')
+    await page.getByRole('button', { name: 'Fermer les filtres' }).click()
+  await expect(other).toBeVisible()
+  expect(searches).toHaveLength(1)
+  await other.click()
+  await expect(page).toHaveURL(
+    (url) => url.searchParams.get('selected') === 'u100,u101',
+  )
+  const shared = page.url()
+  await openPage(page, shared)
+  await expect(
+    page.getByRole('button', { name: /^Retirer la séance de/ }),
+  ).toHaveCount(2)
+  await openFilters(page)
+  await form.getByRole('button', { name: 'Options avancées' }).click()
+  await expect(overlap).toBeChecked()
+  await overlap.scrollIntoViewIfNeeded()
+  await page.screenshot({
+    path: info.outputPath('search-overlap-option.png'),
+    fullPage: true,
+  })
+  await overlap.uncheck()
+  await expect(page).not.toHaveURL(/allow_overlap/)
+  await expect(form).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /^Retirer la séance de/ }),
+  ).toHaveCount(2)
+  expect(searches).toHaveLength(2)
 })
 
 test('shared search stays collapsed and retains URL format/ads with no anonymous watchlist control', async ({
@@ -857,10 +913,10 @@ for (const mode of ['initial', 'edit'] as const) {
     await watchlist.check()
     const watched = form.getByLabel('Afficher les films vus')
     await expect(watched).toBeEnabled()
-    const finalSetting =
-      mode === 'edit'
-        ? form.getByLabel('Afficher uniquement les séances sélectionnées')
-        : watched
+    const selectedOnly = form.getByLabel(
+      'Afficher uniquement les séances sélectionnées',
+    )
+    const finalSetting = watched
     await form
       .getByRole('combobox', { name: 'À partir de' })
       .selectOption('12:00')
@@ -932,13 +988,17 @@ for (const mode of ['initial', 'edit'] as const) {
     expect(lastControl!.height).toBeGreaterThanOrEqual(44)
     expect(action).not.toBeNull()
     expect(lastControl!.y + lastControl!.height).toBeLessThanOrEqual(action!.y)
-    await watchlist.focus()
+    await form.getByLabel('Autoriser le chevauchement des séances').focus()
+    await page.keyboard.press('Tab')
+    if (mode === 'edit') {
+      await expect(selectedOnly).toBeFocused()
+      await page.keyboard.press('Tab')
+    } else {
+      await expect(selectedOnly).toBeDisabled()
+    }
+    await expect(watchlist).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(watched).toBeFocused()
-    if (mode === 'edit') {
-      await page.keyboard.press('Tab')
-      await expect(finalSetting).toBeFocused()
-    }
     await finalSetting.focus()
     await page.keyboard.press('Tab')
     await expect(submit).toBeFocused()

@@ -8,6 +8,7 @@ export interface CompleteSearchShareState {
   language: string
   format: string
   includeAds: boolean
+  allowOverlap?: boolean
   bufferAds: number
   grouping: 'movie' | 'chronological'
   layout: 'lines' | 'boxes'
@@ -35,6 +36,7 @@ export function buildCompleteSearchShareTarget(
     ['layout', search.layout],
   ])
 
+  if (search.allowOverlap) query.set('allow_overlap', '1')
   if (selection.selected) query.set('selected', selection.selected)
   if (selection.selected_only)
     query.set('selected_only', selection.selected_only)

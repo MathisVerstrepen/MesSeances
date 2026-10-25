@@ -14,7 +14,8 @@
 - Use Tailwind unless you have a strong reason to override.
 - Codebase Memory projet name is `movieflow`.
 - Read `api/internal/database/migrations/README.md` before editing migrations and keep README up to date when making changes.
-- Public frontend and Admin frontend UI use different styles, be aware of what section you are changing and what UI style you should be using
+- Public frontend and Admin frontend UI use different styles, be aware of what section you are changing and what UI style you should be using.
+- You are in a worktree, do not create a new worktree unless user ask it, work and commit in the currently assigned folder and environment.
 
 ## Repository Map
 

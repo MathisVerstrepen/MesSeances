@@ -51,7 +51,7 @@ const evaluateSubmitDisabled = new Function(
 )
 
 interface PageState {
-  form: { language: string; date: string }
+  form: { language: string; date: string; allowOverlap: boolean }
   draftTheaterIds: Ref<string[]>
   draftBroadScope: Ref<boolean>
   hasValidSelectedDate: Ref<boolean>
@@ -70,6 +70,7 @@ interface PageState {
   initializePreferences: () => Promise<void>
   canonicalizeShowtimeSelection: () => Promise<void>
   setSelectedOnly: (event: { target: { checked: boolean } }) => Promise<void>
+  setAllowOverlap: () => Promise<void>
   toggleShowtimeSelection: (key: string) => Promise<void>
   clearShowtimeSelection: () => Promise<void>
   errorMessage: Ref<string>
@@ -203,7 +204,7 @@ function harness(
   const page = scope.run(() =>
     new Function(
       ...Object.keys(bindings),
-      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, timeRange, openTimeSlotEditor, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater, errorMessage }`,
+      `${compiled}\nreturn { form, draftTheaterIds, draftBroadScope, hasValidSelectedDate, isLoading, isTheaterListOpen, pending, selectedOnly, watchlistOnly, selectedCount, visibleResults, shareTarget, isFilterSheetOpen, timeRange, openTimeSlotEditor, isResolvingInitialSearch, initializePreferences, canonicalizeShowtimeSelection, setSelectedOnly, setAllowOverlap, toggleShowtimeSelection, clearShowtimeSelection, setResultGrouping, setResultLayout, submitSearch, toggleSearchTheater, errorMessage }`,
     )(...Object.values(bindings)),
   ) as PageState
   return {
@@ -552,6 +553,92 @@ async function settle() {
   await nextTick()
   await nextTick()
 }
+
+test('overlap option preserves selections and loaded results while selected-only still takes priority', async (context) => {
+  const overlapping = response.map((result) => ({
+    ...result,
+    effective_start_time: response[0]!.effective_start_time,
+    showtime: {
+      ...result.showtime,
+      start_time: response[0]!.showtime.start_time,
+    },
+  }))
+  const { page, route, stop, searchCalls } = harness(
+    { ...searchQuery, selected: 'u12' },
+    async () => overlapping,
+  )
+  context.after(stop)
+  await page.initializePreferences()
+  assert.equal(page.form.allowOverlap, false)
+  assert.equal(page.visibleResults.value.length, 1)
+  page.form.language = 'VOSTFR'
+  page.isFilterSheetOpen.value = true
+  const beforeOverlap = { ...route.query }
+  page.form.allowOverlap = true
+  await page.setAllowOverlap()
+  await settle()
+  assert.equal(route.query.allow_overlap, '1')
+  assert.equal(route.query.selected, 'u12')
+  assert.equal(page.visibleResults.value.length, 2)
+  assert.equal(searchCalls(), 1)
+  assert.equal(page.form.language, 'VOSTFR')
+  assert.equal(page.isFilterSheetOpen.value, true)
+  const shared = page.shareTarget.value!
+  assert.equal(isValidShortLinkTarget(shared), true)
+  assert.equal(
+    new URL(shared, 'https://messeances.fr').searchParams.get('allow_overlap'),
+    '1',
+  )
+
+  // History navigation updates just the overlap filter, retaining other drafts.
+  const withOverlap = { ...route.query }
+  route.query = beforeOverlap
+  await settle()
+  assert.equal(page.form.allowOverlap, false)
+  assert.equal(page.visibleResults.value.length, 1)
+  route.query = withOverlap
+  await settle()
+  assert.equal(page.form.allowOverlap, true)
+  assert.equal(page.visibleResults.value.length, 2)
+  assert.equal(page.form.language, 'VOSTFR')
+  assert.equal(page.isFilterSheetOpen.value, true)
+
+  await page.setSelectedOnly({ target: { checked: true } })
+  await settle()
+  assert.equal(page.visibleResults.value.length, 1)
+  await page.setSelectedOnly({ target: { checked: false } })
+  await settle()
+  await page.toggleShowtimeSelection('ugc:ugc-showing-13')
+  await settle()
+  assert.equal(page.selectedCount.value, 2)
+  page.form.allowOverlap = false
+  await page.setAllowOverlap()
+  await settle()
+  assert.equal(route.query.allow_overlap, undefined)
+  assert.equal(page.selectedCount.value, 2)
+  await page.toggleShowtimeSelection('ugc:ugc-showing-13')
+  await settle()
+  assert.equal(page.visibleResults.value.length, 1)
+  assert.equal(searchCalls(), 1)
+})
+
+test('overlap state hydrates from links, canonicalizes malformed flags and resets on a bare route', async (context) => {
+  for (const flag of ['1', '0', 'true', ['1', '1']]) {
+    const { page, route, stop } = harness({
+      ...searchQuery,
+      allow_overlap: flag,
+    })
+    context.after(stop)
+    await page.initializePreferences()
+    await settle()
+    assert.equal(page.form.allowOverlap, flag === '1')
+    assert.equal(route.query.allow_overlap, flag === '1' ? '1' : undefined)
+    route.query = {}
+    await settle()
+    assert.equal(page.form.allowOverlap, false)
+    assert.equal(page.shareTarget.value, null)
+  }
+})
 
 test('shared selected-only state survives loading and validates only after results arrive', async (context) => {
   let resolveSearch!: (results: SlotResult[]) => void
