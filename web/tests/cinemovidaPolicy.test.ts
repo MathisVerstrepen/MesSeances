@@ -147,19 +147,20 @@ test('Ciné-Movida d tokens roundtrip mixed shares and reject noncanonical/trail
 })
 
 test('Ciné-Movida fixture mapping preserves canonical ends over estimates, explicit estimates and unknown metadata', () => {
+  const selectedDate = '2026-07-15'
   const result = toTheaterShowtimeResults(
-    cinemovidaShowtimes(cinemovidaTheaters[0]),
+    cinemovidaShowtimes(cinemovidaTheaters[0], selectedDate),
   )
   assert.deepEqual(
     result.map((item) => item.end),
     [
       {
-        time: `${cinemovidaTheaters[0].available_dates[0]}T15:07:00+02:00`,
+        time: `${selectedDate}T15:07:00+02:00`,
         estimated: false,
         adsMinutes: null,
       },
       {
-        time: `${cinemovidaTheaters[0].available_dates[0]}T17:55:00+02:00`,
+        time: `${selectedDate}T17:55:00+02:00`,
         estimated: true,
         adsMinutes: 15,
       },
@@ -177,3 +178,45 @@ test('Ciné-Movida fixture mapping preserves canonical ends over estimates, expl
   assert.equal(result[2]!.movieRuntimeMinutes, 0)
   assert.equal(result[2]!.posterUrl, null)
 })
+
+for (const [selectedDate, offset] of [
+  ['2026-01-15', '+01:00'],
+  ['2026-07-15', '+02:00'],
+  ['2026-03-28', '+01:00'],
+  ['2026-03-29', '+02:00'],
+  ['2026-10-24', '+02:00'],
+  ['2026-10-25', '+01:00'],
+]) {
+  test(`Ciné-Movida fixtures preserve Paris wall-clock times on ${selectedDate}`, () => {
+    const payload = cinemovidaShowtimes(cinemovidaTheaters[0], selectedDate)
+    assert.deepEqual(
+      payload.showtimes.map((session) => session.start_time),
+      [14, 16, 18].map((hour) => `${selectedDate}T${hour}:00:00${offset}`),
+    )
+    const result = toTheaterShowtimeResults(payload)
+    assert.deepEqual(
+      result.map((item) => item.end),
+      [
+        {
+          time: `${selectedDate}T15:07:00${offset}`,
+          estimated: false,
+          adsMinutes: null,
+        },
+        {
+          time: `${selectedDate}T17:55:00${offset}`,
+          estimated: true,
+          adsMinutes: 15,
+        },
+        null,
+      ],
+    )
+    const localTime = new Intl.DateTimeFormat('fr-FR', {
+      timeZone: 'Europe/Paris',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+    assert.equal(localTime.format(new Date(result[0]!.end!.time)), '15:07')
+    assert.equal(localTime.format(new Date(result[1]!.end!.time)), '17:55')
+  })
+}
