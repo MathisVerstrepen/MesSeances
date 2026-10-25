@@ -268,11 +268,11 @@ test('watchlist empty recovery preserves selection and keeps other-film fallback
     .getByRole('button', { name: /^Ajouter la séance de Autre film/ })
     .click()
   const form = await openFilters(page)
+  await form.getByRole('button', { name: 'Options avancées' }).click()
   const selected = form.getByLabel(
     'Afficher uniquement les séances sélectionnées',
   )
   await selected.check()
-  await form.getByRole('button', { name: 'Options avancées' }).click()
   const watchlist = form.getByLabel('Ma watchlist uniquement')
   await watchlist.check()
   if (info.project.name === 'mobile') await page.keyboard.press('Escape')
@@ -913,10 +913,10 @@ for (const mode of ['initial', 'edit'] as const) {
     await watchlist.check()
     const watched = form.getByLabel('Afficher les films vus')
     await expect(watched).toBeEnabled()
-    const finalSetting =
-      mode === 'edit'
-        ? form.getByLabel('Afficher uniquement les séances sélectionnées')
-        : watched
+    const selectedOnly = form.getByLabel(
+      'Afficher uniquement les séances sélectionnées',
+    )
+    const finalSetting = watched
     await form
       .getByRole('combobox', { name: 'À partir de' })
       .selectOption('12:00')
@@ -988,13 +988,17 @@ for (const mode of ['initial', 'edit'] as const) {
     expect(lastControl!.height).toBeGreaterThanOrEqual(44)
     expect(action).not.toBeNull()
     expect(lastControl!.y + lastControl!.height).toBeLessThanOrEqual(action!.y)
-    await watchlist.focus()
+    await form.getByLabel('Autoriser le chevauchement des séances').focus()
+    await page.keyboard.press('Tab')
+    if (mode === 'edit') {
+      await expect(selectedOnly).toBeFocused()
+      await page.keyboard.press('Tab')
+    } else {
+      await expect(selectedOnly).toBeDisabled()
+    }
+    await expect(watchlist).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(watched).toBeFocused()
-    if (mode === 'edit') {
-      await page.keyboard.press('Tab')
-      await expect(finalSetting).toBeFocused()
-    }
     await finalSetting.focus()
     await page.keyboard.press('Tab')
     await expect(submit).toBeFocused()
