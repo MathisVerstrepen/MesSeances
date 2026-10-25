@@ -1,4 +1,4 @@
-.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration test-browser install-browser browser-deps web-vitals
+.PHONY: build check dev fmt-check format install install-tools lint preflight prod screenshot test test-go test-race test-integration test-umami-retention test-browser install-browser browser-deps web-vitals
 
 SHELL := /bin/bash
 
@@ -54,6 +54,10 @@ test-race:
 
 test-integration:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-integration --disposable-database
+
+test-umami-retention:
+	@docker image inspect postgres:15-alpine >/dev/null 2>&1 || docker pull postgres:15-alpine
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_umami_retention.py
 
 lint:
 	PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py run --check go-lint
