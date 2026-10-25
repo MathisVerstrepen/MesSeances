@@ -288,16 +288,20 @@ export const ocineTheaters = [
       .slice(0, 10),
   ],
 }))
-export function ocineShowtimes(venue, selectedDate = date) {
-  const payload = showtimes(date)
-  const cinema = venue.id.slice('ocine-'.length)
-  const offset = new Intl.DateTimeFormat('en', {
+function parisOffset(selectedDate) {
+  return new Intl.DateTimeFormat('en', {
     timeZone: 'Europe/Paris',
     timeZoneName: 'longOffset',
   })
     .formatToParts(new Date(`${selectedDate}T12:00:00Z`))
     .find((part) => part.type === 'timeZoneName')
     .value.replace('GMT', '')
+}
+
+export function ocineShowtimes(venue, selectedDate = date) {
+  const payload = showtimes(date)
+  const cinema = venue.id.slice('ocine-'.length)
+  const offset = parisOffset(selectedDate)
   return {
     ...payload,
     discovery: { window: null, movies: [], other_theaters: [] },
@@ -488,6 +492,7 @@ export const cinemovidaTheaters = [
 export function cinemovidaShowtimes(venue, selectedDate = date) {
   const payload = showtimes(date)
   const rawTheater = venue.id.slice('cinemovida-'.length)
+  const offset = parisOffset(selectedDate)
   const hosts = {
     P0176: 'achat.cinema-castillet.com',
     P0218: 'achat.cinema-megacastillet.com',
@@ -503,7 +508,7 @@ export function cinemovidaShowtimes(venue, selectedDate = date) {
       rawTheater === 'P0876'
         ? []
         : [0, 1, 2].map((index) => {
-            const start = `${selectedDate}T${14 + index * 2}:00:00+02:00`
+            const start = `${selectedDate}T${14 + index * 2}:00:00${offset}`
             return {
               ...payload.showtimes[0],
               provider: 'cinemovida',
@@ -518,11 +523,12 @@ export function cinemovidaShowtimes(venue, selectedDate = date) {
                 runtime_minutes: index === 2 ? 0 : 100,
               },
               start_time: start,
-              end_time: index === 0 ? `${selectedDate}T15:07:00+02:00` : start,
+              end_time:
+                index === 0 ? `${selectedDate}T15:07:00${offset}` : start,
               estimated_end_time:
                 index === 2
                   ? null
-                  : `${selectedDate}T${15 + index * 2}:55:00+02:00`,
+                  : `${selectedDate}T${15 + index * 2}:55:00${offset}`,
               estimated_end_ads_minutes: index === 2 ? null : 15,
               duration_minutes: index === 0 ? 67 : 0,
               start_offset_minutes: (14 + index * 2) * 60,
