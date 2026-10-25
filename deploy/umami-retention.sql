@@ -1,5 +1,6 @@
--- Coupled to https://raw.githubusercontent.com/umami-software/umami/v3.3.1/prisma/schema.prisma.
+-- Coupled to https://raw.githubusercontent.com/umami-software/umami/v3.4.1/prisma/schema.prisma.
 -- Review this guard and every deletion before changing UMAMI_IMAGE.
+-- API keys and manually authored website annotations are preserved configuration.
 BEGIN;
 SET LOCAL lock_timeout = '30s';
 SET LOCAL statement_timeout = '30min';
@@ -8,6 +9,8 @@ SET LOCAL search_path = pg_catalog, public;
 DO $retention_guard$
 DECLARE
     expected_tables constant text[] := ARRAY[
+        'annotation',
+        'api_key',
         'app_setting',
         'board',
         'event_data',
@@ -36,7 +39,7 @@ DECLARE
     present_tables text[];
     invalid_columns integer;
 BEGIN
-    PERFORM pg_advisory_xact_lock(hashtextextended('messeances:umami-retention:v3.3.1', 0));
+    PERFORM pg_advisory_xact_lock(hashtextextended('messeances:umami-retention:v3.4.1', 0));
 
     SELECT array_agg(table_name ORDER BY table_name)
     INTO present_tables
@@ -46,7 +49,7 @@ BEGIN
       AND table_name <> '_prisma_migrations';
 
     IF present_tables IS DISTINCT FROM expected_tables THEN
-        RAISE EXCEPTION 'Umami retention schema guard failed; expected v3.3.1';
+        RAISE EXCEPTION 'Umami retention schema guard failed; expected v3.4.1';
     END IF;
 
     WITH expected(table_name, column_name, data_type, is_nullable) AS (
@@ -88,7 +91,7 @@ BEGIN
     WHERE actual.column_name IS NULL;
 
     IF invalid_columns <> 0 THEN
-        RAISE EXCEPTION 'Umami retention schema guard failed; expected v3.3.1';
+        RAISE EXCEPTION 'Umami retention schema guard failed; expected v3.4.1';
     END IF;
 END
 $retention_guard$;
