@@ -91,7 +91,8 @@ export async function settle() {
   await new Promise<void>((resolve) => setImmediate(resolve))
 }
 
-export async function fixture(client = true) {
+export async function fixture(client = true, restoredPages = 1) {
+  let recordedPages = restoredPages
   const states = new Map()
   const messages: string[] = []
   const app = {
@@ -124,6 +125,12 @@ export async function fixture(client = true) {
     readonly,
     watch,
     AbortController,
+    window: { history: undefined },
+    document: {
+      getElementById: () => ({
+        getBoundingClientRect: () => ({ height: 5000 }),
+      }),
+    },
     effectScope: () => {
       const scope = effectScope(true)
       scopes.push(scope)
@@ -155,7 +162,18 @@ export async function fixture(client = true) {
       },
     }),
     require: (id: string) =>
-      id === '~/utils/cinemaActivity' ? activity : errors,
+      id === '~/utils/cinemaActivity'
+        ? activity
+        : id === '~/utils/activityPageDepth'
+          ? {
+              activityPageDepth: () => ({
+                target: restoredPages,
+                record: (pages: number) => {
+                  recordedPages = pages
+                },
+              }),
+            }
+          : errors,
   }
   async function compile<T>(name: string, extra = {}): Promise<T> {
     const source = await readFile(
@@ -240,6 +258,7 @@ export async function fixture(client = true) {
       await settle()
       return page
     },
+    activityPages: () => recordedPages,
     depart: () => starts.forEach((fn) => fn()),
     stop: () => {
       unmounted.forEach((fn) => fn())

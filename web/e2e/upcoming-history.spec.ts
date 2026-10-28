@@ -153,6 +153,7 @@ test('switches, year/month changes and back/forward reset page and restore full 
   await expect(page).toHaveURL(`${history}&annee=2024`)
   await expect(page.getByLabel('Année', { exact: true })).toHaveValue('2024')
   const month = page.getByLabel('Mois', { exact: true })
+  await expect(month).toBeEnabled()
   await month.focus()
   await expect(month).toBeFocused()
   await month.press('ArrowDown')
