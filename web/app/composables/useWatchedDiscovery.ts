@@ -28,7 +28,9 @@ export function useWatchedDiscovery(section: WatchedSection) {
       personal.value,
       blocked.value,
       show.value,
-      watched.scopeKey.value,
+      // Guest session checks also reset private scopes. They cannot affect an
+      // unpersonalized catalog or supersede its SSR pagination correction.
+      personal.value ? watched.scopeKey.value : null,
       // Metadata and unrelated preferences cannot change this projection.
       // Sort membership so server ordering alone cannot reload a public page.
       hide.value ? [...watched.slugs.value].sort() : [],

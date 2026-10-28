@@ -22,6 +22,7 @@ import type {
 import type { AccountSession } from '../app/types/account.ts'
 import type { AccountWatchlist } from '../app/types/watchlist.ts'
 import type {
+  MoviesQuery,
   MoviesResponse,
   CatalogMovie,
   TimelineResponse,
@@ -192,6 +193,13 @@ for (const section of watchedSections) {
       },
     )
     const discovery = scope.run(() => exports.useWatchedDiscovery!(section))!
+    const beforeMount = discovery.key.value
+    watched.scopeKey.value++
+    assert.equal(
+      discovery.key.value,
+      beforeMount,
+      'private scope resets cannot invalidate SSR discovery',
+    )
     mounts.forEach((fn) => fn())
     const initial = discovery.key.value
     const unrelated = section === 'home' ? 'films' : 'home'
@@ -241,6 +249,15 @@ for (const section of watchedSections) {
     watched.scopeKey.value++
     assert.equal(discovery.temporary.value, undefined)
     assert.notEqual(discovery.key.value, ready)
+    watched.owner.value = ''
+    const anonymous = discovery.key.value
+    watched.scopeKey.value++
+    watched.ready.value = false
+    assert.equal(
+      discovery.key.value,
+      anonymous,
+      'guest session checks cannot reload public discovery',
+    )
   })
 }
 
@@ -307,6 +324,56 @@ test('scope-local full-query cache reprojects hide/show/membership without refet
   await catalog.movies(query)
   assert.deepEqual(calls, [1, 1])
 })
+test('guest scope resets cannot cancel an in-flight public catalog request', async (t) => {
+  const scope = effectScope()
+  t.after(() => scope.stop())
+  const held = deferred<MoviesResponse>()
+  const scopeKey = ref(0)
+  let signal: AbortSignal | undefined
+  const exports: CatalogModule = {}
+  const source = await readFile(
+    new URL('../app/composables/useWatchedCatalog.ts', import.meta.url),
+    'utf8',
+  )
+  runInNewContext(
+    ts.transpileModule(source.replaceAll('import.meta.client', 'true'), {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+      },
+    }).outputText,
+    {
+      exports,
+      watch,
+      AbortController,
+      onBeforeUnmount() {},
+      useWatchedDiscovery: () => ({
+        hide: ref(false),
+        personal: ref(false),
+        blocked: ref(false),
+        watched: { scopeKey },
+      }),
+      useMesSeancesApi: () => ({
+        movies: (_query: MoviesQuery, requestSignal: AbortSignal) => {
+          signal = requestSignal
+          return held.promise
+        },
+      }),
+      require: () => ({
+        collectPublicPages,
+        localMoviePage,
+        localUpcomingPage,
+      }),
+    },
+  )
+  const catalog = scope.run(() => exports.useWatchedCatalog!('upcoming'))!
+  const pending = catalog.movies({ page: 1, page_size: 24 })
+  scopeKey.value++
+  held.resolve(page(['visible'], 1, 1))
+  await assert.doesNotReject(pending)
+  assert.equal(signal?.aborted, false)
+})
+
 test('sequential complete walk deduplicates canonical slugs and rejects drift, missing pages and cancellation', async () => {
   const calls: number[] = []
   const value = await collectPublicPages(async (number) => {
