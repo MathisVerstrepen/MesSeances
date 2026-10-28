@@ -10,6 +10,8 @@ const {
   morePending,
   error,
   moreError,
+  revalidationError,
+  newActivityAvailable,
   groups,
   refresh,
   loadMore,
@@ -47,6 +49,20 @@ const {
         </button>
       </div>
       <template v-else-if="response">
+        <div
+          v-if="newActivityAvailable"
+          role="status"
+          class="pointer-events-none fixed inset-x-4 bottom-24 z-40 flex justify-center"
+        >
+          <button
+            type="button"
+            class="account-primary pointer-events-auto shadow-lg"
+            :disabled="account.writesBlocked.value"
+            @click="refresh"
+          >
+            Nouvelle activité disponible
+          </button>
+        </div>
         <div v-if="response.followed_theater_count === 0" class="space-y-4">
           <h2 class="account-heading">Aucun cinéma suivi</h2>
           <NuxtLink to="/cinemas" class="account-primary"
@@ -75,6 +91,19 @@ const {
             :date-heading-level="2"
             label="Activité des cinémas suivis"
           />
+          <div v-if="revalidationError" class="mt-8 space-y-4">
+            <p role="alert" class="account-alert">
+              Impossible d’actualiser l’activité. {{ revalidationError }}
+            </p>
+            <button
+              type="button"
+              class="account-secondary"
+              :disabled="account.writesBlocked.value"
+              @click="account.revalidate()"
+            >
+              Réessayer l’actualisation
+            </button>
+          </div>
           <div v-if="response.next_cursor" class="mt-8 space-y-4">
             <p v-if="moreError" role="alert" class="account-alert">
               Impossible de charger la suite. {{ moreError }}

@@ -440,6 +440,116 @@ test('initial feed error retries; continuation error preserves rows then 409 rep
   await expect(page.locator('[data-event-id="103"]')).toHaveCount(0)
 })
 
+for (const newActivity of [false, true]) {
+  test(`focus preserves loaded pages and scroll with ${newActivity ? 'new' : 'unchanged'} activity`, async ({
+    page,
+    request,
+  }) => {
+    await request.post('/__playwright/scenario', { data: complete })
+    let checking = false
+    let release!: () => void
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let entered!: () => void
+    const intercepted = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    await page.route('**/api/v1/account/activity?*', async (route) => {
+      const source = new URL(route.request().url())
+      source.searchParams.delete('cursor')
+      const original = await route.fetch({ url: source.href })
+      const template = await original.json()
+      const cursor = new URL(route.request().url()).searchParams.get('cursor')
+      if (checking && !cursor) {
+        entered()
+        await held
+      }
+      const items = Array.from({ length: 45 }, (_, index) =>
+        accountActivityItem(200 - index),
+      )
+      if (checking && newActivity) items.unshift(accountActivityItem(201))
+      const offset = cursor === 'page-3' ? 40 : cursor ? 20 : 0
+      await route.fulfill({
+        json: {
+          ...template,
+          items: items.slice(offset, offset + 20),
+          next_cursor:
+            offset === 0 ? 'fixture-1' : offset === 20 ? 'page-3' : null,
+        },
+      })
+    })
+    await openPage(page, '/compte/activite')
+    const rows = page.locator('[data-event-id]')
+    const more = page.getByRole('button', {
+      name: 'Afficher plus',
+      exact: true,
+    })
+    const notice = page.getByRole('button', {
+      name: 'Nouvelle activité disponible',
+      exact: true,
+    })
+    const skeleton = page
+      .getByRole('status')
+      .filter({ hasText: 'Chargement de l’activité' })
+    await expect(rows).toHaveCount(20)
+    await expect(notice).toHaveCount(0)
+    await more.click()
+    await expect(rows).toHaveCount(40)
+    await page.evaluate(() => document.fonts.ready)
+    await page.locator('[data-event-id="170"]').scrollIntoViewIfNeeded()
+    const position = await page.evaluate(() => window.scrollY)
+    expect(position).toBeGreaterThan(500)
+    const originalIds = await rows.evaluateAll((elements) =>
+      elements.map((element) => element.getAttribute('data-event-id')),
+    )
+    const timeline = await page
+      .getByRole('list', { name: 'Activité des cinémas suivis' })
+      .elementHandle()
+    checking = true
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+    await intercepted
+    await expect(rows).toHaveCount(40)
+    await expect(skeleton).toHaveCount(0)
+    await expect(more).toBeDisabled()
+    expect(await page.evaluate(() => window.scrollY)).toBe(position)
+    release()
+    await expect(more).toBeEnabled()
+    await expect(notice).toHaveCount(newActivity ? 1 : 0)
+    expect(await timeline!.evaluate((element) => element.isConnected)).toBe(
+      true,
+    )
+    expect(
+      await rows.evaluateAll((elements) =>
+        elements.map((element) => element.getAttribute('data-event-id')),
+      ),
+    ).toEqual(originalIds)
+    expect(await page.evaluate(() => window.scrollY)).toBe(position)
+    if (newActivity) {
+      await notice.click()
+      await expect(rows).toHaveCount(20)
+      await expect(page.locator('[data-event-id="201"]')).toBeAttached()
+      await expect(page.locator('[data-event-id="161"]')).toHaveCount(0)
+      await expect(notice).toHaveCount(0)
+      const checked = page.waitForResponse((response) =>
+        response.url().includes('/api/v1/account/activity?'),
+      )
+      await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+      await checked
+      await expect(more).toBeEnabled()
+      await expect(notice).toHaveCount(0)
+    } else {
+      const continued = page.waitForRequest(
+        (request) =>
+          new URL(request.url()).searchParams.get('cursor') === 'page-3',
+      )
+      await more.click()
+      await continued
+      await expect(rows).toHaveCount(45)
+    }
+  })
+}
+
 test('focus revalidation replaces pages after follows change without writes', async ({
   page,
   request,
