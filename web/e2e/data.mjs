@@ -689,6 +689,9 @@ export function movieSchedule(slug, query, mode = 'populated') {
   const canonicalSlug = slug === 'merged-film' ? movie.slug : slug
   const candidate =
     discoveryMovies.find((item) => item.slug === canonicalSlug) ??
+    [...upcomingReleases, ...releaseHistory].find(
+      (item) => item.slug === canonicalSlug,
+    ) ??
     (['film-ended', 'film-upcoming', 'film-no-release'].includes(slug)
       ? {
           ...movie,

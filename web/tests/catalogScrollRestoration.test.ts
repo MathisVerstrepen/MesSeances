@@ -186,6 +186,11 @@ test('never restores stale position after navigation, even during Nuxt readiness
 
 for (const [path, id] of [
   ['/films/', 'films-catalog'],
+  ['/films/prochainement/', 'upcoming-catalog'],
+  [
+    '/films/prochainement?vue=historique&annee=2025&mois=10&page=2',
+    'upcoming-catalog',
+  ],
   ['/planning', 'planning-catalog'],
   ['/recherche?date=2026-10-13', 'search-catalog'],
   ['/film/film-test?language=VF', 'film-catalog'],

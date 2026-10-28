@@ -2,6 +2,7 @@ import type { Router } from 'vue-router'
 
 const readinessElements = new Map([
   ['/films', 'films-catalog'],
+  ['/films/prochainement', 'upcoming-catalog'],
   ['/planning', 'planning-catalog'],
   ['/recherche', 'search-catalog'],
   ['/statistiques', 'statistics-catalog'],
