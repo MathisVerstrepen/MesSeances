@@ -297,6 +297,9 @@ func serializeLogRecord(record logRecord) (string, bool) {
 func logMessage(event logEvent, stage FailureStage, category logCategory) (string, string, bool) {
 	switch event {
 	case eventCheckoutEnrichmentIncomplete:
+		if category == categoryRedirect {
+			return "warn", "Certaines réservations pointent vers un autre horaire ; les séances annoncées sont conservées avec une fin inconnue.", stage == StageProviderFetch
+		}
 		if category == categoryTransport {
 			return "warn", "Certaines pages de réservation sont inaccessibles ; les séances sont conservées avec une fin inconnue.", stage == StageProviderFetch
 		}

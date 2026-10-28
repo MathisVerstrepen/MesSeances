@@ -650,12 +650,14 @@ func enrichCheckoutsWithinBudget(parent context.Context, g Getter, rows []schedu
 	var unavailable atomic.Int64
 	var gueretUnavailable atomic.Int64
 	var regularFinal404Unavailable atomic.Int64
+	var startMismatches atomic.Int64
 	defer func() {
 		summary.CheckoutRetryAttempts, summary.CheckoutRecoveries = budget.attempts, budget.recoveries
 		summary.FirstCheckoutRetry, summary.FirstCheckoutRetryRecovered = budget.first, budget.firstOK
 		summary.ToulouseUnavailableCheckouts = int(unavailable.Load())
 		summary.GueretUnavailableCheckouts = int(gueretUnavailable.Load())
 		summary.RegularFinal404UnavailableCheckouts = int(regularFinal404Unavailable.Load())
+		summary.CheckoutStartMismatches = int(startMismatches.Load())
 	}()
 	type outcome struct {
 		facts                          resolvedCheckout
@@ -671,6 +673,10 @@ func enrichCheckoutsWithinBudget(parent context.Context, g Getter, rows []schedu
 		results[index].attempted = true
 		b, err := g.Checkout(ctx, rows[index].BookingURL, rows[index].StartTime)
 		if err != nil {
+			if checkoutStartMismatch(err, rows[index]) {
+				startMismatches.Add(1)
+				return resolvedCheckout{end: rows[index].StartTime}, nil
+			}
 			if transientCheckoutFailure(err) {
 				results[index].transient = true
 				return resolvedCheckout{end: rows[index].StartTime}, nil

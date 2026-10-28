@@ -34,6 +34,7 @@ type SyncSummary struct {
 	RegularFinal404UnavailableCheckouts       int
 	CheckoutTransientFailures                 int
 	CheckoutBudgetSkipped                     int
+	CheckoutStartMismatches                   int
 }
 
 func Sync(ctx context.Context, g Getter, o SyncOptions) (schedule.Dataset, SyncSummary, error) {
