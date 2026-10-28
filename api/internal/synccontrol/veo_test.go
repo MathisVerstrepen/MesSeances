@@ -52,6 +52,9 @@ func TestVeoActualPathLoggingWhitelist(t *testing.T) {
 }
 
 func TestVeoCheckoutRetrySummaryIsBoundedAndBackendOnly(t *testing.T) {
+	if veoCheckoutRetryLogArgs(veo.SyncSummary{CheckoutStartMismatches: -1}) != nil {
+		t.Fatal("negative start mismatch count logged")
+	}
 	if veoCheckoutRetryLogArgs(veo.SyncSummary{CheckoutTransientFailures: -1}) != nil || veoCheckoutRetryLogArgs(veo.SyncSummary{CheckoutBudgetSkipped: -1}) != nil {
 		t.Fatal("negative optional enrichment counters logged")
 	}
@@ -115,6 +118,7 @@ func TestVeoOptionalCheckoutWarningsSurviveSuccessfulPublication(t *testing.T) {
 	e.syncVeo = func(ctx context.Context, g veo.Getter, o veo.SyncOptions) (schedule.Dataset, veo.SyncSummary, error) {
 		d, s, err := base(ctx, g, o)
 		s.CheckoutTransientFailures, s.CheckoutBudgetSkipped = 7, 3
+		s.CheckoutStartMismatches = 2
 		return d, s, err
 	}
 	m, err := newTestManager(t.Context(), now, e)
@@ -126,7 +130,7 @@ func TestVeoOptionalCheckoutWarningsSurviveSuccessfulPublication(t *testing.T) {
 		t.Fatal("optional enrichment blocked publication", status)
 	}
 	log := strings.Join(status.Log, "\n")
-	for _, want := range []string{"event=checkout_enrichment_incomplete", "category=transport skipped=7", "category=canceled skipped=3", "fin inconnue"} {
+	for _, want := range []string{"event=checkout_enrichment_incomplete", "category=transport skipped=7", "category=canceled skipped=3", "category=redirect skipped=2", "fin inconnue"} {
 		if !strings.Contains(log, want) {
 			t.Fatal("journal warning lost", want, log)
 		}
@@ -134,7 +138,7 @@ func TestVeoOptionalCheckoutWarningsSurviveSuccessfulPublication(t *testing.T) {
 	if strings.Contains(log, "provider_failed") || strings.Contains(log, "log_truncated") {
 		t.Fatal("successful warnings were rejected or marked as failure", log)
 	}
-	if !strings.Contains(backend.String(), `"checkout_transient_failures":7`) || !strings.Contains(backend.String(), `"checkout_budget_skipped":3`) {
+	if !strings.Contains(backend.String(), `"checkout_transient_failures":7`) || !strings.Contains(backend.String(), `"checkout_budget_skipped":3`) || !strings.Contains(backend.String(), `"checkout_start_mismatches":2`) {
 		t.Fatal("backend counters missing")
 	}
 	// Status persistence uses JSON; the safe journal must survive that boundary.

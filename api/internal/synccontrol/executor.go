@@ -335,6 +335,7 @@ func (e *ProductionExecutor) prepare(ctx context.Context, provider Target, windo
 			}{
 				{summary.CheckoutTransientFailures, categoryTransport},
 				{summary.CheckoutBudgetSkipped, categoryCanceled},
+				{summary.CheckoutStartMismatches, categoryRedirect},
 			} {
 				if entry.count > 0 {
 					line, ok := serializeLogRecord(logRecord{Timestamp: e.now().UTC(), Provider: TargetVeo, Event: eventCheckoutEnrichmentIncomplete, Stage: StageProviderFetch, Operation: operationShowings, Category: entry.category, Progress: logProgress{Skipped: &entry.count}})
@@ -662,7 +663,7 @@ func safeVeoActionPathLogArgs(d veo.CheckoutActionPathFacts) []any {
 }
 
 func veoCheckoutRetryLogArgs(summary veo.SyncSummary) []any {
-	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts || summary.ToulouseUnavailableCheckouts < 0 || summary.GueretUnavailableCheckouts < 0 || summary.RegularFinal404UnavailableCheckouts < 0 || summary.CheckoutTransientFailures < 0 || summary.CheckoutBudgetSkipped < 0 {
+	if summary.CheckoutRetryAttempts < 0 || summary.CheckoutRetryAttempts > 8 || summary.CheckoutRecoveries < 0 || summary.CheckoutRecoveries > summary.CheckoutRetryAttempts || summary.ToulouseUnavailableCheckouts < 0 || summary.GueretUnavailableCheckouts < 0 || summary.RegularFinal404UnavailableCheckouts < 0 || summary.CheckoutTransientFailures < 0 || summary.CheckoutBudgetSkipped < 0 || summary.CheckoutStartMismatches < 0 {
 		return nil
 	}
 	args := []any{"component", "sync", "provider", "veo", "checkout_retry_attempts", summary.CheckoutRetryAttempts, "checkout_recoveries", summary.CheckoutRecoveries}
@@ -670,6 +671,7 @@ func veoCheckoutRetryLogArgs(summary veo.SyncSummary) []any {
 	args = append(args, "gueret_unavailable_checkouts", summary.GueretUnavailableCheckouts)
 	args = append(args, "regular_final404_unavailable_checkouts", summary.RegularFinal404UnavailableCheckouts)
 	args = append(args, "checkout_transient_failures", summary.CheckoutTransientFailures, "checkout_budget_skipped", summary.CheckoutBudgetSkipped)
+	args = append(args, "checkout_start_mismatches", summary.CheckoutStartMismatches)
 	if summary.CheckoutRetryAttempts > 0 && summary.FirstCheckoutRetry != nil {
 		args = append(args, "first_retry_recovered", summary.FirstCheckoutRetryRecovered)
 		// Use exactly the existing defensive reason/identity/bit/index whitelist.

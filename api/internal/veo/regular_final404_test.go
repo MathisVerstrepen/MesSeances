@@ -382,7 +382,7 @@ func TestRegularFinal404SyncRetainsRowsAndIndependentCounters(t *testing.T) {
 				canonical = "https://achat.veocinemas.fr/entry/reserver/"
 			}
 			if fatal == 2 && ussel && b.start.Day() == 28 {
-				canonical = strings.Replace(canonical, fmt.Sprint(b.start.Unix()), fmt.Sprint(b.start.Unix()+1), 1)
+				canonical = strings.Replace(canonical, "/ussel/", "/other-cinema/", 1)
 			}
 			r.Header.Set("Location", canonical)
 			return r, nil
