@@ -1535,6 +1535,98 @@ test('same-owner held session and watchlist reads retain display readiness but r
   }
 })
 
+test('focus resumes the interrupted submitted search and ignores its obsolete response', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    await settle()
+    const old = deferred<WatchlistSearch>()
+    const resumed = deferred<WatchlistSearch>()
+    let calls = 0
+    f.setSearch(() => (++calls === 1 ? old.promise : resumed.promise))
+    f.list.query.value = 'Submitted film'
+    const pending = f.list.search()
+    await f.account.revalidate()
+    await settle()
+    assert.equal(calls, 2)
+    assert.equal(f.list.searching.value, true)
+    const result: WatchlistSearch = {
+      username: 'alice',
+      catalog: [{ slug: 'film-2', title: 'Resumed result' }],
+      external: [],
+      external_status: 'ready',
+      catalog_has_more: false,
+    }
+    old.resolve({ ...result, catalog: [{ slug: 'old', title: 'Obsolete' }] })
+    await pending
+    assert.equal(f.list.searchResults.value, null)
+    assert.equal(f.list.searching.value, true)
+    resumed.resolve(result)
+    await settle()
+    assert.equal(f.list.searchResults.value?.catalog[0]?.slug, 'film-2')
+    assert.equal(f.list.searching.value, false)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const boundary of [
+  'edit-before-focus',
+  'edit',
+  'dismiss',
+  'logout',
+  'owner',
+  'same-owner',
+  'failure',
+]) {
+  test(`interrupted search is not resumed after ${boundary}`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      await settle()
+      const old = deferred<WatchlistSearch>()
+      const heldSession = deferred<AccountSession>()
+      let calls = 0
+      f.setSearch(() => {
+        calls++
+        return old.promise
+      })
+      f.list.query.value = 'Submitted film'
+      const pending = f.list.search()
+      if (boundary === 'edit-before-focus')
+        f.list.query.value = 'Unsubmitted draft'
+      f.setSessionRead(() => heldSession.promise)
+      const refresh = f.account.revalidate()
+      if (boundary === 'edit') f.list.query.value = 'Unsubmitted draft'
+      if (boundary === 'dismiss') f.list.dismissSearch()
+      if (boundary === 'logout') f.account.clear()
+      if (boundary === 'owner' || boundary === 'same-owner') {
+        const username = boundary === 'owner' ? 'bob' : 'alice'
+        f.setResponse(value('1', [], username))
+        f.admit(session(username))
+      }
+      if (boundary === 'failure')
+        heldSession.reject(new Error('Session unavailable'))
+      else heldSession.resolve(session())
+      await refresh
+      await settle()
+      old.resolve({
+        username: 'alice',
+        catalog: [{ slug: 'old', title: 'Obsolete' }],
+        external: [],
+        external_status: 'ready',
+        catalog_has_more: false,
+      })
+      await pending
+      assert.equal(calls, 1)
+      assert.equal(f.list.searchResults.value, null)
+      assert.equal(f.list.searching.value, false)
+    } finally {
+      f.stop()
+    }
+  })
+}
+
 test('focus revalidation waits for writes and reads committed state under new session revision', async () => {
   const f = await fixture()
   try {

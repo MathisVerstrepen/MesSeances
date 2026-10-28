@@ -117,11 +117,14 @@ export function useWatchlistScreenings() {
       (failure.value || !!preferences.error.value),
   )
 
-  function clear() {
+  function cancelPending() {
     generation++
     controller?.abort()
-    result.value = null
     loading.value = false
+  }
+  function clear() {
+    cancelPending()
+    result.value = null
     failure.value = false
   }
   const lifetime = useAccountLifetime(() => {
@@ -143,8 +146,11 @@ export function useWatchlistScreenings() {
   }
 
   async function refresh() {
-    clear()
+    // Scope changes clear the projection; same-scope checks retain committed
+    // badges until a complete replacement has been validated.
+    cancelPending()
     if (!admitted()) return
+    failure.value = false
     const current = generation
     const alive = lifetime.capture()
     const valid = () => current === generation && alive() && admitted()
@@ -223,7 +229,6 @@ export function useWatchlistScreenings() {
       preferences.isInitialized,
       selection,
       membership,
-      account.revision,
       preferences.error,
     ],
     () => {
@@ -232,6 +237,15 @@ export function useWatchlistScreenings() {
     },
     { flush: 'sync' },
   )
+  watch(account.revision, cancelPending, { flush: 'sync' })
+  // The session increments its revision before setting the revalidation flag.
+  // Wait for that transition before choosing whether to discard visible data.
+  watch(account.revision, () => {
+    if (!account.revalidating.value) {
+      clear()
+      scopeVersion.value++
+    }
+  })
   watch([scopeVersion, account.revalidating], () => {
     if (!loading.value) void refresh()
   })

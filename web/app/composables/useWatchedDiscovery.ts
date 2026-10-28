@@ -28,7 +28,10 @@ export function useWatchedDiscovery(section: WatchedSection) {
       personal.value,
       blocked.value,
       show.value,
-      watched.snapshot.value,
+      watched.scopeKey.value,
+      // Metadata and unrelated preferences cannot change this projection.
+      // Sort membership so server ordering alone cannot reload a public page.
+      hide.value ? [...watched.slugs.value].sort() : [],
     ]),
   )
   watch(

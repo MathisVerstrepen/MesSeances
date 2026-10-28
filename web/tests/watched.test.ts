@@ -34,6 +34,7 @@ import type { useWatchlist } from '../app/composables/useWatchlist.ts'
 import type { useAccountSession } from '../app/composables/useAccountSession.ts'
 import type { useCollectionWrite } from '../app/composables/useCollectionWrite.ts'
 import type { useWatchedCatalog } from '../app/composables/useWatchedCatalog.ts'
+import type { useWatchedDiscovery } from '../app/composables/useWatchedDiscovery.ts'
 import * as errors from '../app/utils/accountState.ts'
 import {
   filterCompatibleShowtimeResults,
@@ -92,6 +93,9 @@ const films = (slugs: string[]) =>
 interface CatalogModule {
   useWatchedCatalog?: typeof useWatchedCatalog
 }
+interface DiscoveryModule {
+  useWatchedDiscovery?: typeof useWatchedDiscovery
+}
 interface ComposableModules {
   useAccountSession: { useAccountSession: typeof useAccountSession }
   useCollectionWrite: { useCollectionWrite: typeof useCollectionWrite }
@@ -140,6 +144,106 @@ test('canonical identity, not title or poster; stable ordering, local totals and
     1,
   )
 })
+for (const section of watchedSections) {
+  test(`${section}: discovery ignores metadata, ordering, revision and unrelated preferences, but tracks filtering and scope`, async (t) => {
+    const scope = effectScope()
+    t.after(() => scope.stop())
+    const snapshot = ref<WatchedSnapshot>({
+      username: 'alice',
+      revision: '1',
+      preferences: { ...defaults },
+      items: ['first', 'second'].map((slug) => ({
+        slug,
+        title: slug,
+        watched_at: '2026-10-01T00:00:00Z',
+      })),
+    })
+    const watched = {
+      owner: ref('alice'),
+      ready: ref(true),
+      scopeKey: ref(0),
+      snapshot,
+      slugs: computed(
+        () => new Set(snapshot.value.items.map((item) => item.slug)),
+      ),
+      preferences: computed(() => snapshot.value.preferences),
+    }
+    const exports: DiscoveryModule = {}
+    const mounts: (() => void)[] = []
+    const source = await readFile(
+      new URL('../app/composables/useWatchedDiscovery.ts', import.meta.url),
+      'utf8',
+    )
+    runInNewContext(
+      ts.transpileModule(source, {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+        },
+      }).outputText,
+      {
+        exports,
+        ref,
+        computed,
+        watch,
+        useWatched: () => watched,
+        onMounted: (fn: () => void) => mounts.push(fn),
+        require: () => ({ showWatched, withoutWatched }),
+      },
+    )
+    const discovery = scope.run(() => exports.useWatchedDiscovery!(section))!
+    mounts.forEach((fn) => fn())
+    const initial = discovery.key.value
+    const unrelated = section === 'home' ? 'films' : 'home'
+    snapshot.value = {
+      ...snapshot.value,
+      revision: '2',
+      items: [...snapshot.value.items].reverse().map((item) => ({
+        ...item,
+        title: 'Refreshed metadata',
+        poster_url: '/updated.webp',
+      })),
+      preferences: {
+        ...defaults,
+        auto_remove_watchlist: true,
+        [`${unrelated}_visibility`]: 'show',
+      },
+    }
+    assert.equal(discovery.key.value, initial)
+    assert.deepEqual(
+      discovery.filter(['first', 'visible'], (slug) => slug),
+      ['visible'],
+    )
+    watched.preferences.value[`${section}_visibility`] = 'show'
+    assert.notEqual(discovery.key.value, initial)
+    const showing = discovery.key.value
+    snapshot.value.items.push({
+      slug: 'third',
+      title: 'Third',
+      watched_at: '2026-10-02T00:00:00Z',
+    })
+    assert.equal(
+      discovery.key.value,
+      showing,
+      'membership cannot change an unfiltered catalog',
+    )
+    discovery.temporary.value = false
+    const hiding = discovery.key.value
+    snapshot.value.items = snapshot.value.items.filter(
+      (item) => item.slug !== 'third',
+    )
+    assert.notEqual(discovery.key.value, hiding)
+    const ready = discovery.key.value
+    watched.ready.value = false
+    assert.notEqual(discovery.key.value, ready)
+    assert.equal(discovery.filter(['visible'], (slug) => slug).length, 0)
+    watched.ready.value = true
+    watched.scopeKey.value++
+    assert.equal(discovery.temporary.value, undefined)
+    assert.notEqual(discovery.key.value, ready)
+  })
+}
+
 test('scope-local full-query cache reprojects hide/show/membership without refetch and is discarded on owner invalidation', async (t) => {
   const hide = ref(true)
   const scopeKey = ref(0)
