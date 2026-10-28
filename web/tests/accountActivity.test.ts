@@ -25,6 +25,80 @@ const skeleton = await readFile(
   'utf8',
 )
 
+test('history restoration reloads all previous pages before exposing the feed', async () => {
+  const f = await fixture(true, 3)
+  try {
+    f.admit()
+    const held = deferred<ReturnType<typeof feed>>()
+    f.setActivity(async (cursor) => {
+      if (!cursor) return feed('0', ['100'], 'page-2')
+      if (cursor === 'page-2') return feed('0', ['99'], 'page-3')
+      return held.promise
+    })
+    await settle()
+    const page = await f.mountActivity()
+    assert.equal(page.loading.value, true)
+    assert.equal(page.response.value, null)
+    held.resolve(feed('0', ['98'], 'page-4'))
+    await settle()
+    assert.equal(page.loading.value, false)
+    assert.deepEqual(
+      page.response.value?.items.map((item) => item.event_id),
+      ['100', '99', '98'],
+    )
+    assert.deepEqual(f.cursors, [undefined, 'page-2', 'page-3'])
+    assert.equal(f.activityPages(), 3)
+    await page.refresh()
+    assert.equal(f.activityPages(), 1)
+  } finally {
+    f.stop()
+  }
+})
+
+test('restoration continuation failure keeps the reachable first page and allows retry', async () => {
+  const f = await fixture(true, 3)
+  try {
+    f.admit()
+    f.setActivity(async (cursor) => {
+      if (cursor) throw new AccountApiError(503)
+      return feed('0', ['100'], 'page-2')
+    })
+    await settle()
+    const page = await f.mountActivity()
+    assert.equal(page.loading.value, false)
+    assert.ok(page.moreError.value)
+    assert.equal(page.response.value?.next_cursor, 'page-2')
+    assert.equal(f.activityPages(), 1)
+    f.setActivity(async () => feed('0', ['99']))
+    await page.loadMore()
+    assert.equal(page.response.value?.items.length, 2)
+    assert.equal(f.activityPages(), 2)
+  } finally {
+    f.stop()
+  }
+})
+
+test('navigation during replay discards late private results and never records a stale depth', async () => {
+  const f = await fixture(true, 2)
+  try {
+    f.admit()
+    const held = deferred<ReturnType<typeof feed>>()
+    f.setActivity(async (cursor) =>
+      cursor ? held.promise : feed('0', ['100'], 'page-2'),
+    )
+    await settle()
+    const page = await f.mountActivity()
+    f.depart()
+    held.resolve(feed('0', ['99']))
+    await settle()
+    assert.equal(page.response.value, null)
+    assert.equal(page.loading.value, false)
+    assert.equal(f.activityPages(), 2)
+  } finally {
+    f.stop()
+  }
+})
+
 test('generic activity helpers preserve attribution and server order, deduplicate only event identity', () => {
   const items = feed('1', ['100', '99']).items
   const all = appendActivityItems(items, [

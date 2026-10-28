@@ -12,6 +12,7 @@ const {
   moreError,
   revalidationError,
   newActivityAvailable,
+  departingHeight,
   groups,
   refresh,
   loadMore,
@@ -26,7 +27,11 @@ const {
     hide-explore
     hide-logout
   >
-    <div :aria-busy="loading || morePending">
+    <div
+      id="account-activity"
+      :aria-busy="loading || morePending"
+      :style="departingHeight ? { minHeight: `${departingHeight}px` } : undefined"
+    >
       <div v-if="loading">
         <p role="status" class="sr-only">Chargement de l’activité…</p>
         <ActivityTimelineSkeleton />

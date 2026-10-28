@@ -1048,13 +1048,24 @@ export const publicActivityItems = [
   },
 ]
 
+export function scrollActivityPage(cursor) {
+  const start = cursor ? Number(cursor.split('-').at(-1)) : 0
+  return {
+    items: Array.from({ length: 45 }, (_, index) =>
+      accountActivityItem(1000 - index),
+    ).slice(start, start + 20),
+    limit: 20,
+    next_cursor: start + 20 < 45 ? `scroll-${start + 20}` : null,
+  }
+}
+
 export function publicActivityPage(
   cursor,
   cinema = theater,
   mode = 'populated',
 ) {
   const visible = mode === 'populated' ? publicActivityItems : []
-  return {
+  const page = {
     generated_at: generatedAt,
     timezone: 'Europe/Paris',
     theater: cinema,
@@ -1071,6 +1082,8 @@ export function publicActivityPage(
     limit: 20,
     next_cursor: !cursor && visible.length > 2 ? 'public-page-2' : null,
   }
+  if (mode === 'scroll') return { ...page, ...scrollActivityPage(cursor) }
+  return page
 }
 
 // Fixed release calendar intentionally ends in 2025, not the browser's current year.

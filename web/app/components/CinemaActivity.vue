@@ -6,6 +6,7 @@ import {
   RefreshCw,
 } from '@lucide/vue'
 import type { TheaterActivityResponse } from '~/types/api'
+import { activityPageDepth } from '~/utils/activityPageDepth'
 import {
   activityHistoryDate,
   activityObservationDay,
@@ -22,6 +23,10 @@ const response = ref<TheaterActivityResponse | null>(null)
 const firstError = ref('')
 const moreError = ref('')
 const morePending = ref(false)
+const depth = activityPageDepth(import.meta.client ? window.history : undefined)
+const restoring = ref(false)
+let restorePages = depth.target
+let pagesLoaded = 1
 let disposed = false
 let requestId = 0
 let initialController: AbortController | undefined
@@ -51,14 +56,45 @@ const initial = await useAsyncData(
     initialController?.abort()
     initialController = new AbortController()
     try {
-      const page = await api.theaterActivity(
+      let page = await api.theaterActivity(
         activitySlug,
         { limit: PAGE_SIZE },
         AbortSignal.any([signal, initialController.signal]),
       )
+      let loadedPages = 1
+      let continuationError = ''
+      const cursors = new Set<string>()
+      while (
+        isCurrentRequest(id) &&
+        loadedPages < restorePages &&
+        page.next_cursor
+      ) {
+        const cursor = page.next_cursor
+        if (cursors.has(cursor)) break
+        cursors.add(cursor)
+        try {
+          const next = await api.theaterActivity(
+            activitySlug,
+            { limit: PAGE_SIZE, cursor },
+            AbortSignal.any([signal, initialController.signal]),
+          )
+          if (!isCurrentRequest(id)) return { response: null, errorMessage: '' }
+          page = { ...next, items: appendActivityItems(page.items, next.items) }
+          loadedPages++
+        } catch (cause) {
+          continuationError = getFrenchActivityApiError(cause)
+          break
+        }
+      }
+      if (isCurrentRequest(id)) {
+        restorePages = 1
+        depth.record(loadedPages)
+      }
       return {
         response: isCurrentRequest(id) ? page : null,
         errorMessage: '',
+        loadedPages,
+        continuationError,
       }
     } catch (cause) {
       return {
@@ -67,6 +103,8 @@ const initial = await useAsyncData(
           ? getFrenchActivityApiError(cause)
           : '',
       }
+    } finally {
+      if (isCurrentRequest(id)) restoring.value = false
     }
   },
   { lazy: true },
@@ -83,12 +121,24 @@ watch(
         }
       : null
     firstError.value = state.errorMessage
+    pagesLoaded = state.loadedPages ?? 1
+    moreError.value = state.continuationError ?? ''
   },
   { immediate: true },
 )
 const firstPending = computed(
-  () => initial.status.value === 'pending' || initial.status.value === 'idle',
+  () =>
+    restoring.value ||
+    initial.status.value === 'pending' ||
+    initial.status.value === 'idle',
 )
+onMounted(() => {
+  // Hydration can reuse the server's first page; replay history depth on the client.
+  if (restorePages > 1 && initial.status.value === 'success') {
+    restoring.value = true
+    void initial.refresh()
+  }
+})
 const groups = computed(() => groupActivityItems(response.value?.items ?? []))
 const historyStart = computed(() => {
   const started = response.value?.coverage.history_started_at
@@ -119,6 +169,7 @@ async function loadMore() {
       items: appendActivityItems(response.value.items, page.items),
       next_cursor: page.next_cursor,
     }
+    depth.record(++pagesLoaded)
   } catch (cause) {
     if (isCurrentRequest(id)) moreError.value = getFrenchActivityApiError(cause)
   } finally {
@@ -128,7 +179,11 @@ async function loadMore() {
 </script>
 
 <template>
-  <div class="mt-8" :aria-busy="firstPending || morePending">
+  <div
+    id="cinema-activity"
+    class="mt-8"
+    :aria-busy="firstPending || morePending"
+  >
     <div v-if="firstPending">
       <p role="status" aria-live="polite" class="sr-only">
         Chargement de l’activité…
