@@ -5,6 +5,7 @@ import { buildNuxt, loadNuxt } from '@nuxt/kit'
 import { toNodeListener } from 'h3'
 import {
   accountActivityItem,
+  scrollActivityPage,
   date,
   cinemaDiscovery,
   cityDetail,
@@ -95,7 +96,7 @@ function activityPage(cursor) {
     accountActivityItem(101),
   ].filter((item) => ids.has(item.theater.id))
   const visible = scenario.feed === 'populated' ? items : []
-  return {
+  const page = {
     username: scenario.username,
     follows_revision: follows.revision,
     followed_theater_count: ids.size,
@@ -115,6 +116,9 @@ function activityPage(cursor) {
     next_cursor:
       !cursor && visible.length > 2 ? `fixture-${follows.revision}` : null,
   }
+  if (scenario.feed === 'scroll')
+    return { ...page, ...scrollActivityPage(cursor) }
+  return page
 }
 function json(response, body, status = 200) {
   response.writeHead(status, {
@@ -267,7 +271,11 @@ const mock = createServer((request, response) => {
           503,
         )
       const cursor = url.searchParams.get('cursor')
-      if (cursor && cursor !== `fixture-${follows.revision}`)
+      if (
+        cursor &&
+        cursor !== `fixture-${follows.revision}` &&
+        !(scenario.feed === 'scroll' && /^scroll-(20|40)$/.test(cursor))
+      )
         return json(
           response,
           {

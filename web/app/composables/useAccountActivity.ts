@@ -1,6 +1,7 @@
 import type { AccountActivityResponse } from '~/types/cinemaFollows'
 import { AccountApiError, accountErrorMessage } from '~/utils/accountState'
 import { appendActivityItems, groupActivityItems } from '~/utils/cinemaActivity'
+import { activityPageDepth } from '~/utils/activityPageDepth'
 
 export function useAccountActivity() {
   const account = useAccountSession()
@@ -13,6 +14,10 @@ export function useAccountActivity() {
   const moreError = ref('')
   const revalidationError = ref('')
   const newActivityAvailable = ref(false)
+  let depth = activityPageDepth(import.meta.client ? window.history : undefined)
+  let pagesLoaded = 1
+  let restorePages = depth.target
+  const departingHeight = ref(0)
   let mounted = false
   let generation = 0
   let controller: AbortController | undefined
@@ -39,6 +44,12 @@ export function useAccountActivity() {
     newActivityAvailable.value = false
   }
   const lifetime = useAccountLifetime(() => {
+    // Keep outgoing geometry while clearing private rows, so the browser cannot
+    // clamp scroll before Vue Router captures its history position.
+    if (import.meta.client && response.value)
+      departingHeight.value =
+        document.getElementById('account-activity')?.getBoundingClientRect()
+          .height ?? 0
     unregister?.()
     unregister = undefined
     clear()
@@ -72,7 +83,7 @@ export function useAccountActivity() {
       account.status.value = 'error'
     } else error.value = accountErrorMessage(cause)
   }
-  function apply(value: AccountActivityResponse) {
+  function apply(value: AccountActivityResponse, loadedPages = 1) {
     // A known newer membership cannot authorize an older walk.
     if (
       follows.revision.value !== null &&
@@ -85,6 +96,9 @@ export function useAccountActivity() {
       return
     }
     response.value = { ...value, items: appendActivityItems([], value.items) }
+    departingHeight.value = 0
+    pagesLoaded = loadedPages
+    depth.record(pagesLoaded)
     error.value = ''
     moreError.value = ''
     revalidationError.value = ''
@@ -99,14 +113,56 @@ export function useAccountActivity() {
     loading.value = true
     controller = new AbortController()
     try {
-      const value = await api.accountActivity(undefined, controller.signal)
+      let value = await api.accountActivity(undefined, controller.signal)
       if (!token.valid()) return
       check(value, token.expectedOwner)
-      apply(value)
+      const target = restorePages
+      restorePages = 1
+      pagesLoaded = 1
+      let continuationError = ''
+      const cursors = new Set<string>()
+      while (pagesLoaded < target && value.next_cursor) {
+        const cursor = value.next_cursor
+        if (cursors.has(cursor)) break
+        cursors.add(cursor)
+        try {
+          const next = await api.accountActivity(cursor, controller.signal)
+          if (!token.valid()) return
+          check(next, token.expectedOwner)
+          if (next.follows_revision !== value.follows_revision)
+            return await refresh()
+          value = {
+            ...next,
+            items: appendActivityItems(value.items, next.items),
+          }
+          pagesLoaded++
+        } catch (cause) {
+          if (!token.valid()) return
+          if (
+            cause instanceof AccountApiError &&
+            cause.code === 'theater_follows_changed'
+          )
+            return await refresh()
+          if (
+            cause instanceof AccountApiError &&
+            (cause.status === 401 || cause.status === 403)
+          )
+            throw cause
+          continuationError = accountErrorMessage(cause)
+          break
+        }
+      }
+      apply(value, pagesLoaded)
+      if (response.value) {
+        moreError.value = continuationError
+      }
     } catch (cause) {
       if (token.valid()) fail(cause)
     } finally {
-      if (token.valid()) loading.value = false
+      if (token.valid()) {
+        departingHeight.value = 0
+        loading.value = false
+      }
     }
   }
   async function revalidate() {
@@ -193,6 +249,7 @@ export function useAccountActivity() {
         ...value,
         items: appendActivityItems(previous.items, value.items),
       }
+      depth.record(++pagesLoaded)
     } catch (cause) {
       if (!token.valid()) return
       if (
@@ -260,6 +317,8 @@ export function useAccountActivity() {
     const router = useRouter()
     const resume = () => {
       if (mounted && router.currentRoute.value.path === path && !unregister) {
+        depth = activityPageDepth(window.history)
+        restorePages = depth.target
         unregister = account.onRevalidate(revalidate)
         void refresh()
       }
@@ -281,6 +340,7 @@ export function useAccountActivity() {
     moreError,
     revalidationError,
     newActivityAvailable,
+    departingHeight,
     groups: computed(() => groupActivityItems(response.value?.items ?? [])),
     refresh,
     loadMore,

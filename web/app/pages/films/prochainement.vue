@@ -373,7 +373,11 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       </div>
     </header>
     <div class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 lg:px-10">
-      <div aria-live="polite" :aria-busy="pending">
+      <div
+        id="upcoming-catalog"
+        aria-live="polite"
+        :aria-busy="pending || discovery.blocked.value"
+      >
         <WatchedReadiness v-if="discovery.blocked.value" />
         <EditorialStatePanel
           v-else-if="pending"

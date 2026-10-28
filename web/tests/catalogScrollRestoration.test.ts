@@ -124,6 +124,16 @@ function routerFixture(original: RouterScrollBehavior) {
   return { scroll, navigate: () => beforeEach() }
 }
 
+test('cinema activity tab history waits for rendering even on the same path', async (t) => {
+  const page = dom(t)
+  const fixture = routerFixture(() => false)
+  const waiting = fixture.scroll('/cinema/test?view=activity', '/cinema/test')
+  await Promise.resolve()
+  assert.deepEqual(page.queried, ['cinema-activity'])
+  page.render()
+  assert.deepEqual(await waiting, { top: 2000, left: 0 })
+})
+
 test('extends saved catalog restore only after framework readiness', async (t) => {
   const page = dom(t)
   let resolve!: () => void
@@ -186,10 +196,18 @@ test('never restores stale position after navigation, even during Nuxt readiness
 
 for (const [path, id] of [
   ['/films/', 'films-catalog'],
+  ['/films/prochainement/', 'upcoming-catalog'],
+  [
+    '/films/prochainement?vue=historique&annee=2025&mois=10&page=2',
+    'upcoming-catalog',
+  ],
   ['/planning', 'planning-catalog'],
   ['/recherche?date=2026-10-13', 'search-catalog'],
   ['/film/film-test?language=VF', 'film-catalog'],
   ['/statistiques?film=film-test', 'statistics-catalog'],
+  ['/ville/lille/cinemas?q=Film&page=2', 'city-catalog'],
+  ['/compte/activite', 'account-activity'],
+  ['/cinema/cinema-test?view=activity', 'cinema-activity'],
 ] as const) {
   test(`waits for own readiness on ${path}, not a previous page`, async (t) => {
     const page = dom(t)
