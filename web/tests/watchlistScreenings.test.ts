@@ -563,7 +563,7 @@ test('same-owner revalidation completion refreshes once; navigation arrival resu
     f.account.revision.value++
     f.account.revalidating.value = true
     await settle()
-    assert.equal(f.page.forMovie('film-0'), null)
+    assert.equal(f.page.forMovie('film-0')?.average.text, '1,3 séances/j')
     assert.equal(f.calls.length, 1)
     f.account.revalidating.value = false
     await settle()
@@ -582,6 +582,70 @@ test('same-owner revalidation completion refreshes once; navigation arrival resu
   assert.equal(f.arrivals.size, 0)
   assert.equal(f.listeners.size, 0)
 })
+
+test('same-scope badges survive delayed focus refresh and transient failure; replacement commits atomically', async () => {
+  const f = await fixture()
+  try {
+    await f.mount()
+    const original = f.page.forMovie('film-0')
+    const held = deferred<MoviesResponse>()
+    f.setRead(() => held.promise)
+    f.account.revision.value++
+    f.account.revalidating.value = true
+    await settle()
+    assert.deepEqual(f.page.forMovie('film-0'), original)
+    f.account.revalidating.value = false
+    await settle()
+    assert.equal(f.page.loading.value, true)
+    assert.deepEqual(f.page.forMovie('film-0'), original)
+    held.reject(new Error('Temporary failure'))
+    await settle()
+    assert.equal(f.page.error.value, true)
+    assert.deepEqual(f.page.forMovie('film-0'), original)
+    const replacement = catalog()
+    replacement.items[0]!.remaining_showtime_count = 18
+    f.setRead(async () => replacement)
+    await f.page.retry()
+    assert.equal(f.page.forMovie('film-0')?.average.text, '3 séances/j')
+    assert.equal(f.page.error.value, false)
+  } finally {
+    f.stop()
+  }
+})
+
+for (const boundary of [
+  'selection',
+  'membership',
+  'owner',
+  'session',
+  'departure',
+]) {
+  test(`retained badges are discarded after ${boundary} changes during focus`, async () => {
+    const f = await fixture()
+    try {
+      await f.mount()
+      f.account.revision.value++
+      f.account.revalidating.value = true
+      await settle()
+      assert.ok(f.page.forMovie('film-0'))
+      if (boundary === 'selection')
+        f.preferences.favoriteTheaterIds.value = ['cinema-b']
+      if (boundary === 'membership') f.list.items.value = []
+      if (boundary === 'owner') f.list.owner.value = ''
+      if (boundary === 'session') {
+        f.account.revision.value++
+        f.account.revalidating.value = false
+        f.list.ready.value = false
+      }
+      if (boundary === 'departure') f.starts.forEach((fn) => fn())
+      assert.equal(f.page.forMovie('film-0'), null)
+      await settle()
+      assert.equal(f.page.forMovie('film-0'), null)
+    } finally {
+      f.stop()
+    }
+  })
+}
 
 test('preference failure stays unknown and retry uses existing synchronization path', async () => {
   const f = await fixture()

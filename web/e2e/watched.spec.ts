@@ -561,6 +561,52 @@ test('home refills six and cinema all-page films filter before counts', async ({
   ).toBeVisible()
   await overflow(page)
 })
+test('metadata-only watched refresh preserves release history DOM, pagination and scroll without refetching the catalog', async ({
+  page,
+  request,
+}) => {
+  await seed(request, { watchedSlugs: ['film-204'] })
+  let metadataChanged = false
+  await page.route('**/api/v1/account/watched', async (route) => {
+    const response = await route.fetch()
+    const value = await response.json()
+    if (metadataChanged) {
+      value.revision = String(BigInt(value.revision) + 1n)
+      value.items = value.items.map((item: { title: string }) => ({
+        ...item,
+        title: 'Updated watched title',
+        poster_url: '/updated.webp',
+      }))
+    }
+    await route.fulfill({ json: value })
+  })
+  await openPage(page, '/films/prochainement?vue=historique&annee=2025&page=2')
+  const weeks = page.locator('section[aria-labelledby^="week-"]')
+  await expect(weeks).toHaveCount(3)
+  const original = await weeks.first().elementHandle()
+  const url = page.url()
+  await page.evaluate(() => document.fonts.ready)
+  await weeks.last().scrollIntoViewIfNeeded()
+  const position = await page.evaluate(() => window.scrollY)
+  const before = await state(request)
+  metadataChanged = true
+  const checked = page.waitForResponse((response) =>
+    response.url().endsWith('/api/v1/account/watched'),
+  )
+  await focus(page)
+  await checked
+  await expect(page.locator('html')).toHaveAttribute(
+    'data-playwright-account-revalidating',
+    'false',
+  )
+  const after = await state(request)
+  expect(after.watchedGets).toBeGreaterThan(before.watchedGets)
+  expect(after.upcomingQueries.length).toBe(before.upcomingQueries.length)
+  expect(page.url()).toBe(url)
+  expect(await original!.evaluate((element) => element.isConnected)).toBe(true)
+  expect(await page.evaluate(() => window.scrollY)).toBe(position)
+})
+
 test('upcoming/history reflow four nonempty release weeks, local totals and empty sets', async ({
   page,
   request,

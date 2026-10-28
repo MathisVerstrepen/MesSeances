@@ -38,6 +38,8 @@ function createWatchlist() {
   let searchGeneration = 0
   let controller: AbortController | undefined
   let searchController: AbortController | undefined
+  let submittedSearch: { query: string; owner: string } | undefined
+  let interruptedSearch: { query: string; owner: string } | undefined
   let savingPromise: Promise<string | boolean> | undefined
   let started = false
   let admissionRevision = account.revision.value
@@ -115,6 +117,8 @@ function createWatchlist() {
   }
 
   function dismissSearch() {
+    submittedSearch = undefined
+    interruptedSearch = undefined
     searchGeneration++
     searchController?.abort()
     searchResults.value = null
@@ -298,6 +302,7 @@ function createWatchlist() {
 
   async function search() {
     if (!import.meta.client || writesBlocked.value || searching.value) return
+    interruptedSearch = undefined
     const text = query.value.trim()
     if ([...text].length < 2 || [...text].length > 200) {
       searchError.value =
@@ -306,6 +311,7 @@ function createWatchlist() {
     }
     const token = capture()
     const current = ++searchGeneration
+    submittedSearch = { query: query.value, owner: token.expectedOwner }
     searchController?.abort()
     searchController = new AbortController()
     searching.value = true
@@ -328,8 +334,10 @@ function createWatchlist() {
         fail(cause)
       else searchError.value = accountErrorMessage(cause)
     } finally {
-      if (token.inScope() && current === searchGeneration)
+      if (token.inScope() && current === searchGeneration) {
+        submittedSearch = undefined
         searching.value = false
+      }
     }
   }
 
@@ -371,15 +379,39 @@ function createWatchlist() {
     effectScope(true).run(() => {
       account.onRevalidate(revalidate)
       watch([owner, () => account.status.value], reset, { flush: 'sync' })
-      watch(account.revision, () => {
-        if (admissionRevision === account.revision.value) return
-        admissionRevision = account.revision.value
-        if (account.revalidating.value) {
+      watch(
+        query,
+        () => {
+          interruptedSearch = undefined
+        },
+        { flush: 'sync' },
+      )
+      watch(
+        account.revalidating,
+        (pending) => {
+          if (!pending || !searching.value) return
+          // Reissue only the submitted search after successful revalidation.
+          // Dismissal, editing or an identity change invalidates this ticket.
+          interruptedSearch =
+            submittedSearch?.query === query.value ? submittedSearch : undefined
+          submittedSearch = undefined
           searchGeneration++
           searchController?.abort()
           searching.value = false
-          return
-        }
+        },
+        { flush: 'sync' },
+      )
+      watch(writesBlocked, (blocked) => {
+        if (blocked || !interruptedSearch) return
+        const pending = interruptedSearch
+        interruptedSearch = undefined
+        if (pending.query === query.value && pending.owner === owner.value)
+          void search()
+      })
+      watch(account.revision, () => {
+        if (admissionRevision === account.revision.value) return
+        admissionRevision = account.revision.value
+        if (account.revalidating.value) return
         reset()
         if (owner.value) void readSnapshot()
       })

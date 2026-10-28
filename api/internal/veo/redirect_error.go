@@ -59,6 +59,24 @@ func identifyCheckoutRequestError(err error, row schedule.ShowtimeRecord) error 
 	return &copy
 }
 
+// A source booking alias can point at a different start than the schedule API
+// advertises. Keep the API session, but never follow that destination or use its
+// room/end. Only an attested first-hop 307 with an otherwise valid canonical
+// target for the same cinema qualifies; all other redirect failures stay fatal.
+func checkoutStartMismatch(err error, row schedule.ShowtimeRecord) bool {
+	rejected, ok := identifyCheckoutRequestError(err, row).(*RequestError) //nolint:errorlint // Require direct transport attestation, not caller wrappers.
+	if !ok || rejected == nil || rejected.Operation != OperationCheckout || rejected.Kind != syncproxy.FailureRedirect || rejected.redirect == nil {
+		return false
+	}
+	f := rejected.redirect.facts
+	return f.CinemaID != "" && f.ShowingID == row.ProviderShowingID &&
+		f.Branch == "regular" && f.Phase == "response" && f.Reason == "epoch_binding" &&
+		f.HopKnown && f.Hop == 0 && f.HTTPStatus == http.StatusTemporaryRedirect &&
+		f.LocationCount == 1 && !f.LocationCountTruncated &&
+		f.ExpectedHost == "regular" && f.ExpectedRoute == "canonical" &&
+		f.ObservedHost == "regular" && f.ObservedRoute == "canonical"
+}
+
 func redirectURLClasses(u *url.URL) (host, route string) {
 	host, route = "unknown", "unknown"
 	if u == nil {

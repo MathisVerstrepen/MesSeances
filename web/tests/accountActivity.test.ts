@@ -99,6 +99,166 @@ test('continuation serialized, ordinary failure keeps rows and cursor; retry app
   }
 })
 
+test('unchanged focus check preserves all pages and cursor without a loading skeleton or notice', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    f.setActivity(async (cursor) =>
+      cursor ? feed('0', ['98'], 'page-3') : feed('0', ['100', '99'], 'page-2'),
+    )
+    await settle()
+    const page = await f.mountActivity()
+    await page.loadMore()
+    const previous = page.response.value
+    const held = deferred<ReturnType<typeof feed>>()
+    f.setActivity(() => held.promise)
+    const pending = f.account.revalidate()
+    await settle()
+    assert.equal(page.response.value, previous)
+    assert.equal(page.loading.value, false)
+    assert.equal(f.account.writesBlocked.value, true)
+    // Removed events can expose older unseen rows. Neither those nor changed
+    // metadata, timestamps or cursors should announce new activity.
+    held.resolve({
+      ...feed('0', ['99', '97'], 'fresh-page-2'),
+      generated_at: '2026-10-04T08:00:00Z',
+    })
+    await pending
+    await settle()
+    assert.equal(page.response.value, previous)
+    assert.equal(page.newActivityAvailable.value, false)
+    assert.equal(page.response.value?.next_cursor, 'page-3')
+    f.setActivity(async (cursor) => {
+      assert.equal(cursor, 'page-3')
+      return feed('0', ['96'])
+    })
+    await page.loadMore()
+    assert.deepEqual(
+      page.response.value?.items.map((item) => item.event_id),
+      ['100', '99', '98', '96'],
+    )
+  } finally {
+    f.stop()
+  }
+})
+
+for (const initial of [[], ['9007199254740992']]) {
+  test(`new event notice preserves ${initial.length ? 'existing' : 'empty'} feed until explicit refresh`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      f.setActivity(async () => feed('0', initial, 'old-cursor'))
+      await settle()
+      const page = await f.mountActivity()
+      const previous = page.response.value
+      f.setActivity(async () =>
+        feed('0', ['9007199254740993', ...initial], 'new-cursor'),
+      )
+      await f.account.revalidate()
+      await settle()
+      assert.equal(page.newActivityAvailable.value, true)
+      assert.equal(page.response.value, previous)
+      await f.account.revalidate()
+      await settle()
+      assert.equal(page.newActivityAvailable.value, true)
+      await page.refresh()
+      assert.equal(page.newActivityAvailable.value, false)
+      assert.equal(page.response.value?.items[0]?.event_id, '9007199254740993')
+      assert.equal(page.response.value?.next_cursor, 'new-cursor')
+      await f.account.revalidate()
+      await settle()
+      assert.equal(page.newActivityAvailable.value, false)
+    } finally {
+      f.stop()
+    }
+  })
+}
+
+test('focus during continuation cancels stale work, releases pending state and permits retry of the same cursor', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    f.setActivity(async () => feed('0', ['100'], 'page-2'))
+    await settle()
+    const page = await f.mountActivity()
+    const held = deferred<ReturnType<typeof feed>>()
+    f.setActivity(() => held.promise)
+    const pending = page.loadMore()
+    f.setActivity(async () => feed('0', ['100'], 'different-cursor'))
+    await f.account.revalidate()
+    await settle()
+    assert.equal(page.morePending.value, false)
+    assert.equal(page.response.value?.next_cursor, 'page-2')
+    held.resolve(feed('0', ['99'], 'stale-cursor'))
+    await pending
+    assert.deepEqual(
+      page.response.value?.items.map((item) => item.event_id),
+      ['100'],
+    )
+    f.setActivity(async (cursor) => {
+      assert.equal(cursor, 'page-2')
+      return feed('0', ['98'])
+    })
+    await page.loadMore()
+    assert.deepEqual(
+      page.response.value?.items.map((item) => item.event_id),
+      ['100', '98'],
+    )
+  } finally {
+    f.stop()
+  }
+})
+
+test('temporary focus fetch failure retains the feed and retry clears the background error', async () => {
+  const f = await fixture()
+  try {
+    f.admit()
+    f.setActivity(async () => feed('0', ['100'], 'page-2'))
+    await settle()
+    const page = await f.mountActivity()
+    const previous = page.response.value
+    f.setActivity(async () => {
+      throw new AccountApiError(503)
+    })
+    await f.account.revalidate()
+    await settle()
+    assert.equal(page.response.value, previous)
+    assert.equal(page.loading.value, false)
+    assert.equal(page.error.value, '')
+    assert.ok(page.revalidationError.value)
+    assert.equal(page.newActivityAvailable.value, false)
+    f.setActivity(async () => feed('0', ['100']))
+    await f.account.revalidate()
+    await settle()
+    assert.equal(page.response.value, previous)
+    assert.equal(page.revalidationError.value, '')
+  } finally {
+    f.stop()
+  }
+})
+
+for (const status of [401, 403]) {
+  test(`activity focus ${status} clears retained private content`, async () => {
+    const f = await fixture()
+    try {
+      f.admit()
+      f.setActivity(async () => feed('0', ['100']))
+      await settle()
+      const page = await f.mountActivity()
+      f.setActivity(async () => {
+        throw new AccountApiError(status)
+      })
+      await f.account.revalidate()
+      await settle()
+      assert.equal(page.response.value, null)
+      assert.equal(page.newActivityAvailable.value, false)
+      assert.equal(f.account.status.value, 'error')
+    } finally {
+      f.stop()
+    }
+  })
+}
+
 test('409 continuation and newer known follows discard walk and request page one', async () => {
   const f = await fixture()
   try {
