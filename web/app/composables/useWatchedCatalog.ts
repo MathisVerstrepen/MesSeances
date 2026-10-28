@@ -30,7 +30,9 @@ export function useWatchedCatalog(section: WatchedSection) {
   }
   onBeforeUnmount(cancel)
   watch(
-    discovery.watched.scopeKey,
+    // Only personalized work belongs to an account scope. Guest session checks
+    // must neither discard its public cache nor cancel a public request.
+    () => (discovery.personal.value ? discovery.watched.scopeKey.value : null),
     () => {
       cancel()
       cache = undefined

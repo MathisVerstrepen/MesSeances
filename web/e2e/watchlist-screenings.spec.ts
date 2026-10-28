@@ -266,6 +266,106 @@ for (const mode of ['error', 'partial', 'selection-error']) {
   })
 }
 
+test('focus retains screening chips, row geometry and scroll while replacement summaries are pending', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', { data: complete })
+  await openPage(page, '/compte/watchlist')
+  await expect(page.locator(chip)).toHaveCount(2)
+  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+  const position = await page.evaluate(() => window.scrollY)
+  expect(position).toBeGreaterThan(0)
+  const original = await page.locator(chip).first().elementHandle()
+  const height = await row(page, movie.slug).evaluate(
+    (element) => element.getBoundingClientRect().height,
+  )
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let entered!: () => void
+  const intercepted = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  await page.route('**/api/v1/movies?*', async (route) => {
+    if (
+      new URL(route.request().url()).searchParams.get('screening_summary') !==
+      'true'
+    )
+      return route.continue()
+    entered()
+    await held
+    await route.continue()
+  })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await intercepted
+  try {
+    await expect(page.locator(chip)).toHaveCount(2)
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(
+      true,
+    )
+    expect(
+      await row(page, movie.slug).evaluate(
+        (element) => element.getBoundingClientRect().height,
+      ),
+    ).toBe(height)
+    expect(await page.evaluate(() => window.scrollY)).toBe(position)
+  } finally {
+    release()
+  }
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Chargement des séances' }),
+  ).toHaveCount(0)
+  await expect(page.locator(chip)).toHaveCount(2)
+  expect(await page.evaluate(() => window.scrollY)).toBe(position)
+})
+
+test('focus resumes an interrupted watchlist movie search without closing the dialog or losing the query', async ({
+  page,
+  request,
+}) => {
+  await request.post('/__playwright/scenario', { data: complete })
+  await openPage(page, '/compte/watchlist')
+  await page.getByRole('button', { name: 'Ajouter', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Ajouter un film' })
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let entered!: () => void
+  const intercepted = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  let searches = 0
+  await page.route('**/api/v1/account/watchlist/search', async (route) => {
+    if (++searches !== 1) return route.continue()
+    const original = await route.fetch()
+    entered()
+    await held
+    await route.fulfill({ response: original })
+  })
+  await dialog
+    .getByRole('searchbox', { name: 'Rechercher un film' })
+    .fill('Film')
+  await dialog.getByRole('button', { name: 'Rechercher', exact: true }).click()
+  await intercepted
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  try {
+    await expect(
+      dialog.getByRole('link', { name: movie.title, exact: true }),
+    ).toBeVisible()
+    await expect(dialog.getByRole('searchbox')).toHaveValue('Film')
+    await expect(
+      dialog.getByRole('button', { name: 'Rechercher', exact: true }),
+    ).toBeEnabled()
+    expect(searches).toBe(2)
+  } finally {
+    release()
+  }
+})
+
 test('pending summaries omit factual chips and expose one screen-reader loading status', async ({
   page,
   request,

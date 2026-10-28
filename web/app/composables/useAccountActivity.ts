@@ -11,6 +11,8 @@ export function useAccountActivity() {
   const morePending = ref(false)
   const error = ref('')
   const moreError = ref('')
+  const revalidationError = ref('')
+  const newActivityAvailable = ref(false)
   let mounted = false
   let generation = 0
   let controller: AbortController | undefined
@@ -22,14 +24,19 @@ export function useAccountActivity() {
       ? (account.session.value.account?.username ?? '')
       : '',
   )
-  function clear() {
+  function cancelPending() {
     generation++
     controller?.abort()
+    morePending.value = false
+  }
+  function clear() {
+    cancelPending()
     response.value = null
     loading.value = false
-    morePending.value = false
     error.value = ''
     moreError.value = ''
+    revalidationError.value = ''
+    newActivityAvailable.value = false
   }
   const lifetime = useAccountLifetime(() => {
     unregister?.()
@@ -80,6 +87,8 @@ export function useAccountActivity() {
     response.value = { ...value, items: appendActivityItems([], value.items) }
     error.value = ''
     moreError.value = ''
+    revalidationError.value = ''
+    newActivityAvailable.value = false
     loading.value = false
   }
   async function refresh() {
@@ -101,16 +110,37 @@ export function useAccountActivity() {
     }
   }
   async function revalidate() {
-    clear()
+    // Focus checks cancel old work, but keep the current walk and its DOM intact.
+    cancelPending()
     const token = capture()
     if (!token.expectedOwner) return () => {}
-    loading.value = true
+    loading.value = !response.value
+    error.value = ''
     controller = new AbortController()
     try {
       const value = await api.accountActivity(undefined, controller.signal)
       if (token.valid()) check(value, token.expectedOwner)
       return () => {
-        if (token.valid()) apply(value)
+        if (!token.valid()) return
+        const previous = response.value
+        if (!previous || previous.follows_revision !== value.follows_revision) {
+          apply(value)
+          return
+        }
+        // IDs are monotonically allocated decimal strings. Older events filling
+        // gaps, changed metadata and a new cursor alone are not new activity.
+        const newestKnownId = previous.items.reduce(
+          (newest, item) =>
+            BigInt(item.event_id) > newest ? BigInt(item.event_id) : newest,
+          0n,
+        )
+        newActivityAvailable.value = value.items.some(
+          (item) => BigInt(item.event_id) > newestKnownId,
+        )
+        // A fresh first page has a different upper bound. Never splice it into
+        // the existing walk or replace its continuation cursor implicitly.
+        revalidationError.value = ''
+        loading.value = false
       }
     } catch (cause) {
       if (
@@ -121,7 +151,9 @@ export function useAccountActivity() {
         throw cause
       return () => {
         if (token.valid()) {
-          fail(cause)
+          if (response.value)
+            revalidationError.value = accountErrorMessage(cause)
+          else fail(cause)
           loading.value = false
         }
       }
@@ -247,6 +279,8 @@ export function useAccountActivity() {
     morePending,
     error,
     moreError,
+    revalidationError,
+    newActivityAvailable,
     groups: computed(() => groupActivityItems(response.value?.items ?? [])),
     refresh,
     loadMore,
