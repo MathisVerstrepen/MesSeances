@@ -655,6 +655,10 @@ test('ICE planning filter preserves selected inversion and canonical value', asy
     }),
   )
   await openPage(page, '/planning')
+  const settings = page.getByRole('button', {
+    name: 'Modifier les paramètres du planning',
+  })
+  await settings.click()
   const button = page.getByRole('button', { name: 'ICE', exact: true })
   const logo = button.locator('img')
   await expect(button).toHaveCount(1)
@@ -671,7 +675,6 @@ test('ICE planning filter preserves selected inversion and canonical value', asy
   await button.screenshot({ path: info.outputPath('ice-filter-default.png') })
   await button.click()
   await expect(button).toHaveAttribute('aria-pressed', 'true')
-  await expect(page).toHaveURL(/format=ICE/)
   await expect(logo).toHaveClass(/brightness-0 invert/)
   expect(await logo.evaluate((image) => getComputedStyle(image).filter)).toBe(
     'brightness(0) invert(1)',
@@ -686,10 +689,18 @@ test('ICE planning filter preserves selected inversion and canonical value', asy
   )
   await button.screenshot({ path: info.outputPath('ice-filter-selected.png') })
   await page
+    .getByRole('button', { name: 'Afficher le planning', exact: true })
+    .click()
+  await expect(page).toHaveURL(/format=ICE/)
+  await settings.click()
+  await page
     .getByRole('button', { name: 'Tous les formats', exact: true })
     .click()
   await expect(button).toHaveAttribute('aria-pressed', 'false')
   await expect(logo).not.toHaveClass(/invert/)
+  await page
+    .getByRole('button', { name: 'Afficher le planning', exact: true })
+    .click()
   await expect(page).not.toHaveURL(/format=ICE/)
 })
 

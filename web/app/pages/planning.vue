@@ -3,9 +3,9 @@ import { isBroadTheaterSelection } from '~/utils/cinemaSelection'
 import {
   AlertTriangle,
   CalendarDays,
+  Clock3,
   LoaderCircle,
   RefreshCw,
-  Settings2,
 } from '@lucide/vue'
 import type { Language, QueryFormat, TimelineResponse } from '~/types/api'
 import { formatLongDate, todayInParis } from '~/utils/date'
@@ -16,12 +16,7 @@ import {
   queriesEqual,
   singularQueryValue,
 } from '~/utils/routeQuery'
-import {
-  queryFormatOptions,
-  queryFormatValues,
-  queryLanguageOptions,
-  queryLanguageValues,
-} from '~/utils/showtimeFilters'
+import { queryFormatValues, queryLanguageValues } from '~/utils/showtimeFilters'
 import { absoluteSiteUrl } from '~/utils/siteUrl'
 import { projectTimeline } from '~/utils/watchedDiscovery'
 
@@ -45,6 +40,10 @@ const mode = ref<TimelineMode>('theater')
 const formatFilter = ref<QueryFormat>('ALL')
 const zoom = ref<TimelineZoom>(30)
 const timeline = ref<TimelineResponse | null>(null)
+const timelineMatrix = ref<{
+  scrollToNow: () => void
+  canScrollToNow: boolean
+} | null>(null)
 const displayedTimeline = computed(() =>
   !timeline.value || discovery.blocked.value
     ? null
@@ -251,21 +250,14 @@ async function applyRoute() {
 
 function updateTimelineQuery(
   values: Partial<
-    Record<'date' | 'language' | 'format' | 'mode' | 'zoom', string>
+    Record<
+      'date' | 'language' | 'format' | 'mode' | 'zoom' | 'shared_theaters',
+      string
+    >
   >,
 ) {
   const query = mergeOwnedQuery(route.query, Object.keys(values), values)
   if (!queriesEqual(route.query, query)) router.replace({ query })
-}
-
-function updateLanguage(event: Event) {
-  if (!(event.currentTarget instanceof HTMLSelectElement)) return
-  updateTimelineQuery({
-    language:
-      event.currentTarget.value === 'ALL'
-        ? undefined
-        : event.currentTarget.value,
-  })
 }
 
 function createFallbackDates() {
@@ -431,7 +423,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       aria-label="Filtres du planning"
     >
       <div
-        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b-2 border-ink p-2 min-[384px]:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-3 sm:p-3"
+        class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 p-2 min-[384px]:grid-cols-[minmax(0,1fr)_auto_auto] sm:gap-3 sm:p-3"
       >
         <ShowtimeDateBar
           class="col-span-2 min-w-0 min-[384px]:col-span-1 [&_.calendar-trigger]:size-11 [&_.date-button]:h-11"
@@ -440,120 +432,21 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
           :today="today"
           @select="selectPlanningDate"
         />
-        <NuxtLink
-          to="/cinemas"
-          class="ml-auto inline-flex h-11 shrink-0 items-center justify-center gap-2 border-2 border-ink bg-ink px-[0.7rem] font-mono text-[0.65rem] font-black tracking-[0.08em] text-surface uppercase hover:bg-primary focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent sm:ml-0"
-        >
-          <Settings2 :size="17" aria-hidden="true" />
-          <span class="hidden sm:inline">Cinémas</span>
-          <strong
-            class="grid h-6 min-w-6 place-items-center bg-highlight text-ink"
-            >{{
-              preferences.activeTheaterIds.value.length
-            }}</strong
-          >
-        </NuxtLink>
+        <PlanningSettings
+          :mode="mode"
+          :format="formatFilter"
+          :language="language"
+          :zoom="zoom"
+          :theater-ids="preferences.activeTheaterIds.value"
+          :favorite-theater-ids="preferences.favoriteTheaterIds.value"
+          :theaters="preferences.theaters.value"
+          :ready="preferences.isInitialized.value"
+          :loading="preferences.isLoading.value"
+          :error="preferences.error.value"
+          @apply="updateTimelineQuery"
+          @retry="retryTimeline"
+        />
         <ShareButton class="shrink-0" />
-      </div>
-
-      <div
-        class="grid grid-cols-1 gap-2 p-2 min-[384px]:grid-cols-2 sm:gap-3 sm:p-3 xl:grid-cols-[auto_minmax(0,1fr)_auto_auto] xl:items-end"
-      >
-        <fieldset>
-          <legend
-            class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-          >
-            Affichage
-          </legend>
-          <div
-            class="flex w-max max-w-full border-2 border-ink bg-surface p-[0.2rem]"
-          >
-            <button
-              v-for="option in [{ value: 'theater', label: 'Par cinéma' }, { value: 'movie', label: 'Par film' }]"
-              :key="option.value"
-              type="button"
-              class="min-h-9 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
-              :class="mode === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'"
-              :aria-pressed="mode === option.value"
-              @click="updateTimelineQuery({ mode: option.value === 'theater' ? undefined : option.value })"
-            >
-              {{ option.label }}
-            </button>
-          </div>
-        </fieldset>
-
-        <fieldset class="min-w-0">
-          <legend
-            class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-          >
-            Format
-          </legend>
-          <div
-            class="flex w-max max-w-full overflow-x-auto border-2 border-ink bg-surface p-[0.2rem] [scrollbar-width:thin]"
-          >
-            <button
-              v-for="option in queryFormatOptions"
-              :key="option.value"
-              type="button"
-              class="min-h-9 shrink-0 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
-              :class="formatFilter === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'"
-              :aria-label="option.label"
-              :aria-pressed="formatFilter === option.value"
-              @click="updateTimelineQuery({ format: option.value === 'ALL' ? undefined : option.value })"
-            >
-              <BrandLogo
-                v-if="option.brand"
-                :brand="option.brand"
-                decorative
-                :class="formatFilter === option.value ? 'brightness-0 invert' : ''"
-              />
-              <span v-else>{{ option.label }}</span>
-            </button>
-          </div>
-        </fieldset>
-
-        <label class="block">
-          <span
-            class="mb-1.5 block font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-            >Langue</span
-          >
-          <select
-            :value="language"
-            class="h-11 min-w-32 rounded-none border-2 border-ink bg-surface pr-8 pl-[0.7rem] text-[0.8rem] font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
-            @change="updateLanguage"
-          >
-            <option
-              v-for="option in queryLanguageOptions"
-              :key="option.value"
-              :value="option.value"
-            >
-              {{ option.label }}
-            </option>
-          </select>
-        </label>
-
-        <fieldset>
-          <legend
-            class="mb-1.5 font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
-          >
-            Zoom
-          </legend>
-          <div
-            class="flex w-max max-w-full border-2 border-ink bg-surface p-[0.2rem]"
-          >
-            <button
-              v-for="option in [{ value: 15, label: '15 min' }, { value: 30, label: '30 min' }, { value: 60, label: '1 h' }]"
-              :key="option.value"
-              type="button"
-              class="min-h-9 px-[0.7rem] text-xs font-extrabold text-ink focus-visible:z-[1] focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-accent"
-              :class="zoom === option.value ? 'bg-ink text-surface shadow-[inset_0_-3px_0_var(--color-highlight)]' : 'hover:bg-[#e8e6de]'"
-              :aria-pressed="zoom === option.value"
-              @click="updateTimelineQuery({ zoom: option.value === 30 ? undefined : String(option.value) })"
-            >
-              {{ option.label }}
-            </button>
-          </div>
-        </fieldset>
       </div>
     </section>
 
@@ -566,7 +459,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
       <div
         class="mb-2 flex items-end justify-between gap-4 border-b-2 border-ink px-1 pb-2"
       >
-        <div>
+        <div class="min-w-0">
           <p
             class="font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
           >
@@ -579,12 +472,16 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
             {{ formatLongDate(date) }}
           </h2>
         </div>
-        <p
-          v-if="timeline && !pending"
-          class="text-right font-mono text-[0.62rem] font-black uppercase tracking-[0.14em]"
+        <button
+          v-if="timelineMatrix?.canScrollToNow"
+          type="button"
+          class="inline-flex min-h-9 shrink-0 items-center justify-center gap-1.5 border-2 border-ink bg-surface px-2.5 font-mono text-[10px] font-black uppercase tracking-[0.06em] hover:bg-highlight focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          aria-label="Revenir à l’heure actuelle"
+          @click="timelineMatrix?.scrollToNow()"
         >
-          {{ showtimeCount }} séance{{ showtimeCount > 1 ? 's' : '' }}
-        </p>
+          <Clock3 :size="14" aria-hidden="true" />
+          Maintenant
+        </button>
       </div>
 
       <WatchedReadiness v-if="discovery.blocked.value" />
@@ -647,6 +544,7 @@ useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
       <TimelineMatrix
         v-else
+        ref="timelineMatrix"
         :timeline="displayedTimeline!"
         :mode="mode"
         :format-filter="formatFilter"
