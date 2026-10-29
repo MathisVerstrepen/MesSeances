@@ -53,6 +53,7 @@ let initialScrollFrame: number | undefined
 
 const pixelsPerMinute = computed(() => 60 / props.zoom)
 const INITIAL_SCROLL_GUTTER = 12
+const NOW_LEAD_MINUTES = 30
 const windowMinutes = computed(() =>
   Math.max(
     1,
@@ -333,23 +334,66 @@ function captureClick(event: MouseEvent) {
   event.stopPropagation()
 }
 
-function alignInitialScroll() {
+function scrollToOffset(offset: number, gutter: number) {
   if (!scroller.value) return
-  const earliestOffset = rows.value.reduce((earliest, row) => {
-    const rowOffset = row.showtimes[0]?.showtime.start_offset_minutes
-    return rowOffset === undefined ? earliest : Math.min(earliest, rowOffset)
-  }, Number.POSITIVE_INFINITY)
-  if (!Number.isFinite(earliestOffset)) return
-
   const maximumScroll = Math.max(
     0,
     scroller.value.scrollWidth - scroller.value.clientWidth,
   )
   scroller.value.scrollLeft = Math.min(
-    Math.max(earliestOffset * pixelsPerMinute.value - INITIAL_SCROLL_GUTTER, 0),
+    Math.max(offset * pixelsPerMinute.value - gutter, 0),
     maximumScroll,
   )
 }
+
+function scrollToNow() {
+  // Read the clock again when returning from a suspended tab.
+  now.value = new Date()
+  if (currentTimeOffset.value === null) return
+  scrollToOffset(
+    currentTimeOffset.value,
+    Math.max(NOW_LEAD_MINUTES * pixelsPerMinute.value, 48),
+  )
+}
+
+defineExpose({
+  scrollToNow,
+  canScrollToNow: computed(
+    () => rows.value.length > 0 && currentTimeOffset.value !== null,
+  ),
+})
+
+function alignInitialScroll() {
+  if (!scroller.value) return
+  if (currentTimeOffset.value !== null) {
+    scrollToNow()
+    return
+  }
+  const earliestOffset = rows.value.reduce((earliest, row) => {
+    const rowOffset = row.showtimes[0]?.showtime.start_offset_minutes
+    return rowOffset === undefined ? earliest : Math.min(earliest, rowOffset)
+  }, Number.POSITIVE_INFINITY)
+  if (Number.isFinite(earliestOffset))
+    scrollToOffset(earliestOffset, INITIAL_SCROLL_GUTTER)
+}
+
+function scheduleInitialScroll() {
+  if (!isClockMounted) return
+  if (initialScrollFrame !== undefined)
+    window.cancelAnimationFrame(initialScrollFrame)
+  initialScrollFrame = window.requestAnimationFrame(alignInitialScroll)
+}
+
+// A new date or a grid returning from an empty filter needs an initial position.
+// Appending cinemas and ticking the clock must leave the user's position alone.
+watch([scroller, () => props.timeline.date], scheduleInitialScroll, {
+  flush: 'post',
+})
+watch(pixelsPerMinute, (_value, previous) => {
+  if (!scroller.value) return
+  const offset = scroller.value.scrollLeft / previous
+  void nextTick(() => scrollToOffset(offset, 0))
+})
 
 watch(() => props.timeline, scheduleClock)
 
@@ -361,7 +405,7 @@ onMounted(() => {
   window.addEventListener('pointerdown', handleOutsidePointer)
   window.addEventListener('pointerup', pointerEnd)
   window.addEventListener('pointercancel', pointerEnd)
-  initialScrollFrame = window.requestAnimationFrame(alignInitialScroll)
+  scheduleInitialScroll()
 })
 
 onBeforeUnmount(() => {
@@ -395,9 +439,12 @@ onBeforeUnmount(() => {
     </EditorialStatePanel>
 
     <div
-      v-else
+      v-if="rows.length"
       ref="scroller"
-      class="timeline-scroller relative z-0 isolate min-h-[max(24rem,calc(100vh-20rem))] cursor-grab select-none overflow-x-auto border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] active:cursor-grabbing [--timeline-label-width:132px] [scrollbar-color:#27272a_#e8e6de] max-sm:min-h-96 max-md:snap-x max-md:snap-mandatory sm:[--timeline-label-width:184px]"
+      class="timeline-scroller relative z-0 isolate min-h-[max(24rem,calc(100vh-20rem))] cursor-grab select-none overflow-auto border-2 border-ink bg-surface shadow-[6px_6px_0_#27272a] active:cursor-grabbing [--timeline-label-width:0px] [--timeline-row-heading-height:64px] [container-type:inline-size] [scrollbar-color:#27272a_#e8e6de] max-sm:max-h-[calc(100dvh-10rem)] max-sm:min-h-64 sm:[--timeline-label-width:184px] sm:[--timeline-row-heading-height:0px]"
+      tabindex="0"
+      role="region"
+      aria-label="Horaires des séances"
       @pointerdown="pointerDown"
       @pointermove="pointerMove"
       @pointerup="pointerEnd"
@@ -409,9 +456,11 @@ onBeforeUnmount(() => {
         class="relative"
         :style="{ width: `calc(var(--timeline-label-width) + ${railWidth}px)` }"
       >
-        <div class="relative h-11 border-b-2 border-ink bg-[#f1efe8]">
+        <div
+          class="timeline-ruler sticky top-0 z-40 h-11 border-b-2 border-ink bg-[#f1efe8]"
+        >
           <div
-            class="left-0 z-30 flex h-full items-center border-r-2 border-ink bg-[#f1efe8] px-3 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:sticky sm:px-4"
+            class="sticky left-0 z-30 hidden h-full items-center border-r-2 border-ink bg-[#f1efe8] px-4 font-mono text-[10px] font-black uppercase tracking-[0.12em] text-ink sm:flex"
             style="width: var(--timeline-label-width)"
           >
             {{ mode === 'theater' ? 'Cinémas' : 'Films' }}
@@ -424,30 +473,36 @@ onBeforeUnmount(() => {
           >
             {{ hour.label }}
           </span>
+          <span
+            v-if="currentTimeOffset !== null"
+            class="absolute top-1 -translate-x-1/2 border border-ink bg-primary px-1.5 py-0.5 font-mono text-[9px] font-black uppercase text-white"
+            :style="{ left: `calc(var(--timeline-label-width) + ${currentTimeOffset * pixelsPerMinute}px)` }"
+            >Maintenant</span
+          >
         </div>
 
         <div
           v-for="row in rows"
           :key="row.id"
-          class="relative border-b-2 border-ink last:border-b-0"
+          class="timeline-row relative border-b-2 border-ink last:border-b-0"
           :style="{
-            height: `${row.height}px`,
+            height: `calc(${row.height}px + var(--timeline-row-heading-height))`,
             backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${15 * pixelsPerMinute - 1}px, color-mix(in srgb, var(--color-line) 45%, transparent) ${15 * pixelsPerMinute}px), repeating-linear-gradient(to right, transparent 0, transparent ${60 * pixelsPerMinute - 1}px, color-mix(in srgb, var(--color-line-hover) 65%, transparent) ${60 * pixelsPerMinute}px)`,
             backgroundPosition: 'var(--timeline-label-width) 0, var(--timeline-label-width) 0'
           }"
         >
           <div
-            class="left-0 z-20 flex h-full flex-col justify-center border-r-2 border-ink bg-[#f1efe8] px-3 sm:sticky sm:px-4"
-            style="width: var(--timeline-label-width)"
+            class="timeline-row-heading sticky left-0 top-11 z-20 flex h-16 w-[100cqw] flex-col justify-center border-b-2 border-ink bg-[#f1efe8] px-3 sm:top-auto sm:h-full sm:w-[var(--timeline-label-width)] sm:border-r-2 sm:border-b-0 sm:px-4"
           >
-            <strong
+            <h3
               class="line-clamp-2 text-sm font-black leading-snug tracking-[-0.02em] text-ink"
-              ><TheaterName
+            >
+              <TheaterName
                 v-if="row.provider"
                 :name="row.label"
                 :provider="row.provider"
-              /><BrandedText v-else :text="row.label" /></strong
-            >
+              /><BrandedText v-else :text="row.label" />
+            </h3>
             <span
               class="mt-1 flex items-center gap-1 font-mono text-[10px] font-bold uppercase tracking-[0.06em] text-ink"
             >
@@ -467,7 +522,7 @@ onBeforeUnmount(() => {
               selected?.showtime.id === item.showtime.id ? 'border-ink shadow-[4px_4px_0_var(--color-highlight),inset_0_-3px_0_var(--color-highlight)]' : '',
               isShowtimeUnavailable(item.showtime.start_time) ? 'opacity-[0.72] [filter:grayscale(0.8)_saturate(0.25)]' : ''
             ]"
-            :style="[{ top: `${16 + item.lane * 80}px`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
+            :style="[{ top: `calc(var(--timeline-row-heading-height) + ${16 + item.lane * 80}px)`, left: `calc(var(--timeline-label-width) + ${item.showtime.start_offset_minutes * pixelsPerMinute}px)`, width: `${item.width}px` }, planningImageStyle(item.showtime.backdrop_url, item.showtime.poster_url)]"
             :aria-label="`${item.showtime.movie.title}, ${item.theater.name}, ${formatParisTime(item.showtime.start_time)}${item.showtime.language ? `, ${languageLabel(item.showtime.language, item.showtime.movie.original_language)}` : ''}, ${formatLabel(item.showtime.format)}${isShowtimeUnavailable(item.showtime.start_time) ? ', réservation indisponible' : ''}`"
             :aria-expanded="selected?.showtime.id === item.showtime.id && selected?.theater.id === item.theater.id"
             aria-controls="timeline-showtime-inspector"
@@ -514,14 +569,9 @@ onBeforeUnmount(() => {
 
         <div
           v-if="currentTimeOffset !== null"
-          class="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-primary"
+          class="pointer-events-none absolute bottom-0 top-11 z-10 w-0.5 bg-primary"
           :style="{ left: `calc(var(--timeline-label-width) + ${currentTimeOffset * pixelsPerMinute}px)` }"
-        >
-          <span
-            class="absolute top-1 -translate-x-1/2 border border-ink bg-primary px-1.5 py-0.5 font-mono text-[9px] font-black uppercase text-white"
-            >Maintenant</span
-          >
-        </div>
+        ></div>
       </div>
     </div>
 

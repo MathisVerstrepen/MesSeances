@@ -20,8 +20,12 @@ import {
   showtimeLanguageOptions,
 } from '../app/utils/showtimeFilters.ts'
 
-const [planning, search, film] = await Promise.all([
+const [planning, planningSettings, search, film] = await Promise.all([
   readFile(new URL('../app/pages/planning.vue', import.meta.url), 'utf8'),
+  readFile(
+    new URL('../app/components/PlanningSettings.vue', import.meta.url),
+    'utf8',
+  ),
   readFile(new URL('../app/pages/recherche.vue', import.meta.url), 'utf8'),
   readFile(new URL('../app/pages/film/[slug].vue', import.meta.url), 'utf8'),
 ])
@@ -125,8 +129,9 @@ test('uses shared labels in compact summaries', () => {
 })
 
 test('planning, recherche, and film consume shared presentation contracts', () => {
-  assert.match(planning, /queryLanguageOptions/)
-  assert.match(planning, /queryFormatOptions/)
+  assert.match(planning, /PlanningSettings/)
+  assert.match(planningSettings, /queryLanguageOptions/)
+  assert.match(planningSettings, /queryFormatOptions/)
   assert.match(search, /languageLabel\(search\.language\)/)
   assert.match(search, /formatLabel\(search\.format\)/)
   assert.match(film, /availableFilmLanguageOptions\(languages\.value\)/)

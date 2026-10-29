@@ -662,7 +662,13 @@ test('planning refills hidden-only theater batch, preserves query/window and bot
   })
   await focus(page)
   await expect(buttons).toHaveCount(12)
+  await page
+    .getByRole('button', { name: 'Modifier les paramètres du planning' })
+    .click()
   await page.getByRole('button', { name: 'Par film', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Afficher le planning', exact: true })
+    .click()
   await expect(page).toHaveURL(/mode=movie/)
   await expect(buttons).toHaveCount(12)
 })
