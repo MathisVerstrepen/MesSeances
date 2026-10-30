@@ -163,7 +163,7 @@ func Sync(ctx context.Context, getter Getter, options SyncOptions) (result sched
 					dataset.Window.Through = actual
 				}
 				version := string(language)
-				if clean(s.Version) == "VOF" {
+				if clean(s.Version) == "VOF" || clean(s.Version) == "VOST" {
 					version = clean(s.Version)
 				}
 				dataset.Showtimes = append(dataset.Showtimes, schedule.ShowtimeRecord{Provider: schedule.ProviderMegarama, ID: "megarama-showing-" + s.ID, ProviderShowingID: s.ID, TheaterID: theaterID, ServiceDate: date, Movie: m, StartTime: start, EndTime: end, FirstPartDurationMinutes: int(s.FirstPartDuration), Language: language, ProviderVersion: version, Format: format, Room: clean(s.HallName), BookingURL: booking})

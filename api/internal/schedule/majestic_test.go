@@ -19,8 +19,13 @@ func TestMajesticBookingIdentityPolicy(t *testing.T) {
 			t.Error("unsafe source accepted", raw)
 		}
 	}
-	if MajesticBookingMatchesMovie(base, "EMS0700", "emsx070000000001", "ZZZZZ") || MajesticBookingMatchesMovie(local, "EMS0700", "emsx070000000001", "ABCDE") || MajesticBookingMatchesMovie(MajesticWebsite("EMS0700"), "EMS0700", "emsx070000000001", "EMS0654-emsx0654HC12") {
+	if MajesticBookingMatchesMovie(base, "EMS0700", "emsx070000000001", "ZZZZZ") || MajesticBookingMatchesMovie(MajesticWebsite("EMS0700"), "EMS0700", "emsx070000000001", "EMS0654-emsx0654HC12") {
 		t.Fatal("cross-film/site accepted")
+	}
+	for _, raw := range []string{local, local + "&ps=ticketingcine"} {
+		if !MajesticBookingMatchesMovie(raw, "EMS0700", "emsx070000000001", "ABCDE") {
+			t.Fatal("global film site/session route rejected")
+		}
 	}
 	for _, id := range []string{"EMS0700-emsx0700HC12", "ABCDE"} {
 		if !ValidMajesticIdentity("movie", id) {

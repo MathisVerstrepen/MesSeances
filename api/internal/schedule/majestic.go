@@ -79,6 +79,11 @@ func MajesticBookingMatchesMovie(raw, theater, showing, movie string) bool {
 		return true
 	}
 	u, _ := url.Parse(raw)
+	// The source can use its site/session route for global films as well as local
+	// events. ValidMajesticBookingURL already binds that route to this showing.
+	if u.Path == "" && u.RawQuery == theater {
+		return true
+	}
 	if megaramaGlobalIdentity.MatchString(movie) {
 		return u.Path == "/"+theater+"/FR"+movie && u.RawQuery == ""
 	}

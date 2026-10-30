@@ -58,7 +58,7 @@ func movieID(site, id string) string {
 }
 func attributes(s session) (schedule.Language, schedule.Format, string, error) {
 	version := s.Version
-	if version != "VF" && version != "VO" {
+	if version != "VF" && version != "VO" && version != "VOST" {
 		return "", "", "", fmt.Errorf("%w: version", errShape)
 	}
 	features := map[string]bool{}
@@ -68,8 +68,11 @@ func attributes(s session) (schedule.Language, schedule.Format, string, error) {
 	for _, f := range strings.Split(s.Formats, ",") {
 		features[strings.TrimSpace(f)] = true
 	}
+	// TicketingCine also publishes VOST directly, without a separate subtitle flag.
 	language := schedule.Language(version)
-	if features["subtitle"] || features["ST"] {
+	if version == "VOST" {
+		language = schedule.LanguageVOSTFR
+	} else if features["subtitle"] || features["ST"] {
 		if version == "VF" {
 			language = schedule.LanguageVFSTF
 			version = "VFSTF"
