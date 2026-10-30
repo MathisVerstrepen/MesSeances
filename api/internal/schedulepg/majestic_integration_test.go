@@ -127,3 +127,34 @@ func TestMajesticEmptyCensusReloadIntegration(t *testing.T) {
 		t.Fatal("explicit empty census did not reload", err)
 	}
 }
+
+func TestMajesticGlobalSiteSessionBookingRoundTripIntegration(t *testing.T) {
+	pool := newHistoryPool(t)
+	store := NewStore(pool)
+	d := majesticTestDataset()
+	const booking = "https://www.ticketingcine.com?EMS0700#showsession?id=emsx070000000001&ps=ticketingcine"
+	d.Showtimes[0].BookingURL = booking
+	d.Showtimes[0].Language = schedule.LanguageVOSTFR
+	d.Showtimes[0].ProviderVersion = "VOST"
+	if _, err := store.Replace(t.Context(), []Dataset{d}); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, _, err := store.Load(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range reloaded.Showtimes {
+		if r.Movie.ProviderID != "ABCDE" {
+			continue
+		}
+		found = true
+		if r.BookingURL != booking || r.Language != schedule.LanguageVOSTFR || r.ProviderVersion != "VOST" {
+			t.Fatal("global booking or VOST source lost")
+		}
+	}
+	if !found {
+		t.Fatal("global showing missing")
+	}
+	historyCount(t, pool, `SELECT count(*) FROM screening_history_showtimes WHERE provider='majestic' AND movie_provider_id='ABCDE' AND booking_url='`+booking+`' AND provider_version='VOST'`, 1)
+}
