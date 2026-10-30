@@ -127,7 +127,7 @@ func parseCastelia(b []byte, from string, loc *time.Location) (schedule.TheaterR
 	return t, rows, nil
 }
 func ticketAttributes(s ticketSession) (schedule.Language, string, schedule.Format, error) {
-	if s.Version != "VF" && s.Version != "VO" {
+	if s.Version != "VF" && s.Version != "VO" && s.Version != "VOST" {
 		return "", "", "", errShape
 	}
 	flags := append([]string(nil), s.Features...)
@@ -135,9 +135,12 @@ func ticketAttributes(s ticketSession) (schedule.Language, string, schedule.Form
 		flags = append(flags, strings.TrimSpace(f))
 	}
 	caption := contains(flags, "ST") || contains(flags, "OCAP") || contains(flags, "subtitle")
+	// TicketingCine also publishes VOST directly, without a separate subtitle flag.
 	language := schedule.Language(s.Version)
 	version := s.Version
-	if caption {
+	if s.Version == "VOST" {
+		language = schedule.LanguageVOSTFR
+	} else if caption {
 		if s.Version == "VF" {
 			language = schedule.LanguageVFSTF
 			version = "VFSTF"

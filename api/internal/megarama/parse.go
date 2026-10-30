@@ -108,7 +108,7 @@ func parseProgram(body []byte, c cinema) (program, error) {
 
 func attributes(s session) (schedule.Language, schedule.Format, error) {
 	version := clean(s.Version)
-	if version != "VF" && version != "VO" && version != "VOF" {
+	if version != "VF" && version != "VO" && version != "VOF" && version != "VOST" {
 		return "", "", fmt.Errorf("%w: session version", errShape)
 	}
 	features := make(map[string]bool, len(s.Features)+3)
@@ -124,11 +124,12 @@ func attributes(s session) (schedule.Language, schedule.Format, error) {
 		}
 		features[token] = true
 	}
+	// TicketingCine also publishes VOST directly, without a separate subtitle flag.
 	language := schedule.Language(version)
 	if version == "VOF" {
 		language = schedule.LanguageVO
 	}
-	if features["ST"] || features["subtitle"] {
+	if version == "VOST" || features["ST"] || features["subtitle"] {
 		if version == "VF" {
 			language = schedule.LanguageVFSTF
 		} else {

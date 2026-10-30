@@ -221,3 +221,36 @@ func TestMajesticSevenExplicitEmptyProgramsPublish(t *testing.T) {
 		t.Fatal("incomplete empty census accepted")
 	}
 }
+
+func TestMajesticGlobalFilmWithSiteSessionBooking(t *testing.T) {
+	for _, suffix := range []string{"", "&ps=ticketingcine"} {
+		g := fixtures(t)
+		p, err := parseProgram(g.bodies[sites[0]], sites[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		booking := "https://www.ticketingcine.com?EMS0700#showsession?id=emsx070000000001" + suffix
+		p.Events[0].Sessions[0].BookingURL = booking
+		setProgram(t, g, sites[0], p)
+		d, _, err := runFixture(t, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(d.Showtimes) != len(sites) {
+			t.Fatal("incomplete snapshot")
+		}
+		found := false
+		for _, row := range d.Showtimes {
+			if row.TheaterID != "majestic-EMS0700" {
+				continue
+			}
+			found = true
+			if row.BookingURL != booking || row.Movie.ProviderID != "ABCDE" {
+				t.Fatal("site/session booking lost")
+			}
+		}
+		if !found {
+			t.Fatal("site/session showing missing")
+		}
+	}
+}

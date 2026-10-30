@@ -72,7 +72,7 @@ func loadTicketProgram(ctx context.Context, f Fetcher, site string, location *ti
 				return cinemaProgram{}, err
 			}
 			version := string(language)
-			if s.Version == "VOF" {
+			if s.Version == "VOF" || s.Version == "VOST" {
 				version = s.Version
 			}
 			row, err := showing(id, s.ID, m, start, end, language, version, format, s.Room, s.Booking, int(s.FirstPart))
@@ -85,7 +85,7 @@ func loadTicketProgram(ctx context.Context, f Fetcher, site string, location *ti
 	return result, nil
 }
 func ticketAttributes(s ticketSession) (schedule.Language, schedule.Format, error) {
-	if s.Version != "VF" && s.Version != "VO" && s.Version != "VOF" {
+	if s.Version != "VF" && s.Version != "VO" && s.Version != "VOF" && s.Version != "VOST" {
 		return "", "", errShape
 	}
 	flags := map[string]bool{}
@@ -101,11 +101,12 @@ func ticketAttributes(s ticketSession) (schedule.Language, schedule.Format, erro
 		}
 		flags[f] = true
 	}
+	// TicketingCine also publishes VOST directly, without a separate subtitle flag.
 	language := schedule.Language(s.Version)
 	if s.Version == "VOF" {
 		language = schedule.LanguageVO
 	}
-	if flags["ST"] || flags["subtitle"] {
+	if s.Version == "VOST" || flags["ST"] || flags["subtitle"] {
 		if language == schedule.LanguageVF {
 			language = schedule.LanguageVFSTF
 		} else {
