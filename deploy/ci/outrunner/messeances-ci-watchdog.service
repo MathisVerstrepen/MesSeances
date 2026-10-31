@@ -4,13 +4,14 @@ After=libvirtd.service
 
 [Service]
 Type=oneshot
-User=outrunner
-Group=outrunner
-SupplementaryGroups=libvirt
+# Root is needed to remove libvirt's private UEFI stores and recover the service.
+# The script accepts no input and checks exact domain identity before disposal.
+User=root
+Group=root
 ExecCondition=/bin/systemctl --quiet is-active messeances-outrunner.service
 ExecStart=/usr/local/libexec/messeances-outrunner/watchdog.py
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/hogwarts/config/gha-outrunner/state/leases
+ReadWritePaths=/home/hogwarts/config/gha-outrunner/state/leases /var/lib/libvirt/qemu/nvram
 UMask=0077

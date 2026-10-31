@@ -75,17 +75,21 @@ class WatchdogTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.module = load('watchdog')
         self.module.LEASES = Path(self.tmp.name)
+        self.module.NVRAM = Path(self.tmp.name) / 'nvram'
+        self.module.NVRAM.mkdir()
 
     def test_first_observation_does_not_stop_new_vm(self):
-        with patch.object(self.module, 'virsh', side_effect=[NAME, 'uuid-1']) as run:
+        with patch.object(self.module, 'virsh', side_effect=[NAME, 'uuid-1', NAME]) as run:
             self.module.main()
         self.assertFalse(any(call.args[0] == 'destroy' for call in run.call_args_list))
 
     def test_expired_vm_is_destroyed_by_verified_uuid(self):
         (self.module.LEASES / NAME).write_text(json.dumps({'uuid': 'uuid-1', 'created_at': 0}))
-        with patch.object(self.module, 'virsh', side_effect=[NAME, 'uuid-1', 'uuid-1', '']) as run:
-            self.module.main()
-        run.assert_called_with('destroy', 'uuid-1')
+        with patch.object(self.module, 'virsh', side_effect=[NAME, 'uuid-1', 'uuid-1', '', '']) as run:
+            with patch.object(self.module, 'restart_controller') as restart:
+                self.module.main()
+        self.assertTrue(any(call.args == ('destroy', 'uuid-1') for call in run.call_args_list))
+        restart.assert_called_once()
 
     def test_identity_change_prevents_disposal(self):
         (self.module.LEASES / NAME).write_text(json.dumps({'uuid': 'uuid-1', 'created_at': 0}))
@@ -93,6 +97,16 @@ class WatchdogTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.module.main()
         self.assertFalse(any(call.args[0] == 'destroy' for call in run.call_args_list))
+
+    def test_cleans_only_inactive_owned_uefi_stores(self):
+        owned = self.module.NVRAM / (NAME + '_VARS.fd')
+        owned.touch()
+        unrelated = self.module.NVRAM / 'production_VARS.fd'
+        unrelated.touch()
+        with patch.object(self.module, 'virsh', return_value=''):
+            self.module.main()
+        self.assertFalse(owned.exists())
+        self.assertTrue(unrelated.exists())
 
 
 if __name__ == '__main__':

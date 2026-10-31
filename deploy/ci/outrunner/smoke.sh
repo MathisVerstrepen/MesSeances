@@ -3,7 +3,7 @@
 set -euo pipefail
 grep -Eq 'KVM|QEMU|Standard PC' /sys/class/dmi/id/product_name
 test "$(id -un)" = runner
-test "$(nproc)" = 4
+test "$(nproc)" = 8
 test ! -e /home/hogwarts
 test ! -e /run/credentials/messeances-outrunner.service/github-token
 test ! -e /var/run/libvirt/libvirt-sock

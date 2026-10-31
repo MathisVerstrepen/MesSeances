@@ -17,6 +17,8 @@ def main():
     if not (BASE / 'images/runner.qcow2').is_file():
         raise RuntimeError('Validated runner image is missing')
     token = token_file.read_text().strip()
+    if not token or any(character.isspace() for character in token):
+        raise RuntimeError('Invalid token format')
     request = urllib.request.Request(
         'https://api.github.com/repos/MathisVerstrepen/MesSeances/actions/permissions/fork-pr-contributor-approval',
         headers={'Authorization': 'Bearer ' + token, 'Accept': 'application/vnd.github+json'},

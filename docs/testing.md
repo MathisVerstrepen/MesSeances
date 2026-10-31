@@ -157,7 +157,7 @@ copy, binaries, image, state and private credential live beneath
 `/home/hogwarts/config/gha-outrunner`. Host packages, systemd units and root-owned
 helper scripts use their conventional system locations. Fireactions is inactive.
 
-Each job gets a fresh Ubuntu 24.04 VM with 4 vCPUs, 8 GiB RAM and a 40 GiB virtual
+Each job gets a fresh Ubuntu 24.04 VM with 8 vCPUs, 12 GiB RAM and a 40 GiB virtual
 disk. The controller permits one VM at a time. Docker runs inside the guest;
 the production Docker socket, host paths and long-lived GitHub token are never
 mounted into the guest. Public Go/npm/browser dependencies are warmed into the
@@ -208,6 +208,12 @@ bash deployment/admin.sh activate
 bash deployment/admin.sh disable
 ```
 
+For a fresh installation, first copy `deploy/ci/outrunner/` into that directory's
+`deployment/` subdirectory, then run `admin.sh download` and `admin.sh prepare`.
+The download command fetches pinned upstream outrunner assets and the current
+Ubuntu image; it overwrites those local download files, so do not run it during
+an image build. Provision the scoped token file, build the image, then activate.
+
 `activate` verifies the private credential, image presence and GitHub's external
 contributor approval policy before starting the controller and watchdog. Images
 must be built with `bash deployment/admin.sh build-image` while the controller is
@@ -222,8 +228,11 @@ every two weeks, including the Go minimum and Node/npm/browser versions used by
 this repository. Image manifests record the source checksum and tool versions.
 
 GitHub jobs time out after 20 minutes. A host watchdog checks every minute and
-force-stops only a verified CI domain 45 minutes after first observation; operators
-must then restart the controller to clear a lost job assignment. Normal job
+force-stops only a verified CI domain 45 minutes after first observation and
+restarts the controller to clear a lost job assignment. It also removes only
+inactive CI domains' leftover UEFI variable stores. The watchdog runs as root for
+those two operations, with writable paths limited to its leases and libvirt's
+UEFI directory. Normal job
 completion destroys the VM. Startup/shutdown cleanup verifies the exact reserved
 name pattern, confirms domain absence before deleting its overlay, rejects
 symlinks and fails visibly on disposal errors. After an abrupt host/controller

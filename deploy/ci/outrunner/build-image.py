@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import stat
 import time
 import xml.etree.ElementTree as ET
 
@@ -86,6 +87,7 @@ def configure_network():
 
 
 def main():
+    run('systemctl', 'is-active', '--quiet', 'messeances-ci-firewall.service')
     resume = sys.argv[1:] == ['--resume']
     if sys.argv[1:] and not resume:
         raise RuntimeError('Only --resume is supported')
@@ -177,6 +179,11 @@ sync
                     'go': '1.26.0', 'node': '22.23.1', 'npm': '10.9.8',
                     'created_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}
         (BASE / 'images/manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        nvram = Path('/var/lib/libvirt/qemu/nvram/mfci-image-build_VARS.fd')
+        if nvram.exists():
+            if not stat.S_ISREG(nvram.lstat().st_mode):
+                raise RuntimeError('Unexpected image-build UEFI store file type')
+            nvram.unlink()
         print('Validated runner image sealed successfully.', flush=True)
     finally:
         if DOMAIN in virsh('list', '--all', '--name').splitlines():

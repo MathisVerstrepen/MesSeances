@@ -53,3 +53,5 @@ jobs:
         run: PYTHONDONTWRITEBYTECODE=1 python3 scripts/validate.py install-tools --tool gotestsum
       - name: PostgreSQL integration tests
         run: make test-integration
+      - name: Verify private validation evidence
+        run: python3 -B deploy/ci/outrunner/verify-evidence.py
