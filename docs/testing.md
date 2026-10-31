@@ -179,6 +179,9 @@ repository-scoped fine-grained token through `LoadCredential`; guests receive
 only their single-use JIT configuration. The private token file must be a regular
 file with mode 0600 at `secrets/github-token`. Never paste it into commands, GitHub
 logs, tracked files or chat. Token rotation requires restarting the controller.
+The libvirt management API is a local Unix socket restricted to root and the
+`libvirt` group; it does not require interactive Polkit authentication. Membership
+in that group is administrative host access and is granted only to the controller.
 
 All external contributors require GitHub workflow approval. Audit the exact
 revision before approving: PR-editable workflow conditions and runner labels

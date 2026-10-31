@@ -30,6 +30,10 @@ apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils \
   nftables acl python3
 rm /usr/sbin/policy-rc.d
 trap - EXIT
+if systemctl is-active --quiet dbus.service; then
+  # Load newly installed D-Bus policies without restarting existing connections.
+  systemctl reload dbus.service
+fi
 # Remove only the distribution's new default-network autostart link, before
 # libvirtd starts. No VM or network was present at the initial preflight.
 if test -L /etc/libvirt/qemu/networks/autostart/default.xml; then
@@ -41,6 +45,13 @@ if ! id outrunner >/dev/null 2>&1; then
   useradd --system --user-group --home-dir "$base/state" --shell /usr/sbin/nologin outrunner
 fi
 usermod -aG libvirt outrunner
+# Use filesystem permissions on the local management socket. This avoids an
+# interactive Polkit dependency for the headless controller; no TCP API opens.
+install -d -m 0755 /etc/systemd/system/libvirtd.socket.d
+printf '[Socket]\nSocketGroup=libvirt\nSocketMode=0660\n' > /etc/systemd/system/libvirtd.socket.d/messeances-ci.conf
+if ! grep -q '^# MesSeances CI local socket authentication' /etc/libvirt/libvirtd.conf; then
+  printf '\n# MesSeances CI local socket authentication\nauth_unix_rw = "none"\nunix_sock_group = "libvirt"\nunix_sock_rw_perms = "0660"\n' >> /etc/libvirt/libvirtd.conf
+fi
 install -d -m 0755 /usr/local/libexec/messeances-outrunner
 install -m 0755 "$source_dir/firewall.sh" "$source_dir/cleanup.py" "$source_dir/watchdog.py" /usr/local/libexec/messeances-outrunner/
 for unit in messeances-ci-firewall.service messeances-outrunner.service messeances-ci-watchdog.service messeances-ci-watchdog.timer; do
