@@ -591,7 +591,8 @@ func TestSyncLanguageAttributes(t *testing.T) {
 		{[]string{"2D", "STFR"}, schedule.LanguageVOSTFR, "VO+STFR"},
 		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR"},
 		{[]string{"2D", "Muet"}, "", "Muet"},
-		{[]string{"2D", "Muet", "STFR"}, "", ""},
+		{[]string{"2D", "Muet", "STFR"}, schedule.LanguageVOSTFR, "Muet+STFR"},
+		{[]string{"STFR", "Muet", "2D", "STFR", "Muet"}, schedule.LanguageVOSTFR, "Muet+STFR"},
 		{[]string{"2D", "Muet", "VF", "VO"}, "", ""},
 		{[]string{"2D", "STFR", "VF", "VO"}, "", ""},
 	} {
@@ -635,6 +636,8 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 		{[]string{"VO", "IMAX", "3D"}, "VO", "VO", "IMAX"},
 		{[]string{"Muet", "4DX", "2D"}, "", "Muet", "4DX"},
 		{[]string{"2D", "Muet"}, "", "Muet", "2D"},
+		{[]string{"STFR", "Muet", "2D"}, "VOSTFR", "Muet+STFR", "2D"},
+		{[]string{"Muet", "3D", "STFR"}, "VOSTFR", "Muet+STFR", "3D"},
 		{[]string{"2D", "Muet", "VF"}, "VF", "VF", "2D"},
 		{[]string{"2D", "Muet", "STFR", "VF"}, "VFSTF", "VF+STFR", "2D"},
 		{[]string{"2D", "Muet", "VO"}, "VO", "VO", "2D"},
@@ -656,7 +659,7 @@ func TestAttributesAndOptionalMovieFields(t *testing.T) {
 		{}, {"VF"}, {"2D"}, {"vf", "2D"}, {"vo", "2D"}, {"vof", "2D"}, {"muet", "2D"},
 		{"VF", "VO", "2D"}, {"VF", "VOF", "2D"}, {"VO", "VOF", "2D"},
 		{"Muet", "VF", "VO", "2D"}, {"Muet", "VF", "VOF", "2D"}, {"Muet", "VO", "VOF", "2D"},
-		{"Muet", "STFR", "2D"}, {"VF", "IMAX", "4DX"}, {"VF", "2D", "3D"}, {"VF", "UNKNOWN"},
+		{"Muet", "STFR"}, {"Muet", "STFR", "2D", "3D"}, {"Muet", "STFR", "IMAX", "4DX"}, {"VF", "IMAX", "4DX"}, {"VF", "2D", "3D"}, {"VF", "UNKNOWN"},
 		{"Muet", "VF"}, {"Muet", "VF", "IMAX", "4DX"}, {"Muet", "VF", "2D", "3D"},
 	} {
 		attrs := []attribute{}

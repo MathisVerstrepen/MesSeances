@@ -181,8 +181,8 @@ func parseAttributes(attributes []attribute) (schedule.Language, string, schedul
 		}
 	}
 	// A spoken version takes precedence over the provider's Muet token.
-	silent := spokenVersions == 0 && tokens["Muet"]
-	if spokenVersions > 1 || spokenVersions == 0 && !silent && !tokens["STFR"] || silent && tokens["STFR"] {
+	silent := spokenVersions == 0 && tokens["Muet"] && !tokens["STFR"]
+	if spokenVersions > 1 || spokenVersions == 0 && !silent && !tokens["STFR"] {
 		return "", "", "", payloadError(OperationComplex)
 	}
 	switch {
@@ -205,6 +205,11 @@ func parseAttributes(attributes []attribute) (schedule.Language, string, schedul
 		}
 	case tokens["STFR"]:
 		language, version = schedule.LanguageVOSTFR, "VO+STFR"
+		// Silent films can have French intertitles/subtitles. Keep that source
+		// distinction while exposing the same subtitle filter as STFR alone.
+		if tokens["Muet"] {
+			version = "Muet+STFR"
+		}
 	}
 	var format schedule.Format
 	if tokens["2D"] {
