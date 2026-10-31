@@ -72,11 +72,15 @@ jobs:
 
   integration:
     name: Go CI / integration
-    runs-on: ubuntu-latest
+    # The variable provides an immediate rollback without editing a workflow.
+    # Forks retain GitHub-hosted runners; the VPS also enforces VM isolation.
+    runs-on: ${{ vars.CI_SELF_HOSTED_ENABLED == 'true' && github.event.pull_request.head.repo.full_name == github.repository && 'messeances-vps' || 'ubuntu-latest' }}
     timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@v6
         with:

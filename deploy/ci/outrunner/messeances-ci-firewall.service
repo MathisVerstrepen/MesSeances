@@ -1,0 +1,12 @@
+[Unit]
+Description=Network isolation for disposable MesSeances CI VMs
+After=network-online.target
+Before=messeances-outrunner.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/messeances-outrunner/firewall.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

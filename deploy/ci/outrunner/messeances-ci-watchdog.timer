@@ -1,0 +1,10 @@
+[Unit]
+Description=Check lifetime of MesSeances CI VMs every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=messeances-ci-watchdog.service
+
+[Install]
+WantedBy=timers.target

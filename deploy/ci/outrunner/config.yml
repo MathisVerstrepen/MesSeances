@@ -1,0 +1,13 @@
+# Installed at /home/hogwarts/config/gha-outrunner/config/config.yml.
+# The long-lived token is provided through systemd credentials, never to guests.
+url: https://github.com/MathisVerstrepen/MesSeances
+runners:
+  messeances-vps:
+    labels: [messeances-vps]
+    max_runners: 1
+    libvirt:
+      path: /home/hogwarts/config/gha-outrunner/images/runner.qcow2
+      runner_cmd: /usr/local/bin/start-github-runner
+      socket: /run/libvirt/libvirt-sock
+      cpus: 4
+      memory: 8192

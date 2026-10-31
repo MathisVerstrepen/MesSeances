@@ -1,0 +1,35 @@
+# Loaded as an atomic transaction by firewall.sh; affects only our bridge.
+table inet messeances_ci {
+  set blocked_v4 {
+    type ipv4_addr
+    flags interval
+    elements = { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8,
+                 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16,
+                 224.0.0.0/4, 240.0.0.0/4 }
+  }
+  chain input {
+    type filter hook input priority -200; policy accept;
+    iifname "virbr-mfci" meta nfproto ipv4 udp sport 68 udp dport 67 accept
+    iifname "virbr-mfci" counter drop
+  }
+  chain forward {
+    type filter hook forward priority -200; policy accept;
+    iifname "virbr-mfci" meta nfproto ipv6 counter drop
+    iifname "virbr-mfci" ip saddr != 10.231.64.0/24 counter drop
+    iifname "virbr-mfci" fib daddr type local counter drop
+    iifname "virbr-mfci" ip daddr @blocked_v4 counter drop
+    iifname "virbr-mfci" oifname != "enp41s0" counter drop
+    iifname "virbr-mfci" tcp dport { 80, 443 } counter accept
+    iifname "virbr-mfci" ip daddr { 1.1.1.1, 9.9.9.9 } udp dport 53 counter accept
+    iifname "virbr-mfci" ip daddr { 1.1.1.1, 9.9.9.9 } tcp dport 53 counter accept
+    iifname "virbr-mfci" counter drop
+    oifname "virbr-mfci" ct state established,related counter accept
+    oifname "virbr-mfci" counter drop
+  }
+}
+table bridge messeances_ci {
+  chain forward {
+    type filter hook forward priority -200; policy accept;
+    meta ibrname "virbr-mfci" counter drop
+  }
+}

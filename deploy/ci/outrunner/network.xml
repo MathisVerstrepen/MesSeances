@@ -1,0 +1,18 @@
+<network xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
+  <!-- Upstream v1.2.0 hardcodes the libvirt network name "default". -->
+  <name>default</name>
+  <forward mode='nat' dev='enp41s0'/>
+  <bridge name='virbr-mfci' stp='on' delay='0'/>
+  <domain name='mfci.invalid' localOnly='yes'/>
+  <dns enable='no'/>
+  <bandwidth>
+    <inbound average='25600' peak='51200' burst='10240'/>
+    <outbound average='5120' peak='10240' burst='5120'/>
+  </bandwidth>
+  <ip address='10.231.64.1' netmask='255.255.255.0'>
+    <dhcp><range start='10.231.64.10' end='10.231.64.20'/></dhcp>
+  </ip>
+  <dnsmasq:options>
+    <dnsmasq:option value='dhcp-option=6,1.1.1.1,9.9.9.9'/>
+  </dnsmasq:options>
+</network>

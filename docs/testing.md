@@ -148,3 +148,93 @@ Go counts come from complete JSONL, not console summaries or JUnit totals. Uniqu
 Before consuming an existing report, inspect its final status, actual exits, selected check IDs/argv/cwd, prerequisite dispositions, expected pins/runtime versions, count categories, and every required artifact's existence/completeness/size/SHA-256. Compare relevant environment facts and both source/index fingerprints against current worktree. A different selection or environment is not equivalent evidence.
 
 Snapshot covers union of HEAD-tracked, index-tracked, and non-ignored untracked paths using NUL-safe Git enumeration. It hashes length-delimited relative path, file type/executable mode, streamed content digest, deletion markers, and symlink text without following external targets; index-stage metadata is hashed separately. Tracked ignored files remain included. Ignored untracked binaries, node_modules, generated Nuxt files, dotenv, reports, and agent state are excluded. Git failures/unreadable content block, never degrade to HEAD-only evidence. Start/end mismatch blocks apparent pass unless an executed check already failed. Matching boundaries do not prove immutability during the run or authorize automatic reuse. Choose missing coverage manually; do not rerun a complete gate merely because ownership changed.
+
+## Self hosted CI on the VPS
+
+The optional `messeances-vps` scale set uses gha-outrunner v1.2.0 and QEMU/libvirt
+on `Hogwarts-3`. Deployment sources are in `deploy/ci/outrunner/`; the deployed
+copy, binaries, image, state and private credential live beneath
+`/home/hogwarts/config/gha-outrunner`. Host packages, systemd units and root-owned
+helper scripts use their conventional system locations. Fireactions is inactive.
+
+Each job gets a fresh Ubuntu 24.04 VM with 4 vCPUs, 8 GiB RAM and a 40 GiB virtual
+disk. The controller permits one VM at a time. Docker runs inside the guest;
+the production Docker socket, host paths and long-lived GitHub token are never
+mounted into the guest. Public Go/npm/browser dependencies are warmed into the
+base image; job writes go to disposable overlays and cannot update that cache.
+The compilation warmup selects no tests and is not validation evidence.
+
+The dedicated `virbr-mfci` network uses `10.231.64.0/24`. nftables rules block
+access to the host, private networks, metadata endpoints, IPv6 and other guests.
+Guest egress permits public HTTP/HTTPS and DNS to the configured public resolvers.
+The firewall changes only its own two tables and this bridge. No public management
+endpoint or DNS name is needed. Upstream hardcodes the libvirt network name
+`default`, so installation refuses an existing unrelated network with that name.
+The stock libvirt default subnet overlaps existing Docker networks and must not
+be started. Installation suppresses package service starts until our network is
+configured.
+
+The controller runs as the dedicated `outrunner` user. systemd provides the
+repository-scoped fine-grained token through `LoadCredential`; guests receive
+only their single-use JIT configuration. The private token file must be a regular
+file with mode 0600 at `secrets/github-token`. Never paste it into commands, GitHub
+logs, tracked files or chat. Token rotation requires restarting the controller.
+
+All external contributors require GitHub workflow approval. Audit the exact
+revision before approving: PR-editable workflow conditions and runner labels
+are routing, not security boundaries. Fork PRs normally use GitHub-hosted runners;
+VM isolation and the host firewall remain required even after approval.
+
+`Go CI / integration` uses the VPS for same-repository PRs only when repository
+variable `CI_SELF_HOSTED_ENABLED` is `true`; otherwise it uses `ubuntu-latest`.
+Other normal CI jobs remain on GitHub-hosted runners to preserve their parallelism.
+`VPS CI validation` runs guest isolation checks and canonical PostgreSQL integration
+when deployment files change, and can be dispatched manually after its workflow
+has reached the default branch. Deployment safeguards are tested on a hosted job.
+No raw test reports or logs are uploaded as artifacts.
+
+From the VPS, the existing Docker administrator account can operate the service
+without altering sudo policy or Docker daemon configuration:
+
+```sh
+cd /home/hogwarts/config/gha-outrunner
+bash deployment/admin.sh status
+bash deployment/admin.sh stop
+bash deployment/admin.sh activate
+# Persistent shutdown, including across a host reboot:
+bash deployment/admin.sh disable
+```
+
+`activate` verifies the private credential, image presence and GitHub's external
+contributor approval policy before starting the controller and watchdog. Images
+must be built with `bash deployment/admin.sh build-image` while the controller is
+stopped. The builder refuses to overwrite an existing image or unfinished build;
+archive an old image only after confirming that no CI VM uses it. It verifies the
+Ubuntu, Go, Node and official runner downloads, boots a credential-free build VM,
+checks the tool versions and network isolation, resets guest identity and seals
+the cleanly shut-down image. No host directory is shared with that VM. Keep the
+pinned official runner current: upstream disables runner auto-update, and GitHub
+can stop accepting an outdated runner. Review the image and package pins at least
+every two weeks, including the Go minimum and Node/npm/browser versions used by
+this repository. Image manifests record the source checksum and tool versions.
+
+GitHub jobs time out after 20 minutes. A host watchdog checks every minute and
+force-stops only a verified CI domain 45 minutes after first observation; operators
+must then restart the controller to clear a lost job assignment. Normal job
+completion destroys the VM. Startup/shutdown cleanup verifies the exact reserved
+name pattern, confirms domain absence before deleting its overlay, rejects
+symlinks and fails visibly on disposal errors. After an abrupt host/controller
+failure, inspect only `messeances-vps-<eight hex digits>` domains and matching
+files in `state/overlays`; never prune Docker or remove unrelated VM storage.
+
+For immediate CI rollback, set `CI_SELF_HOSTED_ENABLED=false` before submitting
+or rerunning jobs. Existing queued jobs retain their original runner selection;
+cancel and rerun them after the variable change. Disabling the controller alone
+leaves self-hosted jobs queued. Repository-local verification for deployment work:
+
+```sh
+for script in deploy/ci/outrunner/*.sh; do bash -n "$script"; done
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s deploy/ci/outrunner/tests -v
+actionlint .github/workflows/go.yml .github/workflows/ci-vps.yml
+git diff --check
+```

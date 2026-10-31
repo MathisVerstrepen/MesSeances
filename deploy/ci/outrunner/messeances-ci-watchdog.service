@@ -1,0 +1,16 @@
+[Unit]
+Description=Enforce maximum lifetime of MesSeances CI VMs
+After=libvirtd.service
+
+[Service]
+Type=oneshot
+User=outrunner
+Group=outrunner
+SupplementaryGroups=libvirt
+ExecCondition=/bin/systemctl --quiet is-active messeances-outrunner.service
+ExecStart=/usr/local/libexec/messeances-outrunner/watchdog.py
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hogwarts/config/gha-outrunner/state/leases
+UMask=0077

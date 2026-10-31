@@ -1,0 +1,41 @@
+[Unit]
+Description=Disposable KVM runners for MesSeances GitHub Actions
+After=network-online.target libvirtd.service messeances-ci-firewall.service
+Wants=network-online.target
+Requires=libvirtd.service messeances-ci-firewall.service
+ConditionPathExists=/home/hogwarts/config/gha-outrunner/secrets/github-token
+ConditionPathExists=/home/hogwarts/config/gha-outrunner/images/runner.qcow2
+
+[Service]
+Type=simple
+User=outrunner
+Group=outrunner
+SupplementaryGroups=libvirt
+LoadCredential=github-token:/home/hogwarts/config/gha-outrunner/secrets/github-token
+Environment=TMPDIR=/home/hogwarts/config/gha-outrunner/state/overlays
+ExecStartPre=/usr/local/libexec/messeances-outrunner/cleanup.py
+ExecStart=/home/hogwarts/config/gha-outrunner/bin/outrunner --config /home/hogwarts/config/gha-outrunner/config/config.yml
+ExecStopPost=/usr/local/libexec/messeances-outrunner/cleanup.py
+KillSignal=SIGINT
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/hogwarts/config/gha-outrunner/state
+PrivateTmp=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CPUQuota=100%
+MemoryMax=512M
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
