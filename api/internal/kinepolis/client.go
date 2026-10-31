@@ -21,9 +21,11 @@ const (
 	// The full advertised schedule exceeded 32 MiB in October 2026.
 	// Bound decoded HTML with room for catalog growth, without truncating it.
 	MaxBodySize = 64 << 20
-	userAgent   = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-	accept      = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-	acceptLang  = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+	// Kinepolis rejects the former Chrome/120 User-Agent with a robot-block 403.
+	// Chrome/142 is verified by the opt-in full acquisition contract.
+	userAgent  = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+	accept     = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+	acceptLang = "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
 )
 
 var (
