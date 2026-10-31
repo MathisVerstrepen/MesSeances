@@ -52,6 +52,10 @@ services:
       DATABASE_URL: postgresql://${UMAMI_POSTGRES_USER:-umami}:${UMAMI_POSTGRES_PASSWORD:?UMAMI_POSTGRES_PASSWORD is required}@umami-postgres:5432/${UMAMI_POSTGRES_DB:-umami}
       APP_SECRET: ${UMAMI_APP_SECRET:?UMAMI_APP_SECRET is required}
       TWO_FACTOR_ENCRYPTION_KEY: ${UMAMI_TWO_FACTOR_ENCRYPTION_KEY:?UMAMI_TWO_FACTOR_ENCRYPTION_KEY is required}
+      # Exclude observed browser-rendering crawlers using an ordinary Chrome identity.
+      IGNORE_IP: ${UMAMI_IGNORE_IP:-195.225.131.0/24}
+      # The public reverse proxy must overwrite X-Real-IP with the client address.
+      CLIENT_IP_HEADER: x-real-ip
     ports:
       - "127.0.0.1:${UMAMI_PUBLISHED_PORT:-3001}:3000"
     healthcheck:
