@@ -97,7 +97,11 @@ function handleTriggerKeydown(event: KeyboardEvent) {
     :locale="fr"
     :time-config="{ enableTimePicker: false }"
     :transitions="false"
-    :floating="{ arrow: false, offset: 6 }"
+    :floating="{
+      arrow: false,
+      offset: 6,
+      shift: { crossAxis: true, padding: 8 },
+    }"
     :ui="{ menu: menuClass }"
     :centered="centered"
     teleport="body"
